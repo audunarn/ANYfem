@@ -1,0 +1,60 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev,gui]
+
+      # The GUI tests need a display; without one they skip rather than fail.
+      - name: Run the test suite
+        run: xvfb-run -a python -m pytest tests -q
+
+      - name: Run verification
+        run: xvfb-run -a python -m anyfem.verification --out reports/verification
+
+      - name: Report ANYstructure parity
+        run: python -m anyfem.parity --out reports/parity
+
+      - name: Publish evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ matrix.python-version }}
+          path: reports/
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Check the metadata
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*
