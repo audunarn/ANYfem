@@ -44,6 +44,7 @@ anyfem = "anyfem.ui.app:main"
 [project.scripts]
 anyfem-verify = "anyfem.verification:main"
 anyfem-parity = "anyfem.parity:main"
+anyfem-gate = "anyfem.migration:main"
 
 [project.urls]
 Homepage = "https://github.com/audunarn/ANYfem"

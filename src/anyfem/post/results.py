@@ -23,7 +23,9 @@ from ..solve.build import BuiltModel
 
 __all__ = [
     "BucklingSolution",
+    "CapacitySolution",
     "ImpactSolution",
+    "ImportedSolution",
     "LinearSolution",
     "ModalSolution",
     "MultiShapeSolution",
@@ -120,6 +122,58 @@ class ShapeView:
 
         base = self.built.mesh.node_positions()
         return base + scale * self.translations()
+
+
+@dataclass
+class ImportedSolution(ShapeView):
+    """A result another solver produced, displayed through the same interface.
+
+    Two things make it different from a solved one, and both are enforced
+    rather than smoothed over.
+
+    It knows **which components it has**.  A CalculiX FRD carries three
+    translations and no rotations, and a rotation reported as zero is a
+    plausible number and a wrong one, so asking for an absent component raises.
+    The underlying array holds NaN there, so code that indexes it directly
+    still cannot mistake the gap for an answer.
+
+    Its **stresses came from the file**, not from a recovery here.  They are
+    kept as ready-made fields; nothing recomputes them, and a node-valued
+    stress stays node-valued so it is never confused with something this layer
+    derived.
+    """
+
+    results: Any = None
+    components: frozenset = field(default_factory=frozenset)
+    fields: Dict[str, Any] = field(default_factory=dict)
+    covered: int = 0
+    label: str = "imported"
+
+    def component(self, name: str) -> np.ndarray:
+        if name in _DOF_INDEX and name not in self.components:
+            available = ", ".join(sorted(self.components)) or "none"
+            raise KeyError(
+                f"{self.label} carries no {name!r}: this file format does not "
+                f"store it. Available components are {available}. It is not "
+                "zero -- it is absent."
+            )
+        return super().component(name)
+
+    def available_fields(self) -> List[str]:
+        """Displacement components plus whatever stresses the file named."""
+
+        order = [name for name in _DOF_INDEX if name in self.components]
+        return ["magnitude"] + order + list(self.fields)
+
+    def summary(self) -> str:
+        pieces = [self.label, f"{self.covered} nodes matched"]
+        if self.results is not None:
+            pieces.append(self.results.summary())
+        node_id, magnitude = self.max_translation()
+        pieces.append(
+            f"max translation {magnitude:.6g} m at node {node_id}"
+        )
+        return "; ".join(pieces)
 
 
 @dataclass
@@ -338,6 +392,59 @@ class NonlinearSolution(ShapeView):
             f"{len(self.steps)} steps, "
             f"max translation {magnitude:.6g} m at node {node_id}{eroded}"
         )
+
+
+@dataclass
+class CapacitySolution(NonlinearSolution):
+    """A whole capacity assessment: static, buckling, imperfection, collapse.
+
+    A ``NonlinearSolution`` at heart -- the shape it carries is the imperfect
+    nonlinear end state, so everything that displays a nonlinear result displays
+    this unchanged -- with the earlier stages kept alongside rather than thrown
+    away.  The elastic critical factor and the actual capacity are the two
+    numbers the workflow exists to compare, and seeing them apart is the point:
+    the ratio is how much the imperfection and the plasticity cost.
+    """
+
+    label: str = "capacity"
+    critical_factor: Optional[float] = None
+    buckling: Optional["BucklingSolution"] = None
+    mesh_adequacy: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def capacity_factor(self) -> float:
+        """The load factor the structure actually reached."""
+
+        return float(self.value)
+
+    @property
+    def capacity_ratio(self) -> Optional[float]:
+        """Capacity over elastic critical load, when both are known.
+
+        Either side of one is a real result, and which one says what kind of
+        structure this is.  Below one is imperfection sensitivity: a shell or a
+        column that yields, or that its imperfection knocks down, never reaches
+        the elastic critical load.  Above one is post-buckling reserve: a plate
+        in compression keeps taking load after it buckles, by shedding it into
+        membrane action near the supported edges.  Neither is a warning sign on
+        its own -- reading it as one would be the easy mistake.
+        """
+
+        if not self.critical_factor:
+            return None
+        return self.capacity_factor / float(self.critical_factor)
+
+    def summary(self) -> str:
+        pieces = [f"capacity {self.capacity_factor:.4g} x the reference load"]
+        if self.critical_factor:
+            pieces.append(f"elastic critical {self.critical_factor:.4g}")
+            ratio = self.capacity_ratio
+            if ratio is not None:
+                pieces.append(f"capacity/critical {ratio:.3f}")
+        status = (self.mesh_adequacy or {}).get("status")
+        if status and status != "ok":
+            pieces.append(f"mesh adequacy: {status}")
+        return "; ".join(pieces)
 
 
 @dataclass

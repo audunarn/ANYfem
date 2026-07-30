@@ -11,7 +11,11 @@ ANYfem  ->  ANYsolver     analysis
         ->  ANYtk3D       viewport (only anyfem.ui needs it)
 ```
 
-The dependency direction is one-way and **ANYfem never imports ANYstructure**.
+The dependency direction is one-way and **ANYfem never imports ANYstructure** —
+including `migration.py`, which reads the old GUI's saved state as plain JSON.
+That is the rule paying for itself: ANYfem consumes ANYstructure's output
+without depending on ANYstructure, and there is a test asserting no
+`anystruct` module is ever loaded.
 ANYsolver owns the physics and its own qualification; ANYfem owns geometry,
 meshing, attribution, the application and postprocessing. Where the solver
 already answers a question — steel properties, section properties, stress
@@ -23,15 +27,16 @@ so the two cannot diverge.
 | Module | Responsibility |
 | --- | --- |
 | `geometry/` | Persistent-ID vertices, edges and faces; curve evaluation; Coons surfaces; primitives, sweeps and decomposition. |
-| `mesh/` | Edge-seeding constraint solver, transfinite mapped meshing, beams on lines, and the geometry-to-mesh association. |
-| `model/` | Materials, sections, supports, loads, cases, combinations, imperfections — all keyed to geometry entity IDs. |
-| `solve/` | FEModel construction and analysis dispatch. |
-| `post/` | Fields, probes, paths, envelopes, results and reports. |
-| `io/` | Project files, SESAM import, CalculiX deck export. |
+| `mesh/` | Edge-seeding constraint solver, local refinement size field, transfinite mapped meshing at linear or quadratic order, beams on lines, and the geometry-to-mesh association. |
+| `model/` | Materials, sections, supports (including symmetry planes), loads, cases, combinations, imperfections — all keyed to geometry entity IDs. |
+| `solve/` | FEModel construction, analysis dispatch, and recovery/resource policy. |
+| `post/` | Fields, probes, paths, envelopes, history series, results and reports. |
+| `io/` | Project files, SESAM model and result import, CalculiX deck export and result import. |
 | `commands.py` | The command stack: one path for every model change, and therefore undo. |
 | `selection.py` | Selection state and the tag encoding shared by every view. |
-| `ui/` | Viewport, model tree, stage panels, worker thread. |
-| `verification.py`, `parity.py` | Evidence and the migration gate. |
+| `ui/` | Viewport, model tree, stage panels, XY plot, worker thread. |
+| `verification.py`, `parity.py` | Closed-form evidence and the capability ledger. |
+| `migration.py` | Reads ANYstructure's saved FE state as data; measures the migration gate. |
 
 Everything below `ui/` works without Tk.
 
@@ -58,13 +63,22 @@ Everything below `ui/` works without Tk.
    populates exactly one of the two. An element that cannot carry a component
    is omitted, not reported as zero.
 8. **An imported model has no geometry, and says so.** It gets the mesh
-   association, not an invented BRep.
+   association, not an invented BRep. An imported *result* is held to the same
+   rule one level down: it reports only the components its file carried, and a
+   component the format does not store raises rather than reading as zero.
 9. **The GUI is a thin layer.** Panels build the same command objects a script
    does; nothing the application can do is unavailable headlessly.
 10. **Refusals are explicit.** Where the solver states a limit — SESAM export,
     unsupported beam profiles, mixing follower and dead pressure in one
-    combination — ANYfem declines and explains rather than producing something
-    plausible.
+    combination, a tilted symmetry plane, a quadratic beam on a curve — ANYfem
+    declines and explains rather than producing something plausible.
+11. **ANYfem never narrows what the solver reports.** No list held here decides
+    which stress components exist or which material symmetries are allowed.
+    ANYfem authors isotropic steel, but a model may arrive carrying anything the
+    solver supports — orthotropic elasticity, Hill yield, components added after
+    this was written — and every path that touches materials or recovered
+    results must pass them through. A whitelist frozen in this layer does not
+    fail; it silently discards, which is worse.
 
 ## Data flow
 
@@ -81,7 +95,7 @@ points -> lines -> faces            (geometry, persistent IDs)
         FEModel + LoadCase          (anysolver)
               v
         analysis                    (static, modal, buckling, nonlinear,
-              |                      arc length, transient)
+              |                      arc length, transient, impact, capacity)
               v
         ShapeView(s)                (one or many displacement fields)
               v

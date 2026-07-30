@@ -10,7 +10,7 @@ front-end would later call into.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Mapping
+from typing import Dict, Iterable, List, Mapping, Sequence
 
 from ..geometry.entities import EntityRef
 from ..geometry.model import GeometryModel
@@ -116,6 +116,75 @@ class Project:
         self._require_entity(support.ref)
         self.supports.append(support)
         return support
+
+    def add_symmetry(
+        self,
+        ref: EntityRef,
+        normal: str | Sequence[float],
+        *,
+        antisymmetric: bool = False,
+        tolerance: float = 1.0e-6,
+    ) -> Support:
+        """Restrain a point, line or plate as a symmetry plane.
+
+        Checks that the entity actually *lies* in the plane before adding the
+        support.  A symmetry condition on an edge that runs across the plane
+        rather than along it restrains the wrong degrees of freedom everywhere
+        it touches, and the model still solves and still looks reasonable, so
+        the mistake would otherwise surface as a stiffness that is merely a bit
+        wrong.
+
+        ``antisymmetric`` swaps to the complementary set, for a load that is
+        antisymmetric about the plane.
+        """
+
+        from .attributes import _AXES, _symmetry_axis, antisymmetry, symmetry
+
+        self._require_entity(ref)
+        axis = _symmetry_axis(normal)
+        self._require_in_plane(ref, _AXES[axis], axis, tolerance)
+        build = antisymmetry if antisymmetric else symmetry
+        return self.add_support(build(ref, axis))
+
+    def _require_in_plane(
+        self, ref: EntityRef, index: int, axis: str, tolerance: float
+    ) -> None:
+        points = self._entity_points(ref)
+        spread = float(points[:, index].max() - points[:, index].min())
+        if spread > tolerance:
+            raise ProjectError(
+                f"{ref} does not lie in a plane normal to {axis}: its "
+                f"{axis} coordinate varies by {spread:.6g} m (from "
+                f"{points[:, index].min():.6g} to {points[:, index].max():.6g}). "
+                "A symmetry condition applies to the entities lying *in* the "
+                "plane, not to those crossing it."
+            )
+
+    def _entity_points(self, ref: EntityRef) -> "np.ndarray":
+        """Points along an entity, enough to tell whether it is planar.
+
+        For a plate the boundary is enough: a Coons patch is an affine
+        combination of points on its four sides, so a face whose whole boundary
+        lies in a plane lies in that plane too.
+        """
+
+        import numpy as np
+
+        geometry = self.geometry
+        if ref.kind == "vertex":
+            return np.asarray([geometry.vertex_position(ref.id)], dtype=float)
+        if ref.kind == "edge":
+            return np.asarray(
+                geometry.sample_edge(ref.id, np.linspace(0.0, 1.0, 9)),
+                dtype=float,
+            )
+        if ref.kind == "face":
+            samples = [
+                geometry.sample_edge(item.edge, np.linspace(0.0, 1.0, 5))
+                for item in geometry.faces[ref.id].loop
+            ]
+            return np.concatenate(samples, axis=0)
+        raise ProjectError(f"cannot take points of a {ref.kind}")
 
     def add_mass(self, mass: Mass) -> Mass:
         self._require_entity(mass.ref)

@@ -114,11 +114,18 @@ class CollisionTiming:
 
 
 def _reachable_nodes(mesh, collision: Collision):
-    """Nodes the sphere's swept cylinder passes over, and how far along.
+    """Nodes the sphere's swept cylinder passes over, and how far it travels.
 
-    Shared by the timing and the refinement so "does it hit, and where" has one
-    definition.  Two answers that could disagree about whether a sphere strikes
-    the structure would be worse than either one alone.
+    ``travel`` is how far the sphere's *centre* moves before its surface
+    touches each node: ``along - sqrt(r^2 - lateral^2)``.  Using the axial
+    distance alone would tie every node on a flat plate -- they are all the same
+    distance downrange -- and the tie would then be broken by node numbering.
+    The sphere's surface is curved, so the node nearest the axis is struck
+    first, and this expression says so.
+
+    Shared by the timing and the refinement, so "does it hit, and where" has
+    one definition.  Two answers that could disagree about whether a sphere
+    strikes the structure would be worse than either alone.
     """
 
     positions = mesh.node_positions()
@@ -140,21 +147,24 @@ def _reachable_nodes(mesh, collision: Collision):
             f"than {nearest:.4g} m to any node, and its radius is "
             f"{collision.radius:g} m. Check the start point and direction."
         )
-    return positions, along, reachable
+
+    reach = np.sqrt(
+        np.maximum(collision.radius**2 - np.minimum(lateral, collision.radius) ** 2, 0.0)
+    )
+    travel = along - reach
+    return positions, along, travel, reachable
 
 
 def impact_point(mesh, collision: Collision) -> np.ndarray:
     """Where the sphere first touches, from a mesh of the structure.
 
-    Of the nodes the sphere passes over, the nearest one along the travel
-    direction is where contact starts.  Reported as a position rather than a
-    node so the caller can refine around it without depending on a node number
-    that the re-mesh will change.
+    Reported as a position rather than a node, so the caller can refine around
+    it without depending on a node number that the re-mesh will change.
     """
 
-    positions, along, reachable = _reachable_nodes(mesh, collision)
+    positions, _along, travel, reachable = _reachable_nodes(mesh, collision)
     indices = np.flatnonzero(reachable)
-    return positions[indices[int(np.argmin(along[indices]))]].copy()
+    return positions[indices[int(np.argmin(travel[indices]))]].copy()
 
 
 def impact_refinement(
@@ -201,18 +211,29 @@ def auto_timing(
     skip_approach: bool = True,
     standoff_radii: float = 0.05,
     max_steps: int = 20_000,
+    wave_speed: Optional[float] = None,
+    min_element_size: Optional[float] = None,
 ) -> CollisionTiming:
     """Choose a time step and duration for an impact.
 
-    Two things set the step, and the smaller wins:
+    Three things set the step, and the smallest wins:
 
     * the **contact period** ``2 pi sqrt(m/k)``, resolved into
-      ``steps_per_contact`` increments.  This is the one that matters: a step
-      near the contact period does not merely lose accuracy, the contact
+      ``steps_per_contact`` increments.  This is the one that matters most: a
+      step near the contact period does not merely lose accuracy, the contact
       iteration fails to converge and the run reports a peak force that is
       nonsense;
     * the **travel per step**, so the sphere cannot pass through the structure
-      between two steps.
+      between two steps;
+    * the **wave transit time of the smallest element at the contact**,
+      ``h / c``, when the caller supplies both.  This one binds only on a
+      locally refined mesh, and it is why it exists: refining under the sphere
+      raises the local frequencies without changing the contact period, so a
+      step chosen from the contact period alone becomes too coarse for the mesh
+      and the contact iteration diverges.  Bounding by transit time lets a
+      refined mesh run at the penalty the solver recommended, instead of
+      needing a softer contact -- which would change the answer rather than
+      resolve it.
 
     The duration covers the approach plus ``post_contact_periods`` contact
     periods, which is the impact event and its immediate rebound.  Pass an
@@ -227,13 +248,12 @@ def auto_timing(
     otherwise runs to completion and reports a perfectly clean nothing.
     """
 
-    positions = mesh.node_positions()
     start = np.asarray(collision.start, dtype=float)
     direction = collision.unit_direction
-    _positions, along, reachable = _reachable_nodes(mesh, collision)
+    _positions, _along, travel, reachable = _reachable_nodes(mesh, collision)
 
-    distance = float(along[reachable].min())
-    gap = max(distance - collision.radius, 0.0)
+    # How far the centre moves before the surface touches anything.
+    gap = max(float(travel[reachable].min()), 0.0)
     notes: list = []
 
     moved_start = None
@@ -255,6 +275,17 @@ def auto_timing(
             float(collision.mass) / float(penalty_stiffness)
         )
         dt = min(dt, contact_period / float(steps_per_contact))
+
+    if wave_speed and min_element_size:
+        transit = float(min_element_size) / float(wave_speed)
+        if transit < dt:
+            notes.append(
+                f"time step cut to {transit:.4g} s so a stress wave takes at "
+                f"least one step to cross the smallest element at the contact "
+                f"({min_element_size:.4g} m); the contact period alone would "
+                f"have allowed {dt:.4g} s"
+            )
+            dt = transit
 
     window = (
         post_contact_periods * contact_period

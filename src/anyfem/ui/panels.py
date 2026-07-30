@@ -15,6 +15,8 @@ import numpy as np
 from .. import commands as cmd
 from ..geometry.entities import EntityRef
 from ..geometry.operations import check_mappable
+from ..mesh.mapped import ELEMENT_ORDERS
+from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
 from ..model.attributes import DOF_NAMES, Support
 from ..model.imperfections import Imperfection
@@ -23,8 +25,10 @@ from ..model.sections import PROFILES, BeamSection
 from ..model.project import ProjectError
 from ..post.extract import along_line, envelope, probe
 from ..post.fields import available_fields
+from ..post.history import history_series
 from ..post.report import field_to_csv, write_csv, write_report
 from ..selection import SELECTION_MODES, mode_label
+from .plot import HistoryPlot
 
 __all__ = [
     "GeometryPanel",
@@ -365,6 +369,17 @@ class MeshPanel(StagePanel):
     def build(self) -> None:
         controls = self.section("Mapped mesh")
         self._size = self.entry_row(controls, "element size [m]", "0.25")
+        row = ttk.Frame(controls)
+        row.pack(fill="x", pady=1)
+        ttk.Label(row, text="element order", width=16).pack(side="left")
+        self._order = tk.StringVar(value="linear")
+        ttk.Combobox(
+            row,
+            textvariable=self._order,
+            values=list(ELEMENT_ORDERS),
+            state="readonly",
+            width=12,
+        ).pack(side="left", fill="x", expand=True)
         self.button(controls, "Generate mesh", self._generate)
 
         seeding = self.section("Seeding")
@@ -373,6 +388,17 @@ class MeshPanel(StagePanel):
         self.button(seeding, "Clear pins", self._clear_pins)
         self._pin_label = ttk.Label(seeding, text="no pinned lines", foreground="#666666")
         self._pin_label.pack(anchor="w")
+
+        refine = self.section("Local refinement")
+        self._refine_size = self.entry_row(refine, "element size [m]", "0.05")
+        self._refine_radius = self.entry_row(refine, "radius [m]", "0.1")
+        self.button(refine, "Refine around selection", self._refine)
+        self.button(refine, "Clear refinements", self._clear_refinements)
+        self._refine_label = ttk.Label(
+            refine, text="no refinement zones", foreground="#666666",
+            justify="left", wraplength=220,
+        )
+        self._refine_label.pack(anchor="w")
 
         self._stats = ttk.Label(self, text="no mesh", justify="left")
         self._stats.pack(anchor="w")
@@ -385,15 +411,31 @@ class MeshPanel(StagePanel):
             else "pinned: "
             + ", ".join(f"{edge}→{count}" for edge, count in sorted(pins.items()))
         )
+        if self._order.get() != self.app.project.element_order:
+            self._order.set(self.app.project.element_order)
+
+        zones = self.app.project.refinements
+        self._refine_label.configure(
+            text="no refinement zones"
+            if not zones
+            else "\n".join(
+                f"{zone.size:g} m within {zone.radius:g} m of "
+                f"{zone.ref if zone.ref is not None else 'a point'}"
+                for zone in zones
+            )
+        )
+
         mesh = self.app.mesh
         if mesh is None:
             self._stats.configure(text="no mesh")
         else:
+            shells = "8-node" if mesh.is_quadratic else "4-node"
+            beams = "3-node" if mesh.is_quadratic else "2-node"
             self._stats.configure(
                 text=(
                     f"{mesh.num_nodes} nodes\n"
-                    f"{len(mesh.quads)} shell elements\n"
-                    f"{len(mesh.beams)} beam elements"
+                    f"{len(mesh.quads)} {shells} shell elements\n"
+                    f"{len(mesh.beams)} {beams} beam elements"
                 )
             )
 
@@ -401,7 +443,34 @@ class MeshPanel(StagePanel):
         size = self.number(self._size, "element size")
         if size <= 0:
             raise ValueError("element size must be positive")
+        if self._order.get() != self.app.project.element_order:
+            self.app.stack.run(cmd.SetElementOrder(order=self._order.get()))
         self.app.generate_mesh(size)
+
+    def _refine(self) -> None:
+        """Refine around whatever is selected, whatever kind it is."""
+
+        selection = list(self.app.selection)
+        if not selection:
+            raise ValueError(
+                "select a point, line or plate to refine around first"
+            )
+        size = self.number(self._refine_size, "element size")
+        radius = self.number(self._refine_radius, "radius")
+        for ref in selection:
+            self.app.stack.run(
+                cmd.AddRefinement(refinement=refine_around(ref, size, radius))
+            )
+        self.app.set_status(
+            f"refining to {size:g} m around {len(selection)} entity(ies); "
+            "generate the mesh to apply it"
+        )
+        self.app.refresh_panels()
+
+    def _clear_refinements(self) -> None:
+        self.app.project.refinements.clear()
+        self.app.set_status("cleared refinement zones")
+        self.app.refresh_panels()
 
     def _pin(self) -> None:
         edges = self.require_selection("edge")
@@ -964,6 +1033,11 @@ class ResultsPanel(StagePanel):
         self.button(query, "Export report", self._export_report)
         self.button(query, "Export field as CSV", self._export_field)
 
+        history = self.section("History")
+        self.plot = HistoryPlot(history, width=300, height=180)
+        self.plot.pack(fill="both", expand=True)
+        self.button(history, "Plot at selected point", self._plot_at_selection)
+
         self._summary = ttk.Label(self, text="no results", justify="left")
         self._summary.pack(anchor="w")
 
@@ -1057,13 +1131,43 @@ class ResultsPanel(StagePanel):
         written = write_csv(field_to_csv(shape, self.field_name()), path)
         self.app.set_status(f"field written to {written}")
 
+    def _plot_at_selection(self) -> None:
+        """Trace the history at a selected point rather than the peak node."""
+
+        solution = self.app.solution
+        if solution is None:
+            raise ValueError("run a solve first")
+        points = self.require_selection("vertex", count=1)
+        node = self.app.mesh.node_of_vertex.get(points[0].id)
+        if node is None:
+            raise ValueError(f"{points[0]} has no node in the mesh")
+        series = history_series(solution, probe=node, component=self.field_name()
+                                if self.field_name() in DOF_NAMES else "uz")
+        if not series:
+            raise ValueError("this result has no history to plot")
+        self.plot.show(series)
+        self.app.set_status(f"plotting at node {node}")
+
     def refresh(self) -> None:
         solution = self.app.solution
         if solution is None:
             self._summary.configure(text="no results")
             self._shape_box.configure(values=["-"])
             self._shape.set("-")
+            self.plot.clear()
             return
+
+        # The plot follows the result: a transient or an incremental solve has
+        # a history, a linear static does not, and an empty plot says so rather
+        # than keeping the previous result's curve on screen.
+        self.plot.show(history_series(solution))
+
+        # An imported result names its own fields, which are the file's, not
+        # ANYfem's list.
+        available = getattr(solution, "available_fields", None)
+        self._field_box.configure(
+            values=available() if callable(available) else available_fields()
+        )
 
         shapes = getattr(solution, "shapes", None)
         if shapes:

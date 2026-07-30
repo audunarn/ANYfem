@@ -182,9 +182,13 @@ class VerificationReport:
             )
         lines += [
             "",
-            "These are closed-form comparisons on simple cases. They do not "
-            "claim ANYfem is correct for every geometry or load regime, and "
-            "they do not restate ANYsolver's own qualification evidence.",
+            "Most of these are closed-form comparisons on simple cases. A few "
+            "are not, and say so in their reference column: SYMM-01 and "
+            "INTR-01 check a model against the same model solved without a "
+            "simplification, and ELEM-01 against a converged finite element "
+            "answer rather than a series solution. They do not claim ANYfem "
+            "is correct for every geometry or load regime, and they do not "
+            "restate ANYsolver's own qualification evidence.",
             "",
         ]
         return "\n".join(lines)
@@ -634,6 +638,217 @@ def _hardening_curve_transfer():
     )
 
 
+def _graded_size_honoured():
+    """A refinement zone must actually produce the size it asks for."""
+
+    from anyfem.geometry import GeometryModel
+    from anyfem.mesh import generate_mesh, refine_at
+
+    side, target, refined = 4.0, 0.5, 0.1
+    model = GeometryModel()
+    points = model.add_points(
+        [(0, 0, 0), (side, 0, 0), (side, side, 0), (0, side, 0)]
+    )
+    face = model.add_face(model.add_polyline(points, close=True))
+    zone = refine_at((0.0, 0.0, 0.0), size=refined, radius=0.3)
+    mesh = generate_mesh(model, target_size=target, refinements=[zone])
+
+    edge = model.faces[face].loop[0].edge
+    stations = np.sort(
+        [mesh.nodes[node][0] for node in mesh.nodes_of_edge[edge]]
+    )
+    spacings = np.diff(stations)
+    return (
+        float(spacings.min()),
+        refined,
+        f"{len(spacings)} divisions, coarsest {spacings.max():.4g} m against a "
+        f"{target:g} m target",
+    )
+
+
+def _quadratic_convergence():
+    """Q8 against Q4 at the same element count, both against their own limit.
+
+    Compared to the converged finite element answer rather than the thin-plate
+    series, because the two are different numbers: these elements are
+    Mindlin-Reissner and carry transverse shear, so they converge about 1%
+    above the Kirchhoff coefficient. Using the series here would credit Q4 for
+    passing through it on the way up.
+    """
+
+    from anyfem import solve_linear_static
+
+    side, thickness, pressure = 1.0, 0.010, 10_000.0
+
+    def deflection(order: str, divisions: int) -> float:
+        project, _face, _edges = _plate(side, thickness, pressure)
+        project.set_element_order(order)
+        return solve_linear_static(
+            project, target_size=side / divisions
+        ).max_translation()[1]
+
+    converged = deflection("quadratic", 24)
+    coarse = deflection("quadratic", 4)
+    linear = abs(deflection("linear", 4) / converged - 1.0)
+    return (
+        coarse,
+        converged,
+        f"16 elements; Q4 on the same 16 is {linear:.2%} out, and STAT-02 needs "
+        f"256 Q4 elements for the same tolerance. Converged "
+        f"{converged * 1000:.5g} mm",
+    )
+
+
+def _impact_contact_resolution():
+    """Refining for impact must resolve the contact patch it was asked to."""
+
+    from anyfem.commands import CommandStack, RefineForImpact
+    from anyfem.model.collision import Collision
+    from anyfem.solve import solve_impact
+
+    side, thickness = 1.0, 0.008
+    collision = Collision(
+        mass=200.0, radius=0.15, start=(0.5, 0.5, 0.6),
+        direction=(0.0, 0.0, -1.0), speed=4.0,
+    )
+
+    coarse_project, _face, _edges = _plate(side, thickness)
+    coarse = solve_impact(
+        coarse_project, collision=collision, target_size=side / 8
+    ).info["contact_resolution"]
+
+    project, _face, _edges = _plate(side, thickness)
+    CommandStack(project).run(
+        RefineForImpact(
+            collision=collision, target_size=side / 8, elements_per_radius=4.0
+        )
+    )
+    mesh = project.generate_mesh(side / 8)
+    from anyfem.solve.run import _contact_resolution
+
+    refined = _contact_resolution(mesh, collision)
+    return (
+        refined["elements_per_radius"],
+        4.0,
+        f"asked for 4 elements per sphere radius; the uniform mesh gave "
+        f"{coarse['elements_per_radius']:.2f}. Measured as a mean over the "
+        "patch, which grading makes slightly coarser than the target at its "
+        "edge",
+    )
+
+
+def _symmetry_matches_the_full_model():
+    """A quarter model with symmetry planes against the whole plate.
+
+    Not a closed form, and a stronger check than one: the reference is the same
+    structure solved without the simplification, so any error in the symmetry
+    conditions shows up directly rather than inside a series coefficient's
+    tolerance.
+    """
+
+    from anyfem import Project, pinned, solve_linear_static, steel
+
+    side, thickness, pressure = 2.0, 0.010, 10_000.0
+
+    def plate(x_end: float, y_end: float):
+        project = Project(name="symmetry")
+        project.add_material(steel("S355", thickness))
+        project.add_plate_section("plate", thickness=thickness, material="S355")
+        geometry = project.geometry
+        points = geometry.add_points(
+            [(0, 0, 0), (x_end, 0, 0), (x_end, y_end, 0), (0, y_end, 0)]
+        )
+        edges = geometry.add_polyline(points, close=True)
+        face = geometry.add_face(edges)
+        project.assign_plate(face, "plate")
+        project.load_case().add_pressure(project.face(face), pressure)
+        return project, edges
+
+    full, edges = plate(side, side)
+    for edge_id in edges:
+        full.add_support(pinned(full.edge(edge_id)))
+    reference = solve_linear_static(
+        full, target_size=side / 16
+    ).max_translation()[1]
+
+    quarter, quarter_edges = plate(side / 2, side / 2)
+    geometry = quarter.geometry
+    for edge_id in quarter_edges:
+        edge = geometry.edges[edge_id]
+        ends = [geometry.vertices[v].position for v in (edge.start, edge.end)]
+        middle = 0.5 * (ends[0] + ends[1])
+        if abs(middle[0]) < 1.0e-9:
+            quarter.add_symmetry(quarter.edge(edge_id), "x")
+        elif abs(middle[1]) < 1.0e-9:
+            quarter.add_symmetry(quarter.edge(edge_id), "y")
+        else:
+            quarter.add_support(pinned(quarter.edge(edge_id)))
+    computed = solve_linear_static(
+        quarter, target_size=side / 16
+    ).max_translation()[1]
+
+    return (
+        computed,
+        reference,
+        "quarter plate with x and y symmetry planes against the full plate at "
+        "the same element size",
+    )
+
+
+def _result_round_trip():
+    """A solution written as an FRD and read back must be the same numbers.
+
+    Checks the interop path end to end -- write, parse, match by node ID,
+    rebuild a displayable shape -- against the solve it came from.  Any loss in
+    the format's precision, the node matching or the DOF mapping shows up here
+    as a difference from a reference that is exact by construction.
+    """
+
+    import tempfile
+
+    from anyfem import solve_linear_static
+    from anyfem.io import import_calculix_results
+    from anyfem.solve.build import build_fe_model
+
+    side, thickness, pressure = 1.0, 0.008, 10_000.0
+    project, _face, _edges = _plate(side, thickness, pressure)
+    mesh = project.generate_mesh(side / 4)
+    built = build_fe_model(project, mesh)
+    solution = solve_linear_static(project, mesh=mesh)
+
+    nodes = sorted(mesh.nodes)
+    manager = built.fe_model.mesh.dof_manager
+    lines = ["    1C", f"    2C{len(nodes):30d}"]
+    for node in nodes:
+        x, y, z = mesh.nodes[node]
+        lines.append(f" -1{node:10d}{x:12.5E}{y:12.5E}{z:12.5E}")
+    lines.append(" -3")
+    lines.append("    1PSTEP                         1")
+    lines.append(f"  100CL  101{len(nodes):12d}".ljust(60) + "1")
+    lines.append(" -4  DISP        4    1")
+    for name in ("D1", "D2", "D3", "ALL"):
+        lines.append(f" -5  {name:8s} 1    2    1    0")
+    for node in nodes:
+        values = solution.displacements[manager.get_node_dofs(node)[:3]]
+        lines.append(
+            f" -1{node:10d}{values[0]:12.5E}{values[1]:12.5E}{values[2]:12.5E}"
+        )
+    lines.append(" -3")
+
+    with tempfile.TemporaryDirectory() as directory:
+        written = Path(directory) / "verification.frd"
+        written.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        attached = import_calculix_results(written).attach(built)
+        computed = attached.max_translation()[1]
+
+    return (
+        computed,
+        solution.max_translation()[1],
+        f"{len(nodes)} nodes written and matched back; the format stores five "
+        "significant figures, which is the tolerance here",
+    )
+
+
 def cases() -> List[VerificationCase]:
     """Every verification case, in a stable order."""
 
@@ -705,6 +920,30 @@ def cases() -> List[VerificationCase]:
             "MATL-01", "Hardening curve proportional limit",
             "DNV-RP-C208 yield stress", 1.0e-9, "Pa",
             _hardening_curve_transfer,
+        ),
+        VerificationCase(
+            "MESH-02", "Graded element size at a refinement zone",
+            "the size the zone asks for", 0.10, "m", _graded_size_honoured,
+        ),
+        VerificationCase(
+            "ELEM-01", "Q8 plate deflection on 16 elements",
+            "the converged finite element answer", 0.02, "m",
+            _quadratic_convergence,
+        ),
+        VerificationCase(
+            "IMPA-03", "Contact resolution after refining for impact",
+            "4 elements per sphere radius", 0.20, "-",
+            _impact_contact_resolution,
+        ),
+        VerificationCase(
+            "SYMM-01", "Quarter model with symmetry planes",
+            "the same plate solved in full", 1.0e-9, "m",
+            _symmetry_matches_the_full_model,
+        ),
+        VerificationCase(
+            "INTR-01", "Result written as FRD and read back",
+            "the solution it was written from", 1.0e-4, "m",
+            _result_round_trip,
         ),
     ]
 

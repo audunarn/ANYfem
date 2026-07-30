@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 import tkinter as tk
+from pathlib import Path
 
 import pytest
 
@@ -915,3 +916,71 @@ def test_the_sphere_is_drawn_with_the_result(app, root):
     root.update()
 
     assert len(app.viewport._scene.spheres) == 1
+
+
+# ----------------------------------------------------------------------
+# Phase 13: result import and the history plot
+# ----------------------------------------------------------------------
+def test_the_history_plot_follows_the_result(app, root):
+    """A transient fills the plot; a linear static empties it again."""
+
+    _points, face = build_plate(app)
+    support_and_load(app, face)
+    app.generate_mesh(0.5)
+    root.update()
+    panel = app.panels["Results"]
+    assert panel.plot.series_names == []
+
+    from anyfem.solve.run import solve_transient
+
+    app.solution = solve_transient(
+        app.project, mesh=app.mesh, dt=2.0e-4, t_end=0.004
+    )
+    app.refresh_panels()
+    root.update()
+    assert panel.plot.series_names
+    assert panel.plot.canvas.find_all()
+
+    from anyfem.solve.run import solve_linear_static
+
+    app.solution = solve_linear_static(app.project, mesh=app.mesh)
+    app.refresh_panels()
+    root.update()
+    assert panel.plot.series_names == []
+
+
+def test_importing_results_needs_a_mesh(app, root):
+    from anyfem.io.results import ImportedResults
+
+    results = ImportedResults(
+        source=Path("x.frd"), format="CalculiX",
+        displacements={1: (0.0, 0.0, -1.0e-3)},
+    )
+    app.mesh = None
+    with pytest.raises(ValueError, match="generate or import a mesh first"):
+        app._attach_results(results)
+
+
+def test_importing_a_result_shows_it(app, root):
+    from anyfem.io.results import ImportedResults
+
+    _points, face = build_plate(app)
+    support_and_load(app, face)
+    app.generate_mesh(0.5)
+    root.update()
+    built = app.built()
+    manager = built.fe_model.mesh.dof_manager
+    results = ImportedResults(
+        source=Path("demo.frd"), format="CalculiX",
+        displacements={
+            node: (0.0, 0.0, -1.0e-3 * index)
+            for index, node in enumerate(sorted(app.mesh.nodes), start=1)
+        },
+    )
+    app._attach_results(results)
+    root.update()
+
+    assert app.solution is not None
+    assert app.solution.covered == app.mesh.num_nodes
+    # The field menu offers the file's components, not ANYfem's whole list.
+    assert "rx" not in app.panels["Results"]._field_box.cget("values")

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..geometry.entities import EntityRef
-from .fields import Field, evaluate_field, field_unit, recover
+from .fields import Field, _is_numeric, evaluate_field, field_unit, recover
 
 __all__ = [
     "Envelope",
@@ -144,15 +144,20 @@ def _elements_touching(mesh, node_ids: Sequence[int]) -> List[int]:
 
 
 def _probe_components(recovered, elements: Sequence[int]) -> List[str]:
-    """Whichever components the elements at this place actually carry."""
+    """Whichever components the elements at this place actually carry.
+
+    Recovery mixes numeric components with its own provenance labels in one
+    dictionary, so non-numeric entries are skipped: a probe reports fields, and
+    the name of the equivalent-stress measure is not one.
+    """
 
     names: List[str] = []
     for element_id in elements:
         stress = recovered.element_stresses.get(element_id)
         if not stress:
             continue
-        for name in stress:
-            if name not in names:
+        for name, value in stress.items():
+            if name not in names and _is_numeric(value):
                 names.append(name)
     return names
 

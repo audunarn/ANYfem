@@ -78,8 +78,14 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "within 1.5%.",
     ),
     ParityEntry(
-        "Modelling", "Symmetry modelling", "missing",
-        "No symmetry boundary generation.",
+        "Modelling", "Symmetry modelling", "covered",
+        "project.add_symmetry() restrains the normal translation and the two "
+        "in-plane rotations, with antisymmetry as the complement, and checks "
+        "the entity actually lies in the plane before adding anything. A "
+        "quarter plate matches the full model to nine figures. Planes must be "
+        "normal to a global axis: the solver applies boundary conditions in "
+        "global axes with no nodal transformation, so a tilted plane can only "
+        "be approximated, and is refused instead.",
     ),
     # -- meshing -------------------------------------------------------
     ParityEntry(
@@ -91,14 +97,25 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "Structural rather than tolerance based.",
     ),
     ParityEntry(
-        "Meshing", "Local and point mesh refinement patches", "partial",
-        "Per-line seeding overrides exist; graded refinement zones around a "
-        "patch or a point do not.",
+        "Meshing", "Local and point mesh refinement patches", "covered",
+        "A refinement zone binds to a point, line or plate; seeding integrates "
+        "the resulting size field along each edge and node placement follows "
+        "the same field. MESH-02 checks the size asked for is the size "
+        "produced. One limit is inherent to mapped meshing rather than to this "
+        "implementation: a Coons interior is the blend of its boundary, so a "
+        "zone in the middle of a plate refines nothing until the plate is "
+        "decomposed. RefineForImpact does that decomposition.",
     ),
     ParityEntry(
-        "Meshing", "8-node shells and 3-node beams (S8, B3)", "missing",
-        "The mesher emits Q4 and 2-node beams only, though the solver "
-        "supports more.",
+        "Meshing", "8-node shells and 3-node beams (S8, B3)", "covered",
+        "Element order is a project setting. Q8 is the accuracy win: ELEM-01 "
+        "reaches 1% on 16 elements where Q4 needs 256 for the same tolerance. "
+        "B3 is there for compatibility, not accuracy -- ANYsolver's 2-node "
+        "Timoshenko beam is already exact for a tip-loaded cantilever, which "
+        "B3 is not, so 3-node beams exist so a stiffener can share the "
+        "mid-side nodes of a Q8 shell edge. Q8R stays out, being experimental "
+        "in the solver, and a quadratic beam on a curved line is refused "
+        "because the solver's B3 is straight-sided.",
     ),
     # -- loads and boundary conditions ---------------------------------
     ParityEntry(
@@ -130,8 +147,13 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ParityEntry(
         "Loads and BC", "Axial force, moment and shear resultants on a section",
         "missing",
-        "fem_integration applies section resultants to a parametric panel; "
-        "ANYfem has no equivalent shorthand.",
+        "Deliberately out of scope rather than outstanding. It is a shorthand "
+        "that only means something on a parametric panel, where the section to "
+        "resolve it onto is implied by the geometry; on general geometry the "
+        "same request needs a cut plane and a distribution rule that would be "
+        "invented here. The parametric front end applies its own resultants "
+        "when it calls in. Recorded as missing, and excluded from the gate by "
+        "name in OUT_OF_SCOPE.",
     ),
     # -- materials -----------------------------------------------------
     ParityEntry(
@@ -158,12 +180,16 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ),
     ParityEntry("Analyses", "Transient dynamics", "covered", ""),
     ParityEntry(
-        "Analyses", "Rigid-sphere collision and impact", "partial",
-        "The impact itself is covered: contact with an automatic penalty and "
-        "time step, contact history, momentum balance, energy, damage and "
-        "erosion. Adaptive mesh refinement around the impact zone, which "
-        "fem_integration offers, is not -- it needs the same graded "
-        "refinement the meshing entry is short of.",
+        "Analyses", "Rigid-sphere collision and impact", "covered",
+        "Contact with an automatic penalty and time step, contact history, "
+        "momentum balance, energy, damage and erosion, plus adaptive "
+        "refinement at the contact point through RefineForImpact. Every result "
+        "reports how many elements lie across the sphere radius, because a "
+        "contact patch spread over one element gives a peak force that belongs "
+        "to the mesh rather than the structure. The time step is bounded by the "
+        "wave transit time of the smallest element at the contact as well as by "
+        "the contact period, so a refined mesh converges at the penalty the "
+        "solver recommends.",
     ),
     ParityEntry(
         "Analyses", "Fracture and element erosion", "covered",
@@ -175,9 +201,14 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ),
     ParityEntry(
         "Analyses", "Capacity workflow (static to buckling to imperfect nonlinear)",
-        "partial",
-        "Every step exists separately and can be chained by script; the "
-        "solver's packaged capacity_workflow is not wired up.",
+        "covered",
+        "solve_capacity() drives the solver's own packaged workflow rather "
+        "than re-chaining the stages here, so the prestress recovery between "
+        "the static and buckling solves and the mesh-adequacy check on the "
+        "chosen mode stay the solver's. The result is a nonlinear solution "
+        "carrying the buckling stage alongside it, so it displays unchanged, "
+        "and reports the elastic critical factor and the achieved capacity "
+        "separately -- their ratio is the point of running it.",
     ),
     ParityEntry(
         "Analyses", "Geometric imperfections, standard and eigenmode",
@@ -199,8 +230,14 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ),
     ParityEntry("Results", "Animation of steps and modes", "covered", ""),
     ParityEntry(
-        "Results", "Time-history plots at a probe", "partial",
-        "The data is available (node_history); there is no plot widget.",
+        "Results", "Time-history plots at a probe", "covered",
+        "history_series() reduces a transient, an impact and an incremental "
+        "solve to the same Series type -- two arrays with labels and units -- "
+        "and a Tk canvas widget draws it with round axis ticks, a peak marker "
+        "and a hover readout. Hand-written rather than matplotlib, so the "
+        "GUI's dependency set stays Tk, matching how ANYtk3D draws its own "
+        "viewport. The axis arithmetic is separate from the drawing and is "
+        "tested without a display.",
     ),
     ParityEntry(
         "Results", "Stress reduction to panel buckling input", "missing",
@@ -209,7 +246,16 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ),
     ParityEntry(
         "Results", "Recovery policy controls (history mode, threads, memory)",
-        "missing", "Solver options not surfaced by ANYfem.",
+        "covered",
+        "recovery_policy() and resource_policy() build the solver's own "
+        "configuration objects. ANYfem deliberately supplies no default "
+        "component list: recovery's filter drops everything it does not name, "
+        "and a whitelist frozen here would silently discard components the "
+        "solver later adds -- the orthotropic Hill utilisation being the "
+        "example that already happened. History modes are read from the "
+        "solver rather than copied. The resource policy reaches the nonlinear "
+        "solve and stress recovery; the solver's other entry points do not "
+        "accept one, and ANYfem does not pretend otherwise.",
     ),
     # -- application ---------------------------------------------------
     ParityEntry("Application", "3D viewport with picking", "covered", ""),
@@ -224,9 +270,18 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "Not in fem_integration.",
     ),
     ParityEntry(
-        "Application", "Save and restore the analysis state", "partial",
-        "ANYfem has its own project format; it cannot read "
-        "fem_integration's save_runtime_fem_state files.",
+        "Application", "Save and restore the analysis state", "covered",
+        "ANYfem has its own project format, and anyfem.migration reads "
+        "fem_integration's save_runtime_fem_state files as well -- plain or "
+        "gzipped JSON, without importing ANYstructure. Of the 176 options, 144 "
+        "map onto ANYfem settings, 24 are out of scope by decision (section "
+        "resultants, parametric-panel construction, and the JSON blobs that "
+        "name panel segments and patches) and 8 are solver internals ANYfem "
+        "does not surface; the file reports which is which rather than "
+        "silently dropping any. It restores settings and recorded results, not "
+        "the model: the snapshot describes a parametric panel, and the stored "
+        "visualisation is a plotting grid rather than a mesh, so there is no "
+        "topology in the file to rebuild from.",
     ),
     ParityEntry(
         "Application", "Report export", "covered",
@@ -235,15 +290,25 @@ LEDGER: Tuple[ParityEntry, ...] = (
     # -- interop -------------------------------------------------------
     ParityEntry("Interop", "SESAM FEM import", "covered", ""),
     ParityEntry(
-        "Interop", "SESAM SIF result import", "missing",
-        "The solver reads SIF shell stresses; ANYfem does not.",
+        "Interop", "SESAM SIF result import", "covered",
+        "import_sesam_results() reads RVSTRESS shell stresses through the "
+        "solver's own SIF reader, keeping the component names the file gives "
+        "rather than mapping them onto a list here. A SIF with no shell "
+        "stresses is refused with the reason, not attached empty.",
     ),
     ParityEntry(
         "Interop", "CalculiX deck export", "covered", "",
     ),
     ParityEntry(
-        "Interop", "CalculiX FRD/INP result import", "missing",
-        "fe_plate_fields reads FRD results; ANYfem does not.",
+        "Interop", "CalculiX FRD/INP result import", "covered",
+        "import_calculix_results() reads FRD and DAT through the solver's "
+        "parsers and attaches them by node ID, so a model exported as a deck "
+        "can be solved elsewhere and read back into the same contours, probes "
+        "and reports. An FRD carries three translation components and no "
+        "rotations: asking for one raises rather than returning zero, and the "
+        "raw array holds NaN there so nothing that indexes it directly can "
+        "mistake the gap for an answer. A file for a different mesh is "
+        "refused with the overlap rather than attached partially.",
     ),
     ParityEntry(
         "Interop", "Handoff to the ANYstructure buckling session", "missing",
@@ -272,6 +337,14 @@ OUT_OF_SCOPE: Tuple[str, ...] = (
     "Stress reduction to panel buckling input",
     "Handoff to the ANYstructure buckling session",
     "Parametric stiffened panel and cylinder geometry",
+    # A parametric-panel shorthand, not a capability ANYfem is short of.
+    # fem_integration applies section resultants because its geometry *is* a
+    # panel with an obvious cut, so "the axial force on this section" has one
+    # meaning. ANYfem applies loads to geometry directly, where the same phrase
+    # would need a cut plane and a distribution rule invented to go with it.
+    # It belongs with the parametric front end, which can apply resultants to
+    # its own panels when it calls in.
+    "Axial force, moment and shear resultants on a section",
 )
 
 
@@ -294,11 +367,13 @@ def parity_summary() -> Dict[str, Any]:
 
 
 def gate_status() -> Dict[str, Any]:
-    """Whether the ledger says the migration can proceed, and what blocks it.
+    """Whether the *ledger* says the migration can proceed, and what blocks it.
 
-    This answers only the ledger criterion.  The other gate criteria need a
-    fixed model set, a state importer and a performance comparison that do not
-    exist yet, so they are reported as outstanding rather than assumed met.
+    This answers one of the five gate criteria and nothing else.  ``ready`` is
+    therefore always False here: a clear ledger is necessary and not
+    sufficient, and reporting otherwise from this module would be the kind of
+    partial answer that gets quoted as a whole one.
+    :func:`anyfem.migration.gate_report` measures all five.
     """
 
     blocking = [
@@ -307,6 +382,17 @@ def gate_status() -> Dict[str, Any]:
         if entry.status in ("missing", "partial")
         and entry.capability not in OUT_OF_SCOPE
     ]
+    reason = (
+        "The ledger is clear. That is one of five gate criteria; run "
+        "anyfem.migration.gate_report() for the others, which need recorded "
+        "ANYstructure results to compare against."
+        if not blocking
+        else (
+            f"The ledger has {len(blocking)} open entry(ies): "
+            + ", ".join(entry.capability for entry in blocking)
+            + "."
+        )
+    )
     return {
         "ledger_clear": not blocking,
         "blocking": [
@@ -321,11 +407,7 @@ def gate_status() -> Dict[str, Any]:
         "out_of_scope": list(OUT_OF_SCOPE),
         "criteria": list(GATE_CRITERIA),
         "ready": False,
-        "reason": (
-            "The ledger still has open entries, and the remaining gate "
-            "criteria (a fixed comparison model set, a save_runtime_fem_state "
-            "importer, and a performance comparison) have not been built."
-        ),
+        "reason": reason,
     }
 
 

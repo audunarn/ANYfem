@@ -147,12 +147,32 @@ def test_the_summary_counts_add_up():
     ) == summary["total"]
 
 
-def test_the_gate_is_not_ready_and_says_what_blocks_it():
+def test_the_ledger_criterion_is_clear_but_the_gate_is_not_ready():
+    """A clear ledger is necessary and not sufficient.
+
+    This module answers one of five criteria, so ``ready`` stays False here
+    whatever the ledger says -- a partial answer reported as a whole one is
+    exactly how a gate stops meaning anything.
+    """
+
     gate = parity.gate_status()
+    assert gate["ledger_clear"] is True
+    assert gate["blocking"] == []
     assert gate["ready"] is False
-    assert gate["blocking"], "an open ledger must list what is open"
-    assert gate["reason"]
+    # And the reason has to describe the actual state, not a remembered one.
+    assert "one of five" in gate["reason"]
     assert len(gate["criteria"]) == len(parity.GATE_CRITERIA)
+
+
+def test_the_reason_names_what_is_open_when_the_ledger_is_not_clear(monkeypatch):
+    open_ledger = parity.LEDGER + (
+        parity.ParityEntry("Area", "Something unfinished", "missing", "note"),
+    )
+    monkeypatch.setattr(parity, "LEDGER", open_ledger)
+    gate = parity.gate_status()
+
+    assert gate["ledger_clear"] is False
+    assert "Something unfinished" in gate["reason"]
 
 
 def test_the_gate_excludes_only_what_it_names():
@@ -196,7 +216,7 @@ def test_the_known_gaps_are_recorded():
         for entry in parity.LEDGER
         if entry.status != "covered"
     }
-    for expected in ("collision", "symmetry", "refinement"):
+    for expected in ("resultants", "parametric", "handoff"):
         assert any(expected in name for name in open_items), expected
 
 
@@ -213,7 +233,21 @@ def test_the_delivered_capabilities_are_marked_covered():
         for entry in parity.LEDGER
         if entry.status == "covered"
     }
-    for expected in ("eccentricity", "fracture", "hardening curve"):
+    for expected in (
+        "eccentricity",
+        "fracture",
+        "hardening curve",
+        "refinement patches",
+        "8-node shells",
+        "collision",
+        "symmetry",
+        "capacity workflow",
+        "recovery policy",
+        "time-history",
+        "sif result import",
+        "frd/inp result import",
+        "analysis state",
+    ):
         assert any(expected in name for name in covered), expected
 
 

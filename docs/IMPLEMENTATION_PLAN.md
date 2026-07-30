@@ -438,8 +438,8 @@ actually been run and compared.
 
 Two artefacts turn judgements into measurements.
 
-**The verification suite** (`anyfem-verify`) runs eleven closed-form cases,
-each stating what it is checked against and how close it has to be, and writes
+**The verification suite** (`anyfem-verify`) runs twenty-one cases, each stating
+what it is checked against and how close it has to be, and writes
 dated, environment-stamped evidence. It is explicit about what it does *not*
 claim: it is not a general correctness claim, and it does not restate
 ANYsolver's own qualification.
@@ -447,8 +447,8 @@ ANYsolver's own qualification.
 **The parity ledger** (`anyfem-parity`) is the migration gate from decision 2,
 made computable. `fem_integration.py` exposes 176 options; the ledger tracks 49
 capabilities across them and marks each covered, partial or missing. It
-currently reports **71% coverage with 11 open entries, and the gate answers
-"not ready"** — which is the honest answer, and the reason the ledger exists.
+reports **92% coverage with nothing blocking**, and the migration gate still
+answers **"not ready"** on evidence rather than on features — which is the honest answer, and the reason the ledger exists.
 A capability counts as covered only when ANYfem can do the same job; grading on
 a curve would defeat the purpose.
 
@@ -516,19 +516,33 @@ tolerance matching are never needed.
 
 ## Remaining work
 
-With Phase 10 done the parity ledger reports **71% coverage with 11 open
-entries** and the gate still answers "not ready". Running `anyfem-parity` gives
-the live state; this section turns that list into a sequence.
+**None of it is ANYfem's.** With every phase done the parity ledger reports
+**92% coverage with nothing blocking** — every capability is covered or named in
+`OUT_OF_SCOPE` with a reason — and the migration gate still answers "not ready"
+on exactly two criteria:
 
-Ordering is by whether an item changes *answers*, then by what it unblocks.
+1. analysis paths reproduced within tolerance on a fixed set of models;
+2. no performance regression on those models.
+
+Both need the same input, and it is not code: **a fixed set of models run
+through ANYstructure with their results and timings recorded.** The harness that
+consumes those numbers is built and tested; its case list is empty because the
+numbers do not exist. Nothing on the ANYfem side can produce them, and inventing
+a comparison set from ANYfem's own output would make the gate self-certifying.
+
+Until that happens, `anyfem-gate` reports three of five met and stays closed.
+Running `anyfem-parity` and `anyfem-gate` gives the live state; the sections
+below record what each phase did and why.
+
+Ordering was by whether an item changes *answers*, then by what it unblocked.
 
 | Phase | Theme | Ledger entries closed |
 | --- | --- | --- |
 | **10** ✅ | Structural fidelity | eccentricity, hardening curve, fracture in nonlinear static |
-| **11** | Meshing depth | graded refinement, adaptive impact meshing, S8/B3 elements |
-| **12** | Modelling and workflow breadth | symmetry, capacity workflow, recovery policy |
-| **13** | Result interop and plotting | FRD/INP import, SIF import, time-history plot |
-| **14** | The migration gate | state importer, comparison model set, performance |
+| **11** ✅ | Meshing depth | graded refinement, adaptive impact meshing, S8/B3 elements |
+| **12** ✅ | Modelling and workflow breadth | symmetry, capacity workflow, recovery policy |
+| **13** ✅ | Result interop and plotting | FRD/INP import, SIF import, time-history plot |
+| **14** ✅ | The migration gate | state importer, comparison model set, performance |
 
 ### Phase 10 — Structural fidelity ✅
 
@@ -577,66 +591,300 @@ come back on the result. The trigger is equivalent plastic strain, so a
 threshold has to be reachable: the test plate peaks near 0.008, and a test
 using a threshold above that would pass for the wrong reason.
 
-### Phase 11 — Meshing depth
+### Phase 11 — Meshing depth ✅
 
-All three touch the same machinery -- the seeding solver and node generation --
-so they belong together.
+All three touched the same machinery -- the seeding solver and node generation
+-- so they belonged together.
 
-**Graded refinement** is the substantial one. Edge nodes are currently placed
-at uniform parameters; graded zones need a per-edge *distribution* driven by a
-size field, plus a seeding solver that still closes its opposite-side
-constraints when the counts are non-uniform. The Coons blend is unaffected: it
-uses logical parameters and takes whatever boundary positions it is given.
+**Graded refinement.** A `Refinement` binds to a point, line or plate (or a raw
+coordinate, which is what an impact zone needs) and asks for a smaller element
+size within a radius, growing back to the global target outside it. A
+`SizeField` answers "what size here" as the minimum over zones. Seeding then
+integrates `ds / size(s)` along each edge instead of dividing length by target,
+and node placement puts stations at equal spacing in the *unit mesh* -- the
+coordinate in which one unit is one element. With no zones both reduce exactly
+to what the mesher did before, so adding the field cannot move a model that
+does not use it, and there is a test asserting that node for node.
 
-**Adaptive refinement around an impact** follows directly, and closes the
-collision entry's remaining shortfall.
+Opposite-side constraints still close: only the counts feed the constraint
+solver, and grading changes counts, not the constraint. Repair now ranks edges
+by how many elements the field wants along them rather than by raw length,
+which under a uniform field is the same ordering scaled by a constant.
 
-**8-node shells and 3-node beams** need mid-side nodes from a half-step Coons
-grid and the solver's node ordering. The solver qualifies Q8 for full
-integration; Q8R stays out, being experimental there.
+**The limit worth writing down.** A Coons interior is the blend of its
+boundary, so a size zone in the *middle* of a plate refines nothing at all --
+the interior grid is entirely determined by the four sides. Refining locally
+therefore means decomposing locally, which is the same answer this mesher gives
+to every other awkward region. `RefineForImpact` does exactly that: it locates
+the contact point, cuts the struck plate isoparametrically to bracket the
+contact patch, and puts the zone on the resulting sub-plate. It is a *command*,
+not a solve option, because it changes the geometry and that belongs in the
+undo history rather than happening on the way past.
 
-### Phase 12 — Modelling and workflow breadth
+**Adaptive refinement around an impact.** Every impact result now reports
+`contact_resolution` -- the element size at the contact point and how many
+elements lie across the sphere radius -- whether or not the mesh was refined,
+because that number decides whether a peak contact force means anything. On the
+verification plate it goes from 1.20 elements per radius to 3.47.
 
-**Symmetry** generates the boundary conditions for a half or quarter model.
-**Capacity workflow** is mostly sequencing -- the solver packages
-static to prestress to buckling to imperfection to nonlinear capacity, and
-ANYfem can already do each step separately. **Recovery policy controls** are
-passthrough.
+Two things had to be fixed before this worked, both worth recording:
 
-### Phase 13 — Result interop and plotting
+- **A refined contact needs a finer time step, and `auto_timing` did not know
+  it.** Refining under the sphere raises the local frequencies without changing
+  the contact period, so the step chosen from the contact period alone became
+  too coarse and the contact iteration diverged. The step is now also bounded by
+  the wave transit time `h / c` of the smallest element at the contact, which
+  binds only on a locally refined mesh and leaves a uniform one bit-identical.
+  Lowering the penalty *also* makes it converge, and that was the first thing
+  tried -- but it changes the contact rather than resolving it: absorbed energy
+  came out at 0.06 kJ against the correct 0.45 kJ. Worth remembering, because
+  the wrong fix looked like it worked.
+- **`solve_impact` was returning failed runs as though they were answers.** A
+  run ending in `contact_iteration_failed` reported a peak force and an absorbed
+  energy that were whatever the integration reached before giving up: the right
+  order of magnitude and completely meaningless. `strict` now refuses them and
+  names the likely cause. One existing test had been written to *accept* that
+  status, which is how it had gone unnoticed; it now asks for the partial result
+  explicitly and asserts only the contract.
 
-Reading results *back* from CalculiX FRD/INP and SESAM SIF, so an externally
-solved model can be postprocessed through the same field abstraction. Both are
-solver-supported and become adapters plus an association strategy like the one
-SESAM import already uses.
+With both in place the refined and uniform meshes agree on the global response
+and disagree on the local one, which is the expected shape of the answer:
+absorbed energy 0.452 kJ against 0.460 kJ, and peak contact force 5.5e5 N
+against 2.1e6 N. The energy was already converged on the coarse mesh; the peak
+force was an artefact of spreading the patch over one element.
 
-The time-history plot needs a decision recorded below.
+**8-node shells and 3-node beams.** Element order is a project setting, saved
+with the model. An edge with `n` divisions emits `2n - 1` interior nodes, faces
+blend a doubled Coons grid, and every position is instantiated except the
+element centre, which serendipity interpolation does not use. Ordering is the
+solver's: four corners, then mid-sides from edge 0-1. Mid-side nodes sit *on the
+curve*, so a Q8 on a cylinder stays exactly on the cylinder.
 
-### Phase 14 — The migration gate
+Q8 is the accuracy win, and it is a large one: **1.07% on 16 elements**, where
+STAT-02 needs 256 Q4 elements for the same 2% tolerance. Q8R stays out, being
+experimental in the solver.
 
-The three criteria that were never built: an importer for
-`save_runtime_fem_state` files, a fixed set of ANYstructure models with
-recorded numbers to compare against, and a performance comparison. Criterion 2
-depends on phases 10 to 13 landing first.
+B3 is a different story, and the honest version is worth stating. ANYsolver's
+2-node Timoshenko beam is *exact* for a tip-loaded cantilever; the 3-node one
+gives `PL³/4EI` against the exact `PL³/3EI` with one element, because a
+tip-loaded cantilever is cubic and a parabola cannot be. Both are exact in pure
+bending, so the element is correct -- it simply has nothing to offer over the
+2-node element for straight members. **B3 exists in ANYfem so a stiffener can
+share the mid-side nodes of a Q8 shell edge**, which is compatibility, not
+accuracy. A quadratic beam on a curved line is refused at mesh time, because
+the solver's B3 is straight-sided and requires its middle node at the chord
+midpoint.
 
-### Two decisions to make before starting
+Two load-lumping bugs fell out of the Q8 work, both of the same shape: the
+consistent load vector is not an equal share. A uniform traction on a Q8 gives
+**minus** one twelfth to each corner and one third to each mid-side; a uniform
+line load on a 3-node beam gives one sixth, two thirds, one sixth. Splitting
+either evenly drags the quadratic element back to the convergence rate of a
+linear one, so the extra nodes would cost something and buy nothing.
 
-**1. Section resultants may not belong in ANYfem at all.** The ledger records
-"axial force, moment and shear resultants on a section" as missing, but it is a
+### Phase 12 — Modelling and workflow breadth ✅
+
+**Symmetry.** `project.add_symmetry(ref, normal)` restrains the normal
+translation and the two in-plane rotations, leaving the rotation about the
+normal free; `antisymmetric=True` gives the complementary set. **SYMM-01**
+compares a quarter plate against the same plate solved in full and they agree
+to nine figures, which is a stronger check than a series coefficient because
+the reference is the same structure without the simplification.
+
+Two refusals, both because the failure they prevent is silent:
+
+- **A tilted plane is refused.** The solver applies boundary conditions in
+  global axes with no nodal transformation, so a symmetry plane off the global
+  axes can only be approximated -- and a half model with slightly wrong
+  symmetry still solves and still looks reasonable.
+- **An entity that does not lie in the plane is refused.** A symmetry condition
+  on an edge that *crosses* the plane restrains the wrong degrees of freedom
+  everywhere it touches. The check samples the entity; for a plate the boundary
+  suffices, since a Coons patch is an affine combination of points on its four
+  sides.
+
+**Capacity workflow.** `solve_capacity()` drives the solver's packaged
+`run_nonlinear_capacity_workflow` rather than re-chaining static → prestress →
+buckling → imperfection → nonlinear here. That is deliberate: every stage exists
+separately in this module, and chaining them by hand would mean maintaining a
+second opinion about the order of operations, the prestress recovery between
+the static and buckling solves, and the mesh-adequacy check on the chosen mode.
+
+The result is a `CapacitySolution` -- a nonlinear solution carrying the buckling
+stage alongside it, so everything that displays a nonlinear result displays this
+unchanged -- reporting the elastic critical factor and the achieved capacity
+separately. Their ratio is the point of running it, and *either side of one is a
+real answer*: below one is imperfection sensitivity, above one is post-buckling
+reserve. The verification plate comes out at 1.50, which is a compressed plate
+shedding load into membrane action after it buckles, not an anomaly. The
+property was first called `knockdown`, which was the wrong name for a number
+that legitimately exceeds one.
+
+**Recovery and resource policy.** `recovery_policy()` and `resource_policy()`
+build the solver's own configuration objects. Two things here are load-bearing:
+
+- **No default component list.** Recovery's `components` filter drops
+  everything it does not name. A whitelist frozen in ANYfem would silently
+  discard components the solver later adds -- which is not hypothetical: the
+  orthotropic Hill utilisation arrived mid-development and broke ten tests
+  through exactly this mechanism.
+- **History modes are read from the solver**, not copied. The copy written
+  first was wrong within the hour.
+
+Where the resource policy applies is narrower than it looks and is documented
+rather than glossed: of the analyses ANYfem drives, the solver accepts one on
+the nonlinear static solve (and hence the capacity workflow) and on stress
+recovery. The others do not take one.
+
+**Orthotropic materials.** The solver gained them during this phase. ANYfem
+models isotropic steel and does not author orthotropic materials, but results,
+recovery, fields, probes and the impact time step all pass through material
+objects, and each is a place where reading an isotropic-only attribute fails
+silently rather than loudly. `_wave_speed` was one: an `OrthotropicMaterial` has
+no `elastic_modulus`, so it would have returned zero and quietly dropped the
+impact time-step bound. It now takes the stiffest directional modulus. A group
+of tests drives the whole pipeline on a model whose material ANYfem cannot
+itself build.
+
+### Phase 13 — Result interop and plotting ✅
+
+Reading results *back*, so a model exported as a deck, solved elsewhere, and
+returned as a result file is postprocessed through the same contours, probes,
+paths and reports an ANYfem solve uses. `import_calculix_results` reads FRD and
+DAT; `import_sesam_results` reads SIF RVSTRESS shell stresses. Both parse
+through ANYsolver — ANYfem owns the adapter, not the format.
+
+**INTR-01** writes a solution to an FRD, reads it back and matches it to the
+model by node ID: the deflection comes back identical.
+
+The interesting part was not the parsing. It was that an external result is
+*not* the same object as a solved one, and three differences had to be held
+rather than smoothed:
+
+- **An FRD carries three displacement components. There are no rotations in
+  it.** A shell rotation of zero is a plausible number and a wrong one, so
+  `ImportedSolution.component("rx")` raises with "it is not zero -- it is
+  absent", and the underlying array holds NaN there so anything that indexes it
+  directly cannot mistake the gap either.
+- **Stresses arrive per node, already averaged by the writing solver**, not per
+  element from a recovery here. They stay node-valued so nothing downstream
+  mistakes them for something this layer computed, and `evaluate_field` looks
+  them up *before* it would recover — recomputing would quietly substitute
+  ANYfem's opinion for the imported answer.
+- **Component names come from the file**, carried through as found. Same rule
+  as recovery, for the same reason: SESAM names them `SXX`, `SYY` and so on,
+  and a list frozen here would drop whatever it did not recognise.
+
+Matching is by node ID, and a file for a different mesh is refused with the
+overlap rather than attached partially — a field covering a third of the model
+still draws a picture, and the picture is a lie. `require_all_nodes=False`
+attaches the overlap deliberately.
+
+**The time-history plot.** Decided in favour of a hand-written Tk canvas rather
+than matplotlib. The reasoning: ANYtk3D already draws a full 3D viewport on a
+bare `Canvas`, so this is the house style rather than a novelty; the GUI's whole
+dependency set stays Tk, which ships with Python; and what a plotting stack
+would buy — log axes, multiple y scales, vector export — is not needed to read a
+load-displacement path. If any of that is wanted later, matplotlib as a GUI
+extra remains open, and nothing here forecloses it.
+
+`history_series` reduces a transient, an impact and an incremental solve to one
+`Series` type — two arrays with labels and units — so the widget never asks
+which analysis it is looking at, exactly as `Field` means the contour does not.
+The axis arithmetic (`nice_ticks`, `padded_range`, `map_to_canvas`) is
+module-level and pure, so the part that can be wrong in a way a screenshot
+would not reveal is tested without a display.
+
+Two bugs the tests caught, both mine: `has_history` asked for the series with
+the node trace *suppressed*, so it answered "no history" for a transient whose
+node trace is the whole point; and the first `nice_ticks` rounded the ideal step
+up, drawing three ticks on an axis with room for six.
+
+### Phase 14 — The migration gate ✅ (built; three of five criteria met)
+
+`anyfem.migration` is the part of the gate that needs code rather than a ledger
+entry, and `anyfem-gate` reports all five criteria.
+
+**The state importer.** `read_runtime_fem_state` reads
+`save_runtime_fem_state` files — plain or gzipped JSON with a format tag — and
+**does not import ANYstructure**. It does not need to, which is the one-way
+dependency paying for itself: ANYfem consumes the old application's output
+without depending on the old application. There is a test asserting no
+`anystruct` module is ever loaded.
+
+Of the 176 options, **144 map** onto ANYfem settings, **24 are out of scope by
+decision** and **8 are solver internals** ANYfem does not surface. The file
+reports which is which. That distinction is the point: a debt list and a to-do
+list are different things, and a migration that silently dropped a setting
+would run a different analysis from the one the file asked for and look like it
+had worked.
+
+It restores **settings and recorded numbers, not the model**. Two reasons that
+are really one: the snapshot describes a parametric panel, which is out of
+scope, and the stored `visualization` is a plotting grid rather than a mesh, so
+there is no topology in the file to rebuild from.
+
+**The headless seam** (criterion 4) is proved rather than asserted: a stiffened
+panel with eccentric T-bar stiffeners and a revolved cylinder, both built,
+meshed and solved with no Tk imported. This is the property the whole migration
+rests on — if it holds, ANYstructure's parametric front end becomes just another
+caller; if it does not, the migration is a rewrite.
+
+**The comparison harness** (criterion 1) is built and its case list is *empty*,
+which is the honest state of it. The numbers have to come from running the
+models through ANYstructure's own FE path and recording what it produced, and
+that has not been done. Leaving the list empty keeps the gate closed for the
+real reason rather than passing on nothing.
+
+**Where the gate actually stands.** Three of five criteria met:
+
+| criterion | met | why |
+| --- | --- | --- |
+| analysis paths reproduced on recorded models | no | no recorded ANYstructure numbers exist yet |
+| parity ledger clear | **yes** | 0 blocking, 0 partial, 92% covered |
+| `save_runtime_fem_state` importable | **yes** | built this phase |
+| headless API builds every model type | **yes** | panel and cylinder, no GUI |
+| no performance regression | no | ANYfem's timings are recorded; there is nothing to compare them against |
+
+Both unmet criteria need the same thing: **someone runs a fixed set of models
+through ANYstructure and records the results.** That is not ANYfem work, and it
+cannot be faked from this side. `gate_report` reports them unmet with the
+reason and never as passed by default — a gate that opened because nobody
+supplied the evidence would be worse than no gate, so there is a test for that
+too.
+
+One correctness fix fell out: `parity.gate_status()` carried a hard-coded
+reason saying the ledger had open entries and the importer was unbuilt. Both
+were true when written and neither is now. It computes its reason from the
+ledger, and states plainly that it answers one criterion of five.
+
+### Decisions
+
+**1. Section resultants do not belong in ANYfem. Decided: out of scope.** The
+ledger records "axial force,
+moment and shear resultants on a section" as missing, but it is a
 *parametric-panel shorthand*: `fem_integration` applies them because its
 geometry is a panel with an obvious cut. ANYfem applies loads to geometry
 directly, which makes the shorthand unnecessary and its implementation
 awkward -- it would need a cut plane and a distribution rule. The consistent
 choice is to move it to `OUT_OF_SCOPE` alongside parametric geometry, and let
-the parametric front end apply resultants when it calls in. That drops the
-blocking count from 14 to 13 without writing anything.
+the parametric front end apply resultants when it calls in.
 
-**2. The time-history plot needs a plotting decision.** ANYtk3D is a 3D canvas,
-not a plotter, and ANYfem currently has no plotting dependency.
-`fem_integration` uses matplotlib. Either write a small Tk XY plot -- keeping
-ANYfem dependency-free, at the cost of maintaining it -- or take matplotlib as
-a GUI extra. The first preserves a property worth having; the second is less
-code. Worth deciding deliberately rather than by whichever gets written first.
+Done in Phase 14. It stays in the ledger marked missing — excluded on the
+record with the reason, not quietly dropped — and `OUT_OF_SCOPE` names it so
+the gate skips it. A capability removed from the ledger entirely would be
+untraceable later; one excluded by name is a decision anyone can find and
+disagree with.
+
+**2. The time-history plot needed a plotting decision. Decided: a hand-written
+Tk canvas.** ANYtk3D already draws a full 3D viewport on a bare `Canvas`, so a
+2D plot on one is the house style rather than a novelty; the GUI's dependency
+set stays Tk, which ships with Python; and what matplotlib would buy -- log
+axes, multiple y scales, vector export -- is not needed to read a
+load-displacement path. The cost is maintaining roughly two hundred lines of
+drawing code, which is bounded and testable: the axis arithmetic is pure and
+tested without a display. Taking matplotlib as a GUI extra remains open if any
+of the missing capability is ever wanted; nothing in the widget forecloses it.
 
 ## Testing
 

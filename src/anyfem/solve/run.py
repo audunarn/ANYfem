@@ -285,6 +285,118 @@ def eigenmode_imperfection(
     )
 
 
+def solve_capacity(
+    project: Optional[Project] = None,
+    *,
+    built: Optional[BuiltModel] = None,
+    mesh: Optional[Mesh] = None,
+    target_size: Optional[float] = None,
+    load_case: str | LoadCase = "default",
+    combination: Optional[str] = None,
+    num_buckling_modes: int = 3,
+    buckling_mode_number: int = 1,
+    imperfection_amplitude: float = 0.0,
+    num_steps: int = 10,
+    max_load_factor: float = 1.0,
+    config: Any = None,
+    resources: Any = None,
+    overrides: Optional[Mapping[int, int]] = None,
+    progress: Progress = None,
+    **config_options: Any,
+):
+    """Static, prestress, buckling, imperfection, then nonlinear collapse.
+
+    Every step of this exists separately in this module and could be chained by
+    hand, which is exactly why it is *not* chained by hand here: the solver
+    packages the sequence, including the prestress recovery between the static
+    and the buckling solve and the mesh-adequacy check on the mode it picks.
+    Reimplementing the chain would mean maintaining a second opinion about the
+    order of operations.
+
+    ``imperfection_amplitude`` of zero runs the nonlinear stage on the perfect
+    shape, which is a different question -- an imperfection is what makes a
+    capacity assessment mean anything for a buckling-governed structure, so it
+    is worth setting deliberately rather than defaulting to a guess.
+
+    The result is a :class:`CapacitySolution`, which is a nonlinear result
+    carrying the buckling stage alongside it, so anything that displays a
+    nonlinear solve displays this unchanged.
+    """
+
+    from anysolver import CapacityWorkflowConfig, run_nonlinear_capacity_workflow
+
+    from ..post.results import BucklingSolution, CapacitySolution, ShapeView
+
+    built = _resolve_built(
+        project, built, mesh=mesh, target_size=target_size, overrides=overrides,
+        progress=progress, load_case=load_case, combination=combination,
+    )
+    if built.load_case is None:
+        raise ProjectError(
+            "a capacity workflow needs a reference load case to scale"
+        )
+
+    if config is None:
+        config = CapacityWorkflowConfig(
+            num_buckling_modes=int(num_buckling_modes),
+            buckling_mode_number=int(buckling_mode_number),
+            eigenmode_imperfection_amplitude=float(imperfection_amplitude),
+            nonlinear_num_steps=int(num_steps),
+            nonlinear_max_load_factor=float(max_load_factor),
+            nonlinear_resource_config=resources,
+            **config_options,
+        )
+
+    _report(progress, "running the capacity workflow")
+    result = run_nonlinear_capacity_workflow(
+        built.fe_model,
+        built.load_case,
+        config=config,
+        status_callback=None if progress is None else progress,
+    )
+
+    buckling = BucklingSolution(
+        built=built,
+        shapes=[
+            ShapeView(
+                displacements=mode.mode_shape,
+                built=built,
+                label=f"mode {mode.mode_number}",
+                value=float(mode.load_factor),
+            )
+            for mode in result.buckling_result.modes
+        ],
+        status=result.buckling_result.solver_status,
+        info={"raw": result.buckling_result},
+        reference_case=combination or load_case,
+    )
+    adequacy = result.mesh_adequacy
+    return CapacitySolution(
+        displacements=result.nonlinear_result.displacements,
+        built=built,
+        value=float(result.capacity_factor),
+        steps=list(result.nonlinear_result.steps),
+        status=result.status,
+        info={
+            "prestress": result.prestress_summary,
+            "diagnostics": result.diagnostics,
+            "nonlinear_status": result.nonlinear_result.status,
+            "raw": result,
+        },
+        peak_load_factor=float(result.capacity_factor),
+        deleted_elements=_deleted_elements(result.nonlinear_result),
+        critical_factor=(
+            None
+            if result.critical_load_factor is None
+            else float(result.critical_load_factor)
+        ),
+        buckling=buckling,
+        mesh_adequacy=(
+            adequacy.to_dict() if hasattr(adequacy, "to_dict") else {}
+        ),
+    )
+
+
 # ----------------------------------------------------------------------
 # nonlinear
 # ----------------------------------------------------------------------
@@ -300,6 +412,7 @@ def solve_nonlinear_static(
     num_steps: int = 10,
     imperfection: Any = None,
     fracture: Any = None,
+    resources: Any = None,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
     **solver_options: Any,
@@ -314,6 +427,10 @@ def solve_nonlinear_static(
     ``fracture`` takes the solver's ``FractureConfig`` to erode elements that
     exceed a strain measure.  Erosion is residual stiffness scaling after a
     converged increment, not crack mechanics.
+
+    ``resources`` takes a :func:`~anyfem.solve.policy.resource_policy` for
+    thread counts, determinism and a memory ceiling.  This is the one analysis
+    the solver accepts it on.
     """
 
     from anysolver import solve_static_nonlinear
@@ -333,6 +450,7 @@ def solve_nonlinear_static(
         num_steps=num_steps,
         imperfection=imperfection,
         fracture_config=fracture,
+        resource_config=resources,
         status_callback=None if progress is None else progress,
         progress_callback=_step_reporter(progress, "step"),
         **solver_options,
@@ -585,6 +703,7 @@ def solve_impact(
     timing = None
     if dt is None or t_end is None:
         _report(progress, "choosing a time step")
+        resolution = _contact_resolution(built.mesh, collision)
         timing = auto_timing(
             built.mesh,
             collision,
@@ -593,6 +712,8 @@ def solve_impact(
             steps_per_radius=steps_per_radius,
             post_contact_periods=post_contact_periods,
             skip_approach=skip_approach,
+            wave_speed=_wave_speed(built),
+            min_element_size=resolution["smallest_element"],
         )
         dt = timing.dt if dt is None else dt
         t_end = timing.t_end if t_end is None else t_end
@@ -722,12 +843,12 @@ def _impact_advice(status: str) -> str:
 
     if status == "contact_iteration_failed":
         return (
-            "The contact iteration diverged. The usual cause is a penalty "
-            "stiffness too high for the local mesh: the recommendation is "
-            "based on the whole model, so refining under the sphere makes the "
-            "structure locally softer without lowering the penalty. Pass "
-            "contact=SphereContactConfig(penalty_stiffness=...) with a lower "
-            "value, or reduce steps_per_contact's step by raising it."
+            "The contact iteration diverged, which almost always means the "
+            "time step is too coarse for the contact. Raise "
+            "steps_per_contact, or pass a smaller dt. Lowering the penalty "
+            "stiffness will also make it converge, but that changes the "
+            "contact rather than resolving it, and the absorbed energy comes "
+            "out wrong."
         )
     if status.startswith("nonlinear_"):
         return (
@@ -769,12 +890,54 @@ def _contact_resolution(mesh: Mesh, collision: Any) -> Dict[str, float]:
             )
         )
     if not lengths:
-        return {"element_size": float("nan"), "elements_per_radius": 0.0}
+        return {
+            "element_size": float("nan"),
+            "smallest_element": float("nan"),
+            "elements_per_radius": 0.0,
+        }
     size = float(np.mean(lengths))
     return {
         "element_size": size,
+        # The smallest one, which is what sets the stable time step.
+        "smallest_element": float(np.min(lengths)),
         "elements_per_radius": float(collision.radius) / size,
     }
+
+
+def _wave_speed(built: BuiltModel) -> float:
+    """The fastest dilatational wave speed in the model, ``sqrt(E / rho)``.
+
+    The fastest one, because the time step has to suit the quickest thing
+    happening. Materials without a density contribute nothing rather than an
+    infinite speed.
+
+    An orthotropic material has no single ``elastic_modulus``, so its stiffest
+    direction is used: reading only the isotropic attribute would quietly
+    return zero, and a zero wave speed does not raise anything -- it just drops
+    the transit-time bound on the impact step and lets a refined contact
+    diverge again.
+    """
+
+    speeds = [0.0]
+    for material in built.fe_model.materials.values():
+        density = float(getattr(material, "density", 0.0) or 0.0)
+        if density <= 0.0:
+            continue
+        modulus = _stiffest_modulus(material)
+        if modulus > 0.0:
+            speeds.append(float(np.sqrt(modulus / density)))
+    return max(speeds)
+
+
+def _stiffest_modulus(material: Any) -> float:
+    """The largest direct elastic modulus a material declares."""
+
+    moduli = [float(getattr(material, "elastic_modulus", 0.0) or 0.0)]
+    for axis in (1, 2, 3):
+        moduli.append(
+            float(getattr(material, f"elastic_modulus_{axis}", 0.0) or 0.0)
+        )
+    return max(moduli)
 
 
 def _deleted_elements(result: Any) -> tuple:

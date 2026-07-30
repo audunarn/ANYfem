@@ -9,6 +9,7 @@ from .extract import (
     nodes_to_elements,
     probe,
 )
+from .history import Series, has_history, history_series
 from .fields import (
     DISPLACEMENT_FIELDS,
     STRESS_FIELDS,
@@ -36,6 +37,9 @@ from .results import (
 )
 
 __all__ = [
+    "Series",
+    "has_history",
+    "history_series",
     "BucklingSolution",
     "DISPLACEMENT_FIELDS",
     "Envelope",

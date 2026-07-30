@@ -13,7 +13,7 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 
 ## Status
 
-**All nine phases complete.** The application runs: model geometry, cut it into
+**All fourteen phases complete.** The application runs: model geometry, cut it into
 mappable pieces, mesh it, apply loads and supports, solve, and look at the
 results.
 
@@ -21,16 +21,17 @@ results.
 | --- | --- |
 | `anyfem.geometry` | Points, straight lines, circular arcs through a via point, faces from four edge chains with automatic corner detection, extrusion, revolution, deletion |
 | `anyfem.geometry.operations` | Splitting lines and plates, corner override, three-sided regions to quads, butterfly hole, stiffener strips, mappability diagnostics |
-| `anyfem.mesh` | Edge-seeding constraint solver, transfinite (Coons) mapped meshing, conformal node sharing, beams on lines |
+| `anyfem.mesh` | Edge-seeding constraint solver, transfinite (Coons) mapped meshing, conformal node sharing, beams on lines, local refinement zones, Q4/Q8 shells and 2/3-node beams |
 | `anyfem.model` | DNV-RP-C208 steels, plate sections, typical beam profiles, supports and prescribed displacements, pressure (dead or follower), surface traction, line and point loads, acceleration, masses, load cases and combinations, geometric imperfections |
-| `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient and rigid-sphere impact |
-| `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, Markdown and CSV export |
-| `anyfem.io` | Versioned project files, SESAM import, CalculiX deck export |
+| `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
+| `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, history series, Markdown and CSV export |
+| `anyfem.io` | Versioned project files, SESAM model and result import, CalculiX deck export and result import |
 | `anyfem.commands` | Command stack with undo/redo over every model change |
+| `anyfem.migration` | Reads ANYstructure's saved FE state without importing it; measures the migration gate |
 | `anyfem.selection` | Point/line/plate selection modes, shared by every view |
-| `anyfem.ui` | 3D viewport with picking, loads and supports overlay, model tree, stage panels, threaded solve |
+| `anyfem.ui` | 3D viewport with picking, loads and supports overlay, model tree, stage panels, XY history plot, threaded solve |
 
-Verified against closed-form solutions:
+Verified, with dated evidence under `reports/`:
 
 | Check | Reference | Result |
 | --- | --- | --- |
@@ -41,6 +42,11 @@ Verified against closed-form solutions:
 | Suddenly applied load | undamped peak = 2 × static | 2.04 |
 | Plate bending stress | `6M/t²`, `M = 0.0479 q a²` | 0.3% |
 | Beam axial stress | `P/A` | exact |
+| Eccentric stiffener neutral axis | transformed section | 0.20% |
+| Q8 plate on 16 elements | converged FE answer | 1.07% |
+| Graded element size at a zone | the size asked for | 3.5% |
+| Quarter model with symmetry | the same plate solved in full | exact |
+| Result written as FRD and read back | the solution it came from | exact |
 
 Documentation:
 
@@ -53,19 +59,27 @@ Documentation:
 ## Verification and parity
 
 ```bash
-python -m anyfem.verification      # eleven closed-form cases, dated evidence
-python -m anyfem.parity            # ANYstructure coverage and migration gate
+python -m anyfem.verification      # twenty-one cases, dated evidence
+python -m anyfem.parity            # ANYstructure capability ledger
+python -m anyfem.migration         # the migration gate, all five criteria
 ```
 
-Both write reports under `reports/`, and both are installed as `anyfem-verify`
-and `anyfem-parity`.
+All three write reports under `reports/`, and are installed as `anyfem-verify`,
+`anyfem-parity` and `anyfem-gate`.
 
 The parity ledger is the gate for eventually replacing ANYstructure's
 `fem_integration.py`. It tracks 49 capabilities across that GUI's 176 options
-and currently reports **71% covered, 11 entries open, gate not ready** — the
-largest gaps being 8-node shells, graded mesh refinement, symmetry modelling
-and result import from CalculiX and SESAM. A capability counts as covered only
-when ANYfem can do the same job.
+and reports **92% covered with nothing blocking**: every capability is either
+covered or named in `OUT_OF_SCOPE` with a reason. A capability counts as
+covered only when ANYfem can do the same job.
+
+The ledger is one of five migration criteria, and the **gate is still closed**.
+Three are met — ledger clear, `save_runtime_fem_state` files importable, the
+headless API builds every model type. Two are not, and both need the same
+thing: a fixed set of models run through ANYstructure with the results
+recorded, so ANYfem's numbers and timings have something to be compared
+against. `gate_report` reports those unmet with the reason rather than passing
+them by default.
 
 ## Install and run
 
@@ -144,6 +158,74 @@ Faces are Coons patches blended from their four sides. Where the side curves
 are straight, that reduces exactly to the ruled surface, so cylinders and cones
 are represented exactly rather than faceted — one surface type covers flat
 plates, ruled surfaces, cylinders and cones.
+
+### Symmetry
+
+Half and quarter models, with the condition checked rather than assumed:
+
+```python
+project.add_symmetry(project.edge(cut_edge), "x")               # symmetry
+project.add_symmetry(project.edge(other), "y", antisymmetric=True)
+```
+
+A symmetry plane restrains the normal translation and the two in-plane
+rotations, leaving the rotation about the normal free. A quarter plate built
+this way matches the same plate solved in full to nine figures.
+
+Two things are refused rather than approximated, because both fail silently.
+**A plane not normal to a global axis**: the solver applies boundary conditions
+in global axes with no nodal transformation, so a tilted plane could only be
+approximated, and a half model with slightly wrong symmetry still solves and
+still looks reasonable. **An entity that does not lie in the plane**: a symmetry
+condition on an edge that crosses the plane restrains the wrong degrees of
+freedom everywhere it touches.
+
+### Element order and local refinement
+
+Both are project settings, saved with the model:
+
+```python
+from anyfem.mesh import refine_around, refine_at
+
+project.set_element_order("quadratic")   # Q8 shells and 3-node beams
+project.add_refinement(refine_around(project.point(corner), size=0.02, radius=0.1))
+project.add_refinement(refine_at((2.0, 1.5, 0.0), size=0.02, radius=0.1))
+```
+
+A zone binds to a point, line or plate and asks for a smaller element size
+within a radius, growing back to the global target outside it. Seeding
+integrates the resulting size field along each edge rather than dividing length
+by target, and node placement follows the same field, so counts and positions
+cannot disagree.
+
+**Q8 is a large accuracy win**: 1.07% on a 16-element plate, where Q4 needs 256
+elements for the same 2%. Mid-side nodes sit on the curve, so a Q8 on a cylinder
+stays exactly on the cylinder. The 3-node beam is a different matter and worth
+being plain about — ANYsolver's 2-node Timoshenko beam is already *exact* for a
+tip-loaded cantilever, which a parabola cannot be, so B3 exists here so a
+stiffener can share the mid-side nodes of a Q8 shell edge, not because it is
+more accurate. A quadratic beam on a curved line is refused: the solver's B3 is
+straight-sided.
+
+One limit is inherent to mapped meshing rather than to this implementation. A
+Coons patch interior is the blend of its four sides, so **a zone in the middle
+of a plate refines nothing** — there is no interior degree of freedom to refine.
+Refining locally means decomposing locally, which is the same answer this mesher
+gives to every other awkward region:
+
+```python
+from anyfem.commands import CommandStack, RefineForImpact
+
+# Cuts the struck plate to bracket the contact patch, then refines it.
+CommandStack(project).run(
+    RefineForImpact(collision=collision, target_size=0.125, elements_per_radius=4)
+)
+```
+
+Every impact result reports `info["contact_resolution"]` — the element size at
+the contact point and how many elements lie across the sphere radius — because a
+contact patch spread over one element gives a peak force that belongs to the
+mesh rather than to the structure.
 
 ### Stiffener eccentricity
 
@@ -231,8 +313,8 @@ resolved.
 
 ```python
 from anyfem import (solve_modal, solve_buckling, solve_nonlinear_static,
-                    solve_arc_length, solve_transient, eigenmode_imperfection,
-                    steel)
+                    solve_arc_length, solve_transient, solve_capacity,
+                    eigenmode_imperfection, steel)
 from anyfem.model import fracture
 
 modal = solve_modal(project, target_size=0.1, num_modes=6)
@@ -256,6 +338,14 @@ print(eroded.deleted_elements)           # element erosion, if any triggered
 imperfection = eigenmode_imperfection(buckling, 1, amplitude=0.004)
 path = solve_arc_length(project, target_size=0.1, imperfection=imperfection)
 print(path.peak_load_factor)
+
+# The whole assessment in one call: static, prestress, buckling, imperfection,
+# collapse. The solver packages the sequence, so ANYfem does not re-chain it.
+# The amplitude is the setting that matters: too small and it is a perfect-shape
+# analysis, too large and the return mapping stops converging.
+capacity = solve_capacity(project, target_size=0.1, imperfection_amplitude=span / 500)
+print(capacity.summary())            # capacity and elastic critical, separately
+print(capacity.capacity_ratio)       # <1 imperfection sensitive, >1 post-buckling reserve
 
 transient = solve_transient(project, target_size=0.1, dt=2e-4, t_end=0.02)
 print(transient.node_history(transient.peak_node, "uz"))
@@ -310,10 +400,29 @@ exactly one of the two rather than pretending otherwise. An element that cannot
 carry a component — torsion in a shell, membrane in a beam — is left out rather
 than reported as zero.
 
+A **history** is the same idea one dimension over: a transient, an impact and an
+incremental solve all reduce to one `Series` type, so the plot never asks which
+analysis produced it.
+
+```python
+from anyfem.post import history_series
+
+for curve in history_series(transient):        # peak node by default
+    print(curve.name, len(curve), curve.peak())
+
+path = history_series(capacity)[-1]            # load factor vs displacement
+```
+
+The Results panel draws whichever series a result has, on a hand-written Tk
+canvas — no matplotlib, so the GUI's dependency set stays Tk, the same choice
+ANYtk3D makes for the 3D viewport.
+
 ## Files
 
 ```python
-from anyfem.io import save_project, load_project, import_sesam, export_calculix_deck
+from anyfem.io import (save_project, load_project, import_sesam,
+                       export_calculix_deck, import_calculix_results,
+                       import_sesam_results)
 
 save_project(project, "deck.anyfem")
 project = load_project("deck.anyfem")          # identical IDs, solves the same
@@ -322,7 +431,23 @@ model = import_sesam("hull.FEM")               # nodes and elements, no geometry
 solution = solve_linear_static(built=model.built(model.load_case()))
 
 export_calculix_deck(built, "deck.inp")
+
+# Solved elsewhere? Read the answers back onto the same model.
+results = import_calculix_results("deck.frd")
+imported = results.attach(built)               # matched by node ID
+print(imported.summary())
+stresses = import_sesam_results("hull.SIF")    # RVSTRESS shell stresses
 ```
+
+An imported result goes through the same contours, probes, paths and reports as
+a solved one — but it is not pretending to be one. A CalculiX FRD carries three
+translation components and **no rotations**, so `imported.component("rx")`
+raises rather than returning a plausible zero, and the raw array holds NaN there
+so nothing that indexes it directly can mistake the gap either. Stresses arrive
+per node, already averaged by the writing solver, and stay node-valued rather
+than being passed off as an element recovery done here. Component names are the
+file's own. A result file for a different mesh is refused with the overlap
+rather than attached partially.
 
 A project file stores the model, not its consequences — the mesh and results
 are regenerable. **Entity IDs and their counters are part of the data**, because
@@ -338,6 +463,46 @@ need.
 SESAM **export** is deliberately refused: the solver states that semantic
 export from an arbitrary model is outside its supported gate, and a file
 written anyway would look authoritative without being so.
+
+## Migrating from ANYstructure's FE GUI
+
+ANYfem is meant to replace `fem_integration.py`, and `anyfem.migration` is the
+part of that which needs code. It reads the old GUI's saved runs — **without
+importing ANYstructure**, because a `save_runtime_fem_state` file is plain or
+gzipped JSON, so it is read as data:
+
+```python
+from anyfem.migration import read_runtime_fem_state, gate_report
+
+state = read_runtime_fem_state("run.anystructure.json.gz")
+print(state.summary())
+print(state.target_size, state.element_order)   # settings ANYfem can act on
+print(state.buckling_factors)                   # what ANYstructure recorded
+print(state.unmapped_options)                   # what ANYfem cannot honour yet
+print(state.out_of_scope_options)               # and what it never will
+```
+
+Of the 176 options, **144 map** onto ANYfem settings, **24 are out of scope** by
+decision and **8 are solver internals** ANYfem does not surface. Reporting which
+is which is the point: a migration that silently dropped a setting would run a
+different analysis from the one the file asked for, and would look like it
+worked.
+
+It restores **settings and recorded numbers, not the model** — the snapshot
+describes a parametric panel, which is out of scope, and the stored
+visualisation is a plotting grid rather than a mesh, so there is no topology in
+the file to rebuild from.
+
+```bash
+anyfem-gate run.json      # all five migration criteria
+```
+
+**The gate is closed.** Three criteria are met: the ledger is clear, saved state
+is importable, and the headless API builds every ANYstructure model type — a
+stiffened panel and a cylinder, meshed and solved with no Tk loaded. Two are
+not, and both need a fixed set of models run through ANYstructure with results
+and timings recorded. The gate reports those unmet with the reason and never
+passes them by default.
 
 ## Two properties worth knowing
 
@@ -358,7 +523,7 @@ than by coincident-node merging.
 python -m pytest tests -q
 ```
 
-401 tests. GUI tests skip rather than fail when no display is available.
+522 tests. GUI tests skip rather than fail when no display is available.
 
 ## License
 

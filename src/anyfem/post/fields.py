@@ -186,15 +186,81 @@ def evaluate_field(
 
     ``stresses`` lets a caller reuse a recovery it already has, which matters
     when sweeping every step of a transient.
+
+    A name this module does not label is still evaluated if the solver's
+    recovery reports it.  The named lists here exist to give fields a unit and
+    a menu entry, not to gate what the solver is allowed to produce: recovery
+    grows components over time, and a probe that asks for everything the solver
+    knows must not fail merely because this list is a version behind it.
     """
+
+    # A result read from another solver's file carries its stresses already
+    # computed. They are looked up before anything else and never recovered:
+    # there is no displacement field here complete enough to recover from, and
+    # recomputing would silently replace the imported answer with this layer's
+    # opinion of it.
+    imported = getattr(shape, "fields", None)
+    if isinstance(imported, dict) and name in imported:
+        return imported[name]
 
     if name in DISPLACEMENT_FIELDS:
         return _displacement_field(shape, name)
+    if isinstance(imported, dict) and imported:
+        raise ValueError(
+            f"unknown field {name!r} for an imported result; it carries "
+            f"{', '.join(sorted(imported))}"
+        )
     if name in STRESS_FIELDS:
         return _stress_field(shape, name, reduction=reduction, stresses=stresses)
+
+    recovered = recover(shape) if stresses is None else stresses
+    reported = reported_fields(recovered, shape)
+    if name in reported:
+        return _stress_field(
+            shape, name, reduction=reduction, stresses=recovered
+        )
     raise ValueError(
-        f"unknown field {name!r}; expected one of {', '.join(available_fields())}"
+        f"unknown field {name!r}: neither ANYfem nor the solver's recovery "
+        f"reports it. ANYfem names {', '.join(available_fields())}; this "
+        f"result carries {', '.join(reported) or 'no stress components'}."
     )
+
+
+def reported_fields(stresses: Any, shape: Any) -> List[str]:
+    """Every element-stress component this particular result actually carries.
+
+    Taken from the recovery rather than from a list here, so a component the
+    solver has recently started reporting shows up without ANYfem being
+    changed to know its name.
+
+    Entries whose value is not a number are skipped.  Recovery carries its own
+    provenance in the same dictionary -- which equivalent-stress measure was
+    used, for instance -- and that is a label about the result, not a field
+    over it.
+    """
+
+    mesh = shape.built.mesh
+    names: List[str] = []
+    for element_id in list(mesh.quads) + list(mesh.beams):
+        stress = stresses.element_stresses.get(element_id)
+        if not stress:
+            continue
+        for name, value in stress.items():
+            if name not in names and _is_numeric(value):
+                names.append(name)
+    return names
+
+
+def _is_numeric(value: Any) -> bool:
+    """Whether a recovered entry is a number, or an array of them."""
+
+    if isinstance(value, str):
+        return False
+    try:
+        np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _displacement_field(shape, name: str) -> Field:

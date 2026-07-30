@@ -32,6 +32,7 @@ from ..model.attributes import (
     Support,
     SurfaceTraction,
 )
+from ..mesh.refinement import Refinement
 from ..model.imperfections import Imperfection
 from ..model.materials import Material
 from ..model.project import Project
@@ -147,6 +148,26 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             }
             for item in project.imperfections
         ],
+        # Meshing controls. They do not change the model, only the mesh made
+        # from it -- but a project reopened without them meshes differently
+        # from the one that was saved, which is not something a file format
+        # should let happen quietly.
+        "meshing": {
+            "element_order": project.element_order,
+            "refinements": [
+                {
+                    "name": item.name,
+                    "size": float(item.size),
+                    "radius": float(item.radius),
+                    "growth": float(item.growth),
+                    "ref": None if item.ref is None else _ref(item.ref),
+                    "center": (
+                        None if item.center is None else _vector(item.center)
+                    ),
+                }
+                for item in project.refinements
+            ],
+        },
     }
 
 
@@ -268,6 +289,25 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
                 name=entry.get("name", "imperfection"),
             )
         )
+
+    meshing = data.get("meshing")
+    if isinstance(meshing, Mapping):
+        # Absent in files written before meshing controls existed, which is
+        # what the defaults are for.
+        project.element_order = str(meshing.get("element_order", "linear"))
+        for entry in meshing.get("refinements", ()):
+            center = entry.get("center")
+            reference = entry.get("ref")
+            project.refinements.append(
+                Refinement(
+                    size=float(entry["size"]),
+                    radius=float(entry.get("radius", 0.0)),
+                    growth=float(entry.get("growth", 1.5)),
+                    ref=None if reference is None else _ref_from(reference),
+                    center=None if center is None else tuple(center),
+                    name=entry.get("name", "refinement"),
+                )
+            )
     return project
 
 

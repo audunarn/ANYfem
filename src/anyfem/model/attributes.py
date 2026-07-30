@@ -24,14 +24,20 @@ __all__ = [
     "Pressure",
     "Support",
     "SurfaceTraction",
+    "antisymmetry",
     "fixed",
     "pinned",
     "prescribed",
     "simply_supported",
     "support",
+    "symmetry",
 ]
 
 DOF_NAMES: tuple[str, ...] = ("ux", "uy", "uz", "rx", "ry", "rz")
+
+# The three planes a symmetry condition can be expressed in exactly, keyed by
+# the axis their normal points along.
+_AXES: dict[str, int] = {"x": 0, "y": 1, "z": 2}
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,99 @@ def support(ref: EntityRef, name: str | None = None, **dofs: float) -> Support:
         name=name or f"support_{ref}",
         ref=ref,
         constraints={key: float(value) for key, value in dofs.items()},
+    )
+
+
+def _symmetry_axis(normal: Sequence[float] | str) -> str:
+    """Which global axis a symmetry normal points along.
+
+    Refuses anything else.  The solver's boundary conditions are expressed in
+    global axes with no nodal transformation, so a tilted symmetry plane cannot
+    be written down exactly -- only approximated by restraining the wrong
+    directions.  Half a model with the wrong symmetry condition still solves and
+    still looks plausible, so this fails closed instead.
+    """
+
+    if isinstance(normal, str):
+        axis = normal.strip().lower()
+        if axis not in _AXES:
+            raise ValueError(
+                f"unknown symmetry plane normal {normal!r}; expected 'x', 'y' "
+                "or 'z'"
+            )
+        return axis
+
+    vector = np.asarray(normal, dtype=float)
+    if vector.shape != (3,):
+        raise ValueError("a symmetry plane normal needs three components")
+    length = float(np.linalg.norm(vector))
+    if length <= 0.0:
+        raise ValueError("a symmetry plane normal must be non-zero")
+    vector = vector / length
+
+    for axis, index in _AXES.items():
+        if abs(abs(vector[index]) - 1.0) <= 1.0e-9:
+            return axis
+    raise ValueError(
+        f"symmetry plane normal {tuple(np.round(vector, 6))} is not along a "
+        "global axis. The solver applies boundary conditions in global axes "
+        "with no nodal transformation, so a tilted symmetry plane cannot be "
+        "expressed exactly -- only approximated, which would quietly give the "
+        "wrong stiffness. Model the region with its symmetry planes on the "
+        "global axes, or model it in full."
+    )
+
+
+def symmetry(
+    ref: EntityRef, normal: Sequence[float] | str, name: str | None = None
+) -> Support:
+    """A symmetry plane: nothing crosses it, and nothing rotates out of it.
+
+    On a plane with normal ``n`` the normal translation is restrained and so
+    are the two rotations about in-plane axes; the rotation about ``n`` stays
+    free.  For a plane normal to x that is ``ux = ry = rz = 0``, which is the
+    usual XSYMM condition.
+
+    Halving a model this way is not merely a convenience -- it is often the
+    difference between a mesh that fits in memory and one that does not -- but
+    it is only valid when the *loading* is symmetric too, which is the modeller's
+    judgement and not something this function can check.
+    """
+
+    axis = _symmetry_axis(normal)
+    index = _AXES[axis]
+    constraints = {f"u{axis}": 0.0}
+    for other, position in _AXES.items():
+        if position != index:
+            constraints[f"r{other}"] = 0.0
+    return Support(
+        name=name or f"symmetry_{axis}_{ref}",
+        ref=ref,
+        constraints=constraints,
+    )
+
+
+def antisymmetry(
+    ref: EntityRef, normal: Sequence[float] | str, name: str | None = None
+) -> Support:
+    """The complement of a symmetry plane, for antisymmetric loading.
+
+    The two in-plane translations and the rotation about the normal are
+    restrained -- exactly the degrees of freedom :func:`symmetry` leaves free.
+    Used where the load is antisymmetric about the plane, such as a torsion or
+    an in-plane shear case on a half model.
+    """
+
+    axis = _symmetry_axis(normal)
+    index = _AXES[axis]
+    constraints = {f"r{axis}": 0.0}
+    for other, position in _AXES.items():
+        if position != index:
+            constraints[f"u{other}"] = 0.0
+    return Support(
+        name=name or f"antisymmetry_{axis}_{ref}",
+        ref=ref,
+        constraints=constraints,
     )
 
 

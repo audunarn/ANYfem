@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from ..commands import Command, CommandStack
 from ..io.decks import export_calculix_deck
 from ..io.project_file import load_project, save_project
+from ..io.results import import_calculix_results, import_sesam_results
 from ..io.sesam import import_sesam
 from ..solve.build import build_fe_model
 from ..model.materials import steel
@@ -423,6 +424,15 @@ class AnyFemApp(ttk.Frame):
         files.add_command(
             label="Export CalculiX deck...", command=self.guarded(self.export_deck)
         )
+        files.add_separator()
+        files.add_command(
+            label="Import CalculiX results...",
+            command=self.guarded(self.import_calculix_result),
+        )
+        files.add_command(
+            label="Import SESAM results...",
+            command=self.guarded(self.import_sesam_result),
+        )
         menu.add_cascade(label="File", menu=files)
         try:
             root.configure(menu=menu)
@@ -524,6 +534,63 @@ class AnyFemApp(ttk.Frame):
         self.refresh_all()
         self.show_mesh()
         self.viewport.fit()
+
+    def import_calculix_result(self, path: Optional[str] = None) -> None:
+        """Read a CalculiX FRD onto the current model."""
+
+        if path is None:
+            path = filedialog.askopenfilename(
+                filetypes=[
+                    ("CalculiX results", "*.frd *.FRD *.dat *.DAT"),
+                    ("All files", "*.*"),
+                ]
+            )
+            if not path:
+                return
+        self._attach_results(import_calculix_results(path))
+
+    def import_sesam_result(self, path: Optional[str] = None) -> None:
+        """Read SESAM SIF shell stresses onto the current model."""
+
+        if path is None:
+            path = filedialog.askopenfilename(
+                filetypes=[("SESAM SIF", "*.SIF *.sif"), ("All files", "*.*")]
+            )
+            if not path:
+                return
+        self._attach_results(import_sesam_results(path))
+
+    def _attach_results(self, results) -> None:
+        """Bind imported results to whatever model is loaded.
+
+        Matching is by node ID, so this needs a model that has been meshed or
+        imported.  A mismatch is reported rather than partially attached.
+        """
+
+        built = self.built()
+        if built is None:
+            raise ValueError(
+                "generate or import a mesh first: results are matched to a "
+                "model by node ID, so there has to be one to match against"
+            )
+        self.solution = results.attach(built)
+        self.set_status(results.summary())
+        self.refresh_all()
+        self.show_results()
+
+    def built(self):
+        """The built model behind the current mesh, if there is one."""
+
+        if self.imported is not None:
+            return self.imported
+        if self.mesh is None:
+            return None
+        from ..solve.build import build_fe_model
+
+        return build_fe_model(
+            self.project, self.mesh,
+            require_loads=False, require_supports=False,
+        )
 
     def export_deck(self, path: Optional[str] = None) -> None:
         if self.mesh is None:

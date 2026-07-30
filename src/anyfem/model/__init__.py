@@ -10,11 +10,13 @@ from .attributes import (
     Pressure,
     Support,
     SurfaceTraction,
+    antisymmetry,
     fixed,
     pinned,
     prescribed,
     simply_supported,
     support,
+    symmetry,
 )
 from .collision import (
     Collision,
@@ -47,6 +49,7 @@ __all__ = [
     "ProjectError",
     "Support",
     "SurfaceTraction",
+    "antisymmetry",
     "auto_timing",
     "fixed",
     "fracture",
@@ -59,4 +62,5 @@ __all__ = [
     "simply_supported",
     "steel",
     "support",
+    "symmetry",
 ]

@@ -71,14 +71,66 @@ still evidence — of a regression.
 
 ## Known open items
 
-The parity ledger lists them; run `anyfem-parity` for the current state rather
-than trusting a copy here. The largest are 8-node shell elements, graded mesh
-refinement (including around an impact zone), symmetry modelling, and result
-import from CalculiX FRD and SESAM SIF — all supported by ANYsolver but not yet
-exposed by ANYfem.
+The parity ledger has none left: every capability is covered or named in
+`OUT_OF_SCOPE` with a reason. Run `anyfem-parity` for the current state rather
+than trusting a copy here.
 
-One limit is the solver's rather than ANYfem's, and worth stating because it
-would otherwise look like a wrapper gap: plasticity is the layered-shell path,
-so beam elements stay elastic in a nonlinear solve. A stiffener that carries
-most of the moment will not yield, whatever hardening curve its material
-holds.
+**The migration gate is a separate question, and it is still closed.** Run
+`anyfem-gate`. Three of five criteria are met — ledger clear, saved ANYstructure
+FE state importable, headless API builds every model type. Two are not, and
+both need the same thing: a fixed set of models run through ANYstructure with
+the results and timings recorded, so ANYfem's have something to be compared
+against. That is not work ANYfem can do from this side, and the gate reports it
+unmet with the reason rather than passing it by default. A gate that opened
+because nobody supplied the evidence would be worse than no gate.
+
+**An imported result is not a solved one**, and the difference is enforced. A
+CalculiX FRD has three displacement components and no rotations, so asking an
+imported result for a rotation raises rather than returning zero, and the raw
+array holds NaN where a component is absent. Imported stresses stay node-valued
+and are never recovered over: `evaluate_field` finds them before it would
+recompute, so the file's answer is what gets reported.
+
+**ANYfem models isotropic steel.** The solver has orthotropic materials with a
+Hill yield criterion; ANYfem does not author them, but nothing in this layer may
+break a model that has them, since results, recovery, fields, probes and the
+impact time step all handle solver material objects. Two rules follow, and both
+are tested: never read an isotropic-only attribute without a fallback, and never
+filter stress components against a list held here — recovery grows components,
+and a frozen whitelist discards new ones while everything still appears to run.
+
+Some limits are the solver's rather than ANYfem's, and are worth stating because
+they would otherwise look like wrapper gaps:
+
+- **Plasticity is the layered-shell path.** Beam elements stay elastic in a
+  nonlinear solve, so a stiffener carrying most of the moment will not yield,
+  whatever hardening curve its material holds.
+- **The 3-node beam is not more accurate than the 2-node one.** ANYsolver's
+  2-node Timoshenko beam is exact for a tip-loaded cantilever; B3 gives
+  `PL³/4EI` against `PL³/3EI` on one element. Both are exact in pure bending, so
+  B3 is correct — it exists in ANYfem for compatibility with Q8 shell edges, not
+  for accuracy. B3 is also straight-sided, so a quadratic beam on a curved line
+  is refused.
+- **A diverged contact iteration is refused, not reported.** A run ending in
+  `contact_iteration_failed` has a peak force and an absorbed energy that are
+  whatever the integration reached before giving up — plausible magnitudes and
+  no meaning. `solve_impact` raises rather than returning them; pass
+  `strict=False` to inspect a partial result deliberately. If it happens, the
+  cause is nearly always too coarse a time step: raise `steps_per_contact`.
+  Lowering the penalty stiffness will also make it converge and is the wrong
+  fix — it changes the contact instead of resolving it, and on the verification
+  plate it put absorbed energy at 0.06 kJ against the correct 0.45 kJ.
+
+- **A resource policy does not reach every analysis.** The solver accepts one on
+  the nonlinear static solve — and therefore the capacity workflow — and on
+  stress recovery. Linear, modal, buckling, arc-length and transient do not take
+  one, so ANYfem does not offer it there rather than accepting it and dropping
+  it.
+- **Symmetry planes must be normal to a global axis.** Boundary conditions are
+  applied in global axes with no nodal transformation, so a tilted plane is
+  refused rather than approximated.
+
+And one limit is inherent to mapped meshing, not to any implementation choice:
+a Coons patch interior is the transfinite blend of its boundary, so a refinement
+zone inside a plate refines nothing until the plate is decomposed. This is why
+`RefineForImpact` is a geometry command.
