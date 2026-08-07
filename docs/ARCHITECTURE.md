@@ -1,13 +1,15 @@
 # ANYfem architecture
 
 This describes the package as built. See
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for why it is built this
-way, and [`QUALITY_CONTROL.md`](QUALITY_CONTROL.md) for how to check it.
+[`QUALITY_CONTROL.md`](QUALITY_CONTROL.md) for how to check it.
 
 ## Boundaries
 
 ```text
 ANYfem  ->  ANYsolver     analysis
+        ->  ANYmaterial   material specifications
+        ->  ANYmesher     geometry and neutral meshing
+        ->  ANYfileio     FE interchange formats
         ->  ANYtk3D       viewport (only anyfem.ui needs it)
 ```
 
@@ -16,18 +18,17 @@ including `migration.py`, which reads the old GUI's saved state as plain JSON.
 That is the rule paying for itself: ANYfem consumes ANYstructure's output
 without depending on ANYstructure, and there is a test asserting no
 `anystruct` module is ever loaded.
-ANYsolver owns the physics and its own qualification; ANYfem owns geometry,
-meshing, attribution, the application and postprocessing. Where the solver
-already answers a question — steel properties, section properties, stress
-recovery, imperfection fields — ANYfem calls it rather than reimplementing it,
-so the two cannot diverge.
+ANYsolver owns the physics and its qualification. ANYmaterial owns material
+behavior, ANYmesher owns the geometry kernel and neutral mesh, and ANYfileio
+owns interchange syntax. ANYfem owns attribution, application workflow and
+postprocessing, retaining its historical geometry/mesh import paths as shims.
 
 ## Layers
 
 | Module | Responsibility |
 | --- | --- |
-| `geometry/` | Persistent-ID vertices, edges and faces; curve evaluation; Coons surfaces; primitives, sweeps and decomposition. |
-| `mesh/` | Edge-seeding constraint solver, local refinement size field, transfinite mapped meshing at linear or quadratic order, beams on lines, and the geometry-to-mesh association. |
+| `geometry/` | Compatibility paths over ANYmesher's persistent-ID geometry, curves, surfaces, primitives, sweeps and decomposition. |
+| `mesh/` | Compatibility paths over ANYmesher's seeding, refinement and mapped-mesh implementation; ANYfem retains the application association between geometry and analysis attributes. |
 | `model/` | Materials, sections, supports (including symmetry planes), loads, cases, combinations, imperfections — all keyed to geometry entity IDs. |
 | `solve/` | FEModel construction, analysis dispatch, and recovery/resource policy. |
 | `post/` | Fields, probes, paths, envelopes, history series, results and reports. |

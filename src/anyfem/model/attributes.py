@@ -40,6 +40,32 @@ DOF_NAMES: tuple[str, ...] = ("ux", "uy", "uz", "rx", "ry", "rz")
 _AXES: dict[str, int] = {"x": 0, "y": 1, "z": 2}
 
 
+def _finite_scalar(value: float, what: str) -> float:
+    """Return one modelling scalar, refusing flags and non-finite values."""
+
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{what} is a numeric value, not a boolean flag")
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be a finite number") from None
+    if not np.isfinite(resolved):
+        raise ValueError(f"{what} must be a finite number")
+    return resolved
+
+
+def _vector3(values: Sequence[float], what: str) -> np.ndarray:
+    """Return an owned, finite xyz vector with an actionable shape error."""
+
+    try:
+        vector = np.asarray(values, dtype=float)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} needs three finite components") from None
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)):
+        raise ValueError(f"{what} needs three finite components")
+    return vector.copy()
+
+
 @dataclass(frozen=True)
 class Support:
     """Prescribed degrees of freedom on one geometry entity."""
@@ -57,6 +83,18 @@ class Support:
             )
         if not self.constraints:
             raise ValueError(f"support {self.name!r} constrains nothing")
+        constraints = {}
+        for dof, value in self.constraints.items():
+            if isinstance(value, (bool, np.bool_)):
+                raise ValueError(
+                    f"support {self.name!r} constraint {dof} is a prescribed "
+                    "displacement, not a flag; use a numeric value, not a "
+                    "boolean flag"
+                )
+            constraints[dof] = _finite_scalar(
+                value, f"support {self.name!r} constraint {dof}"
+            )
+        object.__setattr__(self, "constraints", constraints)
 
 
 def support(ref: EntityRef, name: str | None = None, **dofs: float) -> Support:
@@ -68,17 +106,10 @@ def support(ref: EntityRef, name: str | None = None, **dofs: float) -> Support:
     and gives a wrong answer, which is the worst kind of mistake to allow.
     """
 
-    for key, value in dofs.items():
-        if isinstance(value, bool):
-            raise ValueError(
-                f"support({key}={value!r}): the value is a prescribed "
-                f"displacement, not a flag. Use {key}=0.0 to restrain the "
-                f"degree of freedom."
-            )
     return Support(
         name=name or f"support_{ref}",
         ref=ref,
-        constraints={key: float(value) for key, value in dofs.items()},
+        constraints=dict(dofs),
     )
 
 
@@ -104,6 +135,8 @@ def _symmetry_axis(normal: Sequence[float] | str) -> str:
     vector = np.asarray(normal, dtype=float)
     if vector.shape != (3,):
         raise ValueError("a symmetry plane normal needs three components")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError("a symmetry plane normal needs three finite components")
     length = float(np.linalg.norm(vector))
     if length <= 0.0:
         raise ValueError("a symmetry plane normal must be non-zero")
@@ -218,11 +251,7 @@ def prescribed(ref: EntityRef, name: str | None = None, **dofs: float) -> Suppor
 
     if not dofs:
         raise ValueError("a prescribed displacement needs at least one value")
-    return Support(
-        name=name or f"prescribed_{ref}",
-        ref=ref,
-        constraints={key: float(value) for key, value in dofs.items()},
-    )
+    return support(ref, name=name or f"prescribed_{ref}", **dofs)
 
 
 @dataclass(frozen=True)
@@ -239,8 +268,10 @@ class Mass:
     name: str = "mass"
 
     def __post_init__(self) -> None:
-        if self.value < 0.0:
+        value = _finite_scalar(self.value, f"mass {self.name!r}")
+        if value < 0.0:
             raise ValueError(f"mass {self.name!r} must not be negative")
+        object.__setattr__(self, "value", value)
 
 
 @dataclass(frozen=True)
@@ -253,6 +284,13 @@ class Combination:
     def __post_init__(self) -> None:
         if not self.factors:
             raise ValueError(f"combination {self.name!r} combines nothing")
+        factors = {
+            case: _finite_scalar(
+                factor, f"combination {self.name!r} factor for {case!r}"
+            )
+            for case, factor in self.factors.items()
+        }
+        object.__setattr__(self, "factors", factors)
 
 
 @dataclass(frozen=True)
@@ -266,6 +304,8 @@ class PointLoad:
     def __post_init__(self) -> None:
         if self.ref.kind != "vertex":
             raise ValueError("a point load applies to a point")
+        object.__setattr__(self, "force", _vector3(self.force, "point-load force"))
+        object.__setattr__(self, "moment", _vector3(self.moment, "point-load moment"))
 
 
 @dataclass(frozen=True)
@@ -278,6 +318,7 @@ class Pressure:
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
             raise ValueError("a pressure applies to a plate")
+        object.__setattr__(self, "value", _finite_scalar(self.value, "pressure"))
 
 
 @dataclass(frozen=True)
@@ -290,6 +331,11 @@ class LineLoad:
     def __post_init__(self) -> None:
         if self.ref.kind != "edge":
             raise ValueError("a line load applies to a line")
+        object.__setattr__(
+            self,
+            "force_per_length",
+            _vector3(self.force_per_length, "line-load force per length"),
+        )
 
 
 @dataclass(frozen=True)
@@ -307,6 +353,9 @@ class SurfaceTraction:
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
             raise ValueError("a surface traction applies to a plate")
+        object.__setattr__(
+            self, "traction", _vector3(self.traction, "surface traction")
+        )
 
 
 @dataclass
@@ -336,14 +385,14 @@ class LoadCase:
     ) -> PointLoad:
         load = PointLoad(
             ref=ref,
-            force=np.asarray(force, dtype=float),
-            moment=np.asarray(moment, dtype=float),
+            force=force,  # type: ignore[arg-type]
+            moment=moment,  # type: ignore[arg-type]
         )
         self.point_loads.append(load)
         return load
 
     def add_pressure(self, ref: EntityRef, value: float) -> Pressure:
-        load = Pressure(ref=ref, value=float(value))
+        load = Pressure(ref=ref, value=value)
         self.pressures.append(load)
         return load
 
@@ -351,7 +400,7 @@ class LoadCase:
         self, ref: EntityRef, force_per_length: Sequence[float]
     ) -> LineLoad:
         load = LineLoad(
-            ref=ref, force_per_length=np.asarray(force_per_length, dtype=float)
+            ref=ref, force_per_length=force_per_length  # type: ignore[arg-type]
         )
         self.line_loads.append(load)
         return load
@@ -360,7 +409,7 @@ class LoadCase:
         self, ref: EntityRef, traction: Sequence[float]
     ) -> SurfaceTraction:
         load = SurfaceTraction(
-            ref=ref, traction=np.asarray(traction, dtype=float)
+            ref=ref, traction=traction  # type: ignore[arg-type]
         )
         self.surface_tractions.append(load)
         return load
@@ -368,7 +417,7 @@ class LoadCase:
     def set_gravity(
         self, gx: float = 0.0, gy: float = 0.0, gz: float = -9.81
     ) -> None:
-        self.gravity = np.array([gx, gy, gz], dtype=float)
+        self.gravity = _vector3((gx, gy, gz), "gravity")
 
     def set_acceleration(
         self, ax: float = 0.0, ay: float = 0.0, az: float = 0.0
@@ -379,7 +428,7 @@ class LoadCase:
         over the structural mass -- so setting one replaces the other.
         """
 
-        self.gravity = np.array([ax, ay, az], dtype=float)
+        self.gravity = _vector3((ax, ay, az), "acceleration")
 
     def set_follower_pressure(self, follower: bool = True) -> None:
         """Make this case's pressures act on the deformed configuration."""

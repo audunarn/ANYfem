@@ -1,73 +1,90 @@
-"""Materials.
+"""Application-facing material specifications backed by ANYmaterial.
 
-Steel grades resolve through the solver's own DNV-RP-C208 table so grade and
-thickness rules cannot diverge between ANYfem and ANYsolver.  That lookup fails
-closed outside the tabulated thickness range, and so does this wrapper.
+ANYfem stores descriptions rather than live constitutive objects so project
+files remain JSON serializable. ``Material`` keeps the historical isotropic
+constructor while also accepting the full ``MaterialSpec`` schema.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any, Optional
 
-from anysolver import dnv_c208_steel_properties
+from anymaterial import MaterialSpec, dnv_c208_steel_properties
 
-__all__ = ["Material", "steel"]
+__all__ = ["Material", "MaterialSpec", "steel"]
 
 
-@dataclass(frozen=True)
-class Material:
-    """An isotropic material in SI units.
-
-    ``hardening`` records *how to build* the curve rather than the curve
-    itself: ``("dnv_c208", grade, thickness)``.  A live curve object could not
-    be written to a project file, and a material that silently lost its
-    hardening on save would turn a plastic analysis elastic without saying so.
-    """
-
-    name: str
-    elastic_modulus: float
-    poisson_ratio: float
-    density: float = 7850.0
-    yield_stress: float = 0.0
-    hardening: Optional[Tuple[str, str, float]] = None
-
-    def __post_init__(self) -> None:
-        if self.elastic_modulus <= 0.0:
-            raise ValueError(f"material {self.name!r}: elastic modulus must be positive")
-        if not -1.0 < self.poisson_ratio < 0.5:
+def _hardening_descriptor(value: Any) -> Optional[dict[str, Any]]:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if len(value) != 3:
+            raise ValueError("a legacy hardening descriptor needs kind, grade and thickness")
+        kind, grade, thickness = value
+        if str(kind) != "dnv_c208":
             raise ValueError(
-                f"material {self.name!r}: Poisson ratio {self.poisson_ratio} "
-                "is outside the physically admissible range"
+                f"unknown hardening source {kind!r}; only 'dnv_c208' is available"
             )
-        if self.density < 0.0:
-            raise ValueError(f"material {self.name!r}: density must not be negative")
-        if self.hardening is not None and self.hardening[0] != "dnv_c208":
-            raise ValueError(
-                f"material {self.name!r}: unknown hardening source "
-                f"{self.hardening[0]!r}; only 'dnv_c208' is available"
-            )
+        return {
+            "kind": "dnv_c208",
+            "grade": str(grade),
+            "thickness": float(thickness),
+        }
+    raise TypeError("hardening must be a descriptor mapping or legacy 3-item sequence")
+
+
+class Material(MaterialSpec):
+    """A ``MaterialSpec`` with ANYfem's former isotropic constructor."""
+
+    def __init__(
+        self,
+        name: str,
+        elastic_modulus: Optional[float] = None,
+        poisson_ratio: Optional[float] = None,
+        density: float = 7850.0,
+        yield_stress: float = 0.0,
+        hardening: Any = None,
+        *,
+        symmetry: str = "isotropic",
+        constants: Optional[Mapping[str, float]] = None,
+        hill: Optional[Mapping[str, float]] = None,
+    ) -> None:
+        if constants is None:
+            if elastic_modulus is None or poisson_ratio is None:
+                raise ValueError(
+                    "an isotropic material needs elastic_modulus and poisson_ratio"
+                )
+            constants = {
+                "elastic_modulus": float(elastic_modulus),
+                "poisson_ratio": float(poisson_ratio),
+            }
+        super().__init__(
+            name=str(name),
+            symmetry=str(symmetry),
+            constants=dict(constants),
+            density=float(density),
+            yield_stress=float(yield_stress),
+            hardening=_hardening_descriptor(hardening),
+            hill=None if hill is None else dict(hill),
+        )
+        # MaterialSpec validates the schema. Building also validates the actual
+        # constants immediately, preserving ANYfem's fail-fast constructor.
+        self.build()
 
     @property
-    def is_nonlinear(self) -> bool:
-        """Whether this material yields, rather than staying elastic."""
+    def elastic_modulus(self) -> float:
+        if self.symmetry != "isotropic":
+            raise AttributeError("an orthotropic material has directional elastic moduli")
+        return float(self.constants["elastic_modulus"])
 
-        return self.hardening is not None
-
-    def hardening_curve(self) -> Optional[Any]:
-        """Build the true stress/true plastic strain curve, or None.
-
-        Rebuilt from the solver's table on demand, so the curve a nonlinear
-        solve uses is always the solver's own rather than a stored copy that
-        could age.
-        """
-
-        if self.hardening is None:
-            return None
-        from anysolver import dnv_c208_steel_curve
-
-        _kind, grade, thickness = self.hardening
-        return dnv_c208_steel_curve(grade, float(thickness))
+    @property
+    def poisson_ratio(self) -> float:
+        if self.symmetry != "isotropic":
+            raise AttributeError("an orthotropic material has directional Poisson ratios")
+        return float(self.constants["poisson_ratio"])
 
 
 def steel(
@@ -78,17 +95,11 @@ def steel(
     density: float = 7850.0,
     nonlinear: bool = False,
 ) -> Material:
-    """Build a steel material from the solver's validated RP-C208 table.
-
-    ``thickness`` is in metres and selects the table row, matching solver SI
-    units.  ``nonlinear=True`` attaches the matching hardening curve; without
-    it a nonlinear solve is geometrically nonlinear but the material stays
-    elastic, which is a different analysis and worth asking for explicitly.
-    """
+    """Build a serializable steel specification from ANYmaterial's table."""
 
     properties = dnv_c208_steel_properties(grade, thickness)
     return Material(
-        name=name or grade,
+        name=name or str(properties["grade"]),
         elastic_modulus=float(properties["E_pa"]),
         poisson_ratio=0.3,
         density=density,

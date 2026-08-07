@@ -50,6 +50,7 @@ from .model import (
 )
 from .post import (
     BucklingSolution,
+    ImpactSolution,
     LinearSolution,
     ModalSolution,
     NonlinearSolution,
@@ -66,6 +67,7 @@ from .solve import (
     resource_policy,
     solve_buckling,
     solve_capacity,
+    solve_impact,
     solve_linear_static,
     solve_modal,
     solve_nonlinear_static,
@@ -83,6 +85,7 @@ __all__ = [
     "Face",
     "GeometryError",
     "GeometryModel",
+    "ImpactSolution",
     "LinearSolution",
     "LoadCase",
     "Material",
@@ -113,6 +116,7 @@ __all__ = [
     "resource_policy",
     "solve_buckling",
     "solve_capacity",
+    "solve_impact",
     "solve_linear_static",
     "solve_modal",
     "solve_nonlinear_static",

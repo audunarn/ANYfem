@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Dict
+from typing import Dict, Optional
 
 from ..geometry.entities import EntityRef
 from ..model.project import Project
@@ -29,6 +29,8 @@ class ModelTree(ttk.Frame):
         self.selection = selection
         self._syncing = False
         self._open_state: Dict[str, bool] = {}
+        self._row_refs: Dict[str, EntityRef] = {}
+        self._scroll_fraction = 0.0
 
         self.tree = ttk.Treeview(self, show="tree", selectmode="extended")
         scroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
@@ -46,15 +48,21 @@ class ModelTree(ttk.Frame):
         self._remember_open_state()
         self._syncing = True
         try:
+            self._row_refs.clear()
             self.tree.delete(*self.tree.get_children())
             geometry = self.project.geometry
 
             materials = self._group("materials", "Materials")
             for name, material in sorted(self.project.materials.items()):
+                if material.symmetry == "isotropic":
+                    modulus = material.constants["elastic_modulus"] / 1e9
+                    description = f"E={modulus:g} GPa"
+                else:
+                    description = "orthotropic"
                 self._leaf(
                     materials,
                     f"material:{name}",
-                    f"{name}   E={material.elastic_modulus / 1e9:g} GPa",
+                    f"{name}   {description}",
                 )
 
             sections = self._group("sections", "Sections")
@@ -107,29 +115,70 @@ class ModelTree(ttk.Frame):
             for index, support in enumerate(self.project.supports):
                 dofs = ",".join(sorted(support.constraints))
                 self._leaf(
-                    supports, f"support:{index}", f"{support.ref}   {dofs}"
+                    supports,
+                    f"support:{index}",
+                    f"{support.name}   {support.ref}   {dofs}",
+                    ref=support.ref,
                 )
 
-            loads = self._group("loads", "Loads")
+            masses = self._group(
+                "masses", f"Masses ({len(self.project.masses)})"
+            )
+            for index, mass in enumerate(self.project.masses):
+                self._leaf(
+                    masses,
+                    f"mass:{index}",
+                    f"{mass.name}   {mass.value:g} kg at {mass.ref}",
+                    ref=mass.ref,
+                )
+
+            total_loads = sum(
+                len(case.point_loads)
+                + len(case.pressures)
+                + len(case.line_loads)
+                + len(case.surface_tractions)
+                + int(case.gravity is not None)
+                for case in self.project.load_cases.values()
+            )
+            loads = self._group("loads", f"Loads ({total_loads})")
             for name, case in sorted(self.project.load_cases.items()):
-                case_node = self._leaf(loads, f"case:{name}", f"Case {name}")
+                case_count = (
+                    len(case.point_loads)
+                    + len(case.pressures)
+                    + len(case.line_loads)
+                    + len(case.surface_tractions)
+                    + int(case.gravity is not None)
+                )
+                case_node = self._leaf(
+                    loads, f"case:{name}", f"Case {name} ({case_count})"
+                )
                 for load in case.point_loads:
                     self._leaf(
                         case_node,
                         f"load:{name}:point:{id(load)}",
                         f"Point load at {load.ref}",
+                        ref=load.ref,
                     )
                 for load in case.pressures:
                     self._leaf(
                         case_node,
                         f"load:{name}:pressure:{id(load)}",
                         f"Pressure {load.value:g} Pa on {load.ref}",
+                        ref=load.ref,
                     )
                 for load in case.line_loads:
                     self._leaf(
                         case_node,
                         f"load:{name}:line:{id(load)}",
                         f"Line load on {load.ref}",
+                        ref=load.ref,
+                    )
+                for load in case.surface_tractions:
+                    self._leaf(
+                        case_node,
+                        f"load:{name}:traction:{id(load)}",
+                        f"Surface traction on {load.ref}",
+                        ref=load.ref,
                     )
                 if case.gravity is not None:
                     self._leaf(
@@ -144,10 +193,23 @@ class ModelTree(ttk.Frame):
     def _group(self, key: str, label: str) -> str:
         return self.tree.insert("", "end", iid=key, text=label, open=True)
 
-    def _leaf(self, parent: str, key: str, label: str) -> str:
-        return self.tree.insert(parent, "end", iid=key, text=label)
+    def _leaf(
+        self,
+        parent: str,
+        key: str,
+        label: str,
+        *,
+        ref: Optional[EntityRef] = None,
+    ) -> str:
+        item = self.tree.insert(parent, "end", iid=key, text=label)
+        if ref is not None:
+            self._row_refs[key] = ref
+        return item
 
     def _remember_open_state(self) -> None:
+        view = self.tree.yview()
+        if view:
+            self._scroll_fraction = float(view[0])
         for key in self.tree.get_children():
             self._open_state[key] = bool(self.tree.item(key, "open"))
 
@@ -155,6 +217,7 @@ class ModelTree(ttk.Frame):
         for key, is_open in self._open_state.items():
             if self.tree.exists(key):
                 self.tree.item(key, open=is_open)
+        self.tree.yview_moveto(self._scroll_fraction)
 
     # ------------------------------------------------------------------
     def _on_tree_select(self, _event: tk.Event) -> None:
@@ -164,7 +227,10 @@ class ModelTree(ttk.Frame):
             return
         refs = [
             ref
-            for ref in (parse_entity_tag(key) for key in self.tree.selection())
+            for ref in (
+                parse_entity_tag(key) or self._row_refs.get(key)
+                for key in self.tree.selection()
+            )
             if ref is not None
         ]
         if not refs or refs == self.selection.items:

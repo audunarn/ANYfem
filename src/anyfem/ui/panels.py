@@ -20,7 +20,7 @@ from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
 from ..model.attributes import DOF_NAMES, Support
 from ..model.imperfections import Imperfection
-from ..model.materials import steel
+from ..model.materials import Material, steel
 from ..model.sections import PROFILES, BeamSection
 from ..model.project import ProjectError
 from ..post.extract import along_line, envelope, probe
@@ -29,6 +29,14 @@ from ..post.history import history_series
 from ..post.report import field_to_csv, write_csv, write_report
 from ..selection import SELECTION_MODES, mode_label
 from .plot import HistoryPlot
+from .scene import (
+    COLOR_LOAD,
+    COLOR_MASS,
+    COLOR_MOMENT,
+    COLOR_PRESSURE,
+    COLOR_ROTATION,
+    COLOR_SUPPORT,
+)
 
 __all__ = [
     "GeometryPanel",
@@ -289,8 +297,7 @@ class GeometryPanel(StagePanel):
     def _split_lines(self) -> None:
         edges = self.require_selection("edge")
         fraction = self.number(self._fraction, "fraction")
-        for ref in edges:
-            self.app.run(cmd.SplitEdge(ref.id, fraction))
+        self.app.run_many(cmd.SplitEdge(ref.id, fraction) for ref in edges)
         self.app.selection.clear()
         self.app.set_status(f"split {len(edges)} line(s)")
 
@@ -298,8 +305,9 @@ class GeometryPanel(StagePanel):
         faces = self.require_selection("face")
         axis = int(self._axis.get())
         fraction = self.number(self._fraction, "fraction")
-        for ref in faces:
-            self.app.run(cmd.SplitFace(ref.id, axis, fraction))
+        self.app.run_many(
+            cmd.SplitFace(ref.id, axis, fraction) for ref in faces
+        )
         self.app.selection.clear()
         self.app.set_status(f"split {len(faces)} plate(s)")
 
@@ -307,10 +315,10 @@ class GeometryPanel(StagePanel):
         faces = self.require_selection("face")
         axis = int(self._axis.get())
         count = int(self.number(self._strips, "strips"))
-        made = 0
-        for ref in faces:
-            strips, _dividers = self.app.run(cmd.StripFace(ref.id, axis, count))
-            made += len(strips)
+        results = self.app.run_many(
+            cmd.StripFace(ref.id, axis, count) for ref in faces
+        )
+        made = sum(len(strips) for strips, _dividers in results)
         self.app.selection.clear()
         self.app.set_status(f"made {made} strip(s)")
 
@@ -357,8 +365,7 @@ class GeometryPanel(StagePanel):
     def _delete(self) -> None:
         items = self.require_selection(self.app.selection.mode)
         self.app.selection.clear()
-        for ref in items:
-            self.app.run(cmd.DeleteEntity(ref))
+        self.app.run_many(cmd.DeleteEntity(ref) for ref in items)
         self.app.set_status(f"deleted {len(items)} entity(ies)")
 
 
@@ -381,6 +388,7 @@ class MeshPanel(StagePanel):
             width=12,
         ).pack(side="left", fill="x", expand=True)
         self.button(controls, "Generate mesh", self._generate)
+        self.button(controls, "Open ANYmesher...", self._open_mesher)
 
         seeding = self.section("Seeding")
         self._divisions = self.entry_row(seeding, "divisions", "4")
@@ -429,12 +437,11 @@ class MeshPanel(StagePanel):
         if mesh is None:
             self._stats.configure(text="no mesh")
         else:
-            shells = "8-node" if mesh.is_quadratic else "4-node"
             beams = "3-node" if mesh.is_quadratic else "2-node"
             self._stats.configure(
                 text=(
                     f"{mesh.num_nodes} nodes\n"
-                    f"{len(mesh.quads)} {shells} shell elements\n"
+                    f"{len(mesh.shells)} shell elements\n"
                     f"{len(mesh.beams)} {beams} beam elements"
                 )
             )
@@ -444,8 +451,23 @@ class MeshPanel(StagePanel):
         if size <= 0:
             raise ValueError("element size must be positive")
         if self._order.get() != self.app.project.element_order:
-            self.app.stack.run(cmd.SetElementOrder(order=self._order.get()))
+            self.app.run(cmd.SetElementOrder(order=self._order.get()))
         self.app.generate_mesh(size)
+
+    def _open_mesher(self) -> None:
+        """Open ANYmesher as a standalone neutral-mesh tool.
+
+        Its parametric primitives are not associated with this project's BRep,
+        so presenting its generic mesh as analysis-ready here would leave
+        sections, loads and supports referring to unrelated entity IDs.
+        """
+
+        from anymesher.gui import open_mesher
+
+        open_mesher(self.winfo_toplevel())
+        self.app.set_status(
+            "opened standalone ANYmesher; save its neutral mesh from that window"
+        )
 
     def _refine(self) -> None:
         """Refine around whatever is selected, whatever kind it is."""
@@ -457,10 +479,10 @@ class MeshPanel(StagePanel):
             )
         size = self.number(self._refine_size, "element size")
         radius = self.number(self._refine_radius, "radius")
-        for ref in selection:
-            self.app.stack.run(
-                cmd.AddRefinement(refinement=refine_around(ref, size, radius))
-            )
+        self.app.run_many(
+            cmd.AddRefinement(refinement=refine_around(ref, size, radius))
+            for ref in selection
+        )
         self.app.set_status(
             f"refining to {size:g} m around {len(selection)} entity(ies); "
             "generate the mesh to apply it"
@@ -497,11 +519,12 @@ class SectionPanel(StagePanel):
         self._grade = self.entry_row(material, "grade", "S355")
         self._grade_thickness = self.entry_row(material, "thickness [mm]", "10")
         self.button(material, "Add steel", self._add_material)
+        self.button(material, "Open ANYmaterial...", self._open_material_editor)
 
         plate = self.section("Plate section")
         self._plate_name = self.entry_row(plate, "name", "plate")
         self._plate_thickness = self.entry_row(plate, "thickness [mm]", "10")
-        self._plate_material = self.entry_row(plate, "material", "S355")
+        self._plate_material, self._plate_material_box = self._material_row(plate)
         self.button(plate, "Add section", self._add_plate_section)
         self.button(plate, "Assign to selected plates", self._assign_plate)
 
@@ -517,7 +540,7 @@ class SectionPanel(StagePanel):
         ).pack(side="left", fill="x", expand=True)
         self._beam_dims = self.vector_row(beam, "hw, tw, b [mm]", ("200", "10", "100"))
         self._beam_flange = self.entry_row(beam, "tf [mm]", "12")
-        self._beam_material = self.entry_row(beam, "material", "S355")
+        self._beam_material, self._beam_material_box = self._material_row(beam)
         self.button(beam, "Add section", self._add_beam_section)
         self.button(beam, "Assign to selected lines", self._assign_beam)
 
@@ -531,6 +554,14 @@ class SectionPanel(StagePanel):
         self._imperfection_label.pack(anchor="w")
 
     def refresh(self) -> None:
+        names = tuple(sorted(self.app.project.materials))
+        for variable, box in (
+            (self._plate_material, self._plate_material_box),
+            (self._beam_material, self._beam_material_box),
+        ):
+            box.configure(values=names)
+            if names and variable.get() not in names:
+                variable.set(names[0])
         count = len(self.app.project.imperfections)
         self._imperfection_label.configure(
             text="no imperfections" if not count else f"{count} imperfection(s)"
@@ -541,6 +572,40 @@ class SectionPanel(StagePanel):
         material = steel(self._grade.get().strip(), thickness)
         self.app.project.add_material(material)
         self.app.set_status(f"added material {material.name}")
+        self.app.refresh_all()
+
+    @staticmethod
+    def _material_row(parent: tk.Misc) -> tuple[tk.StringVar, ttk.Combobox]:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=1)
+        ttk.Label(row, text="material", width=16).pack(side="left")
+        variable = tk.StringVar(value="S355")
+        box = ttk.Combobox(
+            row, textvariable=variable, values=(), state="readonly", width=12
+        )
+        box.pack(side="left", fill="x", expand=True)
+        return variable, box
+
+    def _open_material_editor(self) -> None:
+        from anymaterial.gui import open_material_editor
+
+        selected = self._plate_material.get() or self._beam_material.get()
+        initial = self.app.project.materials.get(selected)
+        open_material_editor(
+            self.winfo_toplevel(), initial_spec=initial, on_apply=self._use_material
+        )
+
+    def _use_material(self, material) -> None:
+        """Add an editor result and select it for both new section types."""
+
+        if not isinstance(material, Material):
+            # Keep ANYfem's compatibility properties (elastic_modulus and
+            # poisson_ratio) while storing the complete ANYmaterial schema.
+            material = Material.from_dict(material.to_dict())
+        self.app.project.add_material(material)
+        self._plate_material.set(material.name)
+        self._beam_material.set(material.name)
+        self.app.set_status(f"using material {material.name}")
         self.app.refresh_all()
 
     def _add_plate_section(self) -> None:
@@ -555,8 +620,7 @@ class SectionPanel(StagePanel):
     def _assign_plate(self) -> None:
         faces = self.require_selection("face")
         name = self._plate_name.get().strip()
-        for ref in faces:
-            self.app.run(cmd.AssignPlate(ref.id, name))
+        self.app.run_many(cmd.AssignPlate(ref.id, name) for ref in faces)
         self.app.set_status(f"assigned {name} to {len(faces)} plate(s)")
 
     def _add_beam_section(self) -> None:
@@ -579,8 +643,7 @@ class SectionPanel(StagePanel):
     def _assign_beam(self) -> None:
         edges = self.require_selection("edge")
         name = self._beam_name.get().strip()
-        for ref in edges:
-            self.app.run(cmd.AssignBeam(ref.id, name))
+        self.app.run_many(cmd.AssignBeam(ref.id, name) for ref in edges)
         self.app.set_status(f"assigned {name} to {len(edges)} line(s)")
 
     def _add_imperfection(self) -> None:
@@ -596,12 +659,12 @@ class SectionPanel(StagePanel):
         if len(waves) != 2:
             raise ValueError("waves must be two whole numbers, e.g. 1 1")
 
-        for ref in items:
-            self.app.run(
-                cmd.AddImperfection(
-                    Imperfection(ref=ref, amplitude=amplitude, waves=waves)
-                )
+        self.app.run_many(
+            cmd.AddImperfection(
+                Imperfection(ref=ref, amplitude=amplitude, waves=waves)
             )
+            for ref in items
+        )
         self.app.set_status(f"imperfection on {len(items)} entity(ies)")
 
 
@@ -609,6 +672,17 @@ class LoadPanel(StagePanel):
     title = "Loads & BC"
 
     def build(self) -> None:
+        key = self.section("Viewport key")
+        for text, colour in (
+            ("blue arrow  pressure", COLOR_PRESSURE),
+            ("red arrow  force / prescribed translation", COLOR_LOAD),
+            ("orange arrow  moment", COLOR_MOMENT),
+            ("green axes  translational restraint", COLOR_SUPPORT),
+            ("teal axes  rotational restraint", COLOR_ROTATION),
+            ("purple marker / arrow  mass / acceleration", COLOR_MASS),
+        ):
+            ttk.Label(key, text=text, foreground=colour).pack(anchor="w")
+
         cases = self.section("Load case")
         row = ttk.Frame(cases)
         row.pack(fill="x", pady=1)
@@ -734,49 +808,53 @@ class LoadPanel(StagePanel):
         }
         if not constraints:
             raise ValueError("tick at least one degree of freedom")
-        for ref in items:
-            self.app.run(
-                cmd.AddSupport(
-                    Support(
-                        name=f"support_{ref}", ref=ref, constraints=dict(constraints)
-                    )
+        self.app.run_many(
+            cmd.AddSupport(
+                Support(
+                    name=f"support_{ref}",
+                    ref=ref,
+                    constraints=dict(constraints),
                 )
             )
+            for ref in items
+        )
         what = "prescribed" if value else "supported"
         self.app.set_status(f"{what} {len(items)} entity(ies)")
 
     def _add_pressure(self) -> None:
         faces = self.require_selection("face")
         value = self.number(self._pressure, "pressure")
-        for ref in faces:
-            self.app.run(cmd.AddPressure(ref, value, case=self.case_name()))
+        self.app.run_many(
+            cmd.AddPressure(ref, value, case=self.case_name())
+            for ref in faces
+        )
         self.app.set_status(f"pressure on {len(faces)} plate(s)")
 
     def _add_point_load(self) -> None:
         points = self.require_selection("vertex")
         force = self.vector(self._force, "force")
-        for ref in points:
-            self.app.run(
-                cmd.AddPointLoad(ref, tuple(force), case=self.case_name())
-            )
+        self.app.run_many(
+            cmd.AddPointLoad(ref, tuple(force), case=self.case_name())
+            for ref in points
+        )
         self.app.set_status(f"point load on {len(points)} point(s)")
 
     def _add_line_load(self) -> None:
         edges = self.require_selection("edge")
         intensity = self.vector(self._line, "line load")
-        for ref in edges:
-            self.app.run(
-                cmd.AddLineLoad(ref, tuple(intensity), case=self.case_name())
-            )
+        self.app.run_many(
+            cmd.AddLineLoad(ref, tuple(intensity), case=self.case_name())
+            for ref in edges
+        )
         self.app.set_status(f"line load on {len(edges)} line(s)")
 
     def _add_traction(self) -> None:
         faces = self.require_selection("face")
         traction = self.vector(self._traction, "traction")
-        for ref in faces:
-            self.app.run(
-                cmd.AddSurfaceTraction(ref, tuple(traction), case=self.case_name())
-            )
+        self.app.run_many(
+            cmd.AddSurfaceTraction(ref, tuple(traction), case=self.case_name())
+            for ref in faces
+        )
         self.app.set_status(f"traction on {len(faces)} plate(s)")
 
     def _set_acceleration(self) -> None:
@@ -787,8 +865,9 @@ class LoadPanel(StagePanel):
     def _add_mass(self) -> None:
         items = self.require_selection(self.app.selection.mode)
         value = self.number(self._mass, "mass")
-        for ref in items:
-            self.app.run(cmd.AddMass(ref, value, name=f"mass_{ref}"))
+        self.app.run_many(
+            cmd.AddMass(ref, value, name=f"mass_{ref}") for ref in items
+        )
         self.app.set_status(f"mass on {len(items)} entity(ies)")
 
     def _add_combination(self) -> None:

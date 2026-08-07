@@ -46,7 +46,7 @@ def report_markdown(
         f"- analysis: {getattr(shape, 'label', 'result')}",
         f"- status: {getattr(solution, 'status', 'ok')}",
         f"- nodes: {mesh.num_nodes}",
-        f"- shell elements: {len(mesh.quads)}",
+        f"- shell elements: {len(mesh.shells)}",
         f"- beam elements: {len(mesh.beams)}",
         f"- plates: {len(project.geometry.faces)}",
         f"- lines: {len(project.geometry.edges)}",

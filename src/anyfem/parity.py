@@ -158,12 +158,12 @@ LEDGER: Tuple[ParityEntry, ...] = (
     # -- materials -----------------------------------------------------
     ParityEntry(
         "Materials", "DNV-RP-C208 steel grades and thickness classes",
-        "covered", "Through the solver's own table.",
+        "covered", "Through ANYmaterial's canonical table.",
     ),
     ParityEntry(
         "Materials", "Nonlinear material with a hardening curve", "covered",
-        "steel(..., nonlinear=True) attaches the solver's RP-C208 curve, and "
-        "a nonlinear solve then yields. Plasticity is the layered-shell path: "
+        "steel(..., nonlinear=True) attaches ANYmaterial's RP-C208 curve, and "
+        "ANYsolver integrates it in the nonlinear solve. Plasticity is the layered-shell path: "
         "beams stay elastic, which is the solver's scope, not a wrapper "
         "limitation.",
     ),
@@ -288,21 +288,26 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "Markdown and CSV.",
     ),
     # -- interop -------------------------------------------------------
-    ParityEntry("Interop", "SESAM FEM import", "covered", ""),
+    ParityEntry(
+        "Interop", "SESAM FEM import", "covered",
+        "ANYfileio resolves the file to neutral mesh and material records; "
+        "ANYfem maps those public records into its project model.",
+    ),
     ParityEntry(
         "Interop", "SESAM SIF result import", "covered",
-        "import_sesam_results() reads RVSTRESS shell stresses through the "
-        "solver's own SIF reader, keeping the component names the file gives "
+        "import_sesam_results() reads RVSTRESS shell stresses through "
+        "ANYfileio, keeping the component names the file gives "
         "rather than mapping them onto a list here. A SIF with no shell "
         "stresses is refused with the reason, not attached empty.",
     ),
     ParityEntry(
-        "Interop", "CalculiX deck export", "covered", "",
+        "Interop", "CalculiX deck export", "covered",
+        "ANYfem flattens the solved model and ANYfileio owns deck serialization.",
     ),
     ParityEntry(
         "Interop", "CalculiX FRD/INP result import", "covered",
-        "import_calculix_results() reads FRD and DAT through the solver's "
-        "parsers and attaches them by node ID, so a model exported as a deck "
+        "import_calculix_results() reads FRD and DAT through ANYfileio and "
+        "attaches them by node ID, so a model exported as a deck "
         "can be solved elsewhere and read back into the same contours, probes "
         "and reports. An FRD carries three translation components and no "
         "rotations: asking for one raises rather than returning zero, and the "

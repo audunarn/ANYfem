@@ -19,18 +19,22 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
   "numpy>=1.26",
   "scipy>=1.11",
-  "ANYsolver>=0.1.2",
+  "ANYsolver>=0.2,<0.3",
+  "ANYmaterial>=0.1,<0.2",
+  "ANYmesher>=0.1,<0.2",
+  "ANYfileio>=0.1,<0.2",
 ]
 
 [project.optional-dependencies]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
-gui = ["ANYtk3D>=0.2.1"]
+gui = ["ANYtk3D>=0.2.1,<0.3"]
 dev = [
   "build>=1.2",
   "pytest>=8",

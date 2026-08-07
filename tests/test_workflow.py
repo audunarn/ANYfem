@@ -204,12 +204,18 @@ def compressed_plate(nonlinear: bool = True) -> Project:
     return project
 
 
-def test_the_capacity_workflow_runs_every_stage():
-    solution = solve_capacity(
+@pytest.fixture(scope="module")
+def capacity_solution():
+    """One representative workflow run serves its read-only result contracts."""
+
+    return solve_capacity(
         compressed_plate(), target_size=0.05, num_buckling_modes=3,
         imperfection_amplitude=1.0 / 500, num_steps=12,
     )
 
+
+def test_the_capacity_workflow_runs_every_stage(capacity_solution):
+    solution = capacity_solution
     assert solution.status == "completed"
     assert solution.critical_factor is not None and solution.critical_factor > 0
     assert solution.capacity_factor > 0
@@ -219,11 +225,8 @@ def test_the_capacity_workflow_runs_every_stage():
     assert len(solution.history()["load_factor"]) == len(solution.steps)
 
 
-def test_the_capacity_ratio_compares_the_two_load_factors():
-    solution = solve_capacity(
-        compressed_plate(), target_size=0.05,
-        imperfection_amplitude=1.0 / 500, num_steps=10,
-    )
+def test_the_capacity_ratio_compares_the_two_load_factors(capacity_solution):
+    solution = capacity_solution
     assert solution.capacity_ratio == pytest.approx(
         solution.capacity_factor / solution.critical_factor
     )
@@ -232,11 +235,8 @@ def test_the_capacity_ratio_compares_the_two_load_factors():
     assert solution.capacity_ratio > 1.0
 
 
-def test_the_capacity_summary_names_both_load_factors():
-    solution = solve_capacity(
-        compressed_plate(), target_size=0.05,
-        imperfection_amplitude=1.0 / 500, num_steps=8,
-    )
+def test_the_capacity_summary_names_both_load_factors(capacity_solution):
+    solution = capacity_solution
     text = solution.summary()
     assert "capacity" in text
     assert "elastic critical" in text

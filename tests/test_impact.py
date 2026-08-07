@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from anyfem import Project, pinned, steel
+from anyfem import ImpactSolution, Project, pinned, solve_impact, steel
 from anyfem.model.collision import Collision, auto_timing, impact_damage
-from anyfem.solve import ContactConfigurationError, solve_impact
+from anyfem.solve import ContactConfigurationError
 from anyfem.solve.build import build_fe_model
 
 
@@ -39,6 +39,14 @@ def sphere(speed: float = 4.0, mass: float = 200.0, **overrides) -> Collision:
     )
     settings.update(overrides)
     return Collision(**settings)
+
+
+def test_impact_analysis_is_part_of_the_top_level_api():
+    from anyfem.post import ImpactSolution as PostImpactSolution
+    from anyfem.solve import solve_impact as solve_impact_from_solve
+
+    assert ImpactSolution is PostImpactSolution
+    assert solve_impact is solve_impact_from_solve
 
 
 @pytest.fixture(scope="module")

@@ -12,11 +12,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
+import numpy as np
+
 from ..geometry.entities import EntityRef
 
 __all__ = ["Imperfection", "member_bow", "plate_mode"]
 
 IMPERFECTION_KINDS: tuple[str, ...] = ("auto", "plate_mode", "member_bow")
+
+
+def _integral_pair(values: Sequence[int], message: str) -> Tuple[int, int]:
+    """Normalize exactly two integral values without truncating fractions."""
+
+    try:
+        pair = tuple(values)
+    except TypeError:
+        raise ValueError(message) from None
+    if len(pair) != 2:
+        raise ValueError(message)
+    normalized = []
+    for value in pair:
+        if isinstance(value, (bool, np.bool_)):
+            raise ValueError(message)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(message) from None
+        if not np.isfinite(numeric) or not numeric.is_integer():
+            raise ValueError(message)
+        normalized.append(int(numeric))
+    return normalized[0], normalized[1]
 
 
 @dataclass(frozen=True)
@@ -41,14 +66,66 @@ class Imperfection:
                 f"unknown imperfection kind {self.kind!r}; expected one of "
                 f"{', '.join(IMPERFECTION_KINDS)}"
             )
-        if self.amplitude is not None and self.amplitude < 0.0:
-            raise ValueError("an imperfection amplitude must not be negative")
+        if self.amplitude is not None:
+            if isinstance(self.amplitude, (bool, np.bool_)):
+                raise ValueError(
+                    "an imperfection amplitude must be a finite, non-negative number"
+                )
+            try:
+                amplitude = float(self.amplitude)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "an imperfection amplitude must be a finite, non-negative number"
+                ) from None
+            if not np.isfinite(amplitude) or amplitude < 0.0:
+                raise ValueError(
+                    "an imperfection amplitude must be a finite, non-negative number"
+                )
+            object.__setattr__(self, "amplitude", amplitude)
+
+        try:
+            direction = np.asarray(self.direction, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "an imperfection direction needs three finite, non-zero components"
+            ) from None
+        if (
+            direction.shape != (3,)
+            or not np.all(np.isfinite(direction))
+            or float(np.linalg.norm(direction)) == 0.0
+        ):
+            raise ValueError(
+                "an imperfection direction needs three finite, non-zero components"
+            )
+        object.__setattr__(
+            self, "direction", tuple(float(value) for value in direction)
+        )
+
+        waves = _integral_pair(
+            self.waves, "wave counts must be exactly two positive integers"
+        )
+        if any(wave < 1 for wave in waves):
+            raise ValueError("wave counts must be exactly two positive integers")
+        object.__setattr__(self, "waves", waves)
+
+        # standard_plate_mode indexes the three Cartesian coordinate columns;
+        # any distinct pair is therefore supported, including vertical plates.
+        axes = _integral_pair(
+            self.axes,
+            "imperfection axes must be exactly two distinct coordinate axes "
+            "chosen from 0, 1, 2",
+        )
+        if len(set(axes)) != 2 or any(axis not in (0, 1, 2) for axis in axes):
+            raise ValueError(
+                "imperfection axes must be exactly two distinct coordinate axes "
+                "chosen from 0, 1, 2"
+            )
+        object.__setattr__(self, "axes", axes)
+
         if self.resolved_kind == "plate_mode" and self.ref.kind != "face":
             raise ValueError("a plate mode applies to a plate")
         if self.resolved_kind == "member_bow" and self.ref.kind != "edge":
             raise ValueError("a member bow applies to a line")
-        if any(int(wave) < 1 for wave in self.waves):
-            raise ValueError("wave counts must be at least 1")
 
     @property
     def resolved_kind(self) -> str:

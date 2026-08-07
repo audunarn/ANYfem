@@ -341,6 +341,36 @@ def test_the_panels_are_split_into_sections_and_loads(app):
     assert "Loads & BC" in app.panels
 
 
+def test_load_panel_explains_the_viewport_symbols(app):
+    panel = app.panels["Loads & BC"]
+    key = next(
+        child for child in panel.winfo_children()
+        if child.cget("text") == "Viewport key"
+    )
+    text = " ".join(child.cget("text") for child in key.winfo_children())
+    for meaning in (
+        "pressure", "force", "moment", "translational restraint",
+        "rotational restraint", "mass", "acceleration",
+    ):
+        assert meaning in text
+
+
+def test_mesh_panel_opens_anymesher_as_a_standalone_tool(app, monkeypatch):
+    import anymesher.gui
+
+    call = {}
+
+    def fake_open(parent, **options):
+        call.update(parent=parent, options=options)
+
+    monkeypatch.setattr(anymesher.gui, "open_mesher", fake_open)
+    app.panels["Mesh"]._open_mesher()
+
+    assert call["parent"] is app.winfo_toplevel()
+    assert call["options"] == {}
+    assert "standalone ANYmesher" in app._status.cget("text")
+
+
 def test_creating_a_case_and_a_combination_from_the_panel(app, root):
     _points, _face, loads = supported_plate(app)
     loads.guarded(loads._add_pressure)()
@@ -459,6 +489,71 @@ def test_the_overlay_does_not_break_picking(app, root):
     x = canvas.winfo_width() // 2
     y = canvas.winfo_height() // 2
     assert app.viewport.canvas.pick_at(x, y) == f"ent_face{face}"
+
+
+def test_load_and_mass_tree_rows_select_their_geometry(app, root):
+    points, face = build_plate(app)
+    app.run(cmd.AddPressure(EntityRef("face", face), 10_000.0))
+    app.run(
+        cmd.AddSurfaceTraction(
+            EntityRef("face", face), (100.0, 0.0, 0.0)
+        )
+    )
+    app.run(cmd.AddMass(EntityRef("vertex", points[0]), 25.0, name="payload"))
+    root.update()
+
+    assert app.tree.tree.item("loads", "text") == "Loads (2)"
+    case_row = app.tree.tree.get_children("loads")[0]
+    assert any(
+        ":traction:" in row
+        for row in app.tree.tree.get_children(case_row)
+    )
+    pressure_row = next(
+        row
+        for row in app.tree.tree.get_children(case_row)
+        if ":pressure:" in row
+    )
+    app.tree.tree.selection_set(pressure_row)
+    app.tree._on_tree_select(None)
+    assert app.selection.items == [EntityRef("face", face)]
+
+    mass_row = app.tree.tree.get_children("masses")[0]
+    app.tree.tree.selection_set(mass_row)
+    app.tree._on_tree_select(None)
+    assert app.selection.items == [EntityRef("vertex", points[0])]
+
+
+def test_results_view_respects_the_loads_and_bc_toggle(app, root):
+    _points, face = build_plate(app)
+    support_and_load(app, face)
+    app.generate_mesh(0.3)
+    app.solve()
+    wait_for_solution(app, root)
+
+    app._show_attributes.set(True)
+    app.show_results()
+    with_overlay = app.viewport._scene
+    assert with_overlay.arrows
+    assert with_overlay.points
+
+    app._show_attributes.set(False)
+    app.show_results()
+    without_overlay = app.viewport._scene
+    assert not without_overlay.arrows
+    assert not without_overlay.points
+
+
+def test_mesh_panel_applies_element_order_through_the_real_stack(app, root):
+    build_plate(app)
+    panel = app.panels["Mesh"]
+    panel._order.set("quadratic")
+    panel._size.set("0.5")
+
+    panel.guarded(panel._generate)()
+    root.update()
+
+    assert app.project.element_order == "quadratic"
+    assert app.mesh is not None and app.mesh.is_quadratic
 
 
 # ----------------------------------------------------------------------

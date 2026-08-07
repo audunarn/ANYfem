@@ -14,10 +14,17 @@ from anyfem import Project, pinned, solve_linear_static, steel
 from anyfem.geometry.entities import EntityRef
 from anyfem.selection import parse_entity_tag
 from anyfem.ui.scene import (
+    COLOR_LOAD,
+    COLOR_MASS,
+    COLOR_MOMENT,
+    COLOR_ROTATION,
+    COLOR_SUPPORT,
+    OVERLAY_SYMBOL_LIMIT,
     build_geometry_scene,
     build_mesh_scene,
     build_result_scene,
     face_display_polygons,
+    geometry_characteristic_size,
 )
 
 
@@ -41,6 +48,19 @@ def test_geometry_scene_covers_every_entity(plate_project):
     assert len(scene.faces) == 1
     assert len(scene.lines) == len(edges)
     assert len(scene.points) == len(points)
+
+
+def test_flat_geometry_uses_native_display_complexity(plate_project):
+    """A flat quad and straight edges need no display-only subdivision."""
+
+    project, _face, _edges, _points = plate_project
+    scene = build_geometry_scene(project)
+
+    assert sum(len(patch.polygons) for patch in scene.faces) == 1
+    assert all(len(line.points) == 2 for line in scene.lines)
+    assert geometry_characteristic_size(project.geometry) == pytest.approx(
+        np.sqrt(5.0)
+    )
 
 
 def test_every_drawn_item_carries_a_resolvable_tag(plate_project):
@@ -101,6 +121,23 @@ def test_arcs_are_drawn_as_curves_not_chords():
     points = scene.lines[0].points
     assert len(points) == 16
     assert np.linalg.norm(points, axis=1) == pytest.approx(1.0)
+
+
+def test_curved_geometry_keeps_display_tessellation():
+    project = Project()
+    geometry = project.geometry
+    start = geometry.add_point(2.0, 0.0, 0.0)
+    via = geometry.add_point(np.sqrt(2.0), np.sqrt(2.0), 0.0)
+    end = geometry.add_point(0.0, 2.0, 0.0)
+    arc = geometry.add_arc(start, via, end)
+    face = geometry.extrude([arc], (0.0, 0.0, 3.0))[0]
+
+    scene = build_geometry_scene(project)
+
+    patch = next(item for item in scene.faces if item.ref.id == face)
+    curve = next(item for item in scene.lines if item.ref.id == arc)
+    assert len(patch.polygons) == 8 * 8
+    assert len(curve.points) == 24
 
 
 def test_mesh_scene_batches_one_patch_per_plate(plate_project):
@@ -191,6 +228,39 @@ def loaded_project(plate_project):
     return project, face, edges, points
 
 
+def dense_pressure_project(nx=20, ny=15):
+    project = Project("dense-overlay")
+    geometry = project.geometry
+    vertices = {
+        (i, j): geometry.add_point(float(i), float(j), 0.0)
+        for j in range(ny + 1)
+        for i in range(nx + 1)
+    }
+    horizontal = {
+        (i, j): geometry.add_line(vertices[i, j], vertices[i + 1, j])
+        for j in range(ny + 1)
+        for i in range(nx)
+    }
+    vertical = {
+        (i, j): geometry.add_line(vertices[i, j], vertices[i, j + 1])
+        for j in range(ny)
+        for i in range(nx + 1)
+    }
+    case = project.load_case()
+    for j in range(ny):
+        for i in range(nx):
+            face = geometry.add_face(
+                [
+                    horizontal[i, j],
+                    vertical[i + 1, j],
+                    horizontal[i, j + 1],
+                    vertical[i, j],
+                ]
+            )
+            case.add_pressure(project.face(face), 10_000.0)
+    return project
+
+
 def test_overlay_draws_something_for_every_attribute(plate_project):
     from anyfem.ui.scene import build_attribute_overlay
 
@@ -268,3 +338,124 @@ def test_overlay_bounds_include_the_arrows(plate_project):
     overlay = build_attribute_overlay(project)
     low, high = overlay.bounds()
     assert np.all(np.isfinite(low)) and np.all(np.isfinite(high))
+
+
+def test_overlay_does_not_build_a_hidden_geometry_scene(plate_project, monkeypatch):
+    import anyfem.ui.scene as scene_module
+
+    project, _face, _edges, _points = loaded_project(plate_project)
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("overlay rebuilt the geometry scene")
+
+    monkeypatch.setattr(scene_module, "build_geometry_scene", unexpected)
+    overlay = scene_module.build_attribute_overlay(project)
+    assert overlay.arrows and overlay.points
+
+
+def test_dense_pressure_symbols_are_capped_before_face_sampling(monkeypatch):
+    import anyfem.ui.scene as scene_module
+
+    project = dense_pressure_project()
+    sampled = []
+    normals = []
+    original = scene_module.entity_sample_points
+    original_normal = scene_module.face_normal
+
+    def counted(geometry, ref, mesh=None):
+        sampled.append(ref)
+        return original(geometry, ref, mesh)
+
+    def counted_normal(geometry, face_id):
+        normals.append(face_id)
+        return original_normal(geometry, face_id)
+
+    monkeypatch.setattr(scene_module, "entity_sample_points", counted)
+    monkeypatch.setattr(scene_module, "face_normal", counted_normal)
+    overlay = scene_module.build_attribute_overlay(project)
+
+    assert len(overlay.arrows) == OVERLAY_SYMBOL_LIMIT
+    assert len(sampled) == OVERLAY_SYMBOL_LIMIT // 4
+    assert len(normals) == OVERLAY_SYMBOL_LIMIT // 4
+    arrow_ends = np.array([arrow.end for arrow in overlay.arrows])
+    assert np.ptp(arrow_ends[:, 0]) > 18.0
+    assert np.ptp(arrow_ends[:, 1]) > 13.0
+
+
+def test_all_distributed_attributes_budget_entity_sampling(monkeypatch):
+    import anyfem.ui.scene as scene_module
+    from anyfem.model.attributes import Mass, Support
+
+    project = dense_pressure_project()
+    faces = [project.face(face_id) for face_id in project.geometry.faces]
+    edges = [project.edge(edge_id) for edge_id in project.geometry.edges]
+    for index, ref in enumerate(faces):
+        project.add_support(Support(f"face-{index}", ref, {"uz": 0.0}))
+        project.add_mass(Mass(ref, 1.0, f"face-{index}"))
+        project.load_case().add_surface_traction(ref, (0.0, 0.0, -1.0))
+    for ref in edges:
+        project.load_case().add_line_load(ref, (0.0, 0.0, -1.0))
+
+    sampled = []
+    original = scene_module.entity_sample_points
+
+    def counted(geometry, ref, mesh=None):
+        sampled.append(ref)
+        return original(geometry, ref, mesh)
+
+    monkeypatch.setattr(scene_module, "entity_sample_points", counted)
+
+    scene_module.build_attribute_overlay(
+        project, show_loads=False, show_masses=False
+    )
+    assert len(sampled) == OVERLAY_SYMBOL_LIMIT // 4
+
+    sampled.clear()
+    scene_module.build_attribute_overlay(
+        project, show_supports=False, show_loads=False
+    )
+    assert len(sampled) == OVERLAY_SYMBOL_LIMIT // 4
+
+    sampled.clear()
+    scene_module.build_attribute_overlay(
+        project, show_supports=False, show_masses=False
+    )
+    assert sum(ref.kind == "face" for ref in sampled) == 2 * (
+        OVERLAY_SYMBOL_LIMIT // 4
+    )
+    assert sum(ref.kind == "edge" for ref in sampled) == (
+        OVERLAY_SYMBOL_LIMIT // 3
+    )
+
+
+def test_support_dofs_moments_and_gravity_have_directional_symbols(plate_project):
+    from anyfem.model.attributes import Support
+    from anyfem.ui.scene import build_attribute_overlay
+
+    project, _face, edges, points = plate_project
+    project.add_support(
+        Support(
+            "directional",
+            project.edge(edges[0]),
+            {"ux": 0.0, "uy": 0.01, "rz": 0.0},
+        )
+    )
+    case = project.load_case()
+    case.add_point_load(
+        project.point(points[0]),
+        force=(0.0, 0.0, 0.0),
+        moment=(0.0, 0.0, 500.0),
+    )
+    case.set_gravity()
+
+    overlay = build_attribute_overlay(project)
+
+    assert any(line.color == COLOR_SUPPORT for line in overlay.lines)
+    assert any(line.color == COLOR_ROTATION for line in overlay.lines)
+    assert any(arrow.color == COLOR_LOAD for arrow in overlay.arrows)
+    moment = next(arrow for arrow in overlay.arrows if arrow.color == COLOR_MOMENT)
+    gravity = next(arrow for arrow in overlay.arrows if arrow.color == COLOR_MASS)
+    moment_vector = moment.end - moment.start
+    assert moment_vector[:2] == pytest.approx([0.0, 0.0])
+    assert moment_vector[2] > 0.0
+    assert (gravity.end - gravity.start)[2] < 0.0

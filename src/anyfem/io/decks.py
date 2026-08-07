@@ -1,11 +1,11 @@
 """Writing models out for other solvers.
 
-CalculiX deck generation goes through the solver's own writer, so the deck is
-whatever ANYsolver would hand to CalculiX for its verification runs -- not a
-second, divergent translation.
+CalculiX deck generation uses ANYsolver's FEModel-to-neutral-deck adapter and
+ANYfileio's canonical writer. The result is therefore what the solver would
+hand to CalculiX for its verification runs, not a second divergent translation.
 
-SESAM export is deliberately *not* offered.  ANYsolver states that semantic
-export from an arbitrary FEModel is outside its supported gate; writing one
+SESAM export is deliberately *not* offered. Semantic export from an arbitrary
+FEModel is outside the supported gate; writing one
 anyway would produce a file that looks authoritative and is not.
 """
 
@@ -69,14 +69,14 @@ def export_calculix_deck(
 def export_sesam(*_args: Any, **_kwargs: Any):
     """Refuse SESAM export, and say why.
 
-    ANYsolver supports guarded round-tripping of a SESAM *document* it parsed,
-    but not semantic export from an arbitrary model.  A file written outside
+    ANYfileio supports guarded round-tripping of a SESAM *document* it parsed,
+    but not semantic export from an arbitrary solver model. A file written outside
     that gate would look like an interchange file and would not be one, so
     ANYfem does not write it at all rather than writing something plausible.
     """
 
     raise DeckExportError(
-        "ANYfem does not export SESAM. The solver supports guarded round-trip "
+        "ANYfem does not export SESAM. ANYfileio supports guarded round-trip "
         "of a SESAM document it parsed, but semantic export from an arbitrary "
         "model is outside its supported gate, and a file written anyway would "
         "look authoritative without being so. Export a CalculiX deck, or save "

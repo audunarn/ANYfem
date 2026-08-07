@@ -16,14 +16,21 @@ python -m anyfem.verification
 python -m anyfem.parity
 ```
 
-The last two write dated evidence under `reports/`. Both are also installed as
-`anyfem-verify` and `anyfem-parity`.
+```bash
+python -m anyfem.migration
+```
+
+The verification and parity commands write dated evidence under `reports/`.
+The three checks are also installed as `anyfem-verify`, `anyfem-parity` and
+`anyfem-gate`.
 
 ## The evidence hierarchy
 
 **1. The test suite** is the working check. It covers geometry, meshing,
-attribution, analyses, postprocessing, interop and the GUI, and it runs in
-seconds. GUI tests skip rather than fail when no display is available.
+attribution, analyses, postprocessing, interop and the GUI. The complete suite
+includes several real nonlinear and impact solves, so allow a few minutes on a
+typical development machine. GUI tests skip rather than fail when no display is
+available.
 
 **2. The verification suite** is the auditable claim. Each case states what it
 is checked against and how close it has to be:
@@ -43,6 +50,14 @@ is checked against and how close it has to be:
 | DYN-01 | undamped step response peak = 2 × static |
 | IMPA-01 | sphere momentum balance closes |
 | IMPA-02 | sphere kinetic energy = ½mv² |
+| ECC-01 | transformed-section neutral-axis position |
+| ECC-02 | transformed-section stiffness ratio |
+| MATL-01 | DNV-RP-C208 proportional limit |
+| MESH-02 | requested size at a mesh-refinement zone |
+| ELEM-01 | converged Q8 plate result |
+| IMPA-03 | four contact elements per sphere radius |
+| SYMM-01 | quarter model agrees with the full model |
+| INTR-01 | a CalculiX FRD round trip preserves displacement |
 
 **3. The parity ledger** is the migration gate, not a verification. It records
 what ANYstructure's `fem_integration.py` exposes and what ANYfem covers, and

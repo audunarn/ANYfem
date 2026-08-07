@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from anymaterial import MaterialSpec
 
 from anyfem import Project, fixed, simply_supported, steel, support
 from anyfem.model import BeamSection, Material, ProjectError
@@ -27,6 +28,20 @@ def test_material_rejects_impossible_properties():
         Material(name="bad", elastic_modulus=210e9, poisson_ratio=0.7)
     with pytest.raises(ValueError, match="elastic modulus"):
         Material(name="bad", elastic_modulus=0.0, poisson_ratio=0.3)
+
+
+def test_material_from_external_spec_keeps_compatibility_properties():
+    external = MaterialSpec(
+        name="editor steel",
+        constants={"elastic_modulus": 200.0e9, "poisson_ratio": 0.29},
+        density=7800.0,
+    )
+
+    material = Material.from_dict(external.to_dict())
+
+    assert material.elastic_modulus == pytest.approx(200.0e9)
+    assert material.poisson_ratio == pytest.approx(0.29)
+    assert material.to_dict() == external.to_dict()
 
 
 def test_rectangular_bar_properties_match_hand_calculation():
@@ -58,6 +73,29 @@ def test_profile_dimensions_are_validated():
         BeamSection(name="fb", profile="Flatbar", material="S355")
     with pytest.raises(ValueError, match="web_height"):
         BeamSection(name="t", profile="T-bar", material="S355")
+
+
+def test_section_dimensions_must_be_finite():
+    from anyfem.model import PlateSection
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        PlateSection(name="plate", thickness=np.nan, material="S355")
+    with pytest.raises(ValueError, match="invalid flange_width"):
+        BeamSection(
+            name="fb", profile="Flatbar", material="S355",
+            flange_width=np.inf, flange_thickness=0.01,
+        )
+
+
+@pytest.mark.parametrize("direction", [(0.0, 1.0), (0.0, 0.0, 0.0), (0.0, np.nan, 1.0)])
+def test_web_direction_must_be_a_finite_nonzero_vector(direction):
+    with pytest.raises(ValueError, match="web_direction needs three finite"):
+        BeamSection(
+            name="t", profile="T-bar", material="S355",
+            web_height=0.2, web_thickness=0.01,
+            flange_width=0.1, flange_thickness=0.012,
+            web_direction=direction,
+        )
 
 
 def test_web_direction_reaches_the_solver_as_orientation():
@@ -148,3 +186,15 @@ def test_project_reports_every_problem_at_once():
         project.validate()
     message = str(excinfo.value)
     assert message.count("- ") >= 3
+
+
+def test_project_validation_reports_stale_attribute_references():
+    from anyfem.geometry import EntityRef
+
+    project = Project(name="stale")
+    project.load_case().add_point_load(
+        EntityRef("vertex", 999), force=(0.0, 0.0, -1.0)
+    )
+
+    with pytest.raises(ProjectError, match="point load 0 references missing vertex999"):
+        project.validate(require_supports=False)

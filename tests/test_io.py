@@ -23,6 +23,7 @@ from anyfem.io import (
     export_sesam,
     import_sesam,
     load_project,
+    project_from_dict,
     project_to_dict,
     save_project,
 )
@@ -122,6 +123,8 @@ def test_a_round_trip_preserves_every_attribute(workspace):
     assert sorted(reloaded.load_cases) == ["dead", "live"]
     assert reloaded.combinations["ULS"].factors == {"dead": 1.2, "live": 1.5}
     assert reloaded.imperfections[0].waves == (1, 2)
+    assert reloaded.imperfections[0].axes == (0, 1)
+    assert reloaded.imperfections[0].direction == (0.0, 0.0, 1.0)
     assert reloaded.imperfections[0].amplitude == pytest.approx(0.004)
 
     dead = reloaded.load_case("dead")
@@ -214,6 +217,37 @@ def test_invalid_json_is_refused(workspace):
 def test_a_missing_file_is_refused(workspace):
     with pytest.raises(ProjectFileError, match="cannot read"):
         load_project(workspace / "nothing.anyfem")
+
+
+def test_a_dangling_serialized_entity_reference_is_refused():
+    project, _face, _edges, _points, _arc = rich_project()
+    data = project_to_dict(project)
+    data["supports"][0]["ref"]["id"] = 999
+
+    with pytest.raises(ProjectFileError, match=r"support\.ref: no edge 999"):
+        project_from_dict(data)
+
+
+def test_a_serialized_section_cannot_name_an_undefined_material():
+    project, _face, _edges, _points, _arc = rich_project()
+    data = project_to_dict(project)
+    data["plate_sections"][0]["material"] = "missing"
+
+    with pytest.raises(ProjectFileError, match="no material named 'missing'"):
+        project_from_dict(data)
+
+
+def test_malformed_serialized_geometry_reports_the_data_path():
+    project, _face, _edges, _points, _arc = rich_project()
+    data = project_to_dict(project)
+    vertex_id = data["geometry"]["vertices"][0]["id"]
+    data["geometry"]["vertices"][0]["position"] = [0.0, 0.0]
+
+    with pytest.raises(
+        ProjectFileError,
+        match=rf"geometry\.vertices\[{vertex_id}\]\.position needs three finite",
+    ):
+        project_from_dict(data)
 
 
 def test_the_file_holds_the_model_not_its_consequences(workspace):
@@ -367,8 +401,8 @@ def test_a_sesam_file_with_no_supported_topology_is_refused(workspace):
         import_sesam(path)
 
 
-def test_unsupported_element_types_are_left_out_of_the_groups(workspace):
-    """A 3-node shell is not forced into a quad group."""
+def test_triangular_and_quadrilateral_shells_stay_in_the_imported_groups(workspace):
+    """ANYfileio's neutral mesh preserves both supported shell topologies."""
 
     path = workspace / "mixed.FEM"
     lines = [
@@ -389,7 +423,9 @@ def test_unsupported_element_types_are_left_out_of_the_groups(workspace):
 
     model = import_sesam(path)
     grouped = {e for ids in model.mesh.elements_of_face.values() for e in ids}
-    assert grouped == {200}
+    assert grouped == {100, 200}
+    assert model.mesh.tris[100] == (1, 2, 3)
+    assert model.mesh.quads[200] == (1, 2, 4, 3)
     assert 100 not in model.mesh.quads
 
 

@@ -2,8 +2,8 @@
 
 A model can be exported, solved somewhere else, and the answers brought back
 here to be looked at through the same contours, probes, paths and reports that
-an ANYfem solve uses.  Two formats, both parsed by ANYsolver rather than here:
-CalculiX FRD/DAT and SESAM SIF.
+an ANYfem solve uses. ANYfileio owns both supported format parsers; this module
+only adapts their neutral records to ANYfem fields and solutions.
 
 The awkward part is not the parsing.  It is that an external result does not
 carry the same things an internal one does, and the difference must not be
@@ -88,9 +88,23 @@ class ImportedResults:
 
     @property
     def has_rotations(self) -> bool:
-        """Whether the displacements include the three rotations."""
+        """Whether every displacement record includes the three rotations."""
 
-        return any(len(value) >= 6 for value in self.displacements.values())
+        return bool(self.displacements) and all(
+            len(value) >= 6 for value in self.displacements.values()
+        )
+
+    @property
+    def displacement_components(self) -> Tuple[str, ...]:
+        """Components present for every displacement record in the file."""
+
+        if not self.displacements:
+            return ()
+        return (
+            ("ux", "uy", "uz", "rx", "ry", "rz")
+            if self.has_rotations
+            else ("ux", "uy", "uz")
+        )
 
     def summary(self) -> str:
         pieces = [f"{self.format} results from {self.source.name}"]
@@ -127,22 +141,47 @@ class ImportedResults:
             )
 
         model_nodes = set(mesh.nodes)
-        result_nodes = set(self.displacements) | set(self.node_stresses)
-        if not result_nodes:
+        displacement_nodes = set(self.displacements)
+        stress_nodes = set(self.node_stresses)
+        result_nodes = displacement_nodes | stress_nodes
+        model_elements = set(mesh.shells) | set(mesh.beams)
+        stress_elements = set(self.element_stresses)
+        if not result_nodes and not stress_elements:
             raise ResultImportError(
-                f"{self.source.name} carries no nodal results to attach"
+                f"{self.source.name} carries no nodal results or element "
+                "stresses to attach"
             )
 
-        missing = sorted(model_nodes - result_nodes)
-        extra = sorted(result_nodes - model_nodes)
-        if require_all_nodes and (missing or extra):
+        malformed = sorted(
+            node_id
+            for node_id, values in self.displacements.items()
+            if len(values) not in (3, 6)
+        )
+        if malformed:
+            raise ResultImportError(
+                f"{self.source.name} has displacement records that are not "
+                f"three translations or six DOFs at node(s) {malformed[:10]}"
+            )
+
+        mismatches = []
+        for label, result_ids, model_ids in (
+            ("displacement nodes", displacement_nodes, model_nodes),
+            ("stress nodes", stress_nodes, model_nodes),
+            ("stress elements", stress_elements, model_elements),
+        ):
+            if not result_ids:
+                continue
+            missing = len(model_ids - result_ids)
+            extra = len(result_ids - model_ids)
+            if missing or extra:
+                mismatches.append(f"{label}: {missing} missing, {extra} extra")
+        if require_all_nodes and mismatches:
             raise ResultImportError(
                 f"{self.source.name} does not match this model: "
-                f"{len(missing)} of the model's {len(model_nodes)} nodes have "
-                f"no result, and {len(extra)} result node(s) are not in the "
-                "model. Results are matched by node ID, so the file has to be "
-                "the same mesh. Pass require_all_nodes=False to attach the "
-                "overlap anyway, knowing the picture will be partial."
+                f"{'; '.join(mismatches)}. Results are matched by node and "
+                "element ID, so each field has to come from the same mesh. "
+                "Pass require_all_nodes=False to attach the overlap anyway, "
+                "knowing the picture will be partial."
             )
 
         return ImportedSolution(
@@ -150,9 +189,7 @@ class ImportedResults:
             built=built,
             label=f"{self.format}: {self.source.name}",
             results=self,
-            components=frozenset(
-                ("ux", "uy", "uz") + (("rx", "ry", "rz") if self.has_rotations else ())
-            ),
+            components=frozenset(self.displacement_components),
             fields=self._fields(mesh),
             covered=len(model_nodes & result_nodes),
         )
@@ -193,6 +230,7 @@ class ImportedResults:
                 element_id: float(values[name])
                 for element_id, values in self.element_stresses.items()
                 if name in values
+                and (element_id in mesh.shells or element_id in mesh.beams)
             }
             if not node_values and not element_values:
                 continue
@@ -222,11 +260,7 @@ def import_calculix_results(
     steps comes back as one result.
     """
 
-    from anysolver import (
-        merge_calculix_results,
-        parse_calculix_dat,
-        parse_calculix_frd,
-    )
+    from anyfileio import merge_results, parse_dat, parse_frd
 
     source = Path(path)
     if not source.exists():
@@ -234,13 +268,13 @@ def import_calculix_results(
 
     def read(item: Path):
         if item.suffix.lower() == ".dat":
-            return parse_calculix_dat(item)
-        return parse_calculix_frd(item)
+            return parse_dat(item)
+        return parse_frd(item)
 
     parsed = read(source)
     others = [read(Path(item)) for item in extra]
     if others:
-        parsed = merge_calculix_results(parsed, *others)
+        parsed = merge_results(parsed, *others)
 
     if not parsed.has_results:
         raise ResultImportError(
@@ -300,7 +334,7 @@ def import_sesam_results(
     consistent case rather than blending every case present.
     """
 
-    from anysolver.sesam_fem.sif_importer import read_sesam_sif_stress
+    from anyfileio import read_sesam_sif_stress
 
     source = Path(path)
     if not source.exists():

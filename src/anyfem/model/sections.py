@@ -33,9 +33,9 @@ class PlateSection:
     material: str
 
     def __post_init__(self) -> None:
-        if self.thickness <= 0.0:
+        if not np.isfinite(self.thickness) or self.thickness <= 0.0:
             raise ValueError(
-                f"plate section {self.name!r}: thickness must be positive"
+                f"plate section {self.name!r}: thickness must be finite and positive"
             )
 
 
@@ -72,6 +72,26 @@ class BeamSection:
                 f"beam section {self.name!r}: unknown profile {self.profile!r}. "
                 f"Supported profiles are {', '.join(PROFILES)}."
             )
+        dimensions = {
+            "web_height": self.web_height,
+            "web_thickness": self.web_thickness,
+            "flange_width": self.flange_width,
+            "flange_thickness": self.flange_thickness,
+        }
+        invalid = [
+            name
+            for name, value in dimensions.items()
+            if not np.isfinite(value) or value < 0.0
+        ]
+        if invalid:
+            raise ValueError(
+                f"beam section {self.name!r}: dimensions must be finite and "
+                f"non-negative; invalid {', '.join(invalid)}"
+            )
+        if not np.isfinite(self.eccentricity):
+            raise ValueError(
+                f"beam section {self.name!r}: eccentricity must be finite"
+            )
         if self.profile == "Flatbar":
             if self.flange_width <= 0.0 or self.flange_thickness <= 0.0:
                 raise ValueError(
@@ -84,6 +104,26 @@ class BeamSection:
                     f"beam section {self.name!r}: profile {self.profile} needs a "
                     "positive web_height and web_thickness"
                 )
+        if self.web_direction is not None:
+            try:
+                direction = np.asarray(self.web_direction, dtype=float)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"beam section {self.name!r}: web_direction needs three "
+                    "finite components"
+                ) from None
+            if (
+                direction.shape != (3,)
+                or not np.all(np.isfinite(direction))
+                or float(np.linalg.norm(direction)) == 0.0
+            ):
+                raise ValueError(
+                    f"beam section {self.name!r}: web_direction needs three "
+                    "finite, non-zero components"
+                )
+            object.__setattr__(
+                self, "web_direction", tuple(float(value) for value in direction)
+            )
 
     def properties(self) -> Dict[str, float]:
         """Cross-section properties in the solver's own dictionary form."""

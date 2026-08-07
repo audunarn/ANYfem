@@ -10,12 +10,13 @@ geometry entity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, TypeVar
 
 import numpy as np
 
 from ..geometry.entities import EntityRef
 from ..geometry.model import GeometryModel
+from ..geometry.curves import Straight
 from ..geometry.operations import surface_point
 from ..mesh.mapped import Mesh, coons_grid, sample_chain
 from ..model.project import Project
@@ -36,6 +37,7 @@ __all__ = [
     "entity_sample_points",
     "face_display_polygons",
     "face_normal",
+    "geometry_characteristic_size",
 ]
 
 # Faces are drawn as a coarse Coons tessellation.  Straight-sided plates need
@@ -140,24 +142,41 @@ class Scene:
     def bounds(self) -> Optional[tuple[np.ndarray, np.ndarray]]:
         """Axis-aligned bounds of everything in the scene."""
 
-        chunks: List[np.ndarray] = []
+        low: Optional[np.ndarray] = None
+        high: Optional[np.ndarray] = None
+
+        def include(values) -> None:
+            nonlocal low, high
+            try:
+                array = np.asarray(values, dtype=float)
+            except (TypeError, ValueError):
+                for value in values:
+                    include(value)
+                return
+            if array.size == 0:
+                return
+            points = array.reshape(-1, 3)
+            local_low = points.min(axis=0)
+            local_high = points.max(axis=0)
+            low = local_low if low is None else np.minimum(low, local_low)
+            high = local_high if high is None else np.maximum(high, local_high)
+
         for patch in self.faces:
-            chunks.extend(patch.polygons)
+            include(patch.polygons)
         for line in self.lines:
-            chunks.append(line.points)
+            include(line.points)
         for marker in self.points:
-            chunks.append(marker.position.reshape(1, 3))
+            include(marker.position)
         for arrow in self.arrows:
-            chunks.append(np.vstack([arrow.start, arrow.end]))
+            include(arrow.start)
+            include(arrow.end)
         for sphere in self.spheres:
             offset = np.full(3, sphere.radius)
-            chunks.append(
-                np.vstack([sphere.centre - offset, sphere.centre + offset])
-            )
-        if not chunks:
+            include(sphere.centre - offset)
+            include(sphere.centre + offset)
+        if low is None or high is None:
             return None
-        stacked = np.vstack(chunks)
-        return stacked.min(axis=0), stacked.max(axis=0)
+        return low, high
 
     def characteristic_size(self) -> float:
         """A length to scale markers and symbols against."""
@@ -201,6 +220,44 @@ def face_display_polygons(
     return polygons
 
 
+def _flat_four_edge_polygon(
+    geometry: GeometryModel, face_id: int
+) -> Optional[np.ndarray]:
+    """Return one exact display quad, or ``None`` when tessellation is needed."""
+
+    sides = geometry.faces[face_id].sides()
+    if any(len(side) != 1 for side in sides):
+        return None
+    if any(
+        not isinstance(geometry.edges[side[0].edge].curve, Straight)
+        for side in sides
+    ):
+        return None
+
+    corners = np.array(
+        [
+            geometry.vertex_position(
+                geometry.oriented_start_vertex(side[0])
+            )
+            for side in sides
+        ]
+    )
+    first = corners[1] - corners[0]
+    second = corners[2] - corners[0]
+    normal = np.cross(first, second)
+    normal_length = float(np.linalg.norm(normal))
+    scale = max(
+        float(np.linalg.norm(first)),
+        float(np.linalg.norm(second)),
+        float(np.linalg.norm(corners[3] - corners[0])),
+        1.0e-12,
+    )
+    if normal_length <= 1.0e-12 * scale * scale:
+        return None
+    distance = abs(float((corners[3] - corners[0]) @ normal)) / normal_length
+    return corners if distance <= 1.0e-9 * scale else None
+
+
 def build_geometry_scene(
     project: Project,
     *,
@@ -214,7 +271,12 @@ def build_geometry_scene(
     scene = Scene()
 
     for face_id in sorted(geometry.faces):
-        polygons = face_display_polygons(geometry, face_id, divisions)
+        flat_polygon = _flat_four_edge_polygon(geometry, face_id)
+        polygons = (
+            [flat_polygon]
+            if flat_polygon is not None
+            else face_display_polygons(geometry, face_id, divisions)
+        )
         scene.faces.append(
             FacePatch(
                 ref=EntityRef("face", face_id),
@@ -226,11 +288,16 @@ def build_geometry_scene(
 
     for edge_id in sorted(geometry.edges):
         is_beam = edge_id in project.edge_sections
+        samples = (
+            2
+            if isinstance(geometry.edges[edge_id].curve, Straight)
+            else curve_samples
+        )
         scene.lines.append(
             Polyline(
                 ref=EntityRef("edge", edge_id),
                 points=geometry.sample_edge(
-                    edge_id, np.linspace(0.0, 1.0, curve_samples)
+                    edge_id, np.linspace(0.0, 1.0, samples)
                 ),
                 color=COLOR_BEAM if is_beam else COLOR_LINE,
                 width=4 if is_beam else 2,
@@ -337,11 +404,12 @@ def build_result_scene(
         return _ramp_color((value - low) / span, colormap)
 
     scene = Scene()
+    shells = mesh.shells
     for face_id, element_ids in sorted(mesh.elements_of_face.items()):
         polygons: List[np.ndarray] = []
         colors: List[str] = []
         for element_id in element_ids:
-            nodes = mesh.quads[element_id]
+            nodes = shells[element_id]
             polygons.append(
                 np.array(
                     [deformed[node] for node in mesh.corners_of(element_id)]
@@ -452,6 +520,8 @@ def _blend(first: str, second: str, amount: float) -> str:
 # ----------------------------------------------------------------------
 COLOR_MASS = "#6a1b9a"
 COLOR_PRESSURE = "#1565c0"
+COLOR_MOMENT = "#ef6c00"
+COLOR_ROTATION = "#00838f"
 
 # Arrows are drawn at a fraction of the model size, not to scale with the
 # load: a 10 kN arrow and a 10 MN arrow should both be readable.
@@ -462,6 +532,13 @@ SYMBOL_FRACTION = 0.022
 # read as "all along here", few enough not to bury the model.
 _EDGE_SAMPLES = 3
 _FACE_SAMPLES = 2
+
+# Dense assignments stay visible without creating thousands of canvas items.
+# Each attribute kind gets its own budget, so pressure cannot hide point loads
+# or supports merely because it happens to be more numerous.
+OVERLAY_SYMBOL_LIMIT = 256
+
+_T = TypeVar("_T")
 
 
 @dataclass
@@ -475,6 +552,79 @@ class Arrow:
     @property
     def tag(self) -> str:
         return ""
+
+
+def _limited(items: Sequence[_T], limit: int = OVERLAY_SYMBOL_LIMIT) -> List[_T]:
+    """Keep a deterministic, evenly distributed subset of dense symbols."""
+
+    if len(items) <= limit:
+        return list(items)
+    if limit <= 1:
+        return [items[0]] if limit == 1 else []
+    last = len(items) - 1
+    return [items[index * last // (limit - 1)] for index in range(limit)]
+
+
+def _entity_symbol_samples(ref: EntityRef) -> int:
+    """Number of placement points produced for one entity, without sampling."""
+
+    return {
+        "vertex": 1,
+        "edge": _EDGE_SAMPLES,
+        "face": _FACE_SAMPLES * _FACE_SAMPLES,
+    }.get(ref.kind, 0)
+
+
+def _budgeted_assignments(items: Sequence[_T]) -> List[_T]:
+    """Distribute a symbol budget across assignments before sampling geometry.
+
+    ``entity_sample_points`` is substantially more expensive for a curved face
+    than constructing an Arrow.  Limiting the finished Arrow list therefore
+    comes too late: hundreds of discarded face samples have already been
+    evaluated.  Every model attribute passed here has a geometry ``ref``.
+    Using the largest sample count in a mixed list keeps placement work within
+    the same budget while ``_limited`` retains the first, last and evenly
+    distributed assignments.
+    """
+
+    if not items:
+        return []
+    samples = max(_entity_symbol_samples(item.ref) for item in items)
+    if samples <= 0:
+        return []
+    return _limited(items, max(1, OVERLAY_SYMBOL_LIMIT // samples))
+
+
+def _geometry_bounds(
+    geometry: GeometryModel,
+) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    if not geometry.vertices:
+        return None
+    positions = np.array(
+        [
+            geometry.vertex_position(vertex_id)
+            for vertex_id in sorted(geometry.vertices)
+        ],
+        dtype=float,
+    )
+    return positions.min(axis=0), positions.max(axis=0)
+
+
+def geometry_characteristic_size(geometry: GeometryModel) -> float:
+    """Model span for annotation sizing, without constructing a scene."""
+
+    bounds = _geometry_bounds(geometry)
+    if bounds is None:
+        return 1.0
+    span = float(np.linalg.norm(bounds[1] - bounds[0]))
+    return span if span > 0.0 else 1.0
+
+
+def _geometry_centre(geometry: GeometryModel) -> np.ndarray:
+    bounds = _geometry_bounds(geometry)
+    if bounds is None:
+        return np.zeros(3, dtype=float)
+    return 0.5 * (bounds[0] + bounds[1])
 
 
 def entity_sample_points(
@@ -530,24 +680,33 @@ def build_attribute_overlay(
 
     geometry = project.geometry
     scene = Scene()
-    reference = build_geometry_scene(project, show_points=False)
-    span = scale if scale is not None else reference.characteristic_size()
+    span = (
+        scale
+        if scale is not None
+        else geometry_characteristic_size(geometry)
+    )
     arrow_length = ARROW_FRACTION * span
     symbol = SYMBOL_FRACTION * span
 
     if show_supports:
-        for support in project.supports:
-            _draw_support(scene, geometry, support, symbol)
+        supports = Scene()
+        for support in _budgeted_assignments(project.supports):
+            _draw_support(supports, geometry, support, symbol)
+        scene.points.extend(_limited(supports.points))
+        scene.lines.extend(_limited(supports.lines))
+        scene.arrows.extend(_limited(supports.arrows))
 
     if show_masses:
-        for mass in project.masses:
+        markers: List[PointMarker] = []
+        for mass in _budgeted_assignments(project.masses):
             for point in entity_sample_points(geometry, mass.ref):
-                scene.points.append(
+                markers.append(
                     PointMarker(
                         ref=None, position=point, color=COLOR_MASS,
                         size=1.6 * symbol,
                     )
                 )
+        scene.points.extend(_limited(markers))
 
     if show_loads and case_name is not None:
         case = project.load_cases.get(case_name)
@@ -558,7 +717,7 @@ def build_attribute_overlay(
 
 
 def _draw_support(scene: Scene, geometry, support, symbol: float) -> None:
-    """A cube for a full restraint, a smaller one the fewer DOFs are held."""
+    """Draw a restraint marker plus axes for the constrained directions."""
 
     held = len(support.constraints)
     prescribed_motion = any(
@@ -566,63 +725,142 @@ def _draw_support(scene: Scene, geometry, support, symbol: float) -> None:
     )
     colour = COLOR_LOAD if prescribed_motion else COLOR_SUPPORT
     size = symbol * (0.6 + 0.4 * held / 6.0)
+    axes = {
+        "x": np.array([1.0, 0.0, 0.0]),
+        "y": np.array([0.0, 1.0, 0.0]),
+        "z": np.array([0.0, 0.0, 1.0]),
+    }
     for point in entity_sample_points(geometry, support.ref):
         scene.points.append(
             PointMarker(ref=None, position=point, color=colour, size=size)
         )
+        for dof, value in support.constraints.items():
+            axis = axes.get(dof[-1:])
+            if axis is None:
+                continue
+            if dof.startswith("u"):
+                scene.lines.append(
+                    Polyline(
+                        ref=None,
+                        points=np.vstack([point, point + 1.8 * symbol * axis]),
+                        color=COLOR_SUPPORT,
+                        width=3,
+                    )
+                )
+                if abs(float(value)) > 0.0:
+                    direction = axis if float(value) > 0.0 else -axis
+                    scene.arrows.append(
+                        Arrow(
+                            start=point,
+                            end=point + 2.6 * symbol * direction,
+                            color=COLOR_LOAD,
+                        )
+                    )
+            elif dof.startswith("r"):
+                scene.lines.append(
+                    Polyline(
+                        ref=None,
+                        points=np.vstack(
+                            [
+                                point - 0.9 * symbol * axis,
+                                point + 0.9 * symbol * axis,
+                            ]
+                        ),
+                        color=COLOR_ROTATION,
+                        width=2,
+                    )
+                )
 
 
 def _draw_loads(scene: Scene, geometry, case, arrow_length: float) -> None:
-    for load in case.point_loads:
+    point_arrows: List[Arrow] = []
+    moment_arrows: List[Arrow] = []
+    moment_markers: List[PointMarker] = []
+    force_loads = [load for load in case.point_loads if _unit(load.force) is not None]
+    for load in _limited(force_loads):
         direction = _unit(load.force)
-        if direction is not None:
-            point = geometry.vertex_position(load.ref.id)
-            scene.arrows.append(
-                Arrow(start=point - arrow_length * direction, end=point)
-            )
-        if float(np.linalg.norm(load.moment)) > 0.0:
-            scene.points.append(
-                PointMarker(
-                    ref=None,
-                    position=geometry.vertex_position(load.ref.id),
-                    color=COLOR_LOAD,
-                    size=0.25 * arrow_length,
-                )
-            )
+        point = geometry.vertex_position(load.ref.id)
+        point_arrows.append(
+            Arrow(start=point - arrow_length * direction, end=point)
+        )
 
-    for load in case.line_loads:
+    moment_loads = [
+        load for load in case.point_loads if _unit(load.moment) is not None
+    ]
+    for load in _limited(moment_loads):
+        moment_direction = _unit(load.moment)
+        point = geometry.vertex_position(load.ref.id)
+        moment_arrows.append(
+            Arrow(
+                start=point - 0.5 * arrow_length * moment_direction,
+                end=point + 0.5 * arrow_length * moment_direction,
+                color=COLOR_MOMENT,
+            )
+        )
+        moment_markers.append(
+            PointMarker(
+                ref=None,
+                position=point,
+                color=COLOR_MOMENT,
+                size=0.25 * arrow_length,
+            )
+        )
+    scene.arrows.extend(_limited(point_arrows))
+    scene.arrows.extend(_limited(moment_arrows))
+    scene.points.extend(_limited(moment_markers))
+
+    line_arrows: List[Arrow] = []
+    line_loads = [
+        load for load in case.line_loads
+        if _unit(load.force_per_length) is not None
+    ]
+    for load in _budgeted_assignments(line_loads):
         direction = _unit(load.force_per_length)
-        if direction is None:
-            continue
         for point in entity_sample_points(geometry, load.ref):
-            scene.arrows.append(
+            line_arrows.append(
                 Arrow(start=point - arrow_length * direction, end=point)
             )
+    scene.arrows.extend(_limited(line_arrows))
 
-    for load in case.surface_tractions:
+    traction_arrows: List[Arrow] = []
+    traction_loads = [
+        load for load in case.surface_tractions if _unit(load.traction) is not None
+    ]
+    for load in _budgeted_assignments(traction_loads):
         direction = _unit(load.traction)
-        if direction is None:
-            continue
         for point in entity_sample_points(geometry, load.ref):
-            scene.arrows.append(
+            traction_arrows.append(
                 Arrow(start=point - arrow_length * direction, end=point)
             )
+    scene.arrows.extend(_limited(traction_arrows))
 
-    for load in case.pressures:
-        if load.value == 0.0:
-            continue
+    pressure_arrows: List[Arrow] = []
+    pressure_loads = [load for load in case.pressures if load.value != 0.0]
+    for load in _budgeted_assignments(pressure_loads):
         # Positive pressure pushes along the plate normal; the arrows show
         # which face it acts on, which is the thing that is easy to get wrong.
         normal = face_normal(geometry, load.ref.id)
         direction = normal if load.value > 0.0 else -normal
         for point in entity_sample_points(geometry, load.ref):
-            scene.arrows.append(
+            pressure_arrows.append(
                 Arrow(
                     start=point - 0.6 * arrow_length * direction,
                     end=point,
                     color=COLOR_PRESSURE,
                 )
             )
+    scene.arrows.extend(_limited(pressure_arrows))
+
+    gravity_direction = _unit(case.gravity) if case.gravity is not None else None
+    if gravity_direction is not None:
+        point = _geometry_centre(geometry)
+        scene.arrows.append(
+            Arrow(
+                start=point - arrow_length * gravity_direction,
+                end=point,
+                color=COLOR_MASS,
+            )
+        )
 
 
 def _unit(vector) -> Optional[np.ndarray]:

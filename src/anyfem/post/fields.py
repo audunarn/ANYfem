@@ -241,7 +241,7 @@ def reported_fields(stresses: Any, shape: Any) -> List[str]:
 
     mesh = shape.built.mesh
     names: List[str] = []
-    for element_id in list(mesh.quads) + list(mesh.beams):
+    for element_id in list(mesh.shells) + list(mesh.beams):
         stress = stresses.element_stresses.get(element_id)
         if not stress:
             continue
@@ -287,7 +287,7 @@ def _stress_field(
 
     values: Dict[int, float] = {}
     missing: List[int] = []
-    for element_id in sorted(shape.built.mesh.quads) + sorted(
+    for element_id in sorted(shape.built.mesh.shells) + sorted(
         shape.built.mesh.beams
     ):
         stress = stresses.element_stresses.get(element_id)
@@ -338,7 +338,7 @@ def element_centroids(mesh) -> Dict[int, np.ndarray]:
     """Centroid of every element, for locating element-based values in space."""
 
     centroids: Dict[int, np.ndarray] = {}
-    for element_id in mesh.quads:
+    for element_id in mesh.shells:
         # Corners only: averaging in the mid-side nodes of a quadratic element
         # would pull the centroid towards whichever sides are longer.
         centroids[element_id] = np.mean(

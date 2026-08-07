@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Mapping, Sequence
 
+from anymaterial import MaterialSpec
+
 from ..geometry.entities import EntityRef
 from ..geometry.model import GeometryModel
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh
@@ -19,7 +21,6 @@ from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from .attributes import Combination, LoadCase, Mass, Support
 from .imperfections import Imperfection
-from .materials import Material
 from .sections import BeamSection, PlateSection
 
 __all__ = ["Project", "ProjectError"]
@@ -35,7 +36,7 @@ class Project:
 
     name: str = "model"
     geometry: GeometryModel = field(default_factory=GeometryModel)
-    materials: Dict[str, Material] = field(default_factory=dict)
+    materials: Dict[str, MaterialSpec] = field(default_factory=dict)
     plate_sections: Dict[str, PlateSection] = field(default_factory=dict)
     beam_sections: Dict[str, BeamSection] = field(default_factory=dict)
     face_sections: Dict[int, str] = field(default_factory=dict)
@@ -51,7 +52,7 @@ class Project:
     # ------------------------------------------------------------------
     # materials and sections
     # ------------------------------------------------------------------
-    def add_material(self, material: Material) -> Material:
+    def add_material(self, material: MaterialSpec) -> MaterialSpec:
         self.materials[material.name] = material
         return material
 
@@ -74,6 +75,11 @@ class Project:
     def assign_plate(self, face_id: int, section: str) -> None:
         """Give a plate its thickness and material."""
 
+        # Geometry decomposition replaces the original face before its new
+        # faces are assigned. Drop superseded assignments opportunistically so
+        # a direct headless workflow stays as consistent as the command stack.
+        for stale in set(self.face_sections) - set(self.geometry.faces):
+            self.face_sections.pop(stale, None)
         self.geometry.entity_ref("face", face_id)
         if section not in self.plate_sections:
             raise ProjectError(f"no plate section named {section!r}")
@@ -86,6 +92,8 @@ class Project:
     def assign_beam(self, edge_id: int, section: str) -> None:
         """Turn a line into a beam member."""
 
+        for stale in set(self.edge_sections) - set(self.geometry.edges):
+            self.edge_sections.pop(stale, None)
         self.geometry.entity_ref("edge", edge_id)
         if section not in self.beam_sections:
             raise ProjectError(f"no beam section named {section!r}")
@@ -291,6 +299,77 @@ class Project:
 
         problems: List[str] = []
 
+        stores = {
+            "vertex": self.geometry.vertices,
+            "edge": self.geometry.edges,
+            "face": self.geometry.faces,
+        }
+
+        def missing(ref: EntityRef) -> bool:
+            store = stores.get(ref.kind)
+            return store is None or ref.id not in store
+
+        for face_id, section in self.face_sections.items():
+            if face_id not in self.geometry.faces:
+                problems.append(
+                    f"plate assignment references missing face {face_id}"
+                )
+            if section not in self.plate_sections:
+                problems.append(
+                    f"face {face_id} uses undefined plate section {section!r}"
+                )
+        for edge_id, section in self.edge_sections.items():
+            if edge_id not in self.geometry.edges:
+                problems.append(
+                    f"beam assignment references missing edge {edge_id}"
+                )
+            if section not in self.beam_sections:
+                problems.append(
+                    f"edge {edge_id} uses undefined beam section {section!r}"
+                )
+
+        for label, items in (
+            ("support", self.supports),
+            ("mass", self.masses),
+            ("imperfection", self.imperfections),
+        ):
+            for item in items:
+                if missing(item.ref):
+                    problems.append(
+                        f"{label} {item.name!r} references missing {item.ref}"
+                    )
+        for refinement in self.refinements:
+            if refinement.ref is not None and missing(refinement.ref):
+                problems.append(
+                    f"refinement {refinement.name!r} references missing "
+                    f"{refinement.ref}"
+                )
+        for case_name, case in self.load_cases.items():
+            for label, loads in (
+                ("point load", case.point_loads),
+                ("pressure", case.pressures),
+                ("line load", case.line_loads),
+                ("surface traction", case.surface_tractions),
+            ):
+                for index, load in enumerate(loads):
+                    if missing(load.ref):
+                        problems.append(
+                            f"load case {case_name!r} {label} {index} "
+                            f"references missing {load.ref}"
+                        )
+        for name, combination in self.combinations.items():
+            unknown = sorted(set(combination.factors) - set(self.load_cases))
+            if unknown:
+                problems.append(
+                    f"combination {name!r} references undefined load case(s) "
+                    f"{unknown}"
+                )
+        if self.element_order not in ELEMENT_ORDERS:
+            problems.append(
+                f"unknown element order {self.element_order!r}; expected one "
+                f"of {', '.join(ELEMENT_ORDERS)}"
+            )
+
         unsectioned = sorted(set(self.geometry.faces) - set(self.face_sections))
         if unsectioned:
             problems.append(
@@ -344,7 +423,7 @@ class Project:
         except KeyError:
             raise ProjectError(f"edge {edge_id} has no beam section") from None
 
-    def _require_material(self, name: str) -> Material:
+    def _require_material(self, name: str) -> MaterialSpec:
         try:
             return self.materials[name]
         except KeyError:

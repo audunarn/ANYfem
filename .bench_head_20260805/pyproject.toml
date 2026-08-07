@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ANYfem"
+version = "0.0.1"
+description = "Shell and beam finite-element application: geometry modelling, mapped meshing, solving and postprocessing"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+authors = [
+  { name = "Audun Arnesen Nyhus", email = "audunarn@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "ANYsolver>=0.1.2",
+]
+
+[project.optional-dependencies]
+# The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
+# solving and postprocessing layers stay importable without a display.
+gui = ["ANYtk3D>=0.2.1"]
+dev = [
+  "build>=1.2",
+  "pytest>=8",
+  "twine>=5",
+]
+
+# A GUI entry point so no console window opens alongside the application.
+[project.gui-scripts]
+anyfem = "anyfem.ui.app:main"
+
+[project.scripts]
+anyfem-verify = "anyfem.verification:main"
+anyfem-parity = "anyfem.parity:main"
+anyfem-gate = "anyfem.migration:main"
+
+[project.urls]
+Homepage = "https://github.com/audunarn/ANYfem"
+Repository = "https://github.com/audunarn/ANYfem"
+Issues = "https://github.com/audunarn/ANYfem/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["anyfem*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src"]
+addopts = ["-ra", "-p", "no:cacheprovider"]

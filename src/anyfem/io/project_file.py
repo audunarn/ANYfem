@@ -23,20 +23,15 @@ from ..geometry.curves import Arc, Straight
 from ..geometry.entities import Edge, EntityRef, Face, OrientedEdge, Vertex
 from ..geometry.model import GeometryModel
 from ..model.attributes import (
-    Combination,
-    LineLoad,
     LoadCase,
     Mass,
-    PointLoad,
-    Pressure,
     Support,
-    SurfaceTraction,
 )
 from ..mesh.refinement import Refinement
 from ..model.imperfections import Imperfection
 from ..model.materials import Material
 from ..model.project import Project
-from ..model.sections import BeamSection, PlateSection
+from ..model.sections import BeamSection
 
 __all__ = [
     "FORMAT_VERSION",
@@ -47,7 +42,7 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 SUFFIX = ".anyfem"
 
 
@@ -74,19 +69,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             "faces": [_face_to_dict(face) for face in _sorted(geometry.faces)],
             "next_id": dict(geometry.id_state()),
         },
-        "materials": [
-            {
-                "name": material.name,
-                "elastic_modulus": material.elastic_modulus,
-                "poisson_ratio": material.poisson_ratio,
-                "density": material.density,
-                "yield_stress": material.yield_stress,
-                "hardening": (
-                    None if material.hardening is None else list(material.hardening)
-                ),
-            }
-            for material in _by_name(project.materials)
-        ],
+        "materials": [material.to_dict() for material in _by_name(project.materials)],
         "plate_sections": [
             {
                 "name": section.name,
@@ -188,6 +171,27 @@ def save_project(project: Project, path: str | Path) -> Path:
 # reading
 # ----------------------------------------------------------------------
 def project_from_dict(data: Mapping[str, Any]) -> Project:
+    """Rebuild a project and report malformed serialized data consistently."""
+
+    if not isinstance(data, Mapping):
+        raise ProjectFileError("an ANYfem project must be a JSON object")
+    try:
+        return _project_from_dict(data)
+    except ProjectFileError:
+        raise
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        OverflowError,
+    ) as error:
+        detail = str(error) or type(error).__name__
+        raise ProjectFileError(f"invalid ANYfem project data: {detail}") from None
+
+
+def _project_from_dict(data: Mapping[str, Any]) -> Project:
     """Rebuild a project from plain data, IDs and all."""
 
     header = data.get("anyfem")
@@ -196,6 +200,8 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
             "this does not look like an ANYfem project file: no format header"
         )
     version = int(header["format"])
+    if version < 1:
+        raise ProjectFileError(f"unsupported ANYfem project format {version}")
     if version > FORMAT_VERSION:
         raise ProjectFileError(
             f"the file is format {version} but this ANYfem reads up to "
@@ -206,55 +212,51 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
     _geometry_from_dict(project.geometry, data.get("geometry", {}))
 
     for entry in data.get("materials", ()):
-        project.add_material(
-            Material(
-                name=entry["name"],
+        if "constants" in entry or "symmetry" in entry:
+            material = Material.from_dict(entry)
+        else:
+            # Version 1 stored isotropic constants at the top level and a DNV
+            # descriptor as a three-item JSON list.
+            material = Material(
+                name=str(entry["name"]),
                 elastic_modulus=float(entry["elastic_modulus"]),
                 poisson_ratio=float(entry["poisson_ratio"]),
                 density=float(entry.get("density", 0.0)),
                 yield_stress=float(entry.get("yield_stress", 0.0)),
-                hardening=(
-                    None
-                    if not entry.get("hardening")
-                    else (
-                        str(entry["hardening"][0]),
-                        str(entry["hardening"][1]),
-                        float(entry["hardening"][2]),
-                    )
-                ),
+                hardening=entry.get("hardening"),
             )
-        )
+        project.add_material(material)
     for entry in data.get("plate_sections", ()):
-        project.plate_sections[entry["name"]] = PlateSection(
-            name=entry["name"],
+        project.add_plate_section(
+            name=str(entry["name"]),
             thickness=float(entry["thickness"]),
-            material=entry["material"],
+            material=str(entry["material"]),
         )
     for entry in data.get("beam_sections", ()):
-        project.beam_sections[entry["name"]] = BeamSection(
-            name=entry["name"],
-            profile=entry["profile"],
-            material=entry["material"],
-            web_height=float(entry.get("web_height", 0.0)),
-            web_thickness=float(entry.get("web_thickness", 0.0)),
-            flange_width=float(entry.get("flange_width", 0.0)),
-            flange_thickness=float(entry.get("flange_thickness", 0.0)),
-            web_direction=entry.get("web_direction"),
-            eccentricity=float(entry.get("eccentricity", 0.0)),
+        project.add_beam_section(
+            BeamSection(
+                name=str(entry["name"]),
+                profile=str(entry["profile"]),
+                material=str(entry["material"]),
+                web_height=float(entry.get("web_height", 0.0)),
+                web_thickness=float(entry.get("web_thickness", 0.0)),
+                flange_width=float(entry.get("flange_width", 0.0)),
+                flange_thickness=float(entry.get("flange_thickness", 0.0)),
+                web_direction=entry.get("web_direction"),
+                eccentricity=float(entry.get("eccentricity", 0.0)),
+            )
         )
 
-    project.face_sections.update(
-        {int(k): v for k, v in data.get("face_sections", {}).items()}
-    )
-    project.edge_sections.update(
-        {int(k): v for k, v in data.get("edge_sections", {}).items()}
-    )
+    for face_id, section in data.get("face_sections", {}).items():
+        project.assign_plate(int(face_id), str(section))
+    for edge_id, section in data.get("edge_sections", {}).items():
+        project.assign_beam(int(edge_id), str(section))
 
     for entry in data.get("supports", ()):
-        project.supports.append(
+        project.add_support(
             Support(
                 name=entry["name"],
-                ref=_ref_from(entry["ref"]),
+                ref=_existing_ref(project, entry["ref"], "support.ref"),
                 constraints={
                     key: float(value)
                     for key, value in entry["constraints"].items()
@@ -262,9 +264,9 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
             )
         )
     for entry in data.get("masses", ()):
-        project.masses.append(
+        project.add_mass(
             Mass(
-                ref=_ref_from(entry["ref"]),
+                ref=_existing_ref(project, entry["ref"], "mass.ref"),
                 value=float(entry["value"]),
                 name=entry.get("name", "mass"),
             )
@@ -273,14 +275,16 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
     for entry in data.get("load_cases", ()):
         _load_case_from_dict(project, entry)
     for entry in data.get("combinations", ()):
-        project.combinations[entry["name"]] = Combination(
-            name=entry["name"],
-            factors={k: float(v) for k, v in entry["factors"].items()},
+        project.add_combination(
+            name=str(entry["name"]),
+            factors={str(k): float(v) for k, v in entry["factors"].items()},
         )
     for entry in data.get("imperfections", ()):
-        project.imperfections.append(
+        project.add_imperfection(
             Imperfection(
-                ref=_ref_from(entry["ref"]),
+                ref=_existing_ref(
+                    project, entry["ref"], "imperfection.ref"
+                ),
                 kind=entry.get("kind", "auto"),
                 amplitude=entry.get("amplitude"),
                 direction=tuple(entry.get("direction", (0.0, 0.0, 1.0))),
@@ -294,16 +298,20 @@ def project_from_dict(data: Mapping[str, Any]) -> Project:
     if isinstance(meshing, Mapping):
         # Absent in files written before meshing controls existed, which is
         # what the defaults are for.
-        project.element_order = str(meshing.get("element_order", "linear"))
+        project.set_element_order(str(meshing.get("element_order", "linear")))
         for entry in meshing.get("refinements", ()):
             center = entry.get("center")
             reference = entry.get("ref")
-            project.refinements.append(
+            project.add_refinement(
                 Refinement(
                     size=float(entry["size"]),
                     radius=float(entry.get("radius", 0.0)),
                     growth=float(entry.get("growth", 1.5)),
-                    ref=None if reference is None else _ref_from(reference),
+                    ref=(
+                        None
+                        if reference is None
+                        else _existing_ref(project, reference, "refinement.ref")
+                    ),
                     center=None if center is None else tuple(center),
                     name=entry.get("name", "refinement"),
                 )
@@ -349,6 +357,18 @@ def _ref_from(data: Mapping[str, Any]) -> EntityRef:
     return EntityRef(str(data["kind"]), int(data["id"]))  # type: ignore[arg-type]
 
 
+def _existing_ref(
+    project: Project, data: Mapping[str, Any], context: str
+) -> EntityRef:
+    """Decode one serialized reference and prove its target exists."""
+
+    try:
+        ref = _ref_from(data)
+        return project.geometry.entity_ref(ref.kind, ref.id)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ProjectFileError(f"{context}: {error}") from None
+
+
 def _edge_to_dict(edge: Edge) -> Dict[str, Any]:
     curve: Dict[str, Any] = {"kind": "line"}
     if isinstance(edge.curve, Arc):
@@ -365,40 +385,139 @@ def _face_to_dict(face: Face) -> Dict[str, Any]:
 
 
 def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> None:
+    if not isinstance(data, Mapping):
+        raise ProjectFileError("geometry must be a JSON object")
     for entry in data.get("vertices", ()):
         vertex_id = int(entry["id"])
+        if vertex_id <= 0 or vertex_id in geometry.vertices:
+            raise ProjectFileError(
+                f"geometry.vertices[{vertex_id}].id must be unique and positive"
+            )
+        position = np.asarray(entry["position"], dtype=float)
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            raise ProjectFileError(
+                f"geometry.vertices[{vertex_id}].position needs three finite "
+                "components"
+            )
         geometry.vertices[vertex_id] = Vertex(
             id=vertex_id,
-            position=np.asarray(entry["position"], dtype=float),
+            position=position.copy(),
         )
     for entry in data.get("edges", ()):
         curve_data = entry.get("curve", {"kind": "line"})
-        curve = (
-            Arc(via_vertex=int(curve_data["via"]))
-            if curve_data.get("kind") == "arc"
-            else Straight()
-        )
         edge_id = int(entry["id"])
+        if edge_id <= 0 or edge_id in geometry.edges:
+            raise ProjectFileError(
+                f"geometry.edges[{edge_id}].id must be unique and positive"
+            )
+        start = int(entry["start"])
+        end = int(entry["end"])
+        for field, vertex_id in (("start", start), ("end", end)):
+            if vertex_id not in geometry.vertices:
+                raise ProjectFileError(
+                    f"geometry.edges[{edge_id}].{field} references missing "
+                    f"vertex {vertex_id}"
+                )
+        if start == end:
+            raise ProjectFileError(
+                f"geometry.edges[{edge_id}] needs two distinct end vertices"
+            )
+        curve_kind = curve_data.get("kind", "line")
+        if curve_kind == "arc":
+            via = int(curve_data["via"])
+            if via not in geometry.vertices:
+                raise ProjectFileError(
+                    f"geometry.edges[{edge_id}].curve.via references missing "
+                    f"vertex {via}"
+                )
+            if len({start, via, end}) != 3:
+                raise ProjectFileError(
+                    f"geometry.edges[{edge_id}] arc needs three distinct vertices"
+                )
+            curve = Arc(via_vertex=via)
+        elif curve_kind == "line":
+            curve = Straight()
+        else:
+            raise ProjectFileError(
+                f"geometry.edges[{edge_id}].curve.kind {curve_kind!r} is unknown"
+            )
         geometry.edges[edge_id] = Edge(
             id=edge_id,
-            start=int(entry["start"]),
-            end=int(entry["end"]),
+            start=start,
+            end=end,
             curve=curve,
         )
     for entry in data.get("faces", ()):
         face_id = int(entry["id"])
+        if face_id <= 0 or face_id in geometry.faces:
+            raise ProjectFileError(
+                f"geometry.faces[{face_id}].id must be unique and positive"
+            )
+        loop_items = []
+        for item in entry["loop"]:
+            if len(item) != 2 or not isinstance(item[1], bool):
+                raise ProjectFileError(
+                    f"geometry.faces[{face_id}].loop entries need an edge ID "
+                    "and a boolean direction"
+                )
+            edge_id = int(item[0])
+            if edge_id not in geometry.edges:
+                raise ProjectFileError(
+                    f"geometry.faces[{face_id}].loop references missing edge "
+                    f"{edge_id}"
+                )
+            loop_items.append(OrientedEdge(edge_id, item[1]))
+        loop = tuple(loop_items)
+        if len(loop) < 4:
+            raise ProjectFileError(
+                f"geometry.faces[{face_id}].loop needs at least four edges"
+            )
+
+        def start_vertex(item: OrientedEdge) -> int:
+            edge = geometry.edges[item.edge]
+            return edge.start if item.forward else edge.end
+
+        def end_vertex(item: OrientedEdge) -> int:
+            edge = geometry.edges[item.edge]
+            return edge.end if item.forward else edge.start
+
+        for current, following in zip(loop, loop[1:] + loop[:1]):
+            if end_vertex(current) != start_vertex(following):
+                raise ProjectFileError(
+                    f"geometry.faces[{face_id}].loop is not continuous at "
+                    f"edge {following.edge}"
+                )
+        corners = tuple(int(corner) for corner in entry["corners"])
+        if (
+            len(corners) != 4
+            or len(set(corners)) != 4
+            or any(not 0 <= corner < len(loop) for corner in corners)
+            or tuple(sorted(corners)) != corners
+        ):
+            raise ProjectFileError(
+                f"geometry.faces[{face_id}].corners must be four distinct loop "
+                "positions in order"
+            )
         geometry.faces[face_id] = Face(
             id=face_id,
-            loop=tuple(
-                OrientedEdge(int(edge), bool(forward))
-                for edge, forward in entry["loop"]
-            ),
-            corners=tuple(int(corner) for corner in entry["corners"]),
+            loop=loop,
+            corners=corners,
         )
 
     counters = data.get("next_id")
     if counters:
-        geometry.restore_id_state({k: int(v) for k, v in counters.items()})
+        state = {str(k): int(v) for k, v in counters.items()}
+        for kind, store in (
+            ("vertex", geometry.vertices),
+            ("edge", geometry.edges),
+            ("face", geometry.faces),
+        ):
+            minimum = max(store, default=0) + 1
+            if kind not in state or state[kind] < minimum:
+                raise ProjectFileError(
+                    f"geometry.next_id.{kind} must be at least {minimum}"
+                )
+        geometry.restore_id_state(state)
     else:
         # An older file without counters: continue past whatever it holds, so
         # a new entity can never collide with a saved one.
@@ -441,36 +560,58 @@ def _load_case_to_dict(case: LoadCase) -> Dict[str, Any]:
 
 def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
     case = project.load_case(str(data["name"]))
-    case.follower_pressure = bool(data.get("follower_pressure", False))
+    follower = data.get("follower_pressure", False)
+    if not isinstance(follower, bool):
+        raise ProjectFileError(
+            f"load_cases[{case.name!r}].follower_pressure must be true or false"
+        )
+    case.follower_pressure = follower
     gravity = data.get("gravity")
-    case.gravity = None if gravity is None else np.asarray(gravity, dtype=float)
+    if gravity is None:
+        case.gravity = None
+    else:
+        vector = np.asarray(gravity, dtype=float)
+        if vector.shape != (3,):
+            raise ProjectFileError(
+                f"load_cases[{case.name!r}].gravity needs three finite components"
+            )
+        case.set_acceleration(*vector)
 
-    for entry in data.get("point_loads", ()):
-        case.point_loads.append(
-            PointLoad(
-                ref=_ref_from(entry["ref"]),
-                force=np.asarray(entry["force"], dtype=float),
-                moment=np.asarray(entry["moment"], dtype=float),
-            )
+    for index, entry in enumerate(data.get("point_loads", ())):
+        case.add_point_load(
+            ref=_existing_ref(
+                project,
+                entry["ref"],
+                f"load_cases[{case.name!r}].point_loads[{index}].ref",
+            ),
+            force=entry["force"],
+            moment=entry["moment"],
         )
-    for entry in data.get("pressures", ()):
-        case.pressures.append(
-            Pressure(ref=_ref_from(entry["ref"]), value=float(entry["value"]))
+    for index, entry in enumerate(data.get("pressures", ())):
+        case.add_pressure(
+            ref=_existing_ref(
+                project,
+                entry["ref"],
+                f"load_cases[{case.name!r}].pressures[{index}].ref",
+            ),
+            value=entry["value"],
         )
-    for entry in data.get("line_loads", ()):
-        case.line_loads.append(
-            LineLoad(
-                ref=_ref_from(entry["ref"]),
-                force_per_length=np.asarray(
-                    entry["force_per_length"], dtype=float
-                ),
-            )
+    for index, entry in enumerate(data.get("line_loads", ())):
+        case.add_line_load(
+            ref=_existing_ref(
+                project,
+                entry["ref"],
+                f"load_cases[{case.name!r}].line_loads[{index}].ref",
+            ),
+            force_per_length=entry["force_per_length"],
         )
-    for entry in data.get("surface_tractions", ()):
-        case.surface_tractions.append(
-            SurfaceTraction(
-                ref=_ref_from(entry["ref"]),
-                traction=np.asarray(entry["traction"], dtype=float),
-            )
+    for index, entry in enumerate(data.get("surface_tractions", ())):
+        case.add_surface_traction(
+            ref=_existing_ref(
+                project,
+                entry["ref"],
+                f"load_cases[{case.name!r}].surface_tractions[{index}].ref",
+            ),
+            traction=entry["traction"],
         )
     return case

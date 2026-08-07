@@ -8,14 +8,39 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
+
+      # These packages are intentionally consumed through their public package
+      # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
+      # until normal versioned installation can replace these checkouts.
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          path: .ecosystem/ANYsolver
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmaterial
+          path: .ecosystem/ANYmaterial
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmesh
+          path: .ecosystem/ANYmesh
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYio
+          path: .ecosystem/ANYio
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYtk3D
+          path: .ecosystem/ANYtk3D
 
       - uses: actions/setup-python@v5
         with:
@@ -24,14 +49,28 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,gui]
+          python -m pip install --no-deps -e .ecosystem/ANYmaterial
+          python -m pip install --no-deps -e .ecosystem/ANYmesh
+          python -m pip install --no-deps -e .ecosystem/ANYio
+          python -m pip install --no-deps -e .ecosystem/ANYsolver
+          python -m pip install --no-deps -e .ecosystem/ANYtk3D
+          python -m pip install -e ".[dev,gui]"
 
-      # The GUI tests need a display; without one they skip rather than fail.
-      - name: Run the test suite
+      - name: Run the test suite (Linux)
+        if: runner.os == 'Linux'
         run: xvfb-run -a python -m pytest tests -q
 
-      - name: Run verification
+      - name: Run the test suite (Windows)
+        if: runner.os == 'Windows'
+        run: python -m pytest tests -q
+
+      - name: Run verification (Linux)
+        if: runner.os == 'Linux'
         run: xvfb-run -a python -m anyfem.verification --out reports/verification
+
+      - name: Run verification (Windows)
+        if: runner.os == 'Windows'
+        run: python -m anyfem.verification --out reports/verification
 
       - name: Report ANYstructure parity
         run: python -m anyfem.parity --out reports/parity
@@ -40,21 +79,57 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: evidence-${{ matrix.python-version }}
+          name: evidence-${{ matrix.os }}-py${{ matrix.python-version }}
           path: reports/
 
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          path: .ecosystem/ANYsolver
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmaterial
+          path: .ecosystem/ANYmaterial
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmesh
+          path: .ecosystem/ANYmesh
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYio
+          path: .ecosystem/ANYio
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYtk3D
+          path: .ecosystem/ANYtk3D
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
       - name: Build the wheel
         run: |
           python -m pip install --upgrade pip build
           python -m build
+
       - name: Check the metadata
         run: |
           python -m pip install twine
           python -m twine check dist/*
+
+      - name: Install and import the wheel in a clean environment
+        run: |
+          python -m venv .wheel-smoke
+          .wheel-smoke/bin/python -m pip install --upgrade pip
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmaterial
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYio
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
+          .wheel-smoke/bin/python -m pip install dist/*.whl
+          .wheel-smoke/bin/python -c "import anyfem; import anyfem.ui.app; from importlib.metadata import version; assert anyfem.__version__ == version('ANYfem'); print('wheel import OK', anyfem.__version__)"

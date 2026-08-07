@@ -32,7 +32,7 @@ def nodes_to_elements(mesh) -> Dict[int, List[int]]:
     """Which elements touch each node."""
 
     attached: Dict[int, List[int]] = {}
-    for element_id, nodes in list(mesh.quads.items()) + list(mesh.beams.items()):
+    for element_id, nodes in list(mesh.shells.items()) + list(mesh.beams.items()):
         for node_id in nodes:
             attached.setdefault(node_id, []).append(element_id)
     return attached

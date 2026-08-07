@@ -83,6 +83,12 @@ def test_a_prescribed_displacement_needs_a_value(plate):
         prescribed(project.edge(edges[0]))
 
 
+def test_a_prescribed_displacement_rejects_a_boolean_flag(plate):
+    project, _face, edges, _points = plate
+    with pytest.raises(ValueError, match="not a boolean flag"):
+        prescribed(project.edge(edges[0]), uz=True)
+
+
 def test_a_support_is_a_prescribed_displacement_of_zero(plate):
     project, _face, edges, _points = plate
     held = pinned(project.edge(edges[0]))
@@ -148,6 +154,12 @@ def test_a_negative_mass_is_refused(plate):
         Mass(ref=project.face(face), value=-1.0)
 
 
+def test_nonfinite_masses_are_refused(plate):
+    project, face, _edges, _points = plate
+    with pytest.raises(ValueError, match="finite number"):
+        Mass(ref=project.face(face), value=np.nan)
+
+
 # ----------------------------------------------------------------------
 # surface traction and line loads
 # ----------------------------------------------------------------------
@@ -184,6 +196,43 @@ def test_surface_traction_keeps_its_direction_on_a_sloped_plate():
     assert force[0] == pytest.approx(0.0, abs=1e-9)
 
 
+@pytest.mark.parametrize(
+    ("connectivity", "expected_shares"),
+    [
+        ((1, 2, 3), (1.0 / 3.0,) * 3),
+        ((1, 2, 3, 4, 5, 6), (0.0,) * 3 + (1.0 / 3.0,) * 3),
+    ],
+)
+def test_triangular_shell_traction_uses_consistent_nodal_shares(
+    connectivity, expected_shares
+):
+    from anymesher import EntityRef, Mesh
+
+    from anyfem.solve.build import _traction_to_nodes
+
+    mesh = Mesh()
+    mesh.nodes = {
+        1: np.array([0.0, 0.0, 0.0]),
+        2: np.array([1.0, 0.0, 0.0]),
+        3: np.array([0.0, 1.0, 0.0]),
+        4: np.array([0.5, 0.0, 0.0]),
+        5: np.array([0.5, 0.5, 0.0]),
+        6: np.array([0.0, 0.5, 0.0]),
+    }
+    mesh.tris[10] = connectivity
+    mesh.elements_of_face[7] = [10]
+
+    intensity = np.array([0.0, 0.0, -12.0])
+    nodal = dict(_traction_to_nodes(mesh, EntityRef("face", 7), intensity))
+
+    area = 0.5
+    for node_id, share in zip(connectivity, expected_shares):
+        assert nodal[node_id] == pytest.approx(area * share * intensity)
+    assert sum(force[2] for force in nodal.values()) == pytest.approx(
+        area * intensity[2]
+    )
+
+
 def test_line_load_totals_intensity_times_length(plate):
     project, _face, edges, _points = plate
     support_all(project, edges)
@@ -197,6 +246,37 @@ def test_a_traction_on_a_line_is_refused(plate):
     project, _face, edges, _points = plate
     with pytest.raises(ValueError, match="applies to a plate"):
         project.load_case().add_surface_traction(project.edge(edges[0]), (0, 0, -1))
+
+
+@pytest.mark.parametrize(
+    ("add", "message"),
+    [
+        (lambda case, project, face, edge, point: case.add_point_load(
+            project.point(point), force=(1.0, 2.0)
+        ), "point-load force needs three finite components"),
+        (lambda case, project, face, edge, point: case.add_line_load(
+            project.edge(edge), (0.0, np.inf, 0.0)
+        ), "line-load force per length needs three finite components"),
+        (lambda case, project, face, edge, point: case.add_surface_traction(
+            project.face(face), (0.0, np.nan, 0.0)
+        ), "surface traction needs three finite components"),
+    ],
+)
+def test_load_vectors_are_validated_when_added(plate, add, message):
+    project, face, edges, points = plate
+    with pytest.raises(ValueError, match=message):
+        add(project.load_case(), project, face, edges[0], points[0])
+
+
+def test_nonfinite_pressure_acceleration_and_factors_are_refused(plate):
+    project, face, _edges, _points = plate
+    case = project.load_case("dead")
+    with pytest.raises(ValueError, match="pressure must be a finite number"):
+        case.add_pressure(project.face(face), np.nan)
+    with pytest.raises(ValueError, match="acceleration needs three finite components"):
+        case.set_acceleration(0.0, np.inf, 0.0)
+    with pytest.raises(ValueError, match="factor.*finite number"):
+        project.add_combination("ULS", {"dead": np.nan})
 
 
 # ----------------------------------------------------------------------
@@ -382,6 +462,57 @@ def test_imperfection_kind_is_inferred_from_the_entity(plate):
     project, face, edges, _points = plate
     assert plate_mode(project.face(face)).resolved_kind == "plate_mode"
     assert Imperfection(ref=project.edge(edges[0])).resolved_kind == "member_bow"
+
+
+@pytest.mark.parametrize("amplitude", [-1.0, np.nan, np.inf, True])
+def test_imperfection_amplitude_must_be_finite_and_nonnegative(plate, amplitude):
+    project, face, _edges, _points = plate
+    with pytest.raises(ValueError, match="finite, non-negative"):
+        plate_mode(project.face(face), amplitude=amplitude)
+
+
+@pytest.mark.parametrize(
+    "direction",
+    [(0.0, 1.0), (0.0, 0.0, 0.0), (0.0, np.nan, 1.0)],
+)
+def test_imperfection_direction_must_be_a_finite_nonzero_vector(plate, direction):
+    project, face, _edges, _points = plate
+    with pytest.raises(ValueError, match="three finite, non-zero components"):
+        plate_mode(project.face(face), direction=direction)
+
+
+@pytest.mark.parametrize(
+    "waves", [(1,), (1, 1, 1), (0, 1), (1.5, 1), (True, 1)]
+)
+def test_plate_wave_counts_must_be_two_positive_integers(plate, waves):
+    project, face, _edges, _points = plate
+    with pytest.raises(ValueError, match="exactly two positive integers"):
+        plate_mode(project.face(face), waves=waves)
+
+
+@pytest.mark.parametrize(
+    "axes", [(0,), (0, 1, 2), (0, 0), (0, 3), (0.5, 1)]
+)
+def test_plate_axes_must_be_two_distinct_coordinate_axes(plate, axes):
+    project, face, _edges, _points = plate
+    with pytest.raises(ValueError, match="two distinct coordinate axes"):
+        Imperfection(ref=project.face(face), kind="plate_mode", axes=axes)
+
+
+def test_imperfection_defaults_and_vertical_plate_axes_remain_supported(plate):
+    project, face, _edges, _points = plate
+    default = plate_mode(project.face(face))
+    vertical = Imperfection(
+        ref=project.face(face), kind="plate_mode",
+        axes=(1.0, 2.0), waves=(1.0, 2.0),
+    )
+
+    assert default.amplitude is None
+    assert default.direction == (0.0, 0.0, 1.0)
+    assert default.waves == (1, 1)
+    assert default.axes == (0, 1)
+    assert vertical.axes == (1, 2)
+    assert vertical.waves == (1, 2)
 
 
 # ----------------------------------------------------------------------

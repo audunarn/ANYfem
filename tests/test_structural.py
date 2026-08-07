@@ -167,7 +167,8 @@ def test_every_station_is_coupled_back_to_the_plating():
     plating = mesh.nodes_of_edge[divider]
     assert len(mesh.couplings) == len(plating)
     coupled = {
-        (beam, plate) for beam, plate in mesh.couplings.values()
+        (coupling.beam_node, coupling.plate_node)
+        for coupling in mesh.couplings.values()
     }
     expected = set(zip(mesh.offset_nodes_of_edge[divider], plating))
     assert coupled == expected
@@ -211,6 +212,109 @@ def test_couplings_reach_the_solver_as_mpc_elements():
         if isinstance(element, CoupledBeamShellElement)
     ]
     assert len(coupling_elements) == len(mesh.couplings)
+
+
+def test_triangular_neutral_mesh_reaches_solver_shells():
+    from types import SimpleNamespace
+
+    from anymesher import Mesh
+
+    from anyfem.post.extract import nodes_to_elements
+    from anyfem.post.fields import element_centroids, evaluate_field, reported_fields
+    from anyfem.solve.build import build_fe_model
+    from anyfem.ui.scene import build_result_scene
+
+    project = Project(name="triangles")
+    project.add_material(steel("S355", THICKNESS))
+    project.add_plate_section("plate", thickness=THICKNESS, material="S355")
+    points = project.geometry.add_points(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    )
+    face = project.geometry.add_face(project.geometry.add_polyline(points, close=True))
+    project.assign_plate(face, "plate")
+
+    mesh = Mesh()
+    mesh.nodes = {
+        1: np.array([0.0, 0.0, 0.0]),
+        2: np.array([1.0, 0.0, 0.0]),
+        3: np.array([1.0, 1.0, 0.0]),
+        4: np.array([0.0, 1.0, 0.0]),
+    }
+    mesh.tris = {1: (1, 2, 3), 2: (1, 3, 4)}
+    mesh.elements_of_face = {face: [1, 2]}
+
+    built = build_fe_model(
+        project, mesh, require_loads=False, require_supports=False
+    )
+
+    assert built.fe_model.mesh.elements[1].node_ids == [1, 2, 3]
+    assert built.fe_model.mesh.elements[2].node_ids == [1, 3, 4]
+
+    # Triangles remain first-class shells after the solve boundary too: probes,
+    # stress fields, centroids and the result scene must not quietly enumerate
+    # only the quadrilateral container.
+    attached = nodes_to_elements(mesh)
+    assert set(attached[3]) == {1, 2}
+    assert set(element_centroids(mesh)) == {1, 2}
+
+    stresses = SimpleNamespace(
+        element_stresses={
+            1: {"von_mises": np.array([100.0])},
+            2: {"von_mises": np.array([200.0])},
+        }
+    )
+    shape = SimpleNamespace(
+        built=SimpleNamespace(mesh=mesh),
+        deformed_positions=lambda _scale=1.0: mesh.node_positions(),
+    )
+    assert "von_mises" in reported_fields(stresses, shape)
+    field = evaluate_field(shape, "von_mises", stresses=stresses)
+    assert field.element_values == {1: 100.0, 2: 200.0}
+    scene = build_result_scene(shape, values=field)
+    assert len(scene.faces[0].polygons) == 2
+
+
+def test_interpolated_coupling_record_becomes_weighted_solver_mpc():
+    from anymesher import Coupling, Mesh
+    from anysolver import FEModel
+    from anysolver.mesh_gen import InterpolatedBeamShellMPCElement
+
+    from anyfem.solve.build import _add_couplings
+
+    project = Project(name="interpolated coupling")
+    specification = project.add_material(steel("S355", THICKNESS))
+    mesh = Mesh()
+    mesh.nodes = {
+        1: np.array([0.0, 0.0, 0.0]),
+        2: np.array([1.0, 0.0, 0.0]),
+        3: np.array([1.0, 1.0, 0.0]),
+        4: np.array([0.0, 1.0, 0.0]),
+        10: np.array([0.5, 0.5, 0.2]),
+    }
+    mesh.couplings[30] = Coupling(
+        beam_node=10,
+        plate_nodes=(1, 2, 3, 4),
+        weights=(0.25, 0.25, 0.25, 0.25),
+        eccentricity=(0.0, 0.0, 0.2),
+    )
+
+    fe_model = FEModel("interpolated coupling")
+    fe_model.register_material(specification.build())
+    for node_id, coordinates in mesh.nodes.items():
+        fe_model.add_node(node_id, *coordinates)
+    _add_couplings(project, mesh, fe_model)
+
+    element = fe_model.mesh.elements[30]
+    assert isinstance(element, InterpolatedBeamShellMPCElement)
+    assert element.shape_weights == pytest.approx([0.25] * 4)
+    constraints = element.get_mpc_constraints(fe_model.mesh)
+    assert len(constraints) == 6
+    plate_ux = {fe_model.mesh.nodes[node_id].dofs[0] for node_id in (1, 2, 3, 4)}
+    assert sum(
+        value
+        for dof, value in constraints[0]["masters"].items()
+        if dof in plate_ux
+    ) == pytest.approx(1.0)
 
 
 def test_the_solve_actually_applies_the_constraints():
@@ -433,7 +537,9 @@ def test_eccentricity_and_hardening_survive_a_project_file(workspace):
     restored = load_project(path)
 
     assert restored.beam_sections["bar"].eccentricity == pytest.approx(OFFSET)
-    assert restored.materials["S355"].hardening == ("dnv_c208", "S355", THICKNESS)
+    assert restored.materials["S355"].hardening == {
+        "kind": "dnv_c208", "grade": "S355", "thickness": THICKNESS,
+    }
     assert restored.beam_offsets == pytest.approx(project.beam_offsets)
 
 

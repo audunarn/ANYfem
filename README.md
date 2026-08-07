@@ -3,29 +3,35 @@
 A shell and beam element Finite Element Method tool: geometry modelling,
 meshing, loads and boundary conditions, solving, and postprocessing.
 
-ANYfem owns the application layer between two existing packages:
+ANYfem owns the application layer across the focused ecosystem packages:
 
 - [**ANYsolver**](https://github.com/audunarn/ANYsolver) — the headless FE
   solver (6 DOF per node, SI units, linear through nonlinear and transient).
+- [**ANYmaterial**](https://github.com/audunarn/ANYmaterial) — validated,
+  serializable isotropic and orthotropic material specifications.
+- [**ANYmesher**](https://github.com/audunarn/ANYmesh) — the geometry kernel,
+  neutral mesh, mapped mesher, refinement and coupling records.
+- [**ANYfileio**](https://github.com/audunarn/ANYio) — SESAM and CalculiX
+  parsing/writing.
 - [**ANYtk3D**](https://github.com/audunarn/ANYtk3D) — the Tkinter 3D viewport.
 
 The dependency direction is one-way. ANYfem never imports ANYstructure.
 
 ## Status
 
-**All fourteen phases complete.** The application runs: model geometry, cut it into
-mappable pieces, mesh it, apply loads and supports, solve, and look at the
+The complete application workflow is implemented: model geometry, cut it into
+mappable pieces, mesh it, apply loads and supports, solve, and inspect the
 results.
 
 | Layer | What works today |
 | --- | --- |
-| `anyfem.geometry` | Points, straight lines, circular arcs through a via point, faces from four edge chains with automatic corner detection, extrusion, revolution, deletion |
+| `anyfem.geometry` | Compatibility surface over ANYmesher: points, straight lines, circular arcs through a via point, faces from four edge chains with automatic corner detection, extrusion, revolution, deletion |
 | `anyfem.geometry.operations` | Splitting lines and plates, corner override, three-sided regions to quads, butterfly hole, stiffener strips, mappability diagnostics |
-| `anyfem.mesh` | Edge-seeding constraint solver, transfinite (Coons) mapped meshing, conformal node sharing, beams on lines, local refinement zones, Q4/Q8 shells and 2/3-node beams |
-| `anyfem.model` | DNV-RP-C208 steels, plate sections, typical beam profiles, supports and prescribed displacements, pressure (dead or follower), surface traction, line and point loads, acceleration, masses, load cases and combinations, geometric imperfections |
+| `anyfem.mesh` | Compatibility surface over ANYmesher: edge seeding, Coons mapped meshing, conformal node sharing, refinement, shell/beam topology and couplings |
+| `anyfem.model` | ANYmaterial specifications, plate sections, typical beam profiles, supports and prescribed displacements, pressure (dead or follower), surface traction, line and point loads, acceleration, masses, load cases and combinations, geometric imperfections |
 | `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
 | `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, history series, Markdown and CSV export |
-| `anyfem.io` | Versioned project files, SESAM model and result import, CalculiX deck export and result import |
+| `anyfem.io` | Versioned project files plus application adapters over ANYfileio SESAM/CalculiX interchange |
 | `anyfem.commands` | Command stack with undo/redo over every model change |
 | `anyfem.migration` | Reads ANYstructure's saved FE state without importing it; measures the migration gate |
 | `anyfem.selection` | Point/line/plate selection modes, shared by every view |
@@ -50,8 +56,6 @@ Verified, with dated evidence under `reports/`:
 
 Documentation:
 
-- [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — the phased
-  plan and the decisions behind it
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — layers, invariants, data flow
 - [`docs/QUALITY_CONTROL.md`](docs/QUALITY_CONTROL.md) — how to verify, and what
   the evidence does not claim
@@ -67,8 +71,8 @@ python -m anyfem.migration         # the migration gate, all five criteria
 All three write reports under `reports/`, and are installed as `anyfem-verify`,
 `anyfem-parity` and `anyfem-gate`.
 
-The parity ledger is the gate for eventually replacing ANYstructure's
-`fem_integration.py`. It tracks 49 capabilities across that GUI's 176 options
+The parity ledger is the gate for replacing ANYstructure's FE application
+workflow. It tracks 49 capabilities across that GUI's 176 options
 and reports **92% covered with nothing blocking**: every capability is either
 covered or named in `OUT_OF_SCOPE` with a reason. A capability counts as
 covered only when ANYfem can do the same job.
@@ -91,10 +95,20 @@ python -m pip install -e .[dev,gui]
 python -m anyfem.ui.app
 ```
 
+From a source checkout, `python run_gui.py` launches the same application and
+adds the sibling ecosystem source trees when they are present.
+
 Model geometry on the **Geometry** tab, mesh on **Mesh**, attach materials and
 sections on **Sections**, supports and loads on **Loads & BC**, then **Solve**
 and **Results**. Click in the 3D view or the model tree to select; shift-click
 extends. Everything is undoable.
+
+The **Loads & BC** viewport toggle works in geometry, mesh and result views.
+Pressure, force, moment, translational/rotational restraint, mass and
+acceleration each have a directional symbol and color listed in the tab's
+**Viewport key**. On dense assignments the display samples at most 256 symbols
+per category, spread across the complete model; this limits canvas work only
+and never removes loads or boundary conditions from the analysis.
 
 ## Modelling paradigm
 
@@ -314,7 +328,7 @@ resolved.
 ```python
 from anyfem import (solve_modal, solve_buckling, solve_nonlinear_static,
                     solve_arc_length, solve_transient, solve_capacity,
-                    eigenmode_imperfection, steel)
+                    solve_impact, eigenmode_imperfection, steel)
 from anyfem.model import fracture
 
 modal = solve_modal(project, target_size=0.1, num_modes=6)
@@ -523,7 +537,9 @@ than by coincident-node merging.
 python -m pytest tests -q
 ```
 
-522 tests. GUI tests skip rather than fail when no display is available.
+GUI tests skip rather than fail when no display is available. The current test
+count belongs in CI output, because extraction work moves tests to their owning
+repositories.
 
 ## License
 

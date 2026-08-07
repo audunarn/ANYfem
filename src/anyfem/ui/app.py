@@ -13,7 +13,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from ..commands import Command, CommandStack
 from ..io.decks import export_calculix_deck
@@ -84,6 +84,7 @@ class AnyFemApp(ttk.Frame):
         self.seeding_overrides: Dict[int, int] = {}
         self._view_mode = "geometry"
         self._closing = False
+        self._refresh_suspended = 0
 
         self._build()
         self._build_menu()
@@ -171,6 +172,25 @@ class AnyFemApp(ttk.Frame):
         """Run a command; the stack notifies everything that must refresh."""
 
         return self.commands.run(command)
+
+    def run_many(self, commands: Iterable[Command]) -> list[Any]:
+        """Run independent commands with one final expensive GUI refresh.
+
+        Every command remains a separate undo step.  Only rendering, tree and
+        panel refreshes are coalesced, which matters when a load or section is
+        applied to hundreds of selected entities.
+        """
+
+        pending = list(commands)
+        if not pending:
+            return []
+        self._refresh_suspended += 1
+        try:
+            return [self.commands.run(command) for command in pending]
+        finally:
+            self._refresh_suspended -= 1
+            if self._refresh_suspended == 0:
+                self.refresh_all()
 
     def undo(self) -> None:
         if self.commands.undo():
@@ -330,6 +350,7 @@ class AnyFemApp(ttk.Frame):
             limits=panel.colour_limits(),
             values=panel.field_values(),
         )
+        scene = self._with_attributes(scene)
         if getattr(self.solution, "sphere_positions", None) is not None:
             scene.merge(build_collision_overlay(self.solution, self.shape_index))
         self.viewport.show(scene)
@@ -350,7 +371,7 @@ class AnyFemApp(ttk.Frame):
     # refresh
     # ------------------------------------------------------------------
     def refresh_all(self) -> None:
-        if self._closing:
+        if self._closing or self._refresh_suspended:
             return
         self.tree.refresh()
         self.refresh_panels()
@@ -412,6 +433,10 @@ class AnyFemApp(ttk.Frame):
         files = tk.Menu(menu, tearoff=0)
         files.add_command(label="New", command=self.guarded(self.new_project))
         files.add_command(label="Open...", command=self.guarded(self.open_project))
+        files.add_command(
+            label="Open file inspector...",
+            command=self.guarded(self.open_file_inspector),
+        )
         files.add_separator()
         files.add_command(label="Save", command=self.guarded(self.save_project))
         files.add_command(
@@ -464,6 +489,13 @@ class AnyFemApp(ttk.Frame):
         self.set_status("new model")
         self.refresh_all()
         self.show_geometry(reset_view=True)
+
+    def open_file_inspector(self, path: Optional[str] = None) -> None:
+        """Open ANYfileio's inspector as a child of this application."""
+
+        from anyfileio.gui import open_inspector
+
+        open_inspector(self.winfo_toplevel(), path=path)
 
     def open_project(self, path: Optional[str] = None) -> None:
         if path is None:
@@ -654,7 +686,7 @@ def _solution_report(solution) -> str:
         solution.built.project.name,
         "",
         f"nodes                {mesh.num_nodes}",
-        f"shell elements       {len(mesh.quads)}",
+        f"shell elements       {len(mesh.shells)}",
         f"beam elements        {len(mesh.beams)}",
         "",
         solution.summary(),

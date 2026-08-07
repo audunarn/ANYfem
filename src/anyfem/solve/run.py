@@ -871,7 +871,7 @@ def _contact_resolution(mesh: Mesh, collision: Any) -> Dict[str, float]:
 
     point = impact_point(mesh, collision)
     lengths = []
-    for element_id in mesh.quads:
+    for element_id in mesh.shells:
         corners = [mesh.nodes[node] for node in mesh.corners_of(element_id)]
         centre = np.mean(corners, axis=0)
         # Only the contact patch itself: elements a radius away are not what

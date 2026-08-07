@@ -5,7 +5,7 @@ must not pretend to be. A CalculiX FRD has three displacement components and no
 rotations; a rotation reported as zero is plausible and wrong. Several of these
 tests exist to hold that line.
 
-The parsers themselves belong to ANYsolver and are tested there. What is tested
+The parsers themselves belong to ANYfileio and are tested there. What is tested
 here is ANYfem's adapter: what it carries through, what it refuses, and how the
 result behaves once attached.
 """
@@ -191,6 +191,19 @@ def test_a_partial_attach_has_to_be_asked_for():
     assert attached.covered < mesh.num_nodes
 
 
+def test_complete_stresses_do_not_hide_partial_displacements():
+    _project, mesh, built, _solution = solved_plate()
+    mixed = ImportedResults(
+        source=Path("mixed.frd"),
+        format="CalculiX",
+        displacements={1: (0.0, 0.0, -1.0e-3)},
+        node_stresses={node: {"sxx": 1.0} for node in mesh.nodes},
+    )
+
+    with pytest.raises(ResultImportError, match="displacement nodes"):
+        mixed.attach(built)
+
+
 def test_results_with_nothing_nodal_are_refused():
     _project, _mesh, built, _solution = solved_plate()
     empty = ImportedResults(source=Path("x.frd"), format="CalculiX")
@@ -238,6 +251,12 @@ def test_imported_stress_components_reach_the_field_layer(workspace):
     mesh = project.generate_mesh(1.0)
     built = build_fe_model(project, mesh)
     attached = results.attach(built, require_all_nodes=False)
+
+    assert not attached.components
+    assert "magnitude" not in attached.available_fields()
+    assert "max translation" not in attached.summary()
+    with pytest.raises(KeyError, match="carries no 'ux'"):
+        attached.component("ux")
 
     for name in results.components:
         field = evaluate_field(attached, name)

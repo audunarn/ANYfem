@@ -149,6 +149,21 @@ class ImportedSolution(ShapeView):
     covered: int = 0
     label: str = "imported"
 
+    def _require_translations(self) -> None:
+        if not {"ux", "uy", "uz"}.issubset(self.components):
+            raise KeyError(
+                f"{self.label} carries no displacement field; this imported "
+                "result contains stresses only"
+            )
+
+    def node_displacement(self, node_id: int) -> np.ndarray:
+        self._require_translations()
+        return super().node_displacement(node_id)
+
+    def translations(self) -> np.ndarray:
+        self._require_translations()
+        return super().translations()
+
     def component(self, name: str) -> np.ndarray:
         if name in _DOF_INDEX and name not in self.components:
             available = ", ".join(sorted(self.components)) or "none"
@@ -163,16 +178,18 @@ class ImportedSolution(ShapeView):
         """Displacement components plus whatever stresses the file named."""
 
         order = [name for name in _DOF_INDEX if name in self.components]
-        return ["magnitude"] + order + list(self.fields)
+        displacement = ["magnitude"] + order if order else []
+        return displacement + list(self.fields)
 
     def summary(self) -> str:
         pieces = [self.label, f"{self.covered} nodes matched"]
         if self.results is not None:
             pieces.append(self.results.summary())
-        node_id, magnitude = self.max_translation()
-        pieces.append(
-            f"max translation {magnitude:.6g} m at node {node_id}"
-        )
+        if {"ux", "uy", "uz"}.issubset(self.components):
+            node_id, magnitude = self.max_translation()
+            pieces.append(
+                f"max translation {magnitude:.6g} m at node {node_id}"
+            )
         return "; ".join(pieces)
 
 

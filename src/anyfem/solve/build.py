@@ -61,15 +61,10 @@ def build_fe_model(
     )
 
     fe_model = FEModel(name=project.name)
-    for material in project.materials.values():
-        fe_model.add_material(
-            material.name,
-            material.elastic_modulus,
-            material.poisson_ratio,
-            density=material.density,
-            yield_stress=material.yield_stress,
-            hardening_curve=material.hardening_curve(),
-        )
+    for specification in project.materials.values():
+        # ANYmaterial owns validation and construction. Registering the live
+        # object supports both isotropic and orthotropic specifications.
+        fe_model.register_material(specification.build())
 
     for node_id in sorted(mesh.nodes):
         x, y, z = mesh.nodes[node_id]
@@ -96,7 +91,17 @@ def build_fe_model(
             combination=combination,
         )
 
-    resolved = _resolve_load_case(project, load_case)
+    # A load-free build is used for deck handoff and neutral-mesh inspection.
+    # The historical default name should not manufacture a requirement after
+    # the caller explicitly disabled load validation.
+    if (
+        not require_loads
+        and load_case == "default"
+        and "default" not in project.load_cases
+    ):
+        resolved = None
+    else:
+        resolved = _resolve_load_case(project, load_case)
     solver_case = (
         None if resolved is None else _build_load_case(project, mesh, resolved)
     )
@@ -155,11 +160,19 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     for face_id, element_ids in mesh.elements_of_face.items():
         section = project.plate_section_of(face_id)
         for element_id in element_ids:
+            if element_id in mesh.quads:
+                node_ids = mesh.quads[element_id]
+            elif element_id in mesh.tris:
+                node_ids = mesh.tris[element_id]
+            else:
+                raise ProjectError(
+                    f"face {face_id} references missing shell element {element_id}"
+                )
             fe_model.add_element(
                 element_id,
                 ShellElement(
                     element_id,
-                    list(mesh.quads[element_id]),
+                    list(node_ids),
                     material_name=section.material,
                     thickness=section.thickness,
                 ),
@@ -199,16 +212,45 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """
 
     material = next(iter(project.materials), "default")
-    for element_id, (beam_node, shell_node) in mesh.couplings.items():
-        fe_model.add_element(
-            element_id,
-            CoupledBeamShellElement(
+    for element_id, coupling in mesh.couplings.items():
+        if hasattr(coupling, "beam_node"):
+            beam_node = int(coupling.beam_node)
+            plate_nodes = tuple(int(node) for node in coupling.plate_nodes)
+            weights = tuple(float(value) for value in coupling.weights)
+            eccentricity = tuple(float(value) for value in coupling.eccentricity)
+        else:
+            # Wheels from the pre-extraction ANYfem line stored a pair. Keep
+            # accepting one so an application-provided legacy Mesh still builds.
+            beam_node, shell_node = coupling
+            beam_node = int(beam_node)
+            plate_nodes = (int(shell_node),)
+            weights = (1.0,)
+            eccentricity = tuple(
+                float(value)
+                for value in (mesh.nodes[beam_node] - mesh.nodes[int(shell_node)])
+            )
+
+        if len(plate_nodes) == 1:
+            element = CoupledBeamShellElement(
                 element_id,
                 beam_node_id=beam_node,
-                shell_node_id=shell_node,
+                shell_node_id=plate_nodes[0],
                 material_name=material,
-            ),
-        )
+            )
+        else:
+            # This remains solver functionality: ANYmesher describes the
+            # interpolation, while ANYsolver turns it into exact MPC equations.
+            from anysolver import InterpolatedBeamShellMPCElement
+
+            element = InterpolatedBeamShellMPCElement(
+                element_id,
+                beam_node_id=beam_node,
+                shell_node_ids=list(plate_nodes),
+                shape_weights=np.asarray(weights, dtype=float),
+                eccentricity=np.asarray(eccentricity, dtype=float),
+                material_name=material,
+            )
+        fe_model.add_element(element_id, element)
 
 
 def _add_supports(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
@@ -326,11 +368,10 @@ def _traction_to_nodes(
 
     The shares are the element's *consistent* load vector for a uniform
     traction, so the resultant is exact and a non-uniform mesh still
-    distributes it correctly.  For a Q4 that is a quarter to each corner.  For
-    a Q8 it is one third to each mid-side node and **minus** one twelfth to
-    each corner -- a negative corner share looks wrong but is what serendipity
-    interpolation actually integrates to, and the eight shares still sum to
-    one.  Splitting it equally instead would load the corners too heavily.
+    distributes it correctly. For Q4 and T3 the shares are equal. For Q8 it is
+    one third to each mid-side node and **minus** one twelfth to each corner;
+    for T6 the corner integrals are zero and each mid-side node takes one
+    third. These are the exact integrals of the corresponding shape functions.
     """
 
     element_ids = mesh.elements_of_face.get(ref.id)
@@ -339,22 +380,53 @@ def _traction_to_nodes(
             f"surface traction references {ref}, which has no elements in the mesh"
         )
 
-    shares = (
-        (-1.0 / 12.0,) * 4 + (1.0 / 3.0,) * 4
-        if mesh.is_quadratic
-        else (0.25,) * 4
-    )
     accumulated: Dict[int, np.ndarray] = {}
     intensity = np.asarray(traction, dtype=float)
     for element_id in element_ids:
-        nodes = mesh.quads[element_id]
+        if element_id in mesh.quads:
+            nodes = mesh.quads[element_id]
+            shares_by_count = {
+                4: (0.25,) * 4,
+                8: (-1.0 / 12.0,) * 4 + (1.0 / 3.0,) * 4,
+            }
+        elif element_id in mesh.tris:
+            nodes = mesh.tris[element_id]
+            shares_by_count = {
+                3: (1.0 / 3.0,) * 3,
+                6: (0.0,) * 3 + (1.0 / 3.0,) * 3,
+            }
+        else:
+            raise ProjectError(
+                f"surface traction references missing shell element {element_id}"
+            )
+        try:
+            shares = shares_by_count[len(nodes)]
+        except KeyError:
+            raise ProjectError(
+                f"surface traction does not support a {len(nodes)}-node shell"
+            ) from None
         corners = np.array(
             [mesh.nodes[node] for node in mesh.corners_of(element_id)]
         )
-        area = 0.5 * (
-            float(np.linalg.norm(np.cross(corners[1] - corners[0], corners[2] - corners[0])))
-            + float(np.linalg.norm(np.cross(corners[2] - corners[0], corners[3] - corners[0])))
-        )
+        if len(corners) == 3:
+            area = 0.5 * float(
+                np.linalg.norm(
+                    np.cross(corners[1] - corners[0], corners[2] - corners[0])
+                )
+            )
+        else:
+            area = 0.5 * (
+                float(
+                    np.linalg.norm(
+                        np.cross(corners[1] - corners[0], corners[2] - corners[0])
+                    )
+                )
+                + float(
+                    np.linalg.norm(
+                        np.cross(corners[2] - corners[0], corners[3] - corners[0])
+                    )
+                )
+            )
         for node_id, weight in zip(nodes, shares):
             if node_id not in accumulated:
                 accumulated[node_id] = np.zeros(3)

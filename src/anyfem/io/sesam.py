@@ -141,7 +141,8 @@ class ImportedModel:
         groups = len(self.groups)
         note = "" if not self.diagnostics else f", {len(self.diagnostics)} diagnostic(s)"
         return (
-            f"{self.name}: {self.num_nodes} nodes, {len(self.mesh.quads)} shells, "
+            f"{self.name}: {self.num_nodes} nodes, "
+            f"{len(self.mesh.quads) + len(self.mesh.tris)} shells, "
             f"{len(self.mesh.beams)} beams, {groups} group(s){note}"
         )
 
@@ -151,53 +152,116 @@ def import_sesam(
 ) -> ImportedModel:
     """Read a SESAM FEM file into an imported model.
 
-    ``strict`` is passed to the solver's importer.  It defaults to False here
+    ``strict`` is passed to ANYfileio's reader. It defaults to False here
     because a real file usually carries records outside the supported subset,
     and refusing the whole model for that would make the importer useless; the
     diagnostics are kept and reported instead.
     """
 
-    from anysolver import import_sesam_fem
+    from anyfileio import raise_if_errors, read_sesam_fem_document, read_sesam_semantics
+    from anysolver.sesam_fem import build_fe_model_from_sesam_document
 
     source = Path(path)
     if not source.exists():
         raise SesamImportError(f"no such file: {source}")
 
     try:
-        result = import_sesam_fem(source, strict=strict, build_model=True)
+        document = read_sesam_fem_document(source, strict=strict)
+        semantics = read_sesam_semantics(document, strict=False)
+        fe_model, adapter_diagnostics = build_fe_model_from_sesam_document(document)
+        diagnostics = list(semantics.diagnostics)
+        for diagnostic in adapter_diagnostics:
+            if diagnostic not in diagnostics:
+                diagnostics.append(diagnostic)
+        if strict:
+            raise_if_errors(diagnostics, "SESAM FEM import failed")
     except Exception as error:  # noqa: BLE001 - reported verbatim
         raise SesamImportError(f"{source.name}: {error}") from None
 
-    mesh = None if result.model is None else mesh_from_fe_model(result.model)
-    if mesh is None or (not mesh.quads and not mesh.beams):
+    mesh = semantics.mesh
+    _ensure_groups(mesh, fe_model)
+    if not mesh.shells and not mesh.beams:
         # The importer returns an empty model rather than None for a file that
         # parses but carries nothing usable, so emptiness is the real test.
         raise SesamImportError(
             f"{source.name} parsed, but no supported beam or shell topology was "
             "found, so there is no model to analyse. "
-            f"{len(result.diagnostics)} diagnostic(s) were recorded."
+            f"{len(diagnostics)} diagnostic(s) were recorded."
         )
     groups = {
-        f"group {ref.id}": ref
-        for ref in (EntityRef("face", key) for key in sorted(mesh.elements_of_face))
+        f"group {index}": EntityRef("face", key)
+        for index, key in enumerate(sorted(mesh.elements_of_face), start=1)
     }
     groups.update(
         {
-            f"beams {ref.id}": ref
-            for ref in (
-                EntityRef("edge", key) for key in sorted(mesh.elements_of_edge)
-            )
+            f"beams {index}": EntityRef("edge", key)
+            for index, key in enumerate(sorted(mesh.elements_of_edge), start=1)
         }
     )
 
     return ImportedModel(
         name=name or source.stem,
-        fe_model=result.model,
+        fe_model=fe_model,
         mesh=mesh,
         source=source,
-        diagnostics=tuple(result.diagnostics),
+        diagnostics=tuple(diagnostics),
         groups=groups,
     )
+
+
+def _ensure_groups(mesh: Mesh, fe_model: Any) -> None:
+    """Give unsectioned imported elements stable synthetic groups.
+
+    ANYfileio preserves genuine SESAM section IDs. Older files often omit
+    those references, while ANYfem still needs an addressable entity for loads,
+    selection and probing. Group only the unclaimed elements so real IDs win.
+    """
+
+    claimed_shells = {
+        element_id
+        for element_ids in mesh.elements_of_face.values()
+        for element_id in element_ids
+    }
+    claimed_beams = {
+        element_id
+        for element_ids in mesh.elements_of_edge.values()
+        for element_id in element_ids
+    }
+    shell_groups: Dict[Any, int] = {}
+    beam_groups: Dict[Any, int] = {}
+    next_face = max(mesh.elements_of_face, default=0) + 1
+    next_edge = max(mesh.elements_of_edge, default=0) + 1
+
+    for element_id, element in sorted(fe_model.mesh.elements.items()):
+        element_id = int(element_id)
+        if element_id in mesh.shells and element_id not in claimed_shells:
+            key = (
+                getattr(element, "material_name", "default"),
+                round(float(getattr(element, "thickness", 0.0)), 12),
+            )
+            if key not in shell_groups:
+                shell_groups[key] = next_face
+                next_face += 1
+            mesh.elements_of_face.setdefault(shell_groups[key], []).append(element_id)
+        elif element_id in mesh.beams and element_id not in claimed_beams:
+            section = getattr(element, "cross_section", {}) or {}
+            key = (
+                getattr(element, "material_name", "default"),
+                round(float(section.get("area", 0.0)), 12),
+                round(float(section.get("Iy", 0.0)), 12),
+            )
+            if key not in beam_groups:
+                beam_groups[key] = next_edge
+                next_edge += 1
+            mesh.elements_of_edge.setdefault(beam_groups[key], []).append(element_id)
+
+    for group, element_ids in mesh.elements_of_edge.items():
+        ordered: List[int] = []
+        for element_id in element_ids:
+            for node_id in mesh.beams[element_id]:
+                if node_id not in ordered:
+                    ordered.append(node_id)
+        mesh.nodes_of_edge[group] = ordered
 
 
 def mesh_from_fe_model(fe_model: Any) -> Mesh:

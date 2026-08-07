@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -94,10 +95,27 @@ def in_clean_interpreter(script: str) -> str:
 
     import subprocess
 
+    repository = Path(__file__).resolve().parent.parent
+    ecosystem = repository.parent
+    source_roots = [
+        repository / "src",
+        ecosystem / "ANYsolver" / "src",
+        ecosystem / "ANYmaterial" / "src",
+        ecosystem / "ANYmesh" / "src",
+        ecosystem / "ANYio" / "src",
+    ]
+    environment = os.environ.copy()
+    inherited = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(path) for path in source_roots if path.is_dir()]
+        + ([inherited] if inherited else [])
+    )
+
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True, text=True, timeout=300,
-        cwd=str(Path(__file__).resolve().parent.parent),
+        cwd=str(repository),
+        env=environment,
     )
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
