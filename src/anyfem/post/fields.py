@@ -317,16 +317,24 @@ def _stress_field(
 def recover(shape, **kwargs: Any):
     """Recover element stresses for any shape, caching on the shape itself."""
 
+    caller_options = bool(kwargs)
     cached = getattr(shape, "_stress", None)
-    if cached is not None and not kwargs:
+    if cached is not None and not caller_options:
         return cached
 
     from anysolver import recover_stress_result
 
+    nonlinear_result = getattr(shape, "raw_result", None)
+    if (
+        nonlinear_result is not None
+        and "nonlinear_result" not in kwargs
+        and "element_states" not in kwargs
+    ):
+        kwargs.setdefault("nonlinear_result", nonlinear_result)
     result = recover_stress_result(
         shape.built.fe_model, shape.displacements, **kwargs
     )
-    if not kwargs:
+    if not caller_options:
         try:
             shape._stress = result
         except AttributeError:  # pragma: no cover - frozen shapes

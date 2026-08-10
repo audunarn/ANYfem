@@ -56,6 +56,37 @@ def build_plate(app, width=2.0, height=1.0):
     return points, face
 
 
+def test_workplane_click_construction_defers_until_apply_and_escape_cancels(app, root):
+    panel = app.panels["Geometry"]
+    panel._construction_mode.set("Line")
+    panel._workplane_grid.set("250 mm")
+    panel._workplane_tolerance.set("20 mm")
+    panel._start_construction()
+
+    task = app.viewport.construction_task
+    assert task is not None
+    task.add_plane_coordinates(0.0, 0.0, app.session.active_workplane.resolve(
+        app.project.coordinate_systems
+    ))
+    task.add_plane_coordinates(1.0, 0.0, app.session.active_workplane.resolve(
+        app.project.coordinate_systems
+    ))
+    assert not app.project.geometry.vertices
+    panel._apply_construction()
+    assert len(app.project.geometry.vertices) == 2
+    assert len(app.project.geometry.edges) == 1
+
+    app.undo()
+    assert not app.project.geometry.vertices
+    panel._construction_mode.set("Point")
+    panel._start_construction()
+    app.viewport.construction_task.add((2.0, 3.0, 0.0))
+    app.viewport._handle_construction_escape()
+    root.update()
+    assert not app.project.geometry.vertices
+    assert not app.viewport.construction_active
+
+
 def support_and_load(app, face):
     for edge in app.project.geometry.edges:
         app.run(
@@ -647,6 +678,12 @@ def test_animating_a_transient_walks_every_step(app, root):
 
     results.guarded(results._animate)()
     root.update()
+    # Playback yields between frames so the Tk event loop remains responsive.
+    assert app.shape_index < len(solution) - 1
+    while results._animation_after is not None:
+        results.after_cancel(results._animation_after)
+        results._animation_after = None
+        results._animation_step()
     assert app.shape_index == len(solution) - 1
 
 
@@ -914,16 +951,50 @@ def test_importing_a_sesam_model_and_solving_it(app, root):
     assert solution.max_translation()[1] > 0.0
 
 
-def test_saving_an_imported_model_is_refused(app, root):
+def test_saving_an_imported_model_embeds_it_for_portable_reopen(app, root):
     from pathlib import Path
 
     from test_io import write_sesam_plate
 
     directory = Path(workspace_dir())
     app.import_sesam_model(str(write_sesam_plate(directory / "plate.FEM")))
-    app.guarded(lambda: app.save_project(path=str(directory / "x.anyfem")))()
+    destination = directory / "x.anyfem"
+    app.guarded(lambda: app.save_project(path=str(destination)))()
     root.update()
-    assert "no ANYfem geometry to save" in app._status.cget("text")
+    assert "saved x.anyfem" in app._status.cget("text")
+    app.open_project(str(destination))
+    root.update()
+    assert app.project.mesh_only
+    assert app.imported is not None
+    assert app.mesh is not None
+
+
+def test_completed_result_saves_reopens_lazily_and_contours(app, root):
+    from pathlib import Path
+
+    solvable_plate(app)
+    run_analysis(app, root, "Linear static")
+    destination = Path(workspace_dir()) / "retained.anyfem"
+    app.save_project(path=str(destination))
+    root.update()
+
+    job_id = app.active_job_id
+    assert job_id is not None
+    artifact_id = app.project.jobs[job_id].result_artifact_id
+    assert artifact_id in app.project.artifacts
+
+    app.new_project()
+    app.open_project(str(destination))
+    root.update()
+    assert job_id in app.result_datasets
+    dataset = app.result_datasets[job_id]
+    assert "displacement" in dataset.field_keys
+
+    results = app.panels["Results"]
+    results._component.set("displacement")
+    results.guarded(results._show)()
+    root.update()
+    assert app._view_mode == "results"
 
 
 def test_opening_a_broken_file_is_reported(app, root):

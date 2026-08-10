@@ -12,7 +12,7 @@ that puts the message on a queue.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -20,6 +20,9 @@ from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
 from ..model.project import Project, ProjectError
 from .build import BuiltModel, build_fe_model
+
+if TYPE_CHECKING:
+    from anysolver import CancellationToken
 
 __all__ = [
     "ContactConfigurationError",
@@ -29,6 +32,7 @@ __all__ = [
     "solve_buckling",
     "solve_impact",
     "solve_linear_static",
+    "solve_linear_static_many",
     "solve_modal",
     "solve_nonlinear_static",
     "solve_transient",
@@ -93,6 +97,7 @@ def solve_linear_static(
     combination: Optional[str] = None,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
     **solver_options: Any,
 ):
     """Mesh if needed, build, and run a linear static solve.
@@ -111,11 +116,101 @@ def solve_linear_static(
     )
 
     _report(progress, "solving")
+    structured_progress = solver_options.pop("progress_callback", None)
     displacements, info = solve_linear(
-        built.fe_model, built.load_case, **solver_options
+        built.fe_model,
+        built.load_case,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(
+            progress, "static solve", structured_progress
+        ),
+        **solver_options,
     )
     return LinearSolution(
         displacements=displacements, built=built, info=info, label="static"
+    )
+
+
+def solve_linear_static_many(
+    project: Optional[Project] = None,
+    *,
+    built: Optional[BuiltModel] = None,
+    mesh: Optional[Mesh] = None,
+    target_size: Optional[float] = None,
+    load_cases: Optional[Sequence[str | LoadCase]] = None,
+    overrides: Optional[Mapping[int, int]] = None,
+    progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
+    **solver_options: Any,
+):
+    """Solve several unchanged-stiffness cases with one factorization.
+
+    The returned shapes retain their own solver load case, so reactions and
+    stress recovery remain case-specific. Geometry, sections, supports,
+    masses, imperfections, and affine constraints are assembled only once.
+    """
+
+    from anysolver import solve_linear_many
+
+    from ..post.results import LinearBatchSolution, LinearSolution
+    from .build import _build_load_case, _resolve_load_case
+
+    if built is None:
+        built = _resolve_built(
+            project,
+            None,
+            mesh=mesh,
+            target_size=target_size,
+            overrides=overrides,
+            progress=progress,
+            load_case=None,
+            require_loads=True,
+        )
+    resolved_project = built.project
+    requested = tuple(load_cases or tuple(resolved_project.load_cases))
+    if not requested:
+        raise ProjectError("a batch linear solve needs at least one load case")
+
+    solver_cases = []
+    case_names = []
+    for requested_case in requested:
+        case = _resolve_load_case(resolved_project, requested_case)
+        if case is None:  # pragma: no cover - rejected by the public type
+            raise ProjectError("a batch linear solve cannot include an empty case")
+        solver_case = _build_load_case(resolved_project, built.mesh, case)
+        built.fe_model.add_load_case(solver_case)
+        solver_cases.append(solver_case)
+        case_names.append(case.name)
+
+    _report(progress, f"solving {len(solver_cases)} cases with one factorization")
+    structured_progress = solver_options.pop("progress_callback", None)
+    matrix, info = solve_linear_many(
+        built.fe_model,
+        solver_cases,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(
+            progress, "batch static solve", structured_progress
+        ),
+        **solver_options,
+    )
+    shapes = []
+    for index, (name, solver_case) in enumerate(zip(case_names, solver_cases)):
+        case_built = replace(built, load_case=solver_case)
+        shapes.append(
+            LinearSolution(
+                displacements=np.asarray(matrix[:, index], dtype=float),
+                built=case_built,
+                info={**info, "batch_case_index": index, "batch_case": name},
+                label=f"static: {name}",
+                value=float(index),
+            )
+        )
+    return LinearBatchSolution(
+        built=built,
+        shapes=shapes,
+        status=str(info.get("status", "unknown")),
+        info=info,
+        case_names=tuple(case_names),
     )
 
 
@@ -132,6 +227,7 @@ def solve_modal(
     shift: Optional[float] = 0.0,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
     **solver_options: Any,
 ):
     """Natural frequencies and mode shapes.
@@ -157,8 +253,16 @@ def solve_modal(
     )
 
     _report(progress, f"solving for {num_modes} modes")
+    structured_progress = solver_options.pop("progress_callback", None)
     result = solve_free_vibration(
-        built.fe_model, num_modes=num_modes, shift=shift, **solver_options
+        built.fe_model,
+        num_modes=num_modes,
+        shift=shift,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(
+            progress, "modal solve", structured_progress
+        ),
+        **solver_options,
     )
 
     shapes = [
@@ -193,6 +297,7 @@ def solve_buckling(
     num_modes: int = 3,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
     **solver_options: Any,
 ):
     """Elastic buckling load factors for a reference load case.
@@ -224,9 +329,12 @@ def solve_buckling(
     reference_options = {}
     if "resource_config" in solver_options:
         reference_options["resource_config"] = solver_options["resource_config"]
+    structured_progress = solver_options.pop("progress_callback", None)
     displacements, _info = solve_linear(
         built.fe_model,
         built.load_case,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(progress, "buckling reference solve"),
         **reference_options,
     )
 
@@ -240,6 +348,10 @@ def solve_buckling(
         built.fe_model,
         element_states=states,
         num_modes=num_modes,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(
+            progress, "buckling solve", structured_progress
+        ),
         **solver_options,
     )
 
@@ -313,6 +425,8 @@ def solve_capacity(
     resources: Any = None,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
+    record_increment_snapshots: bool = False,
     **config_options: Any,
 ):
     """Static, prestress, buckling, imperfection, then nonlinear collapse.
@@ -332,6 +446,9 @@ def solve_capacity(
     The result is a :class:`CapacitySolution`, which is a nonlinear result
     carrying the buckling stage alongside it, so anything that displays a
     nonlinear solve displays this unchanged.
+
+    Set ``record_increment_snapshots`` to retain the converged displacement
+    and committed element state at each nonlinear increment for true playback.
     """
 
     from anysolver import CapacityWorkflowConfig, run_nonlinear_capacity_workflow
@@ -364,6 +481,9 @@ def solve_capacity(
         built.load_case,
         config=config,
         status_callback=None if progress is None else progress,
+        progress_callback=_step_reporter(progress, "capacity solve"),
+        cancellation_token=cancellation_token,
+        record_increment_snapshots=bool(record_increment_snapshots),
     )
 
     buckling = BucklingSolution(
@@ -396,6 +516,7 @@ def solve_capacity(
         },
         peak_load_factor=float(result.capacity_factor),
         deleted_elements=_deleted_elements(result.nonlinear_result),
+        raw_result=result.nonlinear_result,
         critical_factor=(
             None
             if result.critical_load_factor is None
@@ -426,6 +547,8 @@ def solve_nonlinear_static(
     resources: Any = None,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
+    record_increment_snapshots: bool = False,
     **solver_options: Any,
 ):
     """Incremental geometric and material nonlinear statics.
@@ -442,6 +565,9 @@ def solve_nonlinear_static(
     ``resources`` takes a :func:`~anyfem.solve.policy.resource_policy` for
     thread counts, determinism and a memory ceiling.  This is the one analysis
     the solver accepts it on.
+
+    Set ``record_increment_snapshots`` to retain converged displacement and
+    committed element-state snapshots for postprocessing and animation.
     """
 
     from anysolver import solve_static_nonlinear
@@ -454,6 +580,7 @@ def solve_nonlinear_static(
     )
 
     _report(progress, "starting the incremental solve")
+    structured_progress = solver_options.pop("progress_callback", None)
     result = solve_static_nonlinear(
         built.fe_model,
         built.load_case,
@@ -463,7 +590,9 @@ def solve_nonlinear_static(
         fracture_config=fracture,
         resource_config=resources,
         status_callback=None if progress is None else progress,
-        progress_callback=_step_reporter(progress, "step"),
+        progress_callback=_step_reporter(progress, "step", structured_progress),
+        cancellation_token=cancellation_token,
+        record_increment_snapshots=bool(record_increment_snapshots),
         **solver_options,
     )
     return NonlinearSolution(
@@ -473,8 +602,9 @@ def solve_nonlinear_static(
         value=float(result.load_factor),
         steps=list(result.steps),
         status=result.status,
-        info=dict(result.info),
+        info={**dict(result.info), "raw": result},
         deleted_elements=_deleted_elements(result),
+        raw_result=result,
     )
 
 
@@ -490,12 +620,17 @@ def solve_arc_length(
     imperfection: Any = None,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
+    record_increment_snapshots: bool = False,
     **solver_options: Any,
 ):
     """Arc-length continuation through a limit point.
 
     Where the incremental solve stops at the peak, this traces past it, so the
     result carries the peak load factor as well as the final state.
+
+    Set ``record_increment_snapshots`` to retain each converged point on the
+    continuation path rather than only the final committed state.
     """
 
     from anysolver import solve_static_arc_length
@@ -510,12 +645,17 @@ def solve_arc_length(
         raise ProjectError("arc-length continuation needs a load case")
 
     _report(progress, "tracing the equilibrium path")
+    structured_progress = solver_options.pop("progress_callback", None)
     result = solve_static_arc_length(
         built.fe_model,
         built.load_case,
         control=control,
         imperfection=imperfection,
-        progress_callback=_step_reporter(progress, "arc step"),
+        progress_callback=_step_reporter(
+            progress, "arc step", structured_progress
+        ),
+        cancellation_token=cancellation_token,
+        record_increment_snapshots=bool(record_increment_snapshots),
         **solver_options,
     )
     return NonlinearSolution(
@@ -525,25 +665,56 @@ def solve_arc_length(
         value=float(result.load_factor),
         steps=list(result.steps),
         status=result.status,
-        info=dict(result.info),
+        info={**dict(result.info), "raw": result},
         peak_load_factor=float(result.peak_load_factor),
         deleted_elements=_deleted_elements(result),
+        raw_result=result,
     )
 
 
-def _step_reporter(progress: Progress, noun: str):
-    """Turn the solver's progress dictionaries into short status lines."""
+def _step_reporter(
+    progress: Progress,
+    noun: str,
+    structured_progress: Optional[Callable[[Mapping[str, Any]], None]] = None,
+):
+    """Turn structured solver progress events into short status lines.
+
+    ``ProgressEvent`` deliberately implements ``Mapping`` for compatibility
+    with the solver's former dictionary payloads, so this adapter accepts both
+    contracts while ANYfem's existing UI-facing callback remains a string
+    callback.
+    """
 
     if progress is None:
-        return None
+        return structured_progress
 
-    def report(record: Dict[str, Any]) -> None:
+    def report(record: Mapping[str, Any]) -> None:
+        message = record.get("message")
+        if message:
+            progress(str(message))
+            if structured_progress is not None:
+                structured_progress(record)
+            return
+
         index = record.get("step_index", record.get("step"))
         factor = record.get("load_factor")
-        if factor is None:
-            progress(f"{noun} {index}")
-        else:
+        time_s = record.get("time_s")
+        if index is not None and factor is not None:
             progress(f"{noun} {index}: load factor {float(factor):.4g}")
+        elif index is not None and time_s is not None:
+            progress(f"{noun} {index}: t = {float(time_s):.4g} s")
+        elif index is not None:
+            progress(f"{noun} {index}")
+        elif record.get("status") is not None:
+            progress(f"{noun}: {record['status']}")
+        elif record.get("fraction") is not None:
+            progress(f"{noun}: {100.0 * float(record['fraction']):.0f}%")
+        else:
+            stage = str(record.get("stage", noun)).replace("_", " ")
+            progress(stage)
+
+        if structured_progress is not None:
+            structured_progress(record)
 
     return report
 
@@ -566,6 +737,7 @@ def solve_transient(
     rayleigh_beta: float = 0.0,
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
     **config_options: Any,
 ):
     """Implicit Newmark transient response to a constant load case."""
@@ -590,7 +762,11 @@ def solve_transient(
 
     _report(progress, f"integrating to t = {t_end:g} s")
     result = solve_transient_newmark(
-        built.fe_model, config, base_load_case=built.load_case
+        built.fe_model,
+        config,
+        base_load_case=built.load_case,
+        cancellation_token=cancellation_token,
+        progress_callback=_step_reporter(progress, "transient step"),
     )
 
     times = np.asarray(result.times, dtype=float)
@@ -647,6 +823,7 @@ def solve_impact(
     overrides: Optional[Mapping[int, int]] = None,
     strict: bool = True,
     progress: Progress = None,
+    cancellation_token: Optional["CancellationToken"] = None,
     **config_options: Any,
 ):
     """A rigid sphere striking the structure.
@@ -777,6 +954,7 @@ def solve_impact(
         nonlinear_config=nonlinear_config,
         progress_callback=_step_reporter(progress, "impact step"),
         status_callback=None if progress is None else progress,
+        cancellation_token=cancellation_token,
     )
 
     if strict and result.status not in _IMPACT_SUCCESS:
@@ -989,7 +1167,16 @@ def _deleted_elements(result: Any) -> tuple:
 
 
 # ----------------------------------------------------------------------
-def preflight(built: BuiltModel):
+def preflight(
+    built: BuiltModel,
+    *,
+    analysis_type: str | None = None,
+    load_cases: Optional[Sequence[Any]] = None,
+    kinematics: str = "von_karman",
+    corotational_tangent: str = "auto",
+    allow_free_mechanisms: bool | None = None,
+    **validation_options: Any,
+):
     """Run the solver's production validation against a built model.
 
     Returns the solver's own report rather than a paraphrase of it, so the
@@ -998,4 +1185,21 @@ def preflight(built: BuiltModel):
 
     from anysolver import validate_production_model
 
-    return validate_production_model(built.fe_model)
+    normalized = (
+        None
+        if analysis_type is None
+        else str(analysis_type).strip().lower().replace(" ", "_")
+    )
+    if load_cases is None:
+        load_cases = () if built.load_case is None else (built.load_case,)
+    if allow_free_mechanisms is None:
+        allow_free_mechanisms = normalized in ("modal", "free_vibration")
+    return validate_production_model(
+        built.fe_model,
+        load_cases=tuple(load_cases),
+        analysis_type=normalized,
+        kinematics=kinematics,
+        corotational_tangent=corotational_tangent,
+        allow_free_mechanisms=bool(allow_free_mechanisms),
+        **validation_options,
+    )

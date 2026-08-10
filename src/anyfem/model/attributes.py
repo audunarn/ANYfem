@@ -8,11 +8,13 @@ load survives a re-mesh.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Mapping, Sequence
+from typing import Callable, List, Mapping, Sequence
+from uuid import uuid4
 
 import numpy as np
 
 from anygeometry.entities import EntityRef
+from .regions import RegionRef
 
 __all__ = [
     "DOF_NAMES",
@@ -34,6 +36,10 @@ __all__ = [
 ]
 
 DOF_NAMES: tuple[str, ...] = ("ux", "uy", "uz", "rx", "ry", "rz")
+
+
+def _uuid() -> str:
+    return str(uuid4())
 
 # The three planes a symmetry condition can be expressed in exactly, keyed by
 # the axis their normal points along.
@@ -73,6 +79,9 @@ class Support:
     name: str
     ref: EntityRef
     constraints: Mapping[str, float]
+    region: RegionRef | None = None
+    coordinate_system_id: str = "global"
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         unknown = set(self.constraints) - set(DOF_NAMES)
@@ -95,6 +104,8 @@ class Support:
                 value, f"support {self.name!r} constraint {dof}"
             )
         object.__setattr__(self, "constraints", constraints)
+        if not str(self.coordinate_system_id):
+            raise ValueError("support coordinate system ID cannot be empty")
 
 
 def support(ref: EntityRef, name: str | None = None, **dofs: float) -> Support:
@@ -266,12 +277,17 @@ class Mass:
     ref: EntityRef
     value: float
     name: str = "mass"
+    region: RegionRef | None = None
+    distribution_policy: str = "total_distributed"
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         value = _finite_scalar(self.value, f"mass {self.name!r}")
         if value < 0.0:
             raise ValueError(f"mass {self.name!r} must not be negative")
         object.__setattr__(self, "value", value)
+        if self.distribution_policy not in ("per_target", "total_distributed"):
+            raise ValueError("mass distribution policy must be per_target or total_distributed")
 
 
 @dataclass(frozen=True)
@@ -280,6 +296,7 @@ class Combination:
 
     name: str
     factors: Mapping[str, float]
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if not self.factors:
@@ -300,12 +317,18 @@ class PointLoad:
     ref: EntityRef
     force: np.ndarray = field(default_factory=lambda: np.zeros(3))
     moment: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    region: RegionRef | None = None
+    coordinate_system_id: str = "global"
+    distribution_policy: str = "per_target"
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if self.ref.kind != "vertex":
             raise ValueError("a point load applies to a point")
         object.__setattr__(self, "force", _vector3(self.force, "point-load force"))
         object.__setattr__(self, "moment", _vector3(self.moment, "point-load moment"))
+        if self.distribution_policy not in ("per_target", "total_distributed"):
+            raise ValueError("point-load distribution policy must be per_target or total_distributed")
 
 
 @dataclass(frozen=True)
@@ -314,6 +337,8 @@ class Pressure:
 
     ref: EntityRef
     value: float
+    region: RegionRef | None = None
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
@@ -327,6 +352,9 @@ class LineLoad:
 
     ref: EntityRef
     force_per_length: np.ndarray
+    region: RegionRef | None = None
+    coordinate_system_id: str = "global"
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if self.ref.kind != "edge":
@@ -349,6 +377,9 @@ class SurfaceTraction:
 
     ref: EntityRef
     traction: np.ndarray
+    region: RegionRef | None = None
+    coordinate_system_id: str = "global"
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
@@ -376,51 +407,94 @@ class LoadCase:
     surface_tractions: List[SurfaceTraction] = field(default_factory=list)
     gravity: np.ndarray | None = None
     follower_pressure: bool = False
+    id: str = field(default_factory=_uuid)
+    gravity_coordinate_system_id: str = "global"
+    _region_factory: Callable[[EntityRef], RegionRef] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def add_point_load(
         self,
         ref: EntityRef,
         force: Sequence[float] = (0.0, 0.0, 0.0),
         moment: Sequence[float] = (0.0, 0.0, 0.0),
+        *,
+        region: RegionRef | None = None,
+        coordinate_system_id: str = "global",
+        distribution_policy: str = "per_target",
     ) -> PointLoad:
+        region = region or (
+            self._region_factory(ref) if self._region_factory is not None else None
+        )
         load = PointLoad(
             ref=ref,
             force=force,  # type: ignore[arg-type]
             moment=moment,  # type: ignore[arg-type]
+            region=region,
+            coordinate_system_id=coordinate_system_id,
+            distribution_policy=distribution_policy,
         )
         self.point_loads.append(load)
         return load
 
-    def add_pressure(self, ref: EntityRef, value: float) -> Pressure:
-        load = Pressure(ref=ref, value=value)
+    def add_pressure(
+        self, ref: EntityRef, value: float, *, region: RegionRef | None = None
+    ) -> Pressure:
+        region = region or (
+            self._region_factory(ref) if self._region_factory is not None else None
+        )
+        load = Pressure(ref=ref, value=value, region=region)
         self.pressures.append(load)
         return load
 
     def add_line_load(
-        self, ref: EntityRef, force_per_length: Sequence[float]
+        self, ref: EntityRef, force_per_length: Sequence[float], *,
+        region: RegionRef | None = None,
+        coordinate_system_id: str = "global",
     ) -> LineLoad:
+        region = region or (
+            self._region_factory(ref) if self._region_factory is not None else None
+        )
         load = LineLoad(
-            ref=ref, force_per_length=force_per_length  # type: ignore[arg-type]
+            ref=ref, force_per_length=force_per_length,  # type: ignore[arg-type]
+            region=region, coordinate_system_id=coordinate_system_id,
         )
         self.line_loads.append(load)
         return load
 
     def add_surface_traction(
-        self, ref: EntityRef, traction: Sequence[float]
+        self, ref: EntityRef, traction: Sequence[float], *,
+        region: RegionRef | None = None,
+        coordinate_system_id: str = "global",
     ) -> SurfaceTraction:
+        region = region or (
+            self._region_factory(ref) if self._region_factory is not None else None
+        )
         load = SurfaceTraction(
-            ref=ref, traction=traction  # type: ignore[arg-type]
+            ref=ref, traction=traction,  # type: ignore[arg-type]
+            region=region, coordinate_system_id=coordinate_system_id,
         )
         self.surface_tractions.append(load)
         return load
 
     def set_gravity(
-        self, gx: float = 0.0, gy: float = 0.0, gz: float = -9.81
+        self,
+        gx: float = 0.0,
+        gy: float = 0.0,
+        gz: float = -9.81,
+        *,
+        coordinate_system_id: str = "global",
     ) -> None:
         self.gravity = _vector3((gx, gy, gz), "gravity")
+        self.gravity_coordinate_system_id = str(coordinate_system_id)
 
     def set_acceleration(
-        self, ax: float = 0.0, ay: float = 0.0, az: float = 0.0
+        self,
+        ax: float = 0.0,
+        ay: float = 0.0,
+        az: float = 0.0,
+        *,
+        coordinate_system_id: str = "global",
     ) -> None:
         """A design acceleration field, e.g. a vessel motion.
 
@@ -429,6 +503,7 @@ class LoadCase:
         """
 
         self.gravity = _vector3((ax, ay, az), "acceleration")
+        self.gravity_coordinate_system_id = str(coordinate_system_id)
 
     def set_follower_pressure(self, follower: bool = True) -> None:
         """Make this case's pressures act on the deformed configuration."""

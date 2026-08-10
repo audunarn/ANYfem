@@ -14,8 +14,10 @@ inference, so they are what the file says, not what ANYfem guessed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+import tempfile
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 from anygeometry.entities import EntityRef
@@ -27,6 +29,8 @@ __all__ = [
     "ImportedModel",
     "SesamImportError",
     "import_sesam",
+    "import_sesam_artifact",
+    "import_sesam_bytes",
     "mesh_from_fe_model",
 ]
 
@@ -51,8 +55,21 @@ class ImportedModel:
     source: Optional[Path] = None
     diagnostics: Tuple[Any, ...] = ()
     groups: Dict[str, EntityRef] = field(default_factory=dict)
+    source_contents: bytes = b""
+    source_sha256: str = ""
+    imported_format: str = "sesam_fem"
 
     has_geometry: bool = False
+
+    def __post_init__(self) -> None:
+        self.source_contents = bytes(self.source_contents)
+        if self.source_contents:
+            actual = _contents_sha256(self.source_contents)
+            if self.source_sha256 and self.source_sha256 != actual:
+                raise SesamImportError(
+                    "the stored SESAM source checksum does not match its contents"
+                )
+            self.source_sha256 = actual
 
     @property
     def num_nodes(self) -> int:
@@ -70,7 +87,54 @@ class ImportedModel:
         find something made up.
         """
 
-        return Project(name=self.name)
+        return Project(
+            name=self.name,
+            mesh_only=True,
+            imported_format=self.imported_format,
+        )
+
+    def artifact_embedding(self) -> tuple[dict[str, Any], bytes]:
+        """Metadata and exact source bytes for ``ArtifactStore.write_mesh``.
+
+        The mesh codec remains the authoritative display/result association;
+        the original source is retained because it also carries solver
+        materials, sections, supports and loads that a neutral mesh cannot.
+        """
+
+        if not self.source_contents:
+            raise SesamImportError(
+                "this imported model has no retained SESAM source to embed"
+            )
+        source_name = _safe_source_name(
+            self.source.name if self.source is not None else f"{self.name}.FEM"
+        )
+        metadata = {
+            "schema": "anyfem.imported-model",
+            "version": 1,
+            "format": self.imported_format,
+            "name": self.name,
+            "has_geometry": False,
+            "source": {
+                "name": source_name,
+                "format": self.imported_format,
+                "sha256": self.source_sha256,
+                "byte_size": len(self.source_contents),
+            },
+            "groups": [
+                {
+                    "name": name,
+                    "ref": {"kind": ref.kind, "id": int(ref.id)},
+                }
+                for name, ref in sorted(self.groups.items())
+            ],
+            "summary": {
+                "nodes": self.num_nodes,
+                "elements": self.num_elements,
+                "groups": len(self.groups),
+                "diagnostics": len(self.diagnostics),
+            },
+        }
+        return metadata, self.source_contents
 
     def load_case(self, name: str = "default"):
         """An empty load case to fill in against this model's groups.
@@ -104,7 +168,7 @@ class ImportedModel:
             )
         )
 
-    def built(self, load_case: Any = None):
+    def built(self, load_case: Any = None, *, project: Project | None = None):
         """Wrap the imported model so the analyses and results accept it.
 
         An ANYfem load case is resolved against the mesh groups here, through
@@ -116,6 +180,7 @@ class ImportedModel:
 
         from ..solve.build import BuiltModel, _accumulate_case
 
+        active_project = project if project is not None else self.project()
         solver_case = None
         if load_case is not None:
             if isinstance(load_case, SolverLoadCase):
@@ -123,7 +188,7 @@ class ImportedModel:
             else:
                 solver_case = SolverLoadCase(name=load_case.name)
                 _accumulate_case(
-                    self.project(), self.mesh, load_case, 1.0, solver_case
+                    active_project, self.mesh, load_case, 1.0, solver_case
                 )
                 solver_case.follower_pressure = bool(
                     getattr(load_case, "follower_pressure", False)
@@ -134,7 +199,7 @@ class ImportedModel:
             fe_model=self.fe_model,
             load_case=solver_case,
             mesh=self.mesh,
-            project=self.project(),
+            project=active_project,
         )
 
     def summary(self) -> str:
@@ -158,12 +223,135 @@ def import_sesam(
     diagnostics are kept and reported instead.
     """
 
+    source = Path(path)
+    if not source.is_file():
+        raise SesamImportError(f"no such file: {source}")
+    try:
+        source_contents = source.read_bytes()
+    except OSError as error:
+        raise SesamImportError(f"{source.name}: {error}") from None
+    model = _import_sesam_path(
+        source,
+        source_contents=source_contents,
+        logical_source=source,
+        strict=strict,
+        name=name,
+    )
+    try:
+        if source.read_bytes() != source_contents:
+            raise SesamImportError(
+                f"{source.name} changed while it was being imported; import it again"
+            )
+    except OSError as error:
+        raise SesamImportError(
+            f"{source.name} changed or disappeared while it was being imported: {error}"
+        ) from None
+    return model
+
+
+def import_sesam_bytes(
+    contents: bytes | bytearray | memoryview,
+    *,
+    source_name: str = "embedded.FEM",
+    strict: bool = False,
+    name: Optional[str] = None,
+) -> ImportedModel:
+    """Reconstitute an import from retained SESAM bytes, without geometry."""
+
+    if not isinstance(contents, (bytes, bytearray, memoryview)):
+        raise SesamImportError("SESAM source contents must be bytes")
+    source_contents = bytes(contents)
+    if not source_contents:
+        raise SesamImportError("SESAM source contents cannot be empty")
+    safe_name = _safe_source_name(source_name)
+    with tempfile.TemporaryDirectory(prefix="anyfem-sesam-") as directory:
+        temporary = Path(directory) / safe_name
+        temporary.write_bytes(source_contents)
+        return _import_sesam_path(
+            temporary,
+            source_contents=source_contents,
+            logical_source=Path(safe_name),
+            strict=strict,
+            name=name,
+        )
+
+
+def import_sesam_artifact(
+    store: Any,
+    artifact: Any,
+    *,
+    strict: bool = False,
+    name: Optional[str] = None,
+) -> ImportedModel:
+    """Restore solver semantics and associations from a portable mesh sidecar.
+
+    The outer ``ArtifactRef`` checksum protects the whole HDF5 file and the
+    embedded checksum independently protects the exact SESAM source.  The
+    source is reparsed to recover solver-only semantics; the stored mesh codec
+    remains authoritative for pick/result associations.
+    """
+
+    try:
+        metadata = store.read_mesh_metadata(artifact)
+        imported = metadata.get("imported_model")
+        if not isinstance(imported, Mapping):
+            raise SesamImportError(
+                "the mesh artifact contains no imported-model metadata"
+            )
+        if imported.get("schema") != "anyfem.imported-model":
+            raise SesamImportError("the imported-model metadata schema is invalid")
+        if int(imported.get("version", 0)) > 1:
+            raise SesamImportError(
+                "the imported-model metadata was written by a newer ANYfem"
+            )
+        if imported.get("has_geometry") is not False:
+            raise SesamImportError(
+                "SESAM restoration requires an explicitly mesh-only artifact"
+            )
+        if imported.get("format") != "sesam_fem":
+            raise SesamImportError(
+                f"the mesh artifact contains {imported.get('format')!r}, not SESAM FEM"
+            )
+        source = metadata.get("embedded_source")
+        if not isinstance(source, Mapping):
+            raise SesamImportError(
+                "the mesh artifact contains no embedded SESAM source"
+            )
+        # Revalidate the ArtifactRef for each independent read.  This closes
+        # the window where a sidecar could be replaced after metadata was
+        # inspected but before its source or mesh was consumed.
+        source_contents = store.read_embedded_source(artifact)
+        stored_mesh = store.read_mesh(artifact)
+        restored = import_sesam_bytes(
+            source_contents,
+            source_name=str(source["name"]),
+            strict=strict,
+            name=name or str(imported.get("name") or Path(str(source["name"])).stem),
+        )
+        if not _same_mesh_topology(restored.mesh, stored_mesh):
+            raise SesamImportError(
+                "embedded SESAM topology disagrees with the stored mesh codec"
+            )
+        restored.mesh = stored_mesh
+        _ensure_groups(restored.mesh, restored.fe_model)
+        restored.groups = _groups_from_metadata(imported, stored_mesh)
+        return restored
+    except SesamImportError:
+        raise
+    except Exception as error:  # noqa: BLE001 - normalize artifact/parser errors
+        raise SesamImportError(f"cannot restore SESAM mesh artifact: {error}") from None
+
+
+def _import_sesam_path(
+    source: Path,
+    *,
+    source_contents: bytes,
+    logical_source: Path,
+    strict: bool,
+    name: Optional[str],
+) -> ImportedModel:
     from anyfileio import raise_if_errors, read_sesam_fem_document, read_sesam_semantics
     from anysolver.sesam_fem import build_fe_model_from_sesam_document
-
-    source = Path(path)
-    if not source.exists():
-        raise SesamImportError(f"no such file: {source}")
 
     try:
         document = read_sesam_fem_document(source, strict=strict)
@@ -176,7 +364,7 @@ def import_sesam(
         if strict:
             raise_if_errors(diagnostics, "SESAM FEM import failed")
     except Exception as error:  # noqa: BLE001 - reported verbatim
-        raise SesamImportError(f"{source.name}: {error}") from None
+        raise SesamImportError(f"{logical_source.name}: {error}") from None
 
     mesh = semantics.mesh
     _ensure_groups(mesh, fe_model)
@@ -188,6 +376,38 @@ def import_sesam(
             "found, so there is no model to analyse. "
             f"{len(diagnostics)} diagnostic(s) were recorded."
         )
+    return ImportedModel(
+        name=name or logical_source.stem,
+        fe_model=fe_model,
+        mesh=mesh,
+        source=logical_source,
+        diagnostics=tuple(diagnostics),
+        groups=_mesh_groups(mesh),
+        source_contents=source_contents,
+    )
+
+
+def _contents_sha256(contents: bytes) -> str:
+    return "sha256:" + hashlib.sha256(contents).hexdigest()
+
+
+def _safe_source_name(value: object) -> str:
+    name = str(value)
+    if (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or ":" in name
+        or "\x00" in name
+    ):
+        raise SesamImportError(
+            "embedded SESAM source name must be a plain file name without a path"
+        )
+    return name
+
+
+def _mesh_groups(mesh: Mesh) -> Dict[str, EntityRef]:
     groups = {
         f"group {index}": EntityRef("face", key)
         for index, key in enumerate(sorted(mesh.elements_of_face), start=1)
@@ -198,15 +418,78 @@ def import_sesam(
             for index, key in enumerate(sorted(mesh.elements_of_edge), start=1)
         }
     )
+    return groups
 
-    return ImportedModel(
-        name=name or source.stem,
-        fe_model=fe_model,
-        mesh=mesh,
-        source=source,
-        diagnostics=tuple(diagnostics),
-        groups=groups,
+
+def _same_mesh_topology(first: Mesh, second: Mesh) -> bool:
+    if set(first.nodes) != set(second.nodes):
+        return False
+    if any(
+        not np.array_equal(first.nodes[node_id], second.nodes[node_id])
+        for node_id in first.nodes
+    ):
+        return False
+    return all(
+        getattr(first, family) == getattr(second, family)
+        for family in ("quads", "tris", "beams")
     )
+
+
+def _groups_from_metadata(
+    imported: Mapping[str, Any], mesh: Mesh
+) -> Dict[str, EntityRef]:
+    raw_groups = imported.get("groups")
+    if raw_groups is None:
+        return _mesh_groups(mesh)
+    if not isinstance(raw_groups, list):
+        raise SesamImportError("imported-model groups metadata must be a list")
+    groups: Dict[str, EntityRef] = {}
+    references: set[tuple[str, int]] = set()
+    for index, entry in enumerate(raw_groups):
+        if not isinstance(entry, Mapping):
+            raise SesamImportError(
+                f"imported-model groups[{index}] must be an object"
+            )
+        name = str(entry.get("name", ""))
+        reference = entry.get("ref")
+        if not name or name in groups or not isinstance(reference, Mapping):
+            raise SesamImportError(
+                f"imported-model groups[{index}] has an invalid or duplicate name/ref"
+            )
+        kind = str(reference.get("kind", ""))
+        raw_id = reference.get("id")
+        if isinstance(raw_id, bool):
+            raise SesamImportError(
+                f"imported-model groups[{index}] ID must be a positive integer"
+            )
+        try:
+            identifier = int(raw_id)
+        except (TypeError, ValueError):
+            raise SesamImportError(
+                f"imported-model groups[{index}] ID must be a positive integer"
+            ) from None
+        available = (
+            mesh.elements_of_face
+            if kind == "face"
+            else mesh.elements_of_edge
+            if kind == "edge"
+            else None
+        )
+        if identifier <= 0 or available is None or identifier not in available:
+            raise SesamImportError(
+                f"imported-model group {name!r} does not exist in the stored mesh"
+            )
+        groups[name] = EntityRef(kind, identifier)  # type: ignore[arg-type]
+        references.add((kind, identifier))
+    expected = {
+        *(("face", int(key)) for key in mesh.elements_of_face),
+        *(("edge", int(key)) for key in mesh.elements_of_edge),
+    }
+    if references != expected:
+        raise SesamImportError(
+            "imported-model group metadata does not cover every stored mesh group"
+        )
+    return groups
 
 
 def _ensure_groups(mesh: Mesh, fe_model: Any) -> None:

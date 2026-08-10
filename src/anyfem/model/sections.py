@@ -9,19 +9,32 @@ silently fall through to a bare-web section, so it is rejected instead.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Sequence
+from dataclasses import dataclass, field
+from typing import Dict, Literal, Mapping, Sequence
+from uuid import uuid4
 
 import numpy as np
 from anysolver import StiffenerCrossSection
 
-__all__ = ["BeamSection", "PLATE_PROFILES", "PlateSection", "PROFILES"]
+from .regions import RegionRef
+
+__all__ = [
+    "BeamSection",
+    "PLATE_PROFILES",
+    "PlateSection",
+    "PROFILES",
+    "SectionAssignment",
+]
 
 # Profile names accepted by StiffenerCrossSection.from_geometry.  "Flatbar"
 # uses (b, tf) as the bar width and thickness; the others use the full
 # (hw, tw, b, tf) web/flange set.
 PROFILES: tuple[str, ...] = ("Flatbar", "T-bar", "Angle", "L-bulb")
 PLATE_PROFILES = PROFILES  # backwards-friendly alias
+
+
+def _uuid() -> str:
+    return str(uuid4())
 
 
 @dataclass(frozen=True)
@@ -31,6 +44,7 @@ class PlateSection:
     name: str
     thickness: float
     material: str
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.thickness) or self.thickness <= 0.0:
@@ -65,6 +79,7 @@ class BeamSection:
     flange_thickness: float = 0.0
     web_direction: Sequence[float] | None = None
     eccentricity: float = 0.0
+    id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
         if self.profile not in PROFILES:
@@ -149,6 +164,65 @@ class BeamSection:
         if self.web_direction is not None:
             properties["orientation"] = np.asarray(self.web_direction, dtype=float)
         return properties
+
+
+@dataclass(frozen=True)
+class SectionAssignment:
+    """A stable section-to-region binding.
+
+    The section UUID and region UUID are the durable references.  ``name`` is
+    deliberately only an editable label; changing it cannot change numerical
+    meaning or invalidate another object.  ``legacy_singleton`` identifies the
+    compatibility records created by :meth:`Project.assign_plate` and
+    :meth:`Project.assign_beam`.  It is persisted so direct mutations of the
+    historical ``face_sections``/``edge_sections`` dictionaries can be folded
+    back into the canonical record without treating a named multi-entity
+    assignment as a collection of unrelated topology assignments.
+    """
+
+    kind: Literal["plate", "beam"]
+    section_id: str
+    region: RegionRef
+    name: str = "Section assignment"
+    id: str = field(default_factory=_uuid)
+    legacy_singleton: bool = False
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("plate", "beam"):
+            raise ValueError(f"unknown section assignment kind {self.kind!r}")
+        if not str(self.section_id).strip():
+            raise ValueError("section assignment needs a section UUID")
+        if not str(self.id).strip():
+            raise ValueError("section assignment needs a UUID")
+        if not str(self.name).strip():
+            raise ValueError("section assignment needs a name")
+        object.__setattr__(self, "section_id", str(self.section_id))
+        object.__setattr__(self, "id", str(self.id))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "kind": self.kind,
+            "section_id": self.section_id,
+            "region": self.region.id,
+            "legacy_singleton": bool(self.legacy_singleton),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> "SectionAssignment":
+        region = data.get("region")
+        if region is None:
+            raise ValueError("section assignment needs a region UUID")
+        identifier = data.get("id")
+        return cls(
+            id=_uuid() if identifier is None else str(identifier),
+            name=str(data.get("name", "Section assignment")),
+            kind=str(data.get("kind", "")),  # type: ignore[arg-type]
+            section_id=str(data.get("section_id", "")),
+            region=RegionRef(str(region)),
+            legacy_singleton=bool(data.get("legacy_singleton", False)),
+        )
 
 
 def rectangular_bar(

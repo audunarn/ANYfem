@@ -9,8 +9,9 @@ front-end would later call into.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Mapping, Sequence
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from anymaterial import MaterialSpec
 from anygeometry.entities import EntityRef
@@ -21,7 +22,24 @@ from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from .attributes import Combination, LoadCase, Mass, Support
 from .imperfections import Imperfection
-from .sections import BeamSection, PlateSection
+from .sections import BeamSection, PlateSection, SectionAssignment
+from .coordinates import CoordinateSystem, GLOBAL_COORDINATES
+from .records import (
+    AnalysisDefinition,
+    ArtifactRef,
+    JobRecord,
+    MeshRecord,
+    OutputRequest,
+)
+from .regions import (
+    GeometryGroupRef,
+    ManualRegion,
+    Region,
+    RegionDomain,
+    RegionRef,
+    RegionRegistry,
+)
+from .units import UnitProfile, unit_profile
 
 __all__ = ["Project", "ProjectError"]
 
@@ -37,10 +55,16 @@ class Project:
     name: str = "model"
     geometry: GeometryModel = field(default_factory=GeometryModel)
     materials: Dict[str, MaterialSpec] = field(default_factory=dict)
+    material_ids: Dict[str, str] = field(default_factory=dict)
     plate_sections: Dict[str, PlateSection] = field(default_factory=dict)
     beam_sections: Dict[str, BeamSection] = field(default_factory=dict)
     face_sections: Dict[int, str] = field(default_factory=dict)
     edge_sections: Dict[int, str] = field(default_factory=dict)
+    face_assignment_ids: Dict[int, str] = field(default_factory=dict)
+    edge_assignment_ids: Dict[int, str] = field(default_factory=dict)
+    # Canonical bindings.  The four dictionaries above remain materialized
+    # compatibility views for established headless callers.
+    section_assignments: Dict[str, SectionAssignment] = field(default_factory=dict)
     supports: List[Support] = field(default_factory=list)
     masses: List[Mass] = field(default_factory=list)
     load_cases: Dict[str, LoadCase] = field(default_factory=dict)
@@ -48,19 +72,250 @@ class Project:
     imperfections: List[Imperfection] = field(default_factory=list)
     refinements: List[Refinement] = field(default_factory=list)
     element_order: str = "linear"
+    # Document-level registries.  They are additive to the established
+    # headless fields above, so existing scripts remain source-compatible.
+    document_id: str = field(default_factory=lambda: str(uuid4()))
+    units: UnitProfile = field(default_factory=unit_profile)
+    coordinate_systems: Dict[str, CoordinateSystem] = field(
+        default_factory=lambda: {"global": GLOBAL_COORDINATES}
+    )
+    regions: RegionRegistry = field(default_factory=RegionRegistry)
+    output_requests: Dict[str, OutputRequest] = field(default_factory=dict)
+    analyses: Dict[str, AnalysisDefinition] = field(default_factory=dict)
+    mesh_records: Dict[str, MeshRecord] = field(default_factory=dict)
+    jobs: Dict[str, JobRecord] = field(default_factory=dict)
+    artifacts: Dict[str, ArtifactRef] = field(default_factory=dict)
+    target_size: float | None = None
+    seeding_overrides: Dict[int, int] = field(default_factory=dict)
+    # Imported analyses can be mesh-native and therefore intentionally have
+    # no fabricated geometry topology behind their group references.
+    mesh_only: bool = False
+    imported_format: str | None = None
+    imported_semantics_artifact_id: str | None = None
+    _singleton_region_cache: Dict[object, str] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _singleton_region_cache_size: int = field(
+        default=-1, init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        self.document_id = str(self.document_id)
+        self.coordinate_systems.setdefault("global", GLOBAL_COORDINATES)
+        for name in self.materials:
+            self.material_ids.setdefault(
+                name, str(uuid5(NAMESPACE_URL, f"{self.document_id}:material:{name}"))
+            )
+        for case in self.load_cases.values():
+            case._region_factory = self.singleton_region
+
+    def singleton_region(
+        self,
+        ref: EntityRef,
+        *,
+        _output_anchors: Mapping[EntityRef, object] | None = None,
+    ) -> RegionRef:
+        """Return the hidden persistent region backing a legacy direct ref."""
+
+        anchor: object = (
+            (_output_anchors or {}).get(ref, ref)
+            if _output_anchors is not None
+            else self._feature_output_anchors().get(ref, ref)
+        )
+        self._refresh_singleton_region_cache()
+        cached = self._singleton_region_cache.get(anchor)
+        if cached is not None and cached in self.regions:
+            return RegionRef(cached)
+        anchor_key = (
+            f"feature:{anchor.feature_id}:{anchor.output_key}:{anchor.kind}"
+            if all(hasattr(anchor, name) for name in ("feature_id", "output_key", "kind"))
+            else f"entity:{ref.kind}:{ref.id}"
+        )
+        region = Region(
+            id=str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"{self.document_id}:singleton:{anchor_key}",
+                )
+            ),
+            name=f"scope_{ref.kind}_{ref.id}",
+            domain=RegionDomain.GEOMETRY,
+            entity_kind=ref.kind,
+            definition=ManualRegion((anchor,)),
+            hidden=True,
+        )
+        self.regions.add(region)
+        self._singleton_region_cache[anchor] = region.id
+        self._singleton_region_cache_size = len(self.regions)
+        return RegionRef(region.id)
+
+    def _feature_output_anchors(self) -> dict[EntityRef, object]:
+        """Current topology-to-design map, built once by bulk assignments."""
+
+        try:
+            from anygeometry.features import FeatureOutputRef
+        except ImportError:  # pragma: no cover - coordinated package floor
+            return {}
+        anchors: dict[EntityRef, object] = {}
+        for feature in getattr(self.geometry.features, "records", ()):
+            for key, output in feature.outputs.items():
+                anchors[output] = FeatureOutputRef(
+                    feature.feature_id, key, output.kind
+                )
+        return anchors
+
+    def _refresh_singleton_region_cache(self) -> None:
+        if self._singleton_region_cache_size == len(self.regions):
+            return
+        self._singleton_region_cache.clear()
+        for region in self.regions:
+            definition = region.definition
+            if (
+                region.hidden
+                and isinstance(definition, ManualRegion)
+                and len(definition.anchors) == 1
+            ):
+                self._singleton_region_cache.setdefault(
+                    definition.anchors[0], region.id
+                )
+        self._singleton_region_cache_size = len(self.regions)
+
+    def add_coordinate_system(self, system: CoordinateSystem) -> CoordinateSystem:
+        if system.id in self.coordinate_systems:
+            raise ProjectError(f"duplicate coordinate-system ID {system.id!r}")
+        if any(item.name == system.name for item in self.coordinate_systems.values()):
+            raise ProjectError(f"coordinate system {system.name!r} already exists")
+        self.coordinate_systems[system.id] = system
+        return system
+
+    def add_analysis(self, analysis: AnalysisDefinition) -> AnalysisDefinition:
+        if analysis.id in self.analyses:
+            raise ProjectError(f"duplicate analysis ID {analysis.id!r}")
+        missing = sorted(
+            set(analysis.output_request_ids).difference(self.output_requests)
+        )
+        if missing:
+            raise ProjectError(
+                f"analysis {analysis.name!r} references missing output request(s) "
+                f"{missing}"
+            )
+        self.analyses[analysis.id] = analysis
+        return analysis
+
+    def add_output_request(self, request: OutputRequest) -> OutputRequest:
+        """Register one immutable, canonically region-scoped output request."""
+
+        if request.id in self.output_requests:
+            raise ProjectError(f"duplicate output-request ID {request.id!r}")
+        if request.region.id not in self.regions:
+            raise ProjectError(
+                f"output request {request.label!r} references missing region "
+                f"{request.region.id!r}"
+            )
+        self.output_requests[request.id] = request
+        return request
+
+    def update_output_request(self, request: OutputRequest) -> OutputRequest:
+        """Replace one immutable request without changing its stable UUID."""
+
+        if request.id not in self.output_requests:
+            raise ProjectError(f"unknown output-request ID {request.id!r}")
+        if request.region.id not in self.regions:
+            raise ProjectError(
+                f"output request {request.label!r} references missing region "
+                f"{request.region.id!r}"
+            )
+        self.output_requests[request.id] = request
+        return request
+
+    def remove_output_request(
+        self, request_id: str, *, cascade: bool = False
+    ) -> OutputRequest:
+        """Remove a request, rejecting or detaching dependent analyses."""
+
+        identifier = str(request_id)
+        try:
+            request = self.output_requests[identifier]
+        except KeyError:
+            raise ProjectError(f"unknown output-request ID {identifier!r}") from None
+        dependents = tuple(
+            analysis
+            for analysis in self.analyses.values()
+            if identifier in analysis.output_request_ids
+        )
+        if dependents and not cascade:
+            raise ProjectError(
+                f"output request {request.label!r} is used by analysis/analyses "
+                f"{[item.name for item in dependents]}; detach it first"
+            )
+        if cascade:
+            for analysis in dependents:
+                self.analyses[analysis.id] = replace(
+                    analysis,
+                    output_request_ids=tuple(
+                        value
+                        for value in analysis.output_request_ids
+                        if value != identifier
+                    ),
+                )
+        del self.output_requests[identifier]
+        return request
+
+    def output_request_provenance(self, analysis_id: str) -> tuple[dict, ...]:
+        """Return requested metadata only; this never creates result fields."""
+
+        try:
+            analysis = self.analyses[str(analysis_id)]
+        except KeyError:
+            raise ProjectError(f"unknown analysis ID {analysis_id!r}") from None
+        values: list[dict] = []
+        for request_id in analysis.output_request_ids:
+            try:
+                request = self.output_requests[request_id]
+            except KeyError:
+                raise ProjectError(
+                    f"analysis {analysis.name!r} references missing output request "
+                    f"{request_id!r}"
+                ) from None
+            values.append(request.to_dict())
+        return tuple(values)
+
+    def add_mesh_record(self, mesh: MeshRecord) -> MeshRecord:
+        if mesh.id in self.mesh_records:
+            raise ProjectError(f"duplicate mesh record ID {mesh.id!r}")
+        self.mesh_records[mesh.id] = mesh
+        return mesh
+
+    def add_job(self, job: JobRecord) -> JobRecord:
+        if job.id in self.jobs:
+            raise ProjectError(f"duplicate job ID {job.id!r}")
+        self.jobs[job.id] = job
+        return job
+
+    def add_artifact(self, artifact: ArtifactRef) -> ArtifactRef:
+        if artifact.id in self.artifacts:
+            raise ProjectError(f"duplicate artifact ID {artifact.id!r}")
+        self.artifacts[artifact.id] = artifact
+        return artifact
 
     # ------------------------------------------------------------------
     # materials and sections
     # ------------------------------------------------------------------
     def add_material(self, material: MaterialSpec) -> MaterialSpec:
         self.materials[material.name] = material
+        self.material_ids.setdefault(material.name, str(uuid4()))
         return material
 
     def add_plate_section(
-        self, name: str, thickness: float, material: str
+        self, name: str, thickness: float, material: str, *, id: str | None = None
     ) -> PlateSection:
         self._require_material(material)
-        section = PlateSection(name=name, thickness=thickness, material=material)
+        section = PlateSection(
+            name=name,
+            thickness=thickness,
+            material=material,
+            **({"id": id} if id is not None else {}),
+        )
         self.plate_sections[name] = section
         return section
 
@@ -73,47 +328,591 @@ class Project:
     # assignment
     # ------------------------------------------------------------------
     def assign_plate(self, face_id: int, section: str) -> None:
-        """Give a plate its thickness and material."""
+        """Give a plate its thickness and material.
 
-        # Geometry decomposition replaces the original face before its new
-        # faces are assigned. Drop superseded assignments opportunistically so
-        # a direct headless workflow stays as consistent as the command stack.
-        for stale in set(self.face_sections) - set(self.geometry.faces):
-            self.face_sections.pop(stale, None)
-        self.geometry.entity_ref("face", face_id)
-        if section not in self.plate_sections:
-            raise ProjectError(f"no plate section named {section!r}")
-        self.face_sections[int(face_id)] = section
+        This established ID-based API now creates a hidden singleton region.
+        The dictionaries remain immediately readable, while the region-backed
+        record is the durable source of truth.
+        """
+
+        reference = self.geometry.entity_ref("face", face_id)
+        self._assign_singleton(reference, "plate", section)
 
     def assign_plates(self, face_ids: Iterable[int], section: str) -> None:
-        for face_id in face_ids:
-            self.assign_plate(face_id, section)
+        self._assign_many(face_ids, "plate", section)
 
     def assign_plate_group(self, group: str, section: str) -> None:
         """Assign a plate section to every face in an ANYgeometry group."""
 
-        references = self.geometry_group(group, kind="face")
-        self.assign_plates((reference.id for reference in references), section)
+        self.geometry_group(group, kind="face")
+        self.assign_plate_region(
+            self._geometry_group_region(group, "face"),
+            section,
+            name=f"{section} on {group}",
+        )
 
     def assign_beam(self, edge_id: int, section: str) -> None:
-        """Turn a line into a beam member."""
+        """Turn a line into a beam member through a singleton region."""
 
-        for stale in set(self.edge_sections) - set(self.geometry.edges):
-            self.edge_sections.pop(stale, None)
-        self.geometry.entity_ref("edge", edge_id)
-        if section not in self.beam_sections:
-            raise ProjectError(f"no beam section named {section!r}")
-        self.edge_sections[int(edge_id)] = section
+        reference = self.geometry.entity_ref("edge", edge_id)
+        self._assign_singleton(reference, "beam", section)
 
     def assign_beams(self, edge_ids: Iterable[int], section: str) -> None:
-        for edge_id in edge_ids:
-            self.assign_beam(edge_id, section)
+        self._assign_many(edge_ids, "beam", section)
 
     def assign_beam_group(self, group: str, section: str) -> None:
         """Assign a beam section to every edge in an ANYgeometry group."""
 
-        references = self.geometry_group(group, kind="edge")
-        self.assign_beams((reference.id for reference in references), section)
+        self.geometry_group(group, kind="edge")
+        self.assign_beam_region(
+            self._geometry_group_region(group, "edge"),
+            section,
+            name=f"{section} on {group}",
+        )
+
+    def assign_plate_region(
+        self,
+        region: RegionRef,
+        section: str,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+    ) -> SectionAssignment:
+        """Assign a plate section to a reusable geometry region."""
+
+        return self._add_section_assignment(
+            kind="plate", region=region, section=section, name=name, id=id
+        )
+
+    def assign_beam_region(
+        self,
+        region: RegionRef,
+        section: str,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+    ) -> SectionAssignment:
+        """Assign a beam section to a reusable geometry region."""
+
+        return self._add_section_assignment(
+            kind="beam", region=region, section=section, name=name, id=id
+        )
+
+    def add_section_assignment(
+        self, assignment: SectionAssignment
+    ) -> SectionAssignment:
+        """Add an already constructed canonical binding atomically."""
+
+        # Preserve direct edits made through the historical dictionaries
+        # before composing a new canonical record with them.
+        self.resolve_section_assignments(strict=True)
+        if assignment.id in self.section_assignments:
+            raise ProjectError(f"duplicate section assignment ID {assignment.id!r}")
+        self._require_section_id(assignment.kind, assignment.section_id)
+        self._require_assignment_region(assignment)
+        previous = self._section_compatibility_snapshot()
+        self.section_assignments[assignment.id] = assignment
+        try:
+            self.resolve_section_assignments(strict=True, adopt_legacy=False)
+        except BaseException:
+            self.section_assignments.pop(assignment.id, None)
+            self._restore_section_compatibility(previous)
+            raise
+        return assignment
+
+    def remove_section_assignment(self, assignment_id: str) -> SectionAssignment:
+        """Remove one binding and rebuild the compatibility maps."""
+
+        try:
+            assignment = self.section_assignments.pop(str(assignment_id))
+        except KeyError:
+            raise ProjectError(
+                f"no section assignment with ID {assignment_id!r}"
+            ) from None
+        self.resolve_section_assignments(strict=False, adopt_legacy=False)
+        return assignment
+
+    def resolve_section_assignments(
+        self, *, strict: bool = False, adopt_legacy: bool = True
+    ) -> tuple[str, ...]:
+        """Resolve canonical bindings and refresh legacy topology maps.
+
+        Records are processed by stable UUID, so even an invalid overlapping
+        document materializes the same diagnostic view on every machine.  An
+        overlap never silently applies last-writer-wins: the lower UUID is
+        retained only for inspection and the diagnostic blocks meshing/solve.
+        """
+
+        if self.mesh_only and not self.section_assignments:
+            # Imported neutral meshes historically carry synthetic owner IDs
+            # rather than ANYgeometry entities.  Keep that established map
+            # until a mesh-aware canonical assignment is explicitly present.
+            return ()
+        if adopt_legacy:
+            self._adopt_legacy_section_maps()
+
+        face_sections: dict[int, str] = {}
+        edge_sections: dict[int, str] = {}
+        face_ids: dict[int, str] = {}
+        edge_ids: dict[int, str] = {}
+        owners: dict[tuple[str, int], SectionAssignment] = {}
+        problems: list[str] = []
+        stores = {
+            "face": self.geometry.faces,
+            "edge": self.geometry.edges,
+        }
+        candidate_cache = {
+            kind: tuple(EntityRef(kind, identifier) for identifier in store)
+            for kind, store in stores.items()
+        }
+
+        for assignment in sorted(
+            self.section_assignments.values(), key=lambda item: item.id
+        ):
+            expected_kind = "face" if assignment.kind == "plate" else "edge"
+            try:
+                section_name = self._section_name(
+                    assignment.kind, assignment.section_id
+                )
+                region = self.regions[assignment.region.id]
+                if region.domain is not RegionDomain.GEOMETRY:
+                    raise ProjectError(
+                        "mesh-scoped section assignments require an active "
+                        "immutable mesh"
+                    )
+                if region.entity_kind != expected_kind:
+                    raise ProjectError(
+                        f"{assignment.kind} assignment expects a {expected_kind} "
+                        f"region, not {region.entity_kind!r}"
+                    )
+                store = stores[expected_kind]
+                resolved = self.regions.resolve(
+                    assignment.region.id,
+                    geometry=self.geometry,
+                    candidates=candidate_cache[expected_kind],
+                    feature_resolver=lambda anchor: self.geometry.features.resolve(
+                        anchor, self.geometry
+                    ),
+                )
+                references = tuple(dict.fromkeys(resolved))
+                if not references:
+                    raise ProjectError(f"region {region.name!r} is empty")
+                for reference in references:
+                    if not isinstance(reference, EntityRef):
+                        raise ProjectError(
+                            f"region {region.name!r} resolved a non-geometry target"
+                        )
+                    if reference.kind != expected_kind or reference.id not in store:
+                        raise ProjectError(
+                            f"region {region.name!r} resolved invalid {reference}"
+                        )
+            except (KeyError, TypeError, ValueError) as error:
+                problems.append(
+                    f"section assignment {assignment.name!r} is unresolved: {error}"
+                )
+                continue
+
+            for reference in sorted(references, key=lambda item: item.id):
+                key = (expected_kind, int(reference.id))
+                previous = owners.get(key)
+                if previous is not None:
+                    problems.append(
+                        f"section assignments {previous.name!r} and "
+                        f"{assignment.name!r} overlap on {expected_kind} "
+                        f"{reference.id}"
+                    )
+                    continue
+                owners[key] = assignment
+                if expected_kind == "face":
+                    face_sections[reference.id] = section_name
+                    face_ids[reference.id] = assignment.id
+                else:
+                    edge_sections[reference.id] = section_name
+                    edge_ids[reference.id] = assignment.id
+
+        self.face_sections.clear()
+        self.face_sections.update(face_sections)
+        self.edge_sections.clear()
+        self.edge_sections.update(edge_sections)
+        self.face_assignment_ids.clear()
+        self.face_assignment_ids.update(face_ids)
+        self.edge_assignment_ids.clear()
+        self.edge_assignment_ids.update(edge_ids)
+
+        result = tuple(problems)
+        if strict and result:
+            raise ProjectError("invalid section assignments:\n  - " + "\n  - ".join(result))
+        return result
+
+    def _add_section_assignment(
+        self,
+        *,
+        kind: str,
+        region: RegionRef,
+        section: str,
+        name: str | None,
+        id: str | None,
+    ) -> SectionAssignment:
+        section_id = self._section_id(kind, section)
+        assignment = SectionAssignment(
+            kind=kind,  # type: ignore[arg-type]
+            section_id=section_id,
+            region=region,
+            name=name or f"{self._section_name(kind, section_id)} assignment",
+            **({"id": id} if id is not None else {}),
+        )
+        return self.add_section_assignment(assignment)
+
+    def _assign_singleton(
+        self,
+        reference: EntityRef,
+        kind: str,
+        section: str,
+        *,
+        resolve_existing: bool = True,
+        materialize: bool = True,
+        output_anchors: Mapping[EntityRef, object] | None = None,
+        legacy_by_region: dict[tuple[str, str], SectionAssignment] | None = None,
+    ) -> SectionAssignment:
+        if resolve_existing:
+            self.resolve_section_assignments(strict=False)
+        section_id = self._section_id(kind, section)
+        materialized_ids = (
+            self.face_assignment_ids
+            if reference.kind == "face"
+            else self.edge_assignment_ids
+        )
+        materialized = self.section_assignments.get(
+            materialized_ids.get(reference.id, "")
+        )
+        if (
+            materialized is not None
+            and materialized.kind == kind
+            and materialized.section_id == section_id
+        ):
+            # A prior singleton may have expanded through explicit geometry
+            # replacement lineage.  Reapplying the same section to one of its
+            # descendants is an idempotent legacy operation, not an overlap.
+            return materialized
+        region = self.singleton_region(
+            reference, _output_anchors=output_anchors
+        )
+        expected = "face" if kind == "plate" else "edge"
+        existing = (
+            legacy_by_region.get((kind, region.id))
+            if legacy_by_region is not None
+            else next(
+                (
+                    item
+                    for item in self.section_assignments.values()
+                    if item.legacy_singleton
+                    and item.kind == kind
+                    and item.region == region
+                ),
+                None,
+            )
+        )
+        previous = self._section_compatibility_snapshot() if materialize else None
+        old_record = existing
+        if existing is None:
+            assignment = SectionAssignment(
+                kind=kind,  # type: ignore[arg-type]
+                section_id=section_id,
+                region=region,
+                name=f"{section} on {expected} {reference.id}",
+                legacy_singleton=True,
+            )
+        else:
+            assignment = replace(
+                existing,
+                section_id=section_id,
+                name=f"{section} on {expected} {reference.id}",
+            )
+        self.section_assignments[assignment.id] = assignment
+        if legacy_by_region is not None:
+            legacy_by_region[(kind, region.id)] = assignment
+        if not materialize:
+            return assignment
+        try:
+            self.resolve_section_assignments(strict=True, adopt_legacy=False)
+        except BaseException:
+            if old_record is None:
+                self.section_assignments.pop(assignment.id, None)
+            else:
+                self.section_assignments[old_record.id] = old_record
+            assert previous is not None
+            self._restore_section_compatibility(previous)
+            raise
+        return assignment
+
+    def _assign_many(
+        self, identifiers: Iterable[int], kind: str, section: str
+    ) -> None:
+        entity_kind = "face" if kind == "plate" else "edge"
+        references = tuple(
+            dict.fromkeys(
+                self.geometry.entity_ref(entity_kind, int(identifier))
+                for identifier in identifiers
+            )
+        )
+        if not references:
+            return
+        self._section_id(kind, section)
+        self.resolve_section_assignments(strict=True)
+        prior_assignments = dict(self.section_assignments)
+        prior_regions = {region.id for region in self.regions}
+        prior_maps = self._section_compatibility_snapshot()
+        output_anchors = self._feature_output_anchors()
+        legacy_by_region = {
+            (item.kind, item.region.id): item
+            for item in self.section_assignments.values()
+            if item.legacy_singleton
+        }
+        try:
+            for reference in references:
+                self._assign_singleton(
+                    reference,
+                    kind,
+                    section,
+                    resolve_existing=False,
+                    materialize=False,
+                    output_anchors=output_anchors,
+                    legacy_by_region=legacy_by_region,
+                )
+            self.resolve_section_assignments(strict=True, adopt_legacy=False)
+        except BaseException:
+            self.section_assignments.clear()
+            self.section_assignments.update(prior_assignments)
+            for region in tuple(self.regions):
+                if region.id not in prior_regions:
+                    self.regions.remove(region.id)
+            self._singleton_region_cache_size = -1
+            self._restore_section_compatibility(prior_maps)
+            raise
+
+    def _geometry_group_region(self, group: str, kind: str) -> RegionRef:
+        anchor = GeometryGroupRef(group, kind)
+        for region in self.regions:
+            if (
+                region.domain is RegionDomain.GEOMETRY
+                and region.entity_kind == kind
+                and isinstance(region.definition, ManualRegion)
+                and region.definition.anchors == (anchor,)
+            ):
+                return RegionRef(region.id)
+        region = Region(
+            id=str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"{self.document_id}:geometry-group:{kind}:{group}",
+                )
+            ),
+            name=f"scope_{group}_{kind}",
+            domain=RegionDomain.GEOMETRY,
+            entity_kind=kind,
+            definition=ManualRegion((anchor,)),
+            hidden=True,
+        )
+        self.regions.add(region)
+        return RegionRef(region.id)
+
+    def _adopt_legacy_section_maps(self) -> None:
+        """Fold direct compatibility-dictionary edits into singleton records."""
+
+        for kind, entity_kind, values, identifiers in (
+            (
+                "plate",
+                "face",
+                self.face_sections,
+                self.face_assignment_ids,
+            ),
+            (
+                "beam",
+                "edge",
+                self.edge_sections,
+                self.edge_assignment_ids,
+            ),
+        ):
+            store = (
+                self.geometry.faces if entity_kind == "face" else self.geometry.edges
+            )
+            keys_by_assignment: dict[str, list[int]] = {}
+            for key, assignment_id in identifiers.items():
+                keys_by_assignment.setdefault(assignment_id, []).append(key)
+            # Commands written against the historical dictionaries remove the
+            # value but cannot know about the new canonical registry.  A cached
+            # assignment UUID whose value disappeared is an explicit deletion.
+            for assignment in tuple(self.section_assignments.values()):
+                if assignment.kind != kind or not assignment.legacy_singleton:
+                    continue
+                keys = keys_by_assignment.get(assignment.id, ())
+                present = [values[key] for key in keys if key in values]
+                if keys and not present:
+                    try:
+                        section_name = self._section_name(
+                            assignment.kind, assignment.section_id
+                        )
+                        region = self.regions[assignment.region.id]
+                        assignment_targets = self.regions.resolve(
+                            assignment.region.id,
+                            geometry=self.geometry,
+                            candidates=tuple(
+                                EntityRef(entity_kind, identifier)
+                                for identifier in store
+                            ),
+                            feature_resolver=lambda anchor: (
+                                self.geometry.features.resolve(
+                                    anchor, self.geometry
+                                )
+                            ),
+                        )
+                        carried = tuple(
+                            target.id
+                            for target in assignment_targets
+                            if isinstance(target, EntityRef)
+                            and target.kind == entity_kind
+                            and values.get(target.id) == section_name
+                        )
+                    except (KeyError, TypeError, ValueError):
+                        carried = ()
+                    if carried:
+                        for key in keys:
+                            identifiers.pop(key, None)
+                        for key in carried:
+                            identifiers[key] = assignment.id
+                        continue
+                    self.section_assignments.pop(assignment.id, None)
+                    for key in keys:
+                        identifiers.pop(key, None)
+                    continue
+                if present:
+                    names = set(present)
+                    if len(names) == 1:
+                        try:
+                            section_id = self._section_id(kind, present[0])
+                        except ProjectError:
+                            continue
+                        if assignment.section_id != section_id:
+                            self.section_assignments[assignment.id] = replace(
+                                assignment, section_id=section_id
+                            )
+
+            for identifier, section_name in sorted(tuple(values.items())):
+                assignment_id = identifiers.get(identifier)
+                assignment = (
+                    self.section_assignments.get(assignment_id)
+                    if assignment_id is not None
+                    else None
+                )
+                try:
+                    requested_section_id = self._section_id(kind, section_name)
+                except ProjectError:
+                    if assignment is not None:
+                        # A section label was edited while the compatibility
+                        # cache still held its former label.  The UUID-backed
+                        # canonical record is authoritative in that case.
+                        continue
+                    raise
+                if assignment is not None:
+                    try:
+                        assigned_name = self._section_name(
+                            assignment.kind, assignment.section_id
+                        )
+                    except ProjectError:
+                        assigned_name = None
+                    if assigned_name == section_name:
+                        continue
+                if identifier not in store:
+                    # A feature-backed singleton may still be cached under its
+                    # previous materialized ID.  Its assignment UUID above is
+                    # enough to retain and rematerialize it at the new output.
+                    if assignment is not None and assignment.legacy_singleton:
+                        continue
+                    continue
+                reference = EntityRef(entity_kind, int(identifier))
+                region = self.singleton_region(reference)
+                candidate_id = assignment_id or str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"{self.document_id}:{entity_kind}-assignment:{identifier}",
+                    )
+                )
+                if candidate_id in self.section_assignments:
+                    candidate_id = str(uuid4())
+                record = SectionAssignment(
+                    id=candidate_id,
+                    kind=kind,  # type: ignore[arg-type]
+                    section_id=requested_section_id,
+                    region=region,
+                    name=f"{section_name} on {entity_kind} {identifier}",
+                    legacy_singleton=True,
+                )
+                self.section_assignments[record.id] = record
+                identifiers[int(identifier)] = record.id
+
+    def _section_id(self, kind: str, value: str) -> str:
+        sections = self.plate_sections if kind == "plate" else self.beam_sections
+        if value in sections:
+            return str(sections[value].id)
+        for section in sections.values():
+            if section.id == str(value):
+                return str(section.id)
+        label = "plate" if kind == "plate" else "beam"
+        raise ProjectError(f"no {label} section named or identified by {value!r}")
+
+    def _section_name(self, kind: str, section_id: str) -> str:
+        sections = self.plate_sections if kind == "plate" else self.beam_sections
+        for name, section in sections.items():
+            if section.id == str(section_id):
+                return name
+        label = "plate" if kind == "plate" else "beam"
+        raise ProjectError(
+            f"{label} section UUID {section_id!r} does not exist"
+        )
+
+    def _require_section_id(self, kind: str, section_id: str) -> None:
+        self._section_name(kind, section_id)
+
+    def _require_assignment_region(self, assignment: SectionAssignment) -> Region:
+        try:
+            region = self.regions[assignment.region.id]
+        except (KeyError, ValueError) as error:
+            raise ProjectError(
+                f"section assignment uses missing region {assignment.region.id!r}: "
+                f"{error}"
+            ) from None
+        expected = "face" if assignment.kind == "plate" else "edge"
+        if (
+            region.domain is RegionDomain.GEOMETRY
+            and region.entity_kind != expected
+        ):
+            raise ProjectError(
+                f"{assignment.kind} assignment requires a {expected} region"
+            )
+        return region
+
+    def _section_compatibility_snapshot(self) -> tuple[dict, dict, dict, dict]:
+        return (
+            dict(self.face_sections),
+            dict(self.edge_sections),
+            dict(self.face_assignment_ids),
+            dict(self.edge_assignment_ids),
+        )
+
+    def _restore_section_compatibility(
+        self, snapshot: tuple[dict, dict, dict, dict]
+    ) -> None:
+        for target, values in zip(
+            (
+                self.face_sections,
+                self.edge_sections,
+                self.face_assignment_ids,
+                self.edge_assignment_ids,
+            ),
+            snapshot,
+        ):
+            target.clear()
+            target.update(values)
 
     def geometry_group(
         self, name: str, *, kind: str | None = None
@@ -148,7 +947,10 @@ class Project:
     # supports and loads
     # ------------------------------------------------------------------
     def add_support(self, support: Support) -> Support:
-        self._require_entity(support.ref)
+        if not self.mesh_only:
+            self._require_entity(support.ref)
+        if support.region is None:
+            support = replace(support, region=self.singleton_region(support.ref))
         self.supports.append(support)
         return support
 
@@ -226,7 +1028,10 @@ class Project:
         raise ProjectError(f"cannot take points of a {ref.kind}")
 
     def add_mass(self, mass: Mass) -> Mass:
-        self._require_entity(mass.ref)
+        if not self.mesh_only:
+            self._require_entity(mass.ref)
+        if mass.region is None:
+            mass = replace(mass, region=self.singleton_region(mass.ref))
         self.masses.append(mass)
         return mass
 
@@ -234,8 +1039,12 @@ class Project:
         """Fetch a load case, creating it on first use."""
 
         if name not in self.load_cases:
-            self.load_cases[name] = LoadCase(name=name)
-        return self.load_cases[name]
+            self.load_cases[name] = LoadCase(
+                name=name, _region_factory=self.singleton_region
+            )
+        case = self.load_cases[name]
+        case._region_factory = self.singleton_region
+        return case
 
     def add_combination(
         self, name: str, factors: Mapping[str, float]
@@ -298,6 +1107,16 @@ class Project:
         one-off comparison can still override them here.
         """
 
+        feature_problems = self._feature_materialization_problems()
+        if feature_problems:
+            raise ProjectError(
+                "geometry cannot be meshed:\n  - " + "\n  - ".join(feature_problems)
+            )
+        # Beam membership is a meshing input, so resolve region-backed
+        # assignments before asking the mesher for its owner list.  Existing
+        # but unresolved or overlapping bindings are unsafe and fail closed;
+        # a project with no assignments at all may still be meshed for setup.
+        self.resolve_section_assignments(strict=True)
         if not self.geometry.faces and not self.edge_sections:
             raise ProjectError(
                 "nothing to mesh: the model has no plates and no beams"
@@ -318,6 +1137,24 @@ class Project:
     # ------------------------------------------------------------------
     # validation
     # ------------------------------------------------------------------
+    def _feature_materialization_problems(self) -> list[str]:
+        problems: list[str] = []
+        for record in self.geometry.features.records:
+            if record.suppressed:
+                continue
+            if record.state == "invalid":
+                problems.append(
+                    record.diagnostic
+                    or f"feature {record.feature_id} materialization is invalid"
+                )
+            elif record.state == "frozen":
+                diagnostic = self.geometry.features.validate_materialization(
+                    record, self.geometry
+                )
+                if diagnostic is not None:
+                    problems.append(diagnostic)
+        return problems
+
     def validate(
         self, *, require_loads: bool = True, require_supports: bool = True
     ) -> None:
@@ -328,7 +1165,8 @@ class Project:
         run actually requires.
         """
 
-        problems: List[str] = []
+        problems: List[str] = self._feature_materialization_problems()
+        problems.extend(self.resolve_section_assignments(strict=False))
 
         stores = {
             "vertex": self.geometry.vertices,
@@ -339,6 +1177,59 @@ class Project:
         def missing(ref: EntityRef) -> bool:
             store = stores.get(ref.kind)
             return store is None or ref.id not in store
+
+        def scope_problem(item) -> str | None:
+            region_ref = getattr(item, "region", None)
+            if region_ref is None:
+                return (
+                    f"references missing {item.ref}" if missing(item.ref) else None
+                )
+            try:
+                region = self.regions[region_ref.id]
+                direct_ref = getattr(item, "ref", None)
+                # Preserve the long-standing diagnostic for a legacy direct
+                # reference.  Named, feature-output and query regions retain
+                # the richer canonical unresolved-region wording below.
+                if (
+                    direct_ref is not None
+                    and
+                    region.hidden
+                    and isinstance(region.definition, ManualRegion)
+                    and region.definition.anchors == (direct_ref,)
+                    and missing(direct_ref)
+                    and not self.geometry.resolve_ref(direct_ref)
+                ):
+                    return f"references missing {direct_ref}"
+                candidates = ()
+                if region.domain is RegionDomain.GEOMETRY and not self.mesh_only:
+                    store = stores.get(region.entity_kind, {})
+                    candidates = tuple(
+                        EntityRef(region.entity_kind, identifier)
+                        for identifier in store
+                    )
+                resolved = self.regions.resolve(
+                    region_ref.id,
+                    geometry=None if self.mesh_only else self.geometry,
+                    candidates=candidates,
+                    feature_resolver=(
+                        None
+                        if self.mesh_only
+                        else lambda anchor: self.geometry.features.resolve(
+                            anchor, self.geometry
+                        )
+                    ),
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                return f"uses unresolved region {region_ref.id!r}: {error}"
+            if not resolved:
+                return f"uses unresolved or empty region {region.name!r}"
+            return None
+
+        def coordinate_problem(item) -> str | None:
+            identifier = getattr(item, "coordinate_system_id", "global")
+            if identifier not in self.coordinate_systems:
+                return f"uses coordinate system {identifier!r}, which does not exist"
+            return None
 
         for face_id, section in self.face_sections.items():
             if face_id not in self.geometry.faces:
@@ -365,10 +1256,12 @@ class Project:
             ("imperfection", self.imperfections),
         ):
             for item in items:
-                if missing(item.ref):
-                    problems.append(
-                        f"{label} {item.name!r} references missing {item.ref}"
-                    )
+                scoped = scope_problem(item)
+                if scoped is not None:
+                    problems.append(f"{label} {item.name!r} {scoped}")
+                coordinates = coordinate_problem(item)
+                if coordinates is not None:
+                    problems.append(f"{label} {item.name!r} {coordinates}")
         for refinement in self.refinements:
             if refinement.ref is not None and missing(refinement.ref):
                 problems.append(
@@ -383,17 +1276,69 @@ class Project:
                 ("surface traction", case.surface_tractions),
             ):
                 for index, load in enumerate(loads):
-                    if missing(load.ref):
+                    scoped = scope_problem(load)
+                    if scoped is not None:
                         problems.append(
-                            f"load case {case_name!r} {label} {index} "
-                            f"references missing {load.ref}"
+                            f"load case {case_name!r} {label} {index} {scoped}"
                         )
+                    coordinates = coordinate_problem(load)
+                    if coordinates is not None:
+                        problems.append(
+                            f"load case {case_name!r} {label} {index} {coordinates}"
+                        )
+            if (
+                case.gravity is not None
+                and case.gravity_coordinate_system_id not in self.coordinate_systems
+            ):
+                problems.append(
+                    f"load case {case_name!r} uses missing gravity coordinate "
+                    f"system {case.gravity_coordinate_system_id!r}"
+                )
         for name, combination in self.combinations.items():
             unknown = sorted(set(combination.factors) - set(self.load_cases))
             if unknown:
                 problems.append(
                     f"combination {name!r} references undefined load case(s) "
                     f"{unknown}"
+                )
+
+        for request in self.output_requests.values():
+            scoped = scope_problem(request)
+            if scoped is not None:
+                problems.append(f"output request {request.label!r} {scoped}")
+            if (
+                request.basis
+                not in ("global", "local", "element", "material", "cylindrical")
+                and request.basis not in self.coordinate_systems
+            ):
+                problems.append(
+                    f"output request {request.label!r} uses missing result basis "
+                    f"{request.basis!r}"
+                )
+
+        for analysis in self.analyses.values():
+            missing_requests = sorted(
+                set(analysis.output_request_ids).difference(self.output_requests)
+            )
+            if missing_requests:
+                problems.append(
+                    f"analysis {analysis.name!r} references missing output "
+                    f"request(s) {missing_requests}"
+                )
+            for request_id in analysis.output_request_ids:
+                request = self.output_requests.get(request_id)
+                if request is None:
+                    continue
+                for diagnostic in request.problems_for_analysis(analysis.type):
+                    problems.append(
+                        f"analysis {analysis.name!r} output request "
+                        f"{request.label!r}: {diagnostic}"
+                    )
+            if analysis.output_requests:
+                problems.append(
+                    f"analysis {analysis.name!r} still contains legacy output "
+                    "request data without a complete canonical region; edit it "
+                    "into a typed output request before solving"
                 )
         if self.element_order not in ELEMENT_ORDERS:
             problems.append(

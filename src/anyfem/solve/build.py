@@ -9,7 +9,8 @@ node set -- happens here through the mesh association map.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from itertools import permutations
+from typing import Any, Dict, Iterable, List, Sequence
 
 import numpy as np
 from anygeometry.entities import EntityRef
@@ -26,6 +27,7 @@ from anysolver import LoadCase as SolverLoadCase
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
 from ..model.project import Project, ProjectError
+from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
 
 __all__ = ["BuiltModel", "build_fe_model"]
 
@@ -255,21 +257,77 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
 
 def _add_supports(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     for support in project.supports:
+        targets = _attribute_targets(project, support.region, support.ref)
         # A restraint holds a physical location, so it reaches the offset
         # stiffener nodes as well as the plating.
-        node_ids = mesh.constrained_nodes_on(support.ref)
+        node_ids = sorted(
+            {
+                node_id
+                for target in targets
+                for node_id in _nodes_on_target(mesh, target, constrained=True)
+            }
+        )
         if not node_ids:
             raise ProjectError(
-                f"support {support.name!r} references {support.ref}, which has "
-                "no nodes in the mesh"
+                f"support {support.name!r} has an empty or unresolved scope in "
+                "the active mesh"
             )
-        fe_model.add_boundary_condition(
-            BoundaryCondition(
-                name=support.name,
-                node_ids=list(node_ids),
-                dof_constraints=dict(support.constraints),
+        system = _coordinate_system(project, support.coordinate_system_id)
+        if system.id == "global":
+            fe_model.add_boundary_condition(
+                BoundaryCondition(
+                    name=support.name,
+                    node_ids=list(node_ids),
+                    dof_constraints=dict(support.constraints),
+                )
             )
-        )
+            continue
+
+        # Local prescribed values are affine equations in the global nodal
+        # degrees of freedom.  Pick distinct, well-conditioned pivots for all
+        # local components in one translation/rotation block; a naive
+        # "largest coefficient" pivot can choose the same global DOF twice for
+        # a rotated basis and make an otherwise valid support look dependent.
+        for node_id in node_ids:
+            basis = system.basis_at(mesh.nodes[node_id])
+            dofs = fe_model.mesh.dof_manager.get_node_dofs(node_id)
+            for prefix, offset in (("u", 0), ("r", 3)):
+                rows = [
+                    ("xyz".index(name[1]), name, float(value))
+                    for name, value in support.constraints.items()
+                    if name.startswith(prefix)
+                ]
+                if not rows:
+                    continue
+                pivots = _constraint_pivots(basis, [axis for axis, _name, _value in rows])
+                for (axis, name, value), pivot in zip(rows, pivots):
+                    terms = tuple(
+                        (dofs[offset + component], float(basis[component, axis]))
+                        for component in range(3)
+                        if abs(float(basis[component, axis])) > 1.0e-13
+                    )
+                    fe_model.add_constraint_equation(
+                        terms=terms,
+                        rhs=value,
+                        source_id=f"{support.id}:{node_id}:{name}",
+                        dependent_dof=dofs[offset + pivot],
+                    )
+
+
+def _constraint_pivots(basis: np.ndarray, local_axes: Sequence[int]) -> tuple[int, ...]:
+    """Choose distinct global pivot components for independent local rows."""
+
+    best: tuple[float, tuple[int, ...]] | None = None
+    for candidates in permutations(range(3), len(local_axes)):
+        magnitudes = [abs(float(basis[pivot, axis])) for pivot, axis in zip(candidates, local_axes)]
+        if any(value <= 1.0e-12 for value in magnitudes):
+            continue
+        score = float(np.prod(magnitudes))
+        if best is None or score > best[0]:
+            best = (score, tuple(candidates))
+    if best is None:
+        raise ProjectError("local support directions are linearly dependent")
+    return best[1]
 
 
 def _resolve_load_case(
@@ -310,18 +368,57 @@ def _accumulate_case(
     """
 
     for load in case.point_loads:
-        node_id = mesh.node_of_vertex.get(load.ref.id)
-        if node_id is None:
+        targets = _attribute_targets(
+            project,
+            load.region,
+            load.ref,
+            geometry_kinds=("vertex",),
+            mesh_kinds=("node",),
+        )
+        node_ids = sorted(
+            {
+                node_id
+                for scoped in targets
+                for node_id in _nodes_on_target(mesh, scoped)
+            }
+        )
+        if not node_ids:
             raise ProjectError(
-                f"point load references {load.ref}, which has no node in the mesh"
+                f"point load {load.id!r} has an empty or unresolved scope in "
+                "the active mesh"
             )
-        _add_nodal(target, node_id, factor * load.force, factor * load.moment)
+        share = 1.0 / len(node_ids) if load.distribution_policy == "total_distributed" else 1.0
+        system = _coordinate_system(project, load.coordinate_system_id)
+        for node_id in node_ids:
+            position = mesh.nodes[node_id]
+            force = system.to_global(load.force, position)
+            moment = system.to_global(load.moment, position)
+            _add_nodal(
+                target,
+                node_id,
+                factor * share * force,
+                factor * share * moment,
+            )
 
     for load in case.pressures:
-        element_ids = mesh.elements_of_face.get(load.ref.id)
+        targets = _attribute_targets(
+            project,
+            load.region,
+            load.ref,
+            geometry_kinds=("face",),
+            mesh_kinds=("element", "element_face"),
+        )
+        element_ids = sorted(
+            {
+                element_id
+                for scoped in targets
+                for element_id in _elements_on_target(mesh, scoped)
+            }
+        )
         if not element_ids:
             raise ProjectError(
-                f"pressure references {load.ref}, which has no elements in the mesh"
+                f"pressure {load.id!r} has an empty or unresolved scope in the "
+                "active mesh"
             )
         for element_id in element_ids:
             target.pressure_loads[element_id] = (
@@ -329,22 +426,71 @@ def _accumulate_case(
             )
 
     for load in case.line_loads:
-        for node_id, force in _line_load_to_nodes(
-            mesh, load.ref, load.force_per_length
-        ):
+        system = _coordinate_system(project, load.coordinate_system_id)
+        targets = _attribute_targets(
+            project,
+            load.region,
+            load.ref,
+            geometry_kinds=("edge",),
+            mesh_kinds=("element",),
+        )
+        contributions: Dict[int, np.ndarray] = {}
+        for scoped in targets:
+            for node_id, local_force in _line_target_to_nodes(
+                mesh, scoped, load.force_per_length
+            ):
+                contributions.setdefault(node_id, np.zeros(3))
+                contributions[node_id] += system.to_global(
+                    local_force, mesh.nodes[node_id]
+                )
+        if not contributions:
+            raise ProjectError(
+                f"line load {load.id!r} has an empty or unresolved scope in "
+                "the active mesh"
+            )
+        for node_id, force in contributions.items():
             _add_nodal(target, node_id, factor * force, np.zeros(3))
 
     for load in case.surface_tractions:
-        for node_id, force in _traction_to_nodes(mesh, load.ref, load.traction):
+        system = _coordinate_system(project, load.coordinate_system_id)
+        targets = _attribute_targets(
+            project,
+            load.region,
+            load.ref,
+            geometry_kinds=("face",),
+            mesh_kinds=("element", "element_face"),
+        )
+        contributions: Dict[int, np.ndarray] = {}
+        for scoped in targets:
+            for node_id, local_force in _traction_target_to_nodes(
+                mesh, scoped, load.traction
+            ):
+                contributions.setdefault(node_id, np.zeros(3))
+                contributions[node_id] += system.to_global(
+                    local_force, mesh.nodes[node_id]
+                )
+        if not contributions:
+            raise ProjectError(
+                f"surface traction {load.id!r} has an empty or unresolved "
+                "scope in the active mesh"
+            )
+        for node_id, force in contributions.items():
             _add_nodal(target, node_id, factor * force, np.zeros(3))
 
     if case.gravity is not None:
         # Gravity is an acceleration field, so combining cases sums the fields
         # rather than the resulting forces.
+        system = _coordinate_system(project, case.gravity_coordinate_system_id)
+        if system.kind == "cylindrical":
+            raise ProjectError(
+                "a cylindrical gravity/acceleration field varies by position "
+                "and cannot be represented by the solver's uniform body-load "
+                "field; use scoped nodal or distributed loads"
+            )
         current = (
             np.zeros(3) if target.gravity is None else np.asarray(target.gravity)
         )
-        target.gravity = current + factor * np.asarray(case.gravity, dtype=float)
+        target.gravity = current + factor * system.to_global(case.gravity)
 
 
 def _add_nodal(
@@ -359,6 +505,169 @@ def _add_nodal(
         target.nodal_loads[node_id] = existing
     existing[:3] += np.asarray(force, dtype=float)
     existing[3:] += np.asarray(moment, dtype=float)
+
+
+def _coordinate_system(project: Project, coordinate_system_id: str):
+    try:
+        return project.coordinate_systems[str(coordinate_system_id)]
+    except KeyError:
+        raise ProjectError(
+            f"coordinate system {coordinate_system_id!r} does not exist"
+        ) from None
+
+
+def _attribute_targets(
+    project: Project,
+    region_ref: RegionRef | None,
+    fallback: EntityRef,
+    *,
+    geometry_kinds: Sequence[str] | None = None,
+    mesh_kinds: Sequence[str] | None = None,
+) -> tuple[Any, ...]:
+    """Resolve a canonical region, retaining the legacy direct-ref fallback.
+
+    Feature-output anchors resolve only through history output keys.  An edit
+    that removes an output therefore produces an empty scope and a blocking
+    diagnostic here; it is never silently retargeted to nearby geometry.
+    """
+
+    if region_ref is None:
+        targets: tuple[Any, ...] = (fallback,)
+    else:
+        try:
+            geometry = None if project.mesh_only else project.geometry
+            feature_resolver = None
+            if geometry is not None:
+                feature_resolver = lambda anchor: project.geometry.features.resolve(
+                    anchor, project.geometry
+                )
+            targets = project.regions.resolve(
+                region_ref.id,
+                geometry=geometry,
+                feature_resolver=feature_resolver,
+            )
+        except Exception as exc:
+            raise ProjectError(
+                f"region {region_ref.id!r} cannot be resolved: {exc}"
+            ) from exc
+    if not targets:
+        raise ProjectError(f"region {getattr(region_ref, 'id', '')!r} resolves to nothing")
+
+    geometry_allowed = None if geometry_kinds is None else set(geometry_kinds)
+    mesh_allowed = None if mesh_kinds is None else set(mesh_kinds)
+    for target in targets:
+        if isinstance(target, EntityRef):
+            if geometry_allowed is not None and target.kind not in geometry_allowed:
+                raise ProjectError(
+                    f"scope contains geometry {target.kind!r}; expected "
+                    f"{', '.join(sorted(geometry_allowed))}"
+                )
+        elif isinstance(target, MeshEntityRef):
+            if mesh_allowed is not None and target.kind not in mesh_allowed:
+                raise ProjectError(
+                    f"scope contains mesh {target.kind!r}; expected "
+                    f"{', '.join(sorted(mesh_allowed))}"
+                )
+        elif isinstance(target, ElementFaceRef):
+            if mesh_allowed is not None and "element_face" not in mesh_allowed:
+                raise ProjectError("scope contains an element face, which is invalid here")
+        else:
+            raise ProjectError(f"scope resolved to unsupported target {target!r}")
+    return tuple(targets)
+
+
+def _element_nodes(mesh: Mesh, element_id: int) -> tuple[int, ...]:
+    for collection in (mesh.quads, mesh.tris, mesh.beams):
+        if element_id in collection:
+            return tuple(int(node) for node in collection[element_id])
+    if element_id in mesh.couplings:
+        coupling = mesh.couplings[element_id]
+        if hasattr(coupling, "beam_node"):
+            return (int(coupling.beam_node),) + tuple(
+                int(node) for node in coupling.plate_nodes
+            )
+    raise ProjectError(f"mesh scope references missing element {element_id}")
+
+
+def _nodes_on_target(
+    mesh: Mesh, target: Any, *, constrained: bool = False
+) -> list[int]:
+    if isinstance(target, EntityRef):
+        resolver = mesh.constrained_nodes_on if constrained else mesh.nodes_on
+        return list(resolver(target))
+    if isinstance(target, MeshEntityRef):
+        if target.kind == "node":
+            if target.id not in mesh.nodes:
+                raise ProjectError(f"mesh scope references missing node {target.id}")
+            return [int(target.id)]
+        return list(_element_nodes(mesh, int(target.id)))
+    if isinstance(target, ElementFaceRef):
+        # The qualified structural element families are beams and shells.  A
+        # selected shell face therefore maps to the shell's interpolation
+        # nodes; no solid-face topology is invented.
+        return list(_element_nodes(mesh, int(target.element_id)))
+    raise ProjectError(f"unsupported scoped target {target!r}")
+
+
+def _elements_on_target(mesh: Mesh, target: Any) -> list[int]:
+    if isinstance(target, EntityRef):
+        return list(mesh.elements_on(target))
+    if isinstance(target, MeshEntityRef):
+        if target.kind != "element":
+            return []
+        _element_nodes(mesh, int(target.id))
+        return [int(target.id)]
+    if isinstance(target, ElementFaceRef):
+        _element_nodes(mesh, int(target.element_id))
+        return [int(target.element_id)]
+    raise ProjectError(f"unsupported scoped target {target!r}")
+
+
+def _line_target_to_nodes(
+    mesh: Mesh, target: Any, force_per_length: np.ndarray
+) -> List[tuple[int, np.ndarray]]:
+    if isinstance(target, EntityRef):
+        return _line_load_to_nodes(mesh, target, force_per_length)
+    if isinstance(target, MeshEntityRef) and target.kind == "element":
+        if target.id not in mesh.beams:
+            raise ProjectError(
+                f"line load mesh scope element {target.id} is not a beam"
+            )
+        nodes = tuple(int(node) for node in mesh.beams[target.id])
+        shares = (
+            (0.5, 0.5)
+            if len(nodes) == 2
+            else (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0)
+        )
+        positions = [mesh.nodes[node] for node in nodes]
+        length = float(
+            sum(
+                np.linalg.norm(second - first)
+                for first, second in zip(positions, positions[1:])
+            )
+        )
+        intensity = np.asarray(force_per_length, dtype=float)
+        return [
+            (node, float(weight) * length * intensity)
+            for node, weight in zip(nodes, shares)
+        ]
+    raise ProjectError(f"unsupported line-load scope target {target!r}")
+
+
+def _traction_target_to_nodes(
+    mesh: Mesh, target: Any, traction: np.ndarray
+) -> List[tuple[int, np.ndarray]]:
+    if isinstance(target, EntityRef):
+        return _traction_to_nodes(mesh, target, traction)
+    element_ids = _elements_on_target(mesh, target)
+    accumulated: Dict[int, np.ndarray] = {}
+    for element_id in element_ids:
+        for node_id, force in _traction_elements_to_nodes(
+            mesh, (element_id,), traction
+        ):
+            accumulated.setdefault(node_id, np.zeros(3))
+            accumulated[node_id] += force
+    return list(accumulated.items())
 
 
 def _traction_to_nodes(
@@ -379,6 +688,14 @@ def _traction_to_nodes(
         raise ProjectError(
             f"surface traction references {ref}, which has no elements in the mesh"
         )
+
+    return _traction_elements_to_nodes(mesh, element_ids, traction)
+
+
+def _traction_elements_to_nodes(
+    mesh: Mesh, element_ids: Iterable[int], traction: np.ndarray
+) -> List[tuple[int, np.ndarray]]:
+    """Consistently lump a uniform traction over explicit shell elements."""
 
     accumulated: Dict[int, np.ndarray] = {}
     intensity = np.asarray(traction, dtype=float)
@@ -438,13 +755,23 @@ def _add_masses(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """Attach lumped masses, sharing a total equally over an entity's nodes."""
 
     for mass in project.masses:
-        node_ids = mesh.nodes_on(mass.ref)
+        targets = _attribute_targets(project, mass.region, mass.ref)
+        node_ids = sorted(
+            {
+                node_id
+                for target in targets
+                for node_id in _nodes_on_target(mesh, target)
+            }
+        )
         if not node_ids:
             raise ProjectError(
-                f"mass {mass.name!r} references {mass.ref}, which has no nodes "
-                "in the mesh"
+                f"mass {mass.name!r} has an empty or unresolved scope in the mesh"
             )
-        share = float(mass.value) / len(node_ids)
+        share = (
+            float(mass.value) / len(node_ids)
+            if mass.distribution_policy == "total_distributed"
+            else float(mass.value)
+        )
         for node_id in node_ids:
             fe_model.add_point_mass(node_id, share)
 

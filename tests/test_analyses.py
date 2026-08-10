@@ -18,6 +18,7 @@ from anyfem import (
     solve_arc_length,
     solve_buckling,
     solve_linear_static,
+    solve_linear_static_many,
     solve_modal,
     solve_nonlinear_static,
     solve_transient,
@@ -77,6 +78,37 @@ def plate_project(side: float = 1.0, thickness: float = 0.008, pressure: float =
 
 def flexural_rigidity(thickness: float) -> float:
     return MODULUS * thickness**3 / (12.0 * (1.0 - POISSON**2))
+
+
+def test_batch_linear_cases_share_one_factorization(monkeypatch):
+    import anysolver.assembly as assembly
+
+    project, _section, _start, end = strut_project(load=1000.0)
+    project.load_case("double").add_point_load(
+        project.point(end), force=(-2000.0, 0.0, 0.0)
+    )
+    calls = 0
+    original = assembly.factorize_cached
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(assembly, "factorize_cached", counted)
+
+    solution = solve_linear_static_many(
+        project,
+        target_size=0.25,
+        load_cases=("default", "double"),
+    )
+
+    first = solution.case("default").point_displacement(project.point(end))[0]
+    second = solution.case("double").point_displacement(project.point(end))[0]
+    assert calls == 1
+    assert solution.case_names == ("default", "double")
+    assert second == pytest.approx(2.0 * first)
+    assert solution.info["num_result_cases"] == 2
 
 
 # ----------------------------------------------------------------------

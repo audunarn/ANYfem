@@ -14,7 +14,7 @@ time step without knowing the difference.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -26,6 +26,7 @@ __all__ = [
     "CapacitySolution",
     "ImpactSolution",
     "ImportedSolution",
+    "LinearBatchSolution",
     "LinearSolution",
     "ModalSolution",
     "MultiShapeSolution",
@@ -295,6 +296,29 @@ class MultiShapeSolution:
 
 
 @dataclass
+class LinearBatchSolution(MultiShapeSolution):
+    """Several linear load cases solved through one stiffness factorization."""
+
+    case_names: tuple[str, ...] = ()
+
+    def case(self, name: str) -> LinearSolution:
+        try:
+            index = self.case_names.index(str(name))
+        except ValueError:
+            raise KeyError(f"no solved load case {name!r}") from None
+        shape = self.shapes[index]
+        if not isinstance(shape, LinearSolution):  # pragma: no cover - invariant
+            raise TypeError("linear batch contains a non-linear shape")
+        return shape
+
+    def summary(self) -> str:
+        return (
+            f"{self.built.project.name}: {len(self.shapes)} linear load cases "
+            "solved with one factorization"
+        )
+
+
+@dataclass
 class ModalSolution(MultiShapeSolution):
     """Natural frequencies and their mode shapes."""
 
@@ -369,12 +393,52 @@ class NonlinearSolution(ShapeView):
     label: str = "nonlinear"
     peak_load_factor: Optional[float] = None
     deleted_elements: Tuple[int, ...] = ()
+    # The committed solver result is required for history-aware recovery.
+    # Keeping only ``displacements`` would reconstruct yielded stresses as if
+    # the material were elastic.
+    raw_result: Any = field(default=None, repr=False)
+    _stress: Any = field(default=None, repr=False)
+
+    @property
+    def element_states(self) -> Mapping[int, Any]:
+        return getattr(self.raw_result, "element_states", {}) or {}
 
     @property
     def load_factor(self) -> float:
         """How much of the load case was actually carried."""
 
         return float(self.value)
+
+    def stresses(self, **kwargs: Any):
+        """Recover stresses from the committed material history.
+
+        A nonlinear end displacement is not, by itself, enough to reconstruct
+        a yielded stress state.  The retained raw solver result supplies the
+        committed shell-layer/beam-fibre states to ANYsolver's unified
+        recovery.  Callers can still explicitly supply ``element_states`` or a
+        different ``nonlinear_result`` for restart/diagnostic comparisons.
+        """
+
+        if self._stress is not None and not kwargs:
+            return self._stress
+
+        from anysolver import recover_stress_result
+
+        caller_options = bool(kwargs)
+        if (
+            self.raw_result is not None
+            and "nonlinear_result" not in kwargs
+            and "element_states" not in kwargs
+        ):
+            kwargs["nonlinear_result"] = self.raw_result
+        result = recover_stress_result(
+            self.built.fe_model,
+            self.displacements,
+            **kwargs,
+        )
+        if not caller_options:
+            self._stress = result
+        return result
 
     def history(self) -> Dict[str, np.ndarray]:
         """Load factor and displacement norm at each converged step.

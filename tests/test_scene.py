@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from anygeometry import punch_hole
 
 from anyfem import Project, pinned, solve_linear_static, steel
 from anyfem.geometry.entities import EntityRef
-from anyfem.selection import parse_entity_tag
+from anyfem.selection import MeshEntityRef, parse_entity_tag
 from anyfem.ui.scene import (
     COLOR_LOAD,
     COLOR_MASS,
@@ -61,6 +62,27 @@ def test_flat_geometry_uses_native_display_complexity(plate_project):
     assert geometry_characteristic_size(project.geometry) == pytest.approx(
         np.sqrt(5.0)
     )
+
+
+def test_trimmed_face_tessellation_does_not_fill_its_hole(plate_project):
+    project, face, _edges, _points = plate_project
+    centre = np.asarray((1.0, 0.5, 0.0))
+    radius = 0.2
+    punch_hole(project.geometry, face, centre, radius)
+
+    polygons = face_display_polygons(project.geometry, face)
+
+    assert len(polygons) > 1
+    assert all(len(polygon) == 3 for polygon in polygons)
+    assert all(
+        np.linalg.norm(np.mean(polygon, axis=0) - centre) >= radius
+        for polygon in polygons
+    )
+    area = sum(
+        0.5 * np.linalg.norm(np.cross(polygon[1] - polygon[0], polygon[2] - polygon[0]))
+        for polygon in polygons
+    )
+    assert area == pytest.approx(2.0 - np.pi * radius**2, rel=2.0e-3)
 
 
 def test_every_drawn_item_carries_a_resolvable_tag(plate_project):
@@ -170,6 +192,37 @@ def test_mesh_scene_batches_one_patch_per_plate(plate_project):
     patch = scene.faces[0]
     assert patch.tag == f"ent_face{face}"
     assert len(patch.polygons) == len(mesh.quads)
+
+
+def test_mesh_scene_carries_geometry_element_face_and_node_ownership(
+    plate_project,
+):
+    project, face, _edges, points = plate_project
+    mesh = project.generate_mesh(0.5)
+
+    scene = build_mesh_scene(project, mesh)
+    patch = scene.faces[0]
+    element_id = mesh.elements_of_face[face][0]
+
+    assert patch.polygon_owners is not None
+    assert patch.polygon_owners[0] == (
+        EntityRef("face", face),
+        MeshEntityRef("element", element_id),
+        MeshEntityRef("element_face", (element_id, 0)),
+    )
+    assert len(scene.points) == len(mesh.nodes)
+    assert {
+        marker.ref for marker in scene.points
+    } == {
+        MeshEntityRef("node", node_id) for node_id in mesh.nodes
+    }
+
+    vertex_node = mesh.node_of_vertex[points[0]]
+    endpoint = next(marker for marker in scene.points if marker.ref.id == vertex_node)
+    assert endpoint.owners == (
+        EntityRef("vertex", points[0]),
+        MeshEntityRef("node", vertex_node),
+    )
 
 
 def test_scene_bounds_and_size(plate_project):

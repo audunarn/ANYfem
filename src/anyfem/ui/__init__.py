@@ -21,6 +21,7 @@ __all__ = [
     "PointMarker",
     "Polyline",
     "Scene",
+    "ScriptingPanel",
     "build_geometry_scene",
     "build_mesh_scene",
     "build_result_scene",
@@ -44,4 +45,8 @@ def __getattr__(name: str):
         from .tree import ModelTree
 
         return ModelTree
+    if name == "ScriptingPanel":
+        from .scripting import ScriptingPanel
+
+        return ScriptingPanel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

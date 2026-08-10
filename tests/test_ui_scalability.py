@@ -5,6 +5,7 @@ from __future__ import annotations
 from anyfem import Project
 from anyfem.commands import AddPoint, CommandStack
 from anyfem.ui.app import AnyFemApp
+from anyfem.ui.tree import TREE_ENTITY_ROW_LIMIT, bounded_entity_ids
 
 
 class _AppHarness:
@@ -37,3 +38,43 @@ def test_many_ui_commands_coalesce_refresh_but_keep_individual_undo_steps():
     assert len(app.project.geometry.vertices) == 99
     assert app.refresh_count == 2
 
+
+class _CountingIds:
+    """50k mapping-key stand-in that exposes accidental eager traversal."""
+
+    def __init__(self, size: int = 50_000) -> None:
+        self.size = size
+        self.iterations = 0
+        self.yielded = 0
+        self.membership_checks = 0
+
+    def __iter__(self):
+        self.iterations += 1
+        for identifier in range(1, self.size + 1):
+            self.yielded += 1
+            yield identifier
+
+    def __contains__(self, identifier: object) -> bool:
+        self.membership_checks += 1
+        return isinstance(identifier, int) and 1 <= identifier <= self.size
+
+
+def test_virtual_tree_never_eagerly_materialises_all_50k_entity_rows():
+    ids = _CountingIds()
+
+    visible = bounded_entity_ids(ids)
+
+    assert len(visible) == TREE_ENTITY_ROW_LIMIT
+    assert visible == list(range(1, TREE_ENTITY_ROW_LIMIT + 1))
+    assert ids.iterations == 1
+    assert ids.yielded == TREE_ENTITY_ROW_LIMIT
+
+
+def test_virtual_tree_numeric_jump_uses_index_membership_without_a_scan():
+    ids = _CountingIds()
+
+    assert bounded_entity_ids(ids, "Point 49,999") == [49_999]
+    assert bounded_entity_ids(ids, "entity 50,001") == []
+    assert ids.membership_checks == 2
+    assert ids.iterations == 0
+    assert ids.yielded == 0

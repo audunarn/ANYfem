@@ -10,6 +10,7 @@ geometry entity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, TypeVar
 
 import numpy as np
@@ -20,7 +21,7 @@ from anygeometry.operations import surface_point
 
 from ..mesh.mapped import Mesh
 from ..model.project import Project
-from ..selection import entity_tag
+from ..selection import MeshEntityRef, entity_tag
 
 __all__ = [
     "Arrow",
@@ -34,6 +35,7 @@ __all__ = [
     "build_attribute_overlay",
     "build_collision_overlay",
     "build_result_scene",
+    "build_persisted_result_scene",
     "entity_sample_points",
     "face_display_polygons",
     "face_normal",
@@ -53,45 +55,82 @@ COLOR_MESH_EDGE = "#4a6572"
 COLOR_SUPPORT = "#2e7d32"
 COLOR_LOAD = "#c62828"
 
+SceneOwner = EntityRef | MeshEntityRef
+
 
 @dataclass
 class FacePatch:
     """One or more polygons drawn as a single tagged batch."""
 
-    ref: Optional[EntityRef]
+    ref: Optional[SceneOwner]
     polygons: List[np.ndarray]
     colors: List[str]
     outline: str = ""
+    # A tessellated geometry face has one semantic owner for the whole batch.
+    # A mesh patch additionally has one element (and element-face) owner per
+    # polygon.  Keeping those bindings as scene data lets ANYtk3D retain one
+    # efficient face batch without losing element-level selection.
+    owners: tuple[SceneOwner, ...] = ()
+    polygon_owners: Optional[List[tuple[SceneOwner, ...]]] = None
+
+    def __post_init__(self) -> None:
+        if self.polygon_owners is not None and len(self.polygon_owners) != len(
+            self.polygons
+        ):
+            raise ValueError(
+                "polygon_owners must have one entry per face polygon"
+            )
 
     @property
     def tag(self) -> str:
         return "" if self.ref is None else entity_tag(self.ref)
+
+    def owners_for_polygon(self, index: int) -> tuple[SceneOwner, ...]:
+        if self.polygon_owners is not None:
+            return self.polygon_owners[index]
+        if self.owners:
+            return self.owners
+        return () if self.ref is None else (self.ref,)
 
 
 @dataclass
 class Polyline:
     """A 3D polyline: a modelled line, a beam, or an annotation."""
 
-    ref: Optional[EntityRef]
+    ref: Optional[SceneOwner]
     points: np.ndarray
     color: str = COLOR_LINE
     width: int = 2
+    owners: tuple[SceneOwner, ...] = ()
 
     @property
     def tag(self) -> str:
         return "" if self.ref is None else entity_tag(self.ref)
+
+    @property
+    def pick_owners(self) -> tuple[SceneOwner, ...]:
+        if self.owners:
+            return self.owners
+        return () if self.ref is None else (self.ref,)
 
 
 @dataclass
 class PointMarker:
-    ref: Optional[EntityRef]
+    ref: Optional[SceneOwner]
     position: np.ndarray
     color: str = COLOR_POINT
     size: float = 0.0
+    owners: tuple[SceneOwner, ...] = ()
 
     @property
     def tag(self) -> str:
         return "" if self.ref is None else entity_tag(self.ref)
+
+    @property
+    def pick_owners(self) -> tuple[SceneOwner, ...]:
+        if self.owners:
+            return self.owners
+        return () if self.ref is None else (self.ref,)
 
 
 @dataclass
@@ -201,6 +240,35 @@ def face_display_polygons(
     """
 
     face = geometry.faces[face_id]
+    if face.holes:
+        # ANYgeometry owns the trim loops; Shapely supplies a constrained
+        # planar triangulation which is then mapped back to the authoritative
+        # structural surface.  Filtering with ``covers`` prevents Delaunay
+        # triangles from bridging a hole or concave outer trim.
+        from shapely.geometry import Polygon
+        from shapely.ops import triangulate
+
+        loops = geometry.face_trim_loops_uv(
+            face_id, curve_samples=max(17, divisions * 4 + 1)
+        )
+        trimmed = Polygon(loops[0], holes=loops[1:])
+        if not trimmed.is_valid or trimmed.is_empty:
+            raise ValueError(f"face {face_id} has an invalid display trim")
+        polygons = []
+        for triangle in triangulate(trimmed):
+            if not trimmed.covers(triangle):
+                continue
+            uv = list(triangle.exterior.coords)[:-1]
+            polygons.append(
+                np.asarray(
+                    [
+                        surface_point(geometry, face, float(u), float(v))
+                        for u, v in uv
+                    ]
+                )
+            )
+        return polygons
+
     parameters = np.linspace(0.0, 1.0, divisions + 1)
     grid = np.asarray(
         [
@@ -225,7 +293,10 @@ def _flat_four_edge_polygon(
 ) -> Optional[np.ndarray]:
     """Return one authoritative display quad, or require tessellation."""
 
-    sides = geometry.faces[face_id].sides()
+    face = geometry.faces[face_id]
+    if face.holes:
+        return None
+    sides = face.sides()
     if any(len(side) != 1 for side in sides):
         return None
     if any(
@@ -325,38 +396,148 @@ def build_geometry_scene(
 # mesh
 # ----------------------------------------------------------------------
 def build_mesh_scene(project: Project, mesh: Mesh) -> Scene:
-    """Draw the mesh, one tagged batch per plate so picking still works."""
+    """Draw a retained mesh with geometry and FE ownership in one scene.
+
+    Shells remain batched by their owning geometry plate for rendering and
+    legacy tag picking.  Each polygon nevertheless carries its own mesh
+    element and element-face references for the commercial selection index.
+    Nodes are emitted as marker data and the viewport submits all of them via
+    one :meth:`ANYtk3D.add_markers` call.
+    """
 
     scene = Scene()
+    shells = mesh.shells
+    grouped_shells: set[int] = set()
 
     for face_id, element_ids in sorted(mesh.elements_of_face.items()):
+        available = [
+            int(element_id)
+            for element_id in element_ids
+            if int(element_id) in shells
+        ]
         polygons = [
             np.array([mesh.nodes[node] for node in mesh.corners_of(element_id)])
-            for element_id in element_ids
+            for element_id in available
         ]
         if not polygons:
             continue
+        grouped_shells.update(available)
+        geometry_ref = (
+            EntityRef("face", face_id)
+            if face_id in project.geometry.faces
+            else None
+        )
+        polygon_owners = [
+            tuple(
+                owner
+                for owner in (
+                    geometry_ref,
+                    MeshEntityRef("element", element_id),
+                    MeshEntityRef("element_face", (element_id, 0)),
+                )
+                if owner is not None
+            )
+            for element_id in available
+        ]
         scene.faces.append(
             FacePatch(
-                ref=EntityRef("face", face_id),
+                ref=geometry_ref,
                 polygons=polygons,
                 colors=[COLOR_MESH_FILL] * len(polygons),
                 outline=COLOR_MESH_EDGE,
+                polygon_owners=polygon_owners,
             )
         )
 
+    # Imported meshes are allowed to have incomplete geometry associations.
+    # They must still be visible and selectable directly as mesh entities.
+    ungrouped_shells = sorted(set(shells) - grouped_shells)
+    if ungrouped_shells:
+        scene.faces.append(
+            FacePatch(
+                ref=None,
+                polygons=[
+                    np.array(
+                        [mesh.nodes[node] for node in mesh.corners_of(element_id)]
+                    )
+                    for element_id in ungrouped_shells
+                ],
+                colors=[COLOR_MESH_FILL] * len(ungrouped_shells),
+                outline=COLOR_MESH_EDGE,
+                polygon_owners=[
+                    (
+                        MeshEntityRef("element", element_id),
+                        MeshEntityRef("element_face", (element_id, 0)),
+                    )
+                    for element_id in ungrouped_shells
+                ],
+            )
+        )
+
+    grouped_beams: set[int] = set()
     for edge_id, element_ids in sorted(mesh.elements_of_edge.items()):
         for element_id in element_ids:
+            if element_id not in mesh.beams:
+                continue
+            grouped_beams.add(int(element_id))
             # Through every node, so a quadratic beam draws its curvature.
             span = mesh.beams[element_id]
+            geometry_ref = (
+                EntityRef("edge", edge_id)
+                if edge_id in project.geometry.edges
+                else None
+            )
             scene.lines.append(
                 Polyline(
-                    ref=EntityRef("edge", edge_id),
+                    ref=geometry_ref,
                     points=np.array([mesh.nodes[node] for node in span]),
                     color=COLOR_BEAM,
                     width=4,
+                    owners=tuple(
+                        owner
+                        for owner in (
+                            geometry_ref,
+                            MeshEntityRef("element", int(element_id)),
+                        )
+                        if owner is not None
+                    ),
                 )
             )
+
+    for element_id in sorted(set(mesh.beams) - grouped_beams):
+        span = mesh.beams[element_id]
+        scene.lines.append(
+            Polyline(
+                ref=None,
+                points=np.array([mesh.nodes[node] for node in span]),
+                color=COLOR_BEAM,
+                width=4,
+                owners=(MeshEntityRef("element", int(element_id)),),
+            )
+        )
+
+    vertex_of_node = {
+        int(node_id): int(vertex_id)
+        for vertex_id, node_id in mesh.node_of_vertex.items()
+        if vertex_id in project.geometry.vertices
+    }
+    for node_id in sorted(mesh.nodes):
+        vertex_id = vertex_of_node.get(int(node_id))
+        geometry_ref = (
+            None if vertex_id is None else EntityRef("vertex", vertex_id)
+        )
+        mesh_ref = MeshEntityRef("node", int(node_id))
+        scene.points.append(
+            PointMarker(
+                ref=mesh_ref,
+                position=np.asarray(mesh.nodes[node_id], dtype=float),
+                owners=tuple(
+                    owner
+                    for owner in (geometry_ref, mesh_ref)
+                    if owner is not None
+                ),
+            )
+        )
 
     return scene
 
@@ -397,8 +578,18 @@ def build_result_scene(
         raise TypeError("values must be a Field")
 
     ordered_nodes = sorted(mesh.nodes)
-    positions = shape.deformed_positions(scale)
+    try:
+        positions = shape.deformed_positions(scale)
+    except KeyError:
+        # Imported stress-only files have no translation field.  They remain
+        # valid contour results and are displayed on the undeformed mesh.
+        positions = mesh.node_positions()
     deformed = {node: positions[index] for index, node in enumerate(ordered_nodes)}
+    # Lightweight imported/test result adapters historically expose only a
+    # mesh on ``built``.  Geometry ownership is additive: keep those adapters
+    # renderable and simply omit a geometry PickOwner when no project exists.
+    built_project = getattr(shape.built, "project", None)
+    geometry = getattr(built_project, "geometry", None)
 
     low, high = limits if limits is not None else resolved.range()
     if high <= low:
@@ -413,13 +604,17 @@ def build_result_scene(
     for face_id, element_ids in sorted(mesh.elements_of_face.items()):
         polygons: List[np.ndarray] = []
         colors: List[str] = []
+        rendered_ids: List[int] = []
         for element_id in element_ids:
+            if element_id not in shells:
+                continue
             nodes = shells[element_id]
             polygons.append(
                 np.array(
                     [deformed[node] for node in mesh.corners_of(element_id)]
                 )
             )
+            rendered_ids.append(int(element_id))
             if resolved.per_element:
                 value = resolved.element_values.get(element_id)
             else:
@@ -428,17 +623,38 @@ def build_result_scene(
                 )
             colors.append(COLOR_MESH_FILL if value is None else colour(value))
         if polygons:
+            geometry_ref = (
+                EntityRef("face", face_id)
+                if geometry is not None and face_id in geometry.faces
+                else None
+            )
             scene.faces.append(
                 FacePatch(
-                    ref=EntityRef("face", face_id),
+                    ref=geometry_ref,
                     polygons=polygons,
                     colors=colors,
                     outline="",
+                    polygon_owners=[
+                        tuple(
+                            owner
+                            for owner in (
+                                geometry_ref,
+                                MeshEntityRef("element", element_id),
+                                MeshEntityRef(
+                                    "element_face", (element_id, 0)
+                                ),
+                            )
+                            if owner is not None
+                        )
+                        for element_id in rendered_ids
+                    ],
                 )
             )
 
     for edge_id, element_ids in sorted(mesh.elements_of_edge.items()):
         for element_id in element_ids:
+            if element_id not in mesh.beams:
+                continue
             span = mesh.beams[element_id]
             if resolved.per_element:
                 value = resolved.element_values.get(element_id)
@@ -449,12 +665,25 @@ def build_result_scene(
                         np.mean([resolved.node_values[node] for node in span])
                     )
                 )
+            geometry_ref = (
+                EntityRef("edge", edge_id)
+                if geometry is not None and edge_id in geometry.edges
+                else None
+            )
             scene.lines.append(
                 Polyline(
-                    ref=EntityRef("edge", edge_id),
+                    ref=geometry_ref,
                     points=np.array([deformed[node] for node in span]),
                     color=line_colour,
                     width=4,
+                    owners=tuple(
+                        owner
+                        for owner in (
+                            geometry_ref,
+                            MeshEntityRef("element", int(element_id)),
+                        )
+                        if owner is not None
+                    ),
                 )
             )
 
@@ -465,6 +694,114 @@ def build_result_scene(
         "title": _component_title(name),
     }
     return scene
+
+
+def build_persisted_result_scene(
+    project: Project,
+    mesh: Mesh,
+    dataset,
+    field_key: str,
+    *,
+    frame: int = 0,
+    component: str | None = None,
+    scale: float = 1.0,
+    limits: Optional[tuple[float, float]] = None,
+) -> Scene:
+    """Render one lazily-read artifact field without inventing quantities."""
+
+    from ..post.fields import Field
+
+    stored = dataset.field(field_key)
+    descriptor = stored.descriptor
+    values = stored.read(_artifact_frame(stored.shape, frame))
+    location = descriptor.location
+    if location not in ("node", "element", "element_face", "integration_point"):
+        raise ValueError(f"{descriptor.label} is not a spatial contour quantity")
+    table_kind = "node" if location == "node" else "element"
+    table_key = f"{field_key}_{table_kind}_ids"
+    if table_key not in dataset.table_keys:
+        raise ValueError(f"{descriptor.label} has no persisted {table_kind} association")
+    identifiers = np.asarray(dataset.table(table_key), dtype=int).reshape(-1)
+    scalar = _artifact_scalar_rows(values, descriptor.components, component)
+    if len(scalar) != len(identifiers):
+        raise ValueError(
+            f"{descriptor.label} has {len(scalar)} values for {len(identifiers)} IDs"
+        )
+    mapping = {
+        int(identifier): float(value)
+        for identifier, value in zip(identifiers, scalar)
+        if np.isfinite(value)
+    }
+    field = Field(
+        name=field_key,
+        unit=descriptor.unit,
+        node_values=mapping if table_kind == "node" else {},
+        element_values=mapping if table_kind == "element" else {},
+        reduction=descriptor.reduction,
+    )
+
+    ordered_nodes = sorted(mesh.nodes)
+    positions = np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
+    if "displacement" in dataset.field_keys and scale != 0.0:
+        displacement = dataset.field("displacement")
+        displacement_key = "displacement_node_ids"
+        if displacement_key in dataset.table_keys:
+            displacement_values = np.asarray(
+                displacement.read(_artifact_frame(displacement.shape, frame)),
+                dtype=float,
+            )
+            displacement_ids = np.asarray(
+                dataset.table(displacement_key), dtype=int
+            ).reshape(-1)
+            if displacement_values.ndim >= 2 and displacement_values.shape[-1] >= 3:
+                by_node = {
+                    int(node): np.asarray(row[..., :3], dtype=float).reshape(-1, 3)[0]
+                    for node, row in zip(displacement_ids, displacement_values)
+                }
+                positions = np.asarray(
+                    [
+                        mesh.nodes[node]
+                        + scale * by_node.get(int(node), np.zeros(3))
+                        for node in ordered_nodes
+                    ],
+                    dtype=float,
+                )
+
+    shape = SimpleNamespace(
+        built=SimpleNamespace(mesh=mesh, project=project),
+        deformed_positions=lambda _scale=1.0: positions,
+    )
+    return build_result_scene(
+        shape,
+        field=field_key,
+        scale=1.0,
+        limits=limits,
+        values=field,
+    )
+
+
+def _artifact_frame(shape: Sequence[int], frame: int) -> int | None:
+    if not shape:
+        return None
+    return min(max(int(frame), 0), int(shape[0]) - 1)
+
+
+def _artifact_scalar_rows(
+    values: np.ndarray, components: Sequence[str], component: str | None
+) -> np.ndarray:
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 0:
+        return array.reshape(1)
+    if array.ndim == 1:
+        return array
+    if component and component in components:
+        array = np.take(array, components.index(component), axis=-1)
+    elif components and array.shape[-1] == len(components):
+        translation_count = 3 if set(("ux", "uy", "uz")) <= set(components) else len(components)
+        array = np.linalg.norm(array[..., :translation_count], axis=-1)
+    while array.ndim > 1:
+        array = np.nanmax(np.abs(array), axis=-1)
+    return array
 
 
 def _nodal_values(solution, component: str) -> np.ndarray:

@@ -30,14 +30,14 @@ results.
 | `anyfem.geometry` | Temporary compatibility imports over ANYgeometry's shared `GeometryModel`, `EntityRef`, curves and topology; new code may import the same owner objects directly from `anygeometry` |
 | `anyfem.geometry.operations` | Compatibility imports: surface evaluation comes from ANYgeometry; historical axis/fraction splits, strips, butterfly decomposition and mappability checks come from ANYmesher |
 | `anyfem.mesh` | Compatibility surface over ANYmesher: edge seeding, Coons mapped meshing, conformal node sharing, refinement, shell/beam topology and couplings |
-| `anyfem.model` | ANYmaterial specifications, plate sections, typical beam profiles, supports and prescribed displacements, pressure (dead or follower), surface traction, line and point loads, acceleration, masses, load cases and combinations, geometric imperfections |
+| `anyfem.model` | Stable-ID materials/sections/assignments, reusable geometry/mesh regions, named Cartesian/cylindrical coordinates, SI-backed unit profiles, six-component supports/loads, masses, combinations and imperfections |
 | `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
 | `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, history series, Markdown and CSV export |
-| `anyfem.io` | Versioned project files plus application adapters over ANYfileio SESAM/CalculiX interchange |
-| `anyfem.commands` | Command stack with undo/redo over every model change |
+| `anyfem.io` | v4 project intent, v2 feature geometry, portable SESAM embedding, atomic HDF5 mesh/result sidecars, validation, locks and autosave recovery |
+| `anyfem.commands` | Atomic document transactions and command-stack undo/redo, including feature edit/suppress/regenerate |
 | `anyfem.migration` | Reads ANYstructure's saved FE state without importing it; measures the migration gate |
-| `anyfem.selection` | Point/line/plate selection modes, shared by every view |
-| `anyfem.ui` | 3D viewport with picking, loads and supports overlay, model tree, stage panels, XY history plot, threaded solve |
+| `anyfem.selection` | Geometry and mesh domains; point/edge/plate/node/element/element-face filters; replace/add/toggle/remove and ordered picks |
+| `anyfem.ui` | Persistent Tree + Viewport + Details workspace, commercial mouse profile, contextual selection strip, FIFO jobs and lazy results |
 
 Verified, with dated evidence under `reports/`:
 
@@ -109,10 +109,27 @@ python -m anyfem.ui.app
 From a source checkout, `python run_gui.py` launches the same application and
 adds the sibling ecosystem source trees when they are present.
 
-Model geometry on the **Geometry** tab, mesh on **Mesh**, attach materials and
-sections on **Sections**, supports and loads on **Loads & BC**, then **Solve**
-and **Results**. Click in the 3D view or the model tree to select; shift-click
-extends. Everything is undoable.
+The default workspace keeps the model tree on the left, the retained 3D view in
+the centre, and contextual Details/tasks on the right. Geometry/features,
+materials/sections, coordinate systems, regions, meshes, load cases, analyses,
+jobs and results remain visible throughout the workflow. Common controls are
+shown first; solver-specific controls live under **Advanced**.
+
+The commercial interaction profile is opt-in at the ANYtk3D layer and enabled
+by ANYfem:
+
+- LMB click selects; LMB drag uses box or lasso selection.
+- MMB drag pans, RMB drag orbits, the wheel zooms, and RMB click opens context actions.
+- No modifier replaces; Shift adds; Ctrl toggles; Alt removes.
+- Left-to-right windows enclose; right-to-left windows cross.
+- `Esc` cancels, `Enter` applies, `Ctrl+A` selects matching entities, `F` frames
+  selection, and `Delete` invokes the contextual delete command.
+
+The always-visible selection strip chooses geometry/mesh domain, entity filter,
+Single/Box/Lasso tool, Visible/Through depth and set operation. Hover
+prehighlight, repeated-click candidate cycling, geometry/mesh multi-owner
+picks, named regions, hide/isolate and tree synchronization use the same
+selection state. Every committed edit is one undo item.
 
 The **Loads & BC** viewport toggle works in geometry, mesh and result views.
 Pressure, force, moment, translational/rotational restraint, mass and
@@ -162,6 +179,53 @@ geometry.extrude([arc], (0, 0, 3.0))                     # a cylindrical panel
 geometry.revolve([line], (0, 0, 0), (0, 0, 1), 2*np.pi)  # a closed cylinder
 ```
 
+The Geometry Details page also exposes ANYgeometry's owner operations through
+the undoable command stack: translated copy, mirror, linear/circular pattern,
+edge/face orientation reversal, and typed position/distance/angle/length/area/
+perimeter/normal measurements. Structural generators are editable feature
+records with semantic outputs and groups:
+
+```python
+from anyfem import DocumentSession, commands
+
+feature = commands.AddStiffenedPanel(
+    length=12.0,
+    width=6.0,
+    longitudinal_spacing=0.6,
+    transverse_spacing=3.0,
+    semantic_group="deck",
+)
+session = DocumentSession(project)
+session.execute(feature)  # one atomic undo item
+```
+
+Interactive point, line and polyline construction uses a session-owned
+`Workplane` resolved from Global or a named Cartesian/cylindrical coordinate
+system. The Geometry Details controls expose plane offset, unit-aware grid and
+snap tolerance, grid/axis snapping, and endpoint/midpoint/projected-edge
+intersection snapping. LMB collects a working preview, Enter/Apply commits one
+undo item, and Escape/Cancel leaves the live model unchanged. The same
+deterministic, Tk-free contracts are available to scripts:
+
+```python
+from anyfem import ConstructionTask, SnapEngine, Workplane
+
+workplane = Workplane("global", grid_spacing=0.25, snap_tolerance=0.05)
+frame = workplane.resolve(project.coordinate_systems)
+snap = SnapEngine().snap((0.49, 0.51, 0.0), workplane, frame)
+
+task = ConstructionTask("line")
+task.add(snap)
+task.add((1.0, 0.5, 0.0))
+task.apply(session.execute)  # no project mutation occurred before this line
+```
+
+There are two intentionally separate circular-opening tools. **Neutral trim
+hole** keeps one structural face and adds an inner ANYgeometry boundary;
+**butterfly mesh decomposition** replaces the plate with mapped patches for
+element control. The labels and status messages always identify which one is
+being applied.
+
 General topology belongs to ANYgeometry; decomposition whose purpose is to
 produce mapped quadrilateral regions belongs to ANYmesher:
 
@@ -185,11 +249,14 @@ ANYgeometry records the intended surface explicitly: `Plane`, `Cylinder`,
 transfinite interpolation where that is the selected surface; cylinders and
 cones use their analytical surfaces rather than a faceted approximation.
 
-Project files embed ANYgeometry's versioned geometry document. Entity IDs,
-semantic groups, tags, holes, surface definitions and replacement history all
-survive a save/load cycle; materials, sections, loads and meshing controls stay
-in the surrounding ANYfem project document. Legacy ANYfem format 1 and 2 files
-remain readable and are upgraded on their next save.
+Project format v4 stores editable intent and an artifact index; ANYgeometry
+schema v2 stores feature history and stable semantic output keys. Meshes and
+results are immutable, checksummed HDF5 sidecars under
+`model.anyfem-data/meshes` and `model.anyfem-data/results`. Results are read
+frame-by-frame and unavailable quantities are never manufactured. Imported
+SESAM source semantics are embedded with the mesh, so reopening does not depend
+on the original file. Legacy ANYfem formats 1--3 remain readable and are
+migrated deterministically on the next save.
 
 ### Symmetry
 
@@ -448,6 +515,33 @@ path = history_series(capacity)[-1]            # load factor vs displacement
 The Results panel draws whichever series a result has, on a hand-written Tk
 canvas — no matplotlib, so the GUI's dependency set stays Tk, the same choice
 ANYtk3D makes for the 3D viewport.
+
+Retained sidecar fields can be exported directly to deterministic CSV without
+loading every frame. Persisted node/element association tables supply the IDs;
+if an artifact has no association, the export says `row_index` instead of
+inventing an ID. The visible result view can also be captured as PNG or as an
+asynchronously assembled GIF when Pillow is installed. Global tables and
+histories remain CSV-only, so an unavailable spatial view is never replaced by
+a screenshot of stale geometry. Section-plane controls appear automatically
+when the installed ANYtk3D release exposes a clipping-plane API.
+
+Immutable result sidecars also produce reproducible Markdown or standalone
+HTML reports without loading every frame at once:
+
+```python
+from anyfem.io import ArtifactStore
+from anyfem.post import result_report_context, write_result_report
+
+store = ArtifactStore("deck.anyfem")
+dataset = store.open_result(project.artifacts[job.result_artifact_id])
+context = result_report_context(dataset, project=project, job=job, stale=False)
+write_result_report(dataset, "deck-result.html", context=context)
+```
+
+The report records submission hashes and producer versions, typed quantity
+descriptors, recovery/reduction/basis provenance, frame-wise extrema,
+histories, retained-table previews and diagnostics. Requested missing or
+malformed quantities stop export; they are never printed as zero.
 
 ## Files
 

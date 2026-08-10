@@ -155,6 +155,46 @@ def test_supports_and_loads_undo(stack, project):
     assert not project.supports
 
 
+def test_attribute_redo_preserves_persisted_uuids(stack, project):
+    points, face = square(stack)
+    edge = next(iter(project.geometry.edges))
+    point_ref = EntityRef("vertex", points[0])
+    edge_ref = EntityRef("edge", edge)
+    face_ref = EntityRef("face", face)
+    cases = (
+        (
+            cmd.AddSupport(Support("s", face_ref, {"uz": 0.0})),
+            lambda: project.supports,
+        ),
+        (
+            cmd.AddPointLoad(point_ref, force=(0.0, 0.0, -1.0)),
+            lambda: project.load_case().point_loads,
+        ),
+        (
+            cmd.AddPressure(face_ref, 5_000.0),
+            lambda: project.load_case().pressures,
+        ),
+        (
+            cmd.AddLineLoad(edge_ref, force_per_length=(0.0, 0.0, -1.0)),
+            lambda: project.load_case().line_loads,
+        ),
+        (
+            cmd.AddSurfaceTraction(face_ref, traction=(1.0, 0.0, 0.0)),
+            lambda: project.load_case().surface_tractions,
+        ),
+        (cmd.AddMass(point_ref, 12.0), lambda: project.masses),
+    )
+
+    for command, collection in cases:
+        created = stack.run(command)
+        identifier = created.id
+        stack.undo()
+        assert not collection()
+        stack.redo()
+        assert collection()[0].id == identifier
+        stack.undo()
+
+
 def test_deleting_an_entity_takes_its_attributes_with_it(stack, project):
     _points, face = square(stack)
     ref = EntityRef("face", face)
