@@ -11,7 +11,9 @@ import pytest
 
 from anyfem import Project, pinned, solve_linear_static, steel
 from anyfem import commands as cmd
-from anyfem.model.sections import BeamSection
+from anyfem.mesh import refine_around
+from anyfem.model import BeamSection, Mass, plate_mode
+from anyfem.selection import Selection
 
 
 @pytest.fixture
@@ -434,3 +436,69 @@ def test_punching_a_hole_keeps_the_plate_supported_and_loaded(stack, project):
     assert {load.ref.id for load in project.load_case().pressures} == set(patches)
     assert {support.ref.id for support in project.supports} == set(patches)
     assert all(project.face_sections[patch] == "plate" for patch in patches)
+
+
+def test_every_geometry_bound_attribute_follows_a_split(stack, project):
+    _points, face = plate(stack)
+    reference = project.face(face)
+    project.add_mass(Mass(reference, 120.0, name="payload"))
+    project.add_imperfection(
+        plate_mode(reference, amplitude=0.002, name="initial shape")
+    )
+    project.add_refinement(
+        refine_around(reference, size=0.05, radius=0.2, name="detail")
+    )
+    project.load_case().add_surface_traction(reference, (10.0, 20.0, 30.0))
+
+    faces = stack.run(cmd.SplitFace(face, axis=0, fraction=0.5))
+    expected = set(faces)
+
+    assert {item.ref.id for item in project.masses} == expected
+    assert sum(item.value for item in project.masses) == pytest.approx(120.0)
+    assert {item.ref.id for item in project.imperfections} == expected
+    assert {item.ref.id for item in project.refinements} == expected
+    assert {
+        item.ref.id for item in project.load_case().surface_tractions
+    } == expected
+
+    stack.undo()
+    assert [(item.ref.id, item.value) for item in project.masses] == [(face, 120.0)]
+    assert [item.ref.id for item in project.imperfections] == [face]
+    assert [item.ref.id for item in project.refinements] == [face]
+    assert [
+        item.ref.id for item in project.load_case().surface_tractions
+    ] == [face]
+
+
+def test_selection_follows_split_undo_and_redo(stack, project):
+    _points, face = plate(stack)
+    selection = Selection(mode="face")
+    selection.select(project.face(face))
+    stack.selection = selection
+
+    faces = stack.run(cmd.SplitFace(face, axis=0, fraction=0.5))
+    assert set(selection.items) == {project.face(item) for item in faces}
+
+    stack.undo()
+    assert selection.items == [project.face(face)]
+
+    stack.redo()
+    assert set(selection.items) == {project.face(item) for item in faces}
+
+
+def test_selection_follows_a_cascading_strip_replacement_log(stack, project):
+    _points, face = plate(stack)
+    selection = Selection(mode="face")
+    selection.select(project.face(face))
+    stack.selection = selection
+
+    strips, _dividers = stack.run(cmd.StripFace(face, axis=0, count=4))
+
+    assert set(selection.items) == {project.face(item) for item in strips}
+    assert all(item.id in project.geometry.faces for item in selection.items)
+
+    stack.undo()
+    assert selection.items == [project.face(face)]
+
+    stack.redo()
+    assert set(selection.items) == {project.face(item) for item in strips}

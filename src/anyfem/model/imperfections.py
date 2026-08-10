@@ -14,7 +14,7 @@ from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 
 __all__ = ["Imperfection", "member_bow", "plate_mode"]
 

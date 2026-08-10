@@ -1,6 +1,6 @@
-"""Compatibility exports for topology entities now owned by ANYmesher."""
+"""Compatibility exports for topology entities owned by ANYgeometry."""
 
-from anymesher.geometry.entities import (
+from anygeometry.entities import (
     Edge,
     EntityKind,
     EntityRef,

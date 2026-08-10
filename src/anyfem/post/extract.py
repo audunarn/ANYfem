@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 from .fields import Field, _is_numeric, evaluate_field, field_unit, recover
 
 __all__ = [

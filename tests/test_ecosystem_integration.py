@@ -1,4 +1,4 @@
-"""Contracts at the extracted ANYmaterial/ANYmesher/ANYfileio boundaries."""
+"""Contracts at the extracted ecosystem package boundaries."""
 
 from __future__ import annotations
 
@@ -9,16 +9,49 @@ from anyfem.io.project_file import project_from_dict, project_to_dict
 
 
 def test_geometry_and_mesh_compatibility_paths_are_owner_types():
-    from anymesher import GeometryModel as OwnerGeometryModel
+    from anygeometry.curves import Spline as OwnerSpline
+    from anygeometry.entities import EntityRef as OwnerEntityRef
+    from anygeometry.model import GeometryModel as OwnerGeometryModel
+    from anygeometry.surfaces import Cylinder as OwnerCylinder
+    from anymesher import EntityRef as MesherEntityRef
+    from anymesher import GeometryModel as MesherGeometryModel
     from anymesher import Mesh as OwnerMesh
     from anymesher.mapped import generate_mesh as owner_generate_mesh
 
-    from anyfem.geometry import GeometryModel
+    from anyfem.geometry import Cylinder, EntityRef, GeometryModel, Spline
     from anyfem.mesh import Mesh, generate_mesh
 
     assert GeometryModel is OwnerGeometryModel
+    assert MesherGeometryModel is OwnerGeometryModel
+    assert EntityRef is OwnerEntityRef
+    assert MesherEntityRef is OwnerEntityRef
+    assert Spline is OwnerSpline
+    assert Cylinder is OwnerCylinder
     assert Mesh is OwnerMesh
     assert generate_mesh is owner_generate_mesh
+    assert type(Project().geometry) is OwnerGeometryModel
+
+
+def test_anygeometry_reference_flows_through_meshing_without_conversion():
+    from anygeometry.entities import EntityRef
+    from anygeometry.model import GeometryModel
+    from anymesher import generate_mesh
+
+    geometry = GeometryModel()
+    points = geometry.add_points(
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+    )
+    face = geometry.add_face(geometry.add_polyline(points, close=True))
+    reference = EntityRef("face", face)
+    project = Project(name="shared geometry", geometry=geometry)
+
+    mesh = generate_mesh(geometry, target_size=0.5)
+
+    assert project.geometry is geometry
+    assert project.face(face) == reference
+    assert mesh.nodes_on(reference)
+    assert mesh.elements_on(reference)
 
 
 def test_project_material_is_an_anymaterial_spec_and_builds_live():

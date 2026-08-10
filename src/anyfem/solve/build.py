@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import numpy as np
+from anygeometry.entities import EntityRef
 from anysolver import (
     BeamElement,
     BoundaryCondition,
@@ -22,7 +23,6 @@ from anysolver import (
 )
 from anysolver import LoadCase as SolverLoadCase
 
-from ..geometry.entities import EntityRef
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
 from ..model.project import Project, ProjectError

@@ -9,8 +9,9 @@ from anyfem import Project, steel
 from anyfem import commands as cmd
 from anyfem.geometry.entities import EntityRef
 from anyfem.geometry.model import GeometryError
+from anyfem.mesh import refine_around
+from anyfem.model import BeamSection, Mass, plate_mode
 from anyfem.model.attributes import Support
-from anyfem.model.sections import BeamSection
 
 
 @pytest.fixture
@@ -160,18 +161,86 @@ def test_deleting_an_entity_takes_its_attributes_with_it(stack, project):
     stack.run(cmd.AssignPlate(face, "plate"))
     stack.run(cmd.AddSupport(Support("s", ref, {"uz": 0.0})))
     stack.run(cmd.AddPressure(ref, 5000.0))
+    project.load_case().add_surface_traction(ref, (10.0, 20.0, 30.0))
+    project.add_mass(Mass(ref, 50.0, "payload"))
+    project.add_imperfection(plate_mode(ref, amplitude=0.001))
+    project.add_refinement(refine_around(ref, size=0.1, radius=0.2))
 
     stack.run(cmd.DeleteEntity(ref))
     assert face not in project.geometry.faces
     assert face not in project.face_sections
     assert not project.supports
     assert not project.load_case().pressures
+    assert not project.load_case().surface_tractions
+    assert not project.masses
+    assert not project.imperfections
+    assert not project.refinements
 
     stack.undo()
     assert face in project.geometry.faces
     assert project.face_sections[face] == "plate"
     assert len(project.supports) == 1
     assert len(project.load_case().pressures) == 1
+    assert len(project.load_case().surface_tractions) == 1
+    assert len(project.masses) == 1
+    assert len(project.imperfections) == 1
+    assert len(project.refinements) == 1
+
+    stack.redo()
+    assert face not in project.geometry.faces
+    assert not project.face_sections
+    assert not project.supports
+    assert not project.load_case().pressures
+    assert not project.load_case().surface_tractions
+    assert not project.masses
+    assert not project.imperfections
+    assert not project.refinements
+
+    stack.undo()
+    assert project.face_sections[face] == "plate"
+    assert len(project.supports) == 1
+    assert len(project.load_case().pressures) == 1
+    assert len(project.load_case().surface_tractions) == 1
+    assert len(project.masses) == 1
+    assert len(project.imperfections) == 1
+    assert len(project.refinements) == 1
+
+
+def test_delete_undo_restores_groups_tags_and_lineage(stack, project):
+    _points, face = square(stack)
+    ref = EntityRef("face", face)
+    project.geometry.add_to_group("shell", [ref])
+    project.geometry.tag(ref, "deck", "primary")
+
+    # Keep a pre-existing lineage entry and current edit log to prove that
+    # undo restores more than the deleted entity dictionary entry.
+    loose = project.geometry.add_point(10.0, 10.0, 0.0)
+    loose_ref = EntityRef("vertex", loose)
+    project.geometry.remove_vertex(loose)
+    history_before = project.geometry.replacement_history()
+    log_before = project.geometry.replacement_log()
+
+    stack.run(cmd.DeleteEntity(ref))
+
+    assert project.geometry.resolve_ref(ref) == ()
+    assert project.geometry.group("shell", resolve=False) == ()
+    assert project.geometry.tags_for(ref) == ()
+    assert project.geometry.replacement_log() == [(ref, ())]
+    assert project.geometry.replacement_history()[ref] == ()
+
+    stack.undo()
+
+    assert project.geometry.resolve_ref(ref) == (ref,)
+    assert project.geometry.group("shell", resolve=False) == (ref,)
+    assert project.geometry.tags_for(ref) == ("deck", "primary")
+    assert project.geometry.replacement_history() == history_before
+    assert project.geometry.replacement_log() == log_before
+    assert project.geometry.resolve_ref(loose_ref) == ()
+
+    stack.redo()
+    assert project.geometry.resolve_ref(ref) == ()
+    assert project.geometry.group("shell", resolve=False) == ()
+    assert project.geometry.replacement_log() == [(ref, ())]
 
 
 def test_deleting_a_used_line_is_refused(stack, project):
@@ -180,6 +249,26 @@ def test_deleting_a_used_line_is_refused(stack, project):
 
     with pytest.raises(GeometryError, match="bounds face"):
         stack.run(cmd.DeleteEntity(EntityRef("edge", edge)))
+
+
+def test_rejected_delete_restores_the_active_geometry_transaction(stack, project):
+    _points, _face = square(stack)
+    edge = next(iter(project.geometry.edges))
+    ref = EntityRef("edge", edge)
+    project.geometry.add_to_group("boundary", [ref])
+    project.geometry.tag(ref, "clamped")
+    loose = project.geometry.add_point(20.0, 20.0, 0.0)
+    project.geometry.remove_vertex(loose)
+    history_before = project.geometry.replacement_history()
+    log_before = project.geometry.replacement_log()
+
+    with pytest.raises(GeometryError, match="bounds face"):
+        stack.run(cmd.DeleteEntity(ref))
+
+    assert project.geometry.group("boundary", resolve=False) == (ref,)
+    assert project.geometry.tags_for(ref) == ("clamped",)
+    assert project.geometry.replacement_history() == history_before
+    assert project.geometry.replacement_log() == log_before
 
 
 def test_deleting_a_used_point_is_refused(stack, project):

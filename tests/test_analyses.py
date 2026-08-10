@@ -14,6 +14,7 @@ from anyfem import (
     eigenmode_imperfection,
     fixed,
     pinned,
+    resource_policy,
     solve_arc_length,
     solve_buckling,
     solve_linear_static,
@@ -216,6 +217,53 @@ def test_buckling_names_the_reference_case_it_belongs_to():
     solution = solve_buckling(project, target_size=0.2, num_modes=1)
     assert solution.reference_case == "default"
     assert "critical factor" in solution.summary()
+
+
+@pytest.mark.parametrize("with_policy", [False, True])
+def test_buckling_resource_policy_covers_both_solver_stages(
+    monkeypatch, with_policy,
+):
+    """The static prestress stage and eigensolve use one requested policy."""
+
+    import anysolver
+
+    project, _section, _start, _end = strut_project()
+    original_linear = anysolver.solve_linear
+    original_buckling = anysolver.solve_eigenvalue_buckling
+    observed = {}
+
+    def recording_linear(*args, **kwargs):
+        observed["linear"] = kwargs.get("resource_config", "omitted")
+        return original_linear(*args, **kwargs)
+
+    def recording_buckling(*args, **kwargs):
+        observed["buckling"] = kwargs.get("resource_config", "omitted")
+        return original_buckling(*args, **kwargs)
+
+    monkeypatch.setattr(anysolver, "solve_linear", recording_linear)
+    monkeypatch.setattr(
+        anysolver, "solve_eigenvalue_buckling", recording_buckling
+    )
+
+    options = {}
+    if with_policy:
+        options["resource_config"] = resource_policy(
+            solver_threads=1,
+            deterministic=True,
+        )
+    solution = solve_buckling(
+        project,
+        target_size=0.5,
+        num_modes=1,
+        **options,
+    )
+
+    assert solution.status == "ok"
+    if with_policy:
+        assert observed["linear"] is options["resource_config"]
+        assert observed["buckling"] is options["resource_config"]
+    else:
+        assert observed == {"linear": "omitted", "buckling": "omitted"}
 
 
 # ----------------------------------------------------------------------

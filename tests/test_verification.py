@@ -298,6 +298,7 @@ def test_the_viewport_is_an_optional_extra():
     # ANYsolver is required; ANYtk3D is not.
     dependencies = text.split("dependencies = [", 1)[1].split("]", 1)[0]
     assert "ANYsolver" in dependencies
+    assert "ANYgeometry" in dependencies
     assert "ANYtk3D" not in dependencies
 
 

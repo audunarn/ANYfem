@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, List, Optional
 
-from .geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 
 __all__ = [
     "SELECTION_MODES",
@@ -143,6 +143,29 @@ class Selection:
             return
         self._items = updated
         self._notify()
+
+    def restore(self, refs: Iterable[EntityRef]) -> None:
+        """Restore an exact selection snapshot with one notification."""
+
+        restored = list(dict.fromkeys(refs))
+        if restored == self._items:
+            return
+        self._items = restored
+        self._notify()
+
+    def apply_replacements(
+        self,
+        replacements: Iterable[tuple[EntityRef, tuple[EntityRef, ...]]],
+    ) -> None:
+        """Follow selected entities through an ordered geometry edit log."""
+
+        selected = list(self._items)
+        for old, new in replacements:
+            updated: List[EntityRef] = []
+            for item in selected:
+                updated.extend(new if item == old else (item,))
+            selected = updated
+        self.restore(selected)
 
     def clear(self) -> None:
         if not self._items:

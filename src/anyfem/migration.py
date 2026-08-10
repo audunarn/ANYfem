@@ -534,7 +534,10 @@ def _headless_model_types() -> Dict[str, Any]:
 
     import numpy as np
 
-    from .geometry.operations import strip_face
+    # This generator deliberately creates mapped strips and immediately uses
+    # their divider edges as beam carriers, so it belongs on the mesher's
+    # mapped-partition operation rather than the general geometry split.
+    from anymesher.decomposition import strip_face
     from .model import BeamSection
     from .model.attributes import pinned
     from .model.materials import steel

@@ -12,7 +12,7 @@ from typing import List, Mapping, Sequence
 
 import numpy as np
 
-from ..geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 
 __all__ = [
     "DOF_NAMES",

@@ -1,6 +1,14 @@
-"""Geometry kernel: points, lines, faces and the operations on them."""
+"""Compatibility namespace for shared geometry and mapped decomposition."""
 
-from .curves import Arc, ArcFrame, CurveShape, DegenerateArcError, Straight, arc_frame
+from .curves import (
+    Arc,
+    ArcFrame,
+    CurveShape,
+    DegenerateArcError,
+    Spline,
+    Straight,
+    arc_frame,
+)
 from .entities import Edge, EntityKind, EntityRef, Face, OrientedEdge, Vertex
 from .model import GeometryError, GeometryModel
 from .operations import (
@@ -13,11 +21,15 @@ from .operations import (
     surface_point,
     triangle_to_quads,
 )
+from .surfaces import CoonsSurface, Cone, Cylinder, Plane, RuledSurface
 
 __all__ = [
     "Arc",
     "ArcFrame",
+    "CoonsSurface",
+    "Cone",
     "CurveShape",
+    "Cylinder",
     "DegenerateArcError",
     "Edge",
     "EntityKind",
@@ -27,6 +39,9 @@ __all__ = [
     "GeometryModel",
     "MappabilityReport",
     "OrientedEdge",
+    "Plane",
+    "RuledSurface",
+    "Spline",
     "Straight",
     "Vertex",
     "arc_frame",

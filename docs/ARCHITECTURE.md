@@ -8,7 +8,8 @@ This describes the package as built. See
 ```text
 ANYfem  ->  ANYsolver     analysis
         ->  ANYmaterial   material specifications
-        ->  ANYmesher     geometry and neutral meshing
+        ->  ANYgeometry   shared geometry and topology
+        ->  ANYmesher     neutral and mapped meshing
         ->  ANYfileio     FE interchange formats
         ->  ANYtk3D       viewport (only anyfem.ui needs it)
 ```
@@ -19,15 +20,17 @@ That is the rule paying for itself: ANYfem consumes ANYstructure's output
 without depending on ANYstructure, and there is a test asserting no
 `anystruct` module is ever loaded.
 ANYsolver owns the physics and its qualification. ANYmaterial owns material
-behavior, ANYmesher owns the geometry kernel and neutral mesh, and ANYfileio
+behavior, ANYgeometry owns persistent geometry identity and topology,
+ANYmesher owns neutral mesh construction and mapped-mesh policy, and ANYfileio
 owns interchange syntax. ANYfem owns attribution, application workflow and
 postprocessing, retaining its historical geometry/mesh import paths as shims.
+ANYgeometry has no reverse dependency on any of these application packages.
 
 ## Layers
 
 | Module | Responsibility |
 | --- | --- |
-| `geometry/` | Compatibility paths over ANYmesher's persistent-ID geometry, curves, surfaces, primitives, sweeps and decomposition. |
+| `geometry/` | Temporary compatibility paths over ANYgeometry owner types and surface evaluation, plus historical mapped-decomposition imports delegated to ANYmesher. |
 | `mesh/` | Compatibility paths over ANYmesher's seeding, refinement and mapped-mesh implementation; ANYfem retains the application association between geometry and analysis attributes. |
 | `model/` | Materials, sections, supports (including symmetry planes), loads, cases, combinations, imperfections — all keyed to geometry entity IDs. |
 | `solve/` | FEModel construction, analysis dispatch, and recovery/resource policy. |
@@ -49,15 +52,16 @@ Everything below `ui/` works without Tk.
 2. **Entity IDs are never reused, and never renumbered.** Undo, redo and a
    save/load cycle all restore IDs exactly, because an attribute pointing at a
    renumbered entity would be silently wrong rather than loudly broken.
-3. **Every face is mappable, or it is not a face.** Four logical sides, each an
-   ordered chain of edges. The decomposition tools exist so a user always has
-   a route to that state.
+3. **Geometry is not constrained by meshing policy.** ANYgeometry may retain
+   trimmed, split or otherwise non-mappable faces. Before mapped meshing,
+   ANYmesher checks and partitions them into regions with four logical sides.
 4. **Conformity is structural.** Nodes are generated vertices, then edges, then
    face interiors; neighbouring faces share node objects. There is no
    coincident-node merge and no tolerance anywhere in the mesher.
-5. **A cut lies on the surface it divides.** A dividing edge is fitted as a
-   line or an arc and checked against the sampled surface; anything that
-   cannot be represented exactly is refused rather than approximated.
+5. **A cut lies on the surface it divides.** ANYgeometry owns the split and
+   its replacement history; mapped partitioning additionally checks the
+   representation needed by ANYmesher. Attachments and selection follow the
+   ordered replacement log instead of guessing from coincident coordinates.
 6. **One field abstraction.** The contour, probe, path plot, envelope, CSV and
    report all consume the same `Field`, so they cannot disagree.
 7. **A displacement lives at nodes; a stress lives at elements.** `Field`
@@ -84,7 +88,7 @@ Everything below `ui/` works without Tk.
 ## Data flow
 
 ```text
-points -> lines -> faces            (geometry, persistent IDs)
+points -> edges -> faces            (ANYgeometry, persistent IDs/groups/tags)
         attributes bind here
               |
         edge seeding                (division counts, constraint-solved)
@@ -118,6 +122,7 @@ tree/selection round trip are idempotent.
 ## Scope
 
 Shell and beam structure, within ANYsolver's qualified envelope. Not solids,
-not tetrahedra, not a NURBS kernel, not general contact. Meshing is mapped
-only, by decision, because the solver's qualified element envelope is
+not tetrahedra, not a general CAD/NURBS kernel, not general contact.
+ANYgeometry is a lightweight structural-surface kernel; ANYfem's production
+meshing remains mapped because the qualified element envelope is
 full-integration Q4 and Q8 and the domain is naturally mapped.

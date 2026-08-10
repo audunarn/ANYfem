@@ -136,11 +136,13 @@ they would otherwise look like wrapper gaps:
   fix — it changes the contact instead of resolving it, and on the verification
   plate it put absorbed energy at 0.06 kJ against the correct 0.45 kJ.
 
-- **A resource policy does not reach every analysis.** The solver accepts one on
-  the nonlinear static solve — and therefore the capacity workflow — and on
-  stress recovery. Linear, modal, buckling, arc-length and transient do not take
-  one, so ANYfem does not offer it there rather than accepting it and dropping
-  it.
+- **Resource controls are phase-specific.** `ResourceConfig` reaches every
+  solver family ANYfem drives. Linear, modal and arc-length calls receive it as
+  a solver option; buckling applies it to both the prerequisite static solve and
+  eigensolve; transient and impact carry it in `TransientConfig`; nonlinear and
+  capacity workflows use the `resources` argument. `solver_threads`, parallel
+  assembly workers, recovery workers and memory limits still govern only their
+  corresponding phases. Omitting a policy preserves the backend defaults.
 - **Symmetry planes must be normal to a global axis.** Boundary conditions are
   applied in global axes with no nodal transformation, so a tilted plane is
   refused rather than approximated.

@@ -187,6 +187,58 @@ def test_new_entities_after_a_reload_do_not_collide(workspace):
     assert fresh not in existing
 
 
+def test_geometry_groups_tags_and_lineage_survive_project_round_trip(workspace):
+    from anyfem import commands as cmd
+    from anygeometry.serialization import to_dict as geometry_to_dict
+
+    project, face, _edges, _points, _arc = rich_project()
+    reference = project.face(face)
+    project.geometry.add_to_group("shell", [reference])
+    project.geometry.tag(reference, "deck", "primary")
+
+    faces = cmd.CommandStack(project).run(
+        cmd.SplitFace(face, axis=0, fraction=0.5)
+    )
+    encoded = project_to_dict(project)
+    assert encoded["geometry"] == geometry_to_dict(project.geometry)
+    reloaded = load_project(save_project(project, workspace / "lineage"))
+
+    assert {item.id for item in reloaded.geometry.group("shell")} == set(faces)
+    assert all(
+        reloaded.geometry.tags_for(reloaded.face(item)) == ("deck", "primary")
+        for item in faces
+    )
+    assert {
+        item.id for item in reloaded.geometry.replacement_history()[reference]
+    } == set(faces)
+    assert geometry_to_dict(reloaded.geometry) == encoded["geometry"]
+
+
+def test_format_two_geometry_remains_readable():
+    legacy = {
+        "anyfem": {"format": 2},
+        "name": "legacy geometry",
+        "geometry": {
+            "vertices": [
+                {"id": 1, "position": [0.0, 0.0, 0.0]},
+                {"id": 2, "position": [1.0, 0.0, 0.0]},
+            ],
+            "edges": [
+                {"id": 1, "start": 1, "end": 2, "curve": {"kind": "line"}}
+            ],
+            "faces": [],
+            "next_id": {"vertex": 3, "edge": 2, "face": 1},
+        },
+    }
+
+    project = project_from_dict(legacy)
+
+    assert project.geometry.entity_keys() == {
+        ("vertex", 1), ("vertex", 2), ("edge", 1)
+    }
+    assert project.geometry.id_state() == {"vertex": 3, "edge": 2, "face": 1}
+
+
 def test_the_suffix_is_added_when_missing(workspace):
     project, _face, _edges, _points, _arc = rich_project()
     written = save_project(project, workspace / "noextension")
@@ -240,12 +292,11 @@ def test_a_serialized_section_cannot_name_an_undefined_material():
 def test_malformed_serialized_geometry_reports_the_data_path():
     project, _face, _edges, _points, _arc = rich_project()
     data = project_to_dict(project)
-    vertex_id = data["geometry"]["vertices"][0]["id"]
     data["geometry"]["vertices"][0]["position"] = [0.0, 0.0]
 
     with pytest.raises(
         ProjectFileError,
-        match=rf"geometry\.vertices\[{vertex_id}\]\.position needs three finite",
+        match=r"geometry: .*invalid or duplicate vertex",
     ):
         project_from_dict(data)
 
@@ -256,7 +307,11 @@ def test_the_file_holds_the_model_not_its_consequences(workspace):
     # A mesh and results are regenerable, so they are not stored.
     assert "mesh" not in data
     assert "results" not in data
-    assert set(data["geometry"]) == {"vertices", "edges", "faces", "next_id"}
+    assert data["geometry"]["schema"] == "anygeometry"
+    assert data["geometry"]["version"] == 1
+    assert "id_state" in data["geometry"]
+    assert "groups" in data["geometry"]
+    assert "replacement_history" in data["geometry"]
 
 
 # ----------------------------------------------------------------------

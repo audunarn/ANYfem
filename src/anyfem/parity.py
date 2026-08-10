@@ -253,9 +253,11 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "and a whitelist frozen here would silently discard components the "
         "solver later adds -- the orthotropic Hill utilisation being the "
         "example that already happened. History modes are read from the "
-        "solver rather than copied. The resource policy reaches the nonlinear "
-        "solve and stress recovery; the solver's other entry points do not "
-        "accept one, and ANYfem does not pretend otherwise.",
+        "solver rather than copied. ResourceConfig reaches every solver family "
+        "ANYfem drives: direct solver_options for linear, modal, buckling and "
+        "arc-length, transient configuration for transient and impact, and the "
+        "resources argument for nonlinear and capacity workflows. Each thread "
+        "or memory field remains scoped to the solver phase that owns it.",
     ),
     # -- application ---------------------------------------------------
     ParityEntry("Application", "3D viewport with picking", "covered", ""),

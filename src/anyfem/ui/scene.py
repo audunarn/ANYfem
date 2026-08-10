@@ -13,12 +13,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, TypeVar
 
 import numpy as np
+from anygeometry.curves import Straight
+from anygeometry.entities import EntityRef
+from anygeometry.model import GeometryModel
+from anygeometry.operations import surface_point
 
-from ..geometry.entities import EntityRef
-from ..geometry.model import GeometryModel
-from ..geometry.curves import Straight
-from ..geometry.operations import surface_point
-from ..mesh.mapped import Mesh, coons_grid, sample_chain
+from ..mesh.mapped import Mesh
 from ..model.project import Project
 from ..selection import entity_tag
 
@@ -201,12 +201,12 @@ def face_display_polygons(
     """
 
     face = geometry.faces[face_id]
-    sides = face.sides()
-    grid = coons_grid(
-        sample_chain(geometry, sides[0], divisions),
-        sample_chain(geometry, sides[1], divisions),
-        sample_chain(geometry, sides[2], divisions)[::-1],
-        sample_chain(geometry, sides[3], divisions)[::-1],
+    parameters = np.linspace(0.0, 1.0, divisions + 1)
+    grid = np.asarray(
+        [
+            [surface_point(geometry, face, float(u), float(v)) for v in parameters]
+            for u in parameters
+        ]
     )
 
     polygons: List[np.ndarray] = []
@@ -223,7 +223,7 @@ def face_display_polygons(
 def _flat_four_edge_polygon(
     geometry: GeometryModel, face_id: int
 ) -> Optional[np.ndarray]:
-    """Return one exact display quad, or ``None`` when tessellation is needed."""
+    """Return one authoritative display quad, or require tessellation."""
 
     sides = geometry.faces[face_id].sides()
     if any(len(side) != 1 for side in sides):
@@ -234,14 +234,19 @@ def _flat_four_edge_polygon(
     ):
         return None
 
-    corners = np.array(
+    # Straight topology does not prove a flat explicit surface (a ruled
+    # surface can have straight carrier edges).  Sample through ANYgeometry so
+    # the GUI fast path cannot flatten a surface the geometry owner keeps
+    # curved.
+    parameters = (0.0, 0.5, 1.0)
+    sampled = np.asarray(
         [
-            geometry.vertex_position(
-                geometry.oriented_start_vertex(side[0])
-            )
-            for side in sides
+            geometry.face_point(face_id, u, v)
+            for u in parameters
+            for v in parameters
         ]
     )
+    corners = sampled[[0, 6, 8, 2]]
     first = corners[1] - corners[0]
     second = corners[2] - corners[0]
     normal = np.cross(first, second)
@@ -254,8 +259,8 @@ def _flat_four_edge_polygon(
     )
     if normal_length <= 1.0e-12 * scale * scale:
         return None
-    distance = abs(float((corners[3] - corners[0]) @ normal)) / normal_length
-    return corners if distance <= 1.0e-9 * scale else None
+    distances = np.abs((sampled - corners[0]) @ normal) / normal_length
+    return corners if float(np.max(distances)) <= 1.0e-9 * scale else None
 
 
 def build_geometry_scene(
@@ -650,17 +655,9 @@ def entity_sample_points(
 
 
 def face_normal(geometry: GeometryModel, face_id: int) -> np.ndarray:
-    """An outward normal for a plate, from its Coons surface."""
+    """The authoritative surface normal at the centre of a plate."""
 
-    face = geometry.faces[face_id]
-    origin = surface_point(geometry, face, 0.5, 0.5)
-    along_u = surface_point(geometry, face, 0.75, 0.5) - origin
-    along_v = surface_point(geometry, face, 0.5, 0.75) - origin
-    normal = np.cross(along_u, along_v)
-    length = float(np.linalg.norm(normal))
-    if length <= 0.0:
-        return np.array([0.0, 0.0, 1.0])
-    return normal / length
+    return geometry.face_normal(face_id, 0.5, 0.5)
 
 
 def build_attribute_overlay(

@@ -11,10 +11,10 @@ from tkinter import filedialog, ttk
 from typing import Callable, List, Optional, Sequence
 
 import numpy as np
+from anygeometry.entities import EntityRef
 
 from .. import commands as cmd
-from ..geometry.entities import EntityRef
-from ..geometry.operations import check_mappable
+from anymesher.decomposition import check_mappable
 from ..mesh.mapped import ELEMENT_ORDERS
 from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
@@ -298,7 +298,6 @@ class GeometryPanel(StagePanel):
         edges = self.require_selection("edge")
         fraction = self.number(self._fraction, "fraction")
         self.app.run_many(cmd.SplitEdge(ref.id, fraction) for ref in edges)
-        self.app.selection.clear()
         self.app.set_status(f"split {len(edges)} line(s)")
 
     def _split_plates(self) -> None:
@@ -308,7 +307,6 @@ class GeometryPanel(StagePanel):
         self.app.run_many(
             cmd.SplitFace(ref.id, axis, fraction) for ref in faces
         )
-        self.app.selection.clear()
         self.app.set_status(f"split {len(faces)} plate(s)")
 
     def _strip_plates(self) -> None:
@@ -319,7 +317,6 @@ class GeometryPanel(StagePanel):
             cmd.StripFace(ref.id, axis, count) for ref in faces
         )
         made = sum(len(strips) for strips, _dividers in results)
-        self.app.selection.clear()
         self.app.set_status(f"made {made} strip(s)")
 
     def _triangle(self) -> None:
@@ -337,7 +334,6 @@ class GeometryPanel(StagePanel):
         patches, _arcs = self.app.run(
             cmd.PunchHole(faces[0].id, tuple(centre), radius)
         )
-        self.app.selection.clear()
         self.app.set_status(f"hole punched; plate became {len(patches)} patches")
 
     def _set_corners(self) -> None:

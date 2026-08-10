@@ -101,6 +101,7 @@ def in_clean_interpreter(script: str) -> str:
         repository / "src",
         ecosystem / "ANYsolver" / "src",
         ecosystem / "ANYmaterial" / "src",
+        ecosystem / "ANYgeometry" / "src",
         ecosystem / "ANYmesh" / "src",
         ecosystem / "ANYio" / "src",
     ]

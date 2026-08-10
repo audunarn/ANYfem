@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, List, Sequence
 
 
-from ..geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 from .extract import PathResult, probe
 from .fields import evaluate_field, field_unit
 

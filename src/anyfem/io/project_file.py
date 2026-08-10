@@ -18,10 +18,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
 import numpy as np
+from anygeometry.curves import Arc, Straight
+from anygeometry.entities import Edge, EntityRef, Face, OrientedEdge, Vertex
+from anygeometry.errors import GeometryError
+from anygeometry.model import GeometryModel
+from anygeometry.serialization import from_dict as geometry_from_dict
+from anygeometry.serialization import to_dict as geometry_to_dict
 
-from ..geometry.curves import Arc, Straight
-from ..geometry.entities import Edge, EntityRef, Face, OrientedEdge, Vertex
-from ..geometry.model import GeometryModel
 from ..model.attributes import (
     LoadCase,
     Mass,
@@ -42,7 +45,7 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 SUFFIX = ".anyfem"
 
 
@@ -60,15 +63,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
     return {
         "anyfem": {"format": FORMAT_VERSION},
         "name": project.name,
-        "geometry": {
-            "vertices": [
-                {"id": vertex.id, "position": _vector(vertex.position)}
-                for vertex in _sorted(geometry.vertices)
-            ],
-            "edges": [_edge_to_dict(edge) for edge in _sorted(geometry.edges)],
-            "faces": [_face_to_dict(face) for face in _sorted(geometry.faces)],
-            "next_id": dict(geometry.id_state()),
-        },
+        "geometry": geometry_to_dict(geometry),
         "materials": [material.to_dict() for material in _by_name(project.materials)],
         "plate_sections": [
             {
@@ -208,8 +203,20 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             f"{FORMAT_VERSION}; upgrade ANYfem to open it"
         )
 
-    project = Project(name=str(data.get("name", "model")))
-    _geometry_from_dict(project.geometry, data.get("geometry", {}))
+    geometry_data = data.get("geometry", {})
+    if not isinstance(geometry_data, Mapping):
+        raise ProjectFileError("geometry must be a JSON object")
+    if geometry_data.get("schema") == "anygeometry":
+        try:
+            geometry = geometry_from_dict(geometry_data)
+        except GeometryError as error:
+            raise ProjectFileError(f"geometry: {error}") from None
+        project = Project(name=str(data.get("name", "model")), geometry=geometry)
+    else:
+        # Formats 1 and 2 embedded the original ANYmesher-era topology schema.
+        # Keep reading those files, then write the owner codec on the next save.
+        project = Project(name=str(data.get("name", "model")))
+        _geometry_from_dict(project.geometry, geometry_data)
 
     for entry in data.get("materials", ()):
         if "constants" in entry or "symmetry" in entry:
@@ -337,10 +344,6 @@ def load_project(path: str | Path) -> Project:
 # ----------------------------------------------------------------------
 # helpers
 # ----------------------------------------------------------------------
-def _sorted(mapping):
-    return [mapping[key] for key in sorted(mapping)]
-
-
 def _by_name(mapping):
     return [mapping[key] for key in sorted(mapping)]
 
@@ -367,21 +370,6 @@ def _existing_ref(
         return project.geometry.entity_ref(ref.kind, ref.id)
     except (KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"{context}: {error}") from None
-
-
-def _edge_to_dict(edge: Edge) -> Dict[str, Any]:
-    curve: Dict[str, Any] = {"kind": "line"}
-    if isinstance(edge.curve, Arc):
-        curve = {"kind": "arc", "via": int(edge.curve.via_vertex)}
-    return {"id": edge.id, "start": edge.start, "end": edge.end, "curve": curve}
-
-
-def _face_to_dict(face: Face) -> Dict[str, Any]:
-    return {
-        "id": face.id,
-        "loop": [[int(item.edge), bool(item.forward)] for item in face.loop],
-        "corners": [int(corner) for corner in face.corners],
-    }
 
 
 def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> None:

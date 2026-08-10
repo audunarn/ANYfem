@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ..geometry.entities import EntityRef
+from anygeometry.entities import EntityRef
 from ..solve.build import BuiltModel
 
 __all__ = [

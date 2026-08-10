@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Mapping, Sequence
 
 from anymaterial import MaterialSpec
+from anygeometry.entities import EntityRef
+from anygeometry.model import GeometryModel
 
-from ..geometry.entities import EntityRef
-from ..geometry.model import GeometryModel
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
@@ -89,6 +89,12 @@ class Project:
         for face_id in face_ids:
             self.assign_plate(face_id, section)
 
+    def assign_plate_group(self, group: str, section: str) -> None:
+        """Assign a plate section to every face in an ANYgeometry group."""
+
+        references = self.geometry_group(group, kind="face")
+        self.assign_plates((reference.id for reference in references), section)
+
     def assign_beam(self, edge_id: int, section: str) -> None:
         """Turn a line into a beam member."""
 
@@ -102,6 +108,27 @@ class Project:
     def assign_beams(self, edge_ids: Iterable[int], section: str) -> None:
         for edge_id in edge_ids:
             self.assign_beam(edge_id, section)
+
+    def assign_beam_group(self, group: str, section: str) -> None:
+        """Assign a beam section to every edge in an ANYgeometry group."""
+
+        references = self.geometry_group(group, kind="edge")
+        self.assign_beams((reference.id for reference in references), section)
+
+    def geometry_group(
+        self, name: str, *, kind: str | None = None
+    ) -> tuple[EntityRef, ...]:
+        """Resolve one semantic geometry group, optionally by entity kind."""
+
+        if name not in self.geometry.groups:
+            raise ProjectError(f"no geometry group named {name!r}")
+        references = self.geometry.group(name)
+        if kind is not None:
+            references = tuple(item for item in references if item.kind == kind)
+        if not references:
+            detail = "entities" if kind is None else f"{kind} entities"
+            raise ProjectError(f"geometry group {name!r} has no {detail}")
+        return references
 
     @property
     def beam_edges(self) -> List[int]:
@@ -171,9 +198,9 @@ class Project:
     def _entity_points(self, ref: EntityRef) -> "np.ndarray":
         """Points along an entity, enough to tell whether it is planar.
 
-        For a plate the boundary is enough: a Coons patch is an affine
-        combination of points on its four sides, so a face whose whole boundary
-        lies in a plane lies in that plane too.
+        Faces are sampled through ANYgeometry's authoritative surface.  Looking
+        only at the boundary would miss a curved or ruled interior whose edge
+        happens to lie in the requested symmetry plane.
         """
 
         import numpy as np
@@ -187,11 +214,15 @@ class Project:
                 dtype=float,
             )
         if ref.kind == "face":
-            samples = [
-                geometry.sample_edge(item.edge, np.linspace(0.0, 1.0, 5))
-                for item in geometry.faces[ref.id].loop
-            ]
-            return np.concatenate(samples, axis=0)
+            parameters = np.linspace(0.0, 1.0, 5)
+            return np.asarray(
+                [
+                    geometry.face_point(ref.id, float(u), float(v))
+                    for u in parameters
+                    for v in parameters
+                ],
+                dtype=float,
+            )
         raise ProjectError(f"cannot take points of a {ref.kind}")
 
     def add_mass(self, mass: Mass) -> Mass:

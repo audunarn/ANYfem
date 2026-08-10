@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from anygeometry.entities import EntityRef
 
-from ..geometry.entities import EntityRef
 from ..mesh.mapped import Mesh
 from ..model.project import Project
 

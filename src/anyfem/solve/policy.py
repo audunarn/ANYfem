@@ -99,12 +99,16 @@ def resource_policy(
     different answer depending on how the work happened to be scheduled is not
     something an engineering report should have to caveat.
 
-    Where it actually applies is narrower than it looks, and worth knowing
-    before relying on it: of the analyses ANYfem drives, the solver accepts a
-    resource policy on the **nonlinear static** solve (and therefore on the
-    capacity workflow) and on **stress recovery**.  The linear, modal, buckling,
-    arc-length and transient entry points do not take one, so passing this to
-    them would be a promise ANYfem cannot keep.
+    The solver entry points used by ANYfem accept this policy. Pass it as
+    ``resource_config`` to linear, modal, buckling and arc-length solves, or to
+    the transient/impact configuration; nonlinear and capacity workflows use
+    ANYfem's ``resources`` argument. Buckling applies one requested policy to
+    both its prerequisite static solve and its eigensolve.
+
+    Each field governs only its named work: ``solver_threads`` scopes supported
+    BLAS/MKL pools, ``assembly_threads`` applies where parallel element assembly
+    exists, and recovery workers and memory limits apply to the corresponding
+    phases. Omitting the policy preserves the solver backend defaults.
     """
 
     from anysolver import ResourceConfig

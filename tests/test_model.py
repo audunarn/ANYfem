@@ -154,6 +154,24 @@ def test_attributes_reference_geometry_that_must_exist():
         project.add_support(fixed(EntityRef("vertex", 999)))
 
 
+def test_plate_sections_assign_from_shared_geometry_groups():
+    project = Project(name="semantic groups")
+    project.add_material(steel("S355", 0.010))
+    project.add_plate_section("deck plate", thickness=0.010, material="S355")
+    points = project.geometry.add_points(
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+    )
+    face = project.geometry.add_face(
+        project.geometry.add_polyline(points, close=True)
+    )
+    project.geometry.add_to_group("deck", [project.face(face)])
+
+    project.assign_plate_group("deck", "deck plate")
+
+    assert project.face_sections == {face: "deck plate"}
+
+
 def test_load_case_is_created_on_first_use():
     project = Project()
     first = project.load_case("dead")

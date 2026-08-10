@@ -1,5 +1,6 @@
-"""Compatibility exports for the geometry model now owned by ANYmesher."""
+"""Compatibility exports for the geometry model owned by ANYgeometry."""
 
-from anymesher.geometry.model import GeometryError, GeometryModel
+from anygeometry.errors import GeometryError
+from anygeometry.model import GeometryModel
 
 __all__ = ["GeometryError", "GeometryModel"]

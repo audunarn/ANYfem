@@ -9,8 +9,10 @@ ANYfem owns the application layer across the focused ecosystem packages:
   solver (6 DOF per node, SI units, linear through nonlinear and transient).
 - [**ANYmaterial**](https://github.com/audunarn/ANYmaterial) — validated,
   serializable isotropic and orthotropic material specifications.
-- [**ANYmesher**](https://github.com/audunarn/ANYmesh) — the geometry kernel,
-  neutral mesh, mapped mesher, refinement and coupling records.
+- [**ANYgeometry**](https://github.com/audunarn/ANYgeometry) — the shared
+  persistent-ID geometry model, curves, surfaces, topology and serialization.
+- [**ANYmesher**](https://github.com/audunarn/ANYmesh) — neutral meshes,
+  mapped decomposition and meshing, refinement and coupling records.
 - [**ANYfileio**](https://github.com/audunarn/ANYio) — SESAM and CalculiX
   parsing/writing.
 - [**ANYtk3D**](https://github.com/audunarn/ANYtk3D) — the Tkinter 3D viewport.
@@ -25,8 +27,8 @@ results.
 
 | Layer | What works today |
 | --- | --- |
-| `anyfem.geometry` | Compatibility surface over ANYmesher: points, straight lines, circular arcs through a via point, faces from four edge chains with automatic corner detection, extrusion, revolution, deletion |
-| `anyfem.geometry.operations` | Splitting lines and plates, corner override, three-sided regions to quads, butterfly hole, stiffener strips, mappability diagnostics |
+| `anyfem.geometry` | Temporary compatibility imports over ANYgeometry's shared `GeometryModel`, `EntityRef`, curves and topology; new code may import the same owner objects directly from `anygeometry` |
+| `anyfem.geometry.operations` | Compatibility imports: surface evaluation comes from ANYgeometry; historical axis/fraction splits, strips, butterfly decomposition and mappability checks come from ANYmesher |
 | `anyfem.mesh` | Compatibility surface over ANYmesher: edge seeding, Coons mapped meshing, conformal node sharing, refinement, shell/beam topology and couplings |
 | `anyfem.model` | ANYmaterial specifications, plate sections, typical beam profiles, supports and prescribed displacements, pressure (dead or follower), surface traction, line and point loads, acceleration, masses, load cases and combinations, geometric imperfections |
 | `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
@@ -87,11 +89,20 @@ them by default.
 
 ## Install and run
 
-```bash
-python -m pip install -e .[dev,gui]
+Until the compatible ecosystem packages are published, install their sibling
+checkouts before ANYfem:
+
+```powershell
+python -m pip install --no-deps -e C:\Github\ANYgeometry
+python -m pip install --no-deps -e C:\Github\ANYmaterial
+python -m pip install --no-deps -e C:\Github\ANYmesh
+python -m pip install --no-deps -e C:\Github\ANYio
+python -m pip install --no-deps -e C:\Github\ANYsolver
+python -m pip install --no-deps -e C:\Github\ANYtk3D
+python -m pip install -e ".[dev,gui]"
 ```
 
-```bash
+```powershell
 python -m anyfem.ui.app
 ```
 
@@ -151,11 +162,12 @@ geometry.extrude([arc], (0, 0, 3.0))                     # a cylindrical panel
 geometry.revolve([line], (0, 0, 0), (0, 0, 1), 2*np.pi)  # a closed cylinder
 ```
 
-Regions that cannot be mapped get cut up. That is core tooling, not a
-convenience — it is the only route out of an awkward shape:
+General topology belongs to ANYgeometry; decomposition whose purpose is to
+produce mapped quadrilateral regions belongs to ANYmesher:
 
 ```python
-from anyfem.geometry import punch_circular_hole, strip_face, triangle_to_quads
+from anygeometry import strip_face
+from anymesher.decomposition import punch_circular_hole, triangle_to_quads
 
 # A plate with a hole becomes the four-patch butterfly decomposition.
 patches, hole_arcs = punch_circular_hole(geometry, face, (2, 1.5, 0), 0.6)
@@ -168,10 +180,16 @@ strips, dividers = strip_face(geometry, face, axis=0, count=3)
 faces = triangle_to_quads(geometry, three_edges)
 ```
 
-Faces are Coons patches blended from their four sides. Where the side curves
-are straight, that reduces exactly to the ruled surface, so cylinders and cones
-are represented exactly rather than faceted — one surface type covers flat
-plates, ruled surfaces, cylinders and cones.
+ANYgeometry records the intended surface explicitly: `Plane`, `Cylinder`,
+`Cone`, `RuledSurface`, or `CoonsSurface`. Coons patches provide mapped
+transfinite interpolation where that is the selected surface; cylinders and
+cones use their analytical surfaces rather than a faceted approximation.
+
+Project files embed ANYgeometry's versioned geometry document. Entity IDs,
+semantic groups, tags, holes, surface definitions and replacement history all
+survive a save/load cycle; materials, sections, loads and meshing controls stay
+in the surrounding ANYfem project document. Legacy ANYfem format 1 and 2 files
+remain readable and are upgraded on their next save.
 
 ### Symmetry
 
@@ -524,12 +542,14 @@ passes them by default.
 reference persistent entity IDs; the mesh association map resolves them at
 build time. Re-meshing never loses a load.
 
-**Meshing is mapped only.** No unstructured paver, by design: the solver's
-qualified element envelope is full-integration Q4 and Q8, and the domain —
-stiffened panels and cylinders — is naturally mapped. Faces therefore carry
-four logical sides, and the edge-seeding solver propagates division counts
-across shared edges so neighbouring faces are conformal by construction rather
-than by coincident-node merging.
+**Production meshing is mapped only.** No unstructured paver is selected for
+the qualified solve path: the solver's element envelope is full-integration Q4
+and Q8, and the domain — stiffened panels and cylinders — is naturally mapped.
+ANYgeometry may retain triangular or trimmed topology; faces presented to the
+built-in mapped backend must first be partitioned into regions with four logical
+sides. The edge-seeding solver then propagates division counts across shared
+edges so neighbouring faces are conformal by construction rather than by
+coincident-node merging.
 
 ## Testing
 

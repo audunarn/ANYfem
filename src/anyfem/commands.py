@@ -17,9 +17,19 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
+from anygeometry.entities import EntityRef
+from anygeometry.errors import GeometryError
+from anygeometry.operations import (
+    closest_point,
+    project as project_point,
+)
+from anymesher.decomposition import (
+    punch_circular_hole,
+    split_face_at,
+    strip_face,
+    triangle_to_quads,
+)
 
-from .geometry import operations
-from .geometry.entities import EntityRef
 from .model.attributes import Mass, PointLoad, Support
 from .model.imperfections import Imperfection
 from .model.project import Project, ProjectError
@@ -81,15 +91,29 @@ class Command:
 class CommandStack:
     """Runs commands and keeps the undo and redo history."""
 
-    def __init__(self, project: Project) -> None:
+    def __init__(self, project: Project, selection: Any = None) -> None:
         self.project = project
+        self.selection = selection
         self._done: List[Command] = []
         self._undone: List[Command] = []
         self._listeners: List[Callable[[], None]] = []
 
     # ------------------------------------------------------------------
     def run(self, command: Command) -> Any:
+        selected_before = (
+            list(self.selection.items) if self.selection is not None else None
+        )
         result = command.do(self.project)
+        geometry_edit = isinstance(command, (GeometryCommand, DeleteEntity))
+        if self.selection is not None and geometry_edit:
+            replacements = (
+                [(command.ref, ())]
+                if isinstance(command, DeleteEntity)
+                else self.project.geometry.replacement_log()
+            )
+            self.selection.apply_replacements(replacements)
+            command._selection_before = selected_before
+            command._selection_after = list(self.selection.items)
         self._done.append(command)
         # A new action invalidates the redo branch.
         self._undone.clear()
@@ -101,6 +125,8 @@ class CommandStack:
             return False
         command = self._done.pop()
         command.undo(self.project)
+        if self.selection is not None and hasattr(command, "_selection_before"):
+            self.selection.restore(command._selection_before)
         self._undone.append(command)
         self._notify()
         return True
@@ -110,6 +136,8 @@ class CommandStack:
             return False
         command = self._undone.pop()
         command.redo(self.project)
+        if self.selection is not None and hasattr(command, "_selection_after"):
+            self.selection.restore(command._selection_after)
         self._done.append(command)
         self._notify()
         return True
@@ -207,6 +235,8 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
         "face_sections": dict(project.face_sections),
         "edge_sections": dict(project.edge_sections),
         "supports": list(project.supports),
+        "masses": list(project.masses),
+        "imperfections": list(project.imperfections),
         "refinements": list(project.refinements),
         "element_order": project.element_order,
         "loads": {
@@ -214,6 +244,7 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
                 list(case.point_loads),
                 list(case.pressures),
                 list(case.line_loads),
+                list(case.surface_tractions),
             )
             for name, case in project.load_cases.items()
         },
@@ -228,13 +259,17 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
     project.edge_sections.clear()
     project.edge_sections.update(snapshot["edge_sections"])
     project.supports[:] = list(snapshot["supports"])
+    project.masses[:] = list(snapshot.get("masses", ()))
+    project.imperfections[:] = list(snapshot.get("imperfections", ()))
     project.refinements[:] = list(snapshot.get("refinements", ()))
     project.element_order = snapshot.get("element_order", project.element_order)
-    for name, (points, pressures, lines) in snapshot["loads"].items():
+    for name, loads in snapshot["loads"].items():
+        points, pressures, lines, *optional = loads
         case = project.load_case(name)
         case.point_loads[:] = list(points)
         case.pressures[:] = list(pressures)
         case.line_loads[:] = list(lines)
+        case.surface_tractions[:] = list(optional[0] if optional else ())
 
 
 def _apply_replacements(
@@ -272,10 +307,60 @@ def _apply_replacements(
                 )
         project.supports[:] = kept
 
+        masses: List[Mass] = []
+        for mass in project.masses:
+            if mass.ref != old:
+                masses.append(mass)
+                continue
+            # ``Mass.value`` is a total, unlike pressure or traction intensity.
+            # Divide it between descendants so a topology edit conserves mass.
+            share = mass.value / len(replacements)
+            masses.extend(
+                replace(
+                    mass,
+                    ref=new,
+                    value=share,
+                    name=f"{mass.name}_{new.id}",
+                )
+                for new in replacements
+            )
+        project.masses[:] = masses
+
+        imperfections: List[Imperfection] = []
+        for imperfection in project.imperfections:
+            if imperfection.ref != old:
+                imperfections.append(imperfection)
+                continue
+            imperfections.extend(
+                replace(
+                    imperfection,
+                    ref=new,
+                    name=f"{imperfection.name}_{new.id}",
+                )
+                for new in replacements
+            )
+        project.imperfections[:] = imperfections
+
+        refinements = []
+        for refinement in project.refinements:
+            if refinement.ref != old:
+                refinements.append(refinement)
+                continue
+            refinements.extend(
+                replace(
+                    refinement,
+                    ref=new,
+                    name=f"{refinement.name}_{new.id}",
+                )
+                for new in replacements
+            )
+        project.refinements[:] = refinements
+
         for case in project.load_cases.values():
             _replace_loads(case.point_loads, old, replacements)
             _replace_loads(case.pressures, old, replacements)
             _replace_loads(case.line_loads, old, replacements)
+            _replace_loads(case.surface_tractions, old, replacements)
 
 
 def _replace_loads(
@@ -422,33 +507,35 @@ class DeleteEntity(Command):
 
     ref: EntityRef
     label: str = "delete"
-    _entity: Any = field(default=None, init=False)
+    _snapshot: Dict[str, object] = field(default_factory=dict, init=False)
     _attributes: Dict[str, Any] = field(default_factory=dict, init=False)
 
     def do(self, project: Project) -> None:
         geometry = project.geometry
+        # Public removals update semantic groups, tags and persistent
+        # replacement history in addition to deleting the entity.  Capture the
+        # complete owner topology so undo restores those annotations and the
+        # current replacement transaction exactly; reinserting one entity in
+        # the raw dictionary would leave the reference resolved as deleted.
+        self._snapshot = geometry.topology_snapshot()
+        geometry.begin_replacement_log()
+        try:
+            if self.ref.kind == "face":
+                geometry.remove_face(self.ref.id)
+            elif self.ref.kind == "edge":
+                geometry.remove_edge(self.ref.id)
+            else:
+                geometry.remove_vertex(self.ref.id)
+        except Exception:
+            # ``begin_replacement_log`` is itself stateful.  A rejected delete
+            # must not clear the caller's current transaction log.
+            geometry.restore_topology(self._snapshot)
+            raise
         self._attributes = _detach_attributes(project, self.ref)
-        if self.ref.kind == "face":
-            self._entity = geometry.faces[self.ref.id]
-            geometry.remove_face(self.ref.id)
-        elif self.ref.kind == "edge":
-            self._entity = geometry.edges[self.ref.id]
-            geometry.remove_edge(self.ref.id)
-        else:
-            self._entity = geometry.vertices[self.ref.id]
-            geometry.remove_vertex(self.ref.id)
 
     def undo(self, project: Project) -> None:
-        geometry = project.geometry
-        if self.ref.kind == "face":
-            geometry.faces[self.ref.id] = self._entity
-        elif self.ref.kind == "edge":
-            geometry.edges[self.ref.id] = self._entity
-        else:
-            geometry.vertices[self.ref.id] = self._entity
+        project.geometry.restore_topology(self._snapshot)
         _reattach_attributes(project, self.ref, self._attributes)
-        self._entity = None
-        self._attributes = {}
 
 
 def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
@@ -458,6 +545,9 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
         "face_section": None,
         "edge_section": None,
         "supports": [],
+        "masses": [],
+        "imperfections": [],
+        "refinements": [],
         "loads": [],
     }
 
@@ -474,8 +564,31 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
             kept.append(item)
     project.supports[:] = kept
 
+    for attribute in ("masses", "imperfections"):
+        container = getattr(project, attribute)
+        survivors = []
+        for item in container:
+            if item.ref == ref:
+                removed[attribute].append(item)
+            else:
+                survivors.append(item)
+        container[:] = survivors
+
+    refinements = []
+    for item in project.refinements:
+        if item.ref == ref:
+            removed["refinements"].append(item)
+        else:
+            refinements.append(item)
+    project.refinements[:] = refinements
+
     for case in project.load_cases.values():
-        for attribute in ("point_loads", "pressures", "line_loads"):
+        for attribute in (
+            "point_loads",
+            "pressures",
+            "line_loads",
+            "surface_tractions",
+        ):
             container = getattr(case, attribute)
             survivors = []
             for load in container:
@@ -504,6 +617,9 @@ def _reattach_attributes(
         case = project.load_case(load_case_name)
         getattr(case, attribute).append(load)
     project.supports.extend(removed.get("supports", ()))
+    project.masses.extend(removed.get("masses", ()))
+    project.imperfections.extend(removed.get("imperfections", ()))
+    project.refinements.extend(removed.get("refinements", ()))
 
 
 # ----------------------------------------------------------------------
@@ -663,7 +779,7 @@ class SplitFace(GeometryCommand):
         GeometryCommand.__init__(self)
 
     def operate(self, project: Project) -> Tuple[int, int]:
-        _edge, faces = operations.split_face_at(
+        _edge, faces = split_face_at(
             project.geometry, self.face_id, self.axis, self.fraction
         )
         return faces
@@ -683,7 +799,7 @@ class StripFace(GeometryCommand):
         GeometryCommand.__init__(self)
 
     def operate(self, project: Project) -> Tuple[List[int], List[int]]:
-        strips, dividers = operations.strip_face(
+        strips, dividers = strip_face(
             project.geometry, self.face_id, self.axis, self.count
         )
         if self.section is not None:
@@ -774,47 +890,19 @@ class RefineForImpact(GeometryCommand):
         }
 
 
-def _face_samples(geometry, face_id: int, count: int = 32):
-    """A sampled grid over a face, with the parameters of each sample."""
-
-    from .mesh.mapped import coons_grid, sample_chain
-
-    sides = geometry.faces[face_id].sides()
-    grid = coons_grid(
-        sample_chain(geometry, sides[0], count),
-        sample_chain(geometry, sides[1], count),
-        sample_chain(geometry, sides[2], count)[::-1],
-        sample_chain(geometry, sides[3], count)[::-1],
-    )
-    return grid, np.linspace(0.0, 1.0, count + 1)
-
-
 def _closest_face(
     geometry, face_ids: Sequence[int], point: np.ndarray
 ) -> Tuple[int, Tuple[float, float]]:
-    """Which face a point lies on, and roughly where in its parameters.
+    """Which candidate face is closest, and its authoritative local UV."""
 
-    Found by sampling the surface rather than inverting it.  The parameters
-    only have to be good enough to place a cut either side of a contact patch,
-    and a sampled grid is exact about *which* face without needing a Newton
-    solve that could fail on a folded parameterisation.
-    """
-
-    best: Optional[Tuple[float, int, Tuple[float, float]]] = None
-    for face_id in face_ids:
-        grid, parameters = _face_samples(geometry, face_id)
-        gaps = np.linalg.norm(grid - np.asarray(point, dtype=float), axis=2)
-        index = np.unravel_index(int(np.argmin(gaps)), gaps.shape)
-        gap = float(gaps[index])
-        if best is None or gap < best[0]:
-            best = (
-                gap,
-                face_id,
-                (float(parameters[index[0]]), float(parameters[index[1]])),
-            )
-    if best is None:
+    references = [EntityRef("face", face_id) for face_id in face_ids]
+    if not references:
         raise ValueError("no plate to refine: the model has no plates")
-    return best[1], best[2]
+    reference, _closest, _distance = closest_point(
+        geometry, np.asarray(point, dtype=float), references
+    )
+    _projected, uv, _gap = project_point(geometry, reference, point)
+    return reference.id, uv
 
 
 def _face_spans(geometry, face_id: int) -> Tuple[float, float]:
@@ -856,10 +944,10 @@ def _bracket_face(
             if not 0.02 < fraction < 0.98:
                 continue
             try:
-                _edge, pair = operations.split_face_at(
+                _edge, pair = split_face_at(
                     geometry, patch, axis, fraction
                 )
-            except operations.GeometryError:
+            except GeometryError:
                 continue
             produced = [item for item in produced if item != patch]
             produced.extend(pair)
@@ -878,7 +966,7 @@ class TriangleToQuads(GeometryCommand):
         GeometryCommand.__init__(self)
 
     def operate(self, project: Project) -> List[int]:
-        return operations.triangle_to_quads(project.geometry, self.edge_ids)
+        return triangle_to_quads(project.geometry, self.edge_ids)
 
 
 @dataclass(eq=False)
@@ -894,7 +982,7 @@ class PunchHole(GeometryCommand):
         GeometryCommand.__init__(self)
 
     def operate(self, project: Project) -> Tuple[List[int], List[int]]:
-        return operations.punch_circular_hole(
+        return punch_circular_hole(
             project.geometry, self.face_id, self.centre, self.radius
         )
 

@@ -27,6 +27,7 @@ dependencies = [
   "scipy>=1.11",
   "ANYsolver>=0.2,<0.3",
   "ANYmaterial>=0.1,<0.2",
+  "ANYgeometry>=0.1,<0.2",
   "ANYmesher>=0.1,<0.2",
   "ANYfileio>=0.1,<0.2",
 ]

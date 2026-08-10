@@ -73,8 +73,8 @@ class AnyFemApp(ttk.Frame):
     def __init__(self, master: tk.Misc, project: Optional[Project] = None) -> None:
         super().__init__(master)
         self.project = project if project is not None else default_project()
-        self.commands = CommandStack(self.project)
         self.selection = Selection(mode="vertex")
+        self.commands = CommandStack(self.project, selection=self.selection)
         self.mesh = None
         self.solution = None
         self.analysis = "Linear static"
@@ -478,7 +478,7 @@ class AnyFemApp(ttk.Frame):
 
     def new_project(self) -> None:
         self.project = default_project()
-        self.commands = CommandStack(self.project)
+        self.commands = CommandStack(self.project, selection=self.selection)
         self.commands.add_listener(self.refresh_all)
         self.tree.project = self.project
         self.imported = None
@@ -506,7 +506,7 @@ class AnyFemApp(ttk.Frame):
                 return
         loaded = load_project(path)
         self.project = loaded
-        self.commands = CommandStack(self.project)
+        self.commands = CommandStack(self.project, selection=self.selection)
         self.commands.add_listener(self.refresh_all)
         self.tree.project = self.project
         self.imported = None
@@ -547,7 +547,7 @@ class AnyFemApp(ttk.Frame):
         model = import_sesam(path)
         self.imported = model
         self.project = model.project()
-        self.commands = CommandStack(self.project)
+        self.commands = CommandStack(self.project, selection=self.selection)
         self.commands.add_listener(self.refresh_all)
         self.tree.project = self.project
         self.path = None

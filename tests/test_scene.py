@@ -140,6 +140,27 @@ def test_curved_geometry_keeps_display_tessellation():
     assert len(curve.points) == 24
 
 
+def test_straight_topology_does_not_flatten_an_explicit_ruled_surface():
+    from anygeometry.surfaces import RuledSurface
+
+    project = Project()
+    geometry = project.geometry
+    points = geometry.add_points(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    )
+    face = geometry.add_face(geometry.add_polyline(points, close=True))
+    geometry.faces[face].surface = RuledSurface(
+        np.array([(0, 0, 0), (0.5, 0, 0.3), (1, 0, 0)]),
+        np.array([(0, 1, 0), (0.5, 1, 0.3), (1, 1, 0)]),
+    )
+
+    patch = build_geometry_scene(project).faces[0]
+
+    assert len(patch.polygons) == 8 * 8
+    height = max(point[2] for polygon in patch.polygons for point in polygon)
+    assert height == pytest.approx(0.3)
+
+
 def test_mesh_scene_batches_one_patch_per_plate(plate_project):
     project, face, _edges, _points = plate_project
     mesh = project.generate_mesh(0.25)

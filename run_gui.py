@@ -12,6 +12,7 @@ _SOURCE_TREES = (
     _ROOT / "src",
     _ROOT.parent / "ANYsolver" / "src",
     _ROOT.parent / "ANYmaterial" / "src",
+    _ROOT.parent / "ANYgeometry" / "src",
     _ROOT.parent / "ANYmesh" / "src",
     _ROOT.parent / "ANYio" / "src",
     _ROOT.parent / "ANYtk3D" / "src",

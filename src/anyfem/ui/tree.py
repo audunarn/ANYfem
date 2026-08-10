@@ -10,8 +10,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Optional
+from anygeometry.entities import EntityRef
 
-from ..geometry.entities import EntityRef
 from ..model.project import Project
 from ..selection import Selection, entity_tag, parse_entity_tag
 

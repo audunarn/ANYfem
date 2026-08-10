@@ -217,7 +217,18 @@ def solve_buckling(
     )
 
     _report(progress, "solving the reference load case")
-    displacements, _info = solve_linear(built.fe_model, built.load_case)
+    # Buckling is one analysis workflow even though it contains a prerequisite
+    # static solve.  Apply an explicitly requested resource policy to both
+    # stages; when none was supplied, omit the keyword so each solver retains
+    # its established backend defaults.
+    reference_options = {}
+    if "resource_config" in solver_options:
+        reference_options["resource_config"] = solver_options["resource_config"]
+    displacements, _info = solve_linear(
+        built.fe_model,
+        built.load_case,
+        **reference_options,
+    )
 
     _report(progress, "recovering prestress")
     states, provenance = recover_prestress_from_static_result(
