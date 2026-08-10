@@ -56,6 +56,118 @@ def build_plate(app, width=2.0, height=1.0):
     return points, face
 
 
+def test_point_markers_support_click_shift_click_and_box_selection(app, root):
+    """The retained point batch must behave like selectable CAD vertices."""
+
+    from anytk3d import Point3D
+
+    first = app.run(cmd.AddPoint(0.0, 0.0, 0.0))
+    second = app.run(cmd.AddPoint(1.0, 0.0, 0.0))
+    third = app.run(cmd.AddPoint(1.0, 1.0, 0.0))
+    fourth = app.run(cmd.AddPoint(0.0, 1.0, 0.0))
+    app.run(cmd.AddPlate((first, second, third, fourth)))
+    app.selection_strip.set_context("vertex")
+    app.selection_strip.tool.set("Single")
+    app.selection_strip._apply_canvas()
+    app.show_geometry(reset_view=True)
+    root.update()
+
+    # A previous click-construction task must not invisibly retain LMB after
+    # the engineer explicitly chooses Point selection.
+    geometry_panel = app.panels["Geometry"]
+    geometry_panel._construction_mode.set("Point")
+    geometry_panel._start_construction()
+    assert app.viewport.construction_active
+    geometry_panel._mode.set("vertex")
+    geometry_panel._change_mode()
+    assert not app.viewport.construction_active
+    assert "selection is active" in app._status.cget("text")
+
+    canvas = app.viewport.canvas
+    inner = canvas.canvas
+
+    def screen(x):
+        projected = canvas.camera.project_point(
+            Point3D(x, 0.0, 0.0), canvas._plot_width(), canvas.height
+        )
+        assert projected is not None
+        return round(projected[0]), round(projected[1])
+
+    x1, y1 = screen(0.0)
+    x2, y2 = screen(1.0)
+    inner.event_generate("<ButtonPress-1>", x=x1, y=y1)
+    root.update()
+    assert app.selection.ordered_items == (EntityRef("vertex", first),)
+    inner.event_generate("<ButtonRelease-1>", x=x1, y=y1)
+    root.update()
+    assert app.selection.ordered_items == (EntityRef("vertex", first),)
+
+    inner.event_generate("<ButtonPress-1>", x=x2, y=y2, state=0x0001)
+    root.update()
+    assert app.selection.ordered_items == (
+        EntityRef("vertex", first),
+        EntityRef("vertex", second),
+    )
+    inner.event_generate("<ButtonRelease-1>", x=x2, y=y2, state=0x0001)
+    root.update()
+    assert app.selection.ordered_items == (
+        EntityRef("vertex", first),
+        EntityRef("vertex", second),
+    )
+
+    app.selection.clear()
+    app.selection_strip.tool.set("Box")
+    app.selection_strip.depth.set("Visible")
+    app.selection_strip._apply_canvas()
+    inner.event_generate("<ButtonPress-1>", x=x1 - 10, y=y1 - 10)
+    root.update()
+    inner.event_generate("<B1-Motion>", x=x1 + 10, y=y1 + 10)
+    root.update()
+    inner.event_generate("<ButtonRelease-1>", x=x1 + 10, y=y1 + 10)
+    root.update()
+    assert app.selection.ordered_items == (EntityRef("vertex", first),)
+
+
+def test_large_visible_box_selects_standalone_points(app, root):
+    """A window enclosing unconnected point markers selects every point."""
+
+    from anytk3d import Point3D
+
+    first = app.run(cmd.AddPoint(0.0, 0.0, 0.0))
+    second = app.run(cmd.AddPoint(2.0, 0.0, 0.0))
+    app.selection_strip.set_context("vertex")
+    app.selection_strip.tool.set("Box")
+    app.selection_strip.depth.set("Visible")
+    app.selection_strip.operation.set("Replace")
+    app.selection_strip._apply_canvas()
+    app.show_geometry(reset_view=True)
+    root.update()
+
+    canvas = app.viewport.canvas
+    inner = canvas.canvas
+    projected = [
+        canvas.camera.project_point(point, canvas._plot_width(), canvas.height)
+        for point in (Point3D(0.0, 0.0, 0.0), Point3D(2.0, 0.0, 0.0))
+    ]
+    assert all(point is not None for point in projected)
+    xs = [round(point[0]) for point in projected if point is not None]
+    ys = [round(point[1]) for point in projected if point is not None]
+    start = min(xs) - 100, min(ys) - 100
+    end = max(xs) + 100, max(ys) + 100
+
+    inner.event_generate("<ButtonPress-1>", x=start[0], y=start[1])
+    root.update()
+    inner.event_generate("<B1-Motion>", x=end[0], y=end[1])
+    root.update()
+    inner.event_generate("<ButtonRelease-1>", x=end[0], y=end[1])
+    root.update()
+
+    assert app.selection.ordered_items == (
+        EntityRef("vertex", first),
+        EntityRef("vertex", second),
+    )
+
+
 def test_workplane_click_construction_defers_until_apply_and_escape_cancels(app, root):
     panel = app.panels["Geometry"]
     panel._construction_mode.set("Line")

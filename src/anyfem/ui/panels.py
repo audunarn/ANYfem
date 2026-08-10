@@ -413,6 +413,10 @@ class GeometryPanel(StagePanel):
             self._workplane_coordinates.set(values[0])
 
     def _change_mode(self) -> None:
+        if self.app.viewport.cancel_construction():
+            self.app.set_status(
+                "click construction cancelled; geometry selection is active"
+            )
         self.app.selection.set_mode(self._mode.get())
 
     def _show_advanced(self) -> None:

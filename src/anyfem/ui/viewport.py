@@ -751,22 +751,37 @@ class Viewport:
 
     def _selection_config(self):
         api = self._selection_api
-        tool = (
-            api["SelectionTool"].LASSO
-            if self._selection_tool == "lasso"
-            else api["SelectionTool"].BOX
-        )
+        tool_enum = api["SelectionTool"]
+        if self._selection_tool == "lasso":
+            tool = tool_enum.LASSO
+        elif self._selection_tool == "single":
+            # SINGLE is present in the commercial-selection ANYtk3D floor.
+            # The fallback keeps source compatibility with an earlier 0.2.x
+            # build while ANYfem's own event guard still rejects region picks.
+            tool = getattr(tool_enum, "SINGLE", tool_enum.BOX)
+        else:
+            tool = tool_enum.BOX
         depth = api["SelectionDepth"](self._selection_depth)
         model_filter = getattr(self.selection, "filter", None)
         qualified_kinds = getattr(model_filter, "qualified_kinds", None)
         if qualified_kinds is None:
             qualified_kinds = frozenset({f"geometry.{self.selection.mode}"})
         selection_filter = api["SelectionFilter"](kinds=qualified_kinds)
-        return api["SelectionConfig"](
-            filter=selection_filter,
-            depth=depth,
-            tool=tool,
-        )
+        options = {
+            "filter": selection_filter,
+            "depth": depth,
+            "tool": tool,
+        }
+        if "click_on_press" in getattr(
+            api["SelectionConfig"], "__dataclass_fields__", {}
+        ):
+            # Commit the front hit on button press.  This matches desktop CAD
+            # interaction and avoids depending on a ButtonRelease that Tk can
+            # lose on Windows after focus/menu transitions.  Box/lasso still
+            # complete their region on release; their final operation is
+            # idempotent except for toggle, which ANYtk3D de-duplicates.
+            options["click_on_press"] = True
+        return api["SelectionConfig"](**options)
 
     def configure_selection(
         self,

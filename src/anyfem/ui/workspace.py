@@ -114,7 +114,7 @@ class SelectionStrip(ttk.Frame):
             width=7,
         )
         tool_box.pack(side="left", padx=2)
-        tool_box.bind("<<ComboboxSelected>>", lambda _event: self._apply_canvas())
+        tool_box.bind("<<ComboboxSelected>>", self._selection_control_changed)
 
         self.depth = tk.StringVar(value="Visible")
         depth_box = ttk.Combobox(
@@ -125,7 +125,7 @@ class SelectionStrip(ttk.Frame):
             width=8,
         )
         depth_box.pack(side="left", padx=2)
-        depth_box.bind("<<ComboboxSelected>>", lambda _event: self._apply_canvas())
+        depth_box.bind("<<ComboboxSelected>>", self._selection_control_changed)
 
         self.operation = tk.StringVar(value="Replace")
         operation_box = ttk.Combobox(
@@ -137,7 +137,7 @@ class SelectionStrip(ttk.Frame):
         )
         operation_box.pack(side="left", padx=2)
         operation_box.bind(
-            "<<ComboboxSelected>>", lambda _event: self._apply_canvas()
+            "<<ComboboxSelected>>", self._selection_control_changed
         )
 
         self._count = ttk.Label(self, text="0 selected")
@@ -158,6 +158,7 @@ class SelectionStrip(ttk.Frame):
         self._count.configure(text=f"{count} selected")
 
     def set_context(self, kind: str, hint: str = "") -> None:
+        self._activate_selection_mode()
         if kind in SELECTION_MODES:
             self.app.selection.set_mode(kind)
             self.domain.set("Geometry")
@@ -167,6 +168,7 @@ class SelectionStrip(ttk.Frame):
         self._apply_canvas()
 
     def _set_filter(self, _event=None) -> None:
+        self._activate_selection_mode()
         mapping = {
             "Point": "vertex", "Line": "edge", "Plate": "face",
             "Node": "node", "Element": "element",
@@ -181,10 +183,30 @@ class SelectionStrip(ttk.Frame):
         self._apply_canvas()
 
     def _set_domain(self, _event=None) -> None:
+        self._activate_selection_mode()
         kind = "face" if self.domain.get() == "Geometry" else "element"
         self.app.selection.set_mode(kind)
         self.filter.set(mode_label(kind))
         self._apply_canvas()
+
+    def _selection_control_changed(self, _event=None) -> None:
+        self._activate_selection_mode()
+        self._apply_canvas()
+
+    def _activate_selection_mode(self) -> None:
+        """An explicit selection control leaves click-construction mode.
+
+        Construction and selection both use LMB.  Keeping construction active
+        after an engineer chooses Point/Line/Plate makes a valid hover appear
+        clickable while every click is silently captured by the old task.
+        """
+
+        viewport = getattr(self.app, "viewport", None)
+        cancel = getattr(viewport, "cancel_construction", None)
+        if callable(cancel) and cancel():
+            self.app.set_status(
+                "click construction cancelled; selection controls are active"
+            )
 
     def _apply_canvas(self) -> None:
         viewport = getattr(self.app, "viewport", None)
