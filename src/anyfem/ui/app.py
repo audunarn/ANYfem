@@ -418,6 +418,15 @@ class AnyFemApp(ttk.Frame):
             summary={
                 "nodes": self.mesh.num_nodes,
                 "elements": self.mesh.num_elements,
+                "automatic_intersections": int(
+                    getattr(self.mesh, "automatic_intersections", 0)
+                ),
+                "automatic_beam_connections": int(
+                    getattr(self.mesh, "automatic_beam_connections", 0)
+                ),
+                "automatic_shell_connections": int(
+                    getattr(self.mesh, "automatic_shell_connections", 0)
+                ),
                 "quality": quality,
             },
         )
@@ -429,6 +438,12 @@ class AnyFemApp(ttk.Frame):
         self.set_status(
             f"meshed: {self.mesh.num_nodes} nodes, "
             f"{self.mesh.num_elements} elements; "
+            f"{getattr(self.mesh, 'automatic_intersections', 0)} plate "
+            "intersection(s) imprinted; "
+            f"{getattr(self.mesh, 'automatic_beam_connections', 0)} beam "
+            "connection(s) created; "
+            f"{getattr(self.mesh, 'automatic_shell_connections', 0)} shell "
+            "T-junction tie(s) created; "
             f"max aspect {quality['max_aspect_ratio']:.3g}, "
             f"warp {quality['max_warp']:.3g}"
         )
@@ -532,6 +547,15 @@ class AnyFemApp(ttk.Frame):
                             "status": record.status,
                             "nodes": result.mesh.num_nodes,
                             "elements": result.mesh.num_elements,
+                            "automatic_intersections": int(
+                                getattr(result.mesh, "automatic_intersections", 0)
+                            ),
+                            "automatic_beam_connections": int(
+                                getattr(result.mesh, "automatic_beam_connections", 0)
+                            ),
+                            "automatic_shell_connections": int(
+                                getattr(result.mesh, "automatic_shell_connections", 0)
+                            ),
                             "quality": dict(result.quality),
                         }
                     )
@@ -545,6 +569,12 @@ class AnyFemApp(ttk.Frame):
                     self.set_status(
                         f"meshed: {result.mesh.num_nodes} nodes, "
                         f"{result.mesh.num_elements} elements; "
+                        f"{getattr(result.mesh, 'automatic_intersections', 0)} "
+                        "plate intersection(s) imprinted; "
+                        f"{getattr(result.mesh, 'automatic_beam_connections', 0)} "
+                        "beam connection(s) created; "
+                        f"{getattr(result.mesh, 'automatic_shell_connections', 0)} "
+                        "shell T-junction tie(s) created; "
                         f"max aspect {float(quality['max_aspect_ratio']):.3g}, "
                         f"warp {float(quality['max_warp']):.3g}"
                     )
@@ -1189,6 +1219,19 @@ class AnyFemApp(ttk.Frame):
         }.get(prefix, "Geometry")
         if action == "edit":
             self.details.select(page)
+            if prefix == "feature":
+                geometry_panel = self.panels.get("Geometry")
+                feature_id = int(key.split(":", 1)[1])
+                edit_sketch = getattr(geometry_panel, "edit_sketch", None)
+                if (
+                    callable(edit_sketch)
+                    and edit_sketch(feature_id)
+                ):
+                    self.details.set_hint(
+                        f"Editing constrained sketch {self.tree.tree.item(key, 'text')}"
+                    )
+                    self.set_status("editable sketch loaded on its support plate")
+                    return
             if prefix == "imperfection":
                 section_panel = self.panels.get("Sections")
                 identifier = key.split(":", 1)[1]

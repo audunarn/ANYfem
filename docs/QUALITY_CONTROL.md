@@ -28,6 +28,8 @@ Normal pytest runs limit native numerical libraries to one thread. Override
 that safe default with `ANYFEM_TEST_THREADS` only when intentional. Large-scale
 selection/result qualification requires `ANYFEM_RUN_SCALE_GATES=1`; hardware
 timing gates additionally require `ANYFEM_RUN_HARDWARE_GATES=1`.
+Tests that create real Tk windows additionally require
+`ANYFEM_RUN_GUI_TESTS=1`; ordinary runs remain headless.
 
 ## The evidence hierarchy
 

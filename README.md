@@ -326,6 +326,27 @@ the contact point and how many elements lie across the sphere radius — because
 contact patch spread over one element gives a peak force that belongs to the
 mesh rather than to the structure.
 
+### Automatic structural connectivity
+
+Meshing works on a temporary geometry clone. Crossing plates are imprinted into
+conformal shell edges; independently drawn coincident beam ends share a mesh
+node; a beam ending on or crossing another straight beam splits the receiving
+span; and a beam meeting a shell away from an existing shell node receives an
+exact interpolation MPC. The editable model geometry and its IDs are unchanged.
+The Mesh details report how many plate intersections and beam connections were
+created. Remesh after changing any of these intersections.
+
+### Editable sketches on plates
+
+In Geometry → Guiding geometry, select one flat Model Geometry Plate and choose
+**Start sketch on selected plate**. The plate becomes a face-aligned grid.
+Clicks may be inside or outside the plate; clicks near its vertices or edges
+receive persistent coincidence constraints. Any two numbered sketch points can
+receive a distance or coincidence constraint. Apply creates one editable
+`geometry.sketch.extrude` feature and extrudes its profile along the plate
+normal. Right-click the sketch feature in the model tree and choose **Edit** to
+reopen its points, constraints, closed/open state, and extrusion distance.
+
 ### Stiffener eccentricity
 
 A stiffener with its neutral axis in the plate midsurface is a different
@@ -674,7 +695,9 @@ coincident-node merging.
 python -m pytest tests -q
 ```
 
-GUI tests skip rather than fail when no display is available. The current test
+Real Tk tests are opt-in so an ordinary run never opens application windows.
+Set `ANYFEM_RUN_GUI_TESTS=1` when deliberately exercising the desktop. They
+still skip rather than fail when no display is available. The current test
 count belongs in CI output, because extraction work moves tests to their owning
 repositories.
 

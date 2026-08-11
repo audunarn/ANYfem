@@ -17,7 +17,8 @@ from anymaterial import MaterialSpec
 from anygeometry.entities import EntityRef
 from anygeometry.model import GeometryModel
 
-from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh
+from ..mesh.mapped import ELEMENT_ORDERS, Mesh
+from anymesher.intersections import generate_mesh_with_intersections
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from .attributes import Combination, LoadCase, Mass, Support
@@ -1137,7 +1138,7 @@ class Project:
             raise ProjectError(
                 "nothing to mesh: the model has no plates and no beams"
             )
-        return generate_mesh(
+        return generate_mesh_with_intersections(
             self.geometry,
             target_size=target_size,
             overrides=overrides,

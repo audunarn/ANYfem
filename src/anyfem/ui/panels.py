@@ -16,10 +16,17 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 from anymaterial import available_grades
 from anygeometry.entities import EntityRef
+from anygeometry import SketchDefinition, face_sketch_plane
 
 from .. import commands as cmd
 from ..geometry.construction import ConstructionMode, ConstructionTask
-from ..geometry.snapping import geometry_snap_data
+from ..geometry.sketching import FaceSketchTask
+from ..geometry.snapping import (
+    GeometrySnapData,
+    SnapPoint,
+    SnapSegment,
+    geometry_snap_data,
+)
 from anymesher.decomposition import check_mappable
 from ..mesh.mapped import ELEMENT_ORDERS
 from ..mesh.refinement import refine_around
@@ -38,6 +45,7 @@ from ..model.materials import Material, dnv_steel_material
 from ..model.sections import PROFILES, BeamSection, PlateSection
 from ..model.project import ProjectError
 from ..model.workplanes import Workplane
+from ..model.coordinates import CoordinateSystem
 from ..post.extract import along_line, envelope, probe
 from ..post.fields import available_fields
 from ..post.history import history_series
@@ -311,6 +319,77 @@ class GeometryPanel(StagePanel):
             foreground="#666666",
             wraplength=270,
         ).pack(anchor="w", pady=(3, 0))
+
+        face_sketch = self.section("Editable sketch on a flat plate", guiding_page)
+        ttk.Label(
+            face_sketch,
+            text=(
+                "Select one Model Geometry Plate, then click Start. The plate "
+                "becomes an unlimited gridded sketch plane; points may lie "
+                "inside, outside or coincident with its boundary."
+            ),
+            foreground="#555555",
+            wraplength=330,
+        ).pack(fill="x", pady=(0, 3))
+        self._face_sketch_grid = self.entry_row(face_sketch, "grid spacing", "0.25 m")
+        self._face_sketch_extrusion = self.entry_row(face_sketch, "extrusion", "1 m")
+        self._face_sketch_closed = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            face_sketch, text="Closed profile", variable=self._face_sketch_closed
+        ).pack(anchor="w")
+        self.button(face_sketch, "Start sketch on selected plate", self._start_face_sketch)
+        self._face_sketch_pair = self.entry_row(face_sketch, "point numbers", "1 2")
+        self._face_sketch_distance = self.entry_row(face_sketch, "distance", "1 m")
+        constraint_actions = ttk.Frame(face_sketch)
+        constraint_actions.pack(fill="x", pady=1)
+        ttk.Button(
+            constraint_actions,
+            text="Set distance",
+            command=self.guarded(self._add_sketch_distance),
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            constraint_actions,
+            text="Coincident",
+            command=self.guarded(self._add_sketch_coincidence),
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        edit_actions = ttk.Frame(face_sketch)
+        edit_actions.pack(fill="x", pady=1)
+        ttk.Button(
+            edit_actions, text="Remove last point", command=self._remove_sketch_point
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            edit_actions,
+            text="Remove last constraint",
+            command=self._remove_sketch_constraint,
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        apply_actions = ttk.Frame(face_sketch)
+        apply_actions.pack(fill="x", pady=(2, 0))
+        ttk.Button(
+            apply_actions,
+            text="Apply sketch / extrusion",
+            command=self.guarded(self._apply_face_sketch),
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            apply_actions, text="Cancel", command=self._cancel_face_sketch
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        self._face_sketch_status = ttk.Label(
+            face_sketch,
+            text="No face sketch active",
+            foreground="#666666",
+            wraplength=330,
+        )
+        self._face_sketch_status.pack(fill="x", pady=(3, 0))
+        ttk.Label(
+            face_sketch,
+            text=(
+                "Point numbers follow click order. For an open path whose last "
+                "point is coincident with point 1, clear Closed profile."
+            ),
+            foreground="#777777",
+            wraplength=330,
+        ).pack(fill="x", pady=(2, 0))
+        self._editing_sketch_feature_id: int | None = None
+        self._sketch_support_ref: EntityRef | None = None
 
         line = self.section("Guiding curves", guiding_page)
         self.button(line, "Line through 2 points", self._add_line)
@@ -780,6 +859,9 @@ class GeometryPanel(StagePanel):
         )
 
     def _construction_updated(self, task: ConstructionTask, snap) -> None:
+        if isinstance(task, FaceSketchTask):
+            self._update_face_sketch_status(task, snap)
+            return
         if task.cancelled:
             self.app.set_status("construction cancelled; model unchanged")
             return
@@ -810,6 +892,217 @@ class GeometryPanel(StagePanel):
     def _cancel_construction(self) -> None:
         if not self.app.viewport.cancel_construction():
             self.app.set_status("no construction task is active")
+
+    def _face_snap_data(self, plane) -> GeometrySnapData:
+        vertices = [tuple(float(item) for item in plane.world(value)) for value in plane.boundary_vertices]
+        endpoints = tuple(
+            SnapPoint(f"support:vertex:{index}", point)
+            for index, point in enumerate(vertices)
+        )
+        segments = tuple(
+            SnapSegment(
+                f"support:edge:{index}",
+                vertices[index],
+                vertices[(index + 1) % len(vertices)],
+                "support-face",
+            )
+            for index in range(len(vertices))
+        )
+        midpoints = tuple(
+            SnapPoint(
+                f"support:edge:{index}:mid",
+                tuple(float(item) for item in 0.5 * (np.asarray(item.start) + item.end)),
+            )
+            for index, item in enumerate(segments)
+        )
+        return GeometrySnapData(endpoints, midpoints, segments)
+
+    def _start_face_sketch(
+        self,
+        *,
+        support: EntityRef | None = None,
+        definition: SketchDefinition | None = None,
+        feature_id: int | None = None,
+    ) -> None:
+        if support is None:
+            support = self.require_selection("face", 1)[0]
+        if support.kind != "face":
+            raise ValueError("select one Model Geometry Plate as sketch support")
+        plane = face_sketch_plane(self.app.project.geometry, support.id)
+        units = self.app.project.units
+        spacing = units.parse(self._face_sketch_grid.get(), "length")
+        tolerance = units.parse(self._workplane_tolerance.get(), "length")
+        if self.app.viewport.construction_active:
+            self.app.viewport.cancel_construction()
+        task = FaceSketchTask(plane, tolerance, definition)
+        system_id = "__active_face_sketch__"
+        system = CoordinateSystem(
+            name="Active face sketch",
+            id=system_id,
+            origin=plane.origin,
+            axis=plane.normal,
+            reference=plane.x_axis,
+        )
+        systems = dict(self.app.project.coordinate_systems)
+        systems[system_id] = system
+        workplane = Workplane(
+            system_id,
+            grid_spacing=spacing,
+            snap_tolerance=tolerance,
+            snap_grid=True,
+            snap_axes=True,
+            snap_endpoints=True,
+            snap_midpoints=True,
+            snap_intersections=True,
+        )
+        boundary = np.asarray(plane.boundary_vertices, dtype=float)
+        lower = boundary.min(axis=0)
+        upper = boundary.max(axis=0)
+        margin = max(0.25 * float(np.max(upper - lower)), 2.0 * spacing)
+        extent = (
+            float(lower[0] - margin), float(upper[0] + margin),
+            float(lower[1] - margin), float(upper[1] + margin),
+        )
+        self._editing_sketch_feature_id = feature_id
+        self._sketch_support_ref = support
+        if definition is not None:
+            self._face_sketch_closed.set(definition.closed)
+            self._face_sketch_extrusion.set(units.format(definition.extrusion, "length"))
+        self.app.viewport.begin_construction(
+            task,
+            workplane,
+            systems,
+            snap_data=self._face_snap_data(plane),
+            update_handler=self._construction_updated,
+            apply_handler=self.guarded(self._apply_face_sketch),
+            grid_extent=extent,
+            length_formatter=lambda value: units.format(value, "length"),
+        )
+        self._update_face_sketch_status(task, None)
+        self.app.set_status(
+            "face sketch active: click points on the unlimited grid; Enter applies"
+        )
+
+    def _sketch_task(self) -> FaceSketchTask:
+        task = self.app.viewport.construction_task
+        if not isinstance(task, FaceSketchTask):
+            raise ValueError("start a sketch on one selected flat plate first")
+        return task
+
+    def _sketch_pair(self, task: FaceSketchTask) -> tuple[int, int]:
+        try:
+            values = tuple(int(item) - 1 for item in self._face_sketch_pair.get().replace(",", " ").split())
+        except ValueError as error:
+            raise ValueError("point numbers must contain two whole numbers") from error
+        if len(values) != 2 or values[0] == values[1]:
+            raise ValueError("enter two different point numbers, for example 1 2")
+        if min(values) < 0 or max(values) >= len(task.point_keys):
+            raise ValueError(f"point numbers must be between 1 and {len(task.point_keys)}")
+        return values
+
+    def _add_sketch_distance(self) -> None:
+        task = self._sketch_task()
+        first, second = self._sketch_pair(task)
+        value = self.app.project.units.parse(self._face_sketch_distance.get(), "length")
+        task.add_distance(first, second, value)
+        if task.ready:
+            task.solve_preview(self.app.project.units.parse(self._face_sketch_extrusion.get(), "length"))
+        self.app.viewport.refresh_construction_overlay()
+        self._update_face_sketch_status(task, None)
+
+    def _add_sketch_coincidence(self) -> None:
+        task = self._sketch_task()
+        first, second = self._sketch_pair(task)
+        task.add_coincidence(first, second)
+        if task.ready:
+            task.solve_preview(self.app.project.units.parse(self._face_sketch_extrusion.get(), "length"))
+        self.app.viewport.refresh_construction_overlay()
+        self._update_face_sketch_status(task, None)
+
+    def _remove_sketch_point(self) -> None:
+        task = self._sketch_task()
+        task.backspace()
+        self.app.viewport.refresh_construction_overlay()
+        self._update_face_sketch_status(task, None)
+
+    def _remove_sketch_constraint(self) -> None:
+        task = self._sketch_task()
+        task.remove_last_constraint()
+        self.app.viewport.refresh_construction_overlay()
+        self._update_face_sketch_status(task, None)
+
+    def _update_face_sketch_status(self, task: FaceSketchTask, snap) -> None:
+        boundary = sum(item.kind in ("on_edge", "on_vertex") for item in task.constraints)
+        dimensional = sum(item.kind == "distance" for item in task.constraints)
+        coincidence = sum(item.kind == "coincident" for item in task.constraints)
+        text = (
+            f"{len(task.points)} point(s) • {dimensional} distance • "
+            f"{coincidence + boundary} coincidence constraint(s)"
+        )
+        self._face_sketch_status.configure(text=text)
+        self.app.set_status(text)
+
+    def _apply_face_sketch(self) -> None:
+        task = self._sketch_task()
+        task.close = bool(self._face_sketch_closed.get())
+        extrusion = self.app.project.units.parse(
+            self._face_sketch_extrusion.get(), "length"
+        )
+        definition = task.solve_preview(extrusion)
+        feature_id = self._editing_sketch_feature_id
+        if feature_id is None:
+            support = self._sketch_support_ref
+            if support is None:
+                raise ValueError("the sketch support plate is unavailable")
+            feature = self.app.run(cmd.AddSketch(support, definition))
+            action = "created"
+        else:
+            feature = self.app.run(
+                cmd.EditFeature(feature_id, parameters=definition.to_parameters())
+            )
+            action = "updated"
+        self.app.viewport.end_construction()
+        self._editing_sketch_feature_id = None
+        self._sketch_support_ref = None
+        made = tuple(
+            reference for key, reference in feature.outputs.items()
+            if key.startswith("extrusion/face/")
+        )
+        if made:
+            self.app.selection.set_mode("face")
+            self.app.selection.restore(made)
+        self._face_sketch_status.configure(text="No face sketch active")
+        self.app.set_status(
+            f"{action} editable sketch {feature.feature_id}: "
+            f"{len(task.points)} points, {len(made)} extruded plate(s)"
+        )
+
+    def _cancel_face_sketch(self) -> None:
+        if self.app.viewport.cancel_construction():
+            self._editing_sketch_feature_id = None
+            self._sketch_support_ref = None
+            self._face_sketch_status.configure(text="No face sketch active")
+            self.app.set_status("face sketch cancelled; model unchanged")
+
+    def edit_sketch(self, feature_id: int) -> bool:
+        record = self.app.project.geometry.features.get(int(feature_id))
+        if record.kind != "geometry.sketch.extrude":
+            return False
+        references = record.inputs.get("support_face", ())
+        if len(references) != 1:
+            raise ValueError("the sketch support definition is invalid")
+        resolved = self.app.project.geometry.features.resolve(
+            references[0], self.app.project.geometry
+        )
+        if len(resolved) != 1 or resolved[0].kind != "face":
+            raise ValueError("the sketch support plate is unresolved")
+        self._geometry_tabs.select(self._geometry_pages["Guiding geometry"])
+        self._start_face_sketch(
+            support=resolved[0],
+            definition=SketchDefinition.from_parameters(record.parameters),
+            feature_id=record.feature_id,
+        )
+        return True
 
     def _add_line(self) -> None:
         points = self.require_selection("vertex", 2)
@@ -1068,6 +1361,21 @@ class MeshPanel(StagePanel):
         if record is not None:
             state = self.app.mesh_record_state(record)
             lines.append(f"{record.name}: {state}")
+            if "automatic_intersections" in record.summary:
+                intersections = int(record.summary["automatic_intersections"])
+                lines.append(
+                    f"{intersections} automatic plate intersection(s) imprinted"
+                )
+            if "automatic_beam_connections" in record.summary:
+                connections = int(record.summary["automatic_beam_connections"])
+                lines.append(
+                    f"{connections} automatic beam joint/shell connection(s) created"
+                )
+            if "automatic_shell_connections" in record.summary:
+                connections = int(record.summary["automatic_shell_connections"])
+                lines.append(
+                    f"{connections} automatic shell T-junction tie(s) created"
+                )
             quality = record.summary.get("quality", {})
             if quality:
                 lines.extend(

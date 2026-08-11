@@ -58,6 +58,33 @@ def build_plate(app, width=2.0, height=1.0):
     return points, face
 
 
+def test_editable_face_sketch_ui_creates_and_reopens_feature(app, root):
+    _points, face = build_plate(app, width=4.0, height=3.0)
+    panel = app.panels["Geometry"]
+    app.selection.set_mode("face")
+    app.selection.restore((EntityRef("face", face),))
+    panel._face_sketch_grid.set("0.25 m")
+    panel._face_sketch_extrusion.set("1 m")
+
+    panel._start_face_sketch()
+    task = panel._sketch_task()
+    for point in ((0.5, 0.5), (1.7, 0.5), (1.7, 1.5)):
+        task.add(task.plane.world(point))
+    panel._face_sketch_pair.set("1 2")
+    panel._face_sketch_distance.set("1 m")
+    panel._add_sketch_distance()
+    panel._apply_face_sketch()
+    root.update()
+
+    feature = app.project.geometry.features.records[-1]
+    assert feature.kind == "geometry.sketch.extrude"
+    assert len([key for key in feature.outputs if key.startswith("extrusion/face/")]) == 3
+
+    assert panel.edit_sketch(feature.feature_id)
+    assert len(panel._sketch_task().points) == 3
+    panel._cancel_face_sketch()
+
+
 def test_plate_sections_automatically_create_thickness_qualified_dnv_materials(
     app, root
 ):

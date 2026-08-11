@@ -114,6 +114,8 @@ class Viewport:
             Callable[[ConstructionTask, SnapResult | None], None]
         ] = None
         self._on_construction_apply: Optional[Callable[[], Any]] = None
+        self._construction_grid_extent: tuple[float, float, float, float] | None = None
+        self._construction_length_formatter: Callable[[float], str] | None = None
         self._commercial_selection = bool(
             commercial_interaction
             and self._selection_api is not None
@@ -164,6 +166,7 @@ class Viewport:
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
         self._draw(scene)
+        self._draw_construction_overlay()
         if reset_view:
             self.canvas.fit_to_scene()
         self._apply_highlight()
@@ -205,7 +208,7 @@ class Viewport:
             setter(style.background)
         elif hasattr(widget, "configure"):
             widget.configure(background=style.background)
-        if self._scene is not None:
+        if getattr(self, "_scene", None) is not None:
             self.show(self._scene)
 
     # ------------------------------------------------------------------
@@ -267,6 +270,8 @@ class Viewport:
             Callable[[ConstructionTask, SnapResult | None], None]
         ] = None,
         apply_handler: Optional[Callable[[], Any]] = None,
+        grid_extent: tuple[float, float, float, float] | None = None,
+        length_formatter: Callable[[float], str] | None = None,
     ) -> None:
         """Route subsequent LMB click events into a working-copy task.
 
@@ -286,6 +291,97 @@ class Viewport:
         self._construction_snap_data = snap_data
         self._on_construction_update = update_handler
         self._on_construction_apply = apply_handler
+        self._construction_grid_extent = grid_extent
+        self._construction_length_formatter = length_formatter
+        if getattr(self, "_scene", None) is not None:
+            self.show(self._scene)
+
+    def _draw_construction_overlay(self) -> None:
+        """Draw a bounded face/workplane grid and the uncommitted sketch."""
+
+        task = self._construction_task
+        workplane = self._construction_workplane
+        systems = self._construction_coordinate_systems
+        if task is None or workplane is None or systems is None:
+            return
+        frame = workplane.resolve(systems)
+        extent = self._construction_grid_extent or (-5.0, 5.0, -5.0, 5.0)
+        u0, u1, v0, v1 = (float(item) for item in extent)
+        spacing = float(workplane.grid_spacing)
+        # At most 101 grid lines per direction; an overly fine entry must not
+        # freeze the Tk renderer.
+        def grid_values(lower: float, upper: float) -> np.ndarray:
+            first = int(np.floor(lower / spacing))
+            last = int(np.ceil(upper / spacing))
+            count = max(last - first + 1, 0)
+            if count <= 101:
+                indices = np.arange(first, last + 1, dtype=float)
+            else:
+                indices = np.linspace(first, last, 101)
+            return indices * spacing
+
+        u_values = grid_values(u0, u1)
+        v_values = grid_values(v0, v1)
+        point3d = self._point3d
+        for value in u_values:
+            start = frame.world_position((value, v0))
+            end = frame.world_position((value, v1))
+            self.canvas.add_line(
+                point3d(*start), point3d(*end), color="#c8d7e6", width=1,
+                layer=40, draw_overlay=True,
+            )
+        for value in v_values:
+            start = frame.world_position((u0, value))
+            end = frame.world_position((u1, value))
+            self.canvas.add_line(
+                point3d(*start), point3d(*end), color="#c8d7e6", width=1,
+                layer=40, draw_overlay=True,
+            )
+        for start, end in task.preview_segments:
+            self.canvas.add_line(
+                point3d(*start), point3d(*end), color="#1565c0", width=3,
+                layer=45, draw_overlay=True,
+            )
+        point_keys = list(getattr(task, "point_keys", ()))
+        point_index = {key: index for index, key in enumerate(point_keys)}
+        for constraint in getattr(task, "constraints", ()):
+            if getattr(constraint, "kind", "") != "distance":
+                continue
+            first = point_index.get(getattr(constraint, "first", ""))
+            second = point_index.get(getattr(constraint, "second", ""))
+            if first is None or second is None:
+                continue
+            midpoint = 0.5 * (
+                np.asarray(task.points[first], dtype=float)
+                + np.asarray(task.points[second], dtype=float)
+            )
+            formatter = getattr(self, "_construction_length_formatter", None)
+            label = (
+                formatter(float(constraint.value))
+                if callable(formatter)
+                else f"{float(constraint.value):.6g} m"
+            )
+            self.canvas.add_text(
+                point3d(*midpoint),
+                label,
+                color="#0d47a1",
+                layer=47,
+                draw_overlay=True,
+            )
+        if task.points:
+            if hasattr(self.canvas, "add_markers"):
+                self.canvas.add_markers(
+                    [point3d(*point) for point in task.points],
+                    colors=["#ff8f00"] * len(task.points),
+                    size=[8] * len(task.points),
+                    layer=46,
+                )
+            else:
+                for point in task.points:
+                    self.canvas.add_sphere(
+                        max(self._marker_size, spacing * 0.015),
+                        center=point3d(*point), color="#ff8f00",
+                    )
 
     def construction_click(self, x: float, y: float) -> SnapResult | None:
         """Feed one screen click into the active task and return its snap."""
@@ -306,9 +402,17 @@ class Viewport:
         data = source() if callable(source) else source
         result = engine.snap(point, workplane, frame, data)
         task.add(result)
+        if getattr(self, "_scene", None) is not None:
+            self.show(self._scene)
         if self._on_construction_update is not None:
             self._on_construction_update(task, result)
         return result
+
+    def refresh_construction_overlay(self) -> None:
+        """Redraw a changed working-copy task without mutating the model."""
+
+        if getattr(self, "_scene", None) is not None and self._construction_task is not None:
+            self.show(self._scene)
 
     def finish_construction(self, execute: Callable[[Any], Any]) -> Any:
         """Apply one task atomically; leave it active if validation fails."""
@@ -327,6 +431,10 @@ class Viewport:
         self._construction_snap_data = None
         self._on_construction_update = None
         self._on_construction_apply = None
+        self._construction_grid_extent = None
+        self._construction_length_formatter = None
+        if getattr(self, "_scene", None) is not None:
+            self.show(self._scene)
 
     def cancel_construction(self) -> bool:
         """Cancel the working preview.  The live model remains untouched."""

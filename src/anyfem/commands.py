@@ -31,6 +31,7 @@ from anygeometry.editing import (
     reverse_face,
 )
 from anygeometry.errors import GeometryError
+from anygeometry import SketchDefinition
 from anygeometry.operations import (
     closest_point,
     punch_hole,
@@ -87,6 +88,7 @@ __all__ = [
     "AddSurfaceTraction",
     "AddCoordinateSystem",
     "AddStiffenedPanel",
+    "AddSketch",
     "AssignBeam",
     "AssignPlate",
     "ButterflyHoleDecomposition",
@@ -387,6 +389,36 @@ class AddFeature(FeatureCommand):
             suppressed=self.suppressed,
             kind_version=self.kind_version,
             dependencies=self.dependencies,
+        )
+        return record.feature_id
+
+
+@dataclass(eq=False)
+class AddSketch(FeatureCommand):
+    """Create one editable constrained sketch on a persistent support face."""
+
+    support_face: EntityRef
+    definition: SketchDefinition
+    name: str = "Sketch"
+    label: str = "add sketch"
+
+    def __post_init__(self) -> None:
+        FeatureCommand.__init__(self)
+        if self.support_face.kind != "face":
+            raise GeometryError("a sketch support must be a plate face")
+
+    def change(self, project: Project) -> int:
+        geometry = project.geometry
+        geometry.features.capture_baseline(geometry)
+        record = geometry.features.append(
+            "geometry.sketch.extrude",
+            name=self.name,
+            parameters=self.definition.to_parameters(),
+            inputs={
+                "support_face": (
+                    _feature_anchor(geometry, self.support_face),
+                )
+            },
         )
         return record.feature_id
 

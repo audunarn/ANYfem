@@ -38,6 +38,7 @@ from .snapping import (
     SnapSegment,
     geometry_snap_data,
 )
+from .sketching import FaceSketchTask
 
 __all__ = [
     "Arc",
@@ -55,6 +56,7 @@ __all__ = [
     "EntityKind",
     "EntityRef",
     "Face",
+    "FaceSketchTask",
     "GeometryError",
     "GeometryModel",
     "GeometrySnapData",

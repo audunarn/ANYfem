@@ -288,3 +288,36 @@ def test_viewport_parallel_workplane_ray_leaves_preview_unchanged():
     viewport.begin_construction(task, Workplane(), systems())
     assert viewport.construction_click(10, 10) is None
     assert task.points == ()
+
+
+class _OverlayCanvas:
+    def __init__(self):
+        self.lines = []
+        self.markers = []
+
+    def add_line(self, start, end, **options):
+        self.lines.append((start, end, options))
+
+    def add_markers(self, points, **options):
+        self.markers.append((points, options))
+
+
+def test_workplane_grid_overlay_is_bounded_even_for_tiny_spacing():
+    viewport = object.__new__(Viewport)
+    viewport.canvas = _OverlayCanvas()
+    viewport._point3d = lambda *point: tuple(point)
+    viewport._marker_size = 0.01
+    viewport._construction_task = ConstructionTask("polyline")
+    viewport._construction_task.add((0.0, 0.0, 0.0))
+    viewport._construction_task.add((1.0, 1.0, 0.0))
+    viewport._construction_workplane = Workplane(
+        grid_spacing=1.0e-9, snap_tolerance=0.01
+    )
+    viewport._construction_coordinate_systems = systems()
+    viewport._construction_grid_extent = (-1000.0, 1000.0, -1000.0, 1000.0)
+
+    viewport._draw_construction_overlay()
+
+    # 101 lines per direction plus one working polyline segment.
+    assert len(viewport.canvas.lines) == 203
+    assert len(viewport.canvas.markers[0][0]) == 2

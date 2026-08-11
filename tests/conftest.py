@@ -15,9 +15,50 @@ where they belong.  Do not remove this.
 from __future__ import annotations
 
 import gc
+import inspect
 import os
 
 import pytest
+
+
+_RUN_GUI_TESTS = os.environ.get("ANYFEM_RUN_GUI_TESTS", "").casefold() in {
+    "1",
+    "true",
+    "yes",
+}
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "gui: opt-in test that creates a real Tk desktop window",
+    )
+
+
+def pytest_collection_modifyitems(items):
+    """Keep real Tk sessions out of ordinary regression runs.
+
+    A number of older tests use shared ``root`` fixtures; a few construct a
+    root inside the test body.  Detect both without skipping headless tests in
+    the same module.
+    """
+
+    if _RUN_GUI_TESTS:
+        return
+    skip = pytest.mark.skip(
+        reason="real Tk GUI test is opt-in; set ANYFEM_RUN_GUI_TESTS=1"
+    )
+    for item in items:
+        try:
+            source = inspect.getsource(item.obj)
+        except (OSError, TypeError):
+            source = ""
+        real_tk = any(name.endswith("root") for name in item.fixturenames) or any(
+            token in source for token in ("tk.Tk(", "tkinter.Tk(")
+        )
+        if real_tk:
+            item.add_marker("gui")
+            item.add_marker(skip)
 
 
 # A developer test run must leave the workstation usable.  Numerical kernels
