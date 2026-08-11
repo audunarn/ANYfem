@@ -8,7 +8,12 @@ import pytest
 
 from anyfem import Project, commands as cmd, steel
 from anyfem.document import DocumentSession
-from anyfem.model.records import AnalysisDefinition, JobRecord, MeshRecord
+from anyfem.model.records import (
+    AnalysisDefinition,
+    JobRecord,
+    JobStatus,
+    MeshRecord,
+)
 
 
 def _mesh(name: str) -> MeshRecord:
@@ -90,6 +95,113 @@ def test_real_tree_context_delete_uses_every_highlighted_mesh_row():
         assert "deleted 3 selected mesh" in app._status.cget("text")
         app.undo()
         assert set(app.project.mesh_records) == {item.id for item in records}
+    finally:
+        app.destroy()
+        root.update()
+        root.destroy()
+
+
+def test_tree_delete_analysis_removes_completed_jobs_and_results_atomically():
+    from anyfem.ui.app import AnyFemApp
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available for tkinter")
+    app = AnyFemApp(root)
+    try:
+        analysis = app.project.add_analysis(AnalysisDefinition("Nonlinear static"))
+        job = app.project.add_job(
+            JobRecord(
+                analysis_id=analysis.id,
+                name="Nonlinear static job",
+                status=JobStatus.COMPLETED,
+                result_artifact_id="result-artifact",
+            )
+        )
+        app.refresh_all()
+        root.update()
+
+        app.tree.tree.selection_set(f"analysis:{analysis.id}")
+        app._tree_action("delete", tuple(app.tree.tree.selection()))
+        root.update()
+
+        assert analysis.id not in app.project.analyses
+        assert job.id not in app.project.jobs
+        assert "dependent job(s)/result(s)" in app._status.cget("text")
+        app.undo()
+        assert analysis.id in app.project.analyses
+        assert job.id in app.project.jobs
+        assert app.project.jobs[job.id].result_artifact_id == "result-artifact"
+    finally:
+        app.destroy()
+        root.update()
+        root.destroy()
+
+
+def test_tree_delete_analysis_and_selected_child_job_does_not_duplicate_command():
+    from anyfem.ui.app import AnyFemApp
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available for tkinter")
+    app = AnyFemApp(root)
+    try:
+        analysis = app.project.add_analysis(AnalysisDefinition("Static"))
+        job = app.project.add_job(
+            JobRecord(
+                analysis_id=analysis.id,
+                name="Static job",
+                status=JobStatus.COMPLETED,
+            )
+        )
+        app.refresh_all()
+        root.update()
+
+        # Child first deliberately exercises Treeview ordering independently
+        # of the cascade order.
+        keys = (f"job:{job.id}", f"analysis:{analysis.id}")
+        app._delete_tree_items(keys)
+
+        assert analysis.id not in app.project.analyses
+        assert job.id not in app.project.jobs
+        app.undo()
+        assert analysis.id in app.project.analyses
+        assert job.id in app.project.jobs
+    finally:
+        app.destroy()
+        root.update()
+        root.destroy()
+
+
+def test_tree_delete_analysis_refuses_to_remove_a_running_job():
+    from anyfem.ui.app import AnyFemApp
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available for tkinter")
+    app = AnyFemApp(root)
+    try:
+        analysis = app.project.add_analysis(AnalysisDefinition("Running"))
+        job = app.project.add_job(
+            JobRecord(
+                analysis_id=analysis.id,
+                name="Running job",
+                status=JobStatus.RUNNING,
+            )
+        )
+        app.refresh_all()
+        root.update()
+
+        app.tree.tree.selection_set(f"analysis:{analysis.id}")
+        app._tree_action("delete", tuple(app.tree.tree.selection()))
+        root.update()
+
+        assert analysis.id in app.project.analyses
+        assert job.id in app.project.jobs
+        assert "cannot delete a running job" in app._status.cget("text")
     finally:
         app.destroy()
         root.update()

@@ -678,6 +678,13 @@ GUI tests skip rather than fail when no display is available. The current test
 count belongs in CI output, because extraction work moves tests to their owning
 repositories.
 
+Ordinary tests cap native numerical libraries at one worker so a development
+run does not monopolize the workstation. Set `ANYFEM_TEST_THREADS` to an
+intentional higher value when needed. The 50,000-owner / 250,000-node scale
+qualification is not part of the normal regression run; enable it explicitly
+with `ANYFEM_RUN_SCALE_GATES=1`, and add `ANYFEM_RUN_HARDWARE_GATES=1` only on
+the representative workstation used for timing acceptance.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

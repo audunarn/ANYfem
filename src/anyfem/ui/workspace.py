@@ -30,8 +30,34 @@ class DetailsWorkspace(ttk.Frame):
 
         self._navigation = ttk.Frame(self, padding=(6, 0, 6, 6))
         self._navigation.pack(fill="x")
-        self._content = ttk.Frame(self)
-        self._content.pack(fill="both", expand=True)
+        # Details pages contain progressively disclosed engineering forms and
+        # can legitimately be taller than the window.  A plain Frame clips
+        # everything below its allocated height.  Keep one scrollable host for
+        # every page and Geometry sub-tab rather than teaching each panel its
+        # own scrolling implementation.
+        content_host = ttk.Frame(self)
+        content_host.pack(fill="both", expand=True)
+        background = ttk.Style(self).lookup("TFrame", "background") or "#f0f0f0"
+        self._canvas = tk.Canvas(
+            content_host,
+            borderwidth=0,
+            highlightthickness=0,
+            background=background,
+        )
+        self._scrollbar = ttk.Scrollbar(
+            content_host, orient="vertical", command=self._canvas.yview
+        )
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+        self._canvas.pack(side="left", fill="both", expand=True)
+        self._scrollbar.pack(side="right", fill="y")
+        self._content = ttk.Frame(self._canvas)
+        self._content_window = self._canvas.create_window(
+            (0, 0), window=self._content, anchor="nw"
+        )
+        self._content.bind("<Configure>", self._content_configured)
+        self._canvas.bind("<Configure>", self._canvas_configured)
+        self._canvas.bind("<MouseWheel>", self._mousewheel, add="+")
+        self._content.bind("<MouseWheel>", self._mousewheel, add="+")
 
     def add(self, panel: ttk.Frame, *, text: str) -> None:
         if text in self._panels:
@@ -68,8 +94,46 @@ class DetailsWorkspace(ttk.Frame):
                 self._buttons[key].state(["!disabled"])
         self._current = name
         self._title.configure(text=name)
+        self._canvas.yview_moveto(0.0)
         if self._on_select is not None:
             self._on_select(name)
+
+    def _content_configured(self, _event=None) -> None:
+        requested = max(
+            self._content.winfo_reqheight(), self._canvas.winfo_height()
+        )
+        self._canvas.itemconfigure(self._content_window, height=requested)
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+
+    def _canvas_configured(self, event: tk.Event) -> None:
+        self._canvas.itemconfigure(self._content_window, width=max(int(event.width), 1))
+        self._content_configured()
+
+    def _mousewheel(self, event: tk.Event) -> None:
+        """Scroll only when the pointer is over this Details workspace."""
+
+        try:
+            widget = self.winfo_containing(event.x_root, event.y_root)
+        except (AttributeError, tk.TclError):
+            return
+        while widget is not None and widget is not self:
+            widget = getattr(widget, "master", None)
+        if widget is self and event.delta:
+            self._canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    def scroll_to(self, widget: tk.Misc) -> None:
+        """Bring a disclosed task section to the top of the visible area."""
+
+        self.update_idletasks()
+        y = 0
+        current: tk.Misc | None = widget
+        while current is not None and current is not self._content:
+            y += int(current.winfo_y())
+            current = getattr(current, "master", None)
+        if current is not self._content:
+            return
+        total = max(self._content.winfo_height(), self._content.winfo_reqheight(), 1)
+        self._canvas.yview_moveto(min(max(y / total, 0.0), 1.0))
 
     def set_select_handler(self, handler: Callable[[str], None] | None) -> None:
         """Run application view/context policy after a Details page is chosen."""

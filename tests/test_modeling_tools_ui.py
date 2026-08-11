@@ -83,6 +83,44 @@ def test_details_panel_creates_an_editable_structural_generator(app, root):
     assert "editable feature" in app._status.cget("text")
 
 
+def test_geometry_is_grouped_into_engineering_subtabs(app, root):
+    panel = app.panels["Geometry"]
+    app.details.select("Geometry")
+    root.update()
+    assert tuple(panel._geometry_tabs.tab(index, "text") for index in range(4)) == (
+        "Guiding geometry",
+        "Operations",
+        "Plates",
+        "Beams",
+    )
+    assert panel._geometry_tabs.tab("current", "text") == "Guiding geometry"
+
+    panel._geometry_tabs.select(panel._geometry_pages["Plates"])
+    root.update()
+    assert panel._geometry_pages["Plates"].winfo_ismapped()
+    assert not panel._geometry_pages["Guiding geometry"].winfo_ismapped()
+    assert panel._generator_type.get() == "Plate"
+
+    panel._geometry_tabs.select(panel._geometry_pages["Beams"])
+    root.update()
+    assert panel._geometry_pages["Beams"].winfo_ismapped()
+    assert panel._beam_generator_type.get() == "Girder"
+
+
+def test_plate_and_beam_generators_create_editable_features(app, root):
+    panel = app.panels["Geometry"]
+    panel._generator_type.set("Plate")
+    panel.guarded(panel._add_generator)()
+    panel._beam_generator_type.set("Stiffener")
+    panel.guarded(panel._add_beam_generator)()
+    root.update()
+
+    kinds = [feature.kind for feature in app.project.geometry.features.records]
+    assert kinds[-2:] == ["generator.plate", "generator.stiffener"]
+    assert app.project.geometry.group("shell")
+    assert app.project.geometry.group("stiffeners")
+
+
 def test_details_panel_keeps_neutral_trim_separate_from_mesh_decomposition(app, root):
     face = _plate(app)
     app.selection.set_mode("face")
@@ -97,4 +135,3 @@ def test_details_panel_keeps_neutral_trim_separate_from_mesh_decomposition(app, 
     assert list(app.project.geometry.faces) == [face]
     assert len(app.project.geometry.faces[face].holes) == 1
     assert "not decomposed" in app._status.cget("text")
-

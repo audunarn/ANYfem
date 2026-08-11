@@ -236,10 +236,9 @@ def test_point_markers_support_click_shift_click_and_box_selection(app, root):
     geometry_panel._construction_mode.set("Point")
     geometry_panel._start_construction()
     assert app.viewport.construction_active
-    geometry_panel._mode.set("vertex")
-    geometry_panel._change_mode()
+    app.selection_strip.set_context("vertex")
     assert not app.viewport.construction_active
-    assert "selection is active" in app._status.cget("text")
+    assert "selection controls are active" in app._status.cget("text")
 
     canvas = app.viewport.canvas
     inner = canvas.canvas

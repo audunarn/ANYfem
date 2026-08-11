@@ -1276,6 +1276,22 @@ class AnyFemApp(ttk.Frame):
         mesh_ids: set[str] = set()
         job_ids: set[str] = set()
         result_ids: set[str] = set()
+        cascaded_job_ids: set[str] = set()
+        explicitly_selected_job_ids = {
+            key.split(":", 1)[1]
+            for key in selected
+            if key.startswith("job:")
+        }
+        selected_analysis_ids = {
+            key.split(":", 1)[1]
+            for key in selected
+            if key.startswith("analysis:")
+        }
+        analysis_dependent_job_ids = {
+            job.id
+            for job in self.project.jobs.values()
+            if job.analysis_id in selected_analysis_ids
+        }
 
         entity_refs = [parse_entity_tag(key) for key in selected]
         if any(ref is not None for ref in entity_refs):
@@ -1336,6 +1352,33 @@ class AnyFemApp(ttk.Frame):
                     "mesh", "analysis", "job", "result", "material",
                     "coordinate", "region",
                 }:
+                    # A submitted analysis owns its retained job/result
+                    # history.  Deleting only the definition would orphan
+                    # those records, which the command layer correctly
+                    # refuses.  At the tree/workflow level, explicit analysis
+                    # deletion therefore removes finished dependants first in
+                    # the same atomic, undoable edit.  Active jobs still fail
+                    # closed in DeleteProjectRecord("job", ...).
+                    if prefix == "analysis":
+                        categories.add(prefix)
+                        dependants = [
+                            job
+                            for job in self.project.jobs.values()
+                            if job.analysis_id == identifier
+                        ]
+                        for job in dependants:
+                            if job.id not in cascaded_job_ids:
+                                commands.append(DeleteProjectRecord("job", job.id))
+                                cascaded_job_ids.add(job.id)
+                                job_ids.add(job.id)
+                                if job.result_artifact_id is not None:
+                                    result_ids.add(job.result_artifact_id)
+                        commands.append(DeleteProjectRecord(prefix, identifier))
+                        continue
+                    if prefix == "job" and identifier in analysis_dependent_job_ids:
+                        # The user selected both an analysis and its child job;
+                        # the cascade already contains it exactly once.
+                        continue
                     categories.add(prefix)
                     commands.append(DeleteProjectRecord(prefix, identifier))
                     if prefix == "mesh":
@@ -1401,7 +1444,14 @@ class AnyFemApp(ttk.Frame):
             self.shape_index = 0
             self.show_mesh()
         self.set_status(
-            f"deleted {len(commands)} selected {next(iter(categories))} item(s); Undo restores all"
+            f"deleted {len(selected)} selected {next(iter(categories))} item(s)"
+            + (
+                f" and {len(cascaded_job_ids - explicitly_selected_job_ids)} "
+                "dependent job(s)/result(s)"
+                if cascaded_job_ids - explicitly_selected_job_ids
+                else ""
+            )
+            + "; Undo restores all"
         )
 
     def show_command_palette(self, _event=None):

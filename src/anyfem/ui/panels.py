@@ -216,24 +216,45 @@ class GeometryPanel(StagePanel):
     title = "Geometry"
 
     def build(self) -> None:
-        modes = self.section("Select")
-        row = ttk.Frame(modes)
-        row.pack(fill="x")
-        self._mode = tk.StringVar(value=self.app.selection.mode)
-        for mode in SELECTION_MODES:
-            ttk.Radiobutton(
-                row,
-                text=mode_label(mode),
-                value=mode,
-                variable=self._mode,
-                command=self._change_mode,
-            ).pack(side="left", expand=True)
+        ttk.Label(
+            self,
+            text=(
+                "Create model geometry here. Point / Line / Plate selection is "
+                "controlled by the persistent selection strip above."
+            ),
+            foreground="#555555",
+            wraplength=360,
+        ).pack(fill="x", padx=6, pady=(5, 3))
 
-        point = self.section("Point")
+        self._geometry_tabs = ttk.Notebook(self)
+        self._geometry_tabs.pack(fill="both", expand=True, padx=3, pady=(0, 4))
+        guiding_page = ttk.Frame(self._geometry_tabs)
+        operations_page = ttk.Frame(self._geometry_tabs)
+        plates_page = ttk.Frame(self._geometry_tabs)
+        beams_page = ttk.Frame(self._geometry_tabs)
+        self._geometry_pages = {
+            "Guiding geometry": guiding_page,
+            "Operations": operations_page,
+            "Plates": plates_page,
+            "Beams": beams_page,
+        }
+        for name, page in self._geometry_pages.items():
+            self._geometry_tabs.add(page, text=name)
+        ttk.Label(
+            guiding_page,
+            text=(
+                "Points, curves and workplane sketches define construction intent; "
+                "they become structural members only after a section is assigned."
+            ),
+            foreground="#666666",
+            wraplength=330,
+        ).pack(fill="x", padx=6, pady=(5, 1))
+
+        point = self.section("Points", guiding_page)
         self._point = self.vector_row(point, "x, y, z")
         self.button(point, "Add point", self._add_point)
 
-        construction = self.section("Workplane construction")
+        construction = self.section("Workplanes / sketch construction", guiding_page)
         row = ttk.Frame(construction)
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="coordinates", width=16).pack(side="left")
@@ -291,20 +312,21 @@ class GeometryPanel(StagePanel):
             wraplength=270,
         ).pack(anchor="w", pady=(3, 0))
 
-        line = self.section("Line")
+        line = self.section("Guiding curves", guiding_page)
         self.button(line, "Line through 2 points", self._add_line)
         self.button(line, "Arc through 3 points", self._add_arc)
+        self.button(line, "Polyline through selected points", self._add_polyline)
         ttk.Label(
             line,
             text="Arc order: start, via, end",
             foreground="#666666",
         ).pack(anchor="w")
 
-        plate = self.section("Plate")
+        plate = self.section("Plate boundaries", plates_page)
         self.button(plate, "Plate from selected lines", self._add_face)
         self.button(plate, "Plate from selected points", self._add_plate)
 
-        extrude = self.section("Sweep")
+        extrude = self.section("Swept plates", plates_page)
         self._extrude = self.vector_row(extrude, "extrude vector", ("0", "0", "1"))
         self.button(extrude, "Extrude selected lines", self._extrude_lines)
         self._axis_point = self.vector_row(extrude, "axis point")
@@ -314,16 +336,7 @@ class GeometryPanel(StagePanel):
         self._angle = self.entry_row(extrude, "angle [deg]", "360")
         self.button(extrude, "Revolve selected lines", self._revolve_lines)
 
-        self._advanced_open = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            self,
-            text="Advanced modeling tools",
-            variable=self._advanced_open,
-            command=self._show_advanced,
-        ).pack(anchor="w", pady=(0, 6))
-        self._advanced = ttk.Frame(self)
-
-        duplicate = self.section("Copy, mirror and pattern", self._advanced)
+        duplicate = self.section("Copy, mirror and pattern", operations_page)
         self._copy_offset = self.vector_row(duplicate, "copy offset", ("1", "0", "0"))
         self.button(duplicate, "Copy selected", self._copy_selected)
         self._mirror_point = self.vector_row(duplicate, "plane point")
@@ -345,15 +358,15 @@ class GeometryPanel(StagePanel):
         self._pattern_count = self.entry_row(duplicate, "additional copies", "3")
         self.button(duplicate, "Circular pattern", self._circular_pattern)
 
-        generators = self.section("ANYgeometry structural generators", self._advanced)
+        generators = self.section("Plate and shell generators", plates_page)
         row = ttk.Frame(generators)
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="type", width=16).pack(side="left")
-        self._generator_type = tk.StringVar(value="Stiffened panel")
+        self._generator_type = tk.StringVar(value="Plate")
         ttk.Combobox(
             row,
             textvariable=self._generator_type,
-            values=("Stiffened panel", "Cylinder", "Cone"),
+            values=("Plate", "Bulkhead", "Frame", "Stiffened panel", "Cylinder", "Cone"),
             state="readonly",
             width=18,
         ).pack(side="left", fill="x", expand=True)
@@ -370,13 +383,67 @@ class GeometryPanel(StagePanel):
         self._generator_segments = self.entry_row(generators, "circumferential", "12")
         self._generator_group = self.entry_row(generators, "semantic group", "shell")
         self._generator_origin = self.vector_row(generators, "origin")
+        self._generator_u = self.vector_row(
+            generators, "length direction", ("1", "0", "0")
+        )
+        self._generator_v = self.vector_row(
+            generators, "width direction", ("0", "1", "0")
+        )
         self._generator_axis = self.vector_row(
             generators, "axis", ("0", "0", "1")
         )
         self.button(generators, "Create generator feature", self._add_generator)
-        self._show_advanced()
 
-        divide = self.section("Divide")
+        beam_paths = self.section("Beam centre-lines", beams_page)
+        ttk.Label(
+            beam_paths,
+            text=(
+                "Edges are beam centre-lines. Existing plate edges may also receive "
+                "a beam section, so connected beams and plates share topology."
+            ),
+            foreground="#666666",
+            wraplength=330,
+        ).pack(fill="x", pady=(0, 3))
+        self.button(beam_paths, "Straight beam through 2 points", self._add_line)
+        self.button(beam_paths, "Curved beam through 3 points", self._add_arc)
+        self._beam_path_close = tk.BooleanVar(value=False)
+        close_row = ttk.Frame(beam_paths)
+        close_row.pack(fill="x", pady=1)
+        ttk.Checkbutton(
+            close_row, text="Close centre-line loop", variable=self._beam_path_close
+        ).pack(side="left")
+        self.button(
+            beam_paths,
+            "Beam chain through selected points",
+            self._add_beam_polyline,
+        )
+
+        beam_generator = self.section("Girder / stiffener generator", beams_page)
+        row = ttk.Frame(beam_generator)
+        row.pack(fill="x", pady=1)
+        ttk.Label(row, text="type", width=16).pack(side="left")
+        self._beam_generator_type = tk.StringVar(value="Girder")
+        ttk.Combobox(
+            row,
+            textvariable=self._beam_generator_type,
+            values=("Girder", "Stiffener"),
+            state="readonly",
+            width=18,
+        ).pack(side="left", fill="x", expand=True)
+        self._beam_generator_length = self.entry_row(
+            beam_generator, "length [m]", "4"
+        )
+        self._beam_generator_origin = self.vector_row(beam_generator, "origin")
+        self._beam_generator_direction = self.vector_row(
+            beam_generator, "direction", ("1", "0", "0")
+        )
+        self.button(
+            beam_generator,
+            "Create beam generator feature",
+            self._add_beam_generator,
+        )
+
+        divide = self.section("Cut and partition", operations_page)
         self._fraction = self.entry_row(divide, "fraction", "0.5")
         self.button(divide, "Split selected lines", self._split_lines)
         row = ttk.Frame(divide)
@@ -392,7 +459,7 @@ class GeometryPanel(StagePanel):
         self.button(divide, "Strip selected plates", self._strip_plates)
         self.button(divide, "Three-sided region to plates", self._triangle)
 
-        trim = self.section("Modeling: neutral trim hole")
+        trim = self.section("Modeling: neutral trim hole", operations_page)
         self._trim_centre = self.vector_row(trim, "centre")
         self._trim_radius = self.entry_row(trim, "radius [m]", "0.25")
         self.button(trim, "Create trimmed face hole", self._trim_hole)
@@ -403,12 +470,12 @@ class GeometryPanel(StagePanel):
             wraplength=270,
         ).pack(anchor="w")
 
-        hole = self.section("Mesh: butterfly decomposition")
+        hole = self.section("Mesh: butterfly decomposition", operations_page)
         self._hole_centre = self.vector_row(hole, "centre")
         self._hole_radius = self.entry_row(hole, "radius [m]", "0.25")
         self.button(hole, "Create butterfly patches", self._punch)
 
-        edit = self.section("Edit")
+        edit = self.section("Inspect and edit", operations_page)
         self._corners = self.entry_row(edit, "corners", "0 1 2 3")
         self.button(edit, "Set plate corners", self._set_corners)
         self.button(edit, "Reverse line / plate orientation", self._reverse)
@@ -429,9 +496,11 @@ class GeometryPanel(StagePanel):
         self.button(edit, "Measure selection", self._measure)
         self.button(edit, "Check selected plates", self._check)
         self.button(edit, "Delete selection", self._delete)
+        self._geometry_tabs.bind(
+            "<<NotebookTabChanged>>", self._geometry_tab_changed, add="+"
+        )
 
     def refresh(self) -> None:
-        self._mode.set(self.app.selection.mode)
         systems = sorted(
             self.app.project.coordinate_systems.values(),
             key=lambda item: (item.id != "global", item.name.lower(), item.id),
@@ -441,18 +510,15 @@ class GeometryPanel(StagePanel):
         if self._workplane_coordinates.get() not in values and values:
             self._workplane_coordinates.set(values[0])
 
-    def _change_mode(self) -> None:
-        if self.app.viewport.cancel_construction():
+    def _geometry_tab_changed(self, _event=None) -> None:
+        selected = self._geometry_tabs.select()
+        if not selected:
+            return
+        name = self._geometry_tabs.tab(selected, "text")
+        if name != "Guiding geometry" and self.app.viewport.cancel_construction():
             self.app.set_status(
-                "click construction cancelled; geometry selection is active"
+                "click construction cancelled; Geometry tab changed"
             )
-        self.app.selection.set_mode(self._mode.get())
-
-    def _show_advanced(self) -> None:
-        if self._advanced_open.get():
-            self._advanced.pack(fill="x", pady=(0, 8))
-        else:
-            self._advanced.pack_forget()
 
     def _geometry_selection(self) -> List[EntityRef]:
         mode = self.app.selection.mode
@@ -561,7 +627,33 @@ class GeometryPanel(StagePanel):
         transverse = self._optional_number(
             self._generator_transverse, "transverse / ring spacing"
         )
-        if kind == "Stiffened panel":
+        if kind in {"Plate", "Bulkhead", "Frame"}:
+            requested_group = self._generator_group.get().strip()
+            semantic_group = (
+                kind.casefold()
+                if kind in {"Bulkhead", "Frame"}
+                and requested_group in {"", "shell"}
+                else (requested_group or "shell")
+            )
+            parameters = {
+                "length": length,
+                "width": self.number(self._generator_width, "plate width"),
+                "origin": tuple(origin),
+                "u_direction": tuple(
+                    self.vector(self._generator_u, "length direction")
+                ),
+                "v_direction": tuple(
+                    self.vector(self._generator_v, "width direction")
+                ),
+                "semantic_group": semantic_group,
+            }
+            command = cmd.AddFeature(
+                f"generator.{kind.casefold()}",
+                name=kind,
+                parameters=parameters,
+                label=f"add {kind.casefold()}",
+            )
+        elif kind == "Stiffened panel":
             if spacing is None:
                 raise ValueError("a stiffened panel needs longitudinal spacing")
             command = cmd.AddStiffenedPanel(
@@ -604,6 +696,35 @@ class GeometryPanel(StagePanel):
         self.app.set_status(
             f"created {feature.name} as editable feature {feature.feature_id} "
             f"({made} semantic outputs)"
+        )
+
+    def _add_beam_generator(self) -> None:
+        kind = self._beam_generator_type.get().strip()
+        if kind not in {"Girder", "Stiffener"}:
+            raise ValueError(f"unknown beam generator {kind!r}")
+        command = cmd.AddFeature(
+            f"generator.{kind.casefold()}",
+            name=kind,
+            parameters={
+                "length": self.number(
+                    self._beam_generator_length, "beam generator length"
+                ),
+                "origin": tuple(
+                    self.vector(self._beam_generator_origin, "beam generator origin")
+                ),
+                "direction": tuple(
+                    self.vector(
+                        self._beam_generator_direction,
+                        "beam generator direction",
+                    )
+                ),
+            },
+            label=f"add {kind.casefold()}",
+        )
+        feature = self.app.run(command)
+        self.app.set_status(
+            f"created {kind.casefold()} centre-line as editable feature "
+            f"{feature.feature_id}; assign a beam section in Sections"
         )
 
     def _add_point(self) -> None:
@@ -701,6 +822,30 @@ class GeometryPanel(StagePanel):
             cmd.AddArc(points[0].id, points[1].id, points[2].id)
         )
         self.app.set_status(f"added arc {edge}")
+
+    def _add_polyline(self) -> None:
+        points = self.require_selection("vertex")
+        if len(points) < 2:
+            raise ValueError("a polyline needs at least two ordered points")
+        edges = self.app.run(cmd.AddPolyline([ref.id for ref in points]))
+        self.app.set_status(f"added guiding polyline with {len(edges)} line(s)")
+
+    def _add_beam_polyline(self) -> None:
+        points = self.require_selection("vertex")
+        minimum = 3 if self._beam_path_close.get() else 2
+        if len(points) < minimum:
+            raise ValueError(
+                f"this beam chain needs at least {minimum} ordered points"
+            )
+        edges = self.app.run(
+            cmd.AddPolyline(
+                [ref.id for ref in points], close=bool(self._beam_path_close.get())
+            )
+        )
+        self.app.set_status(
+            f"created {len(edges)} beam centre-line(s); assign a beam section "
+            "in Sections"
+        )
 
     def _add_face(self) -> None:
         edges = self.require_selection("edge")

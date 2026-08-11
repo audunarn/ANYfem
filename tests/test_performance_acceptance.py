@@ -1,9 +1,10 @@
-"""Deterministic scalability gates for the commercial-style workspace.
+"""Opt-in scalability gates for the commercial-style workspace.
 
-The default tests assert algorithmic work and storage shape instead of wall
-clock time, so results are stable across CI machines.  Set
-``ANYFEM_RUN_HARDWARE_GATES=1`` on a representative workstation to additionally
-run the response-time targets from the usability plan.
+These tests intentionally construct 50,000 selection owners and result arrays
+for 250,000 nodes.  They are qualification workloads, not ordinary regression
+tests, and therefore require ``ANYFEM_RUN_SCALE_GATES=1``.  Set
+``ANYFEM_RUN_HARDWARE_GATES=1`` as well on a representative workstation to run
+the response-time targets from the usability plan.
 """
 
 from __future__ import annotations
@@ -31,6 +32,19 @@ OWNER_COUNT = 50_000
 INDEX_WIDTH = 1004
 INDEX_HEIGHT = 804
 MIB = 1024 * 1024
+
+RUN_SCALE_GATES = os.environ.get("ANYFEM_RUN_SCALE_GATES", "").casefold() in {
+    "1",
+    "true",
+    "yes",
+}
+pytestmark = pytest.mark.skipif(
+    not RUN_SCALE_GATES,
+    reason=(
+        "large 50k-owner/250k-node qualification is opt-in; set "
+        "ANYFEM_RUN_SCALE_GATES=1 on a representative workstation"
+    ),
+)
 
 
 @pytest.fixture(scope="module")

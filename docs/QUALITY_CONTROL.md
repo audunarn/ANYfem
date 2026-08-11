@@ -24,6 +24,11 @@ The verification and parity commands write dated evidence under `reports/`.
 The three checks are also installed as `anyfem-verify`, `anyfem-parity` and
 `anyfem-gate`.
 
+Normal pytest runs limit native numerical libraries to one thread. Override
+that safe default with `ANYFEM_TEST_THREADS` only when intentional. Large-scale
+selection/result qualification requires `ANYFEM_RUN_SCALE_GATES=1`; hardware
+timing gates additionally require `ANYFEM_RUN_HARDWARE_GATES=1`.
+
 ## The evidence hierarchy
 
 **1. The test suite** is the working check. It covers geometry, meshing,
