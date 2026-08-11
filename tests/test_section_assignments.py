@@ -46,6 +46,43 @@ def test_legacy_assignment_is_a_stable_hidden_singleton_and_round_trips():
     assert restored.face_assignment_ids == {face: assignment.id}
 
 
+def test_reassigning_a_reopened_feature_plate_replaces_legacy_scope():
+    """Historical ``face`` output keys may normalize to ``face/0`` on load."""
+
+    project = Project("reopened feature plate")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("plate", 0.01, "S355")
+    project.add_plate_section("replacement", 0.02, "S355")
+    session = DocumentSession(project)
+    points = tuple(
+        session.execute(cmd.AddPoint(x, y))
+        for x, y in ((0, 0), (2, 0), (2, 2), (0, 2))
+    )
+    face = session.execute(cmd.AddPlate(points))
+    session.execute(cmd.AssignPlate(face, "plate"))
+
+    restored = project_from_dict(project_to_dict(project))
+    old_assignment = next(iter(restored.section_assignments.values()))
+    old_region = old_assignment.region
+    restored_session = DocumentSession(restored)
+
+    restored_session.execute(cmd.AssignPlate(face, "replacement"))
+
+    assert restored.face_sections == {face: "replacement"}
+    assert len(restored.section_assignments) == 1
+    replacement = next(iter(restored.section_assignments.values()))
+    assert replacement.id == old_assignment.id
+    assert replacement.region == old_region
+    assert restored.resolve_section_assignments() == ()
+
+    assert restored_session.undo()
+    assert restored.face_sections == {face: "plate"}
+    assert restored.section_assignments == {old_assignment.id: old_assignment}
+    assert restored_session.redo()
+    assert restored.face_sections == {face: "replacement"}
+    assert restored.resolve_section_assignments() == ()
+
+
 def test_v3_direct_assignments_migrate_deterministically_to_regions():
     project, face = _plate_project()
     project.assign_plate(face, "deck")

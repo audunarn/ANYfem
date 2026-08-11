@@ -51,7 +51,14 @@ class Probe:
     stresses: Dict[str, float] = dataclass_field(default_factory=dict)
     elements: Tuple[int, ...] = ()
 
-    def text(self) -> str:
+    def text(
+        self,
+        *,
+        length_scale: float = 1.0,
+        length_unit: str = "m",
+        stress_scale: float = 1.0e-6,
+        stress_unit: str = "MPa",
+    ) -> str:
         lines = [f"{self.ref}"]
         if self.node_id is not None:
             lines.append(f"  node {self.node_id}")
@@ -59,14 +66,17 @@ class Probe:
             lines.append("  displacement")
             for name in _DOF_NAMES:
                 if name in self.displacement:
-                    unit = "m" if name.startswith("u") else "rad"
+                    unit = length_unit if name.startswith("u") else "rad"
+                    scale = length_scale if name.startswith("u") else 1.0
                     lines.append(
-                        f"    {name:<4} {self.displacement[name]: .6g} {unit}"
+                        f"    {name:<4} {self.displacement[name] * scale: .6g} {unit}"
                     )
         if self.stresses:
-            lines.append(f"  stress over {len(self.elements)} element(s) [MPa]")
+            lines.append(
+                f"  stress over {len(self.elements)} element(s) [{stress_unit}]"
+            )
             for name, value in self.stresses.items():
-                lines.append(f"    {name:<16} {value / 1.0e6: .5g}")
+                lines.append(f"    {name:<16} {value * stress_scale: .5g}")
         return "\n".join(lines)
 
 

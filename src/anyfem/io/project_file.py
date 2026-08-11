@@ -195,6 +195,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         ],
         "imperfections": [
             {
+                "id": item.id,
                 "name": item.name,
                 "ref": _ref(item.ref),
                 "kind": item.kind,
@@ -590,7 +591,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             project.combinations[combination.name] = replace(
                 combination, id=str(entry["id"])
             )
-    for entry in data.get("imperfections", ()):
+    for index, entry in enumerate(data.get("imperfections", ())):
         imperfection = Imperfection(
             ref=_existing_ref(
                 project, entry["ref"], "imperfection.ref"
@@ -601,6 +602,13 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             waves=tuple(entry.get("waves", (1, 1))),
             axes=tuple(entry.get("axes", (0, 1))),
             name=entry.get("name", "imperfection"),
+            id=str(
+                entry.get("id")
+                or uuid5(
+                    NAMESPACE_URL,
+                    f"{project.document_id}:imperfection:{index}",
+                )
+            ),
         )
         if project.mesh_only:
             project.imperfections.append(imperfection)

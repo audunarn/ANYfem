@@ -320,6 +320,54 @@ def write_solution_artifact(
 # ---------------------------------------------------------------------------
 # Wrapper adapters
 # ---------------------------------------------------------------------------
+def _add_equivalent_plastic_strain(
+    builder: _Builder,
+    state_frames: Sequence[Mapping[int, Any]],
+    *,
+    frames: Sequence[float],
+) -> None:
+    """Persist max committed PEEQ per element and frame when it exists."""
+
+    identifiers = sorted(
+        {
+            int(element_id)
+            for states in state_frames
+            for element_id, state in (states or {}).items()
+            if isinstance(state, Mapping)
+            and np.asarray(state.get("alpha", ())).size > 0
+        }
+    )
+    if not identifiers:
+        return
+    columns = {identifier: index for index, identifier in enumerate(identifiers)}
+    values = np.full((len(state_frames), len(identifiers)), np.nan, dtype=float)
+    for frame_index, states in enumerate(state_frames):
+        for element_id, state in (states or {}).items():
+            identifier = int(element_id)
+            if identifier not in columns or not isinstance(state, Mapping):
+                continue
+            alpha = np.asarray(state.get("alpha", ()), dtype=float).reshape(-1)
+            if alpha.size and np.all(np.isfinite(alpha)):
+                values[frame_index, columns[identifier]] = float(np.max(alpha))
+    key = builder.add_field(
+        "equivalent_plastic_strain",
+        values,
+        label="Equivalent plastic strain (PEEQ)",
+        location="element",
+        unit="1",
+        components=("PEEQ",),
+        frames=frames,
+        recovery="committed_state",
+        reduction="max integration point/layer/fibre",
+        provenance={
+            "source": "element_states.alpha",
+            "missing_entities": "NaN, never zero-filled",
+        },
+    )
+    if key is not None:
+        builder.add_table(f"{key}_element_ids", np.asarray(identifiers, dtype=int))
+
+
 def _adapt_linear(builder: _Builder, solution: Any) -> None:
     layout = _layout(solution)
     _add_dof_field(
@@ -432,6 +480,11 @@ def _adapt_nonlinear(
                 for index, snapshot in enumerate(snapshots)
             ],
         )
+        _add_equivalent_plastic_strain(
+            builder,
+            [getattr(snapshot, "element_states", {}) for snapshot in snapshots],
+            frames=loads,
+        )
     else:
         load = float(getattr(solution, "load_factor", getattr(solution, "value", 0.0)))
         builder.frames = (load,)
@@ -453,6 +506,10 @@ def _adapt_nonlinear(
     element_states = getattr(raw, "element_states", None)
     if isinstance(element_states, Mapping) and element_states:
         builder.add_table("final_element_states", element_states)
+        if not snapshots:
+            _add_equivalent_plastic_strain(
+                builder, [element_states], frames=builder.frames
+            )
 
     if capacity:
         buckling = getattr(solution, "buckling", None)

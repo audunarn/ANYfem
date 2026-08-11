@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import numpy as np
 import pytest
 
-from anyfem import Project, steel
+from anyfem import Project, dnv_steel_material, steel
 from anyfem import commands as cmd
+from anyfem.model.sections import PlateSection
 from anyfem.geometry.entities import EntityRef
 from anyfem.geometry.model import GeometryError
 from anyfem.mesh import refine_around
@@ -31,6 +33,66 @@ def square(stack) -> tuple[list[int], int]:
     points = [stack.run(cmd.AddPoint(x, y)) for x, y in ((0, 0), (1, 0), (1, 1), (0, 1))]
     face = stack.run(cmd.AddPlate(points))
     return points, face
+
+
+def test_edit_and_delete_attribute_preserve_uuid_and_are_reversible(stack, project):
+    point = stack.run(cmd.AddPoint(0.0, 0.0, 0.0))
+    original = stack.run(
+        cmd.AddSupport(
+            Support("driven", project.point(point), {"uy": 0.050})
+        )
+    )
+    updated = replace(original, constraints={"uy": 0.025})
+
+    stack.run(cmd.EditAttribute(updated))
+    assert project.supports[0].id == original.id
+    assert project.supports[0].constraints == {"uy": 0.025}
+    stack.undo()
+    assert project.supports[0] == original
+    stack.redo()
+    assert project.supports[0] == updated
+
+    stack.run(cmd.DeleteAttribute(original.id))
+    assert not project.supports
+    stack.undo()
+    assert project.supports == [updated]
+    assert project.supports[0].id == original.id
+
+
+def test_imperfection_edit_and_delete_are_uuid_stable(stack, project):
+    _points, face = square(stack)
+    original = stack.run(
+        cmd.AddImperfection(plate_mode(project.face(face), amplitude=0.002))
+    )
+    updated = replace(original, amplitude=0.004, waves=(2, 1))
+
+    stack.run(cmd.EditAttribute(updated))
+    assert project.imperfections == [updated]
+    assert project.imperfections[0].id == original.id
+    stack.run(cmd.DeleteAttribute(original.id))
+    assert not project.imperfections
+    stack.undo()
+    assert project.imperfections == [updated]
+
+
+def test_automatic_dnv_plate_section_is_one_id_stable_undo_item(stack, project):
+    material = dnv_steel_material("S355", 0.020)
+    section = PlateSection("deck 20", 0.020, material.name)
+
+    created = stack.run(cmd.AddPlateSection(section, material))
+    material_id = project.material_ids[material.name]
+
+    assert created.id == section.id
+    assert project.materials[material.name].hardening["thickness"] == pytest.approx(
+        0.020
+    )
+    assert stack.undo()
+    assert material.name not in project.materials
+    assert section.name not in project.plate_sections
+
+    assert stack.redo()
+    assert project.material_ids[material.name] == material_id
+    assert project.plate_sections[section.name].id == section.id
 
 
 def test_undo_and_redo_round_trip(stack, project):

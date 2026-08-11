@@ -433,6 +433,24 @@ eroded = solve_nonlinear_static(project, target_size=0.1, num_steps=10,
                                 fracture=fracture(0.05))
 print(eroded.deleted_elements)           # element erosion, if any triggered
 
+# DNV properties depend on product thickness. This factory gives each
+# grade/thickness combination a deterministic material identity, so several
+# S355 thicknesses safely coexist and identical specifications are reused.
+from anyfem import dnv_steel_material
+dnv_10 = project.add_material(dnv_steel_material("S355", 0.010))
+dnv_20 = project.add_material(dnv_steel_material("S355", 0.020))
+project.add_plate_section("deck 10", 0.010, dnv_10.name)
+project.add_plate_section("deck 20", 0.020, dnv_20.name)
+
+# The GUI's Sections page performs this automatically for new plate sections.
+# Clear "Auto DNV nonlinear material from thickness" to choose a custom
+# ANYmaterial specification instead.
+
+# The same page shows the complete selected material law (elastic constants,
+# density, yield, DNV thickness and sampled flow stresses) and a section-usage
+# table listing the Model Plates/Lines assigned to every definition. Assigning
+# a section commits the displayed definition before applying its scope.
+
 # A buckling-shaped imperfection, then trace past the limit point.
 imperfection = eigenmode_imperfection(buckling, 1, amplitude=0.004)
 path = solve_arc_length(project, target_size=0.1, imperfection=imperfection)
@@ -515,6 +533,11 @@ path = history_series(capacity)[-1]            # load factor vs displacement
 The Results panel draws whichever series a result has, on a hand-written Tk
 canvas — no matplotlib, so the GUI's dependency set stays Tk, the same choice
 ANYtk3D makes for the 3D viewport.
+
+Result values remain stored in SI. The Display controls can switch contours,
+probes, summaries and histories instantly between SI (m/Pa) and engineering
+units (mm/MPa), and offer Cool-warm, Viridis, Plasma, Turbo and Grayscale
+colour maps with a matching viewport legend.
 
 Retained sidecar fields can be exported directly to deterministic CSV without
 loading every frame. Persisted node/element association tables supply the IDs;

@@ -26,7 +26,13 @@ from .collision import (
     impact_damage,
 )
 from .imperfections import Imperfection, member_bow, plate_mode
-from .materials import Material, steel
+from .materials import (
+    Material,
+    canonical_dnv_grade,
+    dnv_steel_material,
+    dnv_steel_material_name,
+    steel,
+)
 from .project import Project, ProjectError
 from .sections import (
     PROFILES,
@@ -88,6 +94,9 @@ __all__ = [
     "Mass",
     "ManualRegion",
     "Material",
+    "canonical_dnv_grade",
+    "dnv_steel_material",
+    "dnv_steel_material_name",
     "MeshEntityRef",
     "MeshRecord",
     "OutputRequest",

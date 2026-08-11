@@ -128,7 +128,7 @@ def test_linear_batch_persists_each_named_case_as_one_frame():
     assert payload.fields["displacement"][0].provenance["shared_factorization"]
 
 
-def test_nonlinear_uses_real_committed_snapshots_and_states_only():
+def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     built = _built()
     snapshots = (
         SimpleNamespace(
@@ -136,19 +136,19 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only():
             load_factor=0.4,
             control_value=None,
             displacements=_vector(10.0),
-            element_states={7: {"yielded": False}},
+            element_states={7: {"yielded": False, "alpha": np.array([0.0, 0.001])}},
         ),
         SimpleNamespace(
             step_index=2,
             load_factor=0.8,
             control_value=None,
             displacements=_vector(20.0),
-            element_states={7: {"yielded": True}},
+            element_states={7: {"yielded": True, "alpha": np.array([0.002, 0.003])}},
         ),
     )
     raw = SimpleNamespace(
         snapshots=snapshots,
-        element_states={7: {"yielded": True}},
+        element_states={7: {"yielded": True, "alpha": np.array([0.002, 0.003])}},
         diagnostics={"converged": True},
     )
     steps = [
@@ -174,6 +174,29 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only():
     states = payload.tables["increment_element_states"]
     assert states[1]["element_states"]["7"]["yielded"] is True
     assert "load_factor" in payload.histories
+    plastic_descriptor, plastic_values = payload.fields[
+        "equivalent_plastic_strain"
+    ]
+    assert plastic_descriptor.unit == "1"
+    assert plastic_descriptor.recovery == "committed_state"
+    np.testing.assert_allclose(plastic_values[:, 0], [0.001, 0.003])
+    np.testing.assert_array_equal(
+        payload.tables["equivalent_plastic_strain_element_ids"], [7]
+    )
+    artifact = write_solution_artifact(
+        ArtifactStore(tmp_path / "nonlinear.anyfem"),
+        solution,
+        job_id="nonlinear-job",
+        document_id="document",
+        mesh_id="mesh",
+        model_hash="model",
+        mesh_hash="mesh-hash",
+        analysis_hash="analysis",
+    )
+    dataset = ArtifactStore(tmp_path / "nonlinear.anyfem").open_result(artifact)
+    np.testing.assert_allclose(
+        dataset.field("equivalent_plastic_strain").read(1), [0.003]
+    )
 
 
 def test_capacity_retains_reference_static_and_buckling_stages():

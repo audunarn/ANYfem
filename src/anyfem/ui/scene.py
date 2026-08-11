@@ -30,9 +30,12 @@ __all__ = [
     "PointMarker",
     "Polyline",
     "Scene",
+    "RESULT_COLORMAPS",
+    "COLOR_IMPERFECTION",
     "build_geometry_scene",
     "build_mesh_scene",
     "build_attribute_overlay",
+    "build_imperfection_overlay",
     "build_collision_overlay",
     "build_result_scene",
     "build_persisted_result_scene",
@@ -54,6 +57,27 @@ COLOR_MESH_FILL = "#93b7c9"
 COLOR_MESH_EDGE = "#4a6572"
 COLOR_SUPPORT = "#2e7d32"
 COLOR_LOAD = "#c62828"
+COLOR_IMPERFECTION = "#8e24aa"
+
+RESULT_COLORMAPS: Dict[str, tuple[tuple[float, str], ...]] = {
+    "Cool-warm": (
+        (0.00, "#3b4cc0"), (0.25, "#7396f5"), (0.50, "#e8e8e8"),
+        (0.75, "#f49a7b"), (1.00, "#b40426"),
+    ),
+    "Viridis": (
+        (0.00, "#440154"), (0.25, "#3b528b"), (0.50, "#21918c"),
+        (0.75, "#5ec962"), (1.00, "#fde725"),
+    ),
+    "Plasma": (
+        (0.00, "#0d0887"), (0.25, "#7e03a8"), (0.50, "#cc4778"),
+        (0.75, "#f89540"), (1.00, "#f0f921"),
+    ),
+    "Turbo": (
+        (0.00, "#30123b"), (0.20, "#466be3"), (0.40, "#1bcfd4"),
+        (0.60, "#71fc6a"), (0.80, "#faba39"), (1.00, "#7a0403"),
+    ),
+    "Grayscale": ((0.00, "#101010"), (1.00, "#f5f5f5")),
+}
 
 SceneOwner = EntityRef | MeshEntityRef
 
@@ -554,6 +578,7 @@ def build_result_scene(
     colormap: Optional[Sequence[tuple[float, str]]] = None,
     limits: Optional[tuple[float, float]] = None,
     values: Optional[object] = None,
+    display_units: str = "SI (m / Pa)",
 ) -> Scene:
     """Draw the deformed shape, coloured by any field.
 
@@ -591,13 +616,20 @@ def build_result_scene(
     built_project = getattr(shape.built, "project", None)
     geometry = getattr(built_project, "geometry", None)
 
-    low, high = limits if limits is not None else resolved.range()
+    from .result_display import unit_transform
+
+    value_scale, display_unit = unit_transform(resolved.unit, display_units)
+    if limits is None:
+        raw_low, raw_high = resolved.range()
+        low, high = raw_low * value_scale, raw_high * value_scale
+    else:
+        low, high = limits
     if high <= low:
         high = low + 1.0
     span = high - low
 
     def colour(value: float) -> str:
-        return _ramp_color((value - low) / span, colormap)
+        return _ramp_color((value * value_scale - low) / span, colormap)
 
     scene = Scene()
     shells = mesh.shells
@@ -687,11 +719,13 @@ def build_result_scene(
                 )
             )
 
-    unit = resolved.unit or field_unit(name)
+    unit = display_unit or field_unit(name)
+    legend_colors = [colour(float(value) / value_scale) for value in np.linspace(low, high, 5)]
     scene.legend = {
         "levels": list(np.linspace(low, high, 5)),
         "unit": unit,
         "title": _component_title(name),
+        "colors": legend_colors,
     }
     return scene
 
@@ -706,6 +740,8 @@ def build_persisted_result_scene(
     component: str | None = None,
     scale: float = 1.0,
     limits: Optional[tuple[float, float]] = None,
+    colormap: Optional[Sequence[tuple[float, str]]] = None,
+    display_units: str = "SI (m / Pa)",
 ) -> Scene:
     """Render one lazily-read artifact field without inventing quantities."""
 
@@ -777,6 +813,8 @@ def build_persisted_result_scene(
         scale=1.0,
         limits=limits,
         values=field,
+        colormap=colormap,
+        display_units=display_units,
     )
 
 
@@ -819,6 +857,7 @@ _FIELD_TITLES = {
     "ry": "Rotation Y",
     "rz": "Rotation Z",
     "von_mises": "von Mises",
+    "equivalent_plastic_strain": "Equivalent plastic strain (PEEQ)",
 }
 
 
@@ -828,13 +867,7 @@ def _component_title(name: str) -> str:
     return name.replace("_", " ")
 
 
-_DEFAULT_RAMP: tuple[tuple[float, str], ...] = (
-    (0.00, "#3b4cc0"),
-    (0.25, "#7396f5"),
-    (0.50, "#e8e8e8"),
-    (0.75, "#f49a7b"),
-    (1.00, "#b40426"),
-)
+_DEFAULT_RAMP = RESULT_COLORMAPS["Cool-warm"]
 
 
 def _ramp_color(
@@ -997,6 +1030,165 @@ def face_normal(geometry: GeometryModel, face_id: int) -> np.ndarray:
     return geometry.face_normal(face_id, 0.5, 0.5)
 
 
+def _imperfection_amplitude(item, coordinates: np.ndarray) -> float:
+    if item.amplitude is not None:
+        return float(item.amplitude)
+    if len(coordinates) < 2:
+        return 0.0
+    if item.resolved_kind == "plate_mode":
+        axes = [int(item.axes[0]), int(item.axes[1])]
+        spans = np.ptp(coordinates[:, axes], axis=0)
+        return float(np.min(spans) / 200.0)
+    return float(np.linalg.norm(coordinates[-1] - coordinates[0]) / 300.0)
+
+
+def _preview_factor(amplitude: float, span: float) -> float:
+    """Make small fabrication-scale offsets visible without changing the model."""
+
+    if amplitude <= 0.0:
+        return 1.0
+    return min(50.0, max(1.0, 0.03 * span / amplitude))
+
+
+def _plate_preview_grid(geometry, item, mesh: Optional[Mesh]) -> np.ndarray:
+    if mesh is not None and item.ref.id in mesh.grid_of_face:
+        identifiers = np.asarray(mesh.grid_of_face[item.ref.id])
+        if identifiers.ndim == 2 and identifiers.size:
+            return np.asarray(
+                [[mesh.nodes[int(node)] for node in row] for row in identifiers],
+                dtype=float,
+            )
+    face = geometry.faces[item.ref.id]
+    parameters = np.linspace(0.0, 1.0, 13)
+    return np.asarray(
+        [
+            [surface_point(geometry, face, float(u), float(v)) for v in parameters]
+            for u in parameters
+        ],
+        dtype=float,
+    )
+
+
+def _plate_imperfection_preview(
+    geometry, item, mesh: Optional[Mesh], span: float
+) -> tuple[list[np.ndarray], Optional[Arrow]]:
+    grid = _plate_preview_grid(geometry, item, mesh)
+    coordinates = grid.reshape(-1, 3)
+    amplitude = _imperfection_amplitude(item, coordinates)
+    direction = np.asarray(item.direction, dtype=float)
+    direction /= float(np.linalg.norm(direction))
+    axes = [int(item.axes[0]), int(item.axes[1])]
+    selected = coordinates[:, axes]
+    lower = selected.min(axis=0)
+    spans = np.maximum(selected.max(axis=0) - lower, 1.0e-14)
+    sx = (selected[:, 0] - lower[0]) / spans[0]
+    sy = (selected[:, 1] - lower[1]) / spans[1]
+    shape = (
+        np.sin(int(item.waves[0]) * np.pi * sx)
+        * np.sin(int(item.waves[1]) * np.pi * sy)
+    )
+    offsets = (
+        _preview_factor(amplitude, span)
+        * amplitude
+        * shape[:, None]
+        * direction[None, :]
+    )
+    displaced = (coordinates + offsets).reshape(grid.shape)
+    lines = [np.asarray(row) for row in displaced]
+    lines.extend(np.asarray(column) for column in np.swapaxes(displaced, 0, 1))
+    peak = int(np.argmax(np.linalg.norm(offsets, axis=1)))
+    arrow = None
+    if float(np.linalg.norm(offsets[peak])) > 0.0:
+        arrow = Arrow(
+            start=coordinates[peak],
+            end=coordinates[peak] + offsets[peak],
+            color=COLOR_IMPERFECTION,
+        )
+    return lines, arrow
+
+
+def _member_imperfection_preview(
+    geometry, item, mesh: Optional[Mesh], span: float
+) -> tuple[np.ndarray, Optional[Arrow]]:
+    if mesh is not None and item.ref.id in mesh.nodes_of_edge:
+        coordinates = np.asarray(
+            [mesh.nodes[int(node)] for node in mesh.nodes_of_edge[item.ref.id]],
+            dtype=float,
+        )
+    else:
+        coordinates = np.asarray(
+            geometry.sample_edge(item.ref.id, np.linspace(0.0, 1.0, 25)),
+            dtype=float,
+        )
+    amplitude = _imperfection_amplitude(item, coordinates)
+    axis = coordinates[-1] - coordinates[0]
+    length = float(np.linalg.norm(axis))
+    if length <= 0.0:
+        return coordinates, None
+    axis /= length
+    direction = np.asarray(item.direction, dtype=float)
+    direction -= float(direction @ axis) * axis
+    if float(np.linalg.norm(direction)) <= 1.0e-14:
+        basis = np.eye(3)[int(np.argmin(np.abs(axis)))]
+        direction = basis - float(basis @ axis) * axis
+    direction /= float(np.linalg.norm(direction))
+    distances = np.asarray(
+        [float((coordinate - coordinates[0]) @ axis) / length for coordinate in coordinates]
+    )
+    offsets = (
+        _preview_factor(amplitude, span)
+        * amplitude
+        * np.sin(np.pi * np.clip(distances, 0.0, 1.0))[:, None]
+        * direction[None, :]
+    )
+    peak = int(np.argmax(np.linalg.norm(offsets, axis=1)))
+    arrow = None
+    if float(np.linalg.norm(offsets[peak])) > 0.0:
+        arrow = Arrow(
+            start=coordinates[peak],
+            end=coordinates[peak] + offsets[peak],
+            color=COLOR_IMPERFECTION,
+        )
+    return coordinates + offsets, arrow
+
+
+def build_imperfection_overlay(
+    project, *, mesh: Optional[Mesh] = None, scale: Optional[float] = None
+) -> Scene:
+    """Draw the stress-free imperfect reference shape as purple wirework."""
+
+    scene = Scene()
+    geometry = project.geometry
+    span = float(scale or geometry_characteristic_size(geometry))
+    for item in project.imperfections:
+        if item.ref.kind == "face" and item.ref.id in geometry.faces:
+            lines, arrow = _plate_imperfection_preview(geometry, item, mesh, span)
+            scene.lines.extend(
+                Polyline(
+                    ref=item.ref,
+                    points=points,
+                    color=COLOR_IMPERFECTION,
+                    width=3,
+                )
+                for points in lines
+            )
+        elif item.ref.kind == "edge" and item.ref.id in geometry.edges:
+            points, arrow = _member_imperfection_preview(geometry, item, mesh, span)
+            scene.lines.append(
+                Polyline(
+                    ref=item.ref,
+                    points=points,
+                    color=COLOR_IMPERFECTION,
+                    width=4,
+                )
+            )
+        else:
+            continue
+        if arrow is not None:
+            scene.arrows.append(arrow)
+    return scene
+
+
 def build_attribute_overlay(
     project,
     *,
@@ -1005,6 +1197,8 @@ def build_attribute_overlay(
     show_supports: bool = True,
     show_loads: bool = True,
     show_masses: bool = True,
+    show_imperfections: bool = True,
+    mesh: Optional[Mesh] = None,
 ) -> Scene:
     """Draw supports, loads and masses over the model.
 
@@ -1021,6 +1215,9 @@ def build_attribute_overlay(
     )
     arrow_length = ARROW_FRACTION * span
     symbol = SYMBOL_FRACTION * span
+
+    if show_imperfections:
+        scene.merge(build_imperfection_overlay(project, mesh=mesh, scale=span))
 
     if show_supports:
         supports = Scene()

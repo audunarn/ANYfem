@@ -31,6 +31,7 @@ __all__ = [
     "ModalSolution",
     "MultiShapeSolution",
     "NonlinearSolution",
+    "NonlinearIncrementView",
     "ShapeView",
     "TransientSolution",
 ]
@@ -398,6 +399,42 @@ class NonlinearSolution(ShapeView):
     # the material were elastic.
     raw_result: Any = field(default=None, repr=False)
     _stress: Any = field(default=None, repr=False)
+    _increment_views: Optional[List[Any]] = field(default=None, init=False, repr=False)
+
+    @property
+    def shapes(self) -> List[Any]:
+        """True saved nonlinear increments, or no frames when none were saved.
+
+        A converged step record contains useful scalar diagnostics but not a
+        displacement/state field.  Only the solver's opt-in committed
+        snapshots can therefore be displayed or animated.  Keeping the empty
+        case explicit prevents the UI from fabricating intermediate shapes by
+        scaling the final displacement.
+        """
+
+        if self._increment_views is not None:
+            return self._increment_views
+        snapshots = tuple(getattr(self.raw_result, "snapshots", ()) or ())
+        steps = {
+            int(getattr(step, "step_index", index)): step
+            for index, step in enumerate(self.steps, start=1)
+        }
+        count = len(snapshots)
+        self._increment_views = [
+            NonlinearIncrementView(
+                displacements=np.asarray(snapshot.displacements, dtype=float),
+                built=self.built,
+                label=(
+                    f"increment {index}/{count}"
+                    f"  (load factor {float(snapshot.load_factor):.5g})"
+                ),
+                value=float(snapshot.load_factor),
+                step=steps.get(int(getattr(snapshot, "step_index", index))),
+                raw_result=snapshot,
+            )
+            for index, snapshot in enumerate(snapshots, start=1)
+        ]
+        return self._increment_views
 
     @property
     def element_states(self) -> Mapping[int, Any]:
@@ -440,6 +477,20 @@ class NonlinearSolution(ShapeView):
             self._stress = result
         return result
 
+    def available_fields(self) -> List[str]:
+        """Display fields actually carried by this committed nonlinear state."""
+
+        from .fields import available_fields
+
+        fields = available_fields()
+        if any(
+            isinstance(state, Mapping)
+            and np.asarray(state.get("alpha", ())).size > 0
+            for state in self.element_states.values()
+        ):
+            fields.append("equivalent_plastic_strain")
+        return fields
+
     def history(self) -> Dict[str, np.ndarray]:
         """Load factor and displacement norm at each converged step.
 
@@ -473,6 +524,19 @@ class NonlinearSolution(ShapeView):
             f"{len(self.steps)} steps, "
             f"max translation {magnitude:.6g} m at node {node_id}{eroded}"
         )
+
+
+@dataclass
+class NonlinearIncrementView(ShapeView):
+    """One real committed nonlinear increment used for contours/playback."""
+
+    step: Any = None
+    raw_result: Any = field(default=None, repr=False)
+    _stress: Any = field(default=None, repr=False)
+
+    @property
+    def element_states(self) -> Mapping[int, Any]:
+        return getattr(self.raw_result, "element_states", {}) or {}
 
 
 @dataclass

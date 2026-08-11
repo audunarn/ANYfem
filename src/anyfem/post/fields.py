@@ -19,6 +19,7 @@ import numpy as np
 __all__ = [
     "DISPLACEMENT_FIELDS",
     "Field",
+    "PLASTICITY_FIELDS",
     "STRESS_FIELDS",
     "available_fields",
     "element_centroids",
@@ -71,6 +72,8 @@ STRESS_FIELDS: Tuple[str, ...] = (
     _SHELL_COMPONENTS + _SURFACE_COMPONENTS + _BEAM_COMPONENTS
 )
 
+PLASTICITY_FIELDS: Tuple[str, ...] = ("equivalent_plastic_strain",)
+
 _ROTATION_FIELDS = frozenset({"rx", "ry", "rz"})
 
 # How several Gauss-point values become one number for an element.
@@ -88,6 +91,8 @@ def field_unit(name: str) -> str:
         return "" if name in _ROTATION_FIELDS else "m"
     if name in STRESS_FIELDS:
         return "Pa"
+    if name in PLASTICITY_FIELDS:
+        return "1"
     return ""
 
 
@@ -205,6 +210,8 @@ def evaluate_field(
 
     if name in DISPLACEMENT_FIELDS:
         return _displacement_field(shape, name)
+    if name in PLASTICITY_FIELDS:
+        return _plasticity_field(shape, name)
     if isinstance(imported, dict) and imported:
         raise ValueError(
             f"unknown field {name!r} for an imported result; it carries "
@@ -340,6 +347,35 @@ def recover(shape, **kwargs: Any):
         except AttributeError:  # pragma: no cover - frozen shapes
             pass
     return result
+
+
+def _plasticity_field(shape, name: str) -> Field:
+    """Recover element PEEQ from committed constitutive state, never elastically."""
+
+    states = getattr(shape, "element_states", None)
+    if callable(states):
+        states = states()
+    if states is None:
+        raw = getattr(shape, "raw_result", None)
+        states = getattr(raw, "element_states", None)
+    values: Dict[int, float] = {}
+    for element_id, state in (states or {}).items():
+        if not isinstance(state, dict):
+            continue
+        alpha = np.asarray(state.get("alpha", ()), dtype=float).reshape(-1)
+        if alpha.size and np.all(np.isfinite(alpha)):
+            values[int(element_id)] = float(np.max(alpha))
+    if not values:
+        raise ValueError(
+            f"field {name!r} is unavailable: this result carries no committed "
+            "equivalent-plastic-strain state"
+        )
+    return Field(
+        name=name,
+        unit=field_unit(name),
+        element_values=values,
+        reduction="max integration point/layer/fibre",
+    )
 
 
 def element_centroids(mesh) -> Dict[int, np.ndarray]:

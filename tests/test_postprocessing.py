@@ -409,6 +409,22 @@ def test_the_scene_can_colour_by_a_stress_field(loaded_plate):
     assert len(set(scene.faces[0].colors)) > 1
 
 
+def test_result_scene_converts_stress_legend_to_mpa_and_uses_palette(loaded_plate):
+    from anyfem.ui.scene import RESULT_COLORMAPS, build_result_scene
+
+    _project, _face, _edges, _points, solution = loaded_plate
+    scene = build_result_scene(
+        solution,
+        field="von_mises",
+        display_units="Engineering (mm / MPa)",
+        colormap=RESULT_COLORMAPS["Viridis"],
+    )
+
+    assert scene.legend["unit"] == "MPa"
+    assert scene.legend["levels"][-1] < 10_000.0
+    assert scene.legend["colors"][0] == "#440154"
+
+
 def test_manual_colour_limits_are_honoured(loaded_plate):
     from anyfem.ui.scene import build_result_scene
 

@@ -23,6 +23,21 @@ __all__ = ["ModelTree", "TREE_ENTITY_ROW_LIMIT", "bounded_entity_ids"]
 TREE_ENTITY_ROW_LIMIT = 2000
 
 
+def _vector_text(values: Iterable[float]) -> str:
+    return "(" + ", ".join(f"{float(value):g}" for value in values) + ")"
+
+
+def _support_values(constraints) -> str:
+    parts = []
+    for dof in ("ux", "uy", "uz", "rx", "ry", "rz"):
+        if dof not in constraints:
+            continue
+        value = float(constraints[dof])
+        unit = "mm" if dof.startswith("u") else "mrad"
+        parts.append(f"{dof}={value * 1000.0:g} {unit}")
+    return ", ".join(parts)
+
+
 def bounded_entity_ids(
     collection: Iterable[object],
     query: str = "",
@@ -166,42 +181,107 @@ class ModelTree(ttk.Frame):
                     f"   {definition_label}   [{status.value}]",
                 )
 
-            materials = self._group("materials", "Materials")
+            materials = self._group("materials", "Material Definitions")
             for name, material in sorted(self.project.materials.items()):
                 if material.symmetry == "isotropic":
                     modulus = material.constants["elastic_modulus"] / 1e9
                     description = f"E={modulus:g} GPa"
                 else:
                     description = "orthotropic"
+                response = "nonlinear" if material.hardening is not None else "elastic"
+                yield_text = f"fy={material.yield_stress / 1e6:g} MPa"
+                source = ""
+                if material.hardening is not None:
+                    hardening = material.hardening
+                    if hardening.get("kind") == "dnv_c208":
+                        source = (
+                            f"   DNV grade={hardening.get('grade', '?')}"
+                            f" t={float(hardening.get('thickness', 0.0)) * 1000:g} mm"
+                        )
                 self._leaf(
                     materials,
                     f"material:{name}",
-                    f"{name}   {description}",
+                    f"{name}   {description}   {yield_text}{source}   [{response}]",
                 )
 
-            sections = self._group("sections", "Sections")
+            sections = self._group("sections", "Section Definitions")
+            faces_by_section: dict[str, list[int]] = {}
+            for identifier, assigned_name in self.project.face_sections.items():
+                faces_by_section.setdefault(assigned_name, []).append(identifier)
+            edges_by_section: dict[str, list[int]] = {}
+            for identifier, assigned_name in self.project.edge_sections.items():
+                edges_by_section.setdefault(assigned_name, []).append(identifier)
             for name, plate in sorted(self.project.plate_sections.items()):
+                assigned = sorted(faces_by_section.get(name, ()))
+                target = (
+                    "unassigned"
+                    if not assigned
+                    else "Model Plate " + ", ".join(map(str, assigned[:8]))
+                    + (f" +{len(assigned) - 8}" if len(assigned) > 8 else "")
+                )
                 self._leaf(
                     sections,
                     f"plate_section:{name}",
-                    f"{name}   plate {plate.thickness * 1000:g} mm",
+                    f"Plate section {name!r}   t={plate.thickness * 1000:g} mm"
+                    f"   material={plate.material}   -> {target}",
                 )
             for name, beam in sorted(self.project.beam_sections.items()):
+                assigned = sorted(edges_by_section.get(name, ()))
+                target = (
+                    "unassigned"
+                    if not assigned
+                    else "Model Line " + ", ".join(map(str, assigned[:8]))
+                    + (f" +{len(assigned) - 8}" if len(assigned) > 8 else "")
+                )
                 self._leaf(
-                    sections, f"beam_section:{name}", f"{name}   {beam.profile}"
+                    sections,
+                    f"beam_section:{name}",
+                    f"Beam section {name!r}   {beam.profile}"
+                    f"   material={beam.material}   -> {target}",
                 )
 
-            points = self._group("points", f"Points ({len(geometry.vertices)})")
+            imperfections = self._group(
+                "imperfections",
+                f"Geometric Imperfections ({len(self.project.imperfections)})",
+            )
+            for index, item in enumerate(self.project.imperfections):
+                identifier = getattr(item, "id", f"legacy-{index}")
+                if item.amplitude is None:
+                    amplitude = (
+                        "auto (short span / 200)"
+                        if item.resolved_kind == "plate_mode"
+                        else "auto (length / 300)"
+                    )
+                else:
+                    amplitude = f"{item.amplitude * 1000:g} mm"
+                details = (
+                    f"waves={item.waves[0]}x{item.waves[1]}"
+                    if item.resolved_kind == "plate_mode"
+                    else "half-sine bow"
+                )
+                self._leaf(
+                    imperfections,
+                    f"imperfection:{identifier}",
+                    f"{item.name}   {item.resolved_kind}   {amplitude}   "
+                    f"{details} on {item.ref}",
+                    ref=item.ref,
+                )
+
+            points = self._group(
+                "points", f"Model Geometry Points ({len(geometry.vertices)})"
+            )
             for vertex_id in self._visible_ids(geometry.vertices):
                 position = geometry.vertex_position(vertex_id)
                 self._leaf(
                     points,
                     entity_tag(EntityRef("vertex", vertex_id)),
-                    f"Point {vertex_id}   "
+                    f"Model Point {vertex_id}   "
                     f"({position[0]:g}, {position[1]:g}, {position[2]:g})",
                 )
 
-            lines = self._group("lines", f"Lines ({len(geometry.edges)})")
+            lines = self._group(
+                "lines", f"Model Geometry Lines ({len(geometry.edges)})"
+            )
             for edge_id in self._visible_ids(geometry.edges):
                 edge = geometry.edges[edge_id]
                 kind = type(edge.curve).__name__.lower()
@@ -210,24 +290,30 @@ class ModelTree(ttk.Frame):
                 self._leaf(
                     lines,
                     entity_tag(EntityRef("edge", edge_id)),
-                    f"Line {edge_id}   {kind} {edge.start}->{edge.end}{suffix}",
+                    f"Model Line {edge_id}   {kind} {edge.start}->{edge.end}{suffix}",
                 )
 
-            plates = self._group("plates", f"Plates ({len(geometry.faces)})")
+            plates = self._group(
+                "plates", f"Model Geometry Plates ({len(geometry.faces)})"
+            )
             for face_id in self._visible_ids(geometry.faces):
                 section = self.project.face_sections.get(face_id)
-                suffix = f"   [{section}]" if section else "   (no section)"
+                suffix = (
+                    f"   -> section definition {section!r}"
+                    if section
+                    else "   -> no section definition assigned"
+                )
                 self._leaf(
                     plates,
                     entity_tag(EntityRef("face", face_id)),
-                    f"Plate {face_id}{suffix}",
+                    f"Model Plate {face_id}{suffix}",
                 )
 
             supports = self._group(
                 "supports", f"Supports ({len(self.project.supports)})"
             )
             for index, support in enumerate(self.project.supports):
-                dofs = ",".join(sorted(support.constraints))
+                dofs = _support_values(support.constraints)
                 identifier = getattr(support, "id", f"legacy-{index}")
                 self._leaf(
                     supports,
@@ -273,7 +359,8 @@ class ModelTree(ttk.Frame):
                     self._leaf(
                         case_node,
                         f"load:point:{load.id}",
-                        f"Point load at {load.ref}",
+                        f"Point force {_vector_text(load.force)} N; "
+                        f"moment {_vector_text(load.moment)} Nm at {load.ref}",
                         ref=load.ref,
                     )
                 for load in case.pressures:
@@ -287,14 +374,14 @@ class ModelTree(ttk.Frame):
                     self._leaf(
                         case_node,
                         f"load:line:{load.id}",
-                        f"Line load on {load.ref}",
+                        f"Line load {_vector_text(load.force_per_length)} N/m on {load.ref}",
                         ref=load.ref,
                     )
                 for load in case.surface_tractions:
                     self._leaf(
                         case_node,
                         f"load:traction:{load.id}",
-                        f"Surface traction on {load.ref}",
+                        f"Surface traction {_vector_text(load.traction)} Pa on {load.ref}",
                         ref=load.ref,
                     )
                 if case.gravity is not None:

@@ -9,8 +9,9 @@ project and applied when the FEModel is built, never mixed into a result.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Sequence, Tuple
+from uuid import uuid4
 
 import numpy as np
 
@@ -59,8 +60,11 @@ class Imperfection:
     waves: Tuple[int, int] = (1, 1)
     axes: Tuple[int, int] = (0, 1)
     name: str = "imperfection"
+    id: str = field(default_factory=lambda: str(uuid4()))
 
     def __post_init__(self) -> None:
+        if not str(self.id):
+            raise ValueError("imperfection ID cannot be empty")
         if self.kind not in IMPERFECTION_KINDS:
             raise ValueError(
                 f"unknown imperfection kind {self.kind!r}; expected one of "

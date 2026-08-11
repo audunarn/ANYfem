@@ -8,11 +8,41 @@ constructor while also accepting the full ``MaterialSpec`` schema.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
 from typing import Any, Optional
 
-from anymaterial import MaterialSpec, dnv_c208_steel_properties
+from anymaterial import MaterialSpec, available_grades, dnv_c208_steel_properties
 
-__all__ = ["Material", "MaterialSpec", "steel"]
+__all__ = [
+    "Material",
+    "MaterialSpec",
+    "canonical_dnv_grade",
+    "dnv_steel_material",
+    "dnv_steel_material_name",
+    "steel",
+]
+
+
+def canonical_dnv_grade(value: str) -> str:
+    """Resolve a DNV grade without confusing it with a material label.
+
+    Older UI versions exposed only one text box, so project labels such as
+    ``S355_NL`` were sometimes passed to the RP-C208 lookup as grades.  Accept
+    that legacy form only when the delimiter-separated leading grade is
+    unambiguous.  Invalid values are left for ANYmaterial's authoritative
+    validation and diagnostic.
+    """
+
+    token = str(value).strip().upper()
+    grades = tuple(str(grade).upper() for grade in available_grades())
+    if token in grades:
+        return token
+    matches = tuple(
+        grade
+        for grade in grades
+        if token.startswith((f"{grade}_", f"{grade}-", f"{grade} "))
+    )
+    return matches[0] if len(matches) == 1 else token
 
 
 def _hardening_descriptor(value: Any) -> Optional[dict[str, Any]]:
@@ -97,6 +127,7 @@ def steel(
 ) -> Material:
     """Build a serializable steel specification from ANYmaterial's table."""
 
+    grade = canonical_dnv_grade(grade)
     properties = dnv_c208_steel_properties(grade, thickness)
     return Material(
         name=name or str(properties["grade"]),
@@ -105,4 +136,57 @@ def steel(
         density=density,
         yield_stress=float(properties["sigma_yield"]),
         hardening=("dnv_c208", grade, float(thickness)) if nonlinear else None,
+    )
+
+
+def dnv_steel_material_name(
+    grade: str,
+    thickness: float,
+    *,
+    nonlinear: bool = True,
+) -> str:
+    """Return a deterministic, thickness-qualified DNV steel name.
+
+    A grade alone is not a unique material specification: DNV C208 yield and
+    hardening data depend on product thickness.  The generated name therefore
+    prevents an S355 plate of one thickness from replacing an S355 plate of
+    another thickness in a project's material registry.
+    """
+
+    value = float(thickness)
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError("DNV steel thickness must be finite and positive")
+    grade_token = canonical_dnv_grade(grade)
+    if not grade_token:
+        raise ValueError("DNV steel grade must not be empty")
+    thickness_mm = format(value * 1000.0, ".12g")
+    behavior = "NL" if nonlinear else "EL"
+    return f"{grade_token}-DNV-C208-t{thickness_mm}mm-{behavior}"
+
+
+def dnv_steel_material(
+    grade: str = "S355",
+    thickness: float = 0.010,
+    *,
+    nonlinear: bool = True,
+    density: float = 7850.0,
+    name: Optional[str] = None,
+) -> Material:
+    """Build a reusable thickness-qualified DNV steel material.
+
+    Nonlinear DNV hardening is enabled by default because this factory is used
+    by the automatic plate-section workflow.  Use :func:`steel` when the
+    historical grade-only name or a custom name is required.
+    """
+
+    grade = canonical_dnv_grade(grade)
+    material_name = name or dnv_steel_material_name(
+        grade, thickness, nonlinear=nonlinear
+    )
+    return steel(
+        grade,
+        thickness,
+        name=material_name,
+        density=density,
+        nonlinear=nonlinear,
     )

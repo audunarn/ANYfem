@@ -6,6 +6,7 @@ everything the user does here is undoable and scriptable by the same calls.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
@@ -13,6 +14,7 @@ from tkinter import filedialog, ttk
 from typing import Callable, List, Optional, Sequence
 
 import numpy as np
+from anymaterial import available_grades
 from anygeometry.entities import EntityRef
 
 from .. import commands as cmd
@@ -22,10 +24,18 @@ from anymesher.decomposition import check_mappable
 from ..mesh.mapped import ELEMENT_ORDERS
 from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
-from ..model.attributes import DOF_NAMES, Support
+from ..model.attributes import (
+    DOF_NAMES,
+    LineLoad,
+    Mass,
+    PointLoad,
+    Pressure,
+    Support,
+    SurfaceTraction,
+)
 from ..model.imperfections import Imperfection
-from ..model.materials import Material, steel
-from ..model.sections import PROFILES, BeamSection
+from ..model.materials import Material, dnv_steel_material
+from ..model.sections import PROFILES, BeamSection, PlateSection
 from ..model.project import ProjectError
 from ..model.workplanes import Workplane
 from ..post.extract import along_line, envelope, probe
@@ -40,7 +50,14 @@ from ..post.report import (
 )
 from ..selection import SELECTION_MODES, mode_label
 from .plot import HistoryPlot
+from .result_display import (
+    DISPLAY_UNIT_SYSTEMS,
+    ENGINEERING_DISPLAY,
+    converted_series,
+    unit_transform,
+)
 from .result_export import lazy_field_to_csv, save_gif
+from .result_summary import nonlinear_path_summary
 from .scene import (
     COLOR_LOAD,
     COLOR_MASS,
@@ -48,6 +65,7 @@ from .scene import (
     COLOR_PRESSURE,
     COLOR_ROTATION,
     COLOR_SUPPORT,
+    RESULT_COLORMAPS,
 )
 
 __all__ = [
@@ -996,17 +1014,76 @@ class SectionPanel(StagePanel):
     title = "Sections"
 
     def build(self) -> None:
-        material = self.section("Material")
-        self._grade = self.entry_row(material, "grade", "S355")
+        self._editing_imperfection = None
+        material = self.section("Material definition")
+        self._material_name = self.entry_row(material, "material name", "auto")
+        grade_row = ttk.Frame(material)
+        grade_row.pack(fill="x", pady=1)
+        ttk.Label(grade_row, text="DNV RP-C208 grade", width=16).pack(side="left")
+        self._grade = tk.StringVar(value="S355")
+        self._grade_box = ttk.Combobox(
+            grade_row,
+            textvariable=self._grade,
+            values=tuple(available_grades()),
+            state="readonly",
+            width=12,
+        )
+        self._grade_box.pack(side="left", fill="x", expand=True)
         self._grade_thickness = self.entry_row(material, "thickness [mm]", "10")
-        self.button(material, "Add steel", self._add_material)
+        self.button(material, "Add DNV steel", self._add_material)
+        ttk.Label(
+            material,
+            text=(
+                "Name is an editable project label (for example S355_NL). "
+                "Grade selects the DNV properties and is kept separate."
+            ),
+            foreground="#666666",
+            wraplength=430,
+            justify="left",
+        ).pack(anchor="w", pady=(1, 3))
         self.button(material, "Open ANYmaterial...", self._open_material_editor)
+        library_row = ttk.Frame(material)
+        library_row.pack(fill="x", pady=(4, 1))
+        ttk.Label(library_row, text="inspect material", width=16).pack(side="left")
+        self._material_choice = tk.StringVar(value="S355")
+        self._material_choice_box = ttk.Combobox(
+            library_row,
+            textvariable=self._material_choice,
+            values=(),
+            state="readonly",
+            width=24,
+        )
+        self._material_choice_box.pack(side="left", fill="x", expand=True)
+        self._material_choice_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._refresh_material_details()
+        )
+        self._material_details = ttk.Label(
+            material, text="", justify="left", foreground="#333333"
+        )
+        self._material_details.pack(anchor="w", fill="x", pady=(2, 4))
 
         plate = self.section("Plate section")
         self._plate_name = self.entry_row(plate, "name", "plate")
         self._plate_thickness = self.entry_row(plate, "thickness [mm]", "10")
         self._plate_material, self._plate_material_box = self._material_row(plate)
-        self.button(plate, "Add section", self._add_plate_section)
+        self._auto_dnv_plate = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            plate,
+            text="Auto DNV nonlinear material from thickness",
+            variable=self._auto_dnv_plate,
+            command=self._update_plate_material_mode,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(
+            plate,
+            text=(
+                "Uses the DNV grade above and this plate thickness; an automatic "
+                "thickness-qualified material name is generated and reused."
+            ),
+            foreground="#666666",
+            wraplength=430,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 2))
+        self.button(plate, "Create / update section", self._add_plate_section)
         self.button(plate, "Assign to selected plates", self._assign_plate)
 
         beam = self.section("Beam section")
@@ -1025,17 +1102,51 @@ class SectionPanel(StagePanel):
         self.button(beam, "Add section", self._add_beam_section)
         self.button(beam, "Assign to selected lines", self._assign_beam)
 
+        usage = self.section("Section definitions and assigned model entities")
+        self._section_usage = ttk.Treeview(
+            usage,
+            columns=("kind", "material", "assigned"),
+            show="tree headings",
+            height=6,
+        )
+        self._section_usage.heading("#0", text="Definition")
+        self._section_usage.heading("kind", text="Type")
+        self._section_usage.heading("material", text="Material")
+        self._section_usage.heading("assigned", text="Assigned model entities")
+        self._section_usage.column("#0", width=100, stretch=True)
+        self._section_usage.column("kind", width=55, stretch=False)
+        self._section_usage.column("material", width=165, stretch=True)
+        self._section_usage.column("assigned", width=190, stretch=True)
+        self._section_usage.pack(fill="x")
+
         imperfection = self.section("Imperfection")
         self._imperfection_amplitude = self.entry_row(
             imperfection, "amplitude [mm]", "auto"
         )
         self._waves = self.entry_row(imperfection, "waves", "1 1")
-        self.button(imperfection, "Add to selection", self._add_imperfection)
+        self._imperfection_apply = self.button(
+            imperfection, "Add to selection", self._add_imperfection
+        )
+        ttk.Label(
+            imperfection,
+            text=(
+                "Purple wire shows the stress-free imperfect shape. Small "
+                "amplitudes are automatically exaggerated for visibility; "
+                "the tree and solver retain the stated physical amplitude."
+            ),
+            foreground="#6a1b9a",
+            wraplength=430,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 0))
         self._imperfection_label = ttk.Label(self, text="", foreground="#666666")
         self._imperfection_label.pack(anchor="w")
+        self._update_plate_material_mode()
 
     def refresh(self) -> None:
         names = tuple(sorted(self.app.project.materials))
+        self._material_choice_box.configure(values=names)
+        if names and self._material_choice.get() not in names:
+            self._material_choice.set(names[0])
         for variable, box in (
             (self._plate_material, self._plate_material_box),
             (self._beam_material, self._beam_material_box),
@@ -1047,12 +1158,105 @@ class SectionPanel(StagePanel):
         self._imperfection_label.configure(
             text="no imperfections" if not count else f"{count} imperfection(s)"
         )
+        self._update_plate_material_mode()
+        self._refresh_material_details()
+        self._refresh_section_usage()
+
+    def _refresh_material_details(self) -> None:
+        material = self.app.project.materials.get(self._material_choice.get())
+        if material is None:
+            self._material_details.configure(text="No material selected")
+            return
+        lines = [f"{material.name}"]
+        if material.symmetry == "isotropic":
+            lines.append(
+                f"Elastic: E = {material.elastic_modulus / 1e9:.6g} GPa, "
+                f"nu = {material.poisson_ratio:.5g}"
+            )
+        else:
+            lines.append(f"Elastic symmetry: {material.symmetry}")
+        lines.append(
+            f"Density = {material.density:.6g} kg/m3; "
+            f"nominal yield = {material.yield_stress / 1e6:.6g} MPa"
+        )
+        hardening = material.hardening
+        if hardening is None:
+            lines.append("Response: ELASTIC ONLY (no plastic hardening curve)")
+        else:
+            kind = str(hardening.get("kind", "custom"))
+            lines.append(f"Response: NONLINEAR PLASTICITY ACTIVE ({kind})")
+            if kind == "dnv_c208":
+                lines.append(
+                    f"DNV grade {hardening.get('grade', '?')}; "
+                    f"product thickness = "
+                    f"{float(hardening.get('thickness', 0.0)) * 1000:.6g} mm"
+                )
+            try:
+                curve = material.build().hardening_curve
+                plastic_strain = np.array((0.0, 0.01, 0.10), dtype=float)
+                flow = np.asarray(curve.flow_stress(plastic_strain), dtype=float) / 1e6
+                lines.append(
+                    "Flow stress [MPa] at plastic strain "
+                    f"0/1%/10% = {flow[0]:.4g} / {flow[1]:.4g} / {flow[2]:.4g}"
+                )
+            except (AttributeError, TypeError, ValueError):
+                lines.append("Hardening curve is stored and validated by ANYmaterial")
+        self._material_details.configure(text="\n".join(lines))
+
+    @staticmethod
+    def _assigned_label(prefix: str, identifiers: Sequence[int]) -> str:
+        ordered = sorted(int(value) for value in identifiers)
+        shown = ", ".join(str(value) for value in ordered[:12])
+        if len(ordered) > 12:
+            shown += f", +{len(ordered) - 12} more"
+        return "unassigned" if not ordered else f"{prefix} {shown}"
+
+    def _refresh_section_usage(self) -> None:
+        self.app.project.resolve_section_assignments(strict=False)
+        self._section_usage.delete(*self._section_usage.get_children())
+        faces_by_section: dict[str, list[int]] = {}
+        for identifier, assigned in self.app.project.face_sections.items():
+            faces_by_section.setdefault(assigned, []).append(identifier)
+        edges_by_section: dict[str, list[int]] = {}
+        for identifier, assigned in self.app.project.edge_sections.items():
+            edges_by_section.setdefault(assigned, []).append(identifier)
+        for name, section in sorted(self.app.project.plate_sections.items()):
+            faces = faces_by_section.get(name, ())
+            self._section_usage.insert(
+                "", "end", iid=f"plate:{section.id}", text=name,
+                values=("Plate", section.material, self._assigned_label("Plates", faces)),
+            )
+        for name, section in sorted(self.app.project.beam_sections.items()):
+            edges = edges_by_section.get(name, ())
+            self._section_usage.insert(
+                "", "end", iid=f"beam:{section.id}", text=name,
+                values=("Beam", section.material, self._assigned_label("Lines", edges)),
+            )
+
+    def _update_plate_material_mode(self) -> None:
+        self._plate_material_box.configure(
+            state="disabled" if self._auto_dnv_plate.get() else "readonly"
+        )
 
     def _add_material(self) -> None:
         thickness = self.number(self._grade_thickness, "thickness") / 1000.0
-        material = steel(self._grade.get().strip(), thickness)
-        self.app.project.add_material(material)
-        self.app.set_status(f"added material {material.name}")
+        requested_name = self._material_name.get().strip()
+        custom_name = None if requested_name.lower() in ("", "auto") else requested_name
+        material = dnv_steel_material(
+            self._grade.get().strip(),
+            thickness,
+            nonlinear=True,
+            name=custom_name,
+        )
+        self.app.run(cmd.AddMaterial(material, label="add DNV material"))
+        self._material_choice.set(material.name)
+        self._plate_material.set(material.name)
+        self._beam_material.set(material.name)
+        self.app.set_status(
+            f"added nonlinear DNV material {material.name}: "
+            f"grade {material.hardening['grade']}, "
+            f"product thickness {thickness * 1000:g} mm"
+        )
         self.app.refresh_all()
 
     @staticmethod
@@ -1083,26 +1287,64 @@ class SectionPanel(StagePanel):
             # Keep ANYfem's compatibility properties (elastic_modulus and
             # poisson_ratio) while storing the complete ANYmaterial schema.
             material = Material.from_dict(material.to_dict())
-        self.app.project.add_material(material)
+        self.app.run(cmd.AddMaterial(material, label="use ANYmaterial specification"))
+        self._material_choice.set(material.name)
+        self._auto_dnv_plate.set(False)
+        self._update_plate_material_mode()
         self._plate_material.set(material.name)
         self._beam_material.set(material.name)
         self.app.set_status(f"using material {material.name}")
         self.app.refresh_all()
 
-    def _add_plate_section(self) -> None:
-        self.app.project.add_plate_section(
-            self._plate_name.get().strip(),
-            self.number(self._plate_thickness, "thickness") / 1000.0,
-            self._plate_material.get().strip(),
+    def _plate_section_command(self) -> tuple[cmd.AddPlateSection, str]:
+        name = self._plate_name.get().strip()
+        thickness = self.number(self._plate_thickness, "thickness") / 1000.0
+        automatic = self._auto_dnv_plate.get()
+        material_name = self._plate_material.get().strip()
+        material = None
+        if automatic:
+            material = dnv_steel_material(
+                self._grade.get().strip(), thickness, nonlinear=True
+            )
+            material_name = material.name
+        existing = self.app.project.plate_sections.get(name)
+        section = PlateSection(
+            name=name,
+            thickness=thickness,
+            material=material_name,
+            **({"id": existing.id} if existing is not None else {}),
         )
-        self.app.set_status(f"added plate section {self._plate_name.get()}")
+        return cmd.AddPlateSection(section, material), material_name
+
+    def _add_plate_section(self) -> None:
+        command, material_name = self._plate_section_command()
+        self.app.run(command)
+        self._plate_material.set(material_name)
+        self._material_choice.set(material_name)
+        name = command.section.name
+        detail = (
+            "automatic DNV nonlinear"
+            if command.material is not None
+            else "selected"
+        )
+        self.app.set_status(
+            f"added plate section {name} using {material_name} ({detail} material)"
+        )
         self.app.refresh_all()
 
     def _assign_plate(self) -> None:
         faces = self.require_selection("face")
         name = self._plate_name.get().strip()
-        self.app.run_many(cmd.AssignPlate(ref.id, name) for ref in faces)
-        self.app.set_status(f"assigned {name} to {len(faces)} plate(s)")
+        definition, material_name = self._plate_section_command()
+        self.app.run_many(
+            (definition, *(cmd.AssignPlate(ref.id, name) for ref in faces))
+        )
+        self._plate_material.set(material_name)
+        self._material_choice.set(material_name)
+        self.app.set_status(
+            f"updated {name} and assigned it to {len(faces)} plate(s); "
+            f"material {material_name}"
+        )
 
     def _add_beam_section(self) -> None:
         web_height, web_thickness, flange_width = (
@@ -1128,7 +1370,6 @@ class SectionPanel(StagePanel):
         self.app.set_status(f"assigned {name} to {len(edges)} line(s)")
 
     def _add_imperfection(self) -> None:
-        items = self.require_selection(self.app.selection.mode)
         text = self._imperfection_amplitude.get().strip().lower()
         amplitude = None if text in ("", "auto") else (
             self.number(self._imperfection_amplitude, "amplitude") / 1000.0
@@ -1140,6 +1381,20 @@ class SectionPanel(StagePanel):
         if len(waves) != 2:
             raise ValueError("waves must be two whole numbers, e.g. 1 1")
 
+        if isinstance(self._editing_imperfection, Imperfection):
+            current = self._editing_imperfection
+            self.app.run(
+                cmd.EditAttribute(
+                    replace(current, amplitude=amplitude, waves=waves)
+                )
+            )
+            self._editing_imperfection = None
+            self._imperfection_apply.configure(text="Add to selection")
+            self.app.set_status(f"updated imperfection {current.name}")
+            return
+
+        items = self.require_selection(self.app.selection.mode)
+
         self.app.run_many(
             cmd.AddImperfection(
                 Imperfection(ref=ref, amplitude=amplitude, waves=waves)
@@ -1148,11 +1403,49 @@ class SectionPanel(StagePanel):
         )
         self.app.set_status(f"imperfection on {len(items)} entity(ies)")
 
+    def edit_imperfection(self, identifier: str) -> bool:
+        for item in self.app.project.imperfections:
+            if getattr(item, "id", None) != identifier:
+                continue
+            self._editing_imperfection = item
+            self._imperfection_amplitude.set(
+                "auto" if item.amplitude is None else f"{item.amplitude * 1000:.12g}"
+            )
+            self._waves.set(f"{item.waves[0]} {item.waves[1]}")
+            self._imperfection_apply.configure(text="Update selected imperfection")
+            self.app.show_geometry()
+            self.app.selection.set_mode(item.ref.kind)
+            self.app.selection.select(item.ref)
+            self.app.refresh_views()
+            return True
+        return False
+
 
 class LoadPanel(StagePanel):
     title = "Loads & BC"
 
     def build(self) -> None:
+        self._editing_attribute = None
+        self._editing_case_name: str | None = None
+        scope = self.section("Scope on model")
+        ttk.Label(
+            scope,
+            text="Select model geometry for loads and boundary conditions.",
+            foreground="#666666",
+        ).pack(anchor="w")
+        scope_row = ttk.Frame(scope)
+        scope_row.pack(fill="x", pady=(3, 0))
+        for text, kind in (
+            ("Points", "vertex"),
+            ("Lines", "edge"),
+            ("Plates", "face"),
+        ):
+            ttk.Button(
+                scope_row,
+                text=text,
+                command=lambda value=kind: self._scope_geometry(value),
+            ).pack(side="left", fill="x", expand=True, padx=1)
+
         key = self.section("Viewport key")
         for text, colour in (
             ("blue arrow  pressure", COLOR_PRESSURE),
@@ -1242,11 +1535,15 @@ class LoadPanel(StagePanel):
             support, "set checked [mm/mrad]", "0"
         )
         self._prescribed.trace_add("write", self._broadcast_prescribed)
-        self.button(support, "Apply to selection", self._add_support)
+        self._support_apply = self.button(
+            support, "Apply to selection", self._add_support
+        )
 
         load = self.section("Load")
         self._pressure = self.entry_row(load, "pressure [Pa]", "10000")
-        self.button(load, "Pressure on plates", self._add_pressure)
+        self._pressure_apply = self.button(
+            load, "Pressure on plates", self._add_pressure
+        )
         self._force = self.vector_row(load, "force [N]", ("0", "0", "-1000"))
         self._moment = self.vector_row(load, "moment [Nm]", ("0", "0", "0"))
         policy_row = ttk.Frame(load)
@@ -1260,11 +1557,17 @@ class LoadPanel(StagePanel):
             state="readonly",
             width=18,
         ).pack(side="left", fill="x", expand=True)
-        self.button(load, "Point load on points", self._add_point_load)
+        self._point_apply = self.button(
+            load, "Point load on points", self._add_point_load
+        )
         self._line = self.vector_row(load, "line load [N/m]", ("0", "0", "-1000"))
-        self.button(load, "Line load on lines", self._add_line_load)
+        self._line_apply = self.button(
+            load, "Line load on lines", self._add_line_load
+        )
         self._traction = self.vector_row(load, "traction [Pa]", ("0", "0", "-1000"))
-        self.button(load, "Traction on plates", self._add_traction)
+        self._traction_apply = self.button(
+            load, "Traction on plates", self._add_traction
+        )
 
         body = self.section("Body load")
         self._acceleration = self.vector_row(
@@ -1272,7 +1575,9 @@ class LoadPanel(StagePanel):
         )
         self.button(body, "Apply to case", self._set_acceleration)
         self._mass = self.entry_row(body, "mass [kg]", "100")
-        self.button(body, "Mass on selection", self._add_mass)
+        self._mass_apply = self.button(
+            body, "Mass on selection", self._add_mass
+        )
 
         combination = self.section("Combination")
         self._combination_name = self.entry_row(combination, "name", "ULS")
@@ -1322,6 +1627,18 @@ class LoadPanel(StagePanel):
     def case_name(self) -> str:
         return self._case.get().strip() or "default"
 
+    def _scope_geometry(self, kind: str) -> None:
+        labels = {"vertex": "points", "edge": "lines", "face": "plates"}
+        self.app.show_geometry()
+        self.app.selection_strip.set_context(
+            kind,
+            f"Geometry scope • select {labels[kind]}",
+        )
+        self.app.details.set_hint(f"Select model {labels[kind]}")
+        self.app.set_status(
+            f"model geometry shown; select {labels[kind]} for loads and BCs"
+        )
+
     def coordinate_system_id(self) -> str:
         selected = self._coordinates.get()
         for identifier, system in self.app.project.coordinate_systems.items():
@@ -1354,8 +1671,106 @@ class LoadPanel(StagePanel):
             else "pressure acts on the reference shape"
         )
 
+    @staticmethod
+    def _set_vector(variables: Sequence[tk.StringVar], values: Sequence[float]) -> None:
+        for variable, value in zip(variables, values):
+            variable.set(f"{float(value):.12g}")
+
+    def _set_coordinate_system(self, identifier: str) -> None:
+        system = self.app.project.coordinate_systems.get(identifier)
+        self._coordinates.set(system.name if system is not None else identifier)
+
+    def _begin_attribute_edit(self, item, case_name: str | None = None) -> None:
+        """Hydrate the form from the UUID-selected tree object."""
+
+        self._editing_attribute = item
+        self._editing_case_name = case_name
+        if case_name is not None:
+            self._case.set(case_name)
+        if hasattr(item, "coordinate_system_id"):
+            self._set_coordinate_system(item.coordinate_system_id)
+        self.app.show_geometry()
+        self.app.selection.set_mode(item.ref.kind)
+        self.app.selection.select(item.ref)
+
+        if isinstance(item, Support):
+            self._support_preset.set("Prescribed")
+            for dof in DOF_NAMES:
+                active = dof in item.constraints
+                self._dofs[dof].set(active)
+                self._component_values[dof].set(
+                    f"{1000.0 * float(item.constraints.get(dof, 0.0)):.12g}"
+                )
+            self._support_apply.configure(text="Update selected support")
+        elif isinstance(item, PointLoad):
+            self._set_vector(self._force, item.force)
+            self._set_vector(self._moment, item.moment)
+            self._point_policy.set(
+                "Per target"
+                if item.distribution_policy == "per_target"
+                else "Total distributed"
+            )
+            self._point_apply.configure(text="Update selected point load")
+        elif isinstance(item, Pressure):
+            self._pressure.set(f"{float(item.value):.12g}")
+            self._pressure_apply.configure(text="Update selected pressure")
+        elif isinstance(item, LineLoad):
+            self._set_vector(self._line, item.force_per_length)
+            self._line_apply.configure(text="Update selected line load")
+        elif isinstance(item, SurfaceTraction):
+            self._set_vector(self._traction, item.traction)
+            self._traction_apply.configure(text="Update selected traction")
+        elif isinstance(item, Mass):
+            self._mass.set(f"{float(item.value):.12g}")
+            self._point_policy.set(
+                "Per target"
+                if item.distribution_policy == "per_target"
+                else "Total distributed"
+            )
+            self._mass_apply.configure(text="Update selected mass")
+        self.app.refresh_views()
+
+    def edit_tree_item(self, key: str) -> bool:
+        """Open the exact support/load/mass selected in the model tree."""
+
+        if key.startswith("support:"):
+            identifier = key.split(":", 1)[1]
+            for item in self.app.project.supports:
+                if item.id == identifier:
+                    self._begin_attribute_edit(item)
+                    return True
+        if key.startswith("mass:"):
+            identifier = key.split(":", 1)[1]
+            for item in self.app.project.masses:
+                if item.id == identifier:
+                    self._begin_attribute_edit(item)
+                    return True
+        if key.startswith("load:") and not key.endswith(":gravity"):
+            identifier = key.rsplit(":", 1)[1]
+            for case_name, case in self.app.project.load_cases.items():
+                for attribute in (
+                    "point_loads",
+                    "pressures",
+                    "line_loads",
+                    "surface_tractions",
+                ):
+                    for item in getattr(case, attribute):
+                        if item.id == identifier:
+                            self._begin_attribute_edit(item, case_name)
+                            return True
+        return False
+
+    def _finish_attribute_edit(self) -> None:
+        self._editing_attribute = None
+        self._editing_case_name = None
+        self._support_apply.configure(text="Apply to selection")
+        self._pressure_apply.configure(text="Pressure on plates")
+        self._point_apply.configure(text="Point load on points")
+        self._line_apply.configure(text="Line load on lines")
+        self._traction_apply.configure(text="Traction on plates")
+        self._mass_apply.configure(text="Mass on selection")
+
     def _add_support(self) -> None:
-        items = self.require_selection(self.app.selection.mode)
         constraints = {
             dof: self.number(self._component_values[dof], dof) / 1000.0
             for dof, held in self._dofs.items()
@@ -1363,6 +1778,18 @@ class LoadPanel(StagePanel):
         }
         if not constraints:
             raise ValueError("tick at least one degree of freedom")
+        if isinstance(self._editing_attribute, Support):
+            current = self._editing_attribute
+            updated = replace(
+                current,
+                constraints=dict(constraints),
+                coordinate_system_id=self.coordinate_system_id(),
+            )
+            self.app.run(cmd.EditAttribute(updated))
+            self._finish_attribute_edit()
+            self.app.set_status(f"updated {current.name}")
+            return
+        items = self.require_selection(self.app.selection.mode)
         self.app.run_many(
             cmd.AddSupport(
                 Support(
@@ -1405,8 +1832,14 @@ class LoadPanel(StagePanel):
                 self._component_values[dof].set("0")
 
     def _add_pressure(self) -> None:
-        faces = self.require_selection("face")
         value = self.number(self._pressure, "pressure")
+        if isinstance(self._editing_attribute, Pressure):
+            current = self._editing_attribute
+            self.app.run(cmd.EditAttribute(replace(current, value=value)))
+            self._finish_attribute_edit()
+            self.app.set_status("updated pressure")
+            return
+        faces = self.require_selection("face")
         self.app.run_many(
             cmd.AddPressure(ref, value, case=self.case_name())
             for ref in faces
@@ -1414,15 +1847,31 @@ class LoadPanel(StagePanel):
         self.app.set_status(f"pressure on {len(faces)} plate(s)")
 
     def _add_point_load(self) -> None:
-        points = self.require_selection("vertex")
         force = self.vector(self._force, "force")
         moment = self.vector(self._moment, "moment")
-        scale = 1.0 if self._point_policy.get() == "Per target" else 1.0 / len(points)
         policy = (
             "per_target"
             if self._point_policy.get() == "Per target"
             else "total_distributed"
         )
+        if isinstance(self._editing_attribute, PointLoad):
+            current = self._editing_attribute
+            self.app.run(
+                cmd.EditAttribute(
+                    replace(
+                        current,
+                        force=force,
+                        moment=moment,
+                        coordinate_system_id=self.coordinate_system_id(),
+                        distribution_policy=policy,
+                    )
+                )
+            )
+            self._finish_attribute_edit()
+            self.app.set_status("updated point force/moment")
+            return
+        points = self.require_selection("vertex")
+        scale = 1.0 if policy == "per_target" else 1.0 / len(points)
         self.app.run_many(
             cmd.AddPointLoad(
                 ref,
@@ -1440,8 +1889,22 @@ class LoadPanel(StagePanel):
         )
 
     def _add_line_load(self) -> None:
-        edges = self.require_selection("edge")
         intensity = self.vector(self._line, "line load")
+        if isinstance(self._editing_attribute, LineLoad):
+            current = self._editing_attribute
+            self.app.run(
+                cmd.EditAttribute(
+                    replace(
+                        current,
+                        force_per_length=intensity,
+                        coordinate_system_id=self.coordinate_system_id(),
+                    )
+                )
+            )
+            self._finish_attribute_edit()
+            self.app.set_status("updated line load")
+            return
+        edges = self.require_selection("edge")
         self.app.run_many(
             cmd.AddLineLoad(
                 ref,
@@ -1454,8 +1917,22 @@ class LoadPanel(StagePanel):
         self.app.set_status(f"line load on {len(edges)} line(s)")
 
     def _add_traction(self) -> None:
-        faces = self.require_selection("face")
         traction = self.vector(self._traction, "traction")
+        if isinstance(self._editing_attribute, SurfaceTraction):
+            current = self._editing_attribute
+            self.app.run(
+                cmd.EditAttribute(
+                    replace(
+                        current,
+                        traction=traction,
+                        coordinate_system_id=self.coordinate_system_id(),
+                    )
+                )
+            )
+            self._finish_attribute_edit()
+            self.app.set_status("updated surface traction")
+            return
+        faces = self.require_selection("face")
         self.app.run_many(
             cmd.AddSurfaceTraction(
                 ref,
@@ -1479,14 +1956,24 @@ class LoadPanel(StagePanel):
         self.app.set_status(f"acceleration on case {self.case_name()}")
 
     def _add_mass(self) -> None:
-        items = self.require_selection(self.app.selection.mode)
         value = self.number(self._mass, "mass")
-        scale = 1.0 if self._point_policy.get() == "Per target" else 1.0 / len(items)
         policy = (
             "per_target"
             if self._point_policy.get() == "Per target"
             else "total_distributed"
         )
+        if isinstance(self._editing_attribute, Mass):
+            current = self._editing_attribute
+            self.app.run(
+                cmd.EditAttribute(
+                    replace(current, value=value, distribution_policy=policy)
+                )
+            )
+            self._finish_attribute_edit()
+            self.app.set_status(f"updated {current.name}")
+            return
+        items = self.require_selection(self.app.selection.mode)
+        scale = 1.0 if policy == "per_target" else 1.0 / len(items)
         self.app.run_many(
             cmd.AddMass(
                 ref,
@@ -1550,7 +2037,10 @@ class SolvePanel(StagePanel):
             state="readonly", width=16,
         )
         analysis_box.pack(side="left", fill="x", expand=True)
-        analysis_box.bind("<<ComboboxSelected>>", lambda _e: self._show_options())
+        analysis_box.bind(
+            "<<ComboboxSelected>>",
+            lambda _e: (self._show_options(), self._refresh_material_response()),
+        )
 
         row = ttk.Frame(controls)
         row.pack(fill="x", pady=1)
@@ -1561,9 +2051,15 @@ class SolvePanel(StagePanel):
             state="readonly", width=16,
         )
         self._target_box.pack(side="left", fill="x", expand=True)
+        self._material_response = ttk.Label(
+            controls, text="", justify="left", foreground="#555555"
+        )
+        self._material_response.pack(anchor="w", fill="x", pady=(3, 1))
 
         options = self.section("Options")
-        self._options = {}
+        # tkinter.Misc owns a callable named ``_options`` which pack/grid use.
+        # Shadowing it with this dictionary makes opening the Solve page fail.
+        self._analysis_options = {}
         self._option_frames = {}
         for name, label, default in (
             ("batch_cases", "case names", "*"),
@@ -1582,7 +2078,7 @@ class SolvePanel(StagePanel):
             ("imperfection", "imperfection [mm]", "5.0"),
         ):
             frame, variable = self.labelled_entry(options, label, default)
-            self._options[name] = variable
+            self._analysis_options[name] = variable
             self._option_frames[name] = frame
 
         self._advanced_open = tk.BooleanVar(value=False)
@@ -1618,8 +2114,20 @@ class SolvePanel(StagePanel):
         self._progress = ttk.Label(self, text="", foreground="#555555")
         self._progress.pack(anchor="w", pady=(4, 0))
 
-        self._report = tk.Text(self, height=12, wrap="word", state="disabled")
-        self._report.pack(fill="both", expand=True, pady=(6, 0))
+        self._transcript_tabs = ttk.Notebook(self)
+        self._transcript_tabs.pack(fill="both", expand=True, pady=(6, 0))
+        log_page = ttk.Frame(self._transcript_tabs)
+        inputs_page = ttk.Frame(self._transcript_tabs)
+        self._transcript_tabs.add(log_page, text="Run log")
+        self._transcript_tabs.add(inputs_page, text="Submitted inputs")
+        self._report = tk.Text(log_page, height=12, wrap="word", state="disabled")
+        self._report.pack(fill="both", expand=True)
+        self._submitted_inputs = tk.Text(
+            inputs_page, height=12, wrap="none", state="disabled"
+        )
+        self._submitted_inputs.pack(fill="both", expand=True)
+        self._live_line_count = 0
+        self._last_live_line = ""
 
         self._show_options()
         self._show_advanced()
@@ -1652,15 +2160,106 @@ class SolvePanel(StagePanel):
         self._target_box.configure(values=options or ["case: default"])
         if self._target.get() not in options and options:
             self._target.set(options[0])
+        self._refresh_material_response()
+
+    def _refresh_material_response(self) -> None:
+        project = self.app.project
+        material_names = {
+            project.plate_sections[section_name].material
+            for section_name in project.face_sections.values()
+            if section_name in project.plate_sections
+        }
+        plastic = sorted(
+            name
+            for name in material_names
+            if name in project.materials
+            and project.materials[name].hardening is not None
+        )
+        elastic = sorted(material_names - set(plastic))
+        analysis = self._analysis.get()
+        nonlinear = analysis in ("Nonlinear static", "Arc length", "Capacity")
+        if plastic:
+            text = "Shell plasticity active: " + ", ".join(plastic)
+            if elastic:
+                text += "; elastic shell materials: " + ", ".join(elastic)
+            colour = "#1b5e20"
+        elif material_names:
+            text = "Shell response is elastic"
+            if nonlinear:
+                text += " (analysis is geometrically nonlinear only)"
+            text += ": " + ", ".join(sorted(material_names))
+            colour = "#b23a00" if nonlinear else "#555555"
+        else:
+            text = "No assigned shell section/material"
+            colour = "#b00020"
+        if nonlinear and any(
+            abs(float(value)) > 0.0
+            for support in project.supports
+            for value in support.constraints.values()
+        ) and not project.imperfections:
+            text += (
+                "\nBuckling-path warning: the model is geometrically perfect. "
+                "Add an out-of-plane imperfection; a symmetric flat model can "
+                "remain on the flat equilibrium path."
+            )
+            colour = "#b23a00"
+        self._material_response.configure(text=text, foreground=colour)
 
     def show_progress(self, text: str) -> None:
         self._progress.configure(text=text)
+
+    def begin_job(self, name: str, job_id: str, submitted_inputs: str = "") -> None:
+        """Start a bounded live transcript for a newly submitted job."""
+
+        self._report.configure(state="normal")
+        self._report.delete("1.0", "end")
+        self._report.insert("end", f"{name}  [{job_id[:8]}]\n")
+        self._report.configure(state="disabled")
+        self._live_line_count = 1
+        self._last_live_line = ""
+        self.set_submitted_inputs(submitted_inputs)
+        self._transcript_tabs.select(0)
+        self.append_progress("queued")
+
+    def set_submitted_inputs(self, text: str) -> None:
+        self._submitted_inputs.configure(state="normal")
+        self._submitted_inputs.delete("1.0", "end")
+        self._submitted_inputs.insert("1.0", str(text).strip() or "No input record available")
+        self._submitted_inputs.configure(state="disabled")
+
+    def append_progress(self, text: str) -> None:
+        """Append one live solver message without allowing unbounded growth."""
+
+        line = str(text).strip()
+        if not line or line == self._last_live_line:
+            return
+        self._last_live_line = line
+        self._report.configure(state="normal")
+        self._report.insert("end", line + "\n")
+        self._live_line_count += 1
+        if self._live_line_count > 1000:
+            excess = self._live_line_count - 1000
+            self._report.delete("1.0", f"{excess + 1}.0")
+            self._live_line_count -= excess
+        self._report.see("end")
+        self._report.configure(state="disabled")
+
+    def append_report(self, text: str) -> None:
+        report = str(text).strip()
+        if not report:
+            return
+        self._report.configure(state="normal")
+        self._report.insert("end", "\nResult summary\n--------------\n" + report + "\n")
+        self._report.see("end")
+        self._report.configure(state="disabled")
 
     def write(self, text: str) -> None:
         self._report.configure(state="normal")
         self._report.delete("1.0", "end")
         self._report.insert("1.0", text)
         self._report.configure(state="disabled")
+        self._live_line_count = int(self._report.index("end-1c").split(".")[0])
+        self._last_live_line = ""
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -1685,9 +2284,9 @@ class SolvePanel(StagePanel):
         kwargs = self._target_kwargs()
 
         if analysis == "Modal":
-            kwargs = {"num_modes": int(self.number(self._options["modes"], "modes"))}
+            kwargs = {"num_modes": int(self.number(self._analysis_options["modes"], "modes"))}
         elif analysis == "Batch linear static":
-            value = self._options["batch_cases"].get().strip()
+            value = self._analysis_options["batch_cases"].get().strip()
             names = (
                 tuple(sorted(self.app.project.load_cases))
                 if value in ("", "*")
@@ -1700,23 +2299,25 @@ class SolvePanel(StagePanel):
                 raise ValueError(f"unknown batch load case(s): {unknown}")
             kwargs = {"load_cases": names}
         elif analysis == "Buckling":
-            kwargs["num_modes"] = int(self.number(self._options["modes"], "modes"))
+            kwargs["num_modes"] = int(self.number(self._analysis_options["modes"], "modes"))
         elif analysis == "Nonlinear static":
-            kwargs["num_steps"] = int(self.number(self._options["steps"], "load steps"))
+            kwargs["num_steps"] = int(self.number(self._analysis_options["steps"], "load steps"))
             kwargs["max_load_factor"] = self.number(
-                self._options["factor"], "max load factor"
+                self._analysis_options["factor"], "max load factor"
             )
         elif analysis == "Arc length":
             from anysolver import ArcLengthControl
 
             kwargs["control"] = ArcLengthControl(
-                max_steps=int(self.number(self._options["arc_steps"], "max arc steps"))
+                max_steps=int(
+                    self.number(self._analysis_options["arc_steps"], "max arc steps")
+                )
             )
         elif analysis == "Transient":
-            kwargs["dt"] = self.number(self._options["dt"], "time step")
-            kwargs["t_end"] = self.number(self._options["t_end"], "duration")
+            kwargs["dt"] = self.number(self._analysis_options["dt"], "time step")
+            kwargs["t_end"] = self.number(self._analysis_options["t_end"], "duration")
             kwargs["rayleigh_alpha"] = self.number(
-                self._options["damping"], "Rayleigh alpha"
+                self._analysis_options["damping"], "Rayleigh alpha"
             )
         elif analysis == "Impact":
             from ..model.collision import Collision
@@ -1725,24 +2326,26 @@ class SolvePanel(StagePanel):
             kwargs.pop("combination", None)
             kwargs["load_case"] = None
             kwargs["collision"] = Collision(
-                mass=self.number(self._options["mass"], "sphere mass"),
-                radius=self.number(self._options["radius"], "sphere radius"),
-                speed=self.number(self._options["speed"], "speed"),
-                start=self._triple(self._options["start"], "start"),
-                direction=self._triple(self._options["direction"], "direction"),
+                mass=self.number(self._analysis_options["mass"], "sphere mass"),
+                radius=self.number(self._analysis_options["radius"], "sphere radius"),
+                speed=self.number(self._analysis_options["speed"], "speed"),
+                start=self._triple(self._analysis_options["start"], "start"),
+                direction=self._triple(
+                    self._analysis_options["direction"], "direction"
+                ),
             )
         elif analysis == "Capacity":
             kwargs["num_buckling_modes"] = int(
-                self.number(self._options["modes"], "buckling modes")
+                self.number(self._analysis_options["modes"], "buckling modes")
             )
             kwargs["num_steps"] = int(
-                self.number(self._options["steps"], "load steps")
+                self.number(self._analysis_options["steps"], "load steps")
             )
             kwargs["max_load_factor"] = self.number(
-                self._options["factor"], "max load factor"
+                self._analysis_options["factor"], "max load factor"
             )
             kwargs["imperfection_amplitude"] = self.number(
-                self._options["imperfection"], "imperfection"
+                self._analysis_options["imperfection"], "imperfection"
             ) / 1000.0
 
         if analysis in ("Nonlinear static", "Arc length"):
@@ -1773,7 +2376,46 @@ class ResultsPanel(StagePanel):
         self._job_box.pack(side="left", fill="x", expand=True)
         self._job_box.bind("<<ComboboxSelected>>", lambda _event: self._pick_job())
 
-        controls = self.section("Display")
+        outcome = self.section("Analysis outcome")
+        outcome_head = ttk.Frame(outcome)
+        outcome_head.pack(fill="x", pady=(1, 3))
+        self._outcome_status = ttk.Label(
+            outcome_head, text="NO RESULT", font=("TkDefaultFont", 9, "bold")
+        )
+        self._outcome_status.pack(side="left")
+        self._outcome_progress_text = ttk.Label(outcome_head, text="")
+        self._outcome_progress_text.pack(side="right")
+        metrics = ttk.Frame(outcome)
+        metrics.pack(fill="x")
+        self._outcome_values = {}
+        for column, name in enumerate(("Start", "First converged", "Peak", "Last / target")):
+            cell = ttk.Frame(metrics)
+            cell.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 5, 0))
+            metrics.columnconfigure(column, weight=1)
+            ttk.Label(cell, text=name, foreground="#666666").pack(anchor="w")
+            value = tk.StringVar(value="—")
+            ttk.Label(cell, textvariable=value, font=("TkDefaultFont", 8, "bold")).pack(anchor="w")
+            self._outcome_values[name] = value
+        self._outcome_progress = ttk.Progressbar(
+            outcome, orient="horizontal", mode="determinate", maximum=100.0
+        )
+        self._outcome_progress.pack(fill="x", pady=(4, 2))
+        self._outcome_reason = ttk.Label(
+            outcome, text="Run an analysis to see its outcome.", justify="left",
+            wraplength=560,
+        )
+        self._outcome_reason.pack(fill="x", anchor="w")
+
+        setup_tabs = ttk.Notebook(self)
+        setup_tabs.pack(fill="x", pady=(0, 6))
+        display_page = ttk.Frame(setup_tabs, padding=4)
+        increments_page = ttk.Frame(setup_tabs, padding=4)
+        quantities_page = ttk.Frame(setup_tabs, padding=4)
+        setup_tabs.add(display_page, text="Display")
+        setup_tabs.add(increments_page, text="Increments")
+        setup_tabs.add(quantities_page, text="Quantities & tools")
+
+        controls = self.section("Contour display", parent=display_page)
         row = ttk.Frame(controls)
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="field", width=16).pack(side="left")
@@ -1787,6 +2429,30 @@ class ResultsPanel(StagePanel):
 
         self._scale = self.entry_row(controls, "deform scale", "auto")
         self._limits = self.entry_row(controls, "colour range", "auto")
+        units_row = ttk.Frame(controls)
+        units_row.pack(fill="x", pady=1)
+        ttk.Label(units_row, text="display units", width=16).pack(side="left")
+        self._display_units = tk.StringVar(value=DISPLAY_UNIT_SYSTEMS[0])
+        ttk.Combobox(
+            units_row,
+            textvariable=self._display_units,
+            values=DISPLAY_UNIT_SYSTEMS,
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        self._display_units.trace_add("write", lambda *_args: self._display_changed())
+        palette_row = ttk.Frame(controls)
+        palette_row.pack(fill="x", pady=1)
+        ttk.Label(palette_row, text="colour map", width=16).pack(side="left")
+        self._colormap = tk.StringVar(value="Cool-warm")
+        ttk.Combobox(
+            palette_row,
+            textvariable=self._colormap,
+            values=tuple(RESULT_COLORMAPS),
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        self._colormap.trace_add("write", lambda *_args: self._show_if_available())
         self._envelope = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             controls,
@@ -1794,11 +2460,19 @@ class ResultsPanel(StagePanel):
             variable=self._envelope,
             command=self.guarded(self._show),
         ).pack(anchor="w")
-        self.button(controls, "Show", self._show)
-        self.button(controls, "Back to mesh", self.app.show_mesh)
+        display_actions = ttk.Frame(controls)
+        display_actions.pack(fill="x", pady=(3, 0))
+        ttk.Button(display_actions, text="Update view", command=self.guarded(self._show)).pack(
+            side="left", fill="x", expand=True
+        )
+        ttk.Button(display_actions, text="Mesh view", command=self.app.show_mesh).pack(
+            side="left", fill="x", expand=True, padx=(4, 0)
+        )
 
         if getattr(self.app.viewport, "supports_section_planes", False):
-            clipping = self.section("Section plane")
+            clipping_page = ttk.Frame(setup_tabs, padding=4)
+            setup_tabs.add(clipping_page, text="Section plane")
+            clipping = self.section("Section plane", parent=clipping_page)
             self._clip_normal = self.vector_row(
                 clipping, "normal", ("1", "0", "0")
             )
@@ -1806,9 +2480,9 @@ class ResultsPanel(StagePanel):
             self.button(clipping, "Apply clipping", self._apply_section_plane)
             self.button(clipping, "Clear clipping", self._clear_section_plane)
 
-        quantities = self.section("Available quantities")
+        quantities = self.section("Available quantities", parent=quantities_page)
         self._quantities = ttk.Treeview(
-            quantities, columns=("location", "unit"), show="tree headings", height=5
+            quantities, columns=("location", "unit"), show="tree headings", height=4
         )
         self._quantities.heading("#0", text="Quantity")
         self._quantities.heading("location", text="Location")
@@ -1819,7 +2493,7 @@ class ResultsPanel(StagePanel):
         self._quantities.pack(fill="x")
         self._quantities.bind("<Double-1>", lambda _event: self._activate_quantity())
 
-        browse = self.section("Shape")
+        browse = self.section("Increment / shape", parent=increments_page)
         row = ttk.Frame(browse)
         row.pack(fill="x", pady=1)
         ttk.Button(row, text="<", width=3, command=self.guarded(self._previous)).pack(
@@ -1834,29 +2508,86 @@ class ResultsPanel(StagePanel):
         ttk.Button(row, text=">", width=3, command=self.guarded(self._next)).pack(
             side="left"
         )
-        self.button(browse, "Animate", self._animate)
+        self._play_button = ttk.Button(
+            row, text="▶ Play", width=8, command=self.guarded(self._animate)
+        )
+        self._play_button.pack(side="left", padx=(3, 0))
+        ttk.Label(row, text="speed").pack(side="left", padx=(8, 2))
+        self._playback_fps = tk.StringVar(value="4")
+        self._playback_speed_box = ttk.Combobox(
+            row,
+            textvariable=self._playback_fps,
+            values=("0.5", "1", "2", "4", "8", "12", "20", "30"),
+            state="readonly",
+            width=4,
+        )
+        self._playback_speed_box.pack(side="left")
+        ttk.Label(row, text="fps").pack(side="left", padx=(2, 0))
+        self._frame_details = ttk.Label(
+            browse, text="No saved increments.", foreground="#555555", wraplength=560
+        )
+        self._frame_details.pack(fill="x", anchor="w", pady=(2, 0))
 
-        query = self.section("Query")
-        self.button(query, "Probe selection", self._probe)
-        self.button(query, "Along selected line", self._along_line)
-        self.button(query, "Export report", self._export_report)
-        self.button(query, "Export field as CSV", self._export_field)
-        png_button = self.button(query, "Export viewport as PNG", self._export_png)
-        gif_button = self.button(query, "Export shapes as GIF", self._export_gif)
+        query = self.section("Tools", parent=quantities_page)
+        tool_specs = (
+            ("Probe", self._probe),
+            ("Along line", self._along_line),
+            ("Report", self._export_report),
+            ("CSV", self._export_field),
+            ("PNG", self._export_png),
+            ("GIF", self._export_gif),
+        )
+        tool_buttons = {}
+        for index, (label, command) in enumerate(tool_specs):
+            button = ttk.Button(query, text=label, command=self.guarded(command))
+            button.grid(row=0, column=index, sticky="ew", padx=2, pady=2)
+            query.columnconfigure(index, weight=1)
+            tool_buttons[label] = button
+        png_button = tool_buttons["PNG"]
+        gif_button = tool_buttons["GIF"]
         if not getattr(self.app.viewport, "capture_available", False):
             png_button.configure(state="disabled")
             gif_button.configure(state="disabled")
 
-        history = self.section("History")
-        self.plot = HistoryPlot(history, width=300, height=180)
-        self.plot.pack(fill="both", expand=True)
-        self.button(history, "Plot at selected point", self._plot_at_selection)
+        # The lower workspace owns the remaining height.  Path, detailed probe
+        # text and submitted inputs no longer compete vertically in three tiny
+        # canvases; each gets the full area when selected.
+        self._readout_tabs = ttk.Notebook(self)
+        self._readout_tabs.pack(fill="both", expand=True, pady=(6, 0))
+        path_page = ttk.Frame(self._readout_tabs)
+        readout_page = ttk.Frame(self._readout_tabs)
+        inputs_page = ttk.Frame(self._readout_tabs)
+        self._readout_tabs.add(path_page, text="Path / increments")
+        self._readout_tabs.add(readout_page, text="Probe / details")
+        self._readout_tabs.add(inputs_page, text="Submitted inputs")
+        path_actions = ttk.Frame(path_page)
+        path_actions.pack(fill="x")
+        ttk.Label(
+            path_actions,
+            text=(
+                "Green = unloaded start   Orange = peak   Purple = last converged   "
+                "Cyan = displayed increment"
+            ),
+            foreground="#555555",
+        ).pack(side="left")
+        ttk.Button(
+            path_actions, text="Plot selected point", command=self.guarded(self._plot_at_selection)
+        ).pack(side="right")
+        self.plot = HistoryPlot(path_page, width=380, height=260)
+        self.plot.pack(fill="both", expand=True, pady=(3, 0))
 
-        self._summary = ttk.Label(self, text="no results", justify="left")
-        self._summary.pack(anchor="w")
-
-        self._readout = tk.Text(self, height=12, wrap="none", state="disabled")
-        self._readout.pack(fill="both", expand=True, pady=(6, 0))
+        self._summary = ttk.Label(
+            readout_page, text="no results", justify="left", wraplength=600
+        )
+        self._summary.pack(fill="x", anchor="w", padx=4, pady=4)
+        self._readout = tk.Text(
+            readout_page, height=16, wrap="none", state="disabled"
+        )
+        self._readout.pack(fill="both", expand=True)
+        self._result_inputs = tk.Text(
+            inputs_page, height=16, wrap="none", state="disabled"
+        )
+        self._result_inputs.pack(fill="both", expand=True)
         self._animation_after = None
         self._animation_index = 0
         self._gif_export = None
@@ -1866,6 +2597,57 @@ class ResultsPanel(StagePanel):
     # ------------------------------------------------------------------
     def field_name(self) -> str:
         return self._component.get()
+
+    def ensure_compatible_field(self) -> str:
+        """Keep artifact field keys from leaking into live result display.
+
+        Persisted artifacts store the vector quantity as ``displacement``;
+        live ShapeView contours expose its scalar magnitude as ``magnitude``.
+        Switching result sources must therefore validate the retained choice
+        before the viewport evaluates it.
+        """
+
+        solution = self.app.solution
+        if solution is None:
+            dataset = self.app.result_datasets.get(self.app.active_job_id)
+            choices = tuple(dataset.field_keys) if dataset is not None else ()
+        else:
+            available = getattr(solution, "available_fields", None)
+            choices = tuple(
+                available() if callable(available) else available_fields()
+            )
+        if choices:
+            self._field_box.configure(values=choices)
+            current = self._component.get()
+            aliases = {
+                "displacement": "magnitude",
+                "mode_shape": "magnitude",
+                "stress": "von_mises",
+            }
+            replacement = aliases.get(current, current)
+            if replacement not in choices:
+                replacement = "magnitude" if "magnitude" in choices else choices[0]
+            if replacement != current:
+                self._component.set(replacement)
+        return self._component.get()
+
+    def display_units(self) -> str:
+        return self._display_units.get()
+
+    def colormap(self):
+        return RESULT_COLORMAPS.get(
+            self._colormap.get(), RESULT_COLORMAPS["Cool-warm"]
+        )
+
+    def _show_if_available(self) -> None:
+        if self.app.solution is not None or (
+            self.app.active_job_id in self.app.result_datasets
+        ):
+            self.guarded(self._show)()
+
+    def _display_changed(self) -> None:
+        self._show_if_available()
+        self.refresh()
 
     def colour_limits(self):
         text = self._limits.get().strip().lower()
@@ -1897,6 +2679,147 @@ class ResultsPanel(StagePanel):
         self._readout.delete("1.0", "end")
         self._readout.insert("1.0", text)
         self._readout.configure(state="disabled")
+        self._readout_tabs.select(1)
+
+    @staticmethod
+    def _factor(value) -> str:
+        return "—" if value is None else f"λ = {float(value):.5g}"
+
+    def _clear_outcome(self, message: str = "Run an analysis to see its outcome.") -> None:
+        self._outcome_status.configure(text="NO RESULT", foreground="#666666")
+        for value in self._outcome_values.values():
+            value.set("—")
+        self._outcome_progress.configure(value=0.0)
+        self._outcome_progress_text.configure(text="")
+        self._outcome_reason.configure(text=message, foreground="#555555")
+
+    def _update_outcome(self, solution) -> None:
+        path = nonlinear_path_summary(solution)
+        if path is None:
+            status = str(getattr(solution, "status", "available"))
+            self._outcome_status.configure(
+                text=status.replace("_", " ").upper(), foreground="#2e7d32"
+            )
+            for value in self._outcome_values.values():
+                value.set("—")
+            self._outcome_progress.configure(value=100.0)
+            self._outcome_progress_text.configure(text="")
+            self._outcome_reason.configure(
+                text="This analysis has no nonlinear equilibrium path.",
+                foreground="#555555",
+            )
+            return
+        colour = {
+            "success": "#2e7d32",
+            "warning": "#b26a00",
+            "error": "#b00020",
+        }[path.severity]
+        self._outcome_status.configure(
+            text=path.status.replace("_", " ").upper(), foreground=colour
+        )
+        self._outcome_values["Start"].set("λ = 0 (unloaded)")
+        self._outcome_values["First converged"].set(
+            self._factor(path.first_converged_load_factor)
+        )
+        self._outcome_values["Peak"].set(self._factor(path.peak_load_factor))
+        last = self._factor(path.last_converged_load_factor)
+        target = self._factor(path.target_load_factor)
+        self._outcome_values["Last / target"].set(f"{last} / {target}")
+        fraction = path.progress_fraction
+        self._outcome_progress.configure(value=0.0 if fraction is None else 100.0 * fraction)
+        self._outcome_progress_text.configure(
+            text="" if fraction is None else f"{100.0 * fraction:.1f}% of target"
+        )
+        details = [
+            path.stop_reason,
+            f"{path.converged_steps} converged increments",
+            f"{path.total_iterations} Newton iterations",
+        ]
+        if path.first_failed_load_factor is not None:
+            details.append(f"first failed trial λ={path.first_failed_load_factor:.5g}")
+        if path.max_peeq is not None:
+            details.append(f"max PEEQ={path.max_peeq:.5g}")
+        details.append(
+            f"{path.saved_increments} committed contour frame(s) saved"
+            if path.saved_increments
+            else "increment contours were not saved"
+        )
+        self._outcome_reason.configure(text="  •  ".join(details), foreground=colour)
+
+    def _update_frame_details(self) -> None:
+        solution = self.app.solution
+        if solution is None:
+            dataset = self.app.result_datasets.get(self.app.active_job_id)
+            count = 0 if dataset is None else len(dataset.frames)
+            self._frame_details.configure(
+                text=(
+                    f"Persisted frame {self.app.shape_index + 1} of {count}."
+                    if count else "Static result; no frame sequence."
+                )
+            )
+            return
+        shapes = getattr(solution, "shapes", None)
+        if not shapes:
+            self.plot.set_active_index(None)
+            if nonlinear_path_summary(solution) is not None:
+                self._frame_details.configure(
+                    text=(
+                        "Final converged state only. To animate real load increments, "
+                        "enable ‘Save converged increment snapshots’ in Solve and rerun."
+                    ),
+                    foreground="#9a5b00",
+                )
+            else:
+                self._frame_details.configure(text="Single static shape.", foreground="#555555")
+            return
+        index = min(max(self.app.shape_index, 0), len(shapes) - 1)
+        shape = shapes[index]
+        step = getattr(shape, "step", None)
+        if step is None:
+            self.plot.set_active_index(None)
+            self._frame_details.configure(
+                text=f"Shape {index + 1} of {len(shapes)} • value {float(shape.value):.5g}",
+                foreground="#555555",
+            )
+            return
+        # The nonlinear history adds the unloaded origin before converged
+        # increments, hence the +1 correspondence to the saved frame index.
+        self.plot.set_active_index(index + 1)
+        pieces = [
+            f"Saved increment {index + 1} of {len(shapes)}",
+            f"λ={float(shape.value):.5g}",
+            f"{int(getattr(step, 'iterations', 0))} iterations",
+            f"residual={float(getattr(step, 'residual_norm', 0.0)):.3g}",
+            f"|u|={float(getattr(step, 'displacement_norm', 0.0)):.5g} m",
+            f"PEEQ={float(getattr(step, 'max_equivalent_plastic_strain', 0.0)):.5g}",
+        ]
+        self._frame_details.configure(text="  •  ".join(pieces), foreground="#333333")
+
+    def _refresh_submitted_inputs(self) -> None:
+        job_id = getattr(self.app, "active_job_id", None)
+        report = getattr(self.app, "submitted_input_reports", {}).get(job_id)
+        if report is None:
+            dataset = self.app.result_datasets.get(job_id)
+            if dataset is not None:
+                provenance = dataset.metadata("provenance")
+                submitted = provenance.get("submitted_inputs")
+                if submitted is not None:
+                    import json
+
+                    report = json.dumps(
+                        submitted, indent=2, sort_keys=True, allow_nan=False
+                    )
+                elif provenance.get("submitted_inputs_text"):
+                    report = str(provenance["submitted_inputs_text"])
+        if report is None:
+            report = (
+                "Submitted input text is unavailable for this reopened/legacy result. "
+                "Its hashes and provenance remain in the result artifact."
+            )
+        self._result_inputs.configure(state="normal")
+        self._result_inputs.delete("1.0", "end")
+        self._result_inputs.insert("1.0", report)
+        self._result_inputs.configure(state="disabled")
 
     # ------------------------------------------------------------------
     def _require_solution(self):
@@ -1907,7 +2830,16 @@ class ResultsPanel(StagePanel):
     def _probe(self) -> None:
         shape = self._require_solution()
         items = self.require_selection(self.app.selection.mode)
-        readouts = [probe(shape, ref).text() for ref in items]
+        engineering = self.display_units() == ENGINEERING_DISPLAY
+        readouts = [
+            probe(shape, ref).text(
+                length_scale=1000.0 if engineering else 1.0,
+                length_unit="mm" if engineering else "m",
+                stress_scale=1.0e-6 if engineering else 1.0,
+                stress_unit="MPa" if engineering else "Pa",
+            )
+            for ref in items
+        ]
         self.write((chr(10) * 2).join(readouts))
         self.app.set_status(f"probed {len(items)} entity(ies)")
 
@@ -1915,12 +2847,18 @@ class ResultsPanel(StagePanel):
         shape = self._require_solution()
         edges = self.require_selection("edge", 1)
         result = along_line(shape, edges[0], self.field_name())
+        distance_scale, distance_unit = unit_transform("m", self.display_units())
+        value_scale, value_unit = unit_transform(result.unit, self.display_units())
         lines = [
-            f"{self.field_name()} along {edges[0]}  ({result.length:.4g} m)",
-            f"{'distance':>12}  {'value':>14}",
+            f"{self.field_name()} along {edges[0]}  "
+            f"({result.length * distance_scale:.4g} {distance_unit})",
+            f"{'distance [' + distance_unit + ']':>16}  "
+            f"{('value [' + value_unit + ']') if value_unit else 'value':>18}",
         ]
         for distance, value in zip(result.distances, result.values):
-            lines.append(f"{distance:12.5g}  {value:14.6g}")
+            lines.append(
+                f"{distance * distance_scale:16.5g}  {value * value_scale:18.6g}"
+            )
         self.write(chr(10).join(lines))
         self.app.set_status(f"sampled {len(result)} points along {edges[0]}")
 
@@ -2172,7 +3110,8 @@ class ResultsPanel(StagePanel):
                                 if self.field_name() in DOF_NAMES else "uz")
         if not series:
             raise ValueError("this result has no history to plot")
-        self.plot.show(series)
+        self.plot.show(converted_series(series, self.display_units()))
+        self._readout_tabs.select(0)
         self.app.set_status(f"plotting at node {node}")
 
     def refresh(self) -> None:
@@ -2195,6 +3134,7 @@ class ResultsPanel(StagePanel):
             self._job.set(active_label)
         elif self._job.get() not in self._job_ids:
             self._job.set(labels[0] if labels else "-")
+        self._refresh_submitted_inputs()
 
         solution = self.app.solution
         if solution is None:
@@ -2229,6 +3169,24 @@ class ResultsPanel(StagePanel):
                     else "deformation unavailable (undeformed display)"
                 )
                 self._summary.configure(text=f"{text}\n{deformation}")
+                status = str(summary.get("status", "persisted result"))
+                self._outcome_status.configure(
+                    text=status.replace("_", " ").upper(), foreground="#2e7d32"
+                )
+                for value in self._outcome_values.values():
+                    value.set("—")
+                self._outcome_progress.configure(value=100.0)
+                self._outcome_progress_text.configure(
+                    text=f"{len(frames)} saved frame(s)" if len(frames) else "static"
+                )
+                self._outcome_reason.configure(
+                    text=(
+                        "Loaded from retained result artifact. Detailed nonlinear "
+                        "termination metadata is shown when present in the report/inputs."
+                    ),
+                    foreground="#555555",
+                )
+                self._update_frame_details()
                 self.plot.clear()
                 return
             self._summary.configure(text="no results")
@@ -2236,45 +3194,80 @@ class ResultsPanel(StagePanel):
             self._shape.set("-")
             self.plot.clear()
             self._quantities.delete(*self._quantities.get_children())
+            self._clear_outcome()
+            self._update_frame_details()
             return
 
         # The plot follows the result: a transient or an incremental solve has
         # a history, a linear static does not, and an empty plot says so rather
         # than keeping the previous result's curve on screen.
-        self.plot.show(history_series(solution))
+        self.plot.show(
+            converted_series(history_series(solution), self.display_units())
+        )
+        self._update_outcome(solution)
 
         # An imported result names its own fields, which are the file's, not
         # ANYfem's list.
-        available = getattr(solution, "available_fields", None)
-        self._field_box.configure(
-            values=available() if callable(available) else available_fields()
-        )
+        self.ensure_compatible_field()
         self._refresh_quantities(solution)
 
         shapes = getattr(solution, "shapes", None)
         if shapes:
-            labels = [f"{shape.label}  ({shape.value:.5g})" for shape in shapes]
+            labels = [shape.label for shape in shapes]
             self._shape_box.configure(values=labels)
             index = min(self.app.shape_index, len(labels) - 1)
             self._shape.set(labels[index])
         else:
             self._shape_box.configure(values=["static"])
             self._shape.set("static")
+        self._update_frame_details()
 
         shape = self.app.current_shape()
         try:
             node, magnitude = shape.max_translation()
+            scale, unit = unit_transform("m", self.display_units())
             displacement_text = (
-                f"max translation {magnitude:.6g} m at node {node}"
+                f"max translation {magnitude * scale:.6g} {unit} at node {node}"
             )
         except KeyError:
             displacement_text = "deformation unavailable (undeformed display)"
+        constitutive = self._constitutive_summary(shape)
         self._summary.configure(
             text=(
                 f"{solution.summary()}\n"
                 f"showing {getattr(shape, 'label', 'static')}\n"
-                f"{displacement_text}"
+                f"{displacement_text}\n{constitutive}"
             )
+        )
+
+    @staticmethod
+    def _constitutive_summary(shape) -> str:
+        model = shape.built.fe_model
+        shell_materials = {
+            element.material_name
+            for element in model.mesh.elements.values()
+            if hasattr(element, "thickness")
+        }
+        plastic = sorted(
+            name
+            for name in shell_materials
+            if getattr(model.get_material(name), "hardening_curve", None) is not None
+        )
+        if not plastic:
+            return "Constitutive response: ELASTIC shells (geometric nonlinearity only)"
+        raw = getattr(shape, "raw_result", None)
+        states = getattr(raw, "element_states", {}) or {}
+        maxima = [
+            float(np.max(np.asarray(state.get("alpha", (0.0,)), dtype=float)))
+            for state in states.values()
+            if isinstance(state, dict) and len(state.get("alpha", ()))
+        ]
+        yielded = sum(value > 1.0e-12 for value in maxima)
+        maximum = max(maxima, default=0.0)
+        return (
+            f"Constitutive response: NONLINEAR PLASTICITY ACTIVE "
+            f"({', '.join(plastic)}); yielded elements {yielded}/{len(maxima)}, "
+            f"max alpha {maximum:.5g}"
         )
 
     def _pick_job(self) -> None:
@@ -2351,6 +3344,14 @@ class ResultsPanel(StagePanel):
                     str(getattr(descriptor, "unit", "")),
                 ),
             )
+        available = getattr(solution, "available_fields", None)
+        dynamic = tuple(available()) if callable(available) else ()
+        if "equivalent_plastic_strain" in dynamic:
+            self._quantities.insert(
+                "", "end", iid="field:equivalent_plastic_strain",
+                text="Equivalent plastic strain (PEEQ)",
+                values=("element", "1"),
+            )
 
     def _activate_quantity(self) -> None:
         selected = self._quantities.selection()
@@ -2426,24 +3427,47 @@ class ResultsPanel(StagePanel):
         if self._animation_after is not None:
             self.after_cancel(self._animation_after)
             self._animation_after = None
+            self._play_button.configure(text="▶ Play")
             self.app.set_status("playback stopped")
             return
-        self._animation_index = 0
+        self._animation_index = (
+            0 if self.app.shape_index + 1 >= count else self.app.shape_index + 1
+        )
+        self._play_button.configure(text="■ Stop")
+        self.app.set_status(f"playback started at {self.playback_fps():g} fps")
         self._animation_step()
+
+    def playback_fps(self) -> float:
+        """Selected visual playback rate; result time/load values stay unchanged."""
+
+        value = float(self._playback_fps.get())
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError("playback speed must be a positive number of frames/s")
+        return value
+
+    def _playback_delay_ms(self) -> int:
+        return max(1, int(round(1000.0 / self.playback_fps())))
 
     def _animation_step(self) -> None:
         count = self._shape_count()
         if self._animation_index >= count:
             self._animation_after = None
+            self._play_button.configure(text="▶ Play")
             self.app.refresh_panels()
             return
         self.app.shape_index = self._animation_index
         self._animation_index += 1
+        values = list(self._shape_box.cget("values"))
+        if self.app.shape_index < len(values):
+            self._shape.set(values[self.app.shape_index])
+        self._update_frame_details()
         if self.app.solution is None:
             self._show()
         else:
             self.app.show_results()
-        self._animation_after = self.after(80, self._animation_step)
+        self._animation_after = self.after(
+            self._playback_delay_ms(), self._animation_step
+        )
 
     def scale_value(self, solution) -> float:
         text = self._scale.get().strip().lower()
@@ -2475,9 +3499,12 @@ class ResultsPanel(StagePanel):
             descriptor = stored.descriptor
             if descriptor.location in ("global", "history"):
                 frame = min(max(self.app.shape_index, 0), stored.shape[0] - 1)
-                values = np.asarray(stored.read(frame))
+                value_scale, display_unit = unit_transform(
+                    descriptor.unit, self.display_units()
+                )
+                values = np.asarray(stored.read(frame)) * value_scale
                 self.write(
-                    f"{descriptor.label} [{descriptor.unit}]\n"
+                    f"{descriptor.label} [{display_unit}]\n"
                     + np.array2string(values, precision=7, threshold=200)
                 )
                 self.app.set_status(f"showing {descriptor.label} as a result table")

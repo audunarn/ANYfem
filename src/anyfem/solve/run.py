@@ -699,12 +699,28 @@ def _step_reporter(
         index = record.get("step_index", record.get("step"))
         factor = record.get("load_factor")
         time_s = record.get("time_s")
+        details = []
+        iteration = record.get("iteration", record.get("iterations"))
+        residual = record.get("residual_norm")
+        maximum = record.get("max_translation")
+        plastic = record.get("max_equivalent_plastic_strain")
+        if iteration is not None:
+            details.append(f"{int(iteration)} iteration(s)")
+        if residual is not None:
+            details.append(f"residual {float(residual):.3g}")
+        if maximum is not None:
+            details.append(f"max |u| {float(maximum):.4g} m")
+        if plastic is not None:
+            details.append(f"max PEEQ {float(plastic):.4g}")
+        suffix = f"; {', '.join(details)}" if details else ""
         if index is not None and factor is not None:
-            progress(f"{noun} {index}: load factor {float(factor):.4g}")
+            progress(
+                f"{noun} {index}: load factor {float(factor):.4g}{suffix}"
+            )
         elif index is not None and time_s is not None:
-            progress(f"{noun} {index}: t = {float(time_s):.4g} s")
+            progress(f"{noun} {index}: t = {float(time_s):.4g} s{suffix}")
         elif index is not None:
-            progress(f"{noun} {index}")
+            progress(f"{noun} {index}{suffix}")
         elif record.get("status") is not None:
             progress(f"{noun}: {record['status']}")
         elif record.get("fraction") is not None:

@@ -43,12 +43,21 @@ from anymesher.decomposition import (
     triangle_to_quads,
 )
 
-from .model.attributes import Mass, PointLoad, Support
+from .model.attributes import (
+    LineLoad,
+    Mass,
+    PointLoad,
+    Pressure,
+    Support,
+    SurfaceTraction,
+)
 from .model.imperfections import Imperfection
 from .model.project import Project, ProjectError
 from .model.coordinates import CoordinateSystem
 from .model.records import MeshRecord, OutputRequest
 from .model.regions import Region
+from .model.materials import MaterialSpec
+from .model.sections import PlateSection
 from .model.units import UnitProfile
 
 __all__ = [
@@ -63,11 +72,13 @@ __all__ = [
     "AddLineLoad",
     "AddLoadCase",
     "AddMass",
+    "AddMaterial",
     "AddMeshRecord",
     "AddOutputRequest",
     "AddPlate",
     "AddPoint",
     "AddPointLoad",
+    "AddPlateSection",
     "AddPolyline",
     "AddPressure",
     "AddRefinement",
@@ -85,10 +96,12 @@ __all__ = [
     "CopyEntities",
     "CircularPattern",
     "DeleteEntity",
+    "DeleteAttribute",
     "DeleteLoadCase",
     "DeleteOutputRequest",
     "Extrude",
     "EditFeature",
+    "EditAttribute",
     "EditOutputRequest",
     "LinearPattern",
     "MeasureGeometry",
@@ -1332,16 +1345,28 @@ class AssignPlate(Command):
     section: str
     label: str = "assign plate section"
     _previous: Optional[str] = field(default=None, init=False)
+    _captured: bool = field(default=False, init=False)
+    _previous_assignments: Dict[str, Any] = field(default_factory=dict, init=False)
+    _previous_region_ids: set[str] = field(default_factory=set, init=False)
+    _previous_maps: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> None:
-        self._previous = project.face_sections.get(self.face_id)
+        if not self._captured:
+            self._previous = project.face_sections.get(self.face_id)
+            self._previous_assignments = dict(project.section_assignments)
+            self._previous_region_ids = {region.id for region in project.regions}
+            self._previous_maps = project._section_compatibility_snapshot()
+            self._captured = True
         project.assign_plate(self.face_id, self.section)
 
     def undo(self, project: Project) -> None:
-        if self._previous is None:
-            project.face_sections.pop(self.face_id, None)
-        else:
-            project.face_sections[self.face_id] = self._previous
+        project.section_assignments.clear()
+        project.section_assignments.update(self._previous_assignments)
+        for region in tuple(project.regions):
+            if region.id not in self._previous_region_ids:
+                project.regions.remove(region.id)
+        project._singleton_region_cache_size = -1
+        project._restore_section_compatibility(self._previous_maps)
 
 
 @dataclass(eq=False)
@@ -1350,16 +1375,28 @@ class AssignBeam(Command):
     section: str
     label: str = "assign beam section"
     _previous: Optional[str] = field(default=None, init=False)
+    _captured: bool = field(default=False, init=False)
+    _previous_assignments: Dict[str, Any] = field(default_factory=dict, init=False)
+    _previous_region_ids: set[str] = field(default_factory=set, init=False)
+    _previous_maps: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> None:
-        self._previous = project.edge_sections.get(self.edge_id)
+        if not self._captured:
+            self._previous = project.edge_sections.get(self.edge_id)
+            self._previous_assignments = dict(project.section_assignments)
+            self._previous_region_ids = {region.id for region in project.regions}
+            self._previous_maps = project._section_compatibility_snapshot()
+            self._captured = True
         project.assign_beam(self.edge_id, self.section)
 
     def undo(self, project: Project) -> None:
-        if self._previous is None:
-            project.edge_sections.pop(self.edge_id, None)
-        else:
-            project.edge_sections[self.edge_id] = self._previous
+        project.section_assignments.clear()
+        project.section_assignments.update(self._previous_assignments)
+        for region in tuple(project.regions):
+            if region.id not in self._previous_region_ids:
+                project.regions.remove(region.id)
+        project._singleton_region_cache_size = -1
+        project._restore_section_compatibility(self._previous_maps)
 
 
 @dataclass(eq=False)
@@ -1373,6 +1410,109 @@ class AddSupport(Command):
 
     def undo(self, project: Project) -> None:
         project.supports.remove(self.support)
+
+
+_EDITABLE_ATTRIBUTE_TYPES = (
+    Support,
+    Mass,
+    PointLoad,
+    Pressure,
+    LineLoad,
+    SurfaceTraction,
+    Imperfection,
+)
+
+
+def _attribute_container(
+    project: Project, item_id: str
+) -> tuple[tuple[str, ...], list[Any], int, Any]:
+    """Locate one UUID-backed support, mass or load without using its label."""
+
+    for attribute in ("supports", "masses", "imperfections"):
+        container = getattr(project, attribute)
+        for index, item in enumerate(container):
+            if getattr(item, "id", None) == item_id:
+                return (("project", attribute), container, index, item)
+    for case in project.load_cases.values():
+        for attribute in (
+            "point_loads",
+            "pressures",
+            "line_loads",
+            "surface_tractions",
+        ):
+            container = getattr(case, attribute)
+            for index, item in enumerate(container):
+                if getattr(item, "id", None) == item_id:
+                    return (("case", case.id, attribute), container, index, item)
+    raise ProjectError(f"attribute {item_id!r} does not exist")
+
+
+def _attribute_container_at(project: Project, address: tuple[str, ...]) -> list[Any]:
+    if address[0] == "project":
+        return getattr(project, address[1])
+    case_id, attribute = address[1], address[2]
+    for case in project.load_cases.values():
+        if case.id == case_id:
+            return getattr(case, attribute)
+    raise ProjectError(f"load case {case_id!r} no longer exists")
+
+
+@dataclass(eq=False)
+class EditAttribute(Command):
+    """Replace one selected support/load/mass while retaining its UUID."""
+
+    replacement: Any
+    label: str = "edit model attribute"
+    _previous: Any = field(default=None, init=False)
+    _address: tuple[str, ...] | None = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        if not isinstance(self.replacement, _EDITABLE_ATTRIBUTE_TYPES):
+            raise TypeError("replacement must be a support, load or mass")
+        address, container, index, previous = _attribute_container(
+            project, self.replacement.id
+        )
+        if type(previous) is not type(self.replacement):
+            raise TypeError("an attribute edit cannot change the attribute type")
+        if self._previous is None:
+            self._previous = previous
+            self._address = address
+        container[index] = self.replacement
+        return self.replacement
+
+    def undo(self, project: Project) -> None:
+        if self._previous is None:
+            return
+        _address, container, index, _current = _attribute_container(
+            project, self.replacement.id
+        )
+        container[index] = self._previous
+
+
+@dataclass(eq=False)
+class DeleteAttribute(Command):
+    """Delete one UUID-backed support/load/mass and restore it exactly on undo."""
+
+    item_id: str
+    label: str = "delete model attribute"
+    _item: Any = field(default=None, init=False)
+    _address: tuple[str, ...] | None = field(default=None, init=False)
+    _index: int = field(default=-1, init=False)
+
+    def do(self, project: Project) -> Any:
+        address, container, index, item = _attribute_container(project, self.item_id)
+        if self._item is None:
+            self._item = item
+            self._address = address
+            self._index = index
+        container.pop(index)
+        return item
+
+    def undo(self, project: Project) -> None:
+        if self._item is None or self._address is None:
+            return
+        container = _attribute_container_at(project, self._address)
+        container.insert(min(self._index, len(container)), self._item)
 
 
 @dataclass(eq=False)
@@ -1933,6 +2073,101 @@ class DeleteLoadCase(Command):
 # ----------------------------------------------------------------------
 # reusable model definitions
 # ----------------------------------------------------------------------
+@dataclass(eq=False)
+class AddMaterial(Command):
+    """Add or replace one material while preserving its registry UUID."""
+
+    material: MaterialSpec
+    label: str = "add material"
+    _captured: bool = field(default=False, init=False)
+    _had_previous: bool = field(default=False, init=False)
+    _previous: MaterialSpec | None = field(default=None, init=False)
+    _previous_id: str | None = field(default=None, init=False)
+    _material_id: str | None = field(default=None, init=False)
+
+    def do(self, project: Project) -> MaterialSpec:
+        if not self._captured:
+            self._had_previous = self.material.name in project.materials
+            self._previous = project.materials.get(self.material.name)
+            self._previous_id = project.material_ids.get(self.material.name)
+            self._captured = True
+        project.add_material(self.material)
+        if self._material_id is None:
+            self._material_id = project.material_ids[self.material.name]
+        else:
+            project.material_ids[self.material.name] = self._material_id
+        return self.material
+
+    def undo(self, project: Project) -> None:
+        if self._had_previous and self._previous is not None:
+            project.materials[self.material.name] = self._previous
+            if self._previous_id is not None:
+                project.material_ids[self.material.name] = self._previous_id
+            else:
+                project.material_ids.pop(self.material.name, None)
+        else:
+            project.materials.pop(self.material.name, None)
+            project.material_ids.pop(self.material.name, None)
+
+
+@dataclass(eq=False)
+class AddPlateSection(Command):
+    """Atomically add a plate section and its optional material specification."""
+
+    section: PlateSection
+    material: MaterialSpec | None = None
+    label: str = "add plate section"
+    _captured: bool = field(default=False, init=False)
+    _had_section: bool = field(default=False, init=False)
+    _previous_section: PlateSection | None = field(default=None, init=False)
+    _had_material: bool = field(default=False, init=False)
+    _previous_material: MaterialSpec | None = field(default=None, init=False)
+    _previous_material_id: str | None = field(default=None, init=False)
+    _material_id: str | None = field(default=None, init=False)
+
+    def do(self, project: Project) -> PlateSection:
+        if self.material is not None and self.material.name != self.section.material:
+            raise ProjectError("plate section and material names do not match")
+        if not self._captured:
+            self._had_section = self.section.name in project.plate_sections
+            self._previous_section = project.plate_sections.get(self.section.name)
+            if self.material is not None:
+                self._had_material = self.material.name in project.materials
+                self._previous_material = project.materials.get(self.material.name)
+                self._previous_material_id = project.material_ids.get(self.material.name)
+            self._captured = True
+        if self.material is not None:
+            project.add_material(self.material)
+            if self._material_id is None:
+                self._material_id = project.material_ids[self.material.name]
+            else:
+                project.material_ids[self.material.name] = self._material_id
+        project.add_plate_section(
+            self.section.name,
+            self.section.thickness,
+            self.section.material,
+            id=self.section.id,
+        )
+        return project.plate_sections[self.section.name]
+
+    def undo(self, project: Project) -> None:
+        if self._had_section and self._previous_section is not None:
+            project.plate_sections[self.section.name] = self._previous_section
+        else:
+            project.plate_sections.pop(self.section.name, None)
+        if self.material is None:
+            return
+        if self._had_material and self._previous_material is not None:
+            project.materials[self.material.name] = self._previous_material
+            if self._previous_material_id is not None:
+                project.material_ids[self.material.name] = self._previous_material_id
+            else:
+                project.material_ids.pop(self.material.name, None)
+        else:
+            project.materials.pop(self.material.name, None)
+            project.material_ids.pop(self.material.name, None)
+
+
 @dataclass(eq=False)
 class AddRegion(Command):
     """Add one persistent reusable scope as a single undoable edit.

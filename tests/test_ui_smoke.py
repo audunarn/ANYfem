@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import time
 import tkinter as tk
+from tkinter import ttk
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from anyfem import commands as cmd
@@ -54,6 +56,162 @@ def build_plate(app, width=2.0, height=1.0):
     face = app.run(cmd.AddPlate(points))
     app.run(cmd.AssignPlate(face, "plate"))
     return points, face
+
+
+def test_plate_sections_automatically_create_thickness_qualified_dnv_materials(
+    app, root
+):
+    sections = app.panels["Sections"]
+    sections._grade.set("S355")
+    sections._auto_dnv_plate.set(True)
+
+    sections._plate_name.set("deck 10")
+    sections._plate_thickness.set("10")
+    sections._add_plate_section()
+    root.update()
+    thin_name = app.project.plate_sections["deck 10"].material
+
+    sections._plate_name.set("deck 20")
+    sections._plate_thickness.set("20")
+    sections._add_plate_section()
+    root.update()
+    thick_name = app.project.plate_sections["deck 20"].material
+
+    assert thin_name == "S355-DNV-C208-t10mm-NL"
+    assert thick_name == "S355-DNV-C208-t20mm-NL"
+    assert app.project.materials[thin_name].hardening["thickness"] == pytest.approx(
+        0.010
+    )
+    assert app.project.materials[thick_name].hardening["thickness"] == pytest.approx(
+        0.020
+    )
+
+    material_count = len(app.project.materials)
+    sections._plate_name.set("bulkhead 10")
+    sections._plate_thickness.set("10")
+    sections._add_plate_section()
+    root.update()
+    assert len(app.project.materials) == material_count
+    assert app.project.plate_sections["bulkhead 10"].material == thin_name
+
+
+def test_custom_material_name_is_separate_from_readonly_dnv_grade(app, root):
+    sections = app.panels["Sections"]
+    sections._material_name.set("S355_NL")
+    sections._grade.set("S355")
+    sections._grade_thickness.set("10")
+
+    sections._add_material()
+    root.update()
+
+    material = app.project.materials["S355_NL"]
+    assert str(sections._grade_box.cget("state")) == "readonly"
+    assert material.hardening["grade"] == "S355"
+    assert material.hardening["thickness"] == pytest.approx(0.010)
+
+
+def test_assigning_a_new_plate_section_replaces_the_existing_one(app, root):
+    _points, face = build_plate(app)
+    sections = app.panels["Sections"]
+    sections._grade.set("S355")
+    sections._auto_dnv_plate.set(True)
+    sections._plate_name.set("nonlinear plate")
+    sections._plate_thickness.set("20")
+    sections._add_plate_section()
+    app.selection.set_mode("face")
+    app.selection.select(EntityRef("face", face))
+
+    sections._assign_plate()
+    root.update()
+
+    assert app.project.face_sections == {face: "nonlinear plate"}
+    assert len(app.project.section_assignments) == 1
+    assert app.project.resolve_section_assignments() == ()
+    app.undo()
+    assert app.project.face_sections == {face: "plate"}
+
+
+def test_assigning_the_edited_plate_definition_reaches_the_solver_material(app, root):
+    from types import SimpleNamespace
+
+    from anyfem.solve.build import build_fe_model
+
+    _points, face = build_plate(app)
+    original_id = app.project.plate_sections["plate"].id
+    sections = app.panels["Sections"]
+    sections._grade.set("S355")
+    sections._auto_dnv_plate.set(True)
+    sections._plate_name.set("plate")
+    sections._plate_thickness.set("10")
+    app.selection.set_mode("face")
+    app.selection.select(EntityRef("face", face))
+
+    sections._assign_plate()
+    app.generate_mesh(0.5)
+    root.update()
+    built = build_fe_model(
+        app.project,
+        app.mesh,
+        load_case=None,
+        require_loads=False,
+        require_supports=False,
+    )
+
+    definition = app.project.plate_sections["plate"]
+    assert definition.id == original_id
+    assert definition.material == "S355-DNV-C208-t10mm-NL"
+    assert app.project.materials[definition.material].hardening["kind"] == "dnv_c208"
+    shell = next(
+        element
+        for element in built.fe_model.mesh.elements.values()
+        if hasattr(element, "thickness")
+    )
+    assert shell.material_name == definition.material
+    assert built.fe_model.get_material(shell.material_name).hardening_curve is not None
+    constitutive = app.panels["Results"]._constitutive_summary(
+        SimpleNamespace(
+            built=built,
+            raw_result=SimpleNamespace(
+                element_states={shell.element_id: {"alpha": [0.0, 0.002]}}
+            ),
+        )
+    )
+    assert "NONLINEAR PLASTICITY ACTIVE" in constitutive
+    assert "yielded elements 1/1" in constitutive
+
+    sections.refresh()
+    sections._material_choice.set(definition.material)
+    sections._refresh_material_details()
+    details = sections._material_details.cget("text")
+    assert "NONLINEAR PLASTICITY ACTIVE" in details
+    assert "product thickness = 10 mm" in details
+    usage = sections._section_usage.item(f"plate:{definition.id}", "values")
+    assert "Plates 1" in usage[2]
+    solve = app.panels["Solve"]
+    solve._analysis.set("Nonlinear static")
+    solve.refresh()
+    assert "Shell plasticity active" in solve._material_response.cget("text")
+
+    from anyfem.post.results import NonlinearSolution
+
+    raw = SimpleNamespace(
+        element_states={shell.element_id: {"alpha": np.array([0.0, 0.002])}}
+    )
+    app.solution = NonlinearSolution(
+        displacements=np.zeros(built.fe_model.mesh.dof_manager.total_dofs),
+        built=built,
+        raw_result=raw,
+    )
+    results = app.panels["Results"]
+    results.refresh()
+    assert "equivalent_plastic_strain" in tuple(
+        results._field_box.cget("values")
+    )
+    results._component.set("equivalent_plastic_strain")
+    app.show_results()
+    assert app.viewport._scene.legend["title"] == (
+        "Equivalent plastic strain (PEEQ)"
+    )
 
 
 def test_point_markers_support_click_shift_click_and_box_selection(app, root):
@@ -220,6 +378,16 @@ def wait_for_solution(app, root, timeout=20.0):
     raise AssertionError("the solve did not finish in time")
 
 
+def wait_for_mesh(app, root, timeout=20.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        root.update()
+        if app.mesh is not None and not app.mesh_task_manager.busy:
+            return app.mesh
+        time.sleep(0.01)
+    raise AssertionError("the mesh did not finish in time")
+
+
 # ----------------------------------------------------------------------
 def test_app_opens_with_a_usable_default_project(app):
     assert app.project.materials
@@ -250,6 +418,45 @@ def test_full_workflow_geometry_to_results(app, root):
     solution = wait_for_solution(app, root)
     assert solution.max_translation()[1] > 0.0
     assert app._view_mode == "results"
+
+
+def test_model_and_load_bc_navigation_restore_geometry_scoping(app, root):
+    """A mesh display must never trap geometry-based assignment work."""
+
+    build_plate(app)
+    app.generate_mesh(0.5)
+    app.selection.set_mode("element")
+    root.update()
+    assert app._view_mode == "mesh"
+
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    model_button = next(
+        widget
+        for widget in descendants(app)
+        if isinstance(widget, ttk.Button) and widget.cget("text") == "Model"
+    )
+    model_button.invoke()
+    root.update()
+    assert app.details.current() == "Geometry"
+    assert app._view_mode == "geometry"
+    assert app.selection.domain.value == "geometry"
+
+    app.show_mesh()
+    app.selection.set_mode("element")
+    app.details.select("Loads & BC")
+    root.update()
+    assert app._view_mode == "geometry"
+    assert app.selection.mode == "edge"
+    assert "select points, lines or plates" in app._status.cget("text")
+
+    loads = app.panels["Loads & BC"]
+    loads._scope_geometry("face")
+    assert app._view_mode == "geometry"
+    assert app.selection.mode == "face"
 
 
 def test_a_geometry_change_invalidates_the_mesh_and_result(app, root):
@@ -484,6 +691,19 @@ def test_the_panels_are_split_into_sections_and_loads(app):
     assert "Loads & BC" in app.panels
 
 
+def test_solve_details_page_packs_without_shadowing_tk_options(app, root):
+    """Solver form state must not replace tkinter.Misc._options()."""
+
+    app.details.select("Solve")
+    root.update()
+
+    panel = app.panels["Solve"]
+    assert app.details.current() == "Solve"
+    assert panel.winfo_ismapped()
+    assert callable(panel._options)
+    assert "modes" in panel._analysis_options
+
+
 def test_load_panel_explains_the_viewport_symbols(app):
     panel = app.panels["Loads & BC"]
     key = next(
@@ -588,6 +808,8 @@ def test_mass_and_acceleration_from_the_panel(app, root):
 
 
 def test_an_imperfection_from_the_sections_panel(app, root):
+    from anyfem.ui.scene import COLOR_IMPERFECTION
+
     _points, face = build_plate(app, 2.0, 1.0)
     app.selection.set_mode("face")
     app.selection.select(EntityRef("face", face))
@@ -599,6 +821,32 @@ def test_an_imperfection_from_the_sections_panel(app, root):
 
     assert len(app.project.imperfections) == 1
     assert app.project.imperfections[0].amplitude == pytest.approx(0.004)
+    imperfection = app.project.imperfections[0]
+    key = f"imperfection:{imperfection.id}"
+    assert app.tree.tree.exists(key)
+    assert "4 mm" in app.tree.tree.item(key, "text")
+    assert any(
+        line.color == COLOR_IMPERFECTION for line in app.viewport._scene.lines
+    )
+
+    app._tree_action("edit", (key,))
+    root.update()
+    assert sections._imperfection_amplitude.get() == "4"
+    sections._imperfection_amplitude.set("6")
+    sections._waves.set("2 1")
+    sections._add_imperfection()
+    root.update()
+    assert len(app.project.imperfections) == 1
+    assert app.project.imperfections[0].id == imperfection.id
+    assert app.project.imperfections[0].amplitude == pytest.approx(0.006)
+    assert app.project.imperfections[0].waves == (2, 1)
+
+    app._tree_action("delete", (key,))
+    root.update()
+    assert not app.project.imperfections
+    app.undo()
+    root.update()
+    assert app.project.imperfections[0].id == imperfection.id
 
 
 def test_the_overlay_can_be_toggled(app, root):
@@ -693,10 +941,10 @@ def test_mesh_panel_applies_element_order_through_the_real_stack(app, root):
     panel._size.set("0.5")
 
     panel.guarded(panel._generate)()
-    root.update()
+    mesh = wait_for_mesh(app, root)
 
     assert app.project.element_order == "quadratic"
-    assert app.mesh is not None and app.mesh.is_quadratic
+    assert mesh.is_quadratic
 
 
 # ----------------------------------------------------------------------
@@ -715,7 +963,7 @@ def run_analysis(app, root, name, **options):
     solve._analysis.set(name)
     solve._show_options()
     for key, value in options.items():
-        solve._options[key].set(value)
+        solve._analysis_options[key].set(value)
     solve.guarded(solve._solve)()
     return wait_for_solution(app, root, timeout=60.0)
 
@@ -733,6 +981,25 @@ def test_every_analysis_runs_from_the_panel(app, root):
         solution = run_analysis(app, root, name, **options)
         assert solution is not None, name
         assert app._view_mode == "results"
+
+
+def test_live_job_log_and_stale_artifact_field_survive_result_transition(app, root):
+    solvable_plate(app)
+    results = app.panels["Results"]
+    # Persisted result artifacts legitimately call their vector field
+    # "displacement". Reproduce switching from that selection to a live solve.
+    results._component.set("displacement")
+
+    solution = run_analysis(app, root, "Nonlinear static", steps="2")
+
+    assert solution is not None
+    assert results.field_name() == "magnitude"
+    assert app._view_mode == "results"
+    transcript = app.panels["Solve"]._report.get("1.0", "end")
+    assert "queued" in transcript
+    assert "building immutable model snapshot" in transcript
+    assert "preflight passed" in transcript
+    assert "completed" in transcript
 
 
 def test_the_options_shown_follow_the_analysis(app, root):
@@ -787,6 +1054,9 @@ def test_animating_a_transient_walks_every_step(app, root):
     solvable_plate(app)
     solution = run_analysis(app, root, "Transient", dt="0.0005", t_end="0.003")
     results = app.panels["Results"]
+    results._playback_fps.set("20")
+    assert results.playback_fps() == 20.0
+    assert results._playback_delay_ms() == 50
 
     results.guarded(results._animate)()
     root.update()
@@ -864,6 +1134,22 @@ def test_contouring_by_von_mises(app, root):
 
     assert app.viewport._scene.legend["unit"] == "Pa"
     assert app.viewport._scene.legend["title"] == "von Mises"
+
+
+def test_results_quick_mm_mpa_units_and_colormap(app, root):
+    solved_plate(app, root)
+    results = app.panels["Results"]
+    results._component.set("von_mises")
+    results._display_units.set("Engineering (mm / MPa)")
+    results._colormap.set("Viridis")
+    results.guarded(results._show)()
+    root.update()
+
+    legend = app.viewport._scene.legend
+    assert legend["unit"] == "MPa"
+    assert legend["levels"][-1] < 10_000.0
+    assert legend["colors"][0] == "#440154"
+    assert app.viewport.canvas._thickness_legend["colors"] == legend["colors"]
 
 
 def test_manual_colour_range_from_the_panel(app, root):
@@ -1139,10 +1425,10 @@ def test_impact_runs_from_the_panel(app, root):
     solve = app.panels["Solve"]
     solve._analysis.set("Impact")
     solve._show_options()
-    solve._options["mass"].set("200")
-    solve._options["radius"].set("0.15")
-    solve._options["speed"].set("4")
-    solve._options["start"].set("0.5 0.5 0.6")
+    solve._analysis_options["mass"].set("200")
+    solve._analysis_options["radius"].set("0.15")
+    solve._analysis_options["speed"].set("4")
+    solve._analysis_options["start"].set("0.5 0.5 0.6")
     solve.guarded(solve._solve)()
 
     solution = wait_for_solution(app, root, timeout=90.0)
@@ -1168,7 +1454,7 @@ def test_a_bad_vector_entry_is_reported(app, root):
     solve = app.panels["Solve"]
     solve._analysis.set("Impact")
     solve._show_options()
-    solve._options["start"].set("0 0")
+    solve._analysis_options["start"].set("0 0")
     solve.guarded(solve._solve)()
     root.update()
     assert "three numbers" in app._status.cget("text")
@@ -1187,8 +1473,8 @@ def test_the_sphere_is_drawn_with_the_result(app, root):
     solve = app.panels["Solve"]
     solve._analysis.set("Impact")
     solve._show_options()
-    solve._options["start"].set("0.5 0.5 0.6")
-    solve._options["speed"].set("3")
+    solve._analysis_options["start"].set("0.5 0.5 0.6")
+    solve._analysis_options["speed"].set("3")
     solve.guarded(solve._solve)()
     wait_for_solution(app, root, timeout=90.0)
     root.update()

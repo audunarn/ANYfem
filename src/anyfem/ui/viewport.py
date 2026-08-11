@@ -543,6 +543,7 @@ class Viewport:
                 scene.legend.get("levels", []),
                 unit=str(scene.legend.get("unit", "")),
                 title=str(scene.legend.get("title", "")),
+                colors=scene.legend.get("colors"),
             )
         else:
             self.canvas.clear_thickness_legend()

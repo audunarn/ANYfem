@@ -126,6 +126,7 @@ def test_a_round_trip_preserves_every_attribute(workspace):
     assert reloaded.imperfections[0].axes == (0, 1)
     assert reloaded.imperfections[0].direction == (0.0, 0.0, 1.0)
     assert reloaded.imperfections[0].amplitude == pytest.approx(0.004)
+    assert reloaded.imperfections[0].id == project.imperfections[0].id
 
     dead = reloaded.load_case("dead")
     assert dead.pressures[0].value == 10_000.0

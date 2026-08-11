@@ -127,13 +127,18 @@ def history_series(
 
     forces = getattr(solution, "contact_force_history", None)
     if times is not None and forces is not None and len(forces) == len(times):
+        force_values = np.asarray(forces, dtype=float)
+        force_label = "contact force"
+        if force_values.ndim > 1:
+            force_values = np.linalg.norm(force_values, axis=-1)
+            force_label = "contact force magnitude"
         series.append(
             Series(
                 name="contact force",
                 x=np.asarray(times, dtype=float),
-                y=np.asarray(forces, dtype=float),
+                y=force_values,
                 x_label="time",
-                y_label="contact force",
+                y_label=force_label,
                 x_unit="s",
                 y_unit="N",
             )
@@ -144,6 +149,16 @@ def history_series(
         norms = np.asarray(path.get("displacement_norm", ()), dtype=float)
         factors = np.asarray(path.get("load_factor", ()), dtype=float)
         if len(norms) and len(norms) == len(factors):
+            # The equilibrium path starts from the unloaded reference state.
+            # Solver step records intentionally contain converged increments
+            # only, so make that physical start point visible in plots without
+            # pretending it is a saved contour frame.
+            if not (
+                np.isclose(norms[0], 0.0, atol=1.0e-14)
+                and np.isclose(factors[0], 0.0, atol=1.0e-14)
+            ):
+                norms = np.concatenate(([0.0], norms))
+                factors = np.concatenate(([0.0], factors))
             # Displacement on x and load on y: this is a load-displacement
             # path, and it is read as "how far did it go before it stopped
             # taking more", which puts load on the vertical axis.

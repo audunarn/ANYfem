@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 from anymaterial import MaterialSpec
 
-from anyfem import Project, fixed, simply_supported, steel, support
+from anyfem import (
+    Project,
+    dnv_steel_material,
+    dnv_steel_material_name,
+    fixed,
+    simply_supported,
+    steel,
+    support,
+)
 from anyfem.model import BeamSection, Material, ProjectError
 from anyfem.model.sections import PROFILES, rectangular_bar
 
@@ -21,6 +29,50 @@ def test_steel_comes_from_the_solver_table():
 def test_steel_fails_closed_outside_the_table():
     with pytest.raises(Exception):
         steel("S355", thickness=10.0)
+
+
+def test_automatic_dnv_material_identity_includes_product_thickness():
+    thin = dnv_steel_material("S355", 0.010)
+    thick = dnv_steel_material("S355", 0.020)
+
+    assert thin.name == "S355-DNV-C208-t10mm-NL"
+    assert thick.name == "S355-DNV-C208-t20mm-NL"
+    assert thin.name != thick.name
+    assert thin.yield_stress != thick.yield_stress
+    assert thin.hardening == {
+        "kind": "dnv_c208",
+        "grade": "S355",
+        "thickness": 0.010,
+    }
+    assert thick.hardening["thickness"] == pytest.approx(0.020)
+    assert dnv_steel_material_name("s355", 0.010) == thin.name
+
+
+def test_legacy_material_label_is_not_mistaken_for_a_dnv_grade():
+    material = dnv_steel_material("S355_NL", 0.010, name="S355_NL")
+
+    assert material.name == "S355_NL"
+    assert material.hardening == {
+        "kind": "dnv_c208",
+        "grade": "S355",
+        "thickness": 0.010,
+    }
+
+
+def test_automatic_dnv_materials_coexist_and_equal_specs_are_reused():
+    project = Project("multiple thicknesses")
+    thin = project.add_material(dnv_steel_material("S355", 0.010))
+    thin_id = project.material_ids[thin.name]
+    thick = project.add_material(dnv_steel_material("S355", 0.020))
+    project.add_plate_section("deck 10", 0.010, thin.name)
+    project.add_plate_section("deck 20", 0.020, thick.name)
+
+    replacement = project.add_material(dnv_steel_material("S355", 0.010))
+
+    assert set(project.materials) == {thin.name, thick.name}
+    assert project.material_ids[replacement.name] == thin_id
+    assert project.plate_sections["deck 10"].material == thin.name
+    assert project.plate_sections["deck 20"].material == thick.name
 
 
 def test_material_rejects_impossible_properties():

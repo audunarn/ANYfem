@@ -35,6 +35,9 @@ COLOR_AXIS = "#555555"
 COLOR_GRID = "#e6e6e6"
 COLOR_CURVE = "#1f5fa9"
 COLOR_MARKER = "#c1440e"
+COLOR_START = "#2e7d32"
+COLOR_END = "#6a1b9a"
+COLOR_ACTIVE = "#00838f"
 COLOR_TEXT = "#333333"
 
 
@@ -160,6 +163,7 @@ class HistoryPlot(ttk.Frame):
         super().__init__(master)
         self._series: List[Series] = []
         self._current: Optional[Series] = None
+        self._active_index: Optional[int] = None
 
         top = ttk.Frame(self)
         top.pack(fill="x")
@@ -189,6 +193,7 @@ class HistoryPlot(ttk.Frame):
     def show(self, series: Sequence[Series]) -> None:
         """Display a set of series, selecting the first."""
 
+        self._active_index = None
         self._series = [item for item in series if not item.is_empty]
         names = [item.name for item in self._series]
         self._box.configure(values=names)
@@ -199,7 +204,14 @@ class HistoryPlot(ttk.Frame):
         self._draw()
 
     def clear(self) -> None:
+        self._active_index = None
         self.show([])
+
+    def set_active_index(self, index: Optional[int]) -> None:
+        """Mark the displayed saved frame on the selected history curve."""
+
+        self._active_index = None if index is None else int(index)
+        self._draw()
 
     @property
     def series_names(self) -> List[str]:
@@ -298,10 +310,33 @@ class HistoryPlot(ttk.Frame):
             marker_x - 3, marker_y - 3, marker_x + 3, marker_y + 3,
             outline=COLOR_MARKER, width=2,
         )
+        start_x, start_y = xs[0], ys[0]
+        end_x, end_y = xs[-1], ys[-1]
+        self.canvas.create_oval(
+            start_x - 3, start_y - 3, start_x + 3, start_y + 3,
+            outline=COLOR_START, fill=COLOR_START,
+        )
+        self.canvas.create_oval(
+            end_x - 4, end_y - 4, end_x + 4, end_y + 4,
+            outline=COLOR_END, width=2,
+        )
+        active_text = ""
+        if self._active_index is not None and len(series):
+            active = min(max(self._active_index, 0), len(series) - 1)
+            active_x, active_y = xs[active], ys[active]
+            self.canvas.create_oval(
+                active_x - 5, active_y - 5, active_x + 5, active_y + 5,
+                outline=COLOR_ACTIVE, width=3,
+            )
+            active_text = f"   |   CURRENT {series.y[active]:.4g}"
         self.canvas.create_text(
             0.5 * (left + right), top - 10,
-            text=f"peak {peak_y:.4g} at {peak_x:.4g}",
-            fill=COLOR_MARKER, font=("TkDefaultFont", 8),
+            text=(
+                f"START {series.y[0]:.4g}   |   "
+                f"PEAK {peak_y:.4g} at {peak_x:.4g}   |   "
+                f"LAST {series.y[-1]:.4g}{active_text}"
+            ),
+            fill=COLOR_TEXT, font=("TkDefaultFont", 8, "bold"),
         )
 
     @staticmethod

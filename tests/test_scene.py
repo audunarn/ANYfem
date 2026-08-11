@@ -12,6 +12,7 @@ import pytest
 from anygeometry import punch_hole
 
 from anyfem import Project, pinned, solve_linear_static, steel
+from anyfem.model import member_bow, plate_mode
 from anyfem.geometry.entities import EntityRef
 from anyfem.selection import MeshEntityRef, parse_entity_tag
 from anyfem.ui.scene import (
@@ -20,8 +21,10 @@ from anyfem.ui.scene import (
     COLOR_MOMENT,
     COLOR_ROTATION,
     COLOR_SUPPORT,
+    COLOR_IMPERFECTION,
     OVERLAY_SYMBOL_LIMIT,
     build_geometry_scene,
+    build_imperfection_overlay,
     build_mesh_scene,
     build_result_scene,
     face_display_polygons,
@@ -343,6 +346,42 @@ def test_overlay_draws_something_for_every_attribute(plate_project):
 
     assert overlay.arrows
     assert overlay.points
+
+
+def test_plate_imperfection_preview_is_visible_and_does_not_mutate_geometry(
+    plate_project,
+):
+    project, face, _edges, points = plate_project
+    original = np.asarray([project.geometry.vertex_position(item) for item in points])
+    project.add_imperfection(
+        plate_mode(project.face(face), amplitude=0.001, waves=(1, 1))
+    )
+
+    overlay = build_imperfection_overlay(project)
+    preview = [line for line in overlay.lines if line.color == COLOR_IMPERFECTION]
+    assert preview
+    assert overlay.arrows
+    assert max(float(np.max(line.points[:, 2])) for line in preview) > 0.001
+    assert np.asarray(
+        [project.geometry.vertex_position(item) for item in points]
+    ) == pytest.approx(original)
+
+    mesh = project.generate_mesh(0.25)
+    meshed_overlay = build_imperfection_overlay(project, mesh=mesh)
+    assert any(line.color == COLOR_IMPERFECTION for line in meshed_overlay.lines)
+
+
+def test_member_bow_preview_uses_the_imperfection_direction(plate_project):
+    project, _face, edges, _points = plate_project
+    project.add_imperfection(
+        member_bow(project.edge(edges[0]), amplitude=0.002, direction=(0, 0, 1))
+    )
+
+    overlay = build_imperfection_overlay(project)
+    line = next(item for item in overlay.lines if item.color == COLOR_IMPERFECTION)
+    assert line.points[0, 2] == pytest.approx(0.0)
+    assert line.points[-1, 2] == pytest.approx(0.0)
+    assert np.max(line.points[:, 2]) > 0.002
 
 
 def test_overlay_never_carries_an_entity_tag(plate_project):

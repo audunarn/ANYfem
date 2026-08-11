@@ -594,14 +594,31 @@ class Project:
             # replacement lineage.  Reapplying the same section to one of its
             # descendants is an idempotent legacy operation, not an overlap.
             return materialized
-        region = self.singleton_region(
-            reference, _output_anchors=output_anchors
+        # The materialized assignment is authoritative for reassignment.  A
+        # feature executor may normalize a historical semantic output key on
+        # reopen (for example ``face`` to ``face/0``); looking up a freshly
+        # generated singleton region in that case would create a second scope
+        # over the same topology and fail with an overlap instead of replacing
+        # the section selected by the engineer.
+        materialized_singleton = (
+            materialized
+            if materialized is not None
+            and materialized.legacy_singleton
+            and materialized.kind == kind
+            else None
+        )
+        region = (
+            materialized_singleton.region
+            if materialized_singleton is not None
+            else self.singleton_region(reference, _output_anchors=output_anchors)
         )
         expected = "face" if kind == "plate" else "edge"
-        existing = (
-            legacy_by_region.get((kind, region.id))
-            if legacy_by_region is not None
-            else next(
+        if materialized_singleton is not None:
+            existing = materialized_singleton
+        elif legacy_by_region is not None:
+            existing = legacy_by_region.get((kind, region.id))
+        else:
+            existing = next(
                 (
                     item
                     for item in self.section_assignments.values()
@@ -611,7 +628,6 @@ class Project:
                 ),
                 None,
             )
-        )
         previous = self._section_compatibility_snapshot() if materialize else None
         old_record = existing
         if existing is None:
@@ -1372,11 +1388,23 @@ class Project:
                 "singular"
             )
 
-        if require_loads and (
+        # A nonzero prescribed translation or rotation is an imposed action:
+        # it produces reactions and internal forces through the affine
+        # constraint RHS even when the assembled external load vector is zero.
+        # Zero-valued supports remain restraints and must not make an unloaded
+        # static model appear loaded.
+        has_prescribed_motion = any(
+            value != 0.0
+            for item in self.supports
+            for value in item.constraints.values()
+        )
+        if require_loads and not has_prescribed_motion and (
             not self.load_cases
             or all(case.is_empty() for case in self.load_cases.values())
         ):
-            problems.append("the model has no loads")
+            problems.append(
+                "the model has no loads or nonzero prescribed displacement/rotation"
+            )
 
         if problems:
             raise ProjectError(

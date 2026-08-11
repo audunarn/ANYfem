@@ -18,7 +18,7 @@ _SOURCE_TREES = (
     _ROOT.parent / "ANYtk3D" / "src",
 )
 
-# Add in reverse so ANYfem's own checkout remains first on sys.path.
+# Add in reverse so ANYfem's own checkout remains first on sys.pat
 for _source in reversed(_SOURCE_TREES):
     if _source.is_dir() and str(_source) not in sys.path:
         sys.path.insert(0, str(_source))

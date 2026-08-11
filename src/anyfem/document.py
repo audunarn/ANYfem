@@ -371,6 +371,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
             item.pop("id", None)
     for item in payload.get("imperfections", ()):
         if isinstance(item, dict):
+            item.pop("id", None)
             item.pop("name", None)
     meshing = payload.get("meshing")
     if isinstance(meshing, dict):

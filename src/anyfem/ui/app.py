@@ -107,6 +107,7 @@ class AnyFemApp(ttk.Frame):
         self.solution = None
         self.solutions: Dict[str, Any] = {}
         self.result_datasets: Dict[str, Any] = {}
+        self.submitted_input_reports: Dict[str, str] = {}
         self._artifact_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="anyfem-artifact"
         )
@@ -126,6 +127,7 @@ class AnyFemApp(ttk.Frame):
         self.path: Optional[Path] = None
         self.seeding_overrides: Dict[int, int] = {}
         self._view_mode = "geometry"
+        self._geometry_selection_mode = "vertex"
         self._closing = False
         self._refresh_suspended = 0
         self._project_lock: ProjectLock | None = None
@@ -184,7 +186,7 @@ class AnyFemApp(ttk.Frame):
         self._show_attributes = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             toolbar,
-            text="Loads & BC",
+            text="Attributes / imperfections",
             variable=self._show_attributes,
             command=self.refresh_views,
         ).pack(side="left", padx=(12, 0))
@@ -255,6 +257,7 @@ class AnyFemApp(ttk.Frame):
             panel = panel_class(self.details._content, self)
             self.details.add(panel, text=panel_class.title)
             self.panels[panel_class.title] = panel
+        self.details.set_select_handler(self._on_details_page_selected)
 
         self.job_status = JobStatusView(centre, self)
         self.job_status.pack(fill="x")
@@ -577,6 +580,7 @@ class AnyFemApp(ttk.Frame):
             raise ValueError(f"unknown analysis {analysis!r}") from None
 
         self.analysis = analysis
+        submitted_options = dict(options)
         target_kind = "none" if analysis == "Modal" else "load_case"
         target_id = str(options.get("load_case", "default"))
         if options.get("combination") is not None:
@@ -632,6 +636,23 @@ class AnyFemApp(ttk.Frame):
             project_override=self.project if self.imported is not None else None,
         )
         self.active_job_id = record.id
+        input_report = _submitted_input_report(
+            self.project,
+            definition,
+            submitted_options,
+            self.mesh,
+            revision=self.session.revision.sequence,
+            model_hash=self.session.revision.model_hash,
+            mesh_hash=mesh_hash,
+        )
+        self.submitted_input_reports[record.id] = input_report
+        solve_panel = self.panels.get("Solve")
+        if solve_panel is not None:
+            solve_panel.begin_job(
+                definition.name,
+                record.id,
+                input_report,
+            )
         self.set_status(f"queued {definition.name}")
         self.refresh_panels()
         self.job_status.refresh()
@@ -644,23 +665,48 @@ class AnyFemApp(ttk.Frame):
         if job_id is not None:
             self.solutions[job_id] = solution
             self.active_job_id = job_id
-        self.shape_index = 0
+        shapes = getattr(solution, "shapes", None)
+        # Nonlinear snapshots are a path to the submitted result; open on the
+        # last converged state while retaining every real increment for the
+        # navigator and playback controls.
+        self.shape_index = (
+            len(shapes) - 1 if shapes and hasattr(solution, "steps") else 0
+        )
         self.set_status(solution.summary())
         panel = self.panels["Solve"]
-        panel.write(_solution_report(solution))
+        panel.append_progress("completed")
+        panel.append_report(_solution_report(solution))
         panel.show_progress("")
         self.notebook.select(self.panels["Results"])
-        self.show_results()
         self.refresh_panels()
+        self.show_results()
 
     def _poll_jobs(self) -> None:
         if self._closing:
             return
         for event in self.job_manager.poll():
             if event.kind in ("queued", "started", "progress", "status"):
-                self._on_progress(event.message)
+                self._on_progress(event.message, event.payload)
             elif event.kind == "completed":
-                self._on_solved(event.payload, event.job_id)
+                try:
+                    self._on_solved(event.payload, event.job_id)
+                except Exception as error:
+                    # A display/export adapter must never turn a successfully
+                    # completed numerical job into an unhandled Tk callback.
+                    self.set_status(
+                        f"job completed, but opening Results failed: {error}",
+                        error=True,
+                    )
+                    panel = self.panels.get("Solve")
+                    if panel is not None:
+                        panel.append_progress(f"Results display failed: {error}")
+                    try:
+                        self.refresh_panels()
+                    except Exception as refresh_error:
+                        if panel is not None:
+                            panel.append_progress(
+                                f"Results controls refresh failed: {refresh_error}"
+                            )
                 if self.path is not None:
                     self._schedule_result_artifact(event.job_id, self.path)
                     self._schedule_job_log_artifact(event.job_id, self.path)
@@ -677,7 +723,7 @@ class AnyFemApp(ttk.Frame):
                 )
                 panel = self.panels.get("Solve")
                 if panel is not None:
-                    panel.write(event.message)
+                    panel.append_progress(f"failed: {event.message}")
                 if self.path is not None:
                     self._schedule_job_log_artifact(event.job_id, self.path)
                 self.refresh_panels()
@@ -702,6 +748,13 @@ class AnyFemApp(ttk.Frame):
         from ..io.artifacts import ArtifactStore
 
         store = ArtifactStore(destination)
+        submitted_inputs = self.submitted_input_reports.get(job_id)
+        artifact_provenance = {}
+        if submitted_inputs:
+            try:
+                artifact_provenance["submitted_inputs"] = json.loads(submitted_inputs)
+            except json.JSONDecodeError:
+                artifact_provenance["submitted_inputs_text"] = submitted_inputs
         future = self._artifact_executor.submit(
             write_solution_artifact,
             store,
@@ -712,6 +765,7 @@ class AnyFemApp(ttk.Frame):
             model_hash=record.model_hash,
             mesh_hash=record.mesh_hash,
             analysis_hash=record.analysis_hash,
+            provenance=artifact_provenance,
             summary=dict(record.summary),
             diagnostics=tuple(record.diagnostics),
             partial=bool(record.partial),
@@ -847,6 +901,42 @@ class AnyFemApp(ttk.Frame):
         self.viewport.show(self._with_attributes(scene))
         self._update_view_label()
 
+    def _on_details_page_selected(self, page: str) -> None:
+        """Keep task navigation and the viewport in the same workflow context."""
+
+        if page == "Geometry":
+            self.show_geometry()
+            self.selection_strip.set_context(
+                self._geometry_selection_mode,
+                "Model geometry • select Point, Line or Plate",
+            )
+            self.details.set_hint("Model geometry")
+            self.set_status("model geometry shown; Point/Line/Plate selection is active")
+            return
+        if page == "Loads & BC":
+            self.show_geometry()
+            kind = (
+                self.selection.mode
+                if self.selection.mode in ("vertex", "edge", "face")
+                else "edge"
+            )
+            self.selection_strip.set_context(
+                kind,
+                "Geometry scope • choose Point, Line or Plate",
+            )
+            self.details.set_hint("Scope on model geometry")
+            self.set_status(
+                "model geometry shown; select points, lines or plates for loads and BCs"
+            )
+            return
+        if page == "Sections":
+            self.show_geometry()
+            self.details.set_hint("Assign on model geometry")
+            return
+        if page in ("Mesh", "Solve") and self.mesh is not None:
+            self.show_mesh()
+            self.details.set_hint("Mesh view")
+
     def show_persisted_result(
         self,
         field_key: str,
@@ -870,6 +960,8 @@ class AnyFemApp(ttk.Frame):
             component=component,
             scale=scale,
             limits=limits,
+            colormap=self.panels["Results"].colormap(),
+            display_units=self.panels["Results"].display_units(),
         )
         self._view_mode = "results"
         self.viewport.show(scene)
@@ -881,7 +973,11 @@ class AnyFemApp(ttk.Frame):
         if not self._show_attributes.get():
             return scene
         return scene.merge(
-            build_attribute_overlay(self.project, case_name=self.active_case())
+            build_attribute_overlay(
+                self.project,
+                case_name=self.active_case(),
+                mesh=self.mesh,
+            )
         )
 
     def active_case(self) -> str:
@@ -905,6 +1001,7 @@ class AnyFemApp(ttk.Frame):
             self.show_mesh()
             return
         panel = self.panels["Results"]
+        panel.ensure_compatible_field()
         shape = self.current_shape()
         self._view_mode = "results"
         scene = build_result_scene(
@@ -913,6 +1010,8 @@ class AnyFemApp(ttk.Frame):
             scale=panel.scale_value(shape),
             limits=panel.colour_limits(),
             values=panel.field_values(),
+            colormap=panel.colormap(),
+            display_units=panel.display_units(),
         )
         scene = self._with_attributes(scene)
         if getattr(self.solution, "sphere_positions", None) is not None:
@@ -963,17 +1062,21 @@ class AnyFemApp(ttk.Frame):
     def _on_selection_changed(self) -> None:
         if self._closing:
             return
+        if getattr(self.selection.domain, "value", "geometry") == "geometry":
+            self._geometry_selection_mode = self.selection.mode
         self._selection_label.configure(
             text=f"{mode_label(self.selection.mode)} mode - "
             f"{self.selection.describe()}"
         )
         self.refresh_panels()
 
-    def _on_progress(self, text: str) -> None:
-        self.set_status(text)
+    def _on_progress(self, text: str, payload: Any = None) -> None:
+        line = _job_progress_text(text, payload)
+        self.set_status(line)
         panel = self.panels.get("Solve")
         if panel is not None:
-            panel.show_progress(text)
+            panel.show_progress(line)
+            panel.append_progress(line)
 
     def _on_pick(self, ref) -> None:
         if ref is None:
@@ -1040,6 +1143,7 @@ class AnyFemApp(ttk.Frame):
             "material": "Sections",
             "plate_section": "Sections",
             "beam_section": "Sections",
+            "imperfection": "Sections",
             "coordinate": "Definitions",
             "region": "Definitions",
             "unit": "Definitions",
@@ -1054,6 +1158,26 @@ class AnyFemApp(ttk.Frame):
         }.get(prefix, "Geometry")
         if action == "edit":
             self.details.select(page)
+            if prefix == "imperfection":
+                section_panel = self.panels.get("Sections")
+                identifier = key.split(":", 1)[1]
+                if (
+                    section_panel is not None
+                    and section_panel.edit_imperfection(identifier)
+                ):
+                    self.details.set_hint(
+                        f"Editing actual values of {self.tree.tree.item(key, 'text')}"
+                    )
+                    self.set_status("selected imperfection loaded into Details")
+                    return
+            if prefix in {"support", "mass", "load"}:
+                load_panel = self.panels.get("Loads & BC")
+                if load_panel is not None and load_panel.edit_tree_item(key):
+                    self.details.set_hint(
+                        f"Editing actual values of {self.tree.tree.item(key, 'text')}"
+                    )
+                    self.set_status("selected attribute loaded into Details")
+                    return
             self.details.set_hint(f"Editing {self.tree.tree.item(key, 'text')}")
             return
         if action == "suppress" and prefix == "feature":
@@ -1103,6 +1227,30 @@ class AnyFemApp(ttk.Frame):
                 if ref is not None and ref.kind in ("vertex", "edge", "face")
             ]
             self.run_many(DeleteEntity(ref) for ref in geometry_refs)
+            return
+        if action == "delete" and prefix in {
+            "support", "mass", "load", "imperfection"
+        }:
+            from ..commands import DeleteAttribute
+
+            identifiers = []
+            for item_key in keys:
+                item_prefix = item_key.split(":", 1)[0]
+                if item_prefix not in {
+                    "support", "mass", "load", "imperfection"
+                }:
+                    continue
+                if item_key.endswith(":gravity"):
+                    continue
+                identifiers.append(item_key.rsplit(":", 1)[1])
+            if identifiers:
+                self.run_many(DeleteAttribute(identifier) for identifier in identifiers)
+                self.set_status(f"deleted {len(identifiers)} selected attribute(s)")
+                return
+            self.set_status(
+                "gravity/acceleration is edited from its load case form",
+                error=True,
+            )
             return
         if action == "isolate":
             isolate = getattr(self.viewport, "isolate", None)
@@ -2050,6 +2198,47 @@ def _solution_report(solution) -> str:
     return "\n".join(lines)
 
 
+def _job_progress_text(message: str, payload: Any = None) -> str:
+    """Format strings and ANYsolver ProgressEvents for the live transcript."""
+
+    base = str(message or "").strip()
+    if payload is None or isinstance(payload, str):
+        return base or "working"
+
+    def value(name: str, default=None):
+        attribute = getattr(payload, name, None)
+        if attribute is not None:
+            return attribute
+        getter = getattr(payload, "get", None)
+        return getter(name, default) if callable(getter) else default
+
+    stage = str(value("stage", "")).strip().replace("_", " ")
+    detail = str(value("message", base) or base).strip()
+    qualifiers = []
+    completed = value("completed")
+    total = value("total")
+    fraction = value("fraction")
+    iteration = value("iteration")
+    if completed is not None and total not in (None, 0, 0.0):
+        qualifiers.append(f"{float(completed):g}/{float(total):g}")
+    elif fraction is not None:
+        qualifiers.append(f"{100.0 * float(fraction):.0f}%")
+    if iteration is not None:
+        qualifiers.append(f"iteration {int(iteration)}")
+    for key, label in (
+        ("load_factor", "load"),
+        ("time_s", "t"),
+        ("residual_norm", "residual"),
+    ):
+        item = value(key)
+        if item is not None:
+            suffix = " s" if key == "time_s" else ""
+            qualifiers.append(f"{label} {float(item):.5g}{suffix}")
+    prefix = stage or "solver"
+    line = f"{prefix}: {detail}" if detail and detail != stage else prefix
+    return line + (f"  [{' | '.join(qualifiers)}]" if qualifiers else "")
+
+
 def _record_settings(value: Any) -> Any:
     """Make analysis settings deterministic and JSON-safe for provenance."""
 
@@ -2066,6 +2255,107 @@ def _record_settings(value: Any) -> Any:
     if is_dataclass(value):
         return _record_settings(asdict(value))
     return {"type": type(value).__name__, "repr": repr(value)}
+
+
+def _submitted_input_report(
+    project: Project,
+    definition: AnalysisDefinition,
+    options: Dict[str, Any],
+    mesh: Any,
+    *,
+    revision: int,
+    model_hash: str,
+    mesh_hash: str,
+) -> str:
+    """Readable, deterministic solver-input record without dumping mesh arrays."""
+
+    load_cases = []
+    for case in sorted(project.load_cases.values(), key=lambda item: item.name):
+        load_cases.append(
+            {
+                "id": case.id,
+                "name": case.name,
+                "follower_pressure": case.follower_pressure,
+                "gravity_or_acceleration_m_per_s2": _record_settings(case.gravity),
+                "gravity_coordinate_system_id": case.gravity_coordinate_system_id,
+                "point_loads": _record_settings(case.point_loads),
+                "pressures": _record_settings(case.pressures),
+                "line_loads": _record_settings(case.line_loads),
+                "surface_tractions": _record_settings(case.surface_tractions),
+            }
+        )
+    support_inputs = []
+    for support in project.supports:
+        engineering = {
+            dof: {
+                "value": 1000.0 * float(value),
+                "unit": "mm" if dof.startswith("u") else "mrad",
+            }
+            for dof, value in support.constraints.items()
+        }
+        support_inputs.append(
+            {
+                "id": support.id,
+                "name": support.name,
+                "ref": _record_settings(support.ref),
+                "region": _record_settings(support.region),
+                "coordinate_system_id": support.coordinate_system_id,
+                "constraints_SI": dict(support.constraints),
+                "constraints_engineering": engineering,
+            }
+        )
+    mesh_summary = {
+        "uuid": getattr(mesh, "id", None),
+        "nodes": getattr(mesh, "num_nodes", None),
+        "elements": getattr(mesh, "num_elements", None),
+        "shell_elements": len(getattr(mesh, "shells", {})) if mesh is not None else 0,
+        "beam_elements": len(getattr(mesh, "beams", {})) if mesh is not None else 0,
+        "mesh_hash": mesh_hash,
+    }
+    payload = {
+        "record": {
+            "project": project.name,
+            "revision": int(revision),
+            "model_hash": model_hash,
+            "note": (
+                "Numerical values are SI unless a key states another unit. "
+                "Mesh connectivity is identified by mesh_hash and omitted from this UI view."
+            ),
+        },
+        "analysis": definition.to_dict(),
+        "submitted_options": _record_settings(options),
+        "mesh": mesh_summary,
+        "units": project.units.to_dict(),
+        "coordinate_systems": [
+            item.to_dict()
+            for item in sorted(project.coordinate_systems.values(), key=lambda item: item.id)
+        ],
+        "materials": [
+            item.to_dict()
+            for item in sorted(project.materials.values(), key=lambda item: item.name)
+        ],
+        "plate_sections": _record_settings(
+            sorted(project.plate_sections.values(), key=lambda item: item.name)
+        ),
+        "beam_sections": _record_settings(
+            sorted(project.beam_sections.values(), key=lambda item: item.name)
+        ),
+        "section_assignments": [
+            item.to_dict()
+            for item in sorted(
+                project.section_assignments.values(), key=lambda item: item.id
+            )
+        ],
+        "supports": support_inputs,
+        "masses": _record_settings(project.masses),
+        "load_cases": load_cases,
+        "combinations": _record_settings(
+            sorted(project.combinations.values(), key=lambda item: item.name)
+        ),
+        "imperfections": _record_settings(project.imperfections),
+        "regions": project.regions.to_list(),
+    }
+    return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
 
 
 def _execute_analysis_job(

@@ -11,7 +11,14 @@ import numpy as np
 import pytest
 from anysolver import assemble_load_vector
 
-from anyfem import Project, fixed, pinned, solve_linear_static, steel
+from anyfem import (
+    Project,
+    fixed,
+    pinned,
+    solve_linear_static,
+    solve_nonlinear_static,
+    steel,
+)
 from anyfem import commands as cmd
 from anyfem.model import (
     Imperfection,
@@ -22,6 +29,7 @@ from anyfem.model import (
     prescribed,
 )
 from anyfem.solve.build import build_fe_model
+from anyfem.post.fields import evaluate_field
 
 DENSITY = 7850.0
 GRAVITY = 9.81
@@ -75,6 +83,67 @@ def test_a_prescribed_displacement_is_reached_exactly(plate):
         for node in solution.built.mesh.nodes_on(project.edge(edges[1]))
     ]
     assert moved == pytest.approx([0.01] * len(moved))
+
+
+def test_a_prescribed_displacement_is_sufficient_without_external_loads(plate):
+    project, _face, edges, _points = plate
+    project.add_support(fixed(project.edge(edges[3])))
+    project.add_support(prescribed(project.edge(edges[1]), uz=0.01))
+
+    solution = solve_linear_static(project, target_size=0.25)
+
+    moved = [
+        solution.node_displacement(node)[2]
+        for node in solution.built.mesh.nodes_on(project.edge(edges[1]))
+    ]
+    assert moved == pytest.approx([0.01] * len(moved))
+    assert np.linalg.norm(solution.displacements) > 0.0
+
+
+def test_nonlinear_static_accepts_displacement_control_without_external_loads(plate):
+    project, _face, edges, _points = plate
+    project.add_support(fixed(project.edge(edges[3])))
+    project.add_support(prescribed(project.edge(edges[1]), uz=0.001))
+
+    solution = solve_nonlinear_static(
+        project,
+        target_size=0.5,
+        num_steps=2,
+        max_load_factor=1.0,
+        record_increment_snapshots=True,
+    )
+
+    moved = [
+        solution.node_displacement(node)[2]
+        for node in solution.built.mesh.nodes_on(project.edge(edges[1]))
+    ]
+    assert moved == pytest.approx([0.001] * len(moved))
+    snapshots = solution.raw_result.snapshots
+    assert len(snapshots) >= 2
+    loaded_nodes = solution.built.mesh.nodes_on(project.edge(edges[1]))
+    for snapshot in snapshots:
+        values = [
+            snapshot.displacements[
+                solution.built.fe_model.mesh.nodes[node_id].dofs[2]
+            ]
+            for node_id in loaded_nodes
+        ]
+        assert values == pytest.approx(
+            [snapshot.load_factor * 0.001] * len(values)
+        )
+    assert snapshots[0].load_factor < snapshots[-1].load_factor
+    assert len(solution.shapes) == len(snapshots)
+    assert solution.shapes[0].value == snapshots[0].load_factor
+    assert solution.shapes[-1].step is solution.steps[-1]
+    assert evaluate_field(solution.shapes[-1], "von_mises").element_values
+
+
+def test_zero_valued_restraints_do_not_count_as_loading(plate):
+    project, _face, edges, _points = plate
+    project.add_support(fixed(project.edge(edges[3])))
+
+    with pytest.raises(ProjectError, match="no loads"):
+        solve_linear_static(project, target_size=0.25)
 
 
 def test_a_prescribed_displacement_needs_a_value(plate):

@@ -93,11 +93,16 @@ def build_fe_model(
             combination=combination,
         )
 
-    # A load-free build is used for deck handoff and neutral-mesh inspection.
-    # The historical default name should not manufacture a requirement after
-    # the caller explicitly disabled load validation.
+    # A load-free build is used for deck handoff, neutral-mesh inspection, and
+    # displacement-controlled analysis.  In the latter case the applied
+    # action lives in the affine constraint RHS rather than in a LoadCase.
+    has_prescribed_motion = any(
+        value != 0.0
+        for support in project.supports
+        for value in support.constraints.values()
+    )
     if (
-        not require_loads
+        (not require_loads or has_prescribed_motion)
         and load_case == "default"
         and "default" not in project.load_cases
     ):

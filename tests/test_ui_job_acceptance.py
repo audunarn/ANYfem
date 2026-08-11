@@ -75,6 +75,79 @@ def test_tree_rows_use_persisted_ids_and_keyboard_shortcuts_are_live(app, root):
     assert app.project.load_case().point_loads[0].id == load.id
 
 
+def test_tree_edit_hydrates_actual_support_values_and_delete_is_undoable(app, root):
+    first = app.run(cmd.AddPoint(0.0, 0.0, 0.0))
+    second = app.run(cmd.AddPoint(0.0, 1.0, 0.0))
+    edge = app.run(cmd.AddLine(first, second))
+    support = app.run(
+        cmd.AddSupport(
+            Support("driven edge", EntityRef("edge", edge), {"uy": 0.050})
+        )
+    )
+    root.update()
+    key = f"support:{support.id}"
+
+    app._tree_action("edit", (key,))
+    root.update()
+    panel = app.panels["Loads & BC"]
+    assert panel._component_values["uy"].get() == "50"
+    assert panel._dofs["uy"].get()
+    assert panel._editing_attribute.id == support.id
+
+    panel._component_values["uy"].set("25")
+    panel._add_support()
+    root.update()
+    assert len(app.project.supports) == 1
+    assert app.project.supports[0].id == support.id
+    assert app.project.supports[0].constraints == {"uy": 0.025}
+    assert "uy=25 mm" in app.tree.tree.item(key, "text")
+
+    app._tree_action("delete", (key,))
+    root.update()
+    assert not app.project.supports
+    app.undo()
+    root.update()
+    assert app.project.supports[0].id == support.id
+    assert app.project.supports[0].constraints == {"uy": 0.025}
+
+
+def test_solve_transcript_has_run_log_and_submitted_inputs_tabs(app, root):
+    panel = app.panels["Solve"]
+    panel.begin_job(
+        "Nonlinear static",
+        "117ea193-0000-0000-0000-000000000000",
+        '{"constraints_SI": {"uy": 0.05}, "value_mm": 50}',
+    )
+    root.update()
+
+    assert panel._transcript_tabs.tab(0, "text") == "Run log"
+    assert panel._transcript_tabs.tab(1, "text") == "Submitted inputs"
+    assert "queued" in panel._report.get("1.0", "end")
+    inputs = panel._submitted_inputs.get("1.0", "end")
+    assert '"uy": 0.05' in inputs
+    assert '"value_mm": 50' in inputs
+
+    app.active_job_id = "117ea193-0000-0000-0000-000000000000"
+    app.submitted_input_reports[app.active_job_id] = inputs
+    results = app.panels["Results"]
+    results.refresh()
+    assert results._readout_tabs.tab(0, "text") == "Path / increments"
+    assert results._readout_tabs.tab(1, "text") == "Probe / details"
+    assert results._readout_tabs.tab(2, "text") == "Submitted inputs"
+    assert '"uy": 0.05' in results._result_inputs.get("1.0", "end")
+
+
+def test_results_workspace_gives_path_and_text_tabs_useful_height(app, root):
+    app.details.select("Results")
+    root.update()
+    panel = app.panels["Results"]
+
+    assert panel._readout_tabs.winfo_height() >= 180
+    assert panel.plot.canvas.winfo_height() >= 95
+    assert panel._readout_tabs.tab(0, "text") == "Path / increments"
+    assert panel._outcome_values["Start"].get() == "—"
+
+
 def test_job_and_result_rows_use_uuids_and_show_stale_revision(app, root):
     analysis = AnalysisDefinition("Static")
     with app.session.transaction("analysis", solver_affecting=False):

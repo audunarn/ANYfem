@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Any
+from typing import Any, Callable
 
 from ..selection import SELECTION_MODES, mode_label
 
@@ -19,6 +19,7 @@ class DetailsWorkspace(ttk.Frame):
         self._panels: dict[str, ttk.Frame] = {}
         self._buttons: dict[str, ttk.Button] = {}
         self._current: str | None = None
+        self._on_select: Callable[[str], None] | None = None
 
         header = ttk.Frame(self, padding=(8, 6))
         header.pack(fill="x")
@@ -67,6 +68,13 @@ class DetailsWorkspace(ttk.Frame):
                 self._buttons[key].state(["!disabled"])
         self._current = name
         self._title.configure(text=name)
+        if self._on_select is not None:
+            self._on_select(name)
+
+    def set_select_handler(self, handler: Callable[[str], None] | None) -> None:
+        """Run application view/context policy after a Details page is chosen."""
+
+        self._on_select = handler
 
     def current(self) -> str | None:
         return self._current
