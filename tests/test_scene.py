@@ -13,10 +13,12 @@ from anygeometry import punch_hole
 
 from anyfem import Project, pinned, solve_linear_static, steel
 from anyfem.model import member_bow, plate_mode
+from anyfem.post.fields import Field
 from anyfem.geometry.entities import EntityRef
 from anyfem.selection import MeshEntityRef, parse_entity_tag
 from anyfem.ui.scene import (
     COLOR_LOAD,
+    COLOR_MESH_FILL,
     COLOR_MASS,
     COLOR_MOMENT,
     COLOR_ROTATION,
@@ -285,6 +287,43 @@ def test_result_scene_components_differ(plate_project):
     vertical = build_result_scene(solution, component="uz").faces[0].colors
     horizontal = build_result_scene(solution, component="ux").faces[0].colors
     assert vertical != horizontal
+
+
+def test_sparse_nodal_result_is_unavailable_on_incomplete_elements(plate_project):
+    """Changing quantity/frame must not crash on a partial result scope."""
+
+    project, face, edges, _points = plate_project
+    solution = solved(project, face, edges)
+    one_node = min(solution.built.mesh.nodes)
+    sparse = Field("partial probe", unit="m", node_values={one_node: 0.01})
+
+    scene = build_result_scene(solution, values=sparse)
+
+    assert scene.faces
+    assert all(
+        colour == COLOR_MESH_FILL
+        for patch in scene.faces
+        for colour in patch.colors
+    )
+    # The one real sample remains a valid legend value even though no whole
+    # element can be contoured from it.
+    assert scene.legend["levels"]
+
+
+def test_empty_result_field_draws_neutral_mesh_instead_of_inventing_zero(
+    plate_project,
+):
+    project, face, edges, _points = plate_project
+    solution = solved(project, face, edges)
+
+    scene = build_result_scene(solution, values=Field("missing result", unit="Pa"))
+
+    assert scene.legend["colors"] == []
+    assert all(
+        colour == COLOR_MESH_FILL
+        for patch in scene.faces
+        for colour in patch.colors
+    )
 
 
 # ----------------------------------------------------------------------

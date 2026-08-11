@@ -109,6 +109,16 @@ def build_fe_model(
         resolved = None
     else:
         resolved = _resolve_load_case(project, load_case)
+    # The UI may retain an empty named/default case after its last load was
+    # deleted.  With a nonzero prescribed motion that case is not the driving
+    # action and must not disguise the affine displacement path as a load-case
+    # workflow in buckling/capacity metadata.
+    if (
+        has_prescribed_motion
+        and resolved is not None
+        and resolved.is_empty()
+    ):
+        resolved = None
     solver_case = (
         None if resolved is None else _build_load_case(project, mesh, resolved)
     )

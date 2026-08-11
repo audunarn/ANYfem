@@ -17,6 +17,7 @@ from anyfem import (
     resource_policy,
     solve_arc_length,
     solve_buckling,
+    solve_capacity,
     solve_linear_static,
     solve_linear_static_many,
     solve_modal,
@@ -55,6 +56,27 @@ def strut_project(length: float = 2.0, load: float = 1000.0):
     project.add_support(support(project.point(start), ux=0.0, uy=0.0, uz=0.0, rx=0.0))
     project.add_support(support(project.point(end), uy=0.0, uz=0.0, rx=0.0))
     project.load_case().add_point_load(project.point(end), force=(-load, 0.0, 0.0))
+    return project, section, start, end
+
+
+def prescribed_strut_project(length: float = 2.0, shortening: float = 0.0001):
+    """Pinned column driven entirely by an affine end shortening."""
+
+    project, section, start, end = strut_project(length, load=1.0)
+    project.load_cases.clear()
+    project.supports.clear()
+    project.add_support(
+        support(project.point(start), ux=0.0, uy=0.0, uz=0.0, rx=0.0)
+    )
+    project.add_support(
+        support(
+            project.point(end),
+            ux=-float(shortening),
+            uy=0.0,
+            uz=0.0,
+            rx=0.0,
+        )
+    )
     return project, section, start, end
 
 
@@ -249,6 +271,57 @@ def test_buckling_names_the_reference_case_it_belongs_to():
     solution = solve_buckling(project, target_size=0.2, num_modes=1)
     assert solution.reference_case == "default"
     assert "critical factor" in solution.summary()
+
+
+def test_buckling_accepts_prescribed_displacement_as_reference_action():
+    length, shortening = 2.0, 0.0001
+    project, section, _start, _end = prescribed_strut_project(
+        length, shortening
+    )
+
+    solution = solve_buckling(
+        project, target_size=length / 20, num_modes=1
+    )
+
+    reference_compression = (
+        MODULUS * section.properties()["area"] * shortening / length
+    )
+    expected = np.pi**2 * MODULUS * section.properties()["Iy"] / length**2
+    assert solution.status == "ok"
+    assert solution.reference_case == "prescribed displacement"
+    assert solution.critical_factor * reference_compression == pytest.approx(
+        expected, rel=0.02
+    )
+
+
+def test_capacity_accepts_prescribed_displacement_without_dummy_load_case():
+    project, _section, _start, _end = prescribed_strut_project()
+
+    solution = solve_capacity(
+        project,
+        target_size=0.25,
+        num_buckling_modes=1,
+        imperfection_amplitude=0.001,
+        num_steps=2,
+        max_load_factor=0.2,
+    )
+
+    assert solution.status == "completed"
+    assert solution.load_factor == pytest.approx(0.2)
+    assert solution.buckling.reference_case == "prescribed displacement"
+    assert solution.info["raw"].diagnostics["reference_action"] == (
+        "prescribed_displacement"
+    )
+
+
+def test_empty_retained_case_does_not_hide_prescribed_reference_action():
+    project, _section, _start, _end = prescribed_strut_project()
+    project.load_case("default")
+
+    solution = solve_buckling(project, target_size=0.25, num_modes=1)
+
+    assert solution.built.load_case is None
+    assert solution.reference_case == "prescribed displacement"
 
 
 @pytest.mark.parametrize("with_policy", [False, True])

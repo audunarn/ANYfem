@@ -620,8 +620,19 @@ def build_result_scene(
     from .result_display import unit_transform
 
     value_scale, display_unit = unit_transform(resolved.unit, display_units)
+    finite_values = [
+        float(value)
+        for value in resolved.values.values()
+        if np.isfinite(float(value))
+    ]
+    has_values = bool(finite_values)
     if limits is None:
-        raw_low, raw_high = resolved.range()
+        if has_values:
+            raw_low, raw_high = min(finite_values), max(finite_values)
+            if raw_high <= raw_low:
+                raw_high = raw_low + 1.0
+        else:
+            raw_low, raw_high = 0.0, 1.0
         low, high = raw_low * value_scale, raw_high * value_scale
     else:
         low, high = limits
@@ -631,6 +642,23 @@ def build_result_scene(
 
     def colour(value: float) -> str:
         return _ramp_color((value * value_scale - low) / span, colormap)
+
+    def nodal_average(node_ids: Sequence[int]) -> Optional[float]:
+        """Average only a complete finite nodal value set.
+
+        A result quantity may deliberately cover only part of a mixed mesh.
+        Missing values are unavailable, not zero, and must not make result
+        browsing fail merely because an adjacent element uses another result
+        location or formulation.
+        """
+
+        samples = []
+        for node_id in node_ids:
+            value = resolved.node_values.get(int(node_id))
+            if value is None or not np.isfinite(float(value)):
+                return None
+            samples.append(float(value))
+        return float(np.mean(samples)) if samples else None
 
     scene = Scene()
     shells = mesh.shells
@@ -651,10 +679,12 @@ def build_result_scene(
             if resolved.per_element:
                 value = resolved.element_values.get(element_id)
             else:
-                value = float(
-                    np.mean([resolved.node_values[node] for node in nodes])
-                )
-            colors.append(COLOR_MESH_FILL if value is None else colour(value))
+                value = nodal_average(nodes)
+            colors.append(
+                COLOR_MESH_FILL
+                if value is None or not np.isfinite(float(value))
+                else colour(float(value))
+            )
         if polygons:
             geometry_ref = (
                 EntityRef("face", face_id)
@@ -691,12 +721,15 @@ def build_result_scene(
             span = mesh.beams[element_id]
             if resolved.per_element:
                 value = resolved.element_values.get(element_id)
-                line_colour = COLOR_BEAM if value is None else colour(value)
+                line_colour = (
+                    COLOR_BEAM
+                    if value is None or not np.isfinite(float(value))
+                    else colour(float(value))
+                )
             else:
-                line_colour = colour(
-                    float(
-                        np.mean([resolved.node_values[node] for node in span])
-                    )
+                value = nodal_average(span)
+                line_colour = (
+                    COLOR_BEAM if value is None else colour(float(value))
                 )
             geometry_ref = (
                 EntityRef("edge", edge_id)
@@ -732,11 +765,19 @@ def build_result_scene(
         )
 
     unit = display_unit or field_unit(name)
-    legend_colors = [colour(float(value) / value_scale) for value in np.linspace(low, high, 5)]
+    legend_colors = (
+        [colour(float(value) / value_scale) for value in np.linspace(low, high, 5)]
+        if has_values
+        else []
+    )
     scene.legend = {
-        "levels": list(np.linspace(low, high, 5)),
+        "levels": list(np.linspace(low, high, 5)) if has_values else [],
         "unit": unit,
-        "title": _component_title(name),
+        "title": (
+            _component_title(name)
+            if has_values
+            else f"{_component_title(name)} (unavailable)"
+        ),
         "colors": legend_colors,
     }
     return scene

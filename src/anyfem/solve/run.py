@@ -323,12 +323,13 @@ def solve_buckling(
     cancellation_token: Optional["CancellationToken"] = None,
     **solver_options: Any,
 ):
-    """Elastic buckling load factors for a reference load case.
+    """Elastic buckling factors for a reference action.
 
-    The factor multiplies the reference case, so the prestress has to come
-    from actually solving it first.  That static solve, and the recovery of
-    its stresses into element states, are the solver's own -- this only
-    sequences them.
+    The factor multiplies the reference load case or the prescribed
+    displacement path.  Prestress therefore always comes from solving the
+    actual affine static problem first.  That solve, and recovery of its
+    stresses into element states, are the solver's own -- this only sequences
+    them.
     """
 
     from anysolver import (
@@ -387,6 +388,11 @@ def solve_buckling(
         )
         for mode in result.modes
     ]
+    reference_name = (
+        combination
+        or (built.load_case.name if built.load_case is not None else None)
+        or "prescribed displacement"
+    )
     return BucklingSolution(
         built=built,
         shapes=shapes,
@@ -396,7 +402,7 @@ def solve_buckling(
             "diagnostics": result.diagnostics,
             "raw": result,
         },
-        reference_case=combination or load_case,
+        reference_case=reference_name,
     )
 
 
@@ -482,11 +488,6 @@ def solve_capacity(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
         progress=progress, load_case=load_case, combination=combination,
     )
-    if built.load_case is None:
-        raise ProjectError(
-            "a capacity workflow needs a reference load case to scale"
-        )
-
     if config is None:
         config = CapacityWorkflowConfig(
             num_buckling_modes=int(num_buckling_modes),
@@ -509,6 +510,11 @@ def solve_capacity(
         record_increment_snapshots=bool(record_increment_snapshots),
     )
 
+    reference_name = (
+        combination
+        or (built.load_case.name if built.load_case is not None else None)
+        or "prescribed displacement"
+    )
     buckling = BucklingSolution(
         built=built,
         shapes=[
@@ -522,7 +528,7 @@ def solve_capacity(
         ],
         status=result.buckling_result.solver_status,
         info={"raw": result.buckling_result},
-        reference_case=combination or load_case,
+        reference_case=reference_name,
     )
     adequacy = result.mesh_adequacy
     return CapacitySolution(

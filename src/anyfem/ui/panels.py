@@ -2679,7 +2679,9 @@ class ResultsPanel(StagePanel):
         self._quantities.column("location", width=70, stretch=False)
         self._quantities.column("unit", width=70, stretch=False)
         self._quantities.pack(fill="x")
-        self._quantities.bind("<Double-1>", lambda _event: self._activate_quantity())
+        self._quantities.bind(
+            "<Double-1>", lambda _event: self.guarded(self._activate_quantity)()
+        )
 
         browse = self.section("Increment / shape", parent=increments_page)
         row = ttk.Frame(browse)
@@ -2692,7 +2694,9 @@ class ResultsPanel(StagePanel):
             row, textvariable=self._shape, values=["-"], state="readonly", width=18
         )
         self._shape_box.pack(side="left", fill="x", expand=True, padx=2)
-        self._shape_box.bind("<<ComboboxSelected>>", lambda _e: self._pick_shape())
+        self._shape_box.bind(
+            "<<ComboboxSelected>>", lambda _e: self.guarded(self._pick_shape)()
+        )
         ttk.Button(row, text=">", width=3, command=self.guarded(self._next)).pack(
             side="left"
         )
