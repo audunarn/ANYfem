@@ -1097,6 +1097,12 @@ def test_progress_is_reported_while_solving(app, root):
     assert panel._live_data.increments
     assert panel._live_data.load_factors[-1] == pytest.approx(1.0)
     assert panel._live_data.trial_residuals
+    assert panel._live_data.support_reactions
+    panel._live_graph_choice.set("Largest support reaction force")
+    panel._refresh_live_plot()
+    reaction = panel._live_data.series("Largest support reaction force")
+    assert reaction is not None
+    assert np.nanmax(reaction.y) > 0.0
 
 
 def test_the_view_label_names_the_shape_on_show(app, root):

@@ -497,7 +497,7 @@ class NonlinearSolution(ShapeView):
         This is the load-displacement path: the thing worth plotting.
         """
 
-        return {
+        history = {
             "step": np.array([step.step_index for step in self.steps]),
             "load_factor": np.array([step.load_factor for step in self.steps]),
             "displacement_norm": np.array(
@@ -505,6 +505,30 @@ class NonlinearSolution(ShapeView):
             ),
             "iterations": np.array([step.iterations for step in self.steps]),
         }
+        support_names = sorted(
+            {
+                str(name)
+                for step in self.steps
+                for name in (getattr(step, "support_reactions", {}) or {})
+            }
+        )
+        components = ("Fx", "Fy", "Fz")
+        for name in support_names:
+            rows = []
+            for step in self.steps:
+                values = (getattr(step, "support_reactions", {}) or {}).get(name)
+                row = np.asarray(
+                    values if values is not None else (np.nan,) * 6,
+                    dtype=float,
+                ).reshape(-1)
+                rows.append(row if row.size >= 6 else np.full(6, np.nan))
+            matrix = np.vstack(rows) if rows else np.empty((0, 6), dtype=float)
+            history[f"support_reaction::{name}::force_magnitude"] = np.linalg.norm(
+                matrix[:, :3], axis=1
+            )
+            for index, component in enumerate(components):
+                history[f"support_reaction::{name}::{component}"] = matrix[:, index]
+        return history
 
     def summary(self) -> str:
         node_id, magnitude = self.max_translation()

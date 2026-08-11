@@ -152,8 +152,14 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
         diagnostics={"converged": True},
     )
     steps = [
-        SimpleNamespace(step_index=1, load_factor=0.4, displacement_norm=1.0, iterations=3),
-        SimpleNamespace(step_index=2, load_factor=0.8, displacement_norm=2.0, iterations=4),
+        SimpleNamespace(
+            step_index=1, load_factor=0.4, displacement_norm=1.0, iterations=3,
+            support_reactions={"fixed": (100.0, 0, 0, 0, 0, 0)},
+        ),
+        SimpleNamespace(
+            step_index=2, load_factor=0.8, displacement_norm=2.0, iterations=4,
+            support_reactions={"fixed": (200.0, 0, 0, 0, 0, 0)},
+        ),
     ]
     solution = NonlinearSolution(
         displacements=_vector(999.0),
@@ -174,6 +180,10 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     states = payload.tables["increment_element_states"]
     assert states[1]["element_states"]["7"]["yielded"] is True
     assert "load_factor" in payload.histories
+    reaction_key = "support_reaction_fixed_Fx"
+    assert reaction_key in payload.histories
+    assert payload.fields[reaction_key][0].unit == "N"
+    np.testing.assert_allclose(payload.histories[reaction_key][1], [100.0, 200.0])
     plastic_descriptor, plastic_values = payload.fields[
         "equivalent_plastic_strain"
     ]

@@ -24,7 +24,7 @@ from anyfem import (
     solve_transient,
     steel,
 )
-from anyfem.model import BeamSection, support
+from anyfem.model import BeamSection, prescribed, support
 from anyfem.post import ModalSolution, ShapeView
 
 MODULUS = 210.0e9
@@ -320,9 +320,14 @@ def test_a_nonlinear_result_carries_its_load_path():
     solution = solve_nonlinear_static(project, target_size=0.125, num_steps=6)
 
     history = solution.history()
-    assert set(history) == {
+    assert {
         "step", "load_factor", "displacement_norm", "iterations"
-    }
+    }.issubset(history)
+    assert any(
+        name.startswith("support_reaction::")
+        and name.endswith("::force_magnitude")
+        for name in history
+    )
     assert len(history["load_factor"]) == len(solution.steps)
     # The path ends at the load factor actually reached.
     assert history["load_factor"][-1] == pytest.approx(solution.load_factor)
@@ -375,6 +380,37 @@ def test_arc_length_traces_a_path_and_reports_a_peak():
     assert solution.peak_load_factor is not None
     # An imperfect strut cannot carry more than the perfect Euler load.
     assert solution.peak_load_factor <= buckling.critical_factor * 1.05
+
+
+def test_arc_length_accepts_a_plate_driven_only_by_prescribed_displacement():
+    project = Project(name="prescribed shear plate")
+    project.add_material(steel("S355", 0.010))
+    project.add_plate_section("plate", thickness=0.010, material="S355")
+    points = project.geometry.add_points(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+    )
+    edges = project.geometry.add_polyline(points, close=True)
+    face = project.geometry.add_face(edges)
+    project.assign_plate(face, "plate")
+    project.add_support(fixed(project.edge(edges[1])))
+    project.add_support(prescribed(project.edge(edges[3]), uy=0.01))
+
+    from anysolver import ArcLengthControl
+
+    solution = solve_arc_length(
+        project,
+        target_size=0.5,
+        control=ArcLengthControl(
+            initial_load_increment=0.02,
+            maximum_load_increment=0.05,
+            maximum_absolute_load_factor=0.1,
+            max_steps=10,
+        ),
+    )
+
+    assert solution.steps
+    assert solution.load_factor >= 0.1
+    assert solution.raw_result.info["prescribed_displacement_path"]["active"]
 
 
 def test_an_imperfection_lowers_the_capacity():

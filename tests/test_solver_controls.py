@@ -42,6 +42,26 @@ def test_analysis_wrappers_expose_an_explicit_cancellation_token(wrapper_name):
     assert "cancellation_token" in signature.parameters
 
 
+def test_arc_length_forwards_a_displacement_driven_model_without_dummy_load(
+    monkeypatch,
+):
+    observed = {}
+
+    def stop_at_solver(model, load_case, **kwargs):
+        observed["model"] = model
+        observed["load_case"] = load_case
+        raise _StopAtSolver
+
+    monkeypatch.setattr(anysolver, "solve_static_arc_length", stop_at_solver)
+    built = _built()
+    built.load_case = None
+
+    with pytest.raises(_StopAtSolver):
+        solve_run.solve_arc_length(built=built)
+
+    assert observed == {"model": built.fe_model, "load_case": None}
+
+
 @pytest.mark.parametrize(
     ("wrapper_name", "solver_name", "call_options", "records_snapshots"),
     [

@@ -23,6 +23,32 @@ from .fields import field_unit
 __all__ = ["Series", "history_series", "has_history"]
 
 
+def _prescribed_control(solution: Any):
+    """Return the single non-zero prescribed DOF that drives a path.
+
+    A Euclidean norm over every nodal DOF grows with mesh density and is not
+    the engineering control value.  When the submitted model has exactly one
+    non-zero prescribed component, use that component for the path axis.
+    """
+
+    built = getattr(solution, "built", None)
+    project = getattr(built, "project", None)
+    candidates = []
+    for support in getattr(project, "supports", ()) or ():
+        for dof, value in getattr(support, "constraints", {}).items():
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if abs(numeric) > 1.0e-15:
+                candidates.append((str(getattr(support, "name", "support")), str(dof), numeric))
+    if len(candidates) != 1:
+        return None
+    name, dof, value = candidates[0]
+    unit = "m" if dof.startswith("u") else "rad"
+    return name, dof, value, unit
+
+
 @dataclass(frozen=True)
 class Series:
     """One curve: two equal-length arrays, each with a label and a unit."""
@@ -147,8 +173,16 @@ def history_series(
     if hasattr(solution, "history") and getattr(solution, "steps", None):
         path = solution.history()
         norms = np.asarray(path.get("displacement_norm", ()), dtype=float)
-        factors = np.asarray(path.get("load_factor", ()), dtype=float)
+        path_factors = np.asarray(path.get("load_factor", ()), dtype=float)
+        factors = path_factors
         if len(norms) and len(norms) == len(factors):
+            control = _prescribed_control(solution)
+            x_label = "displacement norm"
+            x_unit = "m"
+            if control is not None:
+                support_name, dof, control_value, x_unit = control
+                norms = factors * control_value
+                x_label = f"prescribed {support_name} {dof}"
             # The equilibrium path starts from the unloaded reference state.
             # Solver step records intentionally contain converged increments
             # only, so make that physical start point visible in plots without
@@ -167,11 +201,51 @@ def history_series(
                     name="load-displacement path",
                     x=norms,
                     y=factors,
-                    x_label="displacement norm",
+                    x_label=x_label,
                     y_label="load factor",
-                    x_unit="m",
+                    x_unit=x_unit,
                     y_unit="",
                 )
             )
+
+        if len(path_factors):
+            control = _prescribed_control(solution)
+            reaction_x = path_factors
+            reaction_x_label = "load factor"
+            reaction_x_unit = ""
+            if control is not None:
+                support_name, dof, control_value, reaction_x_unit = control
+                reaction_x = path_factors * control_value
+                reaction_x_label = f"prescribed {support_name} {dof}"
+            for key, item in path.items():
+                if not str(key).startswith("support_reaction::"):
+                    continue
+                values = np.asarray(item, dtype=float).reshape(-1)
+                if values.size != path_factors.size:
+                    continue
+                _prefix, support_name, component = str(key).split("::", 2)
+                x_values = reaction_x
+                if not (
+                    np.isclose(path_factors[0], 0.0, atol=1.0e-14)
+                    and np.isclose(values[0], 0.0, atol=1.0e-10)
+                ):
+                    x_values = np.concatenate(([0.0], reaction_x))
+                    values = np.concatenate(([0.0], values))
+                label = (
+                    "force magnitude"
+                    if component == "force_magnitude"
+                    else component
+                )
+                series.append(
+                    Series(
+                        name=f"Reaction {support_name} {label}",
+                        x=x_values,
+                        y=values,
+                        x_label=reaction_x_label,
+                        y_label=f"reaction {support_name} {label}",
+                        x_unit=reaction_x_unit,
+                        y_unit="N",
+                    )
+                )
 
     return series

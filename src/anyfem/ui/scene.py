@@ -579,6 +579,7 @@ def build_result_scene(
     limits: Optional[tuple[float, float]] = None,
     values: Optional[object] = None,
     display_units: str = "SI (m / Pa)",
+    show_nodes: bool = False,
 ) -> Scene:
     """Draw the deformed shape, coloured by any field.
 
@@ -719,6 +720,17 @@ def build_result_scene(
                 )
             )
 
+    if show_nodes:
+        scene.points.extend(
+            PointMarker(
+                ref=MeshEntityRef("node", int(node)),
+                position=np.asarray(deformed[node], dtype=float),
+                color=COLOR_POINT,
+                owners=(MeshEntityRef("node", int(node)),),
+            )
+            for node in ordered_nodes
+        )
+
     unit = display_unit or field_unit(name)
     legend_colors = [colour(float(value) / value_scale) for value in np.linspace(low, high, 5)]
     scene.legend = {
@@ -742,6 +754,7 @@ def build_persisted_result_scene(
     limits: Optional[tuple[float, float]] = None,
     colormap: Optional[Sequence[tuple[float, str]]] = None,
     display_units: str = "SI (m / Pa)",
+    show_nodes: bool = False,
 ) -> Scene:
     """Render one lazily-read artifact field without inventing quantities."""
 
@@ -815,6 +828,7 @@ def build_persisted_result_scene(
         values=field,
         colormap=colormap,
         display_units=display_units,
+        show_nodes=show_nodes,
     )
 
 

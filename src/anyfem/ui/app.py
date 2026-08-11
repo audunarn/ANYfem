@@ -962,12 +962,29 @@ class AnyFemApp(ttk.Frame):
             limits=limits,
             colormap=self.panels["Results"].colormap(),
             display_units=self.panels["Results"].display_units(),
+            show_nodes=self.panels["Results"].show_result_nodes(),
+        )
+        panel = self.panels["Results"]
+        scene = self._with_attributes(
+            scene,
+            show_supports=panel.show_result_supports(),
+            show_loads=panel.show_result_loads(),
+            show_masses=panel.show_result_masses(),
+            show_imperfections=panel.show_imperfect_reference(),
         )
         self._view_mode = "results"
         self.viewport.show(scene)
         self._update_view_label()
 
-    def _with_attributes(self, scene):
+    def _with_attributes(
+        self,
+        scene,
+        *,
+        show_supports: bool = True,
+        show_loads: bool = True,
+        show_masses: bool = True,
+        show_imperfections: bool = True,
+    ):
         """Overlay supports and the active case's loads, if asked for."""
 
         if not self._show_attributes.get():
@@ -977,6 +994,10 @@ class AnyFemApp(ttk.Frame):
                 self.project,
                 case_name=self.active_case(),
                 mesh=self.mesh,
+                show_supports=show_supports,
+                show_loads=show_loads,
+                show_masses=show_masses,
+                show_imperfections=show_imperfections,
             )
         )
 
@@ -1012,8 +1033,15 @@ class AnyFemApp(ttk.Frame):
             values=panel.field_values(),
             colormap=panel.colormap(),
             display_units=panel.display_units(),
+            show_nodes=panel.show_result_nodes(),
         )
-        scene = self._with_attributes(scene)
+        scene = self._with_attributes(
+            scene,
+            show_supports=panel.show_result_supports(),
+            show_loads=panel.show_result_loads(),
+            show_masses=panel.show_result_masses(),
+            show_imperfections=panel.show_imperfect_reference(),
+        )
         if getattr(self.solution, "sphere_positions", None) is not None:
             scene.merge(build_collision_overlay(self.solution, self.shape_index))
         self.viewport.show(scene)

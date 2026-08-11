@@ -60,9 +60,17 @@ def test_structured_converged_event_is_accepted_without_text_parsing():
             "max_translation": 0.004,
             "max_equivalent_plastic_strain": 0.001,
             "load_increment": 0.05,
+            "support_reactions": {
+                "fixed edge": [1200.0, -300.0, 0.0, 0.0, 0.0, 0.0],
+                "driven edge": [-1200.0, 300.0, 0.0, 0.0, 0.0, 0.0],
+            },
         },
     )
     assert changed
     assert data.target_load_factor == 1.0
     assert data.increments == [2]
     assert data.max_displacements == [0.004]
+    assert data.series(GRAPH_CHOICES[5]).y[0] == np.hypot(1200.0, 300.0)
+    assert "Reaction: fixed edge | Fx" in data.graph_choices
+    assert data.series("Reaction: fixed edge | Fx").y[0] == 1200.0
+    assert data.series("Reaction: driven edge | Fy").y[0] == 300.0

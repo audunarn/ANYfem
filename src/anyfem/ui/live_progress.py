@@ -25,6 +25,7 @@ GRAPH_CHOICES = (
     "Maximum displacement path",
     "Maximum PEEQ path",
     "Adaptive load increment",
+    "Largest support reaction force",
 )
 
 _ITERATION = re.compile(
@@ -74,6 +75,8 @@ class LiveProgressData:
     max_displacements: list[float] = field(default_factory=list)
     max_peeq: list[float] = field(default_factory=list)
     load_increments: list[float] = field(default_factory=list)
+    reaction_force_max: list[float] = field(default_factory=list)
+    support_reactions: dict[str, list[np.ndarray]] = field(default_factory=dict)
     target_load_factor: float | None = None
 
     def clear(self) -> None:
@@ -85,6 +88,8 @@ class LiveProgressData:
         self.max_displacements.clear()
         self.max_peeq.clear()
         self.load_increments.clear()
+        self.reaction_force_max.clear()
+        self.support_reactions.clear()
         self.target_load_factor = None
 
     def ingest(self, text: str, payload: Any = None) -> bool:
@@ -125,7 +130,9 @@ class LiveProgressData:
         return changed
 
     def _ingest_mapping(self, payload: Any) -> bool:
-        if payload is None or isinstance(payload, str):
+        if payload is None:
+            return False
+        if isinstance(payload, str) and not callable(getattr(payload, "get", None)):
             return False
         event_type = str(_mapping_value(payload, "event_type", _mapping_value(payload, "type", "")))
         index = _mapping_value(payload, "step_index")
@@ -141,6 +148,7 @@ class LiveProgressData:
             displacement=_mapping_value(payload, "max_translation"),
             peeq=_mapping_value(payload, "max_equivalent_plastic_strain"),
             load_increment=_mapping_value(payload, "load_increment"),
+            support_reactions=_mapping_value(payload, "support_reactions"),
         )
 
     def _append_converged(
@@ -151,27 +159,68 @@ class LiveProgressData:
         displacement=None,
         peeq=None,
         load_increment=None,
+        support_reactions=None,
     ) -> bool:
+        reaction_rows = support_reactions if isinstance(support_reactions, Mapping) else {}
+        reaction_max = max(
+            (
+                float(np.linalg.norm(np.asarray(values, dtype=float).reshape(-1)[:3]))
+                for values in reaction_rows.values()
+            ),
+            default=np.nan,
+        )
         values = (
             float(displacement) if displacement is not None else np.nan,
             float(peeq) if peeq is not None else np.nan,
             float(load_increment) if load_increment is not None else np.nan,
+            reaction_max,
         )
         if self.increments and self.increments[-1] == int(index):
             self.load_factors[-1] = float(load)
             for target, value in zip(
-                (self.max_displacements, self.max_peeq, self.load_increments), values
+                (
+                    self.max_displacements,
+                    self.max_peeq,
+                    self.load_increments,
+                    self.reaction_force_max,
+                ),
+                values,
             ):
                 if np.isfinite(value):
                     target[-1] = value
+            self._update_support_reactions(reaction_rows, replace_last=True)
             return True
         self.increments.append(int(index))
         self.load_factors.append(float(load))
         self.max_displacements.append(values[0])
         self.max_peeq.append(values[1])
         self.load_increments.append(values[2])
+        self.reaction_force_max.append(values[3])
+        self._update_support_reactions(reaction_rows, replace_last=False)
         self._bound_paths()
         return True
+
+    def _update_support_reactions(
+        self, rows: Mapping[str, Any], *, replace_last: bool
+    ) -> None:
+        target_count = len(self.increments)
+        for history in self.support_reactions.values():
+            if not replace_last:
+                history.append(np.full(6, np.nan, dtype=float))
+        for raw_name, raw_values in rows.items():
+            name = str(raw_name)
+            history = self.support_reactions.get(name)
+            if history is None:
+                history = [np.full(6, np.nan, dtype=float) for _ in range(target_count)]
+                self.support_reactions[name] = history
+            elif len(history) < target_count:
+                history.extend(
+                    np.full(6, np.nan, dtype=float)
+                    for _ in range(target_count - len(history))
+                )
+            values = np.asarray(raw_values, dtype=float).reshape(-1)
+            if values.size >= 6 and history:
+                history[-1] = values[:6].copy()
 
     def _bound_paths(self) -> None:
         if len(self.increments) <= self.max_path_points:
@@ -188,8 +237,21 @@ class LiveProgressData:
             self.max_displacements,
             self.max_peeq,
             self.load_increments,
+            self.reaction_force_max,
         ):
             values[:] = [values[index] for index in keep]
+        for values in self.support_reactions.values():
+            values[:] = [values[index] for index in keep]
+
+    @property
+    def graph_choices(self) -> tuple[str, ...]:
+        dynamic = []
+        for name in sorted(self.support_reactions):
+            dynamic.extend(
+                f"Reaction: {name} | {component}"
+                for component in ("force magnitude", "Fx", "Fy", "Fz")
+            )
+        return tuple(GRAPH_CHOICES) + tuple(dynamic)
 
     def series(self, choice: str) -> Series | None:
         if choice == GRAPH_CHOICES[0]:
@@ -210,7 +272,26 @@ class LiveProgressData:
             GRAPH_CHOICES[2]: (self.max_displacements, "maximum translation", "m"),
             GRAPH_CHOICES[3]: (self.max_peeq, "maximum PEEQ", "1"),
             GRAPH_CHOICES[4]: (self.load_increments, "load increment", ""),
+            GRAPH_CHOICES[5]: (
+                self.reaction_force_max,
+                "largest support reaction force",
+                "N",
+            ),
         }
+        if choice.startswith("Reaction: ") and " | " in choice:
+            name, component = choice[len("Reaction: ") :].rsplit(" | ", 1)
+            rows = self.support_reactions.get(name, ())
+            if not rows:
+                return None
+            matrix = np.asarray(rows, dtype=float)
+            if component == "force magnitude":
+                values = np.linalg.norm(matrix[:, :3], axis=1)
+            else:
+                component_index = {"Fx": 0, "Fy": 1, "Fz": 2}.get(component)
+                if component_index is None:
+                    return None
+                values = matrix[:, component_index]
+            mapping[choice] = (values, f"{name} {component}", "N")
         values, label, unit = mapping.get(choice, ((), "", ""))
         if not self.increments:
             return None
@@ -232,4 +313,3 @@ class LiveProgressData:
                 f"{self.increments[-1]} • load factor {self.load_factors[-1]:.5g}"
             )
         return "Waiting for solver progress…"
-

@@ -38,7 +38,30 @@ __all__ = [
     "solve_transient",
 ]
 
-Progress = Optional[Callable[[str], None]]
+Progress = Optional[Callable[[Any], None]]
+
+
+class _StructuredProgressText(str):
+    """A readable log line that retains its structured solver payload.
+
+    Existing headless callers treat progress values as strings.  The job
+    queue, however, also needs the numerical metadata for live plots.  A
+    string subclass preserves both contracts without emitting duplicate log
+    entries for one solver event.
+    """
+
+    def __new__(cls, message: str, payload: Mapping[str, Any]):
+        instance = super().__new__(cls, message)
+        instance.payload = payload
+        return instance
+
+    @property
+    def message(self) -> str:
+        return str(self)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        getter = getattr(self.payload, "get", None)
+        return getter(key, default) if callable(getter) else default
 
 
 def _report(progress: Progress, message: str) -> None:
@@ -648,9 +671,6 @@ def solve_arc_length(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
         progress=progress, load_case=load_case, combination=combination,
     )
-    if built.load_case is None:
-        raise ProjectError("arc-length continuation needs a load case")
-
     _report(progress, "tracing the equilibrium path")
     structured_progress = solver_options.pop("progress_callback", None)
     result = solve_static_arc_length(
@@ -698,7 +718,7 @@ def _step_reporter(
     def report(record: Mapping[str, Any]) -> None:
         message = record.get("message")
         if message:
-            progress(str(message))
+            progress(_StructuredProgressText(str(message), record))
             if structured_progress is not None:
                 structured_progress(record)
             return
@@ -733,20 +753,20 @@ def _step_reporter(
                 )
             else:
                 factor_text = f"load factor {float(factor):.4g}"
-            progress(
-                f"{noun} {index}: {factor_text}{suffix}"
-            )
+            text = f"{noun} {index}: {factor_text}{suffix}"
         elif index is not None and time_s is not None:
-            progress(f"{noun} {index}: t = {float(time_s):.4g} s{suffix}")
+            text = f"{noun} {index}: t = {float(time_s):.4g} s{suffix}"
         elif index is not None:
-            progress(f"{noun} {index}{suffix}")
+            text = f"{noun} {index}{suffix}"
         elif record.get("status") is not None:
-            progress(f"{noun}: {record['status']}")
+            text = f"{noun}: {record['status']}"
         elif record.get("fraction") is not None:
-            progress(f"{noun}: {100.0 * float(record['fraction']):.0f}%")
+            text = f"{noun}: {100.0 * float(record['fraction']):.0f}%"
         else:
             stage = str(record.get("stage", noun)).replace("_", " ")
-            progress(stage)
+            text = stage
+
+        progress(_StructuredProgressText(text, record))
 
         if structured_progress is not None:
             structured_progress(record)

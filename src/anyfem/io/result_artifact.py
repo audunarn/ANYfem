@@ -892,7 +892,7 @@ def _add_nonlinear_histories(builder: _Builder, solution: Any) -> None:
             continue
         data = data.reshape(-1)
         builder.add_history(key, step, data)
-        unit = "1"
+        unit = "N" if str(key).startswith("support_reaction::") else "1"
         builder.add_field(
             key,
             data.reshape(-1, 1),

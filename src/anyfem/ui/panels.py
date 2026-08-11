@@ -10,7 +10,7 @@ from dataclasses import replace
 from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import colorchooser, filedialog, ttk
 from typing import Callable, List, Optional, Sequence
 
 import numpy as np
@@ -58,7 +58,12 @@ from .result_display import (
     unit_transform,
 )
 from .result_export import lazy_field_to_csv, save_gif
-from .result_summary import nonlinear_path_summary
+from .result_summary import (
+    nonlinear_path_summary,
+    prescribed_path_progress,
+    submitted_target_load_factor,
+)
+from .visualization import RENDER_MODES, VisualizationStyle
 from .scene import (
     COLOR_LOAD,
     COLOR_MASS,
@@ -2161,6 +2166,7 @@ class SolvePanel(StagePanel):
             width=30,
         )
         graph_box.pack(side="left", fill="x", expand=True)
+        self._live_graph_choice_box = graph_box
         graph_box.bind(
             "<<ComboboxSelected>>", lambda _event: self._refresh_live_plot()
         )
@@ -2314,6 +2320,7 @@ class SolvePanel(StagePanel):
 
     def _refresh_live_plot(self) -> None:
         self._live_plot_after = None
+        self._live_graph_choice_box.configure(values=self._live_data.graph_choices)
         choice = self._live_graph_choice.get()
         series = self._live_data.series(choice)
         self._live_plot.show([] if series is None else [series])
@@ -2496,12 +2503,16 @@ class ResultsPanel(StagePanel):
         )
         self._outcome_reason.pack(fill="x", anchor="w")
 
-        setup_tabs = ttk.Notebook(self)
+        # Bound the task controls so adding visualization options cannot
+        # collapse the lower path/probe workspace on typical laptop screens.
+        setup_tabs = ttk.Notebook(self, height=220)
         setup_tabs.pack(fill="x", pady=(0, 6))
         display_page = ttk.Frame(setup_tabs, padding=4)
+        visualization_page = ttk.Frame(setup_tabs, padding=4)
         increments_page = ttk.Frame(setup_tabs, padding=4)
         quantities_page = ttk.Frame(setup_tabs, padding=4)
         setup_tabs.add(display_page, text="Display")
+        setup_tabs.add(visualization_page, text="Visualization")
         setup_tabs.add(increments_page, text="Increments")
         setup_tabs.add(quantities_page, text="Quantities & tools")
 
@@ -2531,18 +2542,6 @@ class ResultsPanel(StagePanel):
             width=22,
         ).pack(side="left", fill="x", expand=True)
         self._display_units.trace_add("write", lambda *_args: self._display_changed())
-        palette_row = ttk.Frame(controls)
-        palette_row.pack(fill="x", pady=1)
-        ttk.Label(palette_row, text="colour map", width=16).pack(side="left")
-        self._colormap = tk.StringVar(value="Cool-warm")
-        ttk.Combobox(
-            palette_row,
-            textvariable=self._colormap,
-            values=tuple(RESULT_COLORMAPS),
-            state="readonly",
-            width=22,
-        ).pack(side="left", fill="x", expand=True)
-        self._colormap.trace_add("write", lambda *_args: self._show_if_available())
         self._envelope = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             controls,
@@ -2563,6 +2562,93 @@ class ResultsPanel(StagePanel):
         ttk.Button(display_actions, text="Mesh view", command=self.app.show_mesh).pack(
             side="left", fill="x", expand=True, padx=(4, 0)
         )
+
+        visual_columns = ttk.Frame(visualization_page)
+        visual_columns.pack(fill="both", expand=True)
+        visual_columns.columnconfigure(0, weight=3)
+        visual_columns.columnconfigure(1, weight=2)
+        appearance = ttk.LabelFrame(
+            visual_columns, text="Viewport appearance", padding=6
+        )
+        appearance.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        initial_style = self.app.viewport.visualization
+        render_row = ttk.Frame(appearance)
+        render_row.pack(fill="x", pady=1)
+        ttk.Label(render_row, text="render", width=16).pack(side="left")
+        self._render_mode = tk.StringVar(value=initial_style.render_mode)
+        ttk.Combobox(
+            render_row,
+            textvariable=self._render_mode,
+            values=RENDER_MODES,
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        self._surface_opacity = self.entry_row(
+            appearance,
+            "surface opacity [%]",
+            f"{100.0 * initial_style.surface_opacity:g}",
+        )
+        self._edge_width = self.entry_row(
+            appearance, "edge width [px]", str(initial_style.edge_width)
+        )
+        self._background_color = self._colour_row(
+            appearance, "background", initial_style.background
+        )
+        self._edge_color = self._colour_row(
+            appearance, "element edges", initial_style.edge_color
+        )
+        palette_row = ttk.Frame(appearance)
+        palette_row.pack(fill="x", pady=1)
+        ttk.Label(palette_row, text="contour colours", width=16).pack(side="left")
+        self._colormap = tk.StringVar(value="Cool-warm")
+        ttk.Combobox(
+            palette_row,
+            textvariable=self._colormap,
+            values=tuple(RESULT_COLORMAPS),
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        self._colormap.trace_add("write", lambda *_args: self._show_if_available())
+
+        layers = ttk.LabelFrame(
+            visual_columns, text="Visible result layers", padding=6
+        )
+        layers.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+        self._show_result_nodes = tk.BooleanVar(value=False)
+        self._show_result_legend = tk.BooleanVar(value=initial_style.show_legend)
+        self._show_result_supports = tk.BooleanVar(value=True)
+        self._show_result_loads = tk.BooleanVar(value=True)
+        self._show_result_masses = tk.BooleanVar(value=True)
+        # The purple stress-free reference is useful while defining an
+        # imperfection, but obscures contours and modes.  Results default to a
+        # clean view and let the engineer opt it back in.
+        self._show_imperfect_reference = tk.BooleanVar(value=False)
+        for index, (text, variable) in enumerate((
+            ("FE nodes", self._show_result_nodes),
+            ("contour legend", self._show_result_legend),
+            ("supports", self._show_result_supports),
+            ("loads", self._show_result_loads),
+            ("masses", self._show_result_masses),
+            ("initial imperfect reference (purple wire)", self._show_imperfect_reference),
+        )):
+            ttk.Checkbutton(
+                layers,
+                text=text,
+                variable=variable,
+                command=self.guarded(self._apply_visualization),
+            ).grid(row=index, column=0, sticky="w")
+        actions = ttk.Frame(visualization_page)
+        actions.pack(fill="x", pady=(3, 0))
+        ttk.Button(
+            actions,
+            text="Apply visualization",
+            command=self.guarded(self._apply_visualization),
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            actions,
+            text="Reset",
+            command=self.guarded(self._reset_visualization),
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         if getattr(self.app.viewport, "supports_section_planes", False):
             clipping_page = ttk.Frame(setup_tabs, padding=4)
@@ -2734,6 +2820,82 @@ class ResultsPanel(StagePanel):
             self._colormap.get(), RESULT_COLORMAPS["Cool-warm"]
         )
 
+    def show_result_nodes(self) -> bool:
+        return bool(self._show_result_nodes.get())
+
+    def show_result_supports(self) -> bool:
+        return bool(self._show_result_supports.get())
+
+    def show_result_loads(self) -> bool:
+        return bool(self._show_result_loads.get())
+
+    def show_result_masses(self) -> bool:
+        return bool(self._show_result_masses.get())
+
+    def show_imperfect_reference(self) -> bool:
+        return bool(self._show_imperfect_reference.get())
+
+    def _colour_row(self, parent, label: str, value: str) -> tk.StringVar:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=1)
+        ttk.Label(row, text=label, width=16).pack(side="left")
+        variable = tk.StringVar(value=value)
+        ttk.Entry(row, textvariable=variable, width=14).pack(
+            side="left", fill="x", expand=True
+        )
+        ttk.Button(
+            row,
+            text="Choose…",
+            width=9,
+            command=lambda: self._choose_colour(variable),
+        ).pack(side="left", padx=(4, 0))
+        return variable
+
+    def _choose_colour(self, variable: tk.StringVar) -> None:
+        _rgb, colour = colorchooser.askcolor(
+            color=variable.get(), parent=self, title="Choose viewport colour"
+        )
+        if colour:
+            variable.set(colour)
+
+    def _visualization_style(self) -> VisualizationStyle:
+        try:
+            opacity = float(self._surface_opacity.get()) / 100.0
+        except ValueError:
+            raise ValueError("surface opacity must be a percentage from 0 to 100") from None
+        try:
+            edge_width = int(self._edge_width.get())
+        except ValueError:
+            raise ValueError("edge width must be an integer from 1 to 8") from None
+        return VisualizationStyle(
+            background=self._background_color.get().strip(),
+            render_mode=self._render_mode.get(),
+            surface_opacity=opacity,
+            edge_color=self._edge_color.get().strip(),
+            edge_width=edge_width,
+            show_legend=bool(self._show_result_legend.get()),
+        )
+
+    def _apply_visualization(self) -> None:
+        self.app.viewport.set_visualization(self._visualization_style())
+        self._show_if_available()
+
+    def _reset_visualization(self) -> None:
+        style = VisualizationStyle()
+        self._render_mode.set(style.render_mode)
+        self._surface_opacity.set(f"{100.0 * style.surface_opacity:g}")
+        self._edge_width.set(str(style.edge_width))
+        self._background_color.set(style.background)
+        self._edge_color.set(style.edge_color)
+        self._colormap.set("Cool-warm")
+        self._show_result_nodes.set(False)
+        self._show_result_legend.set(True)
+        self._show_result_supports.set(True)
+        self._show_result_loads.set(True)
+        self._show_result_masses.set(True)
+        self._show_imperfect_reference.set(False)
+        self._apply_visualization()
+
     def _show_if_available(self) -> None:
         if self.app.solution is not None or (
             self.app.active_job_id in self.app.result_datasets
@@ -2789,7 +2951,12 @@ class ResultsPanel(StagePanel):
         self._outcome_reason.configure(text=message, foreground="#555555")
 
     def _update_outcome(self, solution) -> None:
-        path = nonlinear_path_summary(solution)
+        job_id = getattr(self.app, "active_job_id", None)
+        submitted = getattr(self.app, "submitted_input_reports", {}).get(job_id)
+        submitted_target = submitted_target_load_factor(submitted)
+        path = nonlinear_path_summary(
+            solution, target_load_factor=submitted_target
+        )
         if path is None:
             status = str(getattr(solution, "status", "available"))
             self._outcome_status.configure(
@@ -2830,10 +2997,34 @@ class ResultsPanel(StagePanel):
             f"{path.converged_steps} converged increments",
             f"{path.total_iterations} Newton iterations",
         ]
+        if path.status.casefold() == "stopped_at_limit":
+            details.append(
+                "numerical path stop; not by itself a verified capacity point"
+            )
         if path.first_failed_load_factor is not None:
             details.append(f"first failed trial λ={path.first_failed_load_factor:.5g}")
+        if path.failed_iteration_reason:
+            details.append(path.failed_iteration_reason)
         if path.max_peeq is not None:
             details.append(f"max PEEQ={path.max_peeq:.5g}")
+        details.extend(
+            prescribed_path_progress(
+                submitted,
+                last_load_factor=path.last_converged_load_factor,
+                target_load_factor=path.target_load_factor,
+            )
+        )
+        built = getattr(solution, "built", None)
+        project = getattr(built, "project", None)
+        if (
+            path.status.casefold() == "stopped_at_limit"
+            and project is not None
+            and not (getattr(project, "imperfections", ()) or ())
+        ):
+            details.append(
+                "perfect geometry submitted (no imperfection); a buckling branch "
+                "can be difficult to follow"
+            )
         details.append(
             f"{path.saved_increments} committed contour frame(s) saved"
             if path.saved_increments
@@ -3232,6 +3423,14 @@ class ResultsPanel(StagePanel):
         for record in reversed(records):
             stale = self.app._job_is_stale(record)
             status = getattr(record.status, "value", str(record.status))
+            retained = getattr(self.app, "solutions", {}).get(record.id)
+            analysis_status = str(getattr(retained, "status", "")).strip()
+            if status == "completed" and analysis_status and analysis_status not in {
+                "completed", "converged", "ok"
+            }:
+                status = (
+                    f"job completed; analysis {analysis_status.replace('_', ' ')}"
+                )
             label = f"{record.name} [{status}{', stale' if stale else ''}]"
             labels.append(label)
             self._job_ids[label] = record.id

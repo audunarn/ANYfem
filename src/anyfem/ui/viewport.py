@@ -24,6 +24,7 @@ from ..selection import (
     parse_entity_tag,
 )
 from .scene import PointMarker, Scene
+from .visualization import VisualizationStyle
 
 __all__ = ["Viewport", "require_canvas"]
 
@@ -94,6 +95,7 @@ class Viewport:
         self._hovered: Optional[object] = None
         self._hover_key: Optional[str] = None
         self._marker_size = 0.0
+        self._visualization = VisualizationStyle(background=background)
         self._selection_api = _commercial_selection_api()
         self._selection_tool = "box"
         self._selection_depth = "visible"
@@ -176,6 +178,35 @@ class Viewport:
     def fit(self) -> None:
         self.canvas.fit_to_scene()
         self.canvas.redraw()
+
+    @property
+    def visualization(self) -> VisualizationStyle:
+        return self._visualization
+
+    def set_visualization(self, style: VisualizationStyle) -> None:
+        """Apply one validated appearance to every viewport scene."""
+
+        if not isinstance(style, VisualizationStyle):
+            raise TypeError("style must be a VisualizationStyle")
+        widget = getattr(self.canvas, "canvas", self.canvas)
+        colour_check = getattr(widget, "winfo_rgb", None)
+        if callable(colour_check):
+            for label, colour in (
+                ("background", style.background),
+                ("edge", style.edge_color),
+            ):
+                try:
+                    colour_check(colour)
+                except Exception as error:
+                    raise ValueError(f"invalid {label} colour {colour!r}") from error
+        self._visualization = style
+        setter = getattr(self.canvas, "set_background", None)
+        if callable(setter):
+            setter(style.background)
+        elif hasattr(widget, "configure"):
+            widget.configure(background=style.background)
+        if self._scene is not None:
+            self.show(self._scene)
 
     # ------------------------------------------------------------------
     # workplane projection and click construction
@@ -460,9 +491,24 @@ class Viewport:
         for patch in scene.faces:
             if not patch.polygons:
                 continue
+            style = self._visualization
+            outline = patch.outline
+            opacity = style.surface_opacity
+            lit = True
+            if style.render_mode == "Shaded":
+                outline = ""
+            elif style.render_mode == "Shaded with edges":
+                outline = style.edge_color
+            else:
+                outline = style.edge_color
+                opacity = 0.0
+                lit = False
             options: dict[str, Any] = {
                 "colors": patch.colors,
-                "outline": patch.outline,
+                "outline": outline,
+                "width": style.edge_width,
+                "opacity": opacity,
+                "lit": lit,
                 "tags": patch.tag,
             }
             if patch.polygon_owners is not None:
@@ -538,7 +584,7 @@ class Viewport:
                 point3d(*arrow.start), point3d(*arrow.end), color=arrow.color
             )
 
-        if scene.legend:
+        if scene.legend and self._visualization.show_legend:
             self.canvas.set_thickness_legend(
                 scene.legend.get("levels", []),
                 unit=str(scene.legend.get("unit", "")),
