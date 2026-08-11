@@ -579,7 +579,12 @@ def solve_nonlinear_static(
         progress=progress, load_case=load_case, combination=combination,
     )
 
-    _report(progress, "starting the incremental solve")
+    _report(
+        progress,
+        "starting adaptive incremental solve: "
+        f"{int(num_steps)} initial increment(s), target load factor "
+        f"{float(max_load_factor):.5g}; cutbacks/growth may change the final count",
+    )
     structured_progress = solver_options.pop("progress_callback", None)
     result = solve_static_nonlinear(
         built.fe_model,
@@ -590,7 +595,9 @@ def solve_nonlinear_static(
         fracture_config=fracture,
         resource_config=resources,
         status_callback=None if progress is None else progress,
-        progress_callback=_step_reporter(progress, "step", structured_progress),
+        progress_callback=_step_reporter(
+            progress, "converged increment", structured_progress
+        ),
         cancellation_token=cancellation_token,
         record_increment_snapshots=bool(record_increment_snapshots),
         **solver_options,
@@ -704,6 +711,7 @@ def _step_reporter(
         residual = record.get("residual_norm")
         maximum = record.get("max_translation")
         plastic = record.get("max_equivalent_plastic_strain")
+        load_increment = record.get("load_increment")
         if iteration is not None:
             details.append(f"{int(iteration)} iteration(s)")
         if residual is not None:
@@ -712,10 +720,21 @@ def _step_reporter(
             details.append(f"max |u| {float(maximum):.4g} m")
         if plastic is not None:
             details.append(f"max PEEQ {float(plastic):.4g}")
+        if load_increment is not None:
+            details.append(f"load increment {float(load_increment):.3g}")
         suffix = f"; {', '.join(details)}" if details else ""
         if index is not None and factor is not None:
+            target = record.get("total")
+            if target not in (None, 0, 0.0):
+                target = float(target)
+                factor_text = (
+                    f"load factor {float(factor):.4g} / target {target:.4g} "
+                    f"({100.0 * float(factor) / target:.1f}%)"
+                )
+            else:
+                factor_text = f"load factor {float(factor):.4g}"
             progress(
-                f"{noun} {index}: load factor {float(factor):.4g}{suffix}"
+                f"{noun} {index}: {factor_text}{suffix}"
             )
         elif index is not None and time_s is not None:
             progress(f"{noun} {index}: t = {float(time_s):.4g} s{suffix}")

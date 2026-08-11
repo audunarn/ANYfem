@@ -100,10 +100,18 @@ def test_wrappers_forward_cancellation_and_structured_progress(
             "test.integration",
             completed=1,
             total=2,
-            metadata={"step_index": 1, "load_factor": 0.5},
+            metadata={
+                "step_index": 1,
+                "load_factor": 0.5,
+                "load_increment": 0.05,
+            },
         )
     )
     assert any("load factor 0.5" in message for message in messages)
+    assert any("target 2 (25.0%)" in message for message in messages)
+    assert any("load increment 0.05" in message for message in messages)
+    if wrapper_name == "solve_nonlinear_static":
+        assert any("converged increment 1" in message for message in messages)
     if records_snapshots:
         assert observed["record_increment_snapshots"] is True
 

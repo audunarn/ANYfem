@@ -50,6 +50,7 @@ from ..post.report import (
 )
 from ..selection import SELECTION_MODES, mode_label
 from .plot import HistoryPlot
+from .live_progress import GRAPH_CHOICES, LiveProgressData
 from .result_display import (
     DISPLAY_UNIT_SYSTEMS,
     ENGINEERING_DISPLAY,
@@ -106,13 +107,18 @@ class StagePanel(ttk.Frame):
 
     @staticmethod
     def labelled_entry(
-        parent: tk.Misc, label: str, default: str = "", width: int = 10
+        parent: tk.Misc,
+        label: str,
+        default: str = "",
+        width: int = 10,
+        *,
+        label_width: int = 16,
     ) -> tuple[ttk.Frame, tk.StringVar]:
         """An entry row, returning its frame so it can be shown or hidden."""
 
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=1)
-        ttk.Label(row, text=label, width=16).pack(side="left")
+        ttk.Label(row, text=label, width=label_width).pack(side="left")
         variable = tk.StringVar(value=default)
         ttk.Entry(row, textvariable=variable, width=width).pack(
             side="left", fill="x", expand=True
@@ -2064,7 +2070,7 @@ class SolvePanel(StagePanel):
         for name, label, default in (
             ("batch_cases", "case names", "*"),
             ("modes", "modes", "6"),
-            ("steps", "load steps", "10"),
+            ("steps", "initial load increments", "10"),
             ("factor", "max load factor", "1.0"),
             ("arc_steps", "max arc steps", "60"),
             ("dt", "time step [s]", "0.0002"),
@@ -2077,9 +2083,24 @@ class SolvePanel(StagePanel):
             ("direction", "direction x y z", "0 0 -1"),
             ("imperfection", "imperfection [mm]", "5.0"),
         ):
-            frame, variable = self.labelled_entry(options, label, default)
+            frame, variable = self.labelled_entry(
+                options,
+                label,
+                default,
+                label_width=20 if name == "steps" else 16,
+            )
             self._analysis_options[name] = variable
             self._option_frames[name] = frame
+        self._nominal_steps_hint = ttk.Label(
+            options,
+            text=(
+                "Starting partition only: adaptive cutbacks and growth determine "
+                "the actual number of converged increments."
+            ),
+            justify="left",
+            foreground="#555555",
+            wraplength=560,
+        )
 
         self._advanced_open = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -2116,11 +2137,42 @@ class SolvePanel(StagePanel):
 
         self._transcript_tabs = ttk.Notebook(self)
         self._transcript_tabs.pack(fill="both", expand=True, pady=(6, 0))
-        log_page = ttk.Frame(self._transcript_tabs)
+        monitor_page = ttk.Frame(self._transcript_tabs)
         inputs_page = ttk.Frame(self._transcript_tabs)
-        self._transcript_tabs.add(log_page, text="Run log")
+        self._transcript_tabs.add(monitor_page, text="Run monitor")
         self._transcript_tabs.add(inputs_page, text="Submitted inputs")
-        self._report = tk.Text(log_page, height=12, wrap="word", state="disabled")
+
+        monitor = ttk.Panedwindow(monitor_page, orient=tk.VERTICAL)
+        monitor.pack(fill="both", expand=True)
+        graph_page = ttk.Frame(monitor, padding=(2, 2))
+        log_page = ttk.Frame(monitor, padding=(2, 2))
+        monitor.add(graph_page, weight=1)
+        monitor.add(log_page, weight=1)
+
+        graph_header = ttk.Frame(graph_page)
+        graph_header.pack(fill="x")
+        ttk.Label(graph_header, text="live graph", width=11).pack(side="left")
+        self._live_graph_choice = tk.StringVar(value=GRAPH_CHOICES[0])
+        graph_box = ttk.Combobox(
+            graph_header,
+            textvariable=self._live_graph_choice,
+            values=GRAPH_CHOICES,
+            state="readonly",
+            width=30,
+        )
+        graph_box.pack(side="left", fill="x", expand=True)
+        graph_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._refresh_live_plot()
+        )
+        self._live_caption = ttk.Label(
+            graph_page, text="Waiting for solver progress…", foreground="#555555"
+        )
+        self._live_caption.pack(fill="x", anchor="w")
+        self._live_plot = HistoryPlot(graph_page, width=360, height=150)
+        self._live_plot.pack(fill="both", expand=True)
+
+        ttk.Label(log_page, text="Text log", foreground="#555555").pack(anchor="w")
+        self._report = tk.Text(log_page, height=8, wrap="word", state="disabled")
         self._report.pack(fill="both", expand=True)
         self._submitted_inputs = tk.Text(
             inputs_page, height=12, wrap="none", state="disabled"
@@ -2128,6 +2180,8 @@ class SolvePanel(StagePanel):
         self._submitted_inputs.pack(fill="both", expand=True)
         self._live_line_count = 0
         self._last_live_line = ""
+        self._live_data = LiveProgressData()
+        self._live_plot_after = None
 
         self._show_options()
         self._show_advanced()
@@ -2140,6 +2194,10 @@ class SolvePanel(StagePanel):
                 frame.pack(fill="x", pady=1)
             else:
                 frame.pack_forget()
+        if self._analysis.get() in ("Nonlinear static", "Capacity"):
+            self._nominal_steps_hint.pack(fill="x", anchor="w", pady=(3, 0))
+        else:
+            self._nominal_steps_hint.pack_forget()
 
     def _show_advanced(self) -> None:
         if self._advanced_open.get():
@@ -2217,6 +2275,8 @@ class SolvePanel(StagePanel):
         self._report.configure(state="disabled")
         self._live_line_count = 1
         self._last_live_line = ""
+        self._live_data.clear()
+        self._refresh_live_plot()
         self.set_submitted_inputs(submitted_inputs)
         self._transcript_tabs.select(0)
         self.append_progress("queued")
@@ -2227,10 +2287,12 @@ class SolvePanel(StagePanel):
         self._submitted_inputs.insert("1.0", str(text).strip() or "No input record available")
         self._submitted_inputs.configure(state="disabled")
 
-    def append_progress(self, text: str) -> None:
+    def append_progress(self, text: str, payload=None) -> None:
         """Append one live solver message without allowing unbounded growth."""
 
         line = str(text).strip()
+        if self._live_data.ingest(line, payload):
+            self._schedule_live_plot()
         if not line or line == self._last_live_line:
             return
         self._last_live_line = line
@@ -2243,6 +2305,19 @@ class SolvePanel(StagePanel):
             self._live_line_count -= excess
         self._report.see("end")
         self._report.configure(state="disabled")
+
+    def _schedule_live_plot(self) -> None:
+        """Coalesce worker bursts so graph redraw never floods Tk."""
+
+        if self._live_plot_after is None:
+            self._live_plot_after = self.after(50, self._refresh_live_plot)
+
+    def _refresh_live_plot(self) -> None:
+        self._live_plot_after = None
+        choice = self._live_graph_choice.get()
+        series = self._live_data.series(choice)
+        self._live_plot.show([] if series is None else [series])
+        self._live_caption.configure(text=self._live_data.caption(choice))
 
     def append_report(self, text: str) -> None:
         report = str(text).strip()
@@ -2260,6 +2335,15 @@ class SolvePanel(StagePanel):
         self._report.configure(state="disabled")
         self._live_line_count = int(self._report.index("end-1c").split(".")[0])
         self._last_live_line = ""
+
+    def destroy(self) -> None:
+        if self._live_plot_after is not None:
+            try:
+                self.after_cancel(self._live_plot_after)
+            except tk.TclError:
+                pass
+            self._live_plot_after = None
+        super().destroy()
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -2301,7 +2385,11 @@ class SolvePanel(StagePanel):
         elif analysis == "Buckling":
             kwargs["num_modes"] = int(self.number(self._analysis_options["modes"], "modes"))
         elif analysis == "Nonlinear static":
-            kwargs["num_steps"] = int(self.number(self._analysis_options["steps"], "load steps"))
+            kwargs["num_steps"] = int(
+                self.number(
+                    self._analysis_options["steps"], "initial load increments"
+                )
+            )
             kwargs["max_load_factor"] = self.number(
                 self._analysis_options["factor"], "max load factor"
             )
@@ -2339,7 +2427,9 @@ class SolvePanel(StagePanel):
                 self.number(self._analysis_options["modes"], "buckling modes")
             )
             kwargs["num_steps"] = int(
-                self.number(self._analysis_options["steps"], "load steps")
+                self.number(
+                    self._analysis_options["steps"], "initial load increments"
+                )
             )
             kwargs["max_load_factor"] = self.number(
                 self._analysis_options["factor"], "max load factor"
@@ -2465,6 +2555,11 @@ class ResultsPanel(StagePanel):
         ttk.Button(display_actions, text="Update view", command=self.guarded(self._show)).pack(
             side="left", fill="x", expand=True
         )
+        ttk.Button(
+            display_actions,
+            text="Model view",
+            command=self._model_view,
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
         ttk.Button(display_actions, text="Mesh view", command=self.app.show_mesh).pack(
             side="left", fill="x", expand=True, padx=(4, 0)
         )
@@ -2826,6 +2921,22 @@ class ResultsPanel(StagePanel):
         if self.app.solution is None:
             raise ValueError("run a solve first")
         return self.app.current_shape()
+
+    def _model_view(self) -> None:
+        """Show selectable design geometry while retaining this result task."""
+
+        kind = self.app.selection.mode
+        if kind not in ("vertex", "edge"):
+            kind = "vertex"
+        self.app.show_geometry()
+        self.app.selection_strip.set_context(
+            kind,
+            "Result probing • select model Points or Lines, then use Probe / Along line",
+        )
+        self.app.details.set_hint("Model view for result probes")
+        self.app.set_status(
+            "model geometry shown; select points or lines, then use Probe or Along line"
+        )
 
     def _probe(self) -> None:
         shape = self._require_solution()
@@ -3521,8 +3632,10 @@ class ResultsPanel(StagePanel):
                 scale=scale,
                 limits=self.colour_limits(),
             )
+            self.app.details.set_hint("Result contour")
             return
         self.app.show_results()
+        self.app.details.set_hint("Result contour")
 
     def destroy(self) -> None:
         """Cancel panel-owned timers before Tcl discards their callbacks."""

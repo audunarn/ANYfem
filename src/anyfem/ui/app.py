@@ -1076,7 +1076,7 @@ class AnyFemApp(ttk.Frame):
         panel = self.panels.get("Solve")
         if panel is not None:
             panel.show_progress(line)
-            panel.append_progress(line)
+            panel.append_progress(line, payload=payload)
 
     def _on_pick(self, ref) -> None:
         if ref is None:

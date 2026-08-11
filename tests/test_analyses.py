@@ -335,7 +335,8 @@ def test_nonlinear_reports_progress_while_it_runs():
         project, target_size=0.2, num_steps=4, progress=messages.append
     )
     assert messages
-    assert any("step" in message for message in messages)
+    assert any("increment" in message for message in messages)
+    assert not any("/4, Iteration" in message for message in messages)
 
 
 def test_a_small_load_gives_nearly_the_linear_answer():

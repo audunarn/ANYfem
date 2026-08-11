@@ -113,6 +113,7 @@ def test_tree_edit_hydrates_actual_support_values_and_delete_is_undoable(app, ro
 
 def test_solve_transcript_has_run_log_and_submitted_inputs_tabs(app, root):
     panel = app.panels["Solve"]
+    app.details.select("Solve")
     panel.begin_job(
         "Nonlinear static",
         "117ea193-0000-0000-0000-000000000000",
@@ -120,12 +121,28 @@ def test_solve_transcript_has_run_log_and_submitted_inputs_tabs(app, root):
     )
     root.update()
 
-    assert panel._transcript_tabs.tab(0, "text") == "Run log"
+    assert panel._transcript_tabs.tab(0, "text") == "Run monitor"
     assert panel._transcript_tabs.tab(1, "text") == "Submitted inputs"
     assert "queued" in panel._report.get("1.0", "end")
     inputs = panel._submitted_inputs.get("1.0", "end")
     assert '"uy": 0.05' in inputs
     assert '"value_mm": 50' in inputs
+
+    panel.append_progress(
+        "Increment trial 1 | load factor 0.1 / 1 | increment 0.1 | "
+        "Newton iteration 1 | residual 2e3"
+    )
+    panel.append_progress(
+        "converged increment 1: load factor 0.1 / target 1 (10%); "
+        "max |u| 0.002 m, max PEEQ 0.0001, load increment 0.1"
+    )
+    panel._live_graph_choice.set("Load factor path")
+    panel._refresh_live_plot()
+    root.update()
+    assert panel._live_plot.series_names == ["Load factor path"]
+    assert "converged increment 1" in panel._report.get("1.0", "end")
+    assert panel._live_plot.canvas.winfo_height() > 40
+    assert panel._report.winfo_height() > 40
 
     app.active_job_id = "117ea193-0000-0000-0000-000000000000"
     app.submitted_input_reports[app.active_job_id] = inputs

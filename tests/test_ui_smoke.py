@@ -1015,6 +1015,14 @@ def test_the_options_shown_follow_the_analysis(app, root):
     root.update()
     assert packed("modes")
     assert not packed("dt")
+    assert not solve._nominal_steps_hint.winfo_manager()
+
+    solve._analysis.set("Nonlinear static")
+    solve._show_options()
+    root.update()
+    assert packed("steps")
+    assert "adaptive cutbacks" in solve._nominal_steps_hint.cget("text")
+    assert solve._nominal_steps_hint.winfo_manager() == "pack"
 
     solve._analysis.set("Transient")
     solve._show_options()
@@ -1082,9 +1090,13 @@ def test_progress_is_reported_while_solving(app, root):
     solvable_plate(app)
     run_analysis(app, root, "Nonlinear static", steps="4")
     # The report pane carries the finished summary.
-    text = app.panels["Solve"]._report.get("1.0", "end")
+    panel = app.panels["Solve"]
+    text = panel._report.get("1.0", "end")
     assert "nodes" in text
     assert "steps" in text
+    assert panel._live_data.increments
+    assert panel._live_data.load_factors[-1] == pytest.approx(1.0)
+    assert panel._live_data.trial_residuals
 
 
 def test_the_view_label_names_the_shape_on_show(app, root):
@@ -1186,6 +1198,42 @@ def test_probing_from_the_panel(app, root):
     text = results._readout.get("1.0", "end")
     assert "displacement" in text
     assert "von_mises" in text
+
+
+def test_results_model_view_selects_geometry_for_probe_then_returns_to_contour(
+    app, root
+):
+    points, _face = solved_plate(app, root)
+    results = app.panels["Results"]
+    solution = app.solution
+
+    results._model_view()
+    root.update()
+
+    assert app._view_mode == "geometry"
+    assert app.details.current() == "Results"
+    assert app.solution is solution
+    assert app.selection.mode == "vertex"
+    assert app.selection_strip.domain.get() == "Geometry"
+    assert "Points or Lines" in app.selection_strip._hint.cget("text")
+
+    app.selection.select(EntityRef("vertex", points[0]))
+    results.guarded(results._probe)()
+    root.update()
+    assert "displacement" in results_text(app)
+
+    app.selection_strip.set_context("edge")
+    edge = sorted(app.project.geometry.edges)[0]
+    app.selection.select(EntityRef("edge", edge))
+    results._component.set("uz")
+    results.guarded(results._along_line)()
+    root.update()
+    assert "uz along edge" in results_text(app)
+
+    results.guarded(results._show)()
+    root.update()
+    assert app._view_mode == "results"
+    assert app.details._hint.cget("text") == "Result contour"
 
 
 def test_clicking_in_the_results_view_probes_automatically(app, root):
