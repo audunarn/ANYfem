@@ -36,7 +36,7 @@ from ..io.result_artifact import write_solution_artifact
 from ..io.sesam import import_sesam
 from ..solve.build import build_fe_model
 from ..model.materials import steel
-from ..model.project import Project
+from ..model.project import Project, ProjectError
 from ..model.records import AnalysisDefinition, MeshRecord
 from ..selection import MeshEntityRef, Selection, mode_label
 from ..solve.run import (
@@ -1164,6 +1164,9 @@ class AnyFemApp(ttk.Frame):
     def _tree_action(self, action: str, keys: tuple[str, ...]) -> None:
         if not keys:
             return
+        if action == "delete":
+            self._delete_tree_items(keys)
+            return
         key = keys[0]
         prefix = key.split(":", 1)[0]
         page = {
@@ -1245,41 +1248,6 @@ class AnyFemApp(ttk.Frame):
                 + (", ".join(map(str, dependencies)) or "none")
             )
             return
-        if action == "delete" and key.startswith("ent_"):
-            from ..commands import DeleteEntity
-            from ..selection import parse_entity_tag
-
-            references = [parse_entity_tag(item) for item in keys]
-            geometry_refs = [
-                ref for ref in references
-                if ref is not None and ref.kind in ("vertex", "edge", "face")
-            ]
-            self.run_many(DeleteEntity(ref) for ref in geometry_refs)
-            return
-        if action == "delete" and prefix in {
-            "support", "mass", "load", "imperfection"
-        }:
-            from ..commands import DeleteAttribute
-
-            identifiers = []
-            for item_key in keys:
-                item_prefix = item_key.split(":", 1)[0]
-                if item_prefix not in {
-                    "support", "mass", "load", "imperfection"
-                }:
-                    continue
-                if item_key.endswith(":gravity"):
-                    continue
-                identifiers.append(item_key.rsplit(":", 1)[1])
-            if identifiers:
-                self.run_many(DeleteAttribute(identifier) for identifier in identifiers)
-                self.set_status(f"deleted {len(identifiers)} selected attribute(s)")
-                return
-            self.set_status(
-                "gravity/acceleration is edited from its load case form",
-                error=True,
-            )
-            return
         if action == "isolate":
             isolate = getattr(self.viewport, "isolate", None)
             if callable(isolate):
@@ -1288,6 +1256,153 @@ class AnyFemApp(ttk.Frame):
                 self.set_status("isolate is available from the viewport display groups")
             return
         self.set_status(f"{action} is not available for this item")
+
+    def _delete_tree_items(self, keys: tuple[str, ...]) -> None:
+        """Delete every highlighted leaf as one dependency-audited undo item."""
+
+        from ..commands import (
+            DeleteAttribute,
+            DeleteEntity,
+            DeleteFeature,
+            DeleteLoadCase,
+            DeleteOutputRequest,
+            DeleteProjectRecord,
+        )
+        from ..selection import parse_entity_tag
+
+        selected = tuple(dict.fromkeys(str(key) for key in keys))
+        categories: set[str] = set()
+        commands = []
+        mesh_ids: set[str] = set()
+        job_ids: set[str] = set()
+        result_ids: set[str] = set()
+
+        entity_refs = [parse_entity_tag(key) for key in selected]
+        if any(ref is not None for ref in entity_refs):
+            if not all(ref is not None for ref in entity_refs):
+                self.set_status(
+                    "Delete geometry separately from other tree item types",
+                    error=True,
+                )
+                return
+            categories.add("geometry")
+            # Delete owners before their topology dependencies.  The whole
+            # sequence remains one CompositeCommand and rolls back on failure.
+            order = {"face": 0, "edge": 1, "vertex": 2}
+            for ref in sorted(entity_refs, key=lambda item: order.get(item.kind, 9)):
+                commands.append(DeleteEntity(ref))
+        else:
+            for key in selected:
+                if ":" not in key:
+                    self.set_status(
+                        "Select individual tree items, not a branch heading",
+                        error=True,
+                    )
+                    return
+                prefix, identifier = key.split(":", 1)
+                if prefix in {"support", "mass", "imperfection", "load"}:
+                    categories.add("attribute")
+                    if key.endswith(":gravity"):
+                        self.set_status(
+                            "Gravity/acceleration is deleted by editing its load case",
+                            error=True,
+                        )
+                        return
+                    commands.append(DeleteAttribute(key.rsplit(":", 1)[1]))
+                elif prefix == "feature":
+                    categories.add("feature")
+                    commands.append(DeleteFeature(int(identifier)))
+                elif prefix == "case":
+                    categories.add("case")
+                    case = next(
+                        (
+                            (name, value)
+                            for name, value in self.project.load_cases.items()
+                            if str(getattr(value, "id", name)) == identifier
+                        ),
+                        None,
+                    )
+                    if case is None:
+                        self.set_status(f"Load case {identifier!r} no longer exists", error=True)
+                        return
+                    commands.append(DeleteLoadCase(case[0]))
+                elif prefix == "output_request":
+                    categories.add("output request")
+                    commands.append(DeleteOutputRequest(identifier))
+                elif prefix in {"plate_section", "beam_section"}:
+                    categories.add("section definition")
+                    commands.append(DeleteProjectRecord(prefix, identifier))
+                elif prefix in {
+                    "mesh", "analysis", "job", "result", "material",
+                    "coordinate", "region",
+                }:
+                    categories.add(prefix)
+                    commands.append(DeleteProjectRecord(prefix, identifier))
+                    if prefix == "mesh":
+                        mesh_ids.add(identifier)
+                    elif prefix == "job":
+                        job_ids.add(identifier)
+                    elif prefix == "result":
+                        result_ids.add(identifier)
+                else:
+                    self.set_status(
+                        f"Delete is not available for {prefix.replace('_', ' ')}",
+                        error=True,
+                    )
+                    return
+
+        # Homogeneous bulk edits are predictable.  Attributes and plate/beam
+        # sections are intentionally normalized above so related sibling
+        # types may be removed together.
+        if len(categories) > 1:
+            self.set_status(
+                "Delete one kind of tree item at a time; nothing was changed",
+                error=True,
+            )
+            return
+        if not commands:
+            return
+        # Feature dependencies point from later monotonic IDs to earlier IDs.
+        # Removing dependants first lets a multi-feature selection succeed
+        # without implicit cascade deletion.
+        if categories == {"feature"}:
+            commands.sort(key=lambda command: int(command.feature_id), reverse=True)
+        try:
+            self.session.execute_many(
+                commands,
+                label=f"delete {len(commands)} tree item(s)",
+                solver_affecting=categories not in ({"mesh"}, {"job"}, {"result"}),
+            )
+        except (ValueError, KeyError, ProjectError) as error:
+            self.set_status(str(error), error=True)
+            return
+
+        if getattr(self, "mesh_record_id", None) in mesh_ids:
+            self.mesh = None
+            self.mesh_record_id = None
+            self._mesh_details_record_id = None
+            self.solution = None
+            self.show_geometry()
+        active_result_removed = self.active_job_id in job_ids
+        if self.active_job_id is not None and result_ids:
+            old_job = next(
+                (
+                    value for value in self.project.jobs.values()
+                    if value.id == self.active_job_id
+                ),
+                None,
+            )
+            active_result_removed = active_result_removed or (
+                old_job is not None and old_job.result_artifact_id is None
+            )
+        if active_result_removed:
+            self.active_job_id = None
+            self.solution = None
+            self.shape_index = 0
+            self.show_mesh()
+        self.set_status(
+            f"deleted {len(commands)} selected {next(iter(categories))} item(s); Undo restores all"
+        )
 
     def show_command_palette(self, _event=None):
         commands = {

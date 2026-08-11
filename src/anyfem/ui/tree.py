@@ -109,6 +109,7 @@ class ModelTree(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
         self.tree.bind("<Double-1>", lambda _event: self._invoke("edit"))
         self.tree.bind("<Button-3>", self._context_menu)
+        self.tree.bind("<Delete>", self._delete_key)
         self.selection.add_listener(self.sync_from_selection)
 
     # ------------------------------------------------------------------
@@ -656,6 +657,7 @@ class ModelTree(ttk.Frame):
         if row and row not in self.tree.selection():
             self.tree.selection_set(row)
         menu = tk.Menu(self, tearoff=False)
+        selected_count = len(self.tree.selection())
         for label, action in (
             ("Edit", "edit"),
             ("Rename", "rename"),
@@ -665,12 +667,18 @@ class ModelTree(ttk.Frame):
             ("Show Dependencies", "dependencies"),
             ("Delete", "delete"),
         ):
+            if action == "delete" and selected_count > 1:
+                label = f"Delete {selected_count} selected"
             menu.add_command(label=label, command=lambda value=action: self._invoke(value))
         menu.tk_popup(event.x_root, event.y_root)
 
     def _invoke(self, action: str) -> None:
         if self._action_handler is not None:
             self._action_handler(action, tuple(self.tree.selection()))
+
+    def _delete_key(self, _event: tk.Event) -> str:
+        self._invoke("delete")
+        return "break"
 
     def _remember_open_state(self) -> None:
         view = self.tree.yview()

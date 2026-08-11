@@ -2462,6 +2462,7 @@ class ResultsPanel(StagePanel):
 
     def build(self) -> None:
         retained = self.section("Result set")
+        self._result_set_section = retained
         row = ttk.Frame(retained)
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="job", width=16).pack(side="left")
@@ -2507,6 +2508,7 @@ class ResultsPanel(StagePanel):
         # collapse the lower path/probe workspace on typical laptop screens.
         setup_tabs = ttk.Notebook(self, height=220)
         setup_tabs.pack(fill="x", pady=(0, 6))
+        self._setup_tabs = setup_tabs
         display_page = ttk.Frame(setup_tabs, padding=4)
         visualization_page = ttk.Frame(setup_tabs, padding=4)
         increments_page = ttk.Frame(setup_tabs, padding=4)
@@ -2515,6 +2517,11 @@ class ResultsPanel(StagePanel):
         setup_tabs.add(visualization_page, text="Visualization")
         setup_tabs.add(increments_page, text="Increments")
         setup_tabs.add(quantities_page, text="Quantities & tools")
+        # Display controls are primary result navigation, not an advanced
+        # section below the job outcome.  Keep these tabs immediately below
+        # the Details page navigation so Visualization is visible without
+        # scrolling or hunting below Result set / Analysis outcome.
+        setup_tabs.pack_configure(before=retained)
 
         controls = self.section("Contour display", parent=display_page)
         row = ttk.Frame(controls)

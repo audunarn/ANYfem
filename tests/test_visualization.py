@@ -158,6 +158,10 @@ def test_results_hide_and_can_restore_the_imperfect_reference():
         assert app.solution is not None
 
         results = app.panels["Results"]
+        packed = list(results.pack_slaves())
+        assert packed.index(results._setup_tabs) < packed.index(
+            results._result_set_section
+        )
         assert results.show_imperfect_reference() is False
         assert not any(
             line.color == COLOR_IMPERFECTION for line in app.viewport._scene.lines

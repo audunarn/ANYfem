@@ -99,6 +99,8 @@ __all__ = [
     "DeleteAttribute",
     "DeleteLoadCase",
     "DeleteOutputRequest",
+    "DeleteFeature",
+    "DeleteProjectRecord",
     "Extrude",
     "EditFeature",
     "EditAttribute",
@@ -387,6 +389,47 @@ class AddFeature(FeatureCommand):
             dependencies=self.dependencies,
         )
         return record.feature_id
+
+
+@dataclass(eq=False)
+class DeleteFeature(FeatureCommand):
+    """Delete one feature without silently cascading into dependants."""
+
+    feature_id: int
+    label: str = "delete feature"
+
+    def __post_init__(self) -> None:
+        FeatureCommand.__init__(self)
+
+    def do(self, project: Project) -> int:
+        geometry = project.geometry
+        self._before = geometry.design_snapshot()
+        try:
+            geometry.features.remove(int(self.feature_id), cascade=False)
+            report = geometry.regenerate_features()
+            if not report.success:
+                raise GeometryError(
+                    report.diagnostic
+                    or f"feature {self.feature_id} failed to regenerate"
+                )
+        except BaseException:
+            geometry.restore_design(self._before)
+            raise
+        self._feature_id = int(self.feature_id)
+        self._replacements = tuple(report.replacements)
+        self._after = geometry.design_snapshot()
+        return int(self.feature_id)
+
+    def undo(self, project: Project) -> None:
+        if self._before is None:
+            raise RuntimeError("feature delete has not been applied")
+        project.geometry.restore_design(self._before)
+
+    def redo(self, project: Project) -> int:
+        if self._after is None:
+            return self.do(project)
+        project.geometry.restore_design(self._after)
+        return int(self.feature_id)
 
 
 class AddStiffenedPanel(AddFeature):
@@ -2073,6 +2116,223 @@ class DeleteLoadCase(Command):
 # ----------------------------------------------------------------------
 # reusable model definitions
 # ----------------------------------------------------------------------
+@dataclass(eq=False)
+class DeleteProjectRecord(Command):
+    """Delete one non-topology tree record with dependency-aware undo.
+
+    Sidecar files are deliberately retained.  Deleting a mesh, job or result
+    removes its project reference and is therefore instant and undoable; a
+    later project save may garbage-collect unreferenced artifacts explicitly.
+    """
+
+    kind: str
+    identifier: str
+    label: str = "delete project record"
+    _value: Any = field(default=None, init=False)
+    _auxiliary: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> None:
+        kind = str(self.kind)
+        identifier = str(self.identifier)
+        if kind == "mesh":
+            self._value = _pop_record(project.mesh_records, identifier, "mesh")
+            return
+        if kind == "analysis":
+            users = [
+                job.name for job in project.jobs.values()
+                if job.analysis_id == identifier
+            ]
+            if users:
+                raise ProjectError(
+                    f"analysis is used by job(s) {users}; delete those jobs first"
+                )
+            self._value = _pop_record(project.analyses, identifier, "analysis")
+            return
+        if kind == "job":
+            job = _require_record(project.jobs, identifier, "job")
+            status = str(getattr(getattr(job, "status", ""), "value", job.status))
+            if status in {"queued", "running", "cancelling"}:
+                raise ProjectError(
+                    f"cannot delete a {status} job; cancel it and wait first"
+                )
+            self._value = project.jobs.pop(identifier)
+            return
+        if kind == "result":
+            matches = [
+                job for job in project.jobs.values()
+                if job.result_artifact_id == identifier
+            ]
+            if not matches:
+                raise ProjectError(f"no result with ID {identifier!r}")
+            if len(matches) != 1:
+                raise ProjectError(f"result ID {identifier!r} is not unique")
+            self._value = matches[0]
+            self._auxiliary = matches[0].result_artifact_id
+            matches[0].result_artifact_id = None
+            return
+        if kind == "material":
+            users = sorted(
+                [
+                    f"plate section {name!r}"
+                    for name, section in project.plate_sections.items()
+                    if section.material == identifier
+                ]
+                + [
+                    f"beam section {name!r}"
+                    for name, section in project.beam_sections.items()
+                    if section.material == identifier
+                ]
+            )
+            if users:
+                raise ProjectError(
+                    f"material {identifier!r} is used by {', '.join(users)}"
+                )
+            self._value = _pop_record(project.materials, identifier, "material")
+            self._auxiliary = project.material_ids.pop(identifier, None)
+            return
+        if kind in {"plate_section", "beam_section"}:
+            registry = (
+                project.plate_sections
+                if kind == "plate_section"
+                else project.beam_sections
+            )
+            section = _require_record(registry, identifier, kind.replace("_", " "))
+            direct = (
+                [key for key, value in project.face_sections.items() if value == identifier]
+                if kind == "plate_section"
+                else [key for key, value in project.edge_sections.items() if value == identifier]
+            )
+            canonical = [
+                item.name
+                for item in project.section_assignments.values()
+                if item.section_id == section.id
+            ]
+            if direct or canonical:
+                targets = [str(value) for value in direct] + canonical
+                raise ProjectError(
+                    f"section {identifier!r} is assigned to {targets}; unassign it first"
+                )
+            self._value = registry.pop(identifier)
+            return
+        if kind == "coordinate":
+            if identifier == "global":
+                raise ProjectError("the reserved Global coordinate system cannot be deleted")
+            users = _coordinate_system_users(project, identifier)
+            if users:
+                raise ProjectError(
+                    f"coordinate system is used by {', '.join(users)}"
+                )
+            self._value = _pop_record(
+                project.coordinate_systems, identifier, "coordinate system"
+            )
+            return
+        if kind == "region":
+            region = project.regions[identifier]
+            users = _region_users(project, identifier)
+            if users:
+                raise ProjectError(f"region is used by {', '.join(users)}")
+            self._value = region
+            project.regions.remove(identifier, cascade=False)
+            return
+        raise ProjectError(f"tree item type {kind!r} is not deletable")
+
+    def undo(self, project: Project) -> None:
+        kind = str(self.kind)
+        identifier = str(self.identifier)
+        if kind == "mesh":
+            project.mesh_records[identifier] = self._value
+        elif kind == "analysis":
+            project.analyses[identifier] = self._value
+        elif kind == "job":
+            project.jobs[identifier] = self._value
+        elif kind == "result":
+            self._value.result_artifact_id = self._auxiliary
+        elif kind == "material":
+            project.materials[identifier] = self._value
+            if self._auxiliary is not None:
+                project.material_ids[identifier] = self._auxiliary
+        elif kind == "plate_section":
+            project.plate_sections[identifier] = self._value
+        elif kind == "beam_section":
+            project.beam_sections[identifier] = self._value
+        elif kind == "coordinate":
+            project.coordinate_systems[identifier] = self._value
+        elif kind == "region":
+            project.regions.add(self._value)
+        else:  # pragma: no cover - guarded by do
+            raise RuntimeError(f"cannot undo tree item type {kind!r}")
+
+
+def _require_record(registry: Mapping[str, Any], identifier: str, label: str) -> Any:
+    try:
+        return registry[identifier]
+    except KeyError:
+        raise ProjectError(f"no {label} with ID/name {identifier!r}") from None
+
+
+def _pop_record(registry: dict[str, Any], identifier: str, label: str) -> Any:
+    _require_record(registry, identifier, label)
+    return registry.pop(identifier)
+
+
+def _coordinate_system_users(project: Project, identifier: str) -> list[str]:
+    users: list[str] = []
+    for collection_name in ("supports", "masses"):
+        for item in getattr(project, collection_name):
+            if getattr(item, "coordinate_system_id", "global") == identifier:
+                users.append(
+                    f"{collection_name[:-1]} "
+                    f"{getattr(item, 'name', getattr(item, 'id', '?'))}"
+                )
+    for case_name, case in project.load_cases.items():
+        for collection_name in (
+            "point_loads", "pressures", "line_loads", "surface_tractions"
+        ):
+            for item in getattr(case, collection_name):
+                if getattr(item, "coordinate_system_id", "global") == identifier:
+                    users.append(f"load in case {case_name!r}")
+        if (
+            case.gravity is not None
+            and case.gravity_coordinate_system_id == identifier
+        ):
+            users.append(f"gravity in case {case_name!r}")
+    for request in project.output_requests.values():
+        if request.basis == identifier:
+            users.append(f"output request {request.label!r}")
+    return users
+
+
+def _region_users(project: Project, identifier: str) -> list[str]:
+    users = [
+        f"region {value!r}" for value in project.regions.dependents(identifier)
+    ]
+    users.extend(
+        f"section assignment {item.name!r}"
+        for item in project.section_assignments.values()
+        if item.region.id == identifier
+    )
+    for collection_name in ("supports", "masses"):
+        for item in getattr(project, collection_name):
+            if getattr(getattr(item, "region", None), "id", None) == identifier:
+                users.append(
+                    f"{collection_name[:-1]} "
+                    f"{getattr(item, 'name', getattr(item, 'id', '?'))}"
+                )
+    for case_name, case in project.load_cases.items():
+        for collection_name in (
+            "point_loads", "pressures", "line_loads", "surface_tractions"
+        ):
+            for item in getattr(case, collection_name):
+                if getattr(getattr(item, "region", None), "id", None) == identifier:
+                    users.append(f"load in case {case_name!r}")
+    users.extend(
+        f"output request {request.label!r}"
+        for request in project.output_requests.values()
+        if request.region.id == identifier
+    )
+    return users
+
+
 @dataclass(eq=False)
 class AddMaterial(Command):
     """Add or replace one material while preserving its registry UUID."""
