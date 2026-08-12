@@ -11,6 +11,7 @@ from anyfem import commands as cmd
 from anyfem.geometry.sketching import FaceSketchTask
 from anyfem.io.project_file import project_from_dict, project_to_dict
 from anyfem.solve.build import build_fe_model
+from anysolver import audit_constraints
 
 
 def _project() -> tuple[Project, int]:
@@ -65,6 +66,41 @@ def test_add_edit_undo_sketch_is_one_atomic_feature_command():
     assert not project.geometry.features.records
 
 
+def test_sketch_support_survives_unrelated_feature_delete_regeneration():
+    """An open sketch may retain the pre-regeneration materialized face ID."""
+
+    project = Project()
+    stack = cmd.CommandStack(project)
+    vertex_ids = [
+        stack.run(cmd.AddPoint(*position))
+        for position in ((0, 0, 0), (4, 0, 0), (4, 3, 0), (0, 3, 0))
+    ]
+    face_id = stack.run(cmd.AddPlate(vertex_ids))
+    stale_support = EntityRef("face", face_id)
+
+    # This disposable diagonal mirrors the tree item deleted immediately
+    # before Apply in the reported GUI workflow.  Its deletion regenerates
+    # every materialized entity and therefore changes the numeric face ID.
+    stack.run(cmd.AddLine(vertex_ids[0], vertex_ids[2]))
+    diagonal_feature_id = project.geometry.features.records[-1].feature_id
+    stack.run(cmd.DeleteFeature(diagonal_feature_id))
+    assert stale_support not in tuple(
+        EntityRef("face", face_id) for face_id in project.geometry.faces
+    )
+
+    definition = SketchDefinition(
+        points={"p1": (0.5, 0.5), "p2": (1.5, 0.5), "p3": (1.0, 1.5)},
+        path=("p1", "p2", "p3"),
+        extrusion=1.0,
+    )
+    feature = stack.run(cmd.AddSketch(stale_support, definition))
+
+    assert feature.state == "ok"
+    assert len(
+        [key for key in feature.outputs if key.startswith("extrusion/face/")]
+    ) == 3
+
+
 def test_sketch_intent_round_trips_in_anyfem_project_format():
     project, face = _project()
     definition = SketchDefinition(
@@ -113,3 +149,22 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
     assert len(built.fe_model.mesh.elements) == (
         len(mesh.shells) + len(mesh.couplings)
     )
+
+
+def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():
+    project, face = _project()
+    project.add_material(steel())
+    project.add_plate_section("plate", 0.01, "S355")
+    edges = [item.edge for item in project.geometry.faces[face].loop]
+    first_wall = project.geometry.extrude((edges[0],), (0, 0, 1))[0]
+    second_wall = project.geometry.extrude((edges[1],), (0, 0, 1))[0]
+    project.assign_plates((face, first_wall, second_wall), "plate")
+
+    mesh = project.generate_mesh(0.25)
+    built = build_fe_model(
+        project, mesh, load_case=None, require_loads=False, require_supports=False
+    )
+    report = audit_constraints(built.fe_model)
+
+    assert mesh.automatic_shell_connections >= 1
+    assert not [issue for issue in report.issues if issue.code == "CONSTRAINT003"]

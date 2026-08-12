@@ -122,7 +122,12 @@ class DocumentSession:
             raise PermissionError("this project is open read-only")
         transaction = DocumentTransaction(label, solver_affecting)
         outermost = self._transaction_depth == 0
-        before = deepcopy(self.project.__dict__) if outermost else None
+        if outermost:
+            from .io.project_file import project_to_dict
+
+            before = deepcopy(project_to_dict(self.project))
+        else:
+            before = None
         before_selection = (
             list(self.selection.items)
             if outermost
@@ -148,8 +153,11 @@ class DocumentSession:
             yield transaction
         except BaseException:
             if outermost and before is not None:
+                from .io.project_file import project_from_dict
+
+                restored = project_from_dict(deepcopy(before))
                 self.project.__dict__.clear()
-                self.project.__dict__.update(before)
+                self.project.__dict__.update(restored.__dict__)
                 self.commands.project = self.project
                 # Trusted scripts and bulk workflows may perform several
                 # low-level command-stack operations inside one transaction.

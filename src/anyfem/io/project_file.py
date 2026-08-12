@@ -22,8 +22,7 @@ from typing import Any, Dict, List, Mapping
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import numpy as np
-from anygeometry.curves import Arc, Straight
-from anygeometry.entities import Edge, EntityRef, Face, OrientedEdge, Vertex
+from anygeometry.entities import EntityRef
 from anygeometry.errors import GeometryError
 from anygeometry.model import GeometryModel
 from anygeometry.serialization import from_dict as geometry_from_dict
@@ -50,6 +49,7 @@ from ..model.records import (
 )
 from ..model.regions import RegionRegistry, region_from_dict
 from ..model.units import UnitProfile, unit_profile
+from ..native_meshing import NativeMeshSettings
 
 __all__ = [
     "FORMAT_VERSION",
@@ -60,7 +60,7 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 SUFFIX = ".anyfem"
 
 
@@ -213,6 +213,11 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "meshing": {
             "element_order": project.element_order,
             "target_size": project.target_size,
+            "native": (
+                None
+                if project.native_mesh_settings is None
+                else project.native_mesh_settings.to_dict()
+            ),
             "seeding_overrides": {
                 str(key): int(value)
                 for key, value in sorted(project.seeding_overrides.items())
@@ -628,6 +633,13 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         project.seeding_overrides = {
             int(key): int(value) for key, value in overrides.items()
         }
+        native_settings = meshing.get("native")
+        if native_settings is not None:
+            if not isinstance(native_settings, Mapping):
+                raise ProjectFileError("meshing.native must be an object or null")
+            project.set_native_mesh_settings(
+                NativeMeshSettings.from_dict(native_settings)
+            )
         for entry in meshing.get("refinements", ()):
             center = entry.get("center")
             reference = entry.get("ref")
@@ -908,7 +920,26 @@ def _restore_section_assignment(
 def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> None:
     if not isinstance(data, Mapping):
         raise ProjectFileError("geometry must be a JSON object")
-    for entry in data.get("vertices", ()):
+    # Formats 1 and 2 predate the ANYgeometry owner codec.  Recreate their
+    # records through public model operations in one transaction: the entity
+    # stores are intentionally immutable views in ANYgeometry 0.2.1.
+    with geometry.transaction():
+        _populate_legacy_geometry(geometry, data)
+
+
+def _set_legacy_next_id(
+    geometry: GeometryModel, kind: str, identifier: int
+) -> None:
+    state = geometry.id_state()
+    state[kind] = int(identifier)
+    geometry.restore_id_state(state)
+
+
+def _populate_legacy_geometry(
+    geometry: GeometryModel, data: Mapping[str, Any]
+) -> None:
+    vertices = sorted(data.get("vertices", ()), key=lambda item: int(item["id"]))
+    for entry in vertices:
         vertex_id = int(entry["id"])
         if vertex_id <= 0 or vertex_id in geometry.vertices:
             raise ProjectFileError(
@@ -920,11 +951,15 @@ def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> Non
                 f"geometry.vertices[{vertex_id}].position needs three finite "
                 "components"
             )
-        geometry.vertices[vertex_id] = Vertex(
-            id=vertex_id,
-            position=position.copy(),
-        )
-    for entry in data.get("edges", ()):
+        _set_legacy_next_id(geometry, "vertex", vertex_id)
+        made = geometry.add_point(*position)
+        if made != vertex_id:  # pragma: no cover - owner allocator contract
+            raise ProjectFileError(
+                f"geometry.vertices[{vertex_id}] could not preserve its ID"
+            )
+
+    edges = sorted(data.get("edges", ()), key=lambda item: int(item["id"]))
+    for entry in edges:
         curve_data = entry.get("curve", {"kind": "line"})
         edge_id = int(entry["id"])
         if edge_id <= 0 or edge_id in geometry.edges:
@@ -955,26 +990,31 @@ def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> Non
                 raise ProjectFileError(
                     f"geometry.edges[{edge_id}] arc needs three distinct vertices"
                 )
-            curve = Arc(via_vertex=via)
+            make_edge = lambda: geometry.add_arc(start, via, end)
         elif curve_kind == "line":
-            curve = Straight()
+            make_edge = lambda: geometry.add_line(start, end)
         else:
             raise ProjectFileError(
                 f"geometry.edges[{edge_id}].curve.kind {curve_kind!r} is unknown"
             )
-        geometry.edges[edge_id] = Edge(
-            id=edge_id,
-            start=start,
-            end=end,
-            curve=curve,
-        )
-    for entry in data.get("faces", ()):
+        _set_legacy_next_id(geometry, "edge", edge_id)
+        try:
+            made = make_edge()
+        except GeometryError as error:
+            raise ProjectFileError(f"geometry.edges[{edge_id}]: {error}") from None
+        if made != edge_id:  # pragma: no cover - owner allocator contract
+            raise ProjectFileError(
+                f"geometry.edges[{edge_id}] could not preserve its ID"
+            )
+
+    faces = sorted(data.get("faces", ()), key=lambda item: int(item["id"]))
+    for entry in faces:
         face_id = int(entry["id"])
         if face_id <= 0 or face_id in geometry.faces:
             raise ProjectFileError(
                 f"geometry.faces[{face_id}].id must be unique and positive"
             )
-        loop_items = []
+        loop_items: list[tuple[int, bool]] = []
         for item in entry["loop"]:
             if len(item) != 2 or not isinstance(item[1], bool):
                 raise ProjectFileError(
@@ -987,26 +1027,26 @@ def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> Non
                     f"geometry.faces[{face_id}].loop references missing edge "
                     f"{edge_id}"
                 )
-            loop_items.append(OrientedEdge(edge_id, item[1]))
+            loop_items.append((edge_id, item[1]))
         loop = tuple(loop_items)
         if len(loop) < 4:
             raise ProjectFileError(
                 f"geometry.faces[{face_id}].loop needs at least four edges"
             )
 
-        def start_vertex(item: OrientedEdge) -> int:
-            edge = geometry.edges[item.edge]
-            return edge.start if item.forward else edge.end
+        def start_vertex(item: tuple[int, bool]) -> int:
+            edge = geometry.edges[item[0]]
+            return edge.start if item[1] else edge.end
 
-        def end_vertex(item: OrientedEdge) -> int:
-            edge = geometry.edges[item.edge]
-            return edge.end if item.forward else edge.start
+        def end_vertex(item: tuple[int, bool]) -> int:
+            edge = geometry.edges[item[0]]
+            return edge.end if item[1] else edge.start
 
         for current, following in zip(loop, loop[1:] + loop[:1]):
             if end_vertex(current) != start_vertex(following):
                 raise ProjectFileError(
                     f"geometry.faces[{face_id}].loop is not continuous at "
-                    f"edge {following.edge}"
+                    f"edge {following[0]}"
                 )
         corners = tuple(int(corner) for corner in entry["corners"])
         if (
@@ -1019,36 +1059,60 @@ def _geometry_from_dict(geometry: GeometryModel, data: Mapping[str, Any]) -> Non
                 f"geometry.faces[{face_id}].corners must be four distinct loop "
                 "positions in order"
             )
-        geometry.faces[face_id] = Face(
-            id=face_id,
-            loop=loop,
-            corners=corners,
+        # add_face orients its first supplied edge forward.  Rotate a valid
+        # legacy loop to a forward edge so its persisted normal is retained.
+        pivot = next((index for index, item in enumerate(loop) if item[1]), 0)
+        oriented_loop = loop[pivot:] + loop[:pivot]
+        oriented_corners = tuple(
+            sorted((corner - pivot) % len(loop) for corner in corners)
         )
+        _set_legacy_next_id(geometry, "face", face_id)
+        try:
+            made = geometry.add_face(
+                [edge_id for edge_id, _forward in oriented_loop],
+                corners=oriented_corners,
+            )
+        except GeometryError as error:
+            raise ProjectFileError(f"geometry.faces[{face_id}]: {error}") from None
+        if made != face_id:  # pragma: no cover - owner allocator contract
+            raise ProjectFileError(
+                f"geometry.faces[{face_id}] could not preserve its ID"
+            )
+        restored_loop = tuple(
+            (item.edge, item.forward) for item in geometry.faces[face_id].loop
+        )
+        if restored_loop != oriented_loop:
+            raise ProjectFileError(
+                f"geometry.faces[{face_id}].loop orientation cannot be "
+                "preserved by the public geometry owner API"
+            )
 
     counters = data.get("next_id")
     if counters:
-        state = {str(k): int(v) for k, v in counters.items()}
+        saved_state = {str(k): int(v) for k, v in counters.items()}
+        state = geometry.id_state()
         for kind, store in (
             ("vertex", geometry.vertices),
             ("edge", geometry.edges),
             ("face", geometry.faces),
         ):
             minimum = max(store, default=0) + 1
-            if kind not in state or state[kind] < minimum:
+            if kind not in saved_state or saved_state[kind] < minimum:
                 raise ProjectFileError(
                     f"geometry.next_id.{kind} must be at least {minimum}"
                 )
+            state[kind] = saved_state[kind]
         geometry.restore_id_state(state)
     else:
         # An older file without counters: continue past whatever it holds, so
         # a new entity can never collide with a saved one.
-        geometry.restore_id_state(
-            {
-                "vertex": max(geometry.vertices, default=0) + 1,
-                "edge": max(geometry.edges, default=0) + 1,
-                "face": max(geometry.faces, default=0) + 1,
-            }
+        state = geometry.id_state()
+        state.update(
+            vertex=max(geometry.vertices, default=0) + 1,
+            edge=max(geometry.edges, default=0) + 1,
+            face=max(geometry.faces, default=0) + 1,
         )
+        geometry.restore_id_state(state)
 
 
 def _load_case_to_dict(case: LoadCase) -> Dict[str, Any]:

@@ -212,6 +212,7 @@ class MeshTaskManager:
                 settings.target_size,
                 overrides=dict(settings.overrides),
                 order=settings.element_order,
+                cancellation_check=cancellation.raise_if_cancelled,
             )
             cancellation.raise_if_cancelled("mesh quality")
             progress("quality", "checking element quality", 0.85)

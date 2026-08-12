@@ -101,7 +101,7 @@ def test_v3_direct_assignments_migrate_deterministically_to_regions():
     assert first_assignment.id == second_assignment.id
     assert first_assignment.region.id == second_assignment.region.id
     assert first.face_sections == second.face_sections == {face: "deck"}
-    assert project_to_dict(first)["anyfem"]["format"] == 4
+    assert project_to_dict(first)["anyfem"]["format"] == 5
 
 
 def test_feature_output_assignment_follows_regeneration_and_blocks_suppression():

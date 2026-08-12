@@ -104,6 +104,7 @@ __all__ = [
     "DeleteFeature",
     "DeleteProjectRecord",
     "Extrude",
+    "FragmentPlateOverlaps",
     "EditFeature",
     "EditAttribute",
     "EditOutputRequest",
@@ -417,6 +418,40 @@ class AddSketch(FeatureCommand):
             inputs={
                 "support_face": (
                     _feature_anchor(geometry, self.support_face),
+                )
+            },
+        )
+        return record.feature_id
+
+
+@dataclass(eq=False)
+class FragmentPlateOverlaps(FeatureCommand):
+    """Partition coplanar selected plates into non-overlapping geometry cells.
+
+    Face order resolves section ownership of common cells: the first selected
+    face wins.  The geometric union is retained in full.
+    """
+
+    face_ids: Sequence[int]
+    label: str = "fragment plate overlaps"
+
+    def __post_init__(self) -> None:
+        FeatureCommand.__init__(self)
+        identifiers = tuple(dict.fromkeys(int(item) for item in self.face_ids))
+        if len(identifiers) < 2:
+            raise GeometryError("select at least two plates in ownership order")
+        self.face_ids = identifiers
+
+    def change(self, project: Project) -> int:
+        geometry = project.geometry
+        geometry.features.capture_baseline(geometry)
+        record = geometry.features.append(
+            "geometry.fragment.overlaps",
+            name="Plate overlap fragmentation",
+            inputs={
+                "faces": tuple(
+                    _feature_anchor(geometry, EntityRef("face", face_id))
+                    for face_id in self.face_ids
                 )
             },
         )
@@ -840,10 +875,20 @@ def _replace_loads(
 
 
 def _feature_anchor(geometry, reference: EntityRef):
-    """Prefer persistent feature-output identity for a current topology ref."""
+    """Prefer persistent feature-output identity for a topology reference.
+
+    A long-running viewport task can legitimately retain an ``EntityRef``
+    while an unrelated feature edit regenerates the model.  Regeneration
+    allocates fresh materialized IDs, so first follow ANYgeometry's explicit
+    replacement lineage when it resolves to one unambiguous survivor.  This
+    is identity-based retargeting; deliberately do not guess by proximity.
+    """
 
     from anygeometry.features import FeatureOutputRef
 
+    candidates = geometry.resolve_ref(reference)
+    if len(candidates) == 1:
+        reference = candidates[0]
     for record in reversed(geometry.features.records):
         for key, output in record.outputs.items():
             if output == reference:

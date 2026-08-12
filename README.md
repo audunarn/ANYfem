@@ -249,14 +249,16 @@ ANYgeometry records the intended surface explicitly: `Plane`, `Cylinder`,
 transfinite interpolation where that is the selected surface; cylinders and
 cones use their analytical surfaces rather than a faceted approximation.
 
-Project format v4 stores editable intent and an artifact index; ANYgeometry
-schema v2 stores feature history and stable semantic output keys. Meshes and
+Project format v5 stores editable intent and an artifact index; embedded
+ANYgeometry documents use canonical schema v4. Meshes and
 results are immutable, checksummed HDF5 sidecars under
 `model.anyfem-data/meshes` and `model.anyfem-data/results`. Results are read
 frame-by-frame and unavailable quantities are never manufactured. Imported
 SESAM source semantics are embedded with the mesh, so reopening does not depend
-on the original file. Legacy ANYfem formats 1--3 remain readable and are
-migrated deterministically on the next save.
+on the original file. Legacy ANYfem formats 1--4 and ANYgeometry schemas v1--v3
+remain readable and are migrated deterministically on the next save. An
+ANYgeometry 0.2.0 process intentionally rejects schema v4 documents written by
+0.2.1, even though both releases satisfy the package range `>=0.2,<0.3`.
 
 ### Symmetry
 

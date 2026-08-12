@@ -9,6 +9,7 @@ front-end would later call into.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -18,9 +19,10 @@ from anygeometry.entities import EntityRef
 from anygeometry.model import GeometryModel
 
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh
-from anymesher.intersections import generate_mesh_with_intersections
+from anymesher.hybrid import generate_hybrid_mesh
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
+from ..native_meshing import NativeMeshSettings
 from .attributes import Combination, LoadCase, Mass, Support
 from .imperfections import Imperfection
 from .sections import BeamSection, PlateSection, SectionAssignment
@@ -88,6 +90,7 @@ class Project:
     artifacts: Dict[str, ArtifactRef] = field(default_factory=dict)
     target_size: float | None = None
     seeding_overrides: Dict[int, int] = field(default_factory=dict)
+    native_mesh_settings: NativeMeshSettings | None = None
     # Imported analyses can be mesh-native and therefore intentionally have
     # no fabricated geometry topology behind their group references.
     mesh_only: bool = False
@@ -1105,17 +1108,40 @@ class Project:
         self.element_order = order
         return order
 
+    def set_native_mesh_settings(
+        self, settings: NativeMeshSettings | None
+    ) -> NativeMeshSettings | None:
+        """Persist native controls after enforcing model-bound handle identity."""
+
+        if settings is not None:
+            foreign = [
+                handle
+                for handle in settings.handles
+                if handle.model_id != self.geometry.model_id
+            ]
+            if foreign:
+                raise ProjectError(
+                    "native mesh controls contain an entity handle from another "
+                    f"geometry model: {foreign[0]}"
+                )
+        self.native_mesh_settings = settings
+        return settings
+
     # ------------------------------------------------------------------
     # meshing
     # ------------------------------------------------------------------
     def generate_mesh(
         self,
-        target_size: float,
+        target_size: float | None = None,
         *,
         overrides: Mapping[int, int] | None = None,
         seeding: Seeding | None = None,
         refinements: Iterable[Refinement] | None = None,
         order: str | None = None,
+        strategy: str | None = None,
+        certification_mode: str | None = None,
+        change_set: object | None = None,
+        cancellation_check: Callable[[str], None] | None = None,
     ) -> Mesh:
         """Mesh every plate, plus every line carrying a beam.
 
@@ -1138,17 +1164,75 @@ class Project:
             raise ProjectError(
                 "nothing to mesh: the model has no plates and no beams"
             )
-        return generate_mesh_with_intersections(
+        settings = self.native_mesh_settings
+        resolved_size = (
+            float(target_size)
+            if target_size is not None
+            else (
+                float(settings.target_size)
+                if settings is not None
+                else (None if self.target_size is None else float(self.target_size))
+            )
+        )
+        if resolved_size is None:
+            raise ProjectError(
+                "mesh target size is not set; pass target_size or store native mesh settings"
+            )
+        settings_backend = (
+            None if settings is None else getattr(settings.backend, "value", settings.backend)
+        )
+        resolved_strategy = strategy or {
+            None: "auto",
+            "automatic": "auto",
+            "mapped": "mapped",
+            "native": "native",
+        }.get(settings_backend, str(settings_backend))
+        resolved_certification = certification_mode or (
+            "interactive"
+            if settings is None
+            else str(getattr(settings.certification_mode, "value", settings.certification_mode))
+        )
+        resolved_order = order or (
+            self.element_order if settings is None else settings.element_order
+        )
+        parameters = {} if settings is None else dict(settings.parameters)
+        supported_parameters = {
+            key: value
+            for key, value in parameters.items()
+            if key in {"recombine", "native_backend", "overlap_policy"}
+        }
+        return generate_hybrid_mesh(
             self.geometry,
-            target_size=target_size,
-            overrides=overrides,
+            target_size=resolved_size,
+            strategy=resolved_strategy,
+            overrides=(self.seeding_overrides if overrides is None else overrides),
             beam_edges=self.beam_edges,
             beam_offsets=self.beam_offsets,
             seeding=seeding,
             refinements=(
                 self.refinements if refinements is None else list(refinements)
             ),
-            order=self.element_order if order is None else order,
+            order=resolved_order,
+            certification_mode=resolved_certification,
+            change_set=change_set,
+            cancellation_check=cancellation_check,
+            **supported_parameters,
+        )
+
+    def native_meshing_session(
+        self,
+        settings: NativeMeshSettings | None = None,
+        *,
+        max_background_jobs: int = 2,
+    ):
+        """Create an incremental, stale-safe native meshing session."""
+
+        from ..native_meshing_backend import create_native_meshing_session
+
+        return create_native_meshing_session(
+            self,
+            settings,
+            max_background_jobs=max_background_jobs,
         )
 
     # ------------------------------------------------------------------
@@ -1164,7 +1248,11 @@ class Project:
                     record.diagnostic
                     or f"feature {record.feature_id} materialization is invalid"
                 )
-            elif record.state == "frozen":
+            elif record.materialization_checksum is not None:
+                # Validate every checksummed materialization, not only records
+                # already labelled ``frozen``.  A live future-feature record
+                # can retain an older state label, and direct output edits must
+                # still fail before meshing rather than bypassing persistence.
                 diagnostic = self.geometry.features.validate_materialization(
                     record, self.geometry
                 )

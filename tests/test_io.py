@@ -297,7 +297,7 @@ def test_malformed_serialized_geometry_reports_the_data_path():
 
     with pytest.raises(
         ProjectFileError,
-        match=r"geometry: .*invalid or duplicate vertex",
+        match=r"geometry: .*vertex position.*shape \(3,\)",
     ):
         project_from_dict(data)
 
@@ -309,7 +309,7 @@ def test_the_file_holds_the_model_not_its_consequences(workspace):
     assert "mesh" not in data
     assert "results" not in data
     assert data["geometry"]["schema"] == "anygeometry"
-    assert data["geometry"]["version"] == 2
+    assert data["geometry"]["version"] == 4
     assert "id_state" in data["geometry"]
     assert "groups" in data["geometry"]
     assert "replacement_history" in data["geometry"]

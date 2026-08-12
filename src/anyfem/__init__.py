@@ -81,6 +81,22 @@ from .model import (
     WorkplaneFrame,
 )
 from .document import DocumentRevision, DocumentSession, ProjectSnapshot
+from .native_meshing import (
+    AutomaticMeshPredictor,
+    CertificationMode,
+    ControlScope,
+    MeshBackend as NativeMeshBackend,
+    NativeMeshControl,
+    NativeMeshResult,
+    NativeMeshSettings,
+    NativeMeshingCancellation,
+    NativeMeshingRuntime,
+)
+from .native_meshing_backend import (
+    GeometryComponentSnapshot,
+    NativeProjectMeshingSession,
+    create_native_meshing_session,
+)
 from .jobs import JobEvent, JobManager, JobRequest
 from .scripting import (
     ScriptCancelled,
@@ -122,18 +138,21 @@ from .solve import (
     solve_transient,
 )
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "BeamSection",
     "AnalysisDefinition",
     "ArtifactRef",
+    "AutomaticMeshPredictor",
     "BucklingSolution",
     "BuiltModel",
     "CoordinateSystem",
     "ConstructionMode",
     "ConstructionResult",
     "ConstructionTask",
+    "CertificationMode",
+    "ControlScope",
     "CoordinateConstruction",
     "DocumentRevision",
     "DocumentSession",
@@ -143,6 +162,7 @@ __all__ = [
     "FaceSketchTask",
     "GeometryError",
     "GeometryModel",
+    "GeometryComponentSnapshot",
     "GeometrySnapData",
     "ImpactSolution",
     "LinearBatchSolution",
@@ -155,6 +175,13 @@ __all__ = [
     "MeshEntityRef",
     "Mesh",
     "MeshError",
+    "NativeMeshBackend",
+    "NativeMeshControl",
+    "NativeMeshResult",
+    "NativeMeshSettings",
+    "NativeMeshingCancellation",
+    "NativeMeshingRuntime",
+    "NativeProjectMeshingSession",
     "ModalSolution",
     "NonlinearSolution",
     "OrientedEdge",
@@ -201,6 +228,7 @@ __all__ = [
     "Vertex",
     "__version__",
     "build_fe_model",
+    "create_native_meshing_session",
     "eigenmode_imperfection",
     "fixed",
     "geometry_snap_data",

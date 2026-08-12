@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 from anygeometry import from_dict, to_dict
@@ -17,13 +18,28 @@ def _future_plate(*, tamper: bool = False) -> Project:
         "generator.plate", parameters={"length": 2.0, "width": 1.0}
     )
     assert source.geometry.regenerate_features().success
-    document = to_dict(source.geometry)
-    document["features"]["records"][0]["kind"] = "vendor.future.plate"
+    feature_snapshot = source.geometry.features.snapshot()
+    records = list(feature_snapshot["records"])
+    records[0] = replace(records[0], kind="vendor.future.plate")
+    feature_snapshot["records"] = records
+    source.geometry.features.restore(feature_snapshot)
     if tamper:
-        document["vertices"][0]["position"][0] += 0.125
+        vertex_id = next(iter(source.geometry.vertices))
+        position = source.geometry.vertex_position(vertex_id)
+        source.geometry.move_point(
+            vertex_id,
+            float(position[0] + 0.125),
+            float(position[1]),
+            float(position[2]),
+        )
 
     project = Project("future feature")
-    project.geometry = from_dict(deepcopy(document))
+    if tamper:
+        # Current schema persistence refuses to sign an invalid frozen
+        # feature, so exercise the same meshing preflight on the live model.
+        project.geometry = source.geometry
+    else:
+        project.geometry = from_dict(deepcopy(to_dict(source.geometry)))
     project.add_material(steel("S355", 0.01))
     project.add_plate_section("plate", thickness=0.01, material="S355")
     face_id = next(iter(project.geometry.faces))
