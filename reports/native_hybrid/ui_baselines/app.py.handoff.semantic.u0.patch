@@ -1,0 +1,57 @@
+diff --no-index baseline/app.py current/app.py
+index 0b5b43e..e7c72b3 100644
+--- baseline/app.py
++++ current/app.py
+@@ -388 +388,17 @@ class AnyFemApp(ttk.Frame):
+-    def generate_mesh(self, target_size: float):
++    @staticmethod
++    def _triangulation_backend_summary(mesh) -> dict[str, dict[str, Any]]:
++        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
++        if not isinstance(diagnostics, dict):
++            return {}
++        by_face = diagnostics.get("triangulation_backend_by_face", {})
++        if not isinstance(by_face, dict):
++            return {}
++        return {
++            str(face_id): dict(values)
++            for face_id, values in sorted(by_face.items(), key=lambda item: int(item[0]))
++            if isinstance(values, dict)
++        }
++
++    def generate_mesh(
++        self, target_size: float, *, native_backend: str | None = None
++    ):
+@@ -397,0 +414,3 @@ class AnyFemApp(ttk.Frame):
++            if native_backend is not None:
++                self.project.set_native_triangulation_backend(native_backend)
++        requested_backend = self.project.native_triangulation_backend
+@@ -414,0 +434 @@ class AnyFemApp(ttk.Frame):
++                    "native_backend": requested_backend,
+@@ -420,0 +441,4 @@ class AnyFemApp(ttk.Frame):
++                "native_backend_requested": requested_backend,
++                "triangulation_backend_by_face": (
++                    self._triangulation_backend_summary(self.mesh)
++                ),
+@@ -454 +478,3 @@ class AnyFemApp(ttk.Frame):
+-    def generate_mesh_async(self, target_size: float) -> MeshRecord:
++    def generate_mesh_async(
++        self, target_size: float, *, native_backend: str | None = None
++    ) -> MeshRecord:
+@@ -466,0 +493,3 @@ class AnyFemApp(ttk.Frame):
++            if native_backend is not None:
++                self.project.set_native_triangulation_backend(native_backend)
++        requested_backend = self.project.native_triangulation_backend
+@@ -471 +500,6 @@ class AnyFemApp(ttk.Frame):
+-            mesh_input_hash=settings.input_hash,
++            mesh_input_hash=canonical_hash(
++                {
++                    "mesh_settings": settings.input_hash,
++                    "native_backend": requested_backend,
++                }
++            ),
+@@ -476,0 +511 @@ class AnyFemApp(ttk.Frame):
++                "native_backend_requested": requested_backend,
+@@ -549,0 +585,3 @@ class AnyFemApp(ttk.Frame):
++                            "triangulation_backend_by_face": (
++                                self._triangulation_backend_summary(result.mesh)
++                            ),

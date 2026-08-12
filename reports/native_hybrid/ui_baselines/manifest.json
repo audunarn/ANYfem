@@ -1,0 +1,53 @@
+{
+    "schema":  2,
+    "repository":  "C:\\Github\\ANYfem",
+    "head":  "b17f1d47ba79e5c04692301e96d23dd5ac5627cb",
+    "files":  [
+                  {
+                      "path":  "src/anyfem/ui/app.py",
+                      "content_sha256":  "DA4C122CCBF5AD0238B7337E648A83332DF927A92D4C3E12E25051FA52C6A1D5",
+                      "dirty":  true,
+                      "zero_context_patch":  "C:\\Github\\ANYfem\\reports\\native_hybrid\\ui_baselines\\app.py.DA4C122CCBF5AD0238B7337E648A83332DF927A92D4C3E12E25051FA52C6A1D5.u0.patch",
+                      "patch_sha256":  "8B4537139351C99B62B3B887B8E77D05DA7BA66815AEB5D648AD89073B2036A0"
+                  },
+                  {
+                      "path":  "src/anyfem/ui/panels.py",
+                      "content_sha256":  "E6667FB2DB907BE52CD1C1F12F197C9C7FB2762389DB994310C814B489969E65",
+                      "dirty":  true,
+                      "zero_context_patch":  "C:\\Github\\ANYfem\\reports\\native_hybrid\\ui_baselines\\panels.py.E6667FB2DB907BE52CD1C1F12F197C9C7FB2762389DB994310C814B489969E65.u0.patch",
+                      "patch_sha256":  "67F86553D12810471BE62DE7E17BC036BC9F26738E471E8542F25F8EE2F287BB"
+                  },
+                  {
+                      "path":  "tests/test_ui_smoke.py",
+                      "content_sha256":  "03CDD462F0E919B6308E577EB2D7DE8905E1512024707F3E992C362C269E7D13",
+                      "dirty":  false,
+                      "zero_context_patch":  null,
+                      "patch_sha256":  null
+                  },
+                  {
+                      "path":  "tests/test_background_meshing.py",
+                      "content_sha256":  "96C8AA614037FAAD8C76BBD3DB89EC178708227EB8E8B7F0EB71FDB9769FB526",
+                      "dirty":  false,
+                      "zero_context_patch":  null,
+                      "patch_sha256":  null
+                  }
+              ],
+    "evidence_artifacts":  [
+                               {
+                                   "path":  "reports/native_hybrid/ui_baselines/app.py.handoff.semantic.u0.patch",
+                                   "sha256":  "BF3B4214FFA20EDA710172D9B2883EDD3FBC33A4261DB907C3E656D14417688C",
+                                   "semantic_baseline_sha256":  "49B9AB7A6392BE45FE0E89ED1DE7F917864313C853B47FFD642A50C271B56A26",
+                                   "hunks":  9,
+                                   "ignored":  true,
+                                   "delivery":  "force-add this exact path in the final delivery commit"
+                               },
+                               {
+                                   "path":  "reports/native_hybrid/ui_baselines/panels.py.handoff.semantic.u0.patch",
+                                   "sha256":  "C40E7E4194CB394E1269CD61DF5260779A0C153623736C344B3E6315FE774D62",
+                                   "semantic_baseline_sha256":  "BFE6801C0DEFD4CFCE9DEBB6576FDB8E6F7922DC02F60C23A31E130AEA1126A1",
+                                   "hunks":  6,
+                                   "ignored":  true,
+                                   "delivery":  "force-add this exact path in the final delivery commit"
+                               }
+                           ]
+}

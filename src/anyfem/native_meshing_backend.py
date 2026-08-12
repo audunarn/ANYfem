@@ -67,6 +67,9 @@ class NativeProjectMeshingSession:
     ) -> None:
         self.project = project
         self.geometry = project.geometry
+        self._native_backend = project.set_native_triangulation_backend(
+            project.native_triangulation_backend
+        )
         resolved = settings or project.native_mesh_settings
         if resolved is None:
             if project.target_size is None:
@@ -235,10 +238,20 @@ class NativeProjectMeshingSession:
 
         target_size = float(request.settings.target_size)
         parameters: dict[str, Any] = dict(request.settings.parameters)
+        if "native_backend" in parameters:
+            raise ValueError(
+                "native_backend is a project-level setting, not a mesh parameter"
+            )
         for control in sorted(request.controls, key=lambda item: item.control_id):
             if control.target_size is not None:
                 target_size = min(target_size, float(control.target_size))
-            parameters.update(dict(control.parameters))
+            control_parameters = dict(control.parameters)
+            if "native_backend" in control_parameters:
+                raise ValueError(
+                    "native_backend is a project-level setting, not a control "
+                    f"parameter ({control.control_id!r})"
+                )
+            parameters.update(control_parameters)
         backend = getattr(request.backend, "value", request.backend)
         strategy = {
             "automatic": "auto",
@@ -248,7 +261,7 @@ class NativeProjectMeshingSession:
         supported = {
             key: value
             for key, value in parameters.items()
-            if key in {"recombine", "native_backend", "overlap_policy"}
+            if key in {"recombine", "overlap_policy"}
         }
         strict = request.certification_mode is CertificationMode.STRICT
         generated = generate_hybrid_mesh_result(
@@ -260,6 +273,7 @@ class NativeProjectMeshingSession:
             order=request.settings.element_order,
             certification_mode="strict" if strict else "none",
             cancellation_check=request.cancellation.raise_if_cancelled,
+            native_backend=self._native_backend,
             **supported,
         )
         request.cancellation.raise_if_cancelled("hybrid component completion")

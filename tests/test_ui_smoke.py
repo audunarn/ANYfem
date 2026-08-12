@@ -973,6 +973,27 @@ def test_mesh_panel_applies_element_order_through_the_real_stack(app, root):
     assert mesh.is_quadratic
 
 
+def test_mesh_panel_presents_and_maps_native_triangulator(app, root, monkeypatch):
+    panel = app.panels["Mesh"]
+    assert panel._native_backend.get() == "Automatic"
+
+    app.project.set_native_triangulation_backend("python")
+    panel.refresh()
+    assert panel._native_backend.get() == "Python compatibility"
+
+    captured = {}
+
+    def fake_generate(size, *, native_backend=None):
+        captured.update(size=size, native_backend=native_backend)
+
+    monkeypatch.setattr(app, "generate_mesh_async", fake_generate)
+    panel._size.set("0.4")
+    panel._native_backend.set("Compiled native")
+    panel._generate()
+
+    assert captured == {"size": 0.4, "native_backend": "native"}
+
+
 # ----------------------------------------------------------------------
 # analyses from the Solve panel
 # ----------------------------------------------------------------------

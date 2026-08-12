@@ -88,6 +88,7 @@ def test_v3_direct_assignments_migrate_deterministically_to_regions():
     project.assign_plate(face, "deck")
     legacy = project_to_dict(project)
     legacy["anyfem"]["format"] = 3
+    legacy["meshing"].pop("native_backend")
     legacy["anyfem"].pop("document_id")
     legacy.pop("assignments")
     legacy.pop("assignment_ids")
@@ -101,7 +102,7 @@ def test_v3_direct_assignments_migrate_deterministically_to_regions():
     assert first_assignment.id == second_assignment.id
     assert first_assignment.region.id == second_assignment.region.id
     assert first.face_sections == second.face_sections == {face: "deck"}
-    assert project_to_dict(first)["anyfem"]["format"] == 5
+    assert project_to_dict(first)["anyfem"]["format"] == 6
 
 
 def test_feature_output_assignment_follows_regeneration_and_blocks_suppression():

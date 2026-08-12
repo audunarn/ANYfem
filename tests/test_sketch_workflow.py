@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from anygeometry import EntityRef, SketchDefinition, face_sketch_plane, to_dict
+from anygeometry import (
+    ConnectionIntent,
+    EntityRef,
+    ImprintOperation,
+    IntersectionDimension,
+    IntersectionKind,
+    Plane,
+    SketchDefinition,
+    apply_imprint,
+    face_sketch_plane,
+    plan_imprint,
+    query_intersection,
+    to_dict,
+)
+from anymesher.serialize import mesh_to_dict
 
 from anyfem import Project, steel
 from anyfem import commands as cmd
@@ -133,22 +147,80 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
     feature = cmd.CommandStack(project).run(
         cmd.AddSketch(EntityRef("face", face), definition, "Welded box")
     )
-    extrusion_faces = [
+    extrusion_faces = sorted(
         reference.id for key, reference in feature.outputs.items()
         if key.startswith("extrusion/face/")
-    ]
+    )
     project.assign_plates(extrusion_faces, "plate")
 
+    geometry = project.geometry
+    assert all(
+        isinstance(geometry.faces[face_id].surface, Plane)
+        for face_id in extrusion_faces
+    )
+    def face_owner(face_id: int) -> tuple[int, int]:
+        uses = tuple(
+            face_use
+            for face_use in geometry.face_uses.values()
+            if face_use.face_id == face_id
+        )
+        assert len(uses) == 1
+        face_use = uses[0]
+        part_id = geometry.owner_part("face_use", face_use.id)
+        assert part_id is not None
+        return face_use.sheet_id, part_id
+
+    support_sheet, support_part = face_owner(face)
+    wall_owners = {face_owner(face_id) for face_id in extrusion_faces}
+    assert len(wall_owners) == 1
+    wall_sheet, wall_part = wall_owners.pop()
+    assert wall_sheet != support_sheet
+    assert wall_part != support_part
+
+    result = query_intersection(
+        geometry,
+        geometry.handle("face", face),
+        geometry.handle("face", extrusion_faces[0]),
+    )
+    plan = plan_imprint(geometry, result, policy=ConnectionIntent.CONNECT)
+    assert result.kind is IntersectionKind.CROSS
+    assert result.dimension is IntersectionDimension.CURVE
+    assert plan.operation is ImprintOperation.FACE_IMPRINT
+    application = apply_imprint(
+        geometry, plan, policy=ConnectionIntent.CONNECT
+    )
+    assert application.face_intersection is not None
+    shared_edge = application.face_intersection.edge.id
+    face_use_ids = geometry.face_uses_using_edge(shared_edge)
+    assert {
+        geometry.face_uses[face_use_id].sheet_id
+        for face_use_id in face_use_ids
+    } == {support_sheet, wall_sheet}
+    assert {
+        geometry.face_uses[geometry.coedges[coedge_id].face_use_id].sheet_id
+        for coedge_id in geometry.coedges_using_edge(shared_edge)
+    } == {support_sheet, wall_sheet}
+    assert geometry.validate_topology() == ()
+
     mesh = project.generate_mesh(0.5)
+    repeated = project.generate_mesh(0.5)
+    assert mesh_to_dict(repeated) == mesh_to_dict(mesh)
+    shared_nodes = set(mesh.nodes_of_edge[shared_edge])
+    assert shared_nodes
+    for sheet_id in (support_sheet, wall_sheet):
+        sheet_nodes = {
+            node_id
+            for element_id in mesh.elements_of_sheet[sheet_id]
+            for node_id in mesh.shells[element_id]
+        }
+        assert shared_nodes <= sheet_nodes
+    assert mesh.automatic_shell_connections == 0
+    assert not mesh.couplings
     built = build_fe_model(
         project, mesh, load_case=None, require_loads=False, require_supports=False
     )
 
-    assert mesh.automatic_shell_connections == 8
-    assert len(mesh.couplings) == 8
-    assert len(built.fe_model.mesh.elements) == (
-        len(mesh.shells) + len(mesh.couplings)
-    )
+    assert len(built.fe_model.mesh.elements) == len(mesh.shells)
 
 
 def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():

@@ -385,7 +385,23 @@ class AnyFemApp(ttk.Frame):
     # ------------------------------------------------------------------
     # meshing and solving
     # ------------------------------------------------------------------
-    def generate_mesh(self, target_size: float):
+    @staticmethod
+    def _triangulation_backend_summary(mesh) -> dict[str, dict[str, Any]]:
+        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            return {}
+        by_face = diagnostics.get("triangulation_backend_by_face", {})
+        if not isinstance(by_face, dict):
+            return {}
+        return {
+            str(face_id): dict(values)
+            for face_id, values in sorted(by_face.items(), key=lambda item: int(item[0]))
+            if isinstance(values, dict)
+        }
+
+    def generate_mesh(
+        self, target_size: float, *, native_backend: str | None = None
+    ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
         The desktop Mesh task uses :meth:`generate_mesh_async`; keeping this
@@ -395,6 +411,9 @@ class AnyFemApp(ttk.Frame):
         with self.session.transaction("mesh settings"):
             self.project.target_size = float(target_size)
             self.project.seeding_overrides = dict(self.seeding_overrides)
+            if native_backend is not None:
+                self.project.set_native_triangulation_backend(native_backend)
+        requested_backend = self.project.native_triangulation_backend
         self.mesh = self.project.generate_mesh(
             target_size, overrides=self.seeding_overrides
         )
@@ -412,12 +431,17 @@ class AnyFemApp(ttk.Frame):
                     "target_size": float(target_size),
                     "overrides": dict(self.seeding_overrides),
                     "element_order": self.project.element_order,
+                    "native_backend": requested_backend,
                 }
             ),
             mesh_hash=mesh_hash,
             summary={
                 "nodes": self.mesh.num_nodes,
                 "elements": self.mesh.num_elements,
+                "native_backend_requested": requested_backend,
+                "triangulation_backend_by_face": (
+                    self._triangulation_backend_summary(self.mesh)
+                ),
                 "automatic_intersections": int(
                     getattr(self.mesh, "automatic_intersections", 0)
                 ),
@@ -451,7 +475,9 @@ class AnyFemApp(ttk.Frame):
         self.refresh_panels()
         return self.mesh
 
-    def generate_mesh_async(self, target_size: float) -> MeshRecord:
+    def generate_mesh_async(
+        self, target_size: float, *, native_backend: str | None = None
+    ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
         if self.mesh_task_manager.busy:
@@ -464,16 +490,25 @@ class AnyFemApp(ttk.Frame):
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
+            if native_backend is not None:
+                self.project.set_native_triangulation_backend(native_backend)
+        requested_backend = self.project.native_triangulation_backend
         snapshot = self.session.snapshot()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=snapshot.revision.model_hash,
-            mesh_input_hash=settings.input_hash,
+            mesh_input_hash=canonical_hash(
+                {
+                    "mesh_settings": settings.input_hash,
+                    "native_backend": requested_backend,
+                }
+            ),
             mesh_hash="",
             status="running",
             summary={
                 "target_size": settings.target_size,
                 "element_order": settings.element_order,
+                "native_backend_requested": requested_backend,
                 "status": "running",
             },
         )
@@ -547,6 +582,9 @@ class AnyFemApp(ttk.Frame):
                             "status": record.status,
                             "nodes": result.mesh.num_nodes,
                             "elements": result.mesh.num_elements,
+                            "triangulation_backend_by_face": (
+                                self._triangulation_backend_summary(result.mesh)
+                            ),
                             "automatic_intersections": int(
                                 getattr(result.mesh, "automatic_intersections", 0)
                             ),
@@ -2636,6 +2674,15 @@ def _execute_analysis_job(
             + (f" Suggestion: {issue.suggestion}" if issue.suggestion else "")
             for issue in report.errors
         )
+        if (
+            any(issue.code == "CONSTRAINT003" for issue in report.errors)
+            and int(getattr(built.mesh, "automatic_shell_connections", 0)) > 0
+        ):
+            details += (
+                "\n[AUTOMESH001] The submitted mesh contains cyclic automatic "
+                "shell-interface ties. Regenerate the mesh with the current "
+                "mesher before rerunning; the supports do not need to be changed."
+            )
         raise ValueError(f"preflight blocked {analysis_name}:\n{details}")
     for issue in report.warnings:
         progress(f"warning [{issue.code}]: {issue.message}")

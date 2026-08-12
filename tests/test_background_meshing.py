@@ -13,6 +13,7 @@ from anyfem import commands as cmd
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.model.project import Project
 from anyfem.model.records import AnalysisDefinition
+from anyfem.native_meshing import NativeMeshSettings
 
 pytest.importorskip("anytk3d", reason="the viewport needs ANYfem[gui]")
 
@@ -58,6 +59,55 @@ def _wait(root, predicate, timeout: float = 8.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("background operation did not finish in time")
+
+
+def test_background_mesh_identity_and_snapshot_include_native_backend(
+    app, monkeypatch
+):
+    _plate(app)
+    submissions = []
+
+    def capture_submit(record_id, snapshot, settings):
+        submissions.append((record_id, snapshot, settings))
+
+    monkeypatch.setattr(app.mesh_task_manager, "submit", capture_submit)
+
+    first = app.generate_mesh_async(0.25, native_backend="python")
+    first_snapshot = submissions[-1][1]
+    app.project.set_native_triangulation_backend("native")
+
+    assert first.summary["native_backend_requested"] == "python"
+    assert first_snapshot.document["meshing"]["native_backend"] == "python"
+    assert app.project.native_triangulation_backend == "native"
+
+    second = app.generate_mesh_async(0.25, native_backend="python")
+    third = app.generate_mesh_async(0.25, native_backend="native")
+
+    assert first.mesh_input_hash == second.mesh_input_hash
+    assert third.mesh_input_hash != first.mesh_input_hash
+    assert submissions[-1][1].document["meshing"]["native_backend"] == "native"
+    assert submissions[0][2].input_hash == submissions[-1][2].input_hash
+
+
+def test_synchronous_mesh_identity_and_provenance_include_native_backend(app, root):
+    _plate(app)
+    app.project.set_native_mesh_settings(
+        NativeMeshSettings(target_size=0.4, backend="native")
+    )
+
+    app.generate_mesh(0.4, native_backend="python")
+    first = app.project.mesh_records[app.mesh_record_id]
+    app.generate_mesh(0.4, native_backend="python")
+    second = app.project.mesh_records[app.mesh_record_id]
+
+    assert first.mesh_input_hash == second.mesh_input_hash
+    assert first.summary["native_backend_requested"] == "python"
+    provenance = first.summary["triangulation_backend_by_face"]
+    assert provenance
+    assert {
+        values["requested_backend"] for values in provenance.values()
+    } == {"python"}
+    root.update()
 
 
 def test_mesh_panel_submits_nonblocking_and_retains_stale_quality(
@@ -148,10 +198,11 @@ def test_background_mesh_error_is_retained_in_details(app, root, monkeypatch):
         raise ValueError("deliberately invalid mapped partition")
 
     monkeypatch.setattr(Project, "generate_mesh", broken_mesh)
-    record = app.generate_mesh_async(0.25)
+    record = app.generate_mesh_async(0.25, native_backend="native")
     _wait(root, lambda: record.status == "failed")
 
     assert record.mesh_hash == ""
+    assert record.summary["native_backend_requested"] == "native"
     assert record.diagnostics[-1]["type"] == "ValueError"
     assert "deliberately invalid" in app.panels["Mesh"]._stats["text"]
 

@@ -1,0 +1,72 @@
+diff --no-index baseline/panels.py current/panels.py
+index 745541f..9de2f1e 100644
+--- baseline/panels.py
++++ current/panels.py
+@@ -1515,0 +1516,8 @@ class MeshPanel(StagePanel):
++    _NATIVE_BACKEND_LABELS = {
++        "auto": "Automatic",
++        "python": "Python compatibility",
++        "native": "Compiled native",
++    }
++    _NATIVE_BACKEND_VALUES = {
++        label: value for value, label in _NATIVE_BACKEND_LABELS.items()
++    }
+@@ -1518 +1526 @@ class MeshPanel(StagePanel):
+-        controls = self.section("Mapped mesh")
++        controls = self.section("Mesh generation")
+@@ -1530,0 +1539,23 @@ class MeshPanel(StagePanel):
++        backend_row = ttk.Frame(controls)
++        backend_row.pack(fill="x", pady=1)
++        ttk.Label(backend_row, text="native triangulator", width=16).pack(
++            side="left"
++        )
++        self._native_backend = tk.StringVar(value="Automatic")
++        ttk.Combobox(
++            backend_row,
++            textvariable=self._native_backend,
++            values=list(self._NATIVE_BACKEND_VALUES),
++            state="readonly",
++            width=20,
++        ).pack(side="left", fill="x", expand=True)
++        ttk.Label(
++            controls,
++            text=(
++                "Used only by the native meshing strategy; this is separate "
++                "from choosing mapped or native meshing."
++            ),
++            foreground="#666666",
++            justify="left",
++            wraplength=220,
++        ).pack(anchor="w", pady=(0, 3))
+@@ -1565,0 +1597,5 @@ class MeshPanel(StagePanel):
++        backend_label = self._NATIVE_BACKEND_LABELS[
++            self.app.project.native_triangulation_backend
++        ]
++        if self._native_backend.get() != backend_label:
++            self._native_backend.set(backend_label)
+@@ -1609,0 +1646,21 @@ class MeshPanel(StagePanel):
++            requested_backend = record.summary.get("native_backend_requested")
++            if requested_backend is not None:
++                lines.append(f"native triangulator requested: {requested_backend}")
++            provenance = record.summary.get("triangulation_backend_by_face", {})
++            if isinstance(provenance, dict):
++                routes = sorted(
++                    {
++                        (
++                            str(values.get("requested_backend", "unknown")),
++                            str(values.get("selected_backend", "unknown")),
++                            str(values.get("actual_backend", "unknown")),
++                        )
++                        for values in provenance.values()
++                        if isinstance(values, dict)
++                    }
++                )
++                lines.extend(
++                    "triangulator route: "
++                    f"requested {requested}, selected {selected}, actual {actual}"
++                    for requested, selected, actual in routes
++                )
+@@ -1646 +1703,2 @@ class MeshPanel(StagePanel):
+-        self.app.generate_mesh_async(size)
++        backend = self._NATIVE_BACKEND_VALUES[self._native_backend.get()]
++        self.app.generate_mesh_async(size, native_backend=backend)

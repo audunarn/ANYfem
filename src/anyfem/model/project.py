@@ -51,6 +51,9 @@ class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
 
 
+_NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
+
+
 @dataclass
 class Project:
     """A complete finite element model, before meshing."""
@@ -91,6 +94,7 @@ class Project:
     target_size: float | None = None
     seeding_overrides: Dict[int, int] = field(default_factory=dict)
     native_mesh_settings: NativeMeshSettings | None = None
+    native_triangulation_backend: str = "auto"
     # Imported analyses can be mesh-native and therefore intentionally have
     # no fabricated geometry topology behind their group references.
     mesh_only: bool = False
@@ -105,6 +109,7 @@ class Project:
 
     def __post_init__(self) -> None:
         self.document_id = str(self.document_id)
+        self.set_native_triangulation_backend(self.native_triangulation_backend)
         self.coordinate_systems.setdefault("global", GLOBAL_COORDINATES)
         for name in self.materials:
             self.material_ids.setdefault(
@@ -331,6 +336,79 @@ class Project:
     # ------------------------------------------------------------------
     # assignment
     # ------------------------------------------------------------------
+    def _ensure_plate_ownership(self, face_ids: Iterable[int]) -> tuple[int, ...]:
+        """Give unowned assigned faces persistent Part/Sheet topology.
+
+        Faces are grouped only when they already share an authoritative B-rep
+        edge.  Geometrically coincident coordinates never create ownership or
+        connectivity here; intersections require an explicit kernel CONNECT.
+        """
+
+        geometry = self.geometry
+        owned_faces = {
+            face_use.face_id for face_use in geometry.face_uses.values()
+        }
+        pending = tuple(
+            sorted(
+                {
+                    int(face_id)
+                    for face_id in face_ids
+                    if int(face_id) not in owned_faces
+                }
+            )
+        )
+        if not pending:
+            return ()
+
+        adjacency = {face_id: set() for face_id in pending}
+        faces_by_edge: dict[int, list[int]] = {}
+        for face_id in pending:
+            face = geometry.faces[face_id]
+            for loop in (face.loop, *face.holes):
+                for oriented_edge in loop:
+                    faces_by_edge.setdefault(oriented_edge.edge, []).append(face_id)
+        for owners in faces_by_edge.values():
+            unique = tuple(dict.fromkeys(owners))
+            for face_id in unique:
+                adjacency[face_id].update(
+                    other for other in unique if other != face_id
+                )
+
+        remaining = set(pending)
+        components: list[tuple[int, ...]] = []
+        while remaining:
+            root = min(remaining)
+            remaining.remove(root)
+            stack = [root]
+            component: list[int] = []
+            while stack:
+                face_id = stack.pop()
+                component.append(face_id)
+                neighbours = sorted(adjacency[face_id].intersection(remaining), reverse=True)
+                for neighbour in neighbours:
+                    remaining.remove(neighbour)
+                    stack.append(neighbour)
+            components.append(tuple(sorted(component)))
+
+        created: list[tuple[int, int]] = []
+        try:
+            for component in components:
+                sheet_id = geometry.add_sheet(
+                    component,
+                    name="assigned plate " + ",".join(map(str, component)),
+                )
+                created.append((sheet_id, geometry.sheets[sheet_id].part_id))
+        except BaseException:
+            for sheet_id, part_id in reversed(created):
+                if sheet_id in geometry.sheets:
+                    geometry.remove_sheet(sheet_id)
+                if part_id in geometry.parts:
+                    part = geometry.parts[part_id]
+                    if not part.sheet_ids and not part.member_ids:
+                        geometry.remove_part(part_id)
+            raise
+        return tuple(sheet_id for sheet_id, _part_id in created)
+
     def assign_plate(self, face_id: int, section: str) -> None:
         """Give a plate its thickness and material.
 
@@ -339,8 +417,7 @@ class Project:
         record is the durable source of truth.
         """
 
-        reference = self.geometry.entity_ref("face", face_id)
-        self._assign_singleton(reference, "plate", section)
+        self._assign_many((face_id,), "plate", section)
 
     def assign_plates(self, face_ids: Iterable[int], section: str) -> None:
         self._assign_many(face_ids, "plate", section)
@@ -700,6 +777,10 @@ class Project:
                     legacy_by_region=legacy_by_region,
                 )
             self.resolve_section_assignments(strict=True, adopt_legacy=False)
+            if kind == "plate":
+                self._ensure_plate_ownership(
+                    reference.id for reference in references
+                )
         except BaseException:
             self.section_assignments.clear()
             self.section_assignments.update(prior_assignments)
@@ -1114,6 +1195,17 @@ class Project:
         """Persist native controls after enforcing model-bound handle identity."""
 
         if settings is not None:
+            if "native_backend" in dict(settings.parameters):
+                raise ProjectError(
+                    "native_backend is a project-level setting; remove it from "
+                    "NativeMeshSettings.parameters"
+                )
+            for control in settings.controls:
+                if "native_backend" in dict(control.parameters):
+                    raise ProjectError(
+                        "native_backend is a project-level setting; remove it from "
+                        f"control {control.control_id!r} parameters"
+                    )
             foreign = [
                 handle
                 for handle in settings.handles
@@ -1126,6 +1218,17 @@ class Project:
                 )
         self.native_mesh_settings = settings
         return settings
+
+    def set_native_triangulation_backend(self, backend: str) -> str:
+        """Set the constrained-triangulation implementation selector."""
+
+        if not isinstance(backend, str) or backend not in _NATIVE_TRIANGULATION_BACKENDS:
+            expected = ", ".join(_NATIVE_TRIANGULATION_BACKENDS)
+            raise ProjectError(
+                f"native triangulation backend must be one of {expected}; got {backend!r}"
+            )
+        self.native_triangulation_backend = backend
+        return backend
 
     # ------------------------------------------------------------------
     # meshing
@@ -1199,8 +1302,11 @@ class Project:
         supported_parameters = {
             key: value
             for key, value in parameters.items()
-            if key in {"recombine", "native_backend", "overlap_policy"}
+            if key in {"recombine", "overlap_policy"}
         }
+        native_backend = self.set_native_triangulation_backend(
+            self.native_triangulation_backend
+        )
         return generate_hybrid_mesh(
             self.geometry,
             target_size=resolved_size,
@@ -1216,6 +1322,7 @@ class Project:
             certification_mode=resolved_certification,
             change_set=change_set,
             cancellation_check=cancellation_check,
+            native_backend=native_backend,
             **supported_parameters,
         )
 

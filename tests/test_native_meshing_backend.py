@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 
 import anymesher.surface_mesh as surface_mesh
+import pytest
 from anyfem.model.project import Project
-from anyfem.native_meshing import ComponentUpdateKind, NativeMeshSettings
+from anyfem.native_meshing import (
+    CertificationMode,
+    ComponentUpdateKind,
+    ControlScope,
+    MeshBackend,
+    NativeMeshControl,
+    NativeMeshSettings,
+)
+import anyfem.native_meshing_backend as backend_module
 from anyfem.native_meshing_backend import NativeProjectMeshingSession
 
 
@@ -115,3 +125,82 @@ def test_in_flight_native_cancellation_stops_before_recombination(
             event.kind is ComponentUpdateKind.CANCELLED
             for event in session.runtime.poll_events()
         )
+
+
+class _NoCancellation:
+    def raise_if_cancelled(self, _stage: str) -> None:
+        return None
+
+
+def _component_request(session, component, *, settings, controls=()):
+    return SimpleNamespace(
+        cancellation=_NoCancellation(),
+        snapshot=session.capture_component(component),
+        component=component,
+        settings=settings,
+        controls=tuple(controls),
+        backend=MeshBackend.NATIVE,
+        certification_mode=CertificationMode.INTERACTIVE,
+        changes=None,
+    )
+
+
+def test_incremental_session_snapshots_project_backend(monkeypatch) -> None:
+    project, sheet_id, _vertex = _sheet_project()
+    component = project.geometry.handle("sheet", sheet_id)
+    settings = NativeMeshSettings(target_size=0.3, backend="native")
+    project.set_native_triangulation_backend("python")
+    captured: list[str] = []
+
+    def fake_generate(_geometry, **kwargs):
+        captured.append(kwargs["native_backend"])
+        assert "native_backend" not in dict(settings.parameters)
+        return SimpleNamespace(
+            mesh=object(), certifiable=False, strategy_by_face={}
+        )
+
+    monkeypatch.setattr(backend_module, "generate_hybrid_mesh_result", fake_generate)
+
+    with NativeProjectMeshingSession(project, settings) as session:
+        project.set_native_triangulation_backend("native")
+        session.generate_component(
+            _component_request(session, component, settings=settings)
+        )
+    with NativeProjectMeshingSession(project, settings) as session:
+        session.generate_component(
+            _component_request(session, component, settings=settings)
+        )
+
+    assert captured == ["python", "native"]
+
+
+@pytest.mark.parametrize("source", ("settings", "control"))
+def test_incremental_generation_rejects_nested_backend(source: str, monkeypatch) -> None:
+    project, sheet_id, _vertex = _sheet_project()
+    component = project.geometry.handle("sheet", sheet_id)
+    clean = NativeMeshSettings(target_size=0.3, backend="native")
+    bad_settings = NativeMeshSettings.create(
+        target_size=0.3, parameters={"native_backend": "python"}
+    )
+    bad_control = NativeMeshControl.create(
+        "bad-backend",
+        scope=ControlScope((component,)),
+        parameters={"native_backend": "python"},
+    )
+
+    def must_not_generate(*_args, **_kwargs):
+        raise AssertionError("invalid nested backend reached the mesher")
+
+    monkeypatch.setattr(
+        backend_module, "generate_hybrid_mesh_result", must_not_generate
+    )
+
+    with NativeProjectMeshingSession(project, clean) as session:
+        request = _component_request(
+            session,
+            component,
+            settings=bad_settings if source == "settings" else clean,
+            controls=(bad_control,) if source == "control" else (),
+        )
+        with pytest.raises(ValueError, match="project-level setting"):
+            session.generate_component(request)

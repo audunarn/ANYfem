@@ -60,12 +60,77 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 5
+FORMAT_VERSION = 6
 SUFFIX = ".anyfem"
+_NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
 
 class ProjectFileError(ValueError):
     """Raised when a project file cannot be read."""
+
+
+def _native_backend_value(value: Any, context: str) -> str:
+    if not isinstance(value, str) or value not in _NATIVE_TRIANGULATION_BACKENDS:
+        expected = ", ".join(_NATIVE_TRIANGULATION_BACKENDS)
+        raise ProjectFileError(f"{context} must be one of {expected}")
+    return value
+
+
+def _nested_native_backend_path(value: Any, path: str) -> str | None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            child = f"{path}.{key}"
+            if key == "native_backend":
+                return child
+            found = _nested_native_backend_path(item, child)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            found = _nested_native_backend_path(item, f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
+def _without_legacy_native_backends(
+    value: Any, path: str
+) -> tuple[Any, tuple[tuple[str, Any], ...]]:
+    """Copy a legacy native-settings tree while extracting every selector."""
+
+    if isinstance(value, Mapping):
+        made: dict[Any, Any] = {}
+        found: list[tuple[str, Any]] = []
+        for key, item in value.items():
+            child = f"{path}.{key}"
+            if key == "native_backend":
+                found.append((child, item))
+                continue
+            cleaned, nested = _without_legacy_native_backends(item, child)
+            made[key] = cleaned
+            found.extend(nested)
+        return made, tuple(found)
+    if isinstance(value, list):
+        made_list: list[Any] = []
+        found = []
+        for index, item in enumerate(value):
+            cleaned, nested = _without_legacy_native_backends(
+                item, f"{path}[{index}]"
+            )
+            made_list.append(cleaned)
+            found.extend(nested)
+        return made_list, tuple(found)
+    if isinstance(value, tuple):
+        made_tuple: list[Any] = []
+        found = []
+        for index, item in enumerate(value):
+            cleaned, nested = _without_legacy_native_backends(
+                item, f"{path}[{index}]"
+            )
+            made_tuple.append(cleaned)
+            found.extend(nested)
+        return tuple(made_tuple), tuple(found)
+    return value, ()
 
 
 # ----------------------------------------------------------------------
@@ -78,6 +143,21 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
     # into canonical region-backed records before taking the persisted view.
     project.resolve_section_assignments(strict=False)
     geometry = project.geometry
+    native_backend = project.set_native_triangulation_backend(
+        project.native_triangulation_backend
+    )
+    native_settings = (
+        None
+        if project.native_mesh_settings is None
+        else project.native_mesh_settings.to_dict()
+    )
+    nested_backend = _nested_native_backend_path(
+        native_settings, "meshing.native"
+    )
+    if nested_backend is not None:
+        raise ProjectFileError(
+            f"{nested_backend} is non-canonical; use meshing.native_backend"
+        )
     return {
         "anyfem": {
             "schema": "anyfem.project",
@@ -213,11 +293,8 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "meshing": {
             "element_order": project.element_order,
             "target_size": project.target_size,
-            "native": (
-                None
-                if project.native_mesh_settings is None
-                else project.native_mesh_settings.to_dict()
-            ),
+            "native_backend": native_backend,
+            "native": native_settings,
             "seeding_overrides": {
                 str(key): int(value)
                 for key, value in sorted(project.seeding_overrides.items())
@@ -621,7 +698,22 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             project.add_imperfection(imperfection)
 
     meshing = data.get("meshing")
+    if version >= 6 and not isinstance(meshing, Mapping):
+        raise ProjectFileError("format 6 meshing must be an object")
+    native_backend = "python"
     if isinstance(meshing, Mapping):
+        if version >= 6:
+            if "native_backend" not in meshing:
+                raise ProjectFileError(
+                    "format 6 meshing.native_backend is required"
+                )
+            native_backend = _native_backend_value(
+                meshing["native_backend"], "meshing.native_backend"
+            )
+        elif "native_backend" in meshing:
+            raise ProjectFileError(
+                "meshing.native_backend is only valid in format 6"
+            )
         # Absent in files written before meshing controls existed, which is
         # what the defaults are for.
         project.set_element_order(str(meshing.get("element_order", "linear")))
@@ -637,6 +729,33 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         if native_settings is not None:
             if not isinstance(native_settings, Mapping):
                 raise ProjectFileError("meshing.native must be an object or null")
+            nested_backend = _nested_native_backend_path(
+                native_settings, "meshing.native"
+            )
+            if version >= 6 and nested_backend is not None:
+                raise ProjectFileError(
+                    f"{nested_backend} is non-canonical in format 6; "
+                    "use meshing.native_backend only"
+                )
+            native_settings = dict(native_settings)
+            if version < 6:
+                native_settings, legacy_backends = _without_legacy_native_backends(
+                    native_settings, "meshing.native"
+                )
+                decoded_backends = tuple(
+                    (path, _native_backend_value(value, path))
+                    for path, value in legacy_backends
+                )
+                distinct = {value for _path, value in decoded_backends}
+                if len(distinct) > 1:
+                    detail = ", ".join(
+                        f"{path}={value!r}" for path, value in decoded_backends
+                    )
+                    raise ProjectFileError(
+                        f"conflicting legacy native_backend values: {detail}"
+                    )
+                if decoded_backends:
+                    native_backend = decoded_backends[0][1]
             project.set_native_mesh_settings(
                 NativeMeshSettings.from_dict(native_settings)
             )
@@ -659,6 +778,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 project.refinements.append(refinement)
             else:
                 project.add_refinement(refinement)
+    project.set_native_triangulation_backend(native_backend)
 
     for index, entry in enumerate(data.get("analyses", ())):
         if not isinstance(entry, Mapping):

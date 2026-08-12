@@ -1,0 +1,1050 @@
+diff --git a/src/anyfem/ui/app.py b/src/anyfem/ui/app.py
+index 042d644..ce9601d 100644
+--- a/src/anyfem/ui/app.py
++++ b/src/anyfem/ui/app.py
+@@ -1,10 +1,10 @@
+-"""The ANYfem application window.
+-
+-Layout: model tree on the left, 3D viewport in the middle, stage panels on the
+-right, status bar along the bottom.
+-
+-The app owns the shared state -- project, command stack, selection, current
+-mesh and solution -- and the panels act on it.  Every model change goes through
+-the command stack, so the same calls are available from a script.
+-"""
+-
++"""The ANYfem application window.
++
++Layout: model tree on the left, 3D viewport in the middle, stage panels on the
++right, status bar along the bottom.
++
++The app owns the shared state -- project, command stack, selection, current
++mesh and solution -- and the panels act on it.  Every model change goes through
++the command stack, so the same calls are available from a script.
++"""
++
+@@ -22 +22 @@ from typing import Any, Dict, Iterable, Optional
+-
++
+@@ -27 +27 @@ from ..mesh_jobs import MeshJobResult, MeshSettings, MeshTaskManager
+-from ..io.decks import export_calculix_deck
++from ..io.decks import export_calculix_deck
+@@ -36,3 +36,3 @@ from ..io.result_artifact import write_solution_artifact
+-from ..io.sesam import import_sesam
+-from ..solve.build import build_fe_model
+-from ..model.materials import steel
++from ..io.sesam import import_sesam
++from ..solve.build import build_fe_model
++from ..model.materials import steel
+@@ -42,2 +42,2 @@ from ..selection import MeshEntityRef, Selection, mode_label
+-from ..solve.run import (
+-    solve_arc_length,
++from ..solve.run import (
++    solve_arc_length,
+@@ -49,5 +49,5 @@ from ..solve.run import (
+-    solve_modal,
+-    solve_nonlinear_static,
+-    solve_transient,
+-)
+-
++    solve_modal,
++    solve_nonlinear_static,
++    solve_transient,
++)
++
+@@ -55,5 +55,5 @@ from .panels import (
+-    GeometryPanel,
+-    LoadPanel,
+-    MeshPanel,
+-    ResultsPanel,
+-    SectionPanel,
++    GeometryPanel,
++    LoadPanel,
++    MeshPanel,
++    ResultsPanel,
++    SectionPanel,
+@@ -63,4 +63,4 @@ from .definitions import DefinitionsPanel
+-from .scene import (
+-    build_attribute_overlay,
+-    build_collision_overlay,
+-    build_geometry_scene,
++from .scene import (
++    build_attribute_overlay,
++    build_collision_overlay,
++    build_geometry_scene,
+@@ -70 +70 @@ from .scene import (
+-)
++)
+@@ -76,4 +76,4 @@ from .scripting import ScriptingPanel
+-
+-__all__ = ["ANALYSES", "AnyFemApp", "main"]
+-
+-# Which function each analysis name on the Solve panel runs.
++
++__all__ = ["ANALYSES", "AnyFemApp", "main"]
++
++# Which function each analysis name on the Solve panel runs.
+@@ -83,5 +83,5 @@ ANALYSES = {
+-    "Modal": solve_modal,
+-    "Buckling": solve_buckling,
+-    "Nonlinear static": solve_nonlinear_static,
+-    "Arc length": solve_arc_length,
+-    "Transient": solve_transient,
++    "Modal": solve_modal,
++    "Buckling": solve_buckling,
++    "Nonlinear static": solve_nonlinear_static,
++    "Arc length": solve_arc_length,
++    "Transient": solve_transient,
+@@ -91,6 +91,6 @@ ANALYSES = {
+-
+-
+-class AnyFemApp(ttk.Frame):
+-    """The main window."""
+-
+-    def __init__(self, master: tk.Misc, project: Optional[Project] = None) -> None:
++
++
++class AnyFemApp(ttk.Frame):
++    """The main window."""
++
++    def __init__(self, master: tk.Misc, project: Optional[Project] = None) -> None:
+@@ -124 +124 @@ class AnyFemApp(ttk.Frame):
+-        self.analysis = "Linear static"
++        self.analysis = "Linear static"
+@@ -126,2 +126,2 @@ class AnyFemApp(ttk.Frame):
+-        self.imported = None
+-        self.path: Optional[Path] = None
++        self.imported = None
++        self.path: Optional[Path] = None
+@@ -142,4 +142,4 @@ class AnyFemApp(ttk.Frame):
+-
+-        self._build()
+-        self._build_menu()
+-
++
++        self._build()
++        self._build_menu()
++
+@@ -151 +151 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -165,5 +165,5 @@ class AnyFemApp(ttk.Frame):
+-
+-    # ------------------------------------------------------------------
+-    def _build(self) -> None:
+-        self.pack(fill="both", expand=True)
+-
++
++    # ------------------------------------------------------------------
++    def _build(self) -> None:
++        self.pack(fill="both", expand=True)
++
+@@ -171,16 +171,16 @@ class AnyFemApp(ttk.Frame):
+-        toolbar.pack(fill="x")
+-        self._undo_button = ttk.Button(toolbar, text="Undo", command=self.undo)
+-        self._undo_button.pack(side="left")
+-        self._redo_button = ttk.Button(toolbar, text="Redo", command=self.redo)
+-        self._redo_button.pack(side="left", padx=(4, 12))
+-        for label, name in (
+-            ("Iso", "iso"), ("Top", "top"), ("Front", "front"), ("Side", "side")
+-        ):
+-            ttk.Button(
+-                toolbar, text=label, width=6,
+-                command=lambda n=name: self.viewport.set_view(n),
+-            ).pack(side="left", padx=1)
+-        ttk.Button(toolbar, text="Fit", width=6, command=self._fit).pack(
+-            side="left", padx=(8, 0)
+-        )
+-        self._show_attributes = tk.BooleanVar(value=True)
++        toolbar.pack(fill="x")
++        self._undo_button = ttk.Button(toolbar, text="Undo", command=self.undo)
++        self._undo_button.pack(side="left")
++        self._redo_button = ttk.Button(toolbar, text="Redo", command=self.redo)
++        self._redo_button.pack(side="left", padx=(4, 12))
++        for label, name in (
++            ("Iso", "iso"), ("Top", "top"), ("Front", "front"), ("Side", "side")
++        ):
++            ttk.Button(
++                toolbar, text=label, width=6,
++                command=lambda n=name: self.viewport.set_view(n),
++            ).pack(side="left", padx=1)
++        ttk.Button(toolbar, text="Fit", width=6, command=self._fit).pack(
++            side="left", padx=(8, 0)
++        )
++        self._show_attributes = tk.BooleanVar(value=True)
+@@ -190,2 +190,2 @@ class AnyFemApp(ttk.Frame):
+-            variable=self._show_attributes,
+-            command=self.refresh_views,
++            variable=self._show_attributes,
++            command=self.refresh_views,
+@@ -210 +210 @@ class AnyFemApp(ttk.Frame):
+-        self._view_label = ttk.Label(toolbar, text="")
++        self._view_label = ttk.Label(toolbar, text="")
+@@ -215,4 +215,4 @@ class AnyFemApp(ttk.Frame):
+-
+-        panes = ttk.PanedWindow(self, orient="horizontal")
+-        panes.pack(fill="both", expand=True)
+-
++
++        panes = ttk.PanedWindow(self, orient="horizontal")
++        panes.pack(fill="both", expand=True)
++
+@@ -228,3 +228,3 @@ class AnyFemApp(ttk.Frame):
+-
+-        centre = ttk.Frame(panes)
+-        panes.add(centre, weight=4)
++
++        centre = ttk.Frame(panes)
++        panes.add(centre, weight=4)
+@@ -242,3 +242,3 @@ class AnyFemApp(ttk.Frame):
+-
+-        right = ttk.Frame(panes)
+-        panes.add(right, weight=2)
++
++        right = ttk.Frame(panes)
++        panes.add(right, weight=2)
+@@ -251,2 +251,2 @@ class AnyFemApp(ttk.Frame):
+-
+-        self.panels = {}
++
++        self.panels = {}
+@@ -256 +256 @@ class AnyFemApp(ttk.Frame):
+-        ):
++        ):
+@@ -264,11 +264,11 @@ class AnyFemApp(ttk.Frame):
+-
+-        status = ttk.Frame(self, padding=(6, 3))
+-        status.pack(fill="x")
+-        self._status = ttk.Label(status, text="ready", anchor="w")
+-        self._status.pack(side="left", fill="x", expand=True)
+-        self._selection_label = ttk.Label(status, text="")
+-        self._selection_label.pack(side="right")
+-
+-    # ------------------------------------------------------------------
+-    # commands
+-    # ------------------------------------------------------------------
++
++        status = ttk.Frame(self, padding=(6, 3))
++        status.pack(fill="x")
++        self._status = ttk.Label(status, text="ready", anchor="w")
++        self._status.pack(side="left", fill="x", expand=True)
++        self._selection_label = ttk.Label(status, text="")
++        self._selection_label.pack(side="right")
++
++    # ------------------------------------------------------------------
++    # commands
++    # ------------------------------------------------------------------
+@@ -300 +300 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -304 +304 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -377,11 +377,11 @@ class AnyFemApp(ttk.Frame):
+-
+-    def _invalidate_downstream(self) -> None:
+-        """A geometry change makes any existing mesh and result stale."""
+-
+-        self.mesh = None
+-        self.solution = None
+-        self.show_geometry()
+-
+-    # ------------------------------------------------------------------
+-    # meshing and solving
+-    # ------------------------------------------------------------------
++
++    def _invalidate_downstream(self) -> None:
++        """A geometry change makes any existing mesh and result stale."""
++
++        self.mesh = None
++        self.solution = None
++        self.show_geometry()
++
++    # ------------------------------------------------------------------
++    # meshing and solving
++    # ------------------------------------------------------------------
+@@ -450 +450 @@ class AnyFemApp(ttk.Frame):
+-        self.show_mesh()
++        self.show_mesh()
+@@ -601 +601 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -604,8 +604,8 @@ class AnyFemApp(ttk.Frame):
+-
+-        if self.mesh is None:
+-            raise ValueError("generate a mesh first")
+-        try:
+-            function = ANALYSES[analysis]
+-        except KeyError:
+-            raise ValueError(f"unknown analysis {analysis!r}") from None
+-
++
++        if self.mesh is None:
++            raise ValueError("generate a mesh first")
++        try:
++            function = ANALYSES[analysis]
++        except KeyError:
++            raise ValueError(f"unknown analysis {analysis!r}") from None
++
+@@ -631,8 +631,8 @@ class AnyFemApp(ttk.Frame):
+-            # An imported model is already built and has no geometry to mesh,
+-            # so it goes straight to the analysis.
+-            case = self.project.load_cases.get(self.active_case())
+-            options = {
+-                key: value
+-                for key, value in options.items()
+-                if key not in ("load_case", "combination")
+-            }
++            # An imported model is already built and has no geometry to mesh,
++            # so it goes straight to the analysis.
++            case = self.project.load_cases.get(self.active_case())
++            options = {
++                key: value
++                for key, value in options.items()
++                if key not in ("load_case", "combination")
++            }
+@@ -689,4 +689,4 @@ class AnyFemApp(ttk.Frame):
+-
+-    def cancel_solve(self) -> None:
+-        self.worker.cancel()
+-
++
++    def cancel_solve(self) -> None:
++        self.worker.cancel()
++
+@@ -705 +705 @@ class AnyFemApp(ttk.Frame):
+-        self.set_status(solution.summary())
++        self.set_status(solution.summary())
+@@ -898,21 +898,21 @@ class AnyFemApp(ttk.Frame):
+-
+-    def current_shape(self):
+-        """The displacement field currently being displayed.
+-
+-        A static result is its own shape; a modal, buckling or transient
+-        result is browsed by index.  Everything downstream sees the same
+-        interface either way.
+-        """
+-
+-        solution = self.solution
+-        if solution is None:
+-            return None
+-        shapes = getattr(solution, "shapes", None)
+-        if not shapes:
+-            return solution
+-        index = min(max(self.shape_index, 0), len(shapes) - 1)
+-        return shapes[index]
+-
+-    # ------------------------------------------------------------------
+-    # views
+-    # ------------------------------------------------------------------
++
++    def current_shape(self):
++        """The displacement field currently being displayed.
++
++        A static result is its own shape; a modal, buckling or transient
++        result is browsed by index.  Everything downstream sees the same
++        interface either way.
++        """
++
++        solution = self.solution
++        if solution is None:
++            return None
++        shapes = getattr(solution, "shapes", None)
++        if not shapes:
++            return solution
++        index = min(max(self.shape_index, 0), len(shapes) - 1)
++        return shapes[index]
++
++    # ------------------------------------------------------------------
++    # views
++    # ------------------------------------------------------------------
+@@ -920,5 +920,5 @@ class AnyFemApp(ttk.Frame):
+-        self._view_mode = "geometry"
+-        scene = build_geometry_scene(self.project)
+-        self.viewport.show(self._with_attributes(scene), reset_view=reset_view)
+-        self._update_view_label()
+-
++        self._view_mode = "geometry"
++        scene = build_geometry_scene(self.project)
++        self.viewport.show(self._with_attributes(scene), reset_view=reset_view)
++        self._update_view_label()
++
+@@ -926,6 +926,6 @@ class AnyFemApp(ttk.Frame):
+-        if self.mesh is None:
+-            self.show_geometry()
+-            return
+-        self._view_mode = "mesh"
+-        scene = build_mesh_scene(self.project, self.mesh)
+-        self.viewport.show(self._with_attributes(scene))
++        if self.mesh is None:
++            self.show_geometry()
++            return
++        self._view_mode = "mesh"
++        scene = build_mesh_scene(self.project, self.mesh)
++        self.viewport.show(self._with_attributes(scene))
+@@ -1008 +1008 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -1018,4 +1018,4 @@ class AnyFemApp(ttk.Frame):
+-        """Overlay supports and the active case's loads, if asked for."""
+-
+-        if not self._show_attributes.get():
+-            return scene
++        """Overlay supports and the active case's loads, if asked for."""
++
++        if not self._show_attributes.get():
++            return scene
+@@ -1033,17 +1033,17 @@ class AnyFemApp(ttk.Frame):
+-
+-    def active_case(self) -> str:
+-        panel = self.panels.get("Loads & BC")
+-        return "default" if panel is None else panel.case_name()
+-
+-    def refresh_views(self) -> None:
+-        """Redraw whichever view is showing."""
+-
+-        if self._closing:
+-            return
+-        if self._view_mode == "results":
+-            self.show_results()
+-        elif self._view_mode == "mesh":
+-            self.show_mesh()
+-        else:
+-            self.show_geometry()
+-
++
++    def active_case(self) -> str:
++        panel = self.panels.get("Loads & BC")
++        return "default" if panel is None else panel.case_name()
++
++    def refresh_views(self) -> None:
++        """Redraw whichever view is showing."""
++
++        if self._closing:
++            return
++        if self._view_mode == "results":
++            self.show_results()
++        elif self._view_mode == "mesh":
++            self.show_mesh()
++        else:
++            self.show_geometry()
++
+@@ -1051,3 +1051,3 @@ class AnyFemApp(ttk.Frame):
+-        if self.solution is None:
+-            self.show_mesh()
+-            return
++        if self.solution is None:
++            self.show_mesh()
++            return
+@@ -1057 +1057 @@ class AnyFemApp(ttk.Frame):
+-        self._view_mode = "results"
++        self._view_mode = "results"
+@@ -1059,4 +1059,4 @@ class AnyFemApp(ttk.Frame):
+-            shape,
+-            field=panel.field_name(),
+-            scale=panel.scale_value(shape),
+-            limits=panel.colour_limits(),
++            shape,
++            field=panel.field_name(),
++            scale=panel.scale_value(shape),
++            limits=panel.colour_limits(),
+@@ -1077,17 +1077,17 @@ class AnyFemApp(ttk.Frame):
+-        self.viewport.show(scene)
+-        self._update_view_label()
+-
+-    def _fit(self) -> None:
+-        self.viewport.fit()
+-
+-    def _update_view_label(self) -> None:
+-        text = f"showing: {self._view_mode}"
+-        if self._view_mode == "results":
+-            shape = self.current_shape()
+-            if shape is not None and getattr(shape, "label", ""):
+-                text += f" - {shape.label}"
+-        self._view_label.configure(text=text)
+-
+-    # ------------------------------------------------------------------
+-    # refresh
+-    # ------------------------------------------------------------------
++        self.viewport.show(scene)
++        self._update_view_label()
++
++    def _fit(self) -> None:
++        self.viewport.fit()
++
++    def _update_view_label(self) -> None:
++        text = f"showing: {self._view_mode}"
++        if self._view_mode == "results":
++            shape = self.current_shape()
++            if shape is not None and getattr(shape, "label", ""):
++                text += f" - {shape.label}"
++        self._view_label.configure(text=text)
++
++    # ------------------------------------------------------------------
++    # refresh
++    # ------------------------------------------------------------------
+@@ -1097,23 +1097,23 @@ class AnyFemApp(ttk.Frame):
+-        self.tree.refresh()
+-        self.refresh_panels()
+-        self._refresh_toolbar()
+-        if self._view_mode == "geometry":
+-            self.show_geometry()
+-
+-    def refresh_panels(self) -> None:
+-        if self._closing:
+-            return
+-        for panel in self.panels.values():
+-            panel.refresh()
+-        self._refresh_toolbar()
+-
+-    def _refresh_toolbar(self) -> None:
+-        self._undo_button.configure(
+-            state="normal" if self.commands.can_undo else "disabled",
+-            text=f"Undo {self.commands.undo_label or ''}".strip(),
+-        )
+-        self._redo_button.configure(
+-            state="normal" if self.commands.can_redo else "disabled",
+-            text=f"Redo {self.commands.redo_label or ''}".strip(),
+-        )
+-
++        self.tree.refresh()
++        self.refresh_panels()
++        self._refresh_toolbar()
++        if self._view_mode == "geometry":
++            self.show_geometry()
++
++    def refresh_panels(self) -> None:
++        if self._closing:
++            return
++        for panel in self.panels.values():
++            panel.refresh()
++        self._refresh_toolbar()
++
++    def _refresh_toolbar(self) -> None:
++        self._undo_button.configure(
++            state="normal" if self.commands.can_undo else "disabled",
++            text=f"Undo {self.commands.undo_label or ''}".strip(),
++        )
++        self._redo_button.configure(
++            state="normal" if self.commands.can_redo else "disabled",
++            text=f"Redo {self.commands.redo_label or ''}".strip(),
++        )
++
+@@ -1125,6 +1125,6 @@ class AnyFemApp(ttk.Frame):
+-        self._selection_label.configure(
+-            text=f"{mode_label(self.selection.mode)} mode - "
+-            f"{self.selection.describe()}"
+-        )
+-        self.refresh_panels()
+-
++        self._selection_label.configure(
++            text=f"{mode_label(self.selection.mode)} mode - "
++            f"{self.selection.describe()}"
++        )
++        self.refresh_panels()
++
+@@ -1138 +1138 @@ class AnyFemApp(ttk.Frame):
+-
++
+@@ -1140,8 +1140,8 @@ class AnyFemApp(ttk.Frame):
+-        if ref is None:
+-            return
+-        self.set_status(f"selected {ref}")
+-        # Clicking something while results are showing reads it out: that is
+-        # what a probe is for, and asking for it twice would be tedious.
+-        if self._view_mode == "results" and self.solution is not None:
+-            panel = self.panels.get("Results")
+-            if panel is not None:
++        if ref is None:
++            return
++        self.set_status(f"selected {ref}")
++        # Clicking something while results are showing reads it out: that is
++        # what a probe is for, and asking for it twice would be tedious.
++        if self._view_mode == "results" and self.solution is not None:
++            panel = self.panels.get("Results")
++            if panel is not None:
+@@ -1726,5 +1726,5 @@ class AnyFemApp(ttk.Frame):
+-    # ------------------------------------------------------------------
+-    def _build_menu(self) -> None:
+-        root = self.winfo_toplevel()
+-        menu = tk.Menu(root)
+-        files = tk.Menu(menu, tearoff=0)
++    # ------------------------------------------------------------------
++    def _build_menu(self) -> None:
++        root = self.winfo_toplevel()
++        menu = tk.Menu(root)
++        files = tk.Menu(menu, tearoff=0)
+@@ -1750,21 +1750,21 @@ class AnyFemApp(ttk.Frame):
+-        files.add_separator()
+-        files.add_command(label="Save", command=self.guarded(self.save_project))
+-        files.add_command(
+-            label="Save As...", command=self.guarded(lambda: self.save_project(True))
+-        )
+-        files.add_separator()
+-        files.add_command(
+-            label="Import SESAM...", command=self.guarded(self.import_sesam_model)
+-        )
+-        files.add_command(
+-            label="Export CalculiX deck...", command=self.guarded(self.export_deck)
+-        )
+-        files.add_separator()
+-        files.add_command(
+-            label="Import CalculiX results...",
+-            command=self.guarded(self.import_calculix_result),
+-        )
+-        files.add_command(
+-            label="Import SESAM results...",
+-            command=self.guarded(self.import_sesam_result),
+-        )
++        files.add_separator()
++        files.add_command(label="Save", command=self.guarded(self.save_project))
++        files.add_command(
++            label="Save As...", command=self.guarded(lambda: self.save_project(True))
++        )
++        files.add_separator()
++        files.add_command(
++            label="Import SESAM...", command=self.guarded(self.import_sesam_model)
++        )
++        files.add_command(
++            label="Export CalculiX deck...", command=self.guarded(self.export_deck)
++        )
++        files.add_separator()
++        files.add_command(
++            label="Import CalculiX results...",
++            command=self.guarded(self.import_calculix_result),
++        )
++        files.add_command(
++            label="Import SESAM results...",
++            command=self.guarded(self.import_sesam_result),
++        )
+@@ -1796,4 +1796,4 @@ class AnyFemApp(ttk.Frame):
+-        try:
+-            root.configure(menu=menu)
+-        except tk.TclError:  # pragma: no cover - embedded without a toplevel
+-            pass
++        try:
++            root.configure(menu=menu)
++        except tk.TclError:  # pragma: no cover - embedded without a toplevel
++            pass
+@@ -1801,7 +1801,7 @@ class AnyFemApp(ttk.Frame):
+-
+-    def guarded(self, action):
+-        """Turn a refusal into a status message rather than a traceback."""
+-
+-        def wrapped() -> None:
+-            try:
+-                action()
++
++    def guarded(self, action):
++        """Turn a refusal into a status message rather than a traceback."""
++
++        def wrapped() -> None:
++            try:
++                action()
+@@ -1809,4 +1809,4 @@ class AnyFemApp(ttk.Frame):
+-                self.set_status(str(error), error=True)
+-
+-        return wrapped
+-
++                self.set_status(str(error), error=True)
++
++        return wrapped
++
+@@ -1825 +1825 @@ class AnyFemApp(ttk.Frame):
+-        self.refresh_all()
++        self.refresh_all()
+@@ -1841,5 +1841,5 @@ class AnyFemApp(ttk.Frame):
+-            path = filedialog.askopenfilename(
+-                filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")]
+-            )
+-            if not path:
+-                return
++            path = filedialog.askopenfilename(
++                filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")]
++            )
++            if not path:
++                return
+@@ -1932,12 +1932,12 @@ class AnyFemApp(ttk.Frame):
+-
+-    def save_project(self, ask: bool = False, path: Optional[str] = None) -> None:
+-        if path is None:
+-            path = str(self.path) if self.path and not ask else ""
+-        if not path:
+-            path = filedialog.asksaveasfilename(
+-                defaultextension=".anyfem",
+-                filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")],
+-                initialfile=f"{self.project.name}.anyfem",
+-            )
+-            if not path:
+-                return
++
++    def save_project(self, ask: bool = False, path: Optional[str] = None) -> None:
++        if path is None:
++            path = str(self.path) if self.path and not ask else ""
++        if not path:
++            path = filedialog.asksaveasfilename(
++                defaultextension=".anyfem",
++                filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")],
++                initialfile=f"{self.project.name}.anyfem",
++            )
++            if not path:
++                return
+@@ -2161,8 +2161,8 @@ class AnyFemApp(ttk.Frame):
+-
+-    def import_sesam_model(self, path: Optional[str] = None) -> None:
+-        if path is None:
+-            path = filedialog.askopenfilename(
+-                filetypes=[("SESAM FEM", "*.FEM *.fem"), ("All files", "*.*")]
+-            )
+-            if not path:
+-                return
++
++    def import_sesam_model(self, path: Optional[str] = None) -> None:
++        if path is None:
++            path = filedialog.askopenfilename(
++                filetypes=[("SESAM FEM", "*.FEM *.fem"), ("All files", "*.*")]
++            )
++            if not path:
++                return
+@@ -2179,11 +2179,11 @@ class AnyFemApp(ttk.Frame):
+-        note = (
+-            ""
+-            if not model.diagnostics
+-            else f"; {len(model.diagnostics)} diagnostic(s)"
+-        )
+-        self.set_status(
+-            f"imported {model.summary()}{note}. Geometry editing is off: an "
+-            "imported file has a mesh, not plates and lines."
+-        )
+-        self.refresh_all()
+-        self.show_mesh()
++        note = (
++            ""
++            if not model.diagnostics
++            else f"; {len(model.diagnostics)} diagnostic(s)"
++        )
++        self.set_status(
++            f"imported {model.summary()}{note}. Geometry editing is off: an "
++            "imported file has a mesh, not plates and lines."
++        )
++        self.refresh_all()
++        self.show_mesh()
+@@ -2266,82 +2266,82 @@ class AnyFemApp(ttk.Frame):
+-
+-    def import_calculix_result(self, path: Optional[str] = None) -> None:
+-        """Read a CalculiX FRD onto the current model."""
+-
+-        if path is None:
+-            path = filedialog.askopenfilename(
+-                filetypes=[
+-                    ("CalculiX results", "*.frd *.FRD *.dat *.DAT"),
+-                    ("All files", "*.*"),
+-                ]
+-            )
+-            if not path:
+-                return
+-        self._attach_results(import_calculix_results(path))
+-
+-    def import_sesam_result(self, path: Optional[str] = None) -> None:
+-        """Read SESAM SIF shell stresses onto the current model."""
+-
+-        if path is None:
+-            path = filedialog.askopenfilename(
+-                filetypes=[("SESAM SIF", "*.SIF *.sif"), ("All files", "*.*")]
+-            )
+-            if not path:
+-                return
+-        self._attach_results(import_sesam_results(path))
+-
+-    def _attach_results(self, results) -> None:
+-        """Bind imported results to whatever model is loaded.
+-
+-        Matching is by node ID, so this needs a model that has been meshed or
+-        imported.  A mismatch is reported rather than partially attached.
+-        """
+-
+-        built = self.built()
+-        if built is None:
+-            raise ValueError(
+-                "generate or import a mesh first: results are matched to a "
+-                "model by node ID, so there has to be one to match against"
+-            )
+-        self.solution = results.attach(built)
+-        self.set_status(results.summary())
+-        self.refresh_all()
+-        self.show_results()
+-
+-    def built(self):
+-        """The built model behind the current mesh, if there is one."""
+-
+-        if self.imported is not None:
+-            return self.imported
+-        if self.mesh is None:
+-            return None
+-        from ..solve.build import build_fe_model
+-
+-        return build_fe_model(
+-            self.project, self.mesh,
+-            require_loads=False, require_supports=False,
+-        )
+-
+-    def export_deck(self, path: Optional[str] = None) -> None:
+-        if self.mesh is None:
+-            raise ValueError("generate or import a mesh first")
+-        if path is None:
+-            path = filedialog.asksaveasfilename(
+-                defaultextension=".inp",
+-                filetypes=[("CalculiX deck", "*.inp"), ("All files", "*.*")],
+-                initialfile=f"{self.project.name}.inp",
+-            )
+-            if not path:
+-                return
+-        built = self.build_current()
+-        written = export_calculix_deck(built, path)
+-        self.set_status(
+-            f"deck written to {Path(path).name}. A generated deck is a handoff, "
+-            "not evidence: it says nothing until it has been run and compared."
+-        )
+-        return written
+-
+-    def build_current(self):
+-        """The built model for whatever is loaded, imported or modelled."""
+-
+-        if self.imported is not None:
+-            case = self.project.load_cases.get(self.active_case())
++
++    def import_calculix_result(self, path: Optional[str] = None) -> None:
++        """Read a CalculiX FRD onto the current model."""
++
++        if path is None:
++            path = filedialog.askopenfilename(
++                filetypes=[
++                    ("CalculiX results", "*.frd *.FRD *.dat *.DAT"),
++                    ("All files", "*.*"),
++                ]
++            )
++            if not path:
++                return
++        self._attach_results(import_calculix_results(path))
++
++    def import_sesam_result(self, path: Optional[str] = None) -> None:
++        """Read SESAM SIF shell stresses onto the current model."""
++
++        if path is None:
++            path = filedialog.askopenfilename(
++                filetypes=[("SESAM SIF", "*.SIF *.sif"), ("All files", "*.*")]
++            )
++            if not path:
++                return
++        self._attach_results(import_sesam_results(path))
++
++    def _attach_results(self, results) -> None:
++        """Bind imported results to whatever model is loaded.
++
++        Matching is by node ID, so this needs a model that has been meshed or
++        imported.  A mismatch is reported rather than partially attached.
++        """
++
++        built = self.built()
++        if built is None:
++            raise ValueError(
++                "generate or import a mesh first: results are matched to a "
++                "model by node ID, so there has to be one to match against"
++            )
++        self.solution = results.attach(built)
++        self.set_status(results.summary())
++        self.refresh_all()
++        self.show_results()
++
++    def built(self):
++        """The built model behind the current mesh, if there is one."""
++
++        if self.imported is not None:
++            return self.imported
++        if self.mesh is None:
++            return None
++        from ..solve.build import build_fe_model
++
++        return build_fe_model(
++            self.project, self.mesh,
++            require_loads=False, require_supports=False,
++        )
++
++    def export_deck(self, path: Optional[str] = None) -> None:
++        if self.mesh is None:
++            raise ValueError("generate or import a mesh first")
++        if path is None:
++            path = filedialog.asksaveasfilename(
++                defaultextension=".inp",
++                filetypes=[("CalculiX deck", "*.inp"), ("All files", "*.*")],
++                initialfile=f"{self.project.name}.inp",
++            )
++            if not path:
++                return
++        built = self.build_current()
++        written = export_calculix_deck(built, path)
++        self.set_status(
++            f"deck written to {Path(path).name}. A generated deck is a handoff, "
++            "not evidence: it says nothing until it has been run and compared."
++        )
++        return written
++
++    def build_current(self):
++        """The built model for whatever is loaded, imported or modelled."""
++
++        if self.imported is not None:
++            case = self.project.load_cases.get(self.active_case())
+@@ -2349,18 +2349,18 @@ class AnyFemApp(ttk.Frame):
+-        if self.mesh is None:
+-            raise ValueError("generate a mesh first")
+-        return build_fe_model(self.project, self.mesh)
+-
+-    # ------------------------------------------------------------------
+-    def set_status(self, text: str, error: bool = False) -> None:
+-        self._status.configure(
+-            text=text, foreground="#b00020" if error else "#222222"
+-        )
+-
+-    def destroy(self) -> None:
+-        """Unhook everything before the widgets go.
+-
+-        Tk destroys children in its own order, and a Treeview fires
+-        ``<<TreeviewSelect>>`` on the way out.  Without unhooking, that
+-        callback would drive a refresh into panels that no longer exist.
+-        """
+-
++        if self.mesh is None:
++            raise ValueError("generate a mesh first")
++        return build_fe_model(self.project, self.mesh)
++
++    # ------------------------------------------------------------------
++    def set_status(self, text: str, error: bool = False) -> None:
++        self._status.configure(
++            text=text, foreground="#b00020" if error else "#222222"
++        )
++
++    def destroy(self) -> None:
++        """Unhook everything before the widgets go.
++
++        Tk destroys children in its own order, and a Treeview fires
++        ``<<TreeviewSelect>>`` on the way out.  Without unhooking, that
++        callback would drive a refresh into panels that no longer exist.
++        """
++
+@@ -2385,2 +2385,2 @@ class AnyFemApp(ttk.Frame):
+-            self.selection.remove_listener(self._on_selection_changed)
+-            self.selection.remove_listener(self.tree.sync_from_selection)
++            self.selection.remove_listener(self._on_selection_changed)
++            self.selection.remove_listener(self.tree.sync_from_selection)
+@@ -2404,3 +2404,3 @@ class AnyFemApp(ttk.Frame):
+-            super().destroy()
+-
+-
++            super().destroy()
++
++
+@@ -2408,7 +2408,7 @@ def _solution_report(solution) -> str:
+-    """A text summary that suits whichever analysis produced the result."""
+-
+-    mesh = solution.built.mesh
+-    lines = [
+-        solution.built.project.name,
+-        "",
+-        f"nodes                {mesh.num_nodes}",
++    """A text summary that suits whichever analysis produced the result."""
++
++    mesh = solution.built.mesh
++    lines = [
++        solution.built.project.name,
++        "",
++        f"nodes                {mesh.num_nodes}",
+@@ -2416,18 +2416,18 @@ def _solution_report(solution) -> str:
+-        f"beam elements        {len(mesh.beams)}",
+-        "",
+-        solution.summary(),
+-    ]
+-
+-    shapes = getattr(solution, "shapes", None)
+-    if shapes:
+-        lines.append("")
+-        for shape in shapes[:12]:
+-            lines.append(f"  {shape.label:<16} {shape.value:.6g}")
+-        if len(shapes) > 12:
+-            lines.append(f"  ... {len(shapes) - 12} more")
+-
+-    steps = getattr(solution, "steps", None)
+-    if steps:
+-        lines.append("")
+-        lines.append(f"steps                {len(steps)}")
+-        lines.append(f"status               {solution.status}")
++        f"beam elements        {len(mesh.beams)}",
++        "",
++        solution.summary(),
++    ]
++
++    shapes = getattr(solution, "shapes", None)
++    if shapes:
++        lines.append("")
++        for shape in shapes[:12]:
++            lines.append(f"  {shape.label:<16} {shape.value:.6g}")
++        if len(shapes) > 12:
++            lines.append(f"  ... {len(shapes) - 12} more")
++
++    steps = getattr(solution, "steps", None)
++    if steps:
++        lines.append("")
++        lines.append(f"steps                {len(steps)}")
++        lines.append(f"status               {solution.status}")
+@@ -2638,0 +2639,9 @@ def _execute_analysis_job(
++        if (
++            any(issue.code == "CONSTRAINT003" for issue in report.errors)
++            and int(getattr(built.mesh, "automatic_shell_connections", 0)) > 0
++        ):
++            details += (
++                "\n[AUTOMESH001] The submitted mesh contains cyclic automatic "
++                "shell-interface ties. Regenerate the mesh with the current "
++                "mesher before rerunning; the supports do not need to be changed."
++            )
+@@ -2654,21 +2663,21 @@ def _execute_analysis_job(
+-
+-
+-def default_project() -> Project:
+-    """A new project with one steel already defined, so nothing is empty."""
+-
+-    project = Project(name="model")
+-    project.add_material(steel("S355", 0.010))
+-    project.add_plate_section("plate", thickness=0.010, material="S355")
+-    return project
+-
+-
+-def main() -> None:  # pragma: no cover - entry point
+-    root = tk.Tk()
+-    root.title("ANYfem")
+-    root.geometry("1500x900")
+-    AnyFemApp(root)
+-    root.mainloop()
+-
+-
+-if __name__ == "__main__":  # pragma: no cover
+-    main()
++
++
++def default_project() -> Project:
++    """A new project with one steel already defined, so nothing is empty."""
++
++    project = Project(name="model")
++    project.add_material(steel("S355", 0.010))
++    project.add_plate_section("plate", thickness=0.010, material="S355")
++    return project
++
++
++def main() -> None:  # pragma: no cover - entry point
++    root = tk.Tk()
++    root.title("ANYfem")
++    root.geometry("1500x900")
++    AnyFemApp(root)
++    root.mainloop()
++
++
++if __name__ == "__main__":  # pragma: no cover
++    main()

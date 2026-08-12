@@ -145,9 +145,9 @@ class StagePanel(ttk.Frame):
         return cls.labelled_entry(parent, label, default, width)[1]
 
     @staticmethod
-    def vector_row(
+    def labelled_vector(
         parent: tk.Misc, label: str, default: Sequence[str] = ("0", "0", "0")
-    ) -> List[tk.StringVar]:
+    ) -> tuple[ttk.Frame, List[tk.StringVar]]:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=1)
         ttk.Label(row, text=label, width=16).pack(side="left")
@@ -158,7 +158,13 @@ class StagePanel(ttk.Frame):
                 side="left", padx=1
             )
             variables.append(variable)
-        return variables
+        return row, variables
+
+    @classmethod
+    def vector_row(
+        cls, parent: tk.Misc, label: str, default: Sequence[str] = ("0", "0", "0")
+    ) -> List[tk.StringVar]:
+        return cls.labelled_vector(parent, label, default)[1]
 
     def button(
         self, parent: tk.Misc, text: str, action: Callable[[], None]
@@ -442,36 +448,74 @@ class GeometryPanel(StagePanel):
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="type", width=16).pack(side="left")
         self._generator_type = tk.StringVar(value="Plate")
-        ttk.Combobox(
+        self._generator_type_box = ttk.Combobox(
             row,
             textvariable=self._generator_type,
             values=("Plate", "Bulkhead", "Frame", "Stiffened panel", "Cylinder", "Cone"),
             state="readonly",
             width=18,
-        ).pack(side="left", fill="x", expand=True)
-        self._generator_length = self.entry_row(generators, "length / height [m]", "4")
-        self._generator_width = self.entry_row(generators, "panel width [m]", "2")
-        self._generator_radius_start = self.entry_row(generators, "radius start [m]", "1")
-        self._generator_radius_end = self.entry_row(generators, "radius end [m]", "0.5")
-        self._generator_longitudinal = self.entry_row(
-            generators, "longitudinal spacing", "0.5"
         )
-        self._generator_transverse = self.entry_row(
-            generators, "transverse / ring", "1"
+        self._generator_type_box.pack(side="left", fill="x", expand=True)
+        self._generator_rows: dict[str, ttk.Frame] = {}
+
+        def generator_entry(key: str, label: str, default: str) -> tk.StringVar:
+            made_row, variable = self.labelled_entry(generators, label, default)
+            self._generator_rows[key] = made_row
+            return variable
+
+        def generator_vector(
+            key: str, label: str, default: Sequence[str] = ("0", "0", "0")
+        ) -> List[tk.StringVar]:
+            made_row, variables = self.labelled_vector(generators, label, default)
+            self._generator_rows[key] = made_row
+            return variables
+
+        self._generator_length = generator_entry("length", "length / height [m]", "4")
+        self._generator_width = generator_entry("width", "panel width [m]", "2")
+        self._generator_radius_start = generator_entry("radius_start", "radius [m]", "1")
+        self._generator_radius_end = generator_entry("radius_end", "end radius [m]", "0.5")
+        self._generator_longitudinal = generator_entry(
+            "longitudinal", "longitudinal spacing", "0.5"
         )
-        self._generator_segments = self.entry_row(generators, "circumferential", "12")
-        self._generator_group = self.entry_row(generators, "semantic group", "shell")
-        self._generator_origin = self.vector_row(generators, "origin")
-        self._generator_u = self.vector_row(
-            generators, "length direction", ("1", "0", "0")
+        self._generator_transverse = generator_entry(
+            "transverse", "transverse / ring spacing", "1"
         )
-        self._generator_v = self.vector_row(
-            generators, "width direction", ("0", "1", "0")
+        self._generator_segments = generator_entry(
+            "segments", "circumferential segments", "12"
         )
-        self._generator_axis = self.vector_row(
-            generators, "axis", ("0", "0", "1")
+        self._generator_group = generator_entry("group", "semantic group", "shell")
+        self._generator_origin = generator_vector("origin", "origin")
+        self._generator_u = generator_vector(
+            "u", "length direction", ("1", "0", "0")
         )
-        self.button(generators, "Create generator feature", self._add_generator)
+        self._generator_v = generator_vector(
+            "v", "width direction", ("0", "1", "0")
+        )
+        self._generator_axis = generator_vector(
+            "axis", "axis", ("0", "0", "1")
+        )
+        self._generator_action = self.button(
+            generators, "Create generator feature", self._add_generator
+        )
+        self._generator_explanation = ttk.Label(
+            generators, foreground="#555555", wraplength=330, justify="left"
+        )
+        self._generator_explanation.pack(fill="x", pady=(5, 2))
+        self._generator_diagram = tk.Canvas(
+            generators,
+            height=125,
+            background="#f7f8fa",
+            highlightthickness=1,
+            highlightbackground="#c8ccd2",
+        )
+        self._generator_diagram.pack(fill="x", pady=(0, 2))
+        self._generator_type_box.bind(
+            "<<ComboboxSelected>>", self._generator_type_changed, add="+"
+        )
+        self._generator_diagram.bind(
+            "<Configure>", lambda _event: self._draw_generator_diagram(), add="+"
+        )
+        self._update_generator_form()
 
         beam_paths = self.section("Beam centre-lines", beams_page)
         ttk.Label(
@@ -537,6 +581,19 @@ class GeometryPanel(StagePanel):
         self._strips = self.entry_row(divide, "strips", "3")
         self.button(divide, "Strip selected plates", self._strip_plates)
         self.button(divide, "Three-sided region to plates", self._triangle)
+        ttk.Label(
+            divide,
+            text=(
+                "Coplanar overlap: select plates in order. The union is split "
+                "into separate A-only, common and B-only plates; the first "
+                "selected plate owns each common fragment."
+            ),
+            foreground="#666666",
+            wraplength=330,
+        ).pack(fill="x", pady=(5, 1))
+        self.button(
+            divide, "Fragment plate overlaps", self._fragment_plate_overlaps
+        )
 
         trim = self.section("Modeling: neutral trim hole", operations_page)
         self._trim_centre = self.vector_row(trim, "centre")
@@ -588,6 +645,180 @@ class GeometryPanel(StagePanel):
         self._workplane_coordinates_box.configure(values=values)
         if self._workplane_coordinates.get() not in values and values:
             self._workplane_coordinates.set(values[0])
+
+    @staticmethod
+    def generator_form_spec(kind: str) -> tuple[tuple[str, ...], str]:
+        """Applicable generator fields and the engineer-facing explanation."""
+
+        specifications = {
+            "Plate": (
+                ("length", "width", "group", "origin", "u", "v"),
+                "Creates one flat rectangular structural plate from the origin and two in-plane directions.",
+            ),
+            "Bulkhead": (
+                ("length", "width", "group", "origin", "u", "v"),
+                "Creates one flat bulkhead plate. Length and width follow the two displayed direction vectors.",
+            ),
+            "Frame": (
+                ("length", "width", "group", "origin", "u", "v"),
+                "Creates a flat frame-plane plate region; assign structural sections after creation.",
+            ),
+            "Stiffened panel": (
+                ("length", "width", "longitudinal", "transverse", "group", "origin"),
+                "Creates a stiffened plate with semantic longitudinal stiffener and transverse-member lines at the requested spacing.",
+            ),
+            "Cylinder": (
+                ("length", "radius_start", "longitudinal", "transverse", "segments", "origin", "axis"),
+                "Creates a segmented cylindrical shell around the axis. Circumferential segments control the faceted ring.",
+            ),
+            "Cone": (
+                ("length", "radius_start", "radius_end", "longitudinal", "transverse", "segments", "origin", "axis"),
+                "Creates a segmented conical shell from the start radius to the end radius along the axis.",
+            ),
+        }
+        try:
+            return specifications[str(kind)]
+        except KeyError:
+            raise ValueError(f"unknown structural generator {kind!r}") from None
+
+    def _generator_type_changed(self, _event=None) -> None:
+        self._update_generator_form()
+
+    def _update_generator_form(self) -> None:
+        visible, explanation = self.generator_form_spec(self._generator_type.get())
+        for row in self._generator_rows.values():
+            row.pack_forget()
+        for key in visible:
+            self._generator_rows[key].pack(
+                fill="x", pady=1, before=self._generator_action
+            )
+        self._generator_explanation.configure(text=explanation)
+        self._draw_generator_diagram()
+
+    def _draw_generator_diagram(self) -> None:
+        if not hasattr(self, "_generator_diagram"):
+            return
+        canvas = self._generator_diagram
+        canvas.delete("all")
+        width = max(int(canvas.winfo_width()), 300)
+        height = max(int(canvas.winfo_height()), 125)
+        kind = self._generator_type.get()
+        ink = "#35566f"
+        fill = "#a9c8dd"
+        accent = "#d36b32"
+        origin_colour = "#c62828"
+
+        def origin_mark(x: float, y: float) -> None:
+            size = 5
+            canvas.create_line(
+                x - size, y - size, x + size, y + size,
+                fill=origin_colour, width=2,
+            )
+            canvas.create_line(
+                x - size, y + size, x + size, y - size,
+                fill=origin_colour, width=2,
+            )
+            canvas.create_text(
+                x + 8, y - 7, text="origin", anchor="sw", fill=origin_colour
+            )
+
+        def dimension(
+            start: tuple[float, float],
+            end: tuple[float, float],
+            text: str,
+            *,
+            offset: tuple[float, float] = (0, 0),
+        ) -> None:
+            canvas.create_line(*start, *end, fill=ink, arrow="both")
+            middle = (
+                0.5 * (start[0] + end[0]) + offset[0],
+                0.5 * (start[1] + end[1]) + offset[1],
+            )
+            canvas.create_text(*middle, text=text, fill=ink)
+
+        if kind in {"Plate", "Bulkhead", "Frame", "Stiffened panel"}:
+            polygon = (45, 88, width - 65, 88, width - 30, 35, 80, 35)
+            canvas.create_polygon(*polygon, fill=fill, outline=ink, width=2)
+            if kind == "Frame":
+                canvas.create_polygon(
+                    91, 70, width - 85, 70, width - 66, 49, 106, 49,
+                    fill="#f7f8fa", outline=ink,
+                )
+            elif kind == "Stiffened panel":
+                for fraction in (0.25, 0.5, 0.75):
+                    x0 = 45 + fraction * (width - 110)
+                    x1 = 80 + fraction * (width - 110)
+                    canvas.create_line(x0, 88, x1, 35, fill=accent, width=2)
+                canvas.create_line(62, 62, width - 47, 62, fill=accent, width=2)
+            if kind == "Bulkhead":
+                canvas.create_line(45, 88, 45, 105, fill=accent, width=2)
+                canvas.create_text(52, 105, text="vertical", anchor="w", fill=accent)
+            canvas.create_text(12, 12, text=kind, anchor="nw", fill=ink)
+            origin_mark(45, 88)
+            dimension(
+                (45, 104), (width - 65, 104), "length", offset=(0, 8)
+            )
+            dimension(
+                (35, 86), (70, 33), "width", offset=(-16, 0)
+            )
+        else:
+            top_y, bottom_y = 32, 92
+            start_half = 48
+            end_half = 48 if kind == "Cylinder" else 28
+            centre = width // 2
+            canvas.create_polygon(
+                centre - start_half, bottom_y,
+                centre + start_half, bottom_y,
+                centre + end_half, top_y,
+                centre - end_half, top_y,
+                fill=fill, outline=ink, width=2,
+            )
+            canvas.create_oval(
+                centre - start_half, bottom_y - 10,
+                centre + start_half, bottom_y + 10,
+                outline=ink, width=2,
+            )
+            canvas.create_oval(
+                centre - end_half, top_y - 8,
+                centre + end_half, top_y + 8,
+                outline=ink, width=2,
+            )
+            canvas.create_line(centre, 108, centre, 15, fill=accent, arrow="last")
+            canvas.create_text(centre + 8, 16, text="axis", anchor="nw", fill=accent)
+            canvas.create_text(12, 12, text=kind, anchor="nw", fill=ink)
+            origin_mark(centre, bottom_y)
+            dimension(
+                (centre - start_half - 16, bottom_y),
+                (centre - start_half - 16, top_y),
+                "height",
+                offset=(-20, 0),
+            )
+            dimension(
+                (centre, bottom_y + 14),
+                (centre + start_half, bottom_y + 14),
+                "start radius" if kind == "Cone" else "radius",
+                offset=(0, 8),
+            )
+            if kind == "Cone":
+                dimension(
+                    (centre, top_y - 13),
+                    (centre + end_half, top_y - 13),
+                    "end radius",
+                    offset=(0, -7),
+                )
+
+    def _fragment_plate_overlaps(self) -> None:
+        faces = self.require_selection("face")
+        if len(faces) < 2:
+            raise ValueError("select at least two overlapping plates in ownership order")
+        feature = self.app.run(
+            cmd.FragmentPlateOverlaps(tuple(item.id for item in faces))
+        )
+        overlap_count = sum(key.startswith("overlap/") for key in feature.outputs)
+        self.app.set_status(
+            f"fragmented overlap into {len(feature.outputs)} non-overlapping "
+            f"plate(s); {overlap_count} common plate(s) owned by the first selection"
+        )
 
     def _geometry_tab_changed(self, _event=None) -> None:
         selected = self._geometry_tabs.select()
@@ -1282,9 +1513,17 @@ class GeometryPanel(StagePanel):
 # ----------------------------------------------------------------------
 class MeshPanel(StagePanel):
     title = "Mesh"
+    _NATIVE_BACKEND_LABELS = {
+        "auto": "Automatic",
+        "python": "Python compatibility",
+        "native": "Compiled native",
+    }
+    _NATIVE_BACKEND_VALUES = {
+        label: value for value, label in _NATIVE_BACKEND_LABELS.items()
+    }
 
     def build(self) -> None:
-        controls = self.section("Mapped mesh")
+        controls = self.section("Mesh generation")
         self._size = self.entry_row(controls, "element size [m]", "0.25")
         row = ttk.Frame(controls)
         row.pack(fill="x", pady=1)
@@ -1297,6 +1536,29 @@ class MeshPanel(StagePanel):
             state="readonly",
             width=12,
         ).pack(side="left", fill="x", expand=True)
+        backend_row = ttk.Frame(controls)
+        backend_row.pack(fill="x", pady=1)
+        ttk.Label(backend_row, text="native triangulator", width=16).pack(
+            side="left"
+        )
+        self._native_backend = tk.StringVar(value="Automatic")
+        ttk.Combobox(
+            backend_row,
+            textvariable=self._native_backend,
+            values=list(self._NATIVE_BACKEND_VALUES),
+            state="readonly",
+            width=20,
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Label(
+            controls,
+            text=(
+                "Used only by the native meshing strategy; this is separate "
+                "from choosing mapped or native meshing."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=220,
+        ).pack(anchor="w", pady=(0, 3))
         self._generate_button = self.button(controls, "Generate mesh", self._generate)
         self._cancel_button = self.button(controls, "Cancel mesh", self._cancel)
         self.button(controls, "Open ANYmesher...", self._open_mesher)
@@ -1332,6 +1594,11 @@ class MeshPanel(StagePanel):
         )
         if self._order.get() != self.app.project.element_order:
             self._order.set(self.app.project.element_order)
+        backend_label = self._NATIVE_BACKEND_LABELS[
+            self.app.project.native_triangulation_backend
+        ]
+        if self._native_backend.get() != backend_label:
+            self._native_backend.set(backend_label)
 
         zones = self.app.project.refinements
         self._refine_label.configure(
@@ -1376,6 +1643,27 @@ class MeshPanel(StagePanel):
                 lines.append(
                     f"{connections} automatic shell T-junction tie(s) created"
                 )
+            requested_backend = record.summary.get("native_backend_requested")
+            if requested_backend is not None:
+                lines.append(f"native triangulator requested: {requested_backend}")
+            provenance = record.summary.get("triangulation_backend_by_face", {})
+            if isinstance(provenance, dict):
+                routes = sorted(
+                    {
+                        (
+                            str(values.get("requested_backend", "unknown")),
+                            str(values.get("selected_backend", "unknown")),
+                            str(values.get("actual_backend", "unknown")),
+                        )
+                        for values in provenance.values()
+                        if isinstance(values, dict)
+                    }
+                )
+                lines.extend(
+                    "triangulator route: "
+                    f"requested {requested}, selected {selected}, actual {actual}"
+                    for requested, selected, actual in routes
+                )
             quality = record.summary.get("quality", {})
             if quality:
                 lines.extend(
@@ -1412,7 +1700,8 @@ class MeshPanel(StagePanel):
             raise ValueError("element size must be positive")
         if self._order.get() != self.app.project.element_order:
             self.app.run(cmd.SetElementOrder(order=self._order.get()))
-        self.app.generate_mesh_async(size)
+        backend = self._NATIVE_BACKEND_VALUES[self._native_backend.get()]
+        self.app.generate_mesh_async(size, native_backend=backend)
 
     def _cancel(self) -> None:
         self.app.cancel_mesh()
