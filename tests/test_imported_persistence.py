@@ -127,6 +127,9 @@ def test_mesh_only_refs_relax_existence_but_not_syntax(reference, message):
 def test_v3_files_default_to_modelled_geometry_semantics():
     data = project_to_dict(Project("legacy"))
     data["anyfem"]["format"] = 3
+    data["anyfem"].pop("document_id")
+    data.pop("ownership")
+    data["meshing"].pop("native_backend")
     data.pop("mesh_only")
     data.pop("imported_format")
     data.pop("imported_semantics_artifact_id")

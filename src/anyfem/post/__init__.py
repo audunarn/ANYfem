@@ -44,6 +44,11 @@ from .results import (
     ShapeView,
     TransientSolution,
 )
+from .solver_data import (
+    available_solution_quantities,
+    resolve_solution_quantity,
+    solver_result_candidates,
+)
 
 __all__ = [
     "Series",
@@ -69,6 +74,7 @@ __all__ = [
     "TransientSolution",
     "along_line",
     "available_fields",
+    "available_solution_quantities",
     "build_result_report",
     "envelope",
     "evaluate_field",
@@ -78,10 +84,12 @@ __all__ = [
     "path_to_csv",
     "probe",
     "report_markdown",
+    "resolve_solution_quantity",
     "result_report_context",
     "result_report_html",
     "result_report_markdown",
     "write_csv",
     "write_report",
     "write_result_report",
+    "solver_result_candidates",
 ]

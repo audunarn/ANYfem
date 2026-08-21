@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+from anysolver import ReactionFrame, SolveOutcome
 
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.result_artifact import (
@@ -150,6 +151,14 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
         snapshots=snapshots,
         element_states={7: {"yielded": True, "alpha": np.array([0.002, 0.003])}},
         diagnostics={"converged": True},
+        outcome=SolveOutcome.stopped(
+            "physical_limit",
+            control_kind="load_factor",
+            requested_control=1.0,
+            achieved_control=0.8,
+            last_converged_frame=1,
+            last_converged_increment=2,
+        ),
     )
     steps = [
         SimpleNamespace(
@@ -171,6 +180,11 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     )
     payload = result_artifact_payload(solution)
 
+    assert payload.partial
+    assert payload.summary["termination"] == "physical_limit"
+    assert payload.summary["outcome"]["requested_control"] == 1.0
+    assert payload.provenance["outcome"]["achieved_control"] == 0.8
+
     descriptor, values = payload.fields["displacement"]
     assert payload.frames == (0.4, 0.8)
     assert values.shape == (2, 2, 6)
@@ -188,10 +202,19 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
         "equivalent_plastic_strain"
     ]
     assert plastic_descriptor.unit == "1"
-    assert plastic_descriptor.recovery == "committed_state"
-    np.testing.assert_allclose(plastic_values[:, 0], [0.001, 0.003])
+    assert plastic_descriptor.recovery == "committed_state_max_material_point"
+    np.testing.assert_allclose(plastic_values[:, 0], [0.003])
+    history_descriptor, history_values = payload.fields[
+        "equivalent_plastic_strain_history"
+    ]
+    assert history_descriptor.recovery == "saved_committed_state_max_material_point"
+    assert history_descriptor.frames == (0.4, 0.8)
+    np.testing.assert_allclose(history_values[:, 0], [0.001, 0.003])
     np.testing.assert_array_equal(
         payload.tables["equivalent_plastic_strain_element_ids"], [7]
+    )
+    np.testing.assert_array_equal(
+        payload.tables["equivalent_plastic_strain_history_element_ids"], [7]
     )
     artifact = write_solution_artifact(
         ArtifactStore(tmp_path / "nonlinear.anyfem"),
@@ -205,7 +228,7 @@ def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     )
     dataset = ArtifactStore(tmp_path / "nonlinear.anyfem").open_result(artifact)
     np.testing.assert_allclose(
-        dataset.field("equivalent_plastic_strain").read(1), [0.003]
+        dataset.field("equivalent_plastic_strain_history").read(1), [0.003]
     )
 
 
@@ -233,6 +256,50 @@ def test_capacity_retains_reference_static_and_buckling_stages():
     assert payload.fields["displacement"][1].shape == (1, 2, 6)
     assert payload.fields["static_displacement"][1].shape == (1, 2, 6)
     assert payload.fields["buckling_mode_shape"][1].shape == (1, 2, 6)
+
+
+def test_missing_snapshot_peeq_stays_nan_on_the_common_frame_axis():
+    snapshots = (
+        SimpleNamespace(
+            step_index=1,
+            load_factor=0.2,
+            control_value=None,
+            displacements=_vector(1.0),
+            element_states={7: {"alpha": [0.01]}},
+        ),
+        SimpleNamespace(
+            step_index=2,
+            load_factor=0.4,
+            control_value=None,
+            displacements=_vector(2.0),
+            element_states={7: {"layer_strain": [0.02]}},
+        ),
+        SimpleNamespace(
+            step_index=3,
+            load_factor=0.6,
+            control_value=None,
+            displacements=_vector(3.0),
+            element_states={7: {"alpha": [0.03]}},
+        ),
+    )
+    raw = SimpleNamespace(
+        snapshots=snapshots,
+        element_states={7: {"alpha": [0.03]}},
+    )
+    solution = NonlinearSolution(
+        displacements=_vector(3.0),
+        built=_built(),
+        value=0.6,
+        raw_result=raw,
+        info={"raw": raw},
+    )
+
+    payload = result_artifact_payload(solution)
+    descriptor, values = payload.fields["equivalent_plastic_strain_history"]
+
+    assert descriptor.frames == (0.2, 0.4, 0.6)
+    np.testing.assert_allclose(values[[0, 2], 0], [0.01, 0.03])
+    assert np.isnan(values[1, 0])
 
 
 def _transient_solution(raw):
@@ -266,7 +333,24 @@ def test_full_transient_retains_vectors_impulses_energies_stress_and_reactions()
             {5: {"von_mises": np.array([12.0, 13.0])}},
         ),
         reactions={10: np.arange(6, dtype=float)},
+        reaction_history=(
+            ReactionFrame(
+                0,
+                0.0,
+                "time",
+                {10: np.arange(6, dtype=float)},
+                {"fixed": np.arange(6, dtype=float)},
+            ),
+            ReactionFrame(
+                1,
+                0.1,
+                "time",
+                {10: 10.0 + np.arange(6, dtype=float)},
+                {"fixed": 10.0 + np.arange(6, dtype=float)},
+            ),
+        ),
         diagnostics={
+            "strain_energy_measure": "elastic_strain_energy",
             "kinetic_energy": [1.0, 2.0],
             "strain_energy": [3.0, 4.0],
         },
@@ -283,6 +367,10 @@ def test_full_transient_retains_vectors_impulses_energies_stress_and_reactions()
     assert "kinetic_energy" in payload.histories
     assert payload.fields["stress_history_von_mises"][1].shape == (2, 1, 2)
     assert payload.fields["reaction"][1].shape == (1, 1, 6)
+    assert payload.fields["reaction_history"][1].shape == (2, 1, 6)
+    assert payload.fields["support_reaction_history"][1].shape == (2, 1, 6)
+    assert payload.fields["reaction_history"][0].frames == (0.0, 0.1)
+    assert payload.tables["support_reaction_history_support_names"] == ["fixed"]
     assert payload.provenance["result_case"]["analysis_case"]["type"] == "linear_transient"
 
 
@@ -313,6 +401,44 @@ def test_selected_transient_maps_columns_to_selected_nodes_not_all_dofs():
     assert payload.tables["displacement_node_ids"].tolist() == [20]
     assert descriptor.provenance["history_storage_mode"] == "selected"
     assert descriptor.provenance["global_dof_indices"] == list(range(6, 12))
+
+
+def test_nonlinear_internal_work_is_not_relabelled_as_strain_energy():
+    times = np.asarray([0.0, 0.1])
+    raw = SimpleNamespace(
+        times=times,
+        displacements=np.vstack((_vector(), _vector(1.0))),
+        velocities=np.vstack((_vector(), _vector(1.0))),
+        accelerations=np.vstack((_vector(), _vector(1.0))),
+        history_storage_mode="full",
+        node_histories={},
+        diagnostics={
+            "strain_energy_measure": "internal_work_proxy",
+            "kinetic_energy": [2.0, 1.0],
+            "strain_energy": [0.0, 0.75],
+            # This legacy diagnostic is maximum alpha, not energy.
+            "plastic_work_proxy": [0.0, 0.01],
+        },
+        reactions={},
+        reaction_history=(),
+    )
+    solution = ImpactSolution(
+        built=_built(),
+        shapes=[],
+        status="completed",
+        info={"raw": raw},
+        times=times,
+    )
+
+    payload = result_artifact_payload(solution)
+
+    assert "kinetic_energy" in payload.fields
+    assert "internal_work" in payload.fields
+    assert "strain_energy" not in payload.fields
+    assert "plastic_work_proxy" not in payload.fields
+    descriptor = payload.fields["internal_work"][0]
+    assert descriptor.unit == "J"
+    assert descriptor.recovery == "committed_internal_force_work_proxy"
 
 
 def test_envelope_only_transient_does_not_fabricate_time_histories():
@@ -365,6 +491,7 @@ def test_impact_retains_contact_damage_and_committed_stress_histories(tmp_path):
         contact_force_history=np.array([[0, 0, 0], [0, 0, 100]], dtype=float),
         active_contact_history=((), ({"element_id": 7, "penetration": 0.01},)),
         diagnostics={
+            "strain_energy_measure": "elastic_strain_energy",
             "kinetic_energy": [4.0, 2.0],
             "strain_energy": [0.0, 1.0],
             "impact_damage_summary": {"damaged_element_ids": [7]},

@@ -126,6 +126,10 @@ class Polyline:
     color: str = COLOR_LINE
     width: int = 2
     owners: tuple[SceneOwner, ...] = ()
+    # Keep structural centre-lines legible when they are coplanar with a
+    # shell.  Depth clipping otherwise makes one connected beam appear as
+    # disconnected alternating segments.
+    draw_overlay: bool = False
 
     @property
     def tag(self) -> str:
@@ -401,6 +405,7 @@ def build_geometry_scene(
                 ),
                 color=COLOR_BEAM if is_beam else COLOR_LINE,
                 width=4 if is_beam else 2,
+                draw_overlay=is_beam,
             )
         )
 
@@ -517,6 +522,7 @@ def build_mesh_scene(project: Project, mesh: Mesh) -> Scene:
                     points=np.array([mesh.nodes[node] for node in span]),
                     color=COLOR_BEAM,
                     width=4,
+                    draw_overlay=True,
                     owners=tuple(
                         owner
                         for owner in (
@@ -536,6 +542,7 @@ def build_mesh_scene(project: Project, mesh: Mesh) -> Scene:
                 points=np.array([mesh.nodes[node] for node in span]),
                 color=COLOR_BEAM,
                 width=4,
+                draw_overlay=True,
                 owners=(MeshEntityRef("element", int(element_id)),),
             )
         )
@@ -742,6 +749,7 @@ def build_result_scene(
                     points=np.array([deformed[node] for node in span]),
                     color=line_colour,
                     width=4,
+                    draw_overlay=True,
                     owners=tuple(
                         owner
                         for owner in (

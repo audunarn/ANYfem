@@ -92,6 +92,8 @@ def test_legacy_migration_is_deterministic_and_never_invents_missing_intent():
     legacy = project_to_dict(project)
     legacy["anyfem"]["format"] = 3
     legacy["anyfem"].pop("document_id")
+    legacy.pop("ownership")
+    legacy["meshing"].pop("native_backend")
     legacy.pop("output_requests")
     entry = legacy["analyses"][0]
     entry["output_request_ids"] = []
@@ -124,7 +126,7 @@ def test_legacy_migration_is_deterministic_and_never_invents_missing_intent():
     assert plain.analyses[analysis.id].output_request_ids == ()
 
 
-def test_request_semantics_change_both_hashes_but_labels_do_not():
+def test_request_semantics_change_analysis_hash_only_and_labels_do_not():
     project, region = scoped_project("hashes")
     request = project.add_output_request(displacement_request(region=region.id))
     analysis = project.add_analysis(
@@ -132,19 +134,31 @@ def test_request_semantics_change_both_hashes_but_labels_do_not():
     )
     session = DocumentSession(project)
     baseline_model = session.revision.model_hash
-    baseline_analysis = analysis_hash(analysis, project.output_requests)
+    baseline_analysis = analysis_hash(
+        analysis,
+        project.output_requests,
+        document=project_to_dict(project),
+    )
 
     renamed = replace(request, label="Engineer-facing label")
     with session.transaction("rename request"):
         project.update_output_request(renamed)
     assert session.revision.model_hash == baseline_model
-    assert analysis_hash(analysis, project.output_requests) == baseline_analysis
+    assert analysis_hash(
+        analysis,
+        project.output_requests,
+        document=project_to_dict(project),
+    ) == baseline_analysis
 
     reduced = replace(renamed, reduction="envelope")
     with session.transaction("change reduction"):
         project.update_output_request(reduced)
-    assert session.revision.model_hash != baseline_model
-    assert analysis_hash(analysis, project.output_requests) != baseline_analysis
+    assert session.revision.model_hash == baseline_model
+    assert analysis_hash(
+        analysis,
+        project.output_requests,
+        document=project_to_dict(project),
+    ) != baseline_analysis
 
 
 def test_add_edit_delete_commands_restore_uuid_and_analysis_links():
@@ -225,4 +239,3 @@ def test_details_parser_and_add_command_fail_closed_for_wrong_family():
     with pytest.raises(ProjectError, match="cannot be attached"):
         cmd.AddOutputRequest(request, (modal.id,)).do(project)
     assert request.id not in project.output_requests
-

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -38,6 +39,7 @@ from ..mesh.refinement import Refinement
 from ..model.imperfections import Imperfection
 from ..model.materials import Material
 from ..model.project import Project
+from ..model.ownership import SheetJoinIntent
 from ..model.sections import BeamSection, SectionAssignment
 from ..model.coordinates import CoordinateSystem, GLOBAL_COORDINATES
 from ..model.records import (
@@ -60,7 +62,7 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 6
+FORMAT_VERSION = 7
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -139,6 +141,12 @@ def _without_legacy_native_backends(
 def project_to_dict(project: Project) -> Dict[str, Any]:
     """The whole model as plain data."""
 
+    ownership_problems = project.sheet_join_intent_problems()
+    if ownership_problems:
+        raise ProjectFileError(
+            "structural Sheet ownership intent is unresolved:\n  - "
+            + "\n  - ".join(ownership_problems)
+        )
     # Fold any direct edits through the historical assignment dictionaries
     # into canonical region-backed records before taking the persisted view.
     project.resolve_section_assignments(strict=False)
@@ -174,6 +182,16 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "imported_semantics_artifact_id": (
             project.imported_semantics_artifact_id
         ),
+        "compatibility": {
+            "archived_feature_histories": deepcopy(
+                project.archived_feature_histories
+            ),
+            "diagnostics": list(project.compatibility_diagnostics),
+            "geometry_editing_disabled_reason": (
+                project.geometry_editing_disabled_reason
+            ),
+            "read_only_reason": project.read_only_reason,
+        },
         "units": project.units.to_dict(),
         "coordinate_systems": [
             system.to_dict()
@@ -238,6 +256,15 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
                 item.to_dict()
                 for item in sorted(
                     project.section_assignments.values(),
+                    key=lambda value: value.id,
+                )
+            ]
+        },
+        "ownership": {
+            "sheet_joins": [
+                item.to_dict()
+                for item in sorted(
+                    project.sheet_join_intents.values(),
                     key=lambda value: value.id,
                 )
             ]
@@ -437,6 +464,31 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         mesh_only = False
         imported_format = None
         imported_artifact_id = None
+    compatibility_data = data.get("compatibility", {})
+    if not isinstance(compatibility_data, Mapping):
+        raise ProjectFileError("compatibility must be a JSON object")
+    archived_histories = compatibility_data.get(
+        "archived_feature_histories", ()
+    )
+    compatibility_diagnostics = compatibility_data.get("diagnostics", ())
+    if not isinstance(archived_histories, (list, tuple)) or not all(
+        isinstance(item, Mapping) for item in archived_histories
+    ):
+        raise ProjectFileError(
+            "compatibility.archived_feature_histories must be a list of objects"
+        )
+    if not isinstance(compatibility_diagnostics, (list, tuple)) or not all(
+        isinstance(item, str) for item in compatibility_diagnostics
+    ):
+        raise ProjectFileError("compatibility.diagnostics must be a list of strings")
+    geometry_editing_disabled_reason = _optional_text(
+        compatibility_data.get("geometry_editing_disabled_reason"),
+        "compatibility.geometry_editing_disabled_reason",
+    )
+    read_only_reason = _optional_text(
+        compatibility_data.get("read_only_reason"),
+        "compatibility.read_only_reason",
+    )
     units_data = data.get("units")
     units = (
         UnitProfile.from_dict(units_data)
@@ -459,6 +511,12 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             mesh_only=mesh_only,
             imported_format=imported_format,
             imported_semantics_artifact_id=imported_artifact_id,
+            archived_feature_histories=[
+                deepcopy(dict(item)) for item in archived_histories
+            ],
+            compatibility_diagnostics=list(compatibility_diagnostics),
+            geometry_editing_disabled_reason=geometry_editing_disabled_reason,
+            read_only_reason=read_only_reason,
             **({"document_id": document_id} if document_id else {}),
         )
     else:
@@ -470,9 +528,58 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             mesh_only=mesh_only,
             imported_format=imported_format,
             imported_semantics_artifact_id=imported_artifact_id,
+            archived_feature_histories=[
+                deepcopy(dict(item)) for item in archived_histories
+            ],
+            compatibility_diagnostics=list(compatibility_diagnostics),
+            geometry_editing_disabled_reason=geometry_editing_disabled_reason,
+            read_only_reason=read_only_reason,
             **({"document_id": document_id} if document_id else {}),
         )
         _geometry_from_dict(project.geometry, geometry_data)
+
+    _recover_detached_feature_corruption(
+        project, geometry_data, source_format=version
+    )
+
+    ownership_data = data.get("ownership")
+    if version < 7:
+        if ownership_data is not None:
+            raise ProjectFileError(
+                "ownership is only valid in project format 7 or newer"
+            )
+        # Infer once, after legacy feature recovery has established the final
+        # persistent output identities.  Constructor-time inference could
+        # otherwise retain FeatureOutputRefs into an archived corrupt history.
+        project.sheet_join_intents.clear()
+        project.infer_existing_sheet_join_intents()
+    else:
+        if ownership_data is None:
+            raise ProjectFileError("format 7 ownership is required")
+        if not isinstance(ownership_data, Mapping):
+            raise ProjectFileError("ownership must be a JSON object")
+        if "sheet_joins" not in ownership_data:
+            raise ProjectFileError("format 7 ownership.sheet_joins is required")
+        joins_data = ownership_data["sheet_joins"]
+        if not isinstance(joins_data, (list, tuple)):
+            raise ProjectFileError("ownership.sheet_joins must be a list")
+        # The v7 registry is authoritative, including an explicit empty list.
+        project.sheet_join_intents.clear()
+        for index, entry in enumerate(joins_data):
+            try:
+                intent = SheetJoinIntent.from_dict(entry)
+                project.add_sheet_join_intent(intent)
+            except (TypeError, ValueError) as error:
+                raise ProjectFileError(
+                    f"ownership.sheet_joins[{index}]: {error}"
+                ) from None
+        try:
+            project.reapply_sheet_join_intents()
+        except (GeometryError, ValueError) as error:
+            raise ProjectFileError(
+                "ownership.sheet_joins cannot be resolved exactly: "
+                f"{error}"
+            ) from None
 
     coordinate_data = data.get("coordinate_systems", ())
     if coordinate_data:
@@ -699,7 +806,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
 
     meshing = data.get("meshing")
     if version >= 6 and not isinstance(meshing, Mapping):
-        raise ProjectFileError("format 6 meshing must be an object")
+        raise ProjectFileError(f"format {version} meshing must be an object")
     native_backend = "python"
     if isinstance(meshing, Mapping):
         if version >= 6:
@@ -712,7 +819,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             )
         elif "native_backend" in meshing:
             raise ProjectFileError(
-                "meshing.native_backend is only valid in format 6"
+                "meshing.native_backend is only valid in format 6 or newer"
             )
         # Absent in files written before meshing controls existed, which is
         # what the defaults are for.
@@ -808,7 +915,154 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             raise ProjectFileError(
                 "imported_semantics_artifact_id must name a mesh artifact"
             )
+    _finalize_compatibility_recovery(project)
     return project
+
+
+def _recover_detached_feature_corruption(
+    project: Project,
+    geometry_data: Mapping[str, Any],
+    *,
+    source_format: int,
+) -> None:
+    """Freeze the exact last-good topology of affected v1--v6 documents.
+
+    Older ANYfem commands appended a feature and then modified the detached
+    ``FeatureRecord`` returned by ANYgeometry.  The live history therefore
+    retained a known executable feature in ``pending``/``active`` state with
+    no outputs even though valid topology had already been created.  Replaying
+    that history destroys design identity.  Recovery archives the records and
+    binds every *exact active* entity to one checksummed unknown frozen feature;
+    it never follows replacement lineage or searches by geometry.
+    """
+
+    if source_format > 6:
+        return
+    from anygeometry.features import builtin_feature_registry
+
+    registry = builtin_feature_registry()
+    corrupt = tuple(
+        record
+        for record in project.geometry.features.records
+        if (
+            not record.suppressed
+            and registry.has(record.kind)
+            and not record.outputs
+            and str(record.state) in {"pending", "active", "ok"}
+        )
+    )
+    if not corrupt:
+        return
+
+    raw_history = geometry_data.get("features", {})
+    project.archived_feature_histories.append(
+        {
+            "source_format": int(source_format),
+            "reason": "detached FeatureRecord outputs were never committed",
+            "history": deepcopy(
+                dict(raw_history) if isinstance(raw_history, Mapping) else {}
+            ),
+        }
+    )
+    history = project.geometry.features
+    prior_next_id = history.next_id
+    history.restore({"baseline": None, "records": (), "next_id": prior_next_id})
+    outputs = {
+        f"{kind}/{identifier}": EntityRef(kind, identifier)
+        for kind, store in (
+            ("vertex", project.geometry.vertices),
+            ("edge", project.geometry.edges),
+            ("face", project.geometry.faces),
+        )
+        for identifier in sorted(store)
+    }
+    reason = (
+        "Recovered a legacy detached-feature history as exact frozen Base "
+        "Geometry. Geometry feature editing is disabled; assignments, meshing "
+        "and solving remain available after target validation."
+    )
+    project.geometry_editing_disabled_reason = reason
+    project.compatibility_diagnostics.append(reason)
+    if not outputs:
+        project.read_only_reason = (
+            "legacy feature recovery found no last-good topology to validate"
+        )
+        project.compatibility_diagnostics.append(project.read_only_reason)
+        return
+    try:
+        history.adopt_frozen(
+            project.geometry,
+            kind="anyfem.frozen.base_geometry",
+            name="Recovered Base Geometry",
+            parameters={
+                "source_format": int(source_format),
+                "archived_feature_count": len(corrupt),
+            },
+            outputs=outputs,
+            diagnostic=reason,
+        )
+    except (GeometryError, TypeError, ValueError) as error:
+        project.read_only_reason = (
+            "legacy feature recovery could not validate the exact topology: "
+            f"{error}"
+        )
+        project.compatibility_diagnostics.append(project.read_only_reason)
+
+
+def _finalize_compatibility_recovery(project: Project) -> None:
+    """Fail closed when a recovered frozen topology has unresolved targets."""
+
+    if project.geometry_editing_disabled_reason is None:
+        return
+    problems = list(project.geometry.validate_topology())
+    problems.extend(project._feature_materialization_problems())  # type: ignore[attr-defined]
+    referenced_regions: set[str] = {
+        assignment.region.id for assignment in project.section_assignments.values()
+    }
+    scoped_items = [*project.supports, *project.masses, *project.output_requests.values()]
+    for case in project.load_cases.values():
+        scoped_items.extend(case.point_loads)
+        scoped_items.extend(case.pressures)
+        scoped_items.extend(case.line_loads)
+        scoped_items.extend(case.surface_tractions)
+    referenced_regions.update(
+        item.region.id
+        for item in scoped_items
+        if getattr(item, "region", None) is not None
+    )
+    for region_id in sorted(referenced_regions):
+        try:
+            region = project.regions[region_id]
+            if getattr(region.domain, "value", region.domain) != "geometry":
+                continue
+            candidates = tuple(
+                EntityRef(region.entity_kind, identifier)
+                for identifier in {
+                    "vertex": project.geometry.vertices,
+                    "edge": project.geometry.edges,
+                    "face": project.geometry.faces,
+                }[region.entity_kind]
+            )
+            resolved = project.regions.resolve(
+                region_id,
+                geometry=project.geometry,
+                candidates=candidates,
+                feature_resolver=lambda anchor: project.geometry.features.resolve(
+                    anchor, project.geometry
+                ),
+            )
+            if not resolved:
+                problems.append(f"required region {region.name!r} is empty")
+        except (KeyError, TypeError, ValueError, GeometryError) as error:
+            problems.append(f"required region {region_id!r} is unresolved: {error}")
+    if problems:
+        detail = "; ".join(dict.fromkeys(str(item) for item in problems))
+        project.read_only_reason = (
+            "recovered legacy geometry has unresolved or invalid required "
+            f"targets: {detail}"
+        )
+        if project.read_only_reason not in project.compatibility_diagnostics:
+            project.compatibility_diagnostics.append(project.read_only_reason)
 
 
 def load_project(path: str | Path) -> Project:
@@ -986,7 +1240,15 @@ def _ref_from(data: Mapping[str, Any]) -> EntityRef:
 def _existing_ref(
     project: Project, data: Mapping[str, Any], context: str
 ) -> EntityRef:
-    """Decode one serialized reference and prove its target exists."""
+    """Decode a legacy scalar cache through exact topology lineage.
+
+    Region UUIDs are the canonical scope in current projects.  The scalar
+    ``ref`` remains for headless compatibility and may name a predecessor that
+    was split after the region was created.  Materialise one stable active
+    representative through ANYgeometry's explicit replacement history only;
+    the region still retains the complete descendant set.  No proximity
+    matching is permitted.
+    """
 
     try:
         ref = _ref_from(data)
@@ -995,7 +1257,13 @@ def _existing_ref(
             # have no ANYgeometry entity behind them.  Their existence is
             # proved against the restored mesh association later.
             return ref
-        return project.geometry.entity_ref(ref.kind, ref.id)
+        try:
+            return project.geometry.entity_ref(ref.kind, ref.id)
+        except (KeyError, ValueError):
+            resolved = project.geometry.resolve_ref(ref)
+            if resolved:
+                return sorted(resolved, key=lambda item: (item.kind, item.id))[0]
+            raise
     except (KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"{context}: {error}") from None
 

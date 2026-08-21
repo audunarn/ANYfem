@@ -27,6 +27,7 @@ from typing import Any, Mapping, Optional, Sequence
 import numpy as np
 
 from ..model.records import ArtifactRef, ResultQuantityDescriptor
+from ..post.solver_data import available_solution_quantities
 from .artifacts import ArtifactStore
 
 __all__ = [
@@ -229,10 +230,30 @@ def result_artifact_payload(
 
     raw = _raw_result(solution)
     _add_common_raw_quantities(builder, raw, solution)
+    outcome = _solution_outcome(solution, raw)
+
+    resolved_solver_quantities = (
+        ()
+        if kind == "ImportedSolution"
+        else available_solution_quantities(
+            solution,
+            recovered=getattr(solution, "_stress", None),
+        )
+    )
+    _add_canonical_solver_quantities(builder, resolved_solver_quantities)
 
     built_provenance = _base_provenance(solution, raw)
+    if outcome is not None:
+        built_provenance["outcome"] = _json_safe(outcome.to_dict())
+    built_provenance["solver_quantity_descriptors"] = [
+        item.descriptor.to_dict() for item in resolved_solver_quantities
+    ]
     built_provenance.update(_json_safe(dict(provenance or {})))
     built_summary = _base_summary(solution, builder)
+    if outcome is not None:
+        encoded_outcome = _json_safe(outcome.to_dict())
+        built_summary["outcome"] = encoded_outcome
+        built_summary["termination"] = str(outcome.termination)
     built_summary.update(_json_safe(dict(summary or {})))
     built_diagnostics = _collect_diagnostics(solution, raw, diagnostics)
 
@@ -245,7 +266,7 @@ def result_artifact_payload(
         provenance=built_provenance,
         summary=built_summary,
         diagnostics=built_diagnostics,
-        partial=bool(partial),
+        partial=bool(partial or (outcome is not None and outcome.partial)),
     )
 
 
@@ -320,52 +341,392 @@ def write_solution_artifact(
 # ---------------------------------------------------------------------------
 # Wrapper adapters
 # ---------------------------------------------------------------------------
-def _add_equivalent_plastic_strain(
+def _add_canonical_solver_quantities(
     builder: _Builder,
-    state_frames: Sequence[Mapping[int, Any]],
-    *,
-    frames: Sequence[float],
+    resolved_quantities: Sequence[Any],
 ) -> None:
-    """Persist max committed PEEQ per element and frame when it exists."""
+    """Persist selected solver quantities through the public resolver only.
 
-    identifiers = sorted(
-        {
-            int(element_id)
-            for states in state_frames
-            for element_id, state in (states or {}).items()
-            if isinstance(state, Mapping)
-            and np.asarray(state.get("alpha", ())).size > 0
-        }
+    Displacements and stresses still need ANYfem-specific topology packing,
+    but committed PEEQ, reactions, and energy histories already have a complete
+    authoritative contract in ANYsolver.  Reading their raw implementation
+    dictionaries again would create a second availability/meaning path.
+    """
+
+    by_id = {
+        str(item.descriptor.quantity_id): item
+        for item in resolved_quantities
+        if getattr(item, "descriptor", None) is not None
+    }
+    final_peeq = by_id.get("equivalent_plastic_strain")
+    if final_peeq is not None:
+        _add_canonical_element_scalar(
+            builder,
+            final_peeq,
+            frames=(builder.frames[-1],) if builder.frames else (0.0,),
+        )
+    history_peeq = by_id.get("equivalent_plastic_strain_history")
+    if history_peeq is not None:
+        aligned = _peeq_history_data(builder, history_peeq)
+        if aligned is not None:
+            data, frames = aligned
+            _add_canonical_element_scalar(
+                builder,
+                history_peeq,
+                frames=frames,
+                data=data,
+            )
+
+    reaction = by_id.get("reaction")
+    if reaction is not None:
+        _add_canonical_reaction(
+            builder,
+            reaction,
+            frames=(builder.frames[-1],) if builder.frames else (0.0,),
+        )
+    reaction_history = by_id.get("reaction_history")
+    if reaction_history is not None:
+        _add_canonical_reaction_history(builder, reaction_history)
+
+    for quantity_id in (
+        "kinetic_energy",
+        "strain_energy",
+        "internal_work",
+        "impactor_kinetic_energy",
+    ):
+        resolved = by_id.get(quantity_id)
+        if resolved is not None:
+            _add_canonical_scalar_history(builder, resolved)
+
+
+def _canonical_provenance(descriptor: Any) -> dict[str, Any]:
+    payload = descriptor.to_dict() if hasattr(descriptor, "to_dict") else {}
+    return {
+        "source": "ANYsolver.resolve_result_quantity",
+        "solver_descriptor": _json_safe(payload),
+    }
+
+
+def _element_scalar_matrix(
+    data: Any,
+) -> Optional[tuple[tuple[int, ...], np.ndarray]]:
+    frames = data if isinstance(data, (tuple, list)) else (data,)
+    if not frames or not all(isinstance(frame, Mapping) for frame in frames):
+        return None
+    identifiers = tuple(
+        sorted(
+            {
+                int(element_id)
+                for frame in frames
+                for element_id, value in frame.items()
+                if _finite_scalar(value) is not None
+            }
+        )
     )
     if not identifiers:
-        return
-    columns = {identifier: index for index, identifier in enumerate(identifiers)}
-    values = np.full((len(state_frames), len(identifiers)), np.nan, dtype=float)
-    for frame_index, states in enumerate(state_frames):
-        for element_id, state in (states or {}).items():
-            identifier = int(element_id)
-            if identifier not in columns or not isinstance(state, Mapping):
+        return None
+    columns = {element_id: index for index, element_id in enumerate(identifiers)}
+    values = np.full((len(frames), len(identifiers)), np.nan, dtype=float)
+    for frame_index, frame in enumerate(frames):
+        for raw_element_id, raw_value in frame.items():
+            try:
+                element_id = int(raw_element_id)
+            except (TypeError, ValueError, OverflowError):
                 continue
-            alpha = np.asarray(state.get("alpha", ()), dtype=float).reshape(-1)
-            if alpha.size and np.all(np.isfinite(alpha)):
-                values[frame_index, columns[identifier]] = float(np.max(alpha))
+            value = _finite_scalar(raw_value)
+            if element_id in columns and value is not None:
+                values[frame_index, columns[element_id]] = value
+    return identifiers, values
+
+
+def _add_canonical_element_scalar(
+    builder: _Builder,
+    resolved: Any,
+    *,
+    frames: Sequence[float],
+    data: Any = None,
+) -> None:
+    packed = _element_scalar_matrix(resolved.data if data is None else data)
+    if packed is None or len(frames) != packed[1].shape[0]:
+        return
+    identifiers, values = packed
+    descriptor = resolved.descriptor
+    reduction = str(
+        getattr(descriptor, "metadata", {}).get("reduction", "none")
+    )
     key = builder.add_field(
-        "equivalent_plastic_strain",
+        str(descriptor.quantity_id),
         values,
-        label="Equivalent plastic strain (PEEQ)",
+        label=str(descriptor.label),
         location="element",
-        unit="1",
-        components=("PEEQ",),
+        unit=str(descriptor.unit),
+        components=tuple(descriptor.components),
+        basis=str(descriptor.basis),
         frames=frames,
-        recovery="committed_state",
-        reduction="max integration point/layer/fibre",
+        recovery=str(descriptor.recovery),
+        reduction=reduction,
         provenance={
-            "source": "element_states.alpha",
+            **_canonical_provenance(descriptor),
             "missing_entities": "NaN, never zero-filled",
         },
     )
     if key is not None:
-        builder.add_table(f"{key}_element_ids", np.asarray(identifiers, dtype=int))
+        builder.add_table(
+            f"{key}_element_ids", np.asarray(identifiers, dtype=np.int64)
+        )
+
+
+def _peeq_history_data(
+    builder: _Builder,
+    resolved: Any,
+) -> Optional[tuple[tuple[Mapping[Any, Any], ...], tuple[float, ...]]]:
+    data = tuple(resolved.data) if isinstance(resolved.data, (tuple, list)) else ()
+    frame_count = len(data)
+    metadata = getattr(resolved.descriptor, "metadata", {})
+    loads = _numeric_array(metadata.get("load_factors")) if isinstance(metadata, Mapping) else None
+    if loads is not None:
+        loads = loads.reshape(-1)
+        if loads.size == frame_count and np.all(np.isfinite(loads)):
+            available_frames = tuple(float(value) for value in loads)
+            # Keep the artifact on the common displacement-frame axis.  A
+            # snapshot without PEEQ becomes an explicit NaN row, not a copied
+            # neighbour or zero, so playback cannot shift later states onto an
+            # earlier load increment.
+            if builder.frames:
+                expanded: list[Mapping[Any, Any]] = [
+                    {} for _value in builder.frames
+                ]
+                used: set[int] = set()
+                for frame_value, frame_data in zip(available_frames, data):
+                    candidates = [
+                        index
+                        for index, target in enumerate(builder.frames)
+                        if index not in used
+                        and math.isclose(
+                            float(target),
+                            float(frame_value),
+                            rel_tol=1.0e-10,
+                            abs_tol=1.0e-12,
+                        )
+                    ]
+                    if not candidates:
+                        break
+                    selected = candidates[0]
+                    used.add(selected)
+                    expanded[selected] = frame_data
+                else:
+                    return tuple(expanded), builder.frames
+            return data, available_frames
+    if len(builder.frames) == frame_count:
+        return data, builder.frames
+    return None
+
+
+def _add_canonical_reaction(
+    builder: _Builder,
+    resolved: Any,
+    *,
+    frames: Sequence[float],
+) -> None:
+    data = resolved.data
+    if not isinstance(data, Mapping) or not data:
+        return
+    descriptor = resolved.descriptor
+    location = str(descriptor.location)
+    if location == "node":
+        _add_reaction_frames(
+            builder,
+            "reaction",
+            (data,),
+            frames,
+            descriptor,
+            location="node",
+        )
+    else:
+        _add_reaction_frames(
+            builder,
+            "reaction",
+            (data,),
+            frames,
+            descriptor,
+            location="support",
+        )
+
+
+def _add_canonical_reaction_history(builder: _Builder, resolved: Any) -> None:
+    frames = tuple(resolved.data) if resolved.data is not None else ()
+    if not frames:
+        return
+    nodal = []
+    supports = []
+    abscissae = []
+    has_explicit_abscissa = True
+    for index, frame in enumerate(frames):
+        if isinstance(frame, Mapping):
+            location = str(resolved.descriptor.location)
+            nodal.append(frame if location == "node" else {})
+            supports.append(frame if location != "node" else {})
+            has_explicit_abscissa = False
+            continue
+        nodal.append(getattr(frame, "reactions", {}) or {})
+        supports.append(getattr(frame, "support_resultants", {}) or {})
+        value = getattr(frame, "abscissa", None)
+        scalar = _finite_scalar(value)
+        if scalar is None:
+            has_explicit_abscissa = False
+        else:
+            abscissae.append(scalar)
+    if has_explicit_abscissa and len(abscissae) == len(frames):
+        frame_values = tuple(abscissae)
+    elif len(builder.frames) == len(frames):
+        frame_values = builder.frames
+    else:
+        return
+    descriptor = resolved.descriptor
+    if any(isinstance(value, Mapping) and value for value in nodal):
+        _add_reaction_frames(
+            builder,
+            "reaction_history",
+            tuple(nodal),
+            frame_values,
+            descriptor,
+            location="node",
+        )
+    if any(isinstance(value, Mapping) and value for value in supports):
+        _add_reaction_frames(
+            builder,
+            "support_reaction_history",
+            tuple(supports),
+            frame_values,
+            descriptor,
+            location="support",
+        )
+
+
+def _add_reaction_frames(
+    builder: _Builder,
+    key: str,
+    frames_data: Sequence[Mapping[Any, Any]],
+    frames: Sequence[float],
+    descriptor: Any,
+    *,
+    location: str,
+) -> None:
+    if len(frames_data) != len(frames):
+        return
+    if location == "node":
+        identifiers: tuple[Any, ...] = tuple(
+            sorted(
+                {
+                    int(raw_key)
+                    for frame in frames_data
+                    for raw_key in frame
+                    if _integer_key(raw_key) is not None
+                }
+            )
+        )
+    else:
+        identifiers = tuple(
+            sorted({str(raw_key) for frame in frames_data for raw_key in frame})
+        )
+    if not identifiers:
+        return
+    component_count = max(
+        (
+            int(array.size)
+            for frame in frames_data
+            for value in frame.values()
+            if (array := _numeric_array(value)) is not None and array.size > 0
+        ),
+        default=0,
+    )
+    if component_count <= 0:
+        return
+    values = np.full(
+        (len(frames_data), len(identifiers), component_count),
+        np.nan,
+        dtype=float,
+    )
+    columns = {identifier: index for index, identifier in enumerate(identifiers)}
+    for frame_index, frame in enumerate(frames_data):
+        for raw_identifier, raw_values in frame.items():
+            identifier = (
+                _integer_key(raw_identifier)
+                if location == "node"
+                else str(raw_identifier)
+            )
+            array = _numeric_array(raw_values)
+            if identifier not in columns or array is None or array.size != component_count:
+                continue
+            values[frame_index, columns[identifier]] = array.reshape(-1)
+    components = tuple(str(value).lower() for value in descriptor.components)[
+        :component_count
+    ]
+    field_key = builder.add_field(
+        key,
+        values,
+        label=(
+            str(descriptor.label)
+            if key != "support_reaction_history"
+            else "Support reaction history"
+        ),
+        location="node" if location == "node" else "history",
+        unit=str(descriptor.unit),
+        components=components,
+        basis=str(descriptor.basis),
+        frames=frames,
+        recovery=str(descriptor.recovery),
+        provenance={
+            **_canonical_provenance(descriptor),
+            "missing_entities": "NaN, never zero-filled",
+        },
+    )
+    if field_key is None:
+        return
+    if location == "node":
+        builder.add_table(
+            f"{field_key}_node_ids", np.asarray(identifiers, dtype=np.int64)
+        )
+    else:
+        builder.add_table(f"{field_key}_support_names", identifiers)
+
+
+def _add_canonical_scalar_history(builder: _Builder, resolved: Any) -> None:
+    values = _numeric_array(resolved.data)
+    if values is None:
+        return
+    values = values.reshape(-1)
+    if values.size == 0 or values.size != len(builder.frames):
+        return
+    descriptor = resolved.descriptor
+    builder.add_field(
+        str(descriptor.quantity_id),
+        values.reshape(-1, 1),
+        label=str(descriptor.label),
+        location="history",
+        unit=str(descriptor.unit),
+        components=tuple(descriptor.components),
+        basis=str(descriptor.basis),
+        frames=builder.frames,
+        recovery=str(descriptor.recovery),
+        provenance=_canonical_provenance(descriptor),
+    )
+    builder.add_history(str(descriptor.quantity_id), builder.frames, values)
+
+
+def _finite_scalar(value: Any) -> Optional[float]:
+    array = _numeric_array(value)
+    if array is None or array.size != 1:
+        return None
+    scalar = float(array.reshape(-1)[0])
+    return scalar if math.isfinite(scalar) else None
+
+
+def _integer_key(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _adapt_linear(builder: _Builder, solution: Any) -> None:
@@ -480,11 +841,6 @@ def _adapt_nonlinear(
                 for index, snapshot in enumerate(snapshots)
             ],
         )
-        _add_equivalent_plastic_strain(
-            builder,
-            [getattr(snapshot, "element_states", {}) for snapshot in snapshots],
-            frames=loads,
-        )
     else:
         load = float(getattr(solution, "load_factor", getattr(solution, "value", 0.0)))
         builder.frames = (load,)
@@ -506,10 +862,6 @@ def _adapt_nonlinear(
     element_states = getattr(raw, "element_states", None)
     if isinstance(element_states, Mapping) and element_states:
         builder.add_table("final_element_states", element_states)
-        if not snapshots:
-            _add_equivalent_plastic_strain(
-                builder, [element_states], frames=builder.frames
-            )
 
     if capacity:
         buckling = getattr(solution, "buckling", None)
@@ -642,7 +994,6 @@ def _adapt_transient(
             )
 
     _add_impulses(builder, raw, layout)
-    _add_energy_histories(builder, getattr(raw, "diagnostics", {}), times)
     _add_stress_history(
         builder,
         getattr(raw, "stress_history", None),
@@ -970,39 +1321,6 @@ def _add_impulses(builder: _Builder, raw: Any, layout) -> None:
         )
 
 
-def _add_energy_histories(
-    builder: _Builder,
-    diagnostics: Any,
-    times: Sequence[float],
-) -> None:
-    if not isinstance(diagnostics, Mapping):
-        return
-    x = np.asarray(times, dtype=float).reshape(-1)
-    for key, label, unit in (
-        ("kinetic_energy", "Kinetic energy", "J"),
-        ("strain_energy", "Strain energy", "J"),
-        ("sphere_kinetic_energy", "Impactor kinetic energy", "J"),
-        ("plastic_work_proxy", "Plastic work proxy", "1"),
-    ):
-        values = _numeric_array(diagnostics.get(key))
-        if values is None:
-            continue
-        values = values.reshape(-1)
-        if values.size == 0 or values.size != x.size:
-            builder.add_table(key, diagnostics.get(key))
-            continue
-        builder.add_field(
-            key,
-            values.reshape(-1, 1),
-            label=label,
-            location="history",
-            unit=unit,
-            components=("value",),
-            frames=times,
-        )
-        builder.add_history(key, x, values)
-
-
 def _add_impact_quantities(
     builder: _Builder,
     solution: Any,
@@ -1085,15 +1403,12 @@ def _add_impact_quantities(
 def _add_common_raw_quantities(builder: _Builder, raw: Any, solution: Any) -> None:
     if raw is not None:
         _add_static_stresses(builder, raw, prefix="stress")
-        _add_reactions(builder, getattr(raw, "reactions", None))
     # Capacity wraps the nonlinear result one level down.
     nonlinear = getattr(raw, "nonlinear_result", None)
     if nonlinear is not None:
         _add_static_stresses(builder, nonlinear, prefix="nonlinear_stress")
-        _add_reactions(builder, getattr(nonlinear, "reactions", None))
     info = getattr(solution, "info", None)
     if isinstance(info, Mapping):
-        _add_reactions(builder, info.get("reactions"))
         _add_stress_history(
             builder,
             info.get("stress_history"),
@@ -1321,6 +1636,35 @@ def _raw_result(solution: Any) -> Any:
         return info["raw"]
     raw = getattr(solution, "raw_result", None)
     return raw if raw is not None else None
+
+
+def _solution_outcome(solution: Any, raw: Any) -> Any:
+    """Resolve the public ANYsolver outcome without wrapper heuristics.
+
+    Old artifacts remain readable through their readers, but new artifacts
+    carry the authoritative solver disposition and termination verbatim.
+    """
+
+    try:
+        from anysolver import SolveOutcome, solve_outcome
+    except ImportError:  # pragma: no cover - pre-0.3 compatibility environment
+        return None
+
+    info = getattr(solution, "info", None)
+    if isinstance(info, Mapping):
+        encoded = info.get("outcome")
+        if isinstance(encoded, Mapping):
+            return SolveOutcome.from_dict(encoded)
+
+    candidates = (solution, raw)
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            return solve_outcome(candidate)
+        except TypeError:
+            continue
+    return None
 
 
 def _history_storage_mode(raw: Any) -> str:

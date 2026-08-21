@@ -101,7 +101,7 @@ class DocumentSession:
         self.path = None if path is None else Path(path)
         self.commands = CommandStack(project, selection=selection)
         self.dirty = False
-        self.read_only = False
+        self.read_only = bool(getattr(project, "read_only_reason", None))
         self.mesh_cache: dict[str, Any] = {}
         self.result_cache: dict[str, Any] = {}
         # View/construction state is session-owned: changing the active plane
@@ -285,7 +285,48 @@ def _document_payload(document: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(header, dict):
         header.pop("revision", None)
         header.pop("artifact_root", None)
+    geometry = payload.get("geometry")
+    if isinstance(geometry, dict):
+        _normalize_geometry_hash_payload(geometry, include_feature_intent=True)
     return payload
+
+
+def _normalize_geometry_hash_payload(
+    geometry: dict[str, Any], *, include_feature_intent: bool
+) -> None:
+    """Remove codec/transaction bookkeeping from semantic document hashes."""
+
+    for key in (
+        "model_id",
+        "revision",
+        "id_state",
+        "checksum",
+        "replacement_history",
+        "structural_replacement_history",
+    ):
+        geometry.pop(key, None)
+    features = geometry.get("features")
+    if not include_feature_intent:
+        geometry.pop("features", None)
+        return
+    if not isinstance(features, dict):
+        return
+    features.pop("next_id", None)
+    baseline = features.get("baseline")
+    if isinstance(baseline, dict):
+        _normalize_geometry_hash_payload(
+            baseline, include_feature_intent=False
+        )
+    for record in features.get("records", ()):
+        if not isinstance(record, dict):
+            continue
+        for key in (
+            "outputs",
+            "state",
+            "diagnostic",
+            "materialization_checksum",
+        ):
+            record.pop(key, None)
 
 
 def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -299,14 +340,12 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         "face_sections",
         "edge_sections",
         "assignments",
+        "ownership",
         "supports",
         "masses",
-        "load_cases",
-        "combinations",
         "imperfections",
         "meshing",
         "regions",
-        "output_requests",
         "coordinate_systems",
     )
     payload = {key: deepcopy(document[key]) for key in keys if key in document}
@@ -342,6 +381,12 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
                 item.pop("id", None)
                 item.pop("name", None)
                 item.pop("legacy_singleton", None)
+    ownership = payload.get("ownership")
+    if isinstance(ownership, dict):
+        for item in ownership.get("sheet_joins", ()):
+            if isinstance(item, dict):
+                item.pop("id", None)
+                item.pop("name", None)
     for item in payload.get("coordinate_systems", ()):
         if isinstance(item, dict):
             item.pop("name", None)
@@ -349,10 +394,6 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict):
             item.pop("name", None)
             item.pop("hidden", None)
-    for item in payload.get("output_requests", ()):
-        if isinstance(item, dict):
-            item.pop("id", None)
-            item.pop("label", None)
     for item in payload.get("supports", ()):
         if isinstance(item, dict):
             item.pop("id", None)
@@ -361,22 +402,6 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict):
             item.pop("id", None)
             item.pop("name", None)
-    for case in payload.get("load_cases", ()):
-        if not isinstance(case, dict):
-            continue
-        case.pop("id", None)
-        for collection in (
-            "point_loads",
-            "pressures",
-            "line_loads",
-            "surface_tractions",
-        ):
-            for load in case.get(collection, ()):
-                if isinstance(load, dict):
-                    load.pop("id", None)
-    for item in payload.get("combinations", ()):
-        if isinstance(item, dict):
-            item.pop("id", None)
     for item in payload.get("imperfections", ()):
         if isinstance(item, dict):
             item.pop("id", None)
@@ -388,9 +413,5 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
                 item.pop("name", None)
     geometry = payload.get("geometry")
     if isinstance(geometry, dict):
-        features = geometry.get("features")
-        if isinstance(features, dict):
-            for record in features.get("records", ()):
-                if isinstance(record, dict):
-                    record.pop("name", None)
+        _normalize_geometry_hash_payload(geometry, include_feature_intent=False)
     return payload

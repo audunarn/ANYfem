@@ -6,6 +6,7 @@ everything the user does here is undoable and scriptable by the same calls.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from queue import Empty, Queue
 from threading import Thread
@@ -90,7 +91,62 @@ __all__ = [
     "SectionPanel",
     "SolvePanel",
     "StagePanel",
+    "mapped_mesh_eligibility",
 ]
+
+
+def mapped_mesh_eligibility(geometry) -> tuple[bool, str]:
+    """Return a conservative, user-facing mapped-method qualification.
+
+    This is an early UI check over the live geometry.  The mesh worker repeats
+    the authoritative checks after creating its detached structural closure,
+    because intersection imprinting can partition otherwise mappable plates.
+    """
+
+    face_ids = tuple(sorted(int(item) for item in geometry.faces))
+    if not face_ids:
+        return (
+            True,
+            "There are no plate faces to qualify. A beam-only model is "
+            "supported when section-assigned members exist; they are seeded "
+            "along their model lines.",
+        )
+
+    problems: list[str] = []
+    for face_id in face_ids:
+        face = geometry.faces[face_id]
+        holes = tuple(getattr(face, "holes", ()))
+        if holes:
+            problems.append(
+                f"plate face {face_id} contains {len(holes)} hole loop(s)"
+            )
+            continue
+        report = check_mappable(geometry, face_id)
+        if not report.ok:
+            detail = (
+                report.messages[0]
+                if report.messages
+                else "its boundary cannot be arranged as four mapped sides"
+            )
+            problems.append(f"plate face {face_id}: {detail}")
+
+    if problems:
+        shown = "; ".join(problems[:3])
+        remaining = len(problems) - 3
+        if remaining > 0:
+            shown += f"; and {remaining} more"
+        return (
+            False,
+            "Mapped is unavailable for the current model: " + shown + ". "
+            "Partition the indicated plates into four-sided regions, or choose "
+            "Automatic/Unstructured.",
+        )
+    return (
+        True,
+        f"Mapped is available: all {len(face_ids)} plate face(s) have four "
+        "mapped sides and no holes. Final eligibility is checked again after "
+        "automatic intersection preparation.",
+    )
 
 
 class StagePanel(ttk.Frame):
@@ -1513,6 +1569,29 @@ class GeometryPanel(StagePanel):
 # ----------------------------------------------------------------------
 class MeshPanel(StagePanel):
     title = "Mesh"
+    _METHOD_LABELS = {
+        "auto": "Automatic (recommended)",
+        "mapped": "Mapped quadrilateral",
+        "native": "Unstructured / native",
+    }
+    _METHOD_VALUES = {label: value for value, label in _METHOD_LABELS.items()}
+    _METHOD_HELP = {
+        "auto": (
+            "Maps eligible four-sided plates and uses unstructured meshing for "
+            "the remaining plates. Shared model edges use one node sequence, "
+            "so mixed interfaces remain conformal."
+        ),
+        "mapped": (
+            "Uses the transfinite mapped quadrilateral method for every plate. "
+            "Each plate must have four mapped sides and no holes; beams are "
+            "seeded on their model lines."
+        ),
+        "native": (
+            "Uses unstructured surface meshing for every plate, with optional "
+            "quad recombination. This is appropriate for holes and general "
+            "plate boundaries."
+        ),
+    }
     _NATIVE_BACKEND_LABELS = {
         "auto": "Automatic",
         "python": "Python compatibility",
@@ -1524,6 +1603,38 @@ class MeshPanel(StagePanel):
 
     def build(self) -> None:
         controls = self.section("Mesh generation")
+        method_row = ttk.Frame(controls)
+        method_row.pack(fill="x", pady=1)
+        ttk.Label(method_row, text="meshing method", width=16).pack(side="left")
+        self._method = tk.StringVar(value=self._METHOD_LABELS["auto"])
+        self._method_combo = ttk.Combobox(
+            method_row,
+            textvariable=self._method,
+            values=list(self._METHOD_VALUES),
+            state="readonly",
+            width=24,
+        )
+        self._method_combo.pack(side="left", fill="x", expand=True)
+        self._method_combo.bind(
+            "<<ComboboxSelected>>", lambda _event: self._method_changed()
+        )
+        self._method_dirty = False
+        self._method_help = ttk.Label(
+            controls,
+            text=self._METHOD_HELP["auto"],
+            foreground="#444444",
+            justify="left",
+            wraplength=300,
+        )
+        self._method_help.pack(anchor="w", pady=(1, 3))
+        self._mapped_status = ttk.Label(
+            controls,
+            text="",
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        )
+        self._mapped_status.pack(anchor="w", pady=(0, 4))
         self._size = self.entry_row(controls, "element size [m]", "0.25")
         row = ttk.Frame(controls)
         row.pack(fill="x", pady=1)
@@ -1536,9 +1647,11 @@ class MeshPanel(StagePanel):
             state="readonly",
             width=12,
         ).pack(side="left", fill="x", expand=True)
-        backend_row = ttk.Frame(controls)
+        self._native_options = ttk.Frame(controls)
+        self._native_options.pack(fill="x")
+        backend_row = ttk.Frame(self._native_options)
         backend_row.pack(fill="x", pady=1)
-        ttk.Label(backend_row, text="native triangulator", width=16).pack(
+        ttk.Label(backend_row, text="triangulator", width=16).pack(
             side="left"
         )
         self._native_backend = tk.StringVar(value="Automatic")
@@ -1550,10 +1663,10 @@ class MeshPanel(StagePanel):
             width=20,
         ).pack(side="left", fill="x", expand=True)
         ttk.Label(
-            controls,
+            self._native_options,
             text=(
-                "Used only by the native meshing strategy; this is separate "
-                "from choosing mapped or native meshing."
+                "Used for unstructured faces only. Automatic may use it as a "
+                "fallback; Mapped does not use a triangulator."
             ),
             foreground="#666666",
             justify="left",
@@ -1561,9 +1674,30 @@ class MeshPanel(StagePanel):
         ).pack(anchor="w", pady=(0, 3))
         self._generate_button = self.button(controls, "Generate mesh", self._generate)
         self._cancel_button = self.button(controls, "Cancel mesh", self._cancel)
-        self.button(controls, "Open ANYmesher...", self._open_mesher)
+        self.button(controls, "Open standalone ANYmesher...", self._open_mesher)
+        ttk.Label(
+            controls,
+            text=(
+                "The standalone editor creates neutral meshes. It does not "
+                "change the meshing method or model associations in this project."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        ).pack(anchor="w", pady=(0, 3))
 
         seeding = self.section("Seeding")
+        ttk.Label(
+            seeding,
+            text=(
+                "Pin an exact number of divisions on selected model lines. "
+                "The same edge nodes are reused at mapped/unstructured and "
+                "beam/shell interfaces."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        ).pack(anchor="w", pady=(0, 3))
         self._divisions = self.entry_row(seeding, "divisions", "4")
         self.button(seeding, "Pin selected lines", self._pin)
         self.button(seeding, "Clear pins", self._clear_pins)
@@ -1571,6 +1705,17 @@ class MeshPanel(StagePanel):
         self._pin_label.pack(anchor="w")
 
         refine = self.section("Local refinement")
+        ttk.Label(
+            refine,
+            text=(
+                "Applies a smaller target size near selected model entities. "
+                "Unstructured plates can grade locally; a mapped plate remains "
+                "a structured grid whose compatible edge divisions may grow."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        ).pack(anchor="w", pady=(0, 3))
         self._refine_size = self.entry_row(refine, "element size [m]", "0.05")
         self._refine_radius = self.entry_row(refine, "radius [m]", "0.1")
         self.button(refine, "Refine around selection", self._refine)
@@ -1583,6 +1728,71 @@ class MeshPanel(StagePanel):
 
         self._stats = ttk.Label(self, text="no mesh", justify="left")
         self._stats.pack(anchor="w")
+        self._update_method_controls()
+
+    def _method_value(self) -> str:
+        try:
+            return self._METHOD_VALUES[self._method.get()]
+        except KeyError as error:
+            raise ValueError(
+                f"unknown meshing method {self._method.get()!r}"
+            ) from error
+
+    def _stored_method_value(self) -> str:
+        settings = self.app.project.native_mesh_settings
+        if settings is None:
+            return "auto"
+        backend = str(getattr(settings.backend, "value", settings.backend))
+        return {
+            "automatic": "auto",
+            "auto": "auto",
+            "mapped": "mapped",
+            "native": "native",
+        }.get(backend, "auto")
+
+    def _method_changed(self) -> None:
+        self._method_dirty = True
+        self._update_method_controls()
+
+    def _update_method_controls(self, *, busy: bool | None = None) -> None:
+        method = self._method_value()
+        self._method_help.configure(text=self._METHOD_HELP[method])
+        eligible, diagnostic = mapped_mesh_eligibility(self.app.project.geometry)
+        if method == "mapped":
+            self._mapped_status.configure(
+                text=diagnostic,
+                foreground=("#267326" if eligible else "#a03020"),
+            )
+        elif method == "auto":
+            self._mapped_status.configure(
+                text=(
+                    diagnostic
+                    if eligible
+                    else "Automatic remains available and chooses the safe "
+                    "method per plate. Mapped-only precheck: " + diagnostic
+                ),
+                foreground=("#267326" if eligible else "#8a5a00"),
+            )
+        else:
+            self._mapped_status.configure(
+                text=(
+                    "Mapped eligibility is not required because every plate "
+                    "will use the unstructured method."
+                ),
+                foreground="#666666",
+            )
+
+        if method == "mapped":
+            self._native_options.pack_forget()
+        elif not self._native_options.winfo_manager():
+            self._native_options.pack(fill="x", before=self._generate_button)
+
+        if busy is None:
+            busy = bool(getattr(self.app, "mesh_job_running", False))
+        blocked = method == "mapped" and not eligible
+        self._generate_button.configure(
+            state="disabled" if busy or blocked else "normal"
+        )
 
     def refresh(self) -> None:
         pins = self.app.seeding_overrides
@@ -1594,6 +1804,10 @@ class MeshPanel(StagePanel):
         )
         if self._order.get() != self.app.project.element_order:
             self._order.set(self.app.project.element_order)
+        if not self._method_dirty:
+            method_label = self._METHOD_LABELS[self._stored_method_value()]
+            if self._method.get() != method_label:
+                self._method.set(method_label)
         backend_label = self._NATIVE_BACKEND_LABELS[
             self.app.project.native_triangulation_backend
         ]
@@ -1612,7 +1826,7 @@ class MeshPanel(StagePanel):
         )
 
         busy = bool(getattr(self.app, "mesh_job_running", False))
-        self._generate_button.configure(state="disabled" if busy else "normal")
+        self._update_method_controls(busy=busy)
         self._cancel_button.configure(state="normal" if busy else "disabled")
 
         record_id = (
@@ -1628,6 +1842,23 @@ class MeshPanel(StagePanel):
         if record is not None:
             state = self.app.mesh_record_state(record)
             lines.append(f"{record.name}: {state}")
+            requested_strategy = record.summary.get("strategy_requested")
+            if requested_strategy is not None:
+                method = self._METHOD_LABELS.get(
+                    str(requested_strategy), str(requested_strategy)
+                )
+                lines.append(f"meshing method requested: {method}")
+            strategy_by_face = record.summary.get("strategy_by_face", {})
+            if isinstance(strategy_by_face, dict) and strategy_by_face:
+                mapped = sum(
+                    str(value) == "mapped" for value in strategy_by_face.values()
+                )
+                native = sum(
+                    str(value) == "native" for value in strategy_by_face.values()
+                )
+                lines.append(
+                    f"plate method used: {mapped} mapped, {native} unstructured"
+                )
             if "automatic_intersections" in record.summary:
                 intersections = int(record.summary["automatic_intersections"])
                 lines.append(
@@ -1664,6 +1895,46 @@ class MeshPanel(StagePanel):
                     f"requested {requested}, selected {selected}, actual {actual}"
                     for requested, selected, actual in routes
                 )
+            optimisation_by_face = record.summary.get(
+                "quality_optimization_by_face", {}
+            )
+            if isinstance(optimisation_by_face, dict):
+                for face_id, optimisation in sorted(
+                    optimisation_by_face.items(), key=lambda item: int(item[0])
+                ):
+                    if not isinstance(optimisation, Mapping):
+                        continue
+                    scalars = [
+                        f"{key}={value}"
+                        for key, value in optimisation.items()
+                        if isinstance(value, (str, int, float, bool))
+                    ]
+                    if scalars:
+                        lines.append(
+                            f"face {face_id} quality optimization: "
+                            + ", ".join(scalars[:6])
+                        )
+                    final_quality = optimisation.get("final_quality", {})
+                    if isinstance(final_quality, Mapping) and final_quality:
+                        final_parts: list[str] = []
+                        if final_quality.get("min_scaled_jacobian") is not None:
+                            final_parts.append(
+                                "min Jacobian "
+                                f"{float(final_quality['min_scaled_jacobian']):.4g}"
+                            )
+                        if final_quality.get("min_angle") is not None:
+                            final_parts.append(
+                                f"angles {float(final_quality['min_angle']):.4g}°–"
+                                f"{float(final_quality.get('max_angle', 0.0)):.4g}°"
+                            )
+                        poor = final_quality.get("poor_element_ids", ())
+                        if poor:
+                            final_parts.append(f"{len(poor)} poor element(s)")
+                        if final_parts:
+                            lines.append(
+                                f"face {face_id} final quality: "
+                                + ", ".join(final_parts)
+                            )
             quality = record.summary.get("quality", {})
             if quality:
                 lines.extend(
@@ -1673,6 +1944,19 @@ class MeshPanel(StagePanel):
                         f"max warp {float(quality.get('max_warp', 0.0)):.4g}",
                     )
                 )
+                if quality.get("min_scaled_jacobian") is not None:
+                    lines.append(
+                        "min scaled Jacobian "
+                        f"{float(quality['min_scaled_jacobian']):.4g}"
+                    )
+                if quality.get("min_angle") is not None:
+                    lines.append(
+                        f"angle range {float(quality['min_angle']):.4g}° to "
+                        f"{float(quality.get('max_angle', 0.0)):.4g}°"
+                    )
+                poor_ids = quality.get("poor_element_ids", ())
+                if poor_ids:
+                    lines.append(f"poor-quality elements: {len(poor_ids)}")
                 warnings = quality.get("warnings", ())
                 lines.extend(f"warning: {warning}" for warning in warnings)
             if record.diagnostics:
@@ -1698,10 +1982,26 @@ class MeshPanel(StagePanel):
         size = self.number(self._size, "element size")
         if size <= 0:
             raise ValueError("element size must be positive")
+        strategy = self._method_value()
+        if strategy == "mapped":
+            eligible, diagnostic = mapped_mesh_eligibility(
+                self.app.project.geometry
+            )
+            if not eligible:
+                raise ValueError(diagnostic)
         if self._order.get() != self.app.project.element_order:
             self.app.run(cmd.SetElementOrder(order=self._order.get()))
-        backend = self._NATIVE_BACKEND_VALUES[self._native_backend.get()]
-        self.app.generate_mesh_async(size, native_backend=backend)
+        backend = (
+            None
+            if strategy == "mapped"
+            else self._NATIVE_BACKEND_VALUES[self._native_backend.get()]
+        )
+        self.app.generate_mesh_async(
+            size,
+            native_backend=backend,
+            strategy=strategy,
+        )
+        self._method_dirty = False
 
     def _cancel(self) -> None:
         self.app.cancel_mesh()
@@ -4375,15 +4675,11 @@ class ResultsPanel(StagePanel):
                     values=(descriptor.location, descriptor.unit),
                 )
             return
-        raw = getattr(solution, "info", {}).get("raw")
-        candidates = [raw, getattr(raw, "nonlinear_result", None)]
-        descriptors = ()
-        for candidate in candidates:
-            describe = getattr(candidate, "quantity_metadata", None)
-            if callable(describe):
-                descriptors = describe()
-                if descriptors:
-                    break
+        from ..post.solver_data import available_solution_quantities
+
+        descriptors = tuple(
+            item.descriptor for item in available_solution_quantities(solution)
+        )
         if not descriptors:
             fields = getattr(solution, "available_fields", None)
             values = fields() if callable(fields) else available_fields()
@@ -4407,15 +4703,6 @@ class ResultsPanel(StagePanel):
                     str(getattr(descriptor, "unit", "")),
                 ),
             )
-        available = getattr(solution, "available_fields", None)
-        dynamic = tuple(available()) if callable(available) else ()
-        if "equivalent_plastic_strain" in dynamic:
-            self._quantities.insert(
-                "", "end", iid="field:equivalent_plastic_strain",
-                text="Equivalent plastic strain (PEEQ)",
-                values=("element", "1"),
-            )
-
     def _activate_quantity(self) -> None:
         selected = self._quantities.selection()
         if not selected:
@@ -4429,6 +4716,7 @@ class ResultsPanel(StagePanel):
             "displacement": "magnitude",
             "mode_shape": "magnitude",
             "stress": "von_mises",
+            "equivalent_plastic_strain": "equivalent_plastic_strain",
             "field": selected[0].split(":", 1)[-1],
         }
         field = mapping.get(quantity)
@@ -4560,7 +4848,7 @@ class ResultsPanel(StagePanel):
             key = self._component.get()
             stored = dataset.field(key)
             descriptor = stored.descriptor
-            if descriptor.location in ("global", "history"):
+            if descriptor.location in ("global", "history", "support", "contact"):
                 frame = min(max(self.app.shape_index, 0), stored.shape[0] - 1)
                 value_scale, display_unit = unit_transform(
                     descriptor.unit, self.display_units()

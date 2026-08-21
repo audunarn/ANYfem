@@ -25,6 +25,7 @@ __all__ = [
     "MeshProgress",
     "MeshSettings",
     "MeshTaskManager",
+    "mesh_semantic_hash",
 ]
 
 
@@ -35,6 +36,22 @@ class MeshSettings:
     target_size: float
     element_order: str = "linear"
     overrides: tuple[tuple[int, int], ...] = ()
+    # None preserves the established headless behaviour: inherit the strategy
+    # from the snapshotted project, whose legacy default is Automatic.
+    strategy: str | None = None
+
+    def __post_init__(self) -> None:
+        from anymesher.hybrid import MeshingStrategy
+
+        if self.strategy is not None:
+            try:
+                strategy = MeshingStrategy(str(self.strategy).strip().lower()).value
+            except ValueError as error:
+                choices = ", ".join(item.value for item in MeshingStrategy)
+                raise ValueError(
+                    f"unknown meshing strategy {self.strategy!r}; expected one of {choices}"
+                ) from error
+            object.__setattr__(self, "strategy", strategy)
 
     @classmethod
     def create(
@@ -43,6 +60,7 @@ class MeshSettings:
         *,
         element_order: str,
         overrides: Mapping[int, int] | None = None,
+        strategy: str | None = None,
     ) -> "MeshSettings":
         size = float(target_size)
         if size <= 0.0:
@@ -53,6 +71,7 @@ class MeshSettings:
             overrides=tuple(
                 sorted((int(key), int(value)) for key, value in (overrides or {}).items())
             ),
+            strategy=strategy,
         )
 
     @property
@@ -62,6 +81,7 @@ class MeshSettings:
                 "target_size": self.target_size,
                 "element_order": self.element_order,
                 "overrides": dict(self.overrides),
+                "strategy": self.strategy,
             }
         )
 
@@ -80,6 +100,36 @@ class MeshJobResult:
     mesh: Any
     mesh_hash: str
     quality: Mapping[str, Any]
+    structural_preparation: Mapping[str, Any]
+
+
+def mesh_semantic_hash(
+    mesh: Any,
+    *,
+    model_hash: str,
+    mesh_input_hash: str,
+    structural_preparation: Mapping[str, Any] | None = None,
+) -> str:
+    """Hash solver-affecting mesh semantics, excluding owner bookkeeping."""
+
+    from anymesher.serialize import mesh_to_dict
+
+    mesh_payload = dict(mesh_to_dict(mesh))
+    mesh_payload.pop("geometry_model_id", None)
+    mesh_payload.pop("geometry_revision", None)
+    preparation = dict(structural_preparation or {})
+    preparation.pop("working_model_id", None)
+    preparation.pop("working_revision", None)
+    preparation.pop("source_revision", None)
+    preparation.pop("source_model_id", None)
+    return canonical_hash(
+        {
+            "model_hash": str(model_hash),
+            "mesh_input_hash": str(mesh_input_hash),
+            "structural_preparation": preparation,
+            "mesh": mesh_payload,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -205,6 +255,29 @@ class MeshTaskManager:
         try:
             cancellation.raise_if_cancelled("mesh snapshot")
             project = snapshot.thaw()
+            from anymesher.hybrid import MeshingStrategy
+
+            requested_strategy = settings.strategy
+            if requested_strategy is None:
+                project_settings = project.native_mesh_settings
+                backend = (
+                    "automatic"
+                    if project_settings is None
+                    else str(
+                        getattr(
+                            project_settings.backend,
+                            "value",
+                            project_settings.backend,
+                        )
+                    )
+                )
+                requested_strategy = {
+                    "automatic": "auto",
+                    "auto": "auto",
+                    "mapped": "mapped",
+                    "native": "native",
+                }.get(backend, backend)
+            resolved_strategy = MeshingStrategy(requested_strategy).value
             progress("snapshot", "prepared immutable model snapshot", 0.1)
             cancellation.raise_if_cancelled("mesh generation")
             progress("generation", "generating mesh elements", 0.2)
@@ -212,6 +285,7 @@ class MeshTaskManager:
                 settings.target_size,
                 overrides=dict(settings.overrides),
                 order=settings.element_order,
+                strategy=settings.strategy,
                 cancellation_check=cancellation.raise_if_cancelled,
             )
             cancellation.raise_if_cancelled("mesh quality")
@@ -221,9 +295,37 @@ class MeshTaskManager:
             quality = verify_mesh_quality(mesh).as_dict()
             cancellation.raise_if_cancelled("mesh hashing")
             progress("hash", "hashing immutable mesh result", 0.94)
-            from anymesher.serialize import mesh_to_dict
-
-            mesh_hash = canonical_hash(mesh_to_dict(mesh))
+            structural_preparation = dict(project._last_mesh_preparation)
+            resolved_settings_hash = settings.input_hash
+            if settings.strategy is None:
+                # Older/headless callers inherit the snapshotted project
+                # strategy. Canonicalize that resolved value so their hash is
+                # identical to an explicit UI submission of the same method.
+                resolved_settings_hash = MeshSettings.create(
+                    settings.target_size,
+                    element_order=settings.element_order,
+                    overrides=dict(settings.overrides),
+                    strategy=resolved_strategy,
+                ).input_hash
+            semantic_input_hash = canonical_hash(
+                {
+                    "mesh_settings": resolved_settings_hash,
+                    # The constrained triangulator is not consulted by an
+                    # explicitly mapped job and therefore must not affect its
+                    # reproducibility hash.
+                    "native_backend": (
+                        None
+                        if resolved_strategy == "mapped"
+                        else project.native_triangulation_backend
+                    ),
+                }
+            )
+            mesh_hash = mesh_semantic_hash(
+                mesh,
+                model_hash=snapshot.revision.model_hash,
+                mesh_input_hash=semantic_input_hash,
+                structural_preparation=structural_preparation,
+            )
             cancellation.raise_if_cancelled("mesh completion")
             progress("complete", "mesh and quality checks complete", 1.0)
         except BaseException as error:  # noqa: BLE001 - retained as diagnostics
@@ -250,7 +352,12 @@ class MeshTaskManager:
                 job_id,
                 "completed",
                 "mesh generation complete",
-                MeshJobResult(mesh=mesh, mesh_hash=mesh_hash, quality=quality),
+                MeshJobResult(
+                    mesh=mesh,
+                    mesh_hash=mesh_hash,
+                    quality=quality,
+                    structural_preparation=structural_preparation,
+                ),
             )
         )
 

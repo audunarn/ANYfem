@@ -126,3 +126,36 @@ def test_analysis_label_and_uuid_do_not_change_solver_affecting_hash():
     )
     assert manager.wait(second.id, timeout=5.0).status == JobStatus.COMPLETED
     assert first.analysis_hash == second.analysis_hash
+
+
+def test_only_selected_loading_changes_the_analysis_hash():
+    project = Project("selected loading hash")
+    selected = project.load_case("selected")
+    unused = project.load_case("unused")
+    analysis = AnalysisDefinition(
+        "Static", target_kind="load_case", target_id="selected"
+    )
+    session = DocumentSession(project)
+    manager = JobManager(project)
+
+    def solve(*, project, progress, cancellation_token):
+        del project, progress, cancellation_token
+        return "ok"
+
+    first = manager.submit(analysis, session.snapshot(), solve)
+    assert manager.wait(first.id, timeout=5.0).status == JobStatus.COMPLETED
+    baseline_model = session.revision.model_hash
+
+    with session.transaction("edit unused loading"):
+        unused.set_acceleration(0.0, 0.0, -9.81)
+    second = manager.submit(analysis, session.snapshot(), solve)
+    assert manager.wait(second.id, timeout=5.0).status == JobStatus.COMPLETED
+    assert session.revision.model_hash == baseline_model
+    assert second.analysis_hash == first.analysis_hash
+
+    with session.transaction("edit selected loading"):
+        selected.set_acceleration(0.0, 0.0, -9.81)
+    third = manager.submit(analysis, session.snapshot(), solve)
+    assert manager.wait(third.id, timeout=5.0).status == JobStatus.COMPLETED
+    assert session.revision.model_hash == baseline_model
+    assert third.analysis_hash != first.analysis_hash

@@ -237,6 +237,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     CANCELLING = "cancelling"
     COMPLETED = "completed"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
@@ -320,6 +321,7 @@ class MeshRecord:
     status: str = "completed"
     summary: dict[str, Any] = field(default_factory=dict)
     diagnostics: list[Any] = field(default_factory=list)
+    structural_preparation: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=_uuid)
 
     def to_dict(self) -> dict[str, Any]:
@@ -334,6 +336,7 @@ class MeshRecord:
             "artifact_id": self.artifact_id,
             "summary": dict(self.summary),
             "diagnostics": list(self.diagnostics),
+            "structural_preparation": dict(self.structural_preparation),
         }
 
     @classmethod
@@ -349,6 +352,7 @@ class MeshRecord:
             artifact_id=None if data.get("artifact_id") is None else str(data["artifact_id"]),
             summary=dict(data.get("summary", {})),
             diagnostics=list(data.get("diagnostics", [])),
+            structural_preparation=dict(data.get("structural_preparation", {})),
         )
 
 
@@ -407,6 +411,7 @@ class JobRecord:
     result_artifact_id: str | None = None
     log_artifact_id: str | None = None
     summary: dict[str, Any] = field(default_factory=dict)
+    outcome: dict[str, Any] = field(default_factory=dict)
     diagnostics: list[Any] = field(default_factory=list)
     partial: bool = False
     producer_versions: dict[str, str] = field(default_factory=dict)
@@ -438,6 +443,7 @@ class JobRecord:
             "result_artifact_id": self.result_artifact_id,
             "log_artifact_id": self.log_artifact_id,
             "summary": dict(self.summary),
+            "outcome": dict(self.outcome),
             "diagnostics": list(self.diagnostics),
             "partial": bool(self.partial),
             "producer_versions": dict(self.producer_versions),
@@ -463,6 +469,7 @@ class JobRecord:
             result_artifact_id=None if data.get("result_artifact_id") is None else str(data["result_artifact_id"]),
             log_artifact_id=None if data.get("log_artifact_id") is None else str(data["log_artifact_id"]),
             summary=dict(data.get("summary", {})),
+            outcome=dict(data.get("outcome", {})),
             diagnostics=list(data.get("diagnostics", [])),
             partial=bool(data.get("partial", False)),
             producer_versions={str(k): str(v) for k, v in dict(data.get("producer_versions", {})).items()},

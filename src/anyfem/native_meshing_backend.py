@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Iterable, Mapping
 
-from anygeometry import EntityHandle
+from anygeometry import EntityHandle, EntityRef, extract_model_closure
 
 from anymesher.hybrid import generate_hybrid_mesh_result
 from anymesher.meshing_view import GeometryMeshingView
@@ -21,6 +21,11 @@ from .native_meshing import (
     NativeMeshSettings,
     NativeMeshingRuntime,
 )
+from .structural_preparation import (
+    prepare_structural_connectivity,
+    remap_mesh_to_source,
+    source_work_mapping,
+)
 
 __all__ = [
     "GeometryComponentSnapshot",
@@ -31,17 +36,22 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class GeometryComponentSnapshot:
-    """Revision token around a live read-only geometry model."""
+    """Detached component closure plus the source revision that created it."""
 
     geometry: Any
     component: EntityHandle
+    source_geometry: Any
+    source_component: EntityHandle
     model_id: Any
     revision: int
+    source_to_work: Mapping[EntityHandle, EntityHandle]
+    work_to_source: Mapping[EntityHandle, EntityHandle]
+    closure: Any
 
     def assert_current(self) -> None:
-        if self.geometry.model_id != self.model_id:
+        if self.source_geometry.model_id != self.model_id:
             raise RuntimeError("geometry model identity changed during mesh generation")
-        if int(self.geometry.revision) != int(self.revision):
+        if int(self.source_geometry.revision) != int(self.revision):
             raise RuntimeError(
                 "geometry changed during mesh generation; stale result rejected"
             )
@@ -111,11 +121,26 @@ class NativeProjectMeshingSession:
     def capture_component(self, component: EntityHandle) -> GeometryComponentSnapshot:
         if component.model_id != self.geometry.model_id:
             raise ValueError("component handle belongs to another geometry model")
-        return GeometryComponentSnapshot(
+        # Intersections are relationships between components.  Capturing only
+        # the requested component cannot qualify a beam/shell or plate/plate
+        # neighbour, so each immutable component job receives the complete
+        # structural closure and still publishes only its requested component.
+        closure = extract_model_closure(
             self.geometry,
-            component,
-            self.geometry.model_id,
-            int(self.geometry.revision),
+            self.all_components(),
+            include_structural_closure=True,
+            include_features=False,
+        )
+        return GeometryComponentSnapshot(
+            geometry=closure.working_model,
+            component=closure.source_to_work[component],
+            source_geometry=self.geometry,
+            source_component=component,
+            model_id=closure.source_model_id,
+            revision=closure.source_revision,
+            source_to_work=closure.source_to_work,
+            work_to_source=closure.work_to_source,
+            closure=closure,
         )
 
     def _components_for_key(
@@ -221,8 +246,15 @@ class NativeProjectMeshingSession:
             raise TypeError("native generator requires GeometryComponentSnapshot")
         snapshot.assert_current()
         geometry = snapshot.geometry
+        preparation = prepare_structural_connectivity(
+            geometry,
+            source_model_id=str(snapshot.model_id),
+            source_revision=snapshot.revision,
+            cancellation_check=request.cancellation.raise_if_cancelled,
+        )
+        preparation.source_to_working = source_work_mapping(snapshot.closure)
         view = GeometryMeshingView(geometry)
-        component = request.component
+        component = snapshot.component
         face_ids: tuple[int, ...] = ()
         member_ids: tuple[int, ...] | None = ()
         if component.kind == "sheet":
@@ -230,7 +262,10 @@ class NativeProjectMeshingSession:
         elif component.kind == "member":
             member_ids = (component.id,)
         elif component.kind == "face":
-            face_ids = (component.id,)
+            current_faces = tuple(
+                geometry.resolve_ref(EntityRef("face", component.id))
+            )
+            face_ids = tuple(item.id for item in current_faces) or (component.id,)
         else:
             raise ValueError(
                 f"unsupported native mesh component kind {component.kind!r}"
@@ -279,6 +314,31 @@ class NativeProjectMeshingSession:
         request.cancellation.raise_if_cancelled("hybrid component completion")
         snapshot.assert_current()
         diagnostics = list(self._audit_diagnostics(request.changes))
+        if all(
+            hasattr(generated.mesh, name)
+            for name in (
+                "elements_of_face",
+                "elements_of_edge",
+                "nodes_of_edge",
+                "offset_nodes_of_edge",
+                "node_of_vertex",
+                "grid_of_face",
+                "thickness_of_face",
+            )
+        ):
+            remap_mesh_to_source(generated.mesh, snapshot.closure)
+        else:
+            # NativeMeshingRuntime deliberately permits lightweight backend
+            # payloads for predictors/adapters.  Only a real Mesh carries
+            # source associations that can be remapped.
+            diagnostics.append(
+                "structural association remap skipped for non-Mesh backend payload"
+            )
+        diagnostics.append(
+            "structural preparation: "
+            f"{preparation.created_count} declared connection(s), "
+            f"working revision {preparation.working_revision}"
+        )
         diagnostics.extend(
             f"face {face_id}: {route}"
             for face_id, route in sorted(generated.strategy_by_face.items())

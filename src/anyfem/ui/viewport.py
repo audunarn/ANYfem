@@ -1,13 +1,14 @@
 """The 3D viewport: draws a Scene and turns clicks back into entities.
 
-This is the only module that touches ANYtk3D.  It imports it lazily so the rest
-of ANYfem stays usable without the GUI extra installed.
+This is the only module that loads a concrete 3D viewer.  It does so lazily so
+the rest of ANYfem stays usable without the GUI extra installed.
 """
 
 from __future__ import annotations
 
 import io
 from pathlib import Path
+import tkinter as tk
 from typing import Any, Callable, List, Mapping, Optional
 
 import numpy as np
@@ -29,43 +30,65 @@ from .visualization import VisualizationStyle
 __all__ = ["Viewport", "require_canvas"]
 
 
+_BACKEND_ALIASES = {
+    "auto": "auto",
+    "automatic": "auto",
+    "gpu": "gpu",
+    "moderngl": "gpu",
+    "software": "software",
+    "tk": "software",
+    "tkinter": "software",
+}
+
+
+def _backend_name(value: str) -> str:
+    try:
+        return _BACKEND_ALIASES[str(value).strip().casefold()]
+    except KeyError as error:
+        raise ValueError(
+            "viewer backend must be 'auto', 'gpu', or 'software'"
+        ) from error
+
+
 def require_canvas():
-    """Import ANYtk3D, with a message that says how to get it."""
+    """Import the shared point type and lazy backend factory."""
 
     try:
-        from anytk3d import Point3D, Tkinter3DCanvas
+        from any3dview import Point3D, create_viewer
     except ImportError as error:  # pragma: no cover - depends on the install
         raise ImportError(
-            "the ANYfem viewport needs ANYtk3D. Install it with:\n"
+            "the ANYfem viewport needs ANY3dView and ANYtk3D. Install them with:\n"
             "    python -m pip install ANYfem[gui]"
         ) from error
-    return Point3D, Tkinter3DCanvas
+    return Point3D, create_viewer
 
 
 def _commercial_selection_api() -> Optional[dict[str, Any]]:
-    """Return the rich ANYtk3D selection types when the installed canvas has them.
+    """Return shared semantic-selection types without importing a renderer."""
 
-    ANYtk3D is an optional dependency and older compatible installations only
-    expose tag-based picking.  Keeping this import lazy preserves that useful
-    degradation path for scripts and for downstream embedders.
-    """
-
+    names = (
+        "PickBinding",
+        "PickOwner",
+        "SelectionConfig",
+        "SelectionDepth",
+        "SelectionFilter",
+        "SelectionGesture",
+        "SelectionOperation",
+        "SelectionTool",
+    )
     try:
-        import anytk3d
+        import any3dview
 
-        names = (
-            "PickBinding",
-            "PickOwner",
-            "SelectionConfig",
-            "SelectionDepth",
-            "SelectionFilter",
-            "SelectionGesture",
-            "SelectionOperation",
-            "SelectionTool",
-        )
-        return {name: getattr(anytk3d, name) for name in names}
+        return {name: getattr(any3dview, name) for name in names}
     except (ImportError, AttributeError):  # pragma: no cover - install dependent
-        return None
+        # This fallback keeps source compatibility with the pre-0.5 software
+        # backend while the coordinated release graph is being upgraded.
+        try:
+            import anytk3d
+
+            return {name: getattr(anytk3d, name) for name in names}
+        except (ImportError, AttributeError):
+            return None
 
 
 class Viewport:
@@ -79,11 +102,15 @@ class Viewport:
         height: int = 640,
         background: str = "#fbfbfd",
         commercial_interaction: bool = True,
+        backend: str = "auto",
     ) -> None:
-        self._point3d, canvas_class = require_canvas()
-        self.canvas = canvas_class(
-            master, width=width, height=height, bg=background
-        )
+        self._master = master
+        self._width = int(width)
+        self._height = int(height)
+        self._background = str(background)
+        self._commercial_interaction_requested = bool(commercial_interaction)
+        self._requested_backend = _backend_name(backend)
+        self._point3d, self._viewer_factory = require_canvas()
         # Not ``selection or Selection()``: Selection defines __len__, so an
         # empty one is falsy and that would quietly make a second, unshared
         # selection object.
@@ -116,18 +143,39 @@ class Viewport:
         self._on_construction_apply: Optional[Callable[[], Any]] = None
         self._construction_grid_extent: tuple[float, float, float, float] | None = None
         self._construction_length_formatter: Callable[[float], str] | None = None
-        self._commercial_selection = bool(
-            commercial_interaction
-            and self._selection_api is not None
-            and hasattr(self.canvas, "set_interaction_profile")
-            and hasattr(self.canvas, "configure_selection")
-            and hasattr(self.canvas, "update_selection_config")
+        self._layout_manager: str | None = None
+        self._layout_options: dict[str, Any] = {}
+        self._event_bindings: list[tuple[str, Callable[..., Any], str]] = []
+        self.canvas = self._new_canvas(self._requested_backend)
+        self._commercial_selection = False
+        self._configure_canvas(self.canvas)
+        self.bind_event("<Escape>", self._handle_construction_escape, add="+")
+        self.bind_event("<Return>", self._handle_construction_enter, add="+")
+        self.bind_event("<KP_Enter>", self._handle_construction_enter, add="+")
+        self.selection.add_listener(self._apply_highlight)
+
+    def _new_canvas(self, backend: str):
+        return self._viewer_factory(
+            self._master,
+            backend=backend,
+            width=self._width,
+            height=self._height,
+            bg=self._background,
         )
 
-        if self._commercial_selection:
-            self.canvas.set_interaction_profile("commercial")
+    def _configure_canvas(self, canvas) -> None:
+        commercial = bool(
+            self._commercial_interaction_requested
+            and self._selection_api is not None
+            and hasattr(canvas, "configure_selection")
+            and hasattr(canvas, "update_selection_config")
+        )
+        if commercial:
+            profile = getattr(canvas, "set_interaction_profile", None)
+            if callable(profile):
+                profile("commercial")
             config = self._selection_config()
-            self.canvas.configure_selection(
+            canvas.configure_selection(
                 self._handle_selection_event,
                 hover_callback=self._handle_hover,
                 config=config,
@@ -136,26 +184,209 @@ class Viewport:
         else:
             # The original tag callback remains the compatibility contract for
             # older ANYtk3D versions and for callers opting out of CAD controls.
-            self.canvas.set_pick_callback(self._handle_pick, prefix=TAG_PREFIX)
-        inner_canvas = getattr(self.canvas, "canvas", None)
-        if inner_canvas is not None and hasattr(inner_canvas, "bind"):
-            inner_canvas.bind(
-                "<Escape>", self._handle_construction_escape, add="+"
+            callback = getattr(canvas, "set_pick_callback", None)
+            if not callable(callback):
+                raise RuntimeError(
+                    "the selected viewer does not implement semantic or legacy picking"
+                )
+            callback(self._handle_pick, prefix=TAG_PREFIX)
+        self._commercial_selection = commercial
+
+    @property
+    def requested_backend(self) -> str:
+        """The user's persistent-in-session backend policy."""
+
+        return self._requested_backend
+
+    @property
+    def active_backend(self) -> str:
+        """The concrete backend currently drawing the scene."""
+
+        declared = getattr(self.canvas, "backend_name", None)
+        if declared in {"gpu", "software"}:
+            return declared
+        capabilities = getattr(self.canvas, "capabilities", None)
+        if bool(getattr(capabilities, "gpu", False)):
+            return "gpu"
+        return "software"
+
+    @property
+    def backend_diagnostics(self) -> tuple[str, ...]:
+        return tuple(getattr(self.canvas, "backend_diagnostics", ()))
+
+    @property
+    def event_widget(self):
+        widget = getattr(self.canvas, "event_widget", None)
+        if widget is not None:
+            return widget
+        return getattr(self.canvas, "canvas", self.canvas)
+
+    @property
+    def viewport_size(self) -> tuple[int, int]:
+        size = getattr(self.canvas, "viewport_size", None)
+        if size is not None:
+            return tuple(int(value) for value in size)
+        widget = self.event_widget
+        try:
+            return (
+                max(int(widget.winfo_width()), 1),
+                max(int(widget.winfo_height()), 1),
             )
-            inner_canvas.bind(
-                "<Return>", self._handle_construction_enter, add="+"
-            )
-            inner_canvas.bind(
-                "<KP_Enter>", self._handle_construction_enter, add="+"
-            )
-        self.selection.add_listener(self._apply_highlight)
+        except (AttributeError, TypeError, ValueError):
+            return max(self._width, 1), max(self._height, 1)
+
+    def bind_event(
+        self,
+        sequence: str,
+        callback: Callable[..., Any],
+        *,
+        add: str = "+",
+    ) -> None:
+        """Bind an input callback and carry it across renderer switches."""
+
+        binding = (str(sequence), callback, str(add))
+        self._event_bindings.append(binding)
+        widget = self.event_widget
+        bind = getattr(widget, "bind", None)
+        if callable(bind):
+            bind(binding[0], binding[1], add=binding[2])
+
+    def _bind_registered_events(self) -> None:
+        widget = self.event_widget
+        bind = getattr(widget, "bind", None)
+        if callable(bind):
+            for sequence, callback, add in self._event_bindings:
+                bind(sequence, callback, add=add)
 
     # ------------------------------------------------------------------
     def pack(self, **kwargs):
+        self._layout_manager = "pack"
+        self._layout_options = dict(kwargs)
         return self.canvas.pack(**kwargs)
 
     def grid(self, **kwargs):
+        self._layout_manager = "grid"
+        self._layout_options = dict(kwargs)
         return self.canvas.grid(**kwargs)
+
+    def project_point(self, point) -> tuple[float, float, float] | None:
+        """Project a world point through the backend-neutral viewer API."""
+
+        method = getattr(self.canvas, "project_point", None)
+        if callable(method):
+            projected = method(point)
+            if projected is None:
+                return None
+            return tuple(float(value) for value in projected)
+        camera = getattr(self.canvas, "camera", None)
+        if camera is None or not hasattr(camera, "project_point"):
+            raise RuntimeError("the selected viewer does not expose point projection")
+        width, height = self.viewport_size
+        projected = camera.project_point(point, width, height)
+        if projected is None:
+            return None
+        if len(projected) >= 3:
+            return tuple(float(value) for value in projected[:3])
+        # Pre-0.5 cameras returned screen coordinates only.  Preserve them
+        # while making the absent depth explicit for compatibility callers.
+        return float(projected[0]), float(projected[1]), 0.0
+
+    def pick_at(self, x: int, y: int) -> str | None:
+        """Return the legacy tag at a pixel through either backend."""
+
+        method = getattr(self.canvas, "pick_at", None)
+        if not callable(method):
+            raise RuntimeError("the selected viewer does not expose point picking")
+        return method(int(x), int(y))
+
+    def highlighted_tags(self) -> frozenset[str]:
+        """Return the current renderer highlight without backend introspection."""
+
+        value = getattr(self.canvas, "highlighted_tags", ())
+        return frozenset(value() if callable(value) else value)
+
+    def switch_backend(self, backend: str) -> str:
+        """Transactionally rebuild the current scene on another renderer.
+
+        The live canvas is never cleared or destroyed until its replacement has
+        accepted the complete scene, callbacks and view state.
+        """
+
+        requested = _backend_name(backend)
+        if requested == self._requested_backend:
+            return self.active_backend
+        old = self.canvas
+        exporter = getattr(old, "export_view_state", None)
+        state = exporter() if callable(exporter) else None
+        section = getattr(old, "section_plane", None)
+        old_commercial = self._commercial_selection
+        old_filter_kinds = self._canvas_filter_kinds
+        candidate = None
+        try:
+            candidate = self._new_canvas(requested)
+            self.canvas = candidate
+            self._configure_canvas(candidate)
+            self._bind_registered_events()
+            background = getattr(candidate, "set_background", None)
+            if callable(background):
+                background(self._visualization.background)
+            candidate.clear(keep_canvas=True)
+            if self._scene is not None:
+                self._draw(self._scene)
+                self._draw_construction_overlay()
+            importer = getattr(candidate, "apply_view_state", None)
+            if state is not None and callable(importer):
+                try:
+                    importer(state, redraw=False)
+                except TypeError:
+                    # Compatibility with pre-0.5 viewers and lightweight
+                    # integration probes that do not expose redraw control.
+                    importer(state)
+            elif section is not None and hasattr(candidate, "set_section_plane"):
+                normal = getattr(section.normal, "to_tuple", None)
+                candidate.set_section_plane(
+                    normal=(
+                        tuple(normal())
+                        if callable(normal)
+                        else tuple(section.normal)
+                    ),
+                    offset=float(section.offset),
+                    enabled=bool(section.enabled),
+                )
+            self._apply_highlight()
+            if self._hover_key is not None and hasattr(candidate, "set_preselection"):
+                candidate.set_preselection(self._hover_key)
+            candidate.redraw()
+            self._map_candidate(candidate, old)
+        except Exception:
+            self.canvas = old
+            self._commercial_selection = old_commercial
+            self._canvas_filter_kinds = old_filter_kinds
+            if candidate is not None:
+                try:
+                    candidate.destroy()
+                except Exception:
+                    pass
+            raise
+        self._requested_backend = requested
+        try:
+            old.destroy()
+        except (AttributeError, RuntimeError, tk.TclError):
+            pass
+        return self.active_backend
+
+    def _map_candidate(self, candidate, old) -> None:
+        if self._layout_manager == "grid":
+            candidate.grid(**self._layout_options)
+        elif self._layout_manager == "pack":
+            options = dict(self._layout_options)
+            try:
+                candidate.pack(before=old, **options)
+            except (TypeError, tk.TclError):
+                candidate.pack(**options)
+        updater = getattr(candidate, "update_idletasks", None)
+        if callable(updater):
+            updater()
 
     # ------------------------------------------------------------------
     def show(self, scene: Scene, *, reset_view: bool = False) -> None:
@@ -191,7 +422,7 @@ class Viewport:
 
         if not isinstance(style, VisualizationStyle):
             raise TypeError("style must be a VisualizationStyle")
-        widget = getattr(self.canvas, "canvas", self.canvas)
+        widget = self.event_widget
         colour_check = getattr(widget, "winfo_rgb", None)
         if callable(colour_check):
             for label, colour in (
@@ -223,8 +454,9 @@ class Viewport:
     ) -> tuple[float, float, float] | None:
         """Project one viewport pixel onto a named structural workplane.
 
-        ANYtk3D owns the camera ray and ray/plane intersection.  ANYfem only
-        resolves its session workplane into a world-space origin and normal.
+        The active viewer owns the camera ray and ray/plane intersection.
+        ANYfem only resolves its session workplane into a world-space origin
+        and normal.
         ``None`` is returned for a parallel ray or an intersection behind the
         camera, matching the lower-level canvas contract.
         """
@@ -233,7 +465,7 @@ class Viewport:
         unproject = getattr(self.canvas, "unproject_to_plane", None)
         if not callable(unproject):
             raise RuntimeError(
-                "workplane construction needs an ANYtk3D release with "
+                "workplane construction needs a viewer backend with "
                 "unproject_to_plane()"
             )
         point = unproject(
@@ -246,7 +478,7 @@ class Viewport:
             return None
         values = np.asarray(tuple(point), dtype=float)
         if values.shape != (3,) or not np.all(np.isfinite(values)):
-            raise RuntimeError("ANYtk3D returned an invalid workplane point")
+            raise RuntimeError("the viewer returned an invalid workplane point")
         # Remove tiny ray-intersection drift along the normal before snapping.
         return tuple(float(item) for item in frame.project(values))
 
@@ -472,12 +704,12 @@ class Viewport:
         return any(
             callable(getattr(self.canvas, name, None))
             for name in ("capture_image", "snapshot_image", "to_image")
-        ) or hasattr(self.canvas, "canvas")
+        ) or hasattr(self.event_widget, "winfo_rootx")
 
     def capture_image(self):
         """Capture the current fully rendered viewport as a Pillow image.
 
-        Newer ANYtk3D releases may provide a renderer-native capture method.
+        Supported backends may provide a renderer-native capture method.
         The desktop fallback captures precisely the inner Tk canvas rectangle;
         it does not include surrounding dialogs, toolbars or window chrome.
         """
@@ -505,10 +737,10 @@ class Viewport:
             if result is not None and hasattr(result, "convert"):
                 return result.convert("RGBA")
             raise RuntimeError(
-                f"ANYtk3D {name}() returned no usable image"
+                f"viewer {name}() returned no usable image"
             )
 
-        widget = getattr(self.canvas, "canvas", self.canvas)
+        widget = self.event_widget
         try:
             widget.update_idletasks()
             x0 = int(widget.winfo_rootx())
@@ -517,7 +749,7 @@ class Viewport:
             height = int(widget.winfo_height())
         except (AttributeError, TypeError, ValueError) as error:
             raise RuntimeError(
-                "this ANYtk3D canvas does not expose image capture"
+                "this viewer does not expose image capture"
             ) from error
         if width <= 1 or height <= 1:
             raise RuntimeError("the viewport must be visible before it can be captured")
@@ -539,7 +771,7 @@ class Viewport:
 
     @property
     def supports_section_planes(self) -> bool:
-        """True only when the installed ANYtk3D exposes clipping controls."""
+        """True only when the selected backend exposes clipping controls."""
 
         return any(
             callable(getattr(self.canvas, name, None))
@@ -553,7 +785,7 @@ class Viewport:
         *,
         enabled: bool = True,
     ) -> None:
-        """Forward one world-space clipping plane to capable ANYtk3D builds."""
+        """Forward one world-space clipping plane to the selected backend."""
 
         vector = np.asarray(normal, dtype=float).reshape(-1)
         if vector.shape != (3,) or not np.isfinite(vector).all():
@@ -576,7 +808,7 @@ class Viewport:
         )
         if method is None:
             raise RuntimeError(
-                "section planes need a newer ANYtk3D clipping-capable release"
+                "section planes need a clipping-capable viewer backend"
             )
         method(normal=unit_normal, offset=distance, enabled=bool(enabled))
         self.canvas.redraw()
@@ -650,6 +882,7 @@ class Viewport:
                     "color": line.color,
                     "width": line.width,
                     "tags": line.tag,
+                    "draw_overlay": line.draw_overlay,
                 }
                 if binding is not None:
                     options["binding"] = binding

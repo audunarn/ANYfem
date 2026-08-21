@@ -49,8 +49,15 @@ def _cancellation_token():
 def analysis_hash(
     analysis: AnalysisDefinition,
     output_requests: Mapping[str, OutputRequest] | Any | None = None,
+    *,
+    document: Mapping[str, Any] | None = None,
 ) -> str:
-    """Hash analysis and referenced request semantics, excluding labels/UUIDs."""
+    """Hash analysis, selected loading and requested output semantics.
+
+    ``document`` is the immutable submission document when available.  Older
+    callers may omit it; their hash remains deterministic but can only carry
+    the analysis' target identity, not the selected load record itself.
+    """
 
     payload = analysis.to_dict()
     payload.pop("id", None)
@@ -87,6 +94,9 @@ def analysis_hash(
             request = raw if isinstance(raw, OutputRequest) else OutputRequest.from_dict(raw)
             semantics.append(request.semantic_dict())
         payload["typed_output_requests"] = semantics
+    payload["selected_loading"] = _selected_loading_semantics(
+        analysis, document
+    )
     return canonical_hash(payload)
 
 
@@ -102,6 +112,84 @@ def _legacy_request_semantics(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_legacy_request_semantics(item) for item in value]
     return value
+
+
+def _without_presentation_identity(value: Any) -> Any:
+    """Canonical numerical semantics without record UUIDs or labels."""
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _without_presentation_identity(item)
+            for key, item in value.items()
+            if str(key) not in ("id", "name", "label")
+        }
+    if isinstance(value, (list, tuple)):
+        return [_without_presentation_identity(item) for item in value]
+    return value
+
+
+def _find_named_or_identified(
+    records: Any, target: str
+) -> Mapping[str, Any] | None:
+    if not isinstance(records, (list, tuple)):
+        return None
+    for item in records:
+        if not isinstance(item, Mapping):
+            continue
+        if target in (str(item.get("id", "")), str(item.get("name", ""))):
+            return item
+    return None
+
+
+def _selected_loading_semantics(
+    analysis: AnalysisDefinition,
+    document: Mapping[str, Any] | None,
+) -> Any:
+    """Return only loading selected by this analysis definition."""
+
+    if analysis.target_kind == "none":
+        return {"kind": "none"}
+    if not isinstance(document, Mapping):
+        return {
+            "kind": str(analysis.target_kind),
+            "unresolved_target": str(analysis.target_id),
+        }
+    load_cases = document.get("load_cases", ())
+    if analysis.target_kind == "load_case":
+        case = _find_named_or_identified(load_cases, str(analysis.target_id))
+        if case is None:
+            return {
+                "kind": "load_case",
+                "unresolved_target": str(analysis.target_id),
+            }
+        return {
+            "kind": "load_case",
+            "case": _without_presentation_identity(case),
+        }
+    combination = _find_named_or_identified(
+        document.get("combinations", ()), str(analysis.target_id)
+    )
+    if combination is None:
+        return {
+            "kind": "combination",
+            "unresolved_target": str(analysis.target_id),
+        }
+    factors = combination.get("factors", {})
+    resolved: list[dict[str, Any]] = []
+    if isinstance(factors, Mapping):
+        for case_target, factor in factors.items():
+            case = _find_named_or_identified(load_cases, str(case_target))
+            resolved.append(
+                {
+                    "factor": factor,
+                    "case": (
+                        {"unresolved_target": str(case_target)}
+                        if case is None
+                        else _without_presentation_identity(case)
+                    ),
+                }
+            )
+    return {"kind": "combination", "terms": resolved}
 
 
 @dataclass(frozen=True)
@@ -166,7 +254,9 @@ class JobManager:
         project_override: Any = None,
     ) -> JobRecord:
         submitted_analysis_hash = analysis_hash(
-            analysis, snapshot.document.get("output_requests", ())
+            analysis,
+            snapshot.document.get("output_requests", ()),
+            document=snapshot.document,
         )
         input_hash = canonical_hash(
             {
@@ -284,6 +374,19 @@ class JobManager:
                     self._thread.join(min(remaining, 0.05))
             elif self._thread is not None:
                 self._thread.join(0.05)
+        # A solver sets the terminal record state immediately before it posts
+        # the terminal event.  ``wait`` promises both, so close that tiny
+        # publication window before returning to a polling caller.
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            if deadline is None:
+                thread.join()
+            else:
+                import time
+
+                remaining = deadline - time.monotonic()
+                if remaining > 0.0:
+                    thread.join(remaining)
         return request.record
 
     # ------------------------------------------------------------------
@@ -307,7 +410,18 @@ class JobManager:
     def _run(self, request: JobRequest) -> None:
         def progress(value: Any) -> None:
             message = getattr(value, "message", None) or str(value)
-            self._append_log(request.record.id, "progress", message)
+            raw_payload = getattr(value, "payload", value)
+            structured = (
+                dict(raw_payload)
+                if isinstance(raw_payload, Mapping)
+                else {}
+            )
+            self._append_log(
+                request.record.id,
+                "progress",
+                message,
+                **({"progress": structured} if structured else {}),
+            )
             self._events.put(JobEvent(request.record.id, "progress", message, value))
 
         try:
@@ -327,12 +441,51 @@ class JobManager:
             if accepts_kwargs or "cancellation_token" in parameters:
                 kwargs.setdefault("cancellation_token", request.cancellation)
             result = request.function(**kwargs)
-            if _is_cancelled(request.cancellation):
+            outcome = _result_outcome(result)
+            if outcome is not None:
+                request.record.outcome = outcome.to_dict()
+                request.record.summary["outcome"] = outcome.to_dict()
+                request.record.summary["termination"] = outcome.termination
+            if outcome is not None and outcome.cancelled:
+                request.record.status = JobStatus.CANCELLED
+                request.record.partial = bool(outcome.has_results)
+                message = outcome.message or outcome.termination
+                self._append_log(request.record.id, "cancelled", message)
+                event = JobEvent(request.record.id, "cancelled", message, result)
+            elif outcome is not None and outcome.failed:
+                request.record.status = JobStatus.FAILED
+                request.record.partial = False
+                message = outcome.message or outcome.termination
+                self._append_log(request.record.id, "failed", message)
+                event = JobEvent(request.record.id, "failed", message, result)
+            elif outcome is not None and outcome.partial:
+                self._results[request.record.id] = result
+                request.record.status = JobStatus.PARTIAL
+                request.record.partial = True
+                message = outcome.message or outcome.termination
+                summary = getattr(result, "summary", None)
+                if callable(summary):
+                    request.record.summary["text"] = str(summary())
+                self._append_log(request.record.id, "partial", message)
+                event = JobEvent(request.record.id, "partial", message, result)
+            elif outcome is not None and outcome.completed:
+                self._results[request.record.id] = result
+                request.record.status = JobStatus.COMPLETED
+                summary = getattr(result, "summary", None)
+                if callable(summary):
+                    request.record.summary["text"] = str(summary())
+                message = outcome.message or outcome.termination
+                self._append_log(request.record.id, "completed", message)
+                event = JobEvent(request.record.id, "completed", message, result)
+            elif _is_cancelled(request.cancellation):
                 request.record.status = JobStatus.CANCELLED
                 request.record.partial = result is not None
                 self._append_log(request.record.id, "cancelled", "cancelled")
                 event = JobEvent(request.record.id, "cancelled", "cancelled", result)
             else:
+                # JobManager remains useful for non-solver background callables;
+                # qualified ANYsolver results always take the outcome branches
+                # above.
                 self._results[request.record.id] = result
                 request.record.status = JobStatus.COMPLETED
                 summary = getattr(result, "summary", None)
@@ -391,3 +544,31 @@ def _is_cancelled(token: Any) -> bool:
     if value is None:
         value = getattr(token, "cancelled", False)
     return bool(value() if callable(value) else value)
+
+
+def _result_outcome(result: Any):
+    """Resolve the common ANYsolver outcome carried by an ANYfem wrapper."""
+
+    try:
+        from anysolver import SolveOutcome, solve_outcome
+    except ImportError:  # pragma: no cover - legacy fallback environment
+        return None
+
+    candidates = [result]
+    info = getattr(result, "info", None)
+    if isinstance(info, Mapping):
+        raw = info.get("raw")
+        if raw is not None:
+            candidates.append(raw)
+        encoded = info.get("outcome")
+        if isinstance(encoded, Mapping):
+            return SolveOutcome.from_dict(encoded)
+    raw_result = getattr(result, "raw_result", None)
+    if raw_result is not None:
+        candidates.append(raw_result)
+    for candidate in candidates:
+        try:
+            return solve_outcome(candidate)
+        except TypeError:
+            continue
+    return None

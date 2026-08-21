@@ -11,7 +11,7 @@ report all consume the same thing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -209,6 +209,9 @@ def evaluate_field(
         return imported[name]
 
     if name in DISPLACEMENT_FIELDS:
+        from .solver_data import resolve_solution_quantity
+
+        resolve_solution_quantity(shape, "displacement")
         return _displacement_field(shape, name)
     if name in PLASTICITY_FIELDS:
         return _plasticity_field(shape, name)
@@ -221,6 +224,9 @@ def evaluate_field(
         return _stress_field(shape, name, reduction=reduction, stresses=stresses)
 
     recovered = recover(shape) if stresses is None else stresses
+    from .solver_data import resolve_solution_quantity
+
+    resolve_solution_quantity(shape, "stress", recovered=recovered)
     reported = reported_fields(recovered, shape)
     if name in reported:
         return _stress_field(
@@ -292,6 +298,10 @@ def _stress_field(
     if stresses is None:
         stresses = recover(shape)
 
+    from .solver_data import resolve_solution_quantity
+
+    resolve_solution_quantity(shape, "stress", recovered=stresses)
+
     values: Dict[int, float] = {}
     missing: List[int] = []
     for element_id in sorted(shape.built.mesh.shells) + sorted(
@@ -352,29 +362,41 @@ def recover(shape, **kwargs: Any):
 def _plasticity_field(shape, name: str) -> Field:
     """Recover element PEEQ from committed constitutive state, never elastically."""
 
-    states = getattr(shape, "element_states", None)
-    if callable(states):
-        states = states()
-    if states is None:
-        raw = getattr(shape, "raw_result", None)
-        states = getattr(raw, "element_states", None)
-    values: Dict[int, float] = {}
-    for element_id, state in (states or {}).items():
-        if not isinstance(state, dict):
-            continue
-        alpha = np.asarray(state.get("alpha", ()), dtype=float).reshape(-1)
-        if alpha.size and np.all(np.isfinite(alpha)):
-            values[int(element_id)] = float(np.max(alpha))
-    if not values:
+    from anysolver import QuantityUnavailableError
+
+    from .solver_data import resolve_solution_quantity
+
+    try:
+        resolved = resolve_solution_quantity(shape, "equivalent_plastic_strain")
+    except QuantityUnavailableError as error:
         raise ValueError(
             f"field {name!r} is unavailable: this result carries no committed "
             "equivalent-plastic-strain state"
+        ) from error
+    if not isinstance(resolved.data, Mapping) or not resolved.data:
+        raise ValueError(
+            f"field {name!r} is unavailable: the canonical solver quantity "
+            "contains no element values"
+        )
+    values = {
+        int(element_id): float(value)
+        for element_id, value in resolved.data.items()
+        if np.isfinite(float(value))
+    }
+    if not values:
+        raise ValueError(
+            f"field {name!r} is unavailable: the canonical solver quantity "
+            "contains no finite element values"
         )
     return Field(
         name=name,
-        unit=field_unit(name),
+        unit=str(resolved.descriptor.unit or field_unit(name)),
         element_values=values,
-        reduction="max integration point/layer/fibre",
+        reduction=str(
+            resolved.descriptor.metadata.get(
+                "reduction", "max integration point/layer/fibre"
+            )
+        ),
     )
 
 

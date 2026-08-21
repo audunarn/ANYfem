@@ -34,6 +34,7 @@ from .materials import (
     steel,
 )
 from .project import Project, ProjectError
+from .ownership import SheetJoinIntent
 from .sections import (
     PROFILES,
     BeamSection,
@@ -117,6 +118,7 @@ __all__ = [
     "RegionStatus",
     "ResultQuantityDescriptor",
     "SectionAssignment",
+    "SheetJoinIntent",
     "Support",
     "SurfaceTraction",
     "UNIT_PROFILES",

@@ -121,6 +121,27 @@ def test_display_units_and_labels_do_not_stale_the_solver_model_hash():
     assert session.revision.document_hash != original_document_hash
 
 
+def test_exact_undo_restores_document_and_solver_hashes():
+    project = Project("hash undo")
+    session = DocumentSession(project)
+    original = (
+        session.revision.document_hash,
+        session.revision.model_hash,
+    )
+
+    session.execute(cmd.AddPoint(1.0, 2.0, 3.0))
+    assert (
+        session.revision.document_hash,
+        session.revision.model_hash,
+    ) != original
+
+    assert session.undo()
+    assert (
+        session.revision.document_hash,
+        session.revision.model_hash,
+    ) == original
+
+
 def test_failed_document_transaction_restores_project_exactly():
     project = Project("rollback")
     session = DocumentSession(project)

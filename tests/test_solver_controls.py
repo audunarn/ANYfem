@@ -212,6 +212,28 @@ def test_string_progress_adapter_preserves_a_direct_structured_callback(
     assert any("converged" in message for message in messages)
 
 
+def test_adaptive_increment_never_formats_nominal_steps_as_a_false_bound():
+    messages = []
+    callback = solve_run._step_reporter(messages.append, "converged increment")
+
+    callback(
+        anysolver.ProgressEvent(
+            "nonlinear_static_step",
+            phase="nonlinear_static.force",
+            control="load_factor",
+            control_value=0.6896,
+            control_target=1.0,
+            increment=1460,
+            increment_total=10,
+            iteration=7,
+            residual=7.43e-8,
+        )
+    )
+
+    assert any("1460" in message for message in messages)
+    assert all("1460/10" not in message for message in messages)
+
+
 @pytest.mark.parametrize("nonlinear", [False, True])
 def test_impact_forwards_controls_to_linear_and_nonlinear_paths(
     monkeypatch,

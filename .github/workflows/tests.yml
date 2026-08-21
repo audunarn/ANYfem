@@ -43,6 +43,10 @@ jobs:
           path: .ecosystem/ANYio
       - uses: actions/checkout@v4
         with:
+          repository: audunarn/ANY3dView
+          path: .ecosystem/ANY3dView
+      - uses: actions/checkout@v4
+        with:
           repository: audunarn/ANYtk3D
           path: .ecosystem/ANYtk3D
 
@@ -58,6 +62,7 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYmesh
           python -m pip install --no-deps -e .ecosystem/ANYio
           python -m pip install --no-deps -e .ecosystem/ANYsolver
+          python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
           python -m pip install -e ".[dev,gui]"
 
@@ -114,6 +119,10 @@ jobs:
           path: .ecosystem/ANYio
       - uses: actions/checkout@v4
         with:
+          repository: audunarn/ANY3dView
+          path: .ecosystem/ANY3dView
+      - uses: actions/checkout@v4
+        with:
           repository: audunarn/ANYtk3D
           path: .ecosystem/ANYtk3D
 
@@ -140,6 +149,7 @@ jobs:
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYio
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver
+          .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
           .wheel-smoke/bin/python -m pip install dist/*.whl
           .wheel-smoke/bin/python -c "import anyfem; import anyfem.ui.app; from importlib.metadata import version; assert anyfem.__version__ == version('ANYfem'); print('wheel import OK', anyfem.__version__)"

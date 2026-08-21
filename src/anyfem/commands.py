@@ -13,6 +13,7 @@ undo that renumbered the model would silently re-target them.
 
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -31,7 +32,7 @@ from anygeometry.editing import (
     reverse_face,
 )
 from anygeometry.errors import GeometryError
-from anygeometry import SketchDefinition
+from anygeometry import Orientation, SketchDefinition
 from anygeometry.operations import (
     closest_point,
     punch_hole,
@@ -58,6 +59,7 @@ from .model.coordinates import CoordinateSystem
 from .model.records import MeshRecord, OutputRequest
 from .model.regions import Region
 from .model.materials import MaterialSpec
+from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import PlateSection
 from .model.units import UnitProfile
 
@@ -109,6 +111,7 @@ __all__ = [
     "EditAttribute",
     "EditOutputRequest",
     "LinearPattern",
+    "JoinSheet",
     "MeasureGeometry",
     "MirrorEntities",
     "MovePoint",
@@ -191,6 +194,16 @@ class CompositeCommand(Command):
         return results
 
 
+def _contains_geometry_mutation(command: Command) -> bool:
+    """Whether a command would alter editable geometry/feature intent."""
+
+    if isinstance(command, CompositeCommand):
+        return any(_contains_geometry_mutation(item) for item in command.commands)
+    return isinstance(
+        command, (GeometryCommand, FeatureCommand, MovePoint, DeleteEntity)
+    )
+
+
 class CommandStack:
     """Runs commands and keeps the undo and redo history."""
 
@@ -203,6 +216,13 @@ class CommandStack:
 
     # ------------------------------------------------------------------
     def run(self, command: Command) -> Any:
+        if (
+            getattr(self.project, "geometry_editing_disabled_reason", None)
+            and _contains_geometry_mutation(command)
+        ):
+            raise PermissionError(
+                str(self.project.geometry_editing_disabled_reason)
+            )
         selected_before = (
             list(self.selection.items) if self.selection is not None else None
         )
@@ -216,7 +236,7 @@ class CommandStack:
                 if isinstance(command, DeleteEntity)
                 else (
                     command.replacements
-                    if isinstance(command, FeatureCommand)
+                    if isinstance(command, (FeatureCommand, GeometryCommand))
                     else self.project.geometry.replacement_log()
                 )
             )
@@ -336,20 +356,33 @@ class FeatureCommand(Command):
     def do(self, project: Project) -> Any:
         geometry = project.geometry
         self._before = geometry.design_snapshot()
-        try:
-            feature_id = int(self.change(project))
-            report = geometry.regenerate_features()
-            if not report.success:
-                raise GeometryError(
-                    report.diagnostic or f"feature {feature_id} failed to regenerate"
-                )
-        except BaseException:
-            geometry.restore_design(self._before)
-            raise
+        working_project = copy(project)
+        working_project.geometry = geometry.clone(include_features=True)
+        feature_id = int(self.change(working_project))
+        report = working_project.regenerate_geometry_features()
+        if not report.success:
+            raise GeometryError(
+                report.diagnostic or f"feature {feature_id} failed to regenerate"
+            )
+        staged = working_project.geometry.features.get(feature_id)
+        allowed_states = {"ok"}
+        if bool(getattr(staged, "suppressed", False)):
+            allowed_states.add("suppressed")
+        if str(getattr(staged, "state", "")) not in allowed_states:
+            raise GeometryError(
+                getattr(staged, "diagnostic", None)
+                or f"feature {feature_id} did not produce a valid materialization"
+            )
+
+        # The entire feature + structural-owner result is now known valid.
+        # Publish the detached design once; validation failures above have not
+        # touched the live feature history, revision, or allocator state.
+        geometry.restore_design(working_project.geometry.design_snapshot())
+        committed = geometry.features.get(feature_id)
         self._feature_id = feature_id
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
-        return geometry.features.get(feature_id)
+        return committed
 
     def undo(self, project: Project) -> None:
         if self._before is None:
@@ -471,17 +504,18 @@ class DeleteFeature(FeatureCommand):
     def do(self, project: Project) -> int:
         geometry = project.geometry
         self._before = geometry.design_snapshot()
-        try:
-            geometry.features.remove(int(self.feature_id), cascade=False)
-            report = geometry.regenerate_features()
-            if not report.success:
-                raise GeometryError(
-                    report.diagnostic
-                    or f"feature {self.feature_id} failed to regenerate"
-                )
-        except BaseException:
-            geometry.restore_design(self._before)
-            raise
+        working_project = copy(project)
+        working_project.geometry = geometry.clone(include_features=True)
+        working_project.geometry.features.remove(
+            int(self.feature_id), cascade=False
+        )
+        report = working_project.regenerate_geometry_features()
+        if not report.success:
+            raise GeometryError(
+                report.diagnostic
+                or f"feature {self.feature_id} failed to regenerate"
+            )
+        geometry.restore_design(working_project.geometry.design_snapshot())
         self._feature_id = int(self.feature_id)
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
@@ -672,36 +706,84 @@ class GeometryCommand(Command):
     def __init__(self) -> None:
         self._snapshot: Dict[str, object] = {}
         self._attributes: Dict[str, Any] = {}
+        self._after: Dict[str, object] | None = None
+        self._after_attributes: Dict[str, Any] | None = None
+        self._result: Any = None
+        self._feature_id: int | None = None
+        self._replacements: tuple[
+            tuple[EntityRef, tuple[EntityRef, ...]], ...
+        ] = ()
+
+    @property
+    def replacements(
+        self,
+    ) -> tuple[tuple[EntityRef, tuple[EntityRef, ...]], ...]:
+        return self._replacements
 
     def operate(self, project: Project) -> Any:
         raise NotImplementedError
+
+    def preflight(self, project: Project) -> None:
+        """Qualify expected validation failures before any live bookkeeping."""
 
     def do(self, project: Project) -> Any:
         self._snapshot = project.geometry.design_snapshot()
         self._attributes = _attribute_snapshot(project)
         definition = _geometry_feature_definition(self, project.geometry)
-        if definition is not None:
-            project.geometry.features.capture_baseline(project.geometry)
-        before = {
-            "vertex": set(project.geometry.vertices),
-            "edge": set(project.geometry.edges),
-            "face": set(project.geometry.faces),
-        }
-        project.geometry.begin_replacement_log()
+        published = False
         try:
-            result = self.operate(project)
+            if definition is None:
+                self.preflight(project)
+                published = True
+                project.geometry.begin_replacement_log()
+                result = self.operate(project)
+                self._replacements = tuple(project.geometry.replacement_log())
+            else:
+                kind, parameters, inputs = definition
+                working_project = copy(project)
+                working_project.geometry = project.geometry.clone(
+                    include_features=True
+                )
+                working_geometry = working_project.geometry
+                working_geometry.features.capture_baseline(working_geometry)
+                pending = working_geometry.features.append(
+                    kind,
+                    name=self.label.title(),
+                    parameters=parameters,
+                    inputs=inputs,
+                )
+                report = working_project.regenerate_geometry_features()
+                if not report.success:
+                    raise GeometryError(
+                        report.diagnostic
+                        or f"feature {pending.feature_id} failed to regenerate"
+                    )
+                self._feature_id = pending.feature_id
+                self._replacements = tuple(report.replacements)
+                staged = working_geometry.features.get(pending.feature_id)
+                if str(getattr(staged, "state", "")) != "ok":
+                    raise GeometryError(
+                        getattr(staged, "diagnostic", None)
+                        or f"feature {pending.feature_id} did not produce a valid materialization"
+                    )
+                project.geometry.restore_design(
+                    working_geometry.design_snapshot()
+                )
+                published = True
+                committed = project.geometry.features.get(pending.feature_id)
+                result = _feature_command_result(self, project.geometry, committed)
             # Splitting a line that carries a load, or a plate that carries a
             # pressure, must not throw the attribute away: it follows onto
             # whatever replaced the entity.
-            _apply_replacements(project, project.geometry.replacement_log())
-            if definition is not None:
-                _record_geometry_feature(
-                    self, project.geometry, definition, result, before
-                )
+            _apply_replacements(project, self._replacements)
+            self._after = project.geometry.design_snapshot()
+            self._after_attributes = _attribute_snapshot(project)
+            self._result = result
             return result
         except BaseException:
-            project.geometry.restore_design(self._snapshot)
-            _restore_attributes(project, self._attributes)
+            if published:
+                project.geometry.restore_design(self._snapshot)
+                _restore_attributes(project, self._attributes)
             raise
 
     def undo(self, project: Project) -> None:
@@ -709,9 +791,11 @@ class GeometryCommand(Command):
         _restore_attributes(project, self._attributes)
 
     def redo(self, project: Project) -> Any:
-        project.geometry.restore_design(self._snapshot)
-        _restore_attributes(project, self._attributes)
-        return self.do(project)
+        if self._after is None or self._after_attributes is None:
+            return self.do(project)
+        project.geometry.restore_design(self._after)
+        _restore_attributes(project, self._after_attributes)
+        return self._result
 
 
 def _attribute_snapshot(project: Project) -> Dict[str, Any]:
@@ -720,6 +804,7 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
     return {
         "face_sections": dict(project.face_sections),
         "edge_sections": dict(project.edge_sections),
+        "sheet_join_intents": dict(project.sheet_join_intents),
         "supports": list(project.supports),
         "masses": list(project.masses),
         "imperfections": list(project.imperfections),
@@ -744,6 +829,8 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
     project.face_sections.update(snapshot["face_sections"])
     project.edge_sections.clear()
     project.edge_sections.update(snapshot["edge_sections"])
+    project.sheet_join_intents.clear()
+    project.sheet_join_intents.update(snapshot.get("sheet_join_intents", {}))
     project.supports[:] = list(snapshot["supports"])
     project.masses[:] = list(snapshot.get("masses", ()))
     project.imperfections[:] = list(snapshot.get("imperfections", ()))
@@ -996,96 +1083,92 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
     return None
 
 
-def _record_geometry_feature(
-    command: "GeometryCommand", geometry, definition, result: Any,
-    before: Mapping[str, set[int]],
-) -> None:
-    kind, parameters, inputs = definition
-    record = geometry.features.append(
-        kind,
-        name=command.label.title(),
-        parameters=parameters,
-        inputs=inputs,
-    )
-    created = {
-        entity_kind: sorted(set(getattr(geometry, store)) - before[entity_kind])
-        for entity_kind, store in (
-            ("vertex", "vertices"), ("edge", "edges"), ("face", "faces")
-        )
+def _numbered_outputs(
+    outputs: Mapping[str, EntityRef], prefix: str
+) -> list[EntityRef]:
+    """Return semantic ``prefix/N`` outputs in numeric rather than text order."""
+
+    made: list[tuple[int, EntityRef]] = []
+    marker = f"{prefix}/"
+    for key, reference in outputs.items():
+        if not key.startswith(marker):
+            continue
+        suffix = key[len(marker):]
+        if suffix.isdigit():
+            made.append((int(suffix), reference))
+    return [reference for _index, reference in sorted(made)]
+
+
+def _insert_result(geometry, outputs: Mapping[str, EntityRef]) -> InsertResult:
+    """Rebuild the established copy result from persistent semantic slots."""
+
+    mapping: Dict[EntityRef, EntityRef] = {}
+    values = set(outputs.values())
+    for key, reference in outputs.items():
+        parts = key.split("/")
+        if len(parts) == 2 and parts[0] in ("vertex", "edge", "face"):
+            try:
+                mapping[EntityRef(parts[0], int(parts[1]))] = reference
+            except ValueError:
+                continue
+    groups = {
+        name: tuple(item for item in geometry.group(name) if item in values)
+        for name in geometry.groups
+        if any(item in values for item in geometry.group(name))
     }
-    outputs: Dict[str, EntityRef] = {}
+    return InsertResult(mapping, groups, dict(outputs))
+
+
+def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any:
+    """Preserve established command return types after feature regeneration."""
+
+    outputs = record.outputs
     if isinstance(command, AddPoint):
-        outputs["point"] = EntityRef("vertex", int(result))
-    elif isinstance(command, (AddLine, AddArc)):
-        outputs["edge"] = EntityRef("edge", int(result))
-    elif isinstance(command, AddPolyline):
-        outputs.update(
-            (f"edge/{index}", EntityRef("edge", int(identifier)))
-            for index, identifier in enumerate(result)
+        return outputs["point"].id
+    if isinstance(command, (AddLine, AddArc)):
+        return outputs["edge"].id
+    if isinstance(command, AddPolyline):
+        return [item.id for item in _numbered_outputs(outputs, "edge")]
+    if isinstance(command, (AddFace, AddPlate)):
+        return outputs["face"].id
+    if isinstance(command, (Extrude, Revolve)):
+        return [item.id for item in _numbered_outputs(outputs, "face")]
+    if isinstance(command, SplitEdge):
+        return outputs["point"].id
+    if isinstance(command, SplitFace):
+        return tuple(item.id for item in _numbered_outputs(outputs, "face"))
+    if isinstance(command, StripFace):
+        return (
+            [item.id for item in _numbered_outputs(outputs, "face")],
+            [item.id for item in _numbered_outputs(outputs, "divider")],
         )
-    elif isinstance(command, AddFace):
-        outputs["face"] = EntityRef("face", int(result))
-    elif isinstance(command, AddPlate):
-        outputs.update(_created_feature_outputs(created))
-        outputs["face"] = EntityRef("face", int(result))
-    elif isinstance(command, (Extrude, Revolve)):
-        outputs.update(_created_feature_outputs(created))
-    elif isinstance(command, SplitEdge):
-        outputs["point"] = EntityRef("vertex", int(result))
-        halves = sorted(geometry.resolve_ref(EntityRef("edge", command.edge_id)), key=lambda item: item.id)
-        outputs.update(
-            (f"edge/{index}", item) for index, item in enumerate(halves)
+    if isinstance(command, NeutralTrimHole):
+        return (
+            outputs["face"].id,
+            tuple(item.id for item in _numbered_outputs(outputs, "boundary")),
         )
-    elif isinstance(command, SplitFace):
-        dividers = created["edge"]
-        if dividers:
-            outputs["divider"] = EntityRef("edge", dividers[0])
-        outputs.update(
-            (f"face/{index}", EntityRef("face", int(identifier)))
-            for index, identifier in enumerate(result)
+    if isinstance(command, SetFaceCorners):
+        return None
+    if isinstance(command, (CopyEntities, MirrorEntities)):
+        return _insert_result(geometry, outputs)
+    if isinstance(command, (LinearPattern, CircularPattern)):
+        instances: Dict[int, Dict[str, EntityRef]] = {}
+        for key, reference in outputs.items():
+            parts = key.split("/", 2)
+            if len(parts) != 3 or parts[0] != "instance" or not parts[1].isdigit():
+                continue
+            instances.setdefault(int(parts[1]), {})[parts[2]] = reference
+        return PatternResult(
+            tuple(
+                _insert_result(geometry, instances[index])
+                for index in sorted(instances)
+            )
         )
-    elif isinstance(command, StripFace):
-        faces, dividers = result
-        outputs.update(
-            (f"face/{index}", EntityRef("face", int(identifier)))
-            for index, identifier in enumerate(faces)
-        )
-        outputs.update(
-            (f"divider/{index}", EntityRef("edge", int(identifier)))
-            for index, identifier in enumerate(dividers)
-        )
-    elif isinstance(command, NeutralTrimHole):
-        face, boundary = result
-        outputs["face"] = EntityRef("face", int(face))
-        outputs.update(
-            (f"boundary/{index}", EntityRef("edge", int(identifier)))
-            for index, identifier in enumerate(boundary)
-        )
-    elif isinstance(command, SetFaceCorners):
-        outputs["face"] = EntityRef("face", command.face_id)
-    elif isinstance(command, (CopyEntities, MirrorEntities)):
-        outputs.update(result.outputs)
-    elif isinstance(command, (LinearPattern, CircularPattern)):
-        outputs.update(
-            (f"instance/{index}/{key}", reference)
-            for index, instance in enumerate(result.instances)
-            for key, reference in instance.outputs.items()
-        )
-    elif isinstance(command, ReverseEntity):
-        outputs["entity"] = result
-    record.outputs = outputs
-    record.state = "ok"
-    command._feature_id = record.feature_id
-
-
-def _created_feature_outputs(
-    created: Mapping[str, Sequence[int]],
-) -> Dict[str, EntityRef]:
-    return {
-        f"{kind}/{index}": EntityRef(kind, int(identifier))  # type: ignore[arg-type]
-        for kind in ("vertex", "edge", "face")
-        for index, identifier in enumerate(created[kind])
-    }
+    if isinstance(command, ReverseEntity):
+        return outputs["entity"]
+    raise GeometryError(
+        f"feature result adapter is missing for {type(command).__name__}"
+    )
 
 
 @dataclass(eq=False)
@@ -1306,6 +1389,266 @@ class ReverseEntity(GeometryCommand):
 
 
 @dataclass(frozen=True)
+class _SheetJoinPlan:
+    face_ids: tuple[int, ...]
+    sheet_ids: tuple[int, ...]
+    anchor_part_id: int
+    removable_part_ids: tuple[int, ...]
+    orientations: tuple[Orientation, ...]
+    policy: Any
+
+
+def _plan_sheet_join(geometry, references: Sequence[EntityRef]) -> _SheetJoinPlan:
+    """Validate an exact, orientation-consistent replacement of singleton sheets."""
+
+    made = tuple(references)
+    if len(made) < 2:
+        raise GeometryError("Join Sheet needs at least two selected plate faces")
+    if any(not isinstance(reference, EntityRef) or reference.kind != "face" for reference in made):
+        raise GeometryError("Join Sheet accepts only face EntityRefs")
+    face_ids = tuple(sorted(reference.id for reference in made))
+    if len(set(face_ids)) != len(face_ids):
+        raise GeometryError("Join Sheet selection contains a duplicate face")
+    for face_id in face_ids:
+        if face_id not in geometry.faces:
+            # Deliberately do not follow replacement history and never search
+            # for a geometrically nearby face.  Joining changes ownership,
+            # so its inputs must name exact current topology.
+            raise GeometryError(f"Join Sheet selected missing face {face_id}")
+
+    selected_uses: dict[int, Any] = {}
+    selected_sheets: dict[int, Any] = {}
+    for face_id in face_ids:
+        uses = tuple(
+            use for use in geometry.face_uses.values() if use.face_id == face_id
+        )
+        if len(uses) != 1:
+            raise GeometryError(
+                f"face {face_id} must belong to exactly one structural Sheet; "
+                f"found {len(uses)} owners"
+            )
+        use = uses[0]
+        sheet = geometry.sheets[use.sheet_id]
+        if len(sheet.face_use_ids) != 1:
+            owned = [
+                geometry.face_uses[use_id].face_id
+                for use_id in sheet.face_use_ids
+            ]
+            raise GeometryError(
+                f"face {face_id} already belongs to joined Sheet {sheet.id} "
+                f"with faces {owned}"
+            )
+        if sheet.id in selected_sheets:
+            raise GeometryError(
+                f"faces in Join Sheet must have independent singleton owners; "
+                f"Sheet {sheet.id} was selected twice"
+            )
+        if sheet.declared_non_manifold_edges:
+            raise GeometryError(
+                f"Sheet {sheet.id} carries declared non-manifold intent that "
+                "Join Sheet cannot discard"
+            )
+        if sheet.metadata or use.metadata or any(
+            geometry.coedges[coedge_id].metadata for coedge_id in use.coedge_ids
+        ):
+            raise GeometryError(
+                f"Sheet {sheet.id} carries owner metadata that Join Sheet "
+                "cannot transfer losslessly"
+            )
+        selected_uses[face_id] = use
+        selected_sheets[sheet.id] = sheet
+
+    policies = {sheet.policy for sheet in selected_sheets.values()}
+    if len(policies) != 1:
+        raise GeometryError("selected Sheets use different topology policies")
+
+    sheet_ids = tuple(sorted(selected_sheets))
+    sheet_id_set = set(sheet_ids)
+    part_ids = {sheet.part_id for sheet in selected_sheets.values()}
+    for part_id in sorted(part_ids):
+        part = geometry.parts[part_id]
+        if part.name or part.metadata:
+            raise GeometryError(
+                f"Part {part_id} carries a name or metadata that Join Sheet "
+                "cannot preserve through feature regeneration"
+            )
+        if set(part.sheet_ids) - sheet_id_set or part.member_ids:
+            raise GeometryError(
+                f"Part {part_id} owns unselected structural definitions; "
+                "Join Sheet requires isolated singleton plate owners"
+            )
+        if any(
+            attachment.part_id == part_id
+            for attachment in geometry.attachments.values()
+        ):
+            raise GeometryError(
+                f"cannot join Sheets while attachment references Part {part_id}"
+            )
+    for junction in geometry.junctions.values():
+        touched = sheet_id_set.intersection(junction.sheet_ids)
+        if touched:
+            raise GeometryError(
+                f"cannot join Sheet(s) {sorted(touched)} while junction "
+                f"{junction.id} references them"
+            )
+    for attachment in geometry.attachments.values():
+        touched_sheet = (
+            attachment.sheet_id in sheet_id_set
+            or attachment.source_key in {("sheet", item) for item in sheet_id_set}
+            or attachment.target_key in {("sheet", item) for item in sheet_id_set}
+        )
+        if touched_sheet:
+            raise GeometryError(
+                f"cannot join Sheets while attachment {attachment.id} "
+                "references a singleton Sheet owner"
+            )
+
+    # A face's coedge orientation is relative to the geometric edge.  Sheet
+    # orientation multiplies that sign.  Solve the exact shared-edge graph so
+    # the two effective directions are opposite at every internal boundary.
+    edge_uses: dict[int, list[tuple[int, int]]] = {}
+    for face_id, use in selected_uses.items():
+        seen: set[int] = set()
+        for coedge_id in use.coedge_ids:
+            coedge = geometry.coedges[coedge_id]
+            if coedge.edge_id in seen:
+                raise GeometryError(
+                    f"face {face_id} uses edge {coedge.edge_id} more than once; "
+                    "sheet orientation is ambiguous"
+                )
+            seen.add(coedge.edge_id)
+            edge_uses.setdefault(coedge.edge_id, []).append(
+                (face_id, int(coedge.orientation))
+            )
+
+    adjacency: dict[int, list[tuple[int, int, int, int]]] = {
+        face_id: [] for face_id in face_ids
+    }
+    for edge_id, uses in sorted(edge_uses.items()):
+        if len(uses) > 2:
+            raise GeometryError(
+                f"selected faces create a non-manifold Sheet at edge {edge_id}"
+            )
+        if len(uses) == 2:
+            (first, first_coedge), (second, second_coedge) = uses
+            adjacency[first].append(
+                (second, first_coedge, second_coedge, edge_id)
+            )
+            adjacency[second].append(
+                (first, second_coedge, first_coedge, edge_id)
+            )
+
+    anchor = face_ids[0]
+    solved: dict[int, int] = {
+        anchor: int(selected_uses[anchor].orientation)
+    }
+    pending = [anchor]
+    while pending:
+        current = pending.pop()
+        for neighbor, current_coedge, neighbor_coedge, edge_id in adjacency[current]:
+            required = -current_coedge * solved[current] * neighbor_coedge
+            existing = solved.get(neighbor)
+            if existing is None:
+                solved[neighbor] = required
+                pending.append(neighbor)
+            elif existing != required:
+                raise GeometryError(
+                    "selected faces are not consistently orientable; conflicting "
+                    f"requirements meet at edge {edge_id}"
+                )
+    disconnected = sorted(set(face_ids) - set(solved))
+    if disconnected:
+        raise GeometryError(
+            "selected faces do not share one connected exact-edge topology; "
+            f"disconnected faces {disconnected}"
+        )
+
+    anchor_part_id = selected_sheets[selected_uses[anchor].sheet_id].part_id
+    removable_parts: list[int] = []
+    for part_id in sorted(part_ids - {anchor_part_id}):
+        part = geometry.parts[part_id]
+        remaining_sheets = set(part.sheet_ids) - sheet_id_set
+        if not remaining_sheets and not part.member_ids:
+            removable_parts.append(part_id)
+
+    return _SheetJoinPlan(
+        face_ids,
+        sheet_ids,
+        anchor_part_id,
+        tuple(removable_parts),
+        tuple(Orientation(solved[face_id]) for face_id in face_ids),
+        next(iter(policies)),
+    )
+
+
+def _apply_sheet_join(geometry, plan: _SheetJoinPlan, name: str) -> int:
+    """Apply a prevalidated owner replacement in one geometry transaction."""
+
+    with geometry.transaction():
+        for sheet_id in reversed(plan.sheet_ids):
+            geometry.remove_sheet(sheet_id)
+        for part_id in reversed(plan.removable_part_ids):
+            geometry.remove_part(part_id)
+        return geometry.add_sheet(
+            plan.face_ids,
+            part_id=plan.anchor_part_id,
+            name=name,
+            policy=plan.policy,
+            orientations=plan.orientations,
+        )
+
+
+@dataclass(eq=False)
+class JoinSheet(GeometryCommand):
+    """Join exact selected singleton plate owners into one coherent Sheet.
+
+    Geometry faces, feature outputs, regions, loads and section targets retain
+    their IDs.  Only structural ownership changes.  Orientation is expressed
+    through ``FaceUse`` values; geometric face loops/normals are never reversed.
+    """
+
+    references: Sequence[EntityRef]
+    name: str = "Joined sheet"
+    label: str = "join sheet"
+
+    def __post_init__(self) -> None:
+        GeometryCommand.__init__(self)
+        self.references = tuple(self.references)
+
+    def preflight(self, project: Project) -> None:
+        plan = _plan_sheet_join(project.geometry, self.references)
+
+        # Exercise the complete public owner mutation against a detached clone
+        # before allocating any live structural IDs.  This catches name/policy
+        # and whole-model validation failures without partially touching the
+        # document.  The live application remains wrapped by GeometryCommand's
+        # full design/attribute rollback as a final fail-closed guard.
+        working = project.geometry.clone(include_features=False)
+        working_plan = _plan_sheet_join(working, self.references)
+        _apply_sheet_join(working, working_plan, str(self.name))
+
+    def operate(self, project: Project) -> int:
+        plan = _plan_sheet_join(project.geometry, self.references)
+
+        sheet_id = _apply_sheet_join(project.geometry, plan, str(self.name))
+        project.add_sheet_join_intent(
+            SheetJoinIntent(
+                name=str(self.name),
+                anchors=join_anchors(
+                    project.geometry,
+                    tuple(
+                        EntityRef("face", face_id)
+                        for face_id in plan.face_ids
+                    ),
+                ),
+                orientations=plan.orientations,
+                policy=plan.policy,
+            )
+        )
+        return sheet_id
+
+
+@dataclass(frozen=True)
 class MeasureGeometry:
     """Typed, read-only ANYgeometry measurement for ``CommandStack.query``."""
 
@@ -1346,6 +1689,12 @@ class DeleteEntity(Command):
 
     def do(self, project: Project) -> None:
         geometry = project.geometry
+        # ``begin_replacement_log`` intentionally clears the current public
+        # transaction log.  Qualify the complete owner-aware deletion on a
+        # detached model first, so a normal rejected delete never touches that
+        # caller-owned log (and never needs a private-store repair).
+        working = geometry.clone(include_features=False)
+        _delete_exact_geometry_ref(working, self.ref)
         # Public removals update semantic groups, tags and persistent
         # replacement history in addition to deleting the entity.  Capture the
         # complete owner topology so undo restores those annotations and the
@@ -1354,12 +1703,7 @@ class DeleteEntity(Command):
         self._snapshot = geometry.topology_snapshot()
         geometry.begin_replacement_log()
         try:
-            if self.ref.kind == "face":
-                geometry.remove_face(self.ref.id)
-            elif self.ref.kind == "edge":
-                geometry.remove_edge(self.ref.id)
-            else:
-                geometry.remove_vertex(self.ref.id)
+            _delete_exact_geometry_ref(geometry, self.ref)
         except Exception:
             # ``begin_replacement_log`` is itself stateful.  A rejected delete
             # must not clear the caller's current transaction log.
@@ -1370,6 +1714,115 @@ class DeleteEntity(Command):
     def undo(self, project: Project) -> None:
         project.geometry.restore_topology(self._snapshot)
         _reattach_attributes(project, self.ref, self._attributes)
+
+
+def _delete_exact_geometry_ref(geometry, ref: EntityRef) -> None:
+    """Delete one exact current topology reference through public owner APIs."""
+
+    _detach_structural_owner(geometry, ref)
+    if ref.kind == "face":
+        geometry.remove_face(ref.id)
+    elif ref.kind == "edge":
+        geometry.remove_edge(ref.id)
+    elif ref.kind == "vertex":
+        geometry.remove_vertex(ref.id)
+    else:  # Defensive for callers constructing EntityRef-like values dynamically.
+        raise GeometryError(f"cannot delete unsupported geometry kind {ref.kind!r}")
+
+
+def _detach_structural_owner(geometry, ref: EntityRef) -> None:
+    """Remove singleton structural ownership before deleting its topology.
+
+    Section assignment creates one Sheet per independently authored plate and
+    one Member per assigned beam.  Those records deliberately protect their
+    topology from accidental raw deletion.  A user-facing Delete command is
+    explicit intent, so it removes the singleton owner and its connection
+    records in dependency order.  Joined multi-face sheets and multi-edge
+    members remain protected: engineers must split/unjoin them explicitly.
+    """
+
+    attachment_ids: set[int] = set()
+    junction_ids: set[int] = set()
+    owner_parts: set[int] = set()
+    sheet_ids: tuple[int, ...] = ()
+    member_ids: tuple[int, ...] = ()
+
+    if ref.kind == "face":
+        sheet_ids = tuple(
+            sorted(
+                {
+                    use.sheet_id
+                    for use in geometry.face_uses.values()
+                    if use.face_id == ref.id
+                }
+            )
+        )
+        for sheet_id in sheet_ids:
+            sheet = geometry.sheets[sheet_id]
+            owned_faces = tuple(
+                geometry.face_uses[use_id].face_id
+                for use_id in sheet.face_use_ids
+            )
+            if owned_faces != (ref.id,):
+                raise GeometryError(
+                    f"cannot delete face {ref.id}: it belongs to joined sheet "
+                    f"{sheet_id} with faces {list(owned_faces)}; unjoin the sheet first"
+                )
+            owner_parts.add(sheet.part_id)
+            attachment_ids.update(geometry.attachments_for_sheet(sheet_id))
+            junction_ids.update(
+                junction.id
+                for junction in geometry.junctions.values()
+                if sheet_id in junction.sheet_ids
+            )
+        attachment_ids.update(geometry.attachments_for_source("face", ref.id))
+        attachment_ids.update(geometry.attachments_for_face(ref.id))
+    elif ref.kind == "edge":
+        member_ids = tuple(geometry.members_using_edge(ref.id))
+        for member_id in member_ids:
+            member = geometry.members[member_id]
+            owned_edges = tuple(
+                geometry.member_edge_uses[use_id].edge_id
+                for use_id in member.edge_use_ids
+            )
+            if owned_edges != (ref.id,):
+                raise GeometryError(
+                    f"cannot delete edge {ref.id}: it belongs to joined member "
+                    f"{member_id} with edges {list(owned_edges)}; split the member first"
+                )
+            owner_parts.add(member.part_id)
+            attachment_ids.update(geometry.attachments_for_member(member_id))
+            junction_ids.update(
+                junction.id
+                for junction in geometry.junctions.values()
+                if member_id in junction.member_ids
+            )
+        attachment_ids.update(geometry.attachments_for_source("edge", ref.id))
+    else:
+        attachment_ids.update(geometry.attachments_for_source("vertex", ref.id))
+
+    junction_ids.update(
+        junction.id
+        for junction in geometry.junctions.values()
+        if any(value in attachment_ids for value in junction.attachment_ids)
+    )
+    for junction_id in sorted(junction_ids, reverse=True):
+        if junction_id in geometry.junctions:
+            geometry.remove_junction(junction_id)
+    for attachment_id in sorted(attachment_ids, reverse=True):
+        if attachment_id in geometry.attachments:
+            geometry.remove_attachment(attachment_id)
+    for member_id in reversed(member_ids):
+        if member_id in geometry.members:
+            geometry.remove_member(member_id)
+    for sheet_id in reversed(sheet_ids):
+        if sheet_id in geometry.sheets:
+            geometry.remove_sheet(sheet_id)
+    for part_id in sorted(owner_parts, reverse=True):
+        if part_id in geometry.parts:
+            part = geometry.parts[part_id]
+            if not part.sheet_ids and not part.member_ids:
+                geometry.remove_part(part_id)
 
 
 def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:

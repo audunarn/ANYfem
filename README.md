@@ -15,9 +15,31 @@ ANYfem owns the application layer across the focused ecosystem packages:
   mapped decomposition and meshing, refinement and coupling records.
 - [**ANYfileio**](https://github.com/audunarn/ANYio) — SESAM and CalculiX
   parsing/writing.
-- [**ANYtk3D**](https://github.com/audunarn/ANYtk3D) — the Tkinter 3D viewport.
+- [**ANY3dView**](https://github.com/audunarn/ANY3dView) — shared viewer
+  contracts and the optional ModernGL viewport.
+- [**ANYtk3D**](https://github.com/audunarn/ANYtk3D) — the software Tk viewport.
 
 The dependency direction is one-way. ANYfem never imports ANYstructure.
+
+### Qualified latest-only release graph
+
+| Distribution | Qualified version | Role |
+| --- | ---: | --- |
+| ANYmaterial | 0.1.0 | material definitions and nonlinear curves |
+| ANYgeometry | 0.2.2 | feature/topology and structural ownership |
+| ANYmesher | 0.2.3 | declared structural meshing and native quality optimization |
+| ANYfileio | 0.2.0 | neutral and solver-file semantics |
+| ANY3dView | 0.5.0 | viewer contract and ModernGL renderer |
+| ANYtk3D | 0.5.0 | compatible software renderer |
+| ANYsolver | 0.3.0 | analyses, outcomes, progress, reactions and quantities |
+| ANYfem | 0.3.0 | workflow, persistence, jobs and results |
+| ANYbuckling | 0.1.0 | compatible independent buckling adapter |
+| ANYstructure | 6.3.0 | downstream application consumer |
+
+Only these latest package generations are qualified together. Historical
+ANYfem project formats 1--6 remain readable through the v7 migration path;
+that file compatibility does not qualify older installed package generations.
+ANYtimeseries remains independent of this release graph.
 
 ## Status
 
@@ -33,7 +55,7 @@ results.
 | `anyfem.model` | Stable-ID materials/sections/assignments, reusable geometry/mesh regions, named Cartesian/cylindrical coordinates, SI-backed unit profiles, six-component supports/loads, masses, combinations and imperfections |
 | `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
 | `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, history series, Markdown and CSV export |
-| `anyfem.io` | v4 project intent, v2 feature geometry, portable SESAM embedding, atomic HDF5 mesh/result sidecars, validation, locks and autosave recovery |
+| `anyfem.io` | v7 project intent, schema-v4 feature geometry, portable SESAM embedding, atomic HDF5 mesh/result sidecars, validation, locks and autosave recovery |
 | `anyfem.commands` | Atomic document transactions and command-stack undo/redo, including feature edit/suppress/regenerate |
 | `anyfem.migration` | Reads ANYstructure's saved FE state without importing it; measures the migration gate |
 | `anyfem.selection` | Geometry and mesh domains; point/edge/plate/node/element/element-face filters; replace/add/toggle/remove and ordered picks |
@@ -89,25 +111,30 @@ them by default.
 
 ## Install and run
 
-Until the compatible ecosystem packages are published, install their sibling
-checkouts before ANYfem:
+Until the compatible ecosystem packages are published, bootstrap the complete
+latest-only graph with one command.  The arguments are kept in dependency
+order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --no-deps -e C:\Github\ANYgeometry
-python -m pip install --no-deps -e C:\Github\ANYmaterial
-python -m pip install --no-deps -e C:\Github\ANYmesh
-python -m pip install --no-deps -e C:\Github\ANYio
-python -m pip install --no-deps -e C:\Github\ANYsolver
-python -m pip install --no-deps -e C:\Github\ANYtk3D
-python -m pip install -e ".[dev,gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYsolver\.compat_anymesher_023" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
 ```
+
+The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
+so the application can switch between their coordinated GPU and software
+implementations without mixing installed generations.
+
+The qualified ANYmesher source is selected the same way. The shared
+`ANYmesh` checkout is used only when it declares exactly 0.2.3; otherwise the
+tracked 0.2.3 snapshot is used. `ANYMESHER_023_SOURCE` can name another exact
+0.2.3 checkout. This preserves unrelated changes in a dirty mesher worktree.
 
 ```powershell
 python -m anyfem.ui.app
 ```
 
-From a source checkout, `python run_gui.py` launches the same application and
-adds the sibling ecosystem source trees when they are present.
+From a source checkout, `python run_gui.py` first checks both imported module
+origins and installed distribution versions, then launches the application.
+It fails before importing Tk when source and editable metadata are mixed.
 
 The default workspace keeps the model tree on the left, the retained 3D view in
 the centre, and contextual Details/tasks on the right. Geometry/features,
@@ -115,8 +142,13 @@ materials/sections, coordinate systems, regions, meshes, load cases, analyses,
 jobs and results remain visible throughout the workflow. Common controls are
 shown first; solver-specific controls live under **Advanced**.
 
-The commercial interaction profile is opt-in at the ANYtk3D layer and enabled
-by ANYfem:
+The toolbar's **Renderer** selector switches live between **Automatic**,
+**GPU**, and **Tk**. Automatic prefers ModernGL and falls back to Tk with the
+reason available in the status bar. A failed explicit switch leaves the current
+renderer, camera, scene, selection, clipping and construction preview intact.
+
+The commercial interaction profile is implemented by both viewer backends and
+enabled by ANYfem:
 
 - LMB click selects; LMB drag uses box or lasso selection.
 - MMB drag pans, RMB drag orbits, the wheel zooms, and RMB click opens context actions.
@@ -249,16 +281,18 @@ ANYgeometry records the intended surface explicitly: `Plane`, `Cylinder`,
 transfinite interpolation where that is the selected surface; cylinders and
 cones use their analytical surfaces rather than a faceted approximation.
 
-Project format v5 stores editable intent and an artifact index; embedded
+Project format v7 stores editable intent, exact structural-ownership intent,
+compatibility-recovery diagnostics, and an artifact index; embedded
 ANYgeometry documents use canonical schema v4. Meshes and
 results are immutable, checksummed HDF5 sidecars under
 `model.anyfem-data/meshes` and `model.anyfem-data/results`. Results are read
 frame-by-frame and unavailable quantities are never manufactured. Imported
 SESAM source semantics are embedded with the mesh, so reopening does not depend
-on the original file. Legacy ANYfem formats 1--4 and ANYgeometry schemas v1--v3
-remain readable and are migrated deterministically on the next save. An
-ANYgeometry 0.2.0 process intentionally rejects schema v4 documents written by
-0.2.1, even though both releases satisfy the package range `>=0.2,<0.3`.
+on the original file. Legacy ANYfem formats 1--6 and ANYgeometry schemas v1--v3
+remain readable and are migrated deterministically on the next save. The
+qualified release therefore requires ANYgeometry 0.2.2 or newer within the
+0.2 generation; older readers must reject newer schema-v4 materializations
+rather than guessing at their feature or structural identity.
 
 ### Symmetry
 
@@ -569,7 +603,7 @@ inventing an ID. The visible result view can also be captured as PNG or as an
 asynchronously assembled GIF when Pillow is installed. Global tables and
 histories remain CSV-only, so an unavailable spatial view is never replaced by
 a screenshot of stale geometry. Section-plane controls appear automatically
-when the installed ANYtk3D release exposes a clipping-plane API.
+when the active ANY3dView or ANYtk3D backend exposes the shared clipping API.
 
 Immutable result sidecars also produce reproducible Markdown or standalone
 HTML reports without loading every frame at once:
@@ -682,14 +716,24 @@ passes them by default.
 reference persistent entity IDs; the mesh association map resolves them at
 build time. Re-meshing never loses a load.
 
-**Production meshing is mapped only.** No unstructured paver is selected for
-the qualified solve path: the solver's element envelope is full-integration Q4
-and Q8, and the domain — stiffened panels and cylinders — is naturally mapped.
-ANYgeometry may retain triangular or trimmed topology; faces presented to the
-built-in mapped backend must first be partitioned into regions with four logical
-sides. The edge-seeding solver then propagates division counts across shared
-edges so neighbouring faces are conformal by construction rather than by
-coincident-node merging.
+**Meshing method is an explicit project setting.** Open **Mesh** and choose the
+prominent **Meshing method** control before Generate mesh:
+
+- **Automatic (recommended)** maps eligible four-sided plates and routes the
+  remaining plates through ANYmesher's unstructured/native surface mesher.
+- **Mapped quadrilateral** requires every plate region to have four logical
+  sides and no holes. The task explains which face must be partitioned when
+  this requirement is not met.
+- **Unstructured / native** sends every plate through the native surface
+  method and is the direct choice for holes and general boundaries.
+
+The lower-level **Triangulator** control is shown only when an unstructured
+route can be used; it is not the mapped/native method selector. Shared model
+edges use one node sequence, so automatic mixed-method interfaces remain
+conformal without coincident-node merging. After completion, Mesh details show
+the requested method, the actual method used per face, native backend routes,
+intersection preparation, and ANYmesher 0.2.3 quality measures including
+scaled Jacobian, angle range, poor-element count, and optimization provenance.
 
 ## Testing
 

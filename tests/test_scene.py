@@ -134,6 +134,35 @@ def test_beams_are_drawn_differently_from_plain_lines(plate_project):
     plain = by_tag[f"ent_edge{edges[1]}"]
     assert beam.color != plain.color
     assert beam.width > plain.width
+    assert beam.draw_overlay
+    assert not plain.draw_overlay
+
+
+def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_project):
+    project, _face, _edges, points = plate_project
+    from anyfem.model.sections import BeamSection
+
+    diagonal = project.geometry.add_line(points[0], points[2])
+    project.add_beam_section(
+        BeamSection(
+            name="diagonal", profile="Flatbar", material="S355",
+            flange_width=0.05, flange_thickness=0.02,
+        )
+    )
+    project.assign_beam(diagonal, "diagonal")
+
+    mesh = project.generate_mesh(0.25)
+    scene = build_mesh_scene(project, mesh)
+    beam_elements = tuple(mesh.elements_of_edge[diagonal])
+    beam_lines = [
+        line for line in scene.lines if line.ref == EntityRef("edge", diagonal)
+    ]
+
+    assert len(beam_lines) == len(beam_elements)
+    assert all(line.draw_overlay for line in beam_lines)
+    shell_nodes = {node for shell in mesh.shells.values() for node in shell}
+    coupled_nodes = {item.beam_node for item in mesh.couplings.values()}
+    assert set(mesh.nodes_of_edge[diagonal]).issubset(shell_nodes | coupled_nodes)
 
 
 def test_arcs_are_drawn_as_curves_not_chords():

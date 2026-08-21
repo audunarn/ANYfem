@@ -1,8 +1,8 @@
 """ANYfem -- a shell and beam finite element application.
 
 Geometry modelling, mapped meshing, loads and boundary conditions, solving and
-postprocessing, built on ``anysolver`` for the analysis and ``anytk3d`` for
-the viewport.
+postprocessing, built on ``anysolver`` for analysis and ``any3dview`` for the
+renderer-neutral viewport contract.
 
 Modelling is bottom-up and point-driven::
 
@@ -65,6 +65,7 @@ from .model import (
     RegionRef,
     ResultQuantityDescriptor,
     SectionAssignment,
+    SheetJoinIntent,
     Support,
     fixed,
     pinned,
@@ -138,7 +139,7 @@ from .solve import (
     solve_transient,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "BeamSection",
@@ -220,6 +221,7 @@ __all__ = [
     "RegionRef",
     "ResultQuantityDescriptor",
     "SectionAssignment",
+    "SheetJoinIntent",
     "TransientSolution",
     "UnitProfile",
     "Workplane",

@@ -102,6 +102,7 @@ class ArtifactStore:
         document_id: str = "",
         model_hash: str = "",
         mesh_hash: str = "",
+        structural_preparation: Mapping[str, Any] | None = None,
         imported_model: Mapping[str, Any] | None = None,
         embedded_source: bytes | bytearray | memoryview | None = None,
     ) -> ArtifactRef:
@@ -144,6 +145,11 @@ class ArtifactStore:
                 # columnar arrays used for fast inspection.
                 codec = np.frombuffer(_json(mesh_to_dict(mesh)).encode("utf-8"), dtype=np.uint8)
                 _dataset(group, "codec_json", codec)
+                group.create_dataset(
+                    "structural_preparation_json",
+                    data=_json(dict(structural_preparation or {})),
+                    dtype=h5py.string_dtype("utf-8"),
+                )
                 if imported_payload is not None:
                     imported = handle.create_group("imported_model")
                     imported.create_dataset(
@@ -226,7 +232,20 @@ class ArtifactStore:
                     "byte_size": path.stat().st_size,
                     "imported_model": None,
                     "embedded_source": None,
+                    "structural_preparation": {},
                 }
+                if "mesh/structural_preparation_json" in handle:
+                    raw_preparation = handle[
+                        "mesh/structural_preparation_json"
+                    ][()]
+                    preparation = json.loads(
+                        _text_attribute(raw_preparation)
+                    )
+                    if not isinstance(preparation, dict):
+                        raise ArtifactError(
+                            "mesh structural preparation must be a JSON object"
+                        )
+                    metadata["structural_preparation"] = preparation
                 if "imported_model" in handle:
                     imported = handle["imported_model"]
                     payload = _read_json_dataset(imported, "json")

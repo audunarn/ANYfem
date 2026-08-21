@@ -1,5 +1,6 @@
 include README.md
 include LICENSE
+include run_gui.py
 recursive-include docs *.md
 prune reports
 global-exclude __pycache__

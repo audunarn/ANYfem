@@ -267,13 +267,11 @@ def test_point_markers_support_click_shift_click_and_box_selection(app, root):
     assert not app.viewport.construction_active
     assert "selection controls are active" in app._status.cget("text")
 
-    canvas = app.viewport.canvas
-    inner = canvas.canvas
+    viewport = app.viewport
+    inner = viewport.event_widget
 
     def screen(x):
-        projected = canvas.camera.project_point(
-            Point3D(x, 0.0, 0.0), canvas._plot_width(), canvas.height
-        )
+        projected = viewport.project_point(Point3D(x, 0.0, 0.0))
         assert projected is not None
         return round(projected[0]), round(projected[1])
 
@@ -327,10 +325,10 @@ def test_large_visible_box_selects_standalone_points(app, root):
     app.show_geometry(reset_view=True)
     root.update()
 
-    canvas = app.viewport.canvas
-    inner = canvas.canvas
+    viewport = app.viewport
+    inner = viewport.event_widget
     projected = [
-        canvas.camera.project_point(point, canvas._plot_width(), canvas.height)
+        viewport.project_point(point)
         for point in (Point3D(0.0, 0.0, 0.0), Point3D(2.0, 0.0, 0.0))
     ]
     assert all(point is not None for point in projected)
@@ -505,7 +503,7 @@ def test_selection_drives_the_viewport_highlight(app, root):
     app.selection.select(EntityRef("face", face))
     root.update()
 
-    assert app.viewport.canvas.highlighted_tags() == {f"ent_face{face}"}
+    assert app.viewport.highlighted_tags() == {f"ent_face{face}"}
 
 
 def test_clicking_the_model_selects_it(app, root):
@@ -514,7 +512,7 @@ def test_clicking_the_model_selects_it(app, root):
     app.viewport.fit()
     root.update()
 
-    canvas = app.viewport.canvas.canvas
+    canvas = app.viewport.event_widget
     width = canvas.winfo_width() // 2
     height = canvas.winfo_height() // 2
     canvas.event_generate("<ButtonPress-1>", x=width, y=height)
@@ -522,6 +520,28 @@ def test_clicking_the_model_selects_it(app, root):
     root.update()
 
     assert app.selection.items == [EntityRef("face", face)]
+
+
+def test_live_gpu_tk_switch_preserves_scene_and_selection(app, root):
+    _points, face = build_plate(app)
+    app.selection.set_mode("face")
+    app.selection.select(EntityRef("face", face))
+    app.viewport.fit()
+    root.update()
+
+    assert app.switch_viewer_backend("software") == "software"
+    root.update()
+    assert app.selection.items == [EntityRef("face", face)]
+    assert app.viewport.highlighted_tags() == {f"ent_face{face}"}
+
+    try:
+        active = app.switch_viewer_backend("gpu")
+    except Exception as error:
+        pytest.skip(f"native GPU viewer is unavailable: {error}")
+    root.update()
+    assert active == "gpu"
+    assert app.selection.items == [EntityRef("face", face)]
+    assert app.viewport.highlighted_tags() == {f"ent_face{face}"}
 
 
 def test_tree_selection_and_viewport_selection_agree(app, root):
@@ -902,10 +922,10 @@ def test_the_overlay_does_not_break_picking(app, root):
     app.viewport.fit()
     root.update()
 
-    canvas = app.viewport.canvas.canvas
+    canvas = app.viewport.event_widget
     x = canvas.winfo_width() // 2
     y = canvas.winfo_height() // 2
-    assert app.viewport.canvas.pick_at(x, y) == f"ent_face{face}"
+    assert app.viewport.pick_at(x, y) == f"ent_face{face}"
 
 
 def test_load_and_mass_tree_rows_select_their_geometry(app, root):
@@ -983,15 +1003,23 @@ def test_mesh_panel_presents_and_maps_native_triangulator(app, root, monkeypatch
 
     captured = {}
 
-    def fake_generate(size, *, native_backend=None):
-        captured.update(size=size, native_backend=native_backend)
+    def fake_generate(size, *, native_backend=None, strategy=None):
+        captured.update(
+            size=size,
+            native_backend=native_backend,
+            strategy=strategy,
+        )
 
     monkeypatch.setattr(app, "generate_mesh_async", fake_generate)
     panel._size.set("0.4")
     panel._native_backend.set("Compiled native")
     panel._generate()
 
-    assert captured == {"size": 0.4, "native_backend": "native"}
+    assert captured == {
+        "size": 0.4,
+        "native_backend": "native",
+        "strategy": "auto",
+    }
 
 
 # ----------------------------------------------------------------------
@@ -1295,7 +1323,7 @@ def test_clicking_in_the_results_view_probes_automatically(app, root):
     app.viewport.fit()
     root.update()
 
-    canvas = app.viewport.canvas.canvas
+    canvas = app.viewport.event_widget
     x = canvas.winfo_width() // 2
     y = canvas.winfo_height() // 2
     canvas.event_generate("<ButtonPress-1>", x=x, y=y)

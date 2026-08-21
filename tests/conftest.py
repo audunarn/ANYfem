@@ -17,6 +17,8 @@ from __future__ import annotations
 import gc
 import inspect
 import os
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -29,6 +31,11 @@ _RUN_GUI_TESTS = os.environ.get("ANYFEM_RUN_GUI_TESTS", "").casefold() in {
 
 
 def pytest_configure(config):
+    if getattr(config.option, "basetemp", None) is None:
+        config.option.basetemp = str(
+            Path(__file__).resolve().parents[1]
+            / f".pytest_tmp_{uuid4().hex}"
+        )
     config.addinivalue_line(
         "markers",
         "gui: opt-in test that creates a real Tk desktop window",

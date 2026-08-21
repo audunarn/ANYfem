@@ -10,6 +10,7 @@ the command stack, so the same calls are available from a script.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import os
 import tkinter as tk
@@ -23,7 +24,12 @@ from typing import Any, Dict, Iterable, Optional
 from ..commands import Command, CommandStack
 from ..document import DocumentSession, canonical_hash
 from ..jobs import JobManager, analysis_hash
-from ..mesh_jobs import MeshJobResult, MeshSettings, MeshTaskManager
+from ..mesh_jobs import (
+    MeshJobResult,
+    MeshSettings,
+    MeshTaskManager,
+    mesh_semantic_hash,
+)
 from ..io.decks import export_calculix_deck
 from ..io.project_file import (
     load_project, project_from_dict, project_to_dict, save_project,
@@ -89,12 +95,32 @@ ANALYSES = {
     "Capacity": solve_capacity,
 }
 
+_RENDERER_LABELS = {
+    "auto": "Automatic",
+    "gpu": "GPU",
+    "software": "Tk",
+}
+_RENDERER_BACKENDS = {label: backend for backend, label in _RENDERER_LABELS.items()}
+
 
 class AnyFemApp(ttk.Frame):
     """The main window."""
 
-    def __init__(self, master: tk.Misc, project: Optional[Project] = None) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        project: Optional[Project] = None,
+        *,
+        viewer_backend: str = "auto",
+    ) -> None:
         super().__init__(master)
+        normalized_backend = str(viewer_backend).strip().casefold()
+        normalized_backend = {"automatic": "auto", "tk": "software"}.get(
+            normalized_backend, normalized_backend
+        )
+        if normalized_backend not in _RENDERER_LABELS:
+            raise ValueError("viewer_backend must be 'auto', 'gpu', or 'software'")
+        self._viewer_backend = normalized_backend
         self.project = project if project is not None else default_project()
         self.selection = Selection(mode="vertex")
         self.session = DocumentSession(self.project, selection=self.selection)
@@ -183,6 +209,23 @@ class AnyFemApp(ttk.Frame):
         ttk.Button(toolbar, text="Fit", width=6, command=self._fit).pack(
             side="left", padx=(8, 0)
         )
+        ttk.Label(toolbar, text="Renderer").pack(side="left", padx=(12, 3))
+        self._renderer_choice = tk.StringVar(
+            value=_RENDERER_LABELS[self._viewer_backend]
+        )
+        self._renderer_selector = ttk.Combobox(
+            toolbar,
+            textvariable=self._renderer_choice,
+            values=tuple(_RENDERER_BACKENDS),
+            width=10,
+            state="readonly",
+        )
+        self._renderer_selector.pack(side="left")
+        self._renderer_selector.bind(
+            "<<ComboboxSelected>>", self._on_renderer_selected, add="+"
+        )
+        self._renderer_active_label = ttk.Label(toolbar, text="")
+        self._renderer_active_label.pack(side="left", padx=(3, 0))
         self._show_attributes = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             toolbar,
@@ -228,17 +271,24 @@ class AnyFemApp(ttk.Frame):
 
         centre = ttk.Frame(panes)
         panes.add(centre, weight=4)
-        self.viewport = Viewport(centre, selection=self.selection)
+        self.viewport = Viewport(
+            centre,
+            selection=self.selection,
+            backend=self._viewer_backend,
+        )
         self.viewport.pack(fill="both", expand=True)
         self.viewport.set_pick_handler(self._on_pick)
-        canvas_widget = getattr(self.viewport.canvas, "canvas", None)
-        if canvas_widget is not None:
-            canvas_widget.bind("<Control-a>", self._select_all)
-            canvas_widget.bind("<Control-A>", self._select_all)
-            canvas_widget.bind("<KeyPress-f>", lambda _event: self.viewport.frame_selection())
-            canvas_widget.bind("<KeyPress-F>", lambda _event: self.viewport.frame_selection())
-            canvas_widget.bind("<Delete>", self._delete_selection)
-            canvas_widget.bind("<Escape>", lambda _event: self.selection.clear())
+        self.viewport.bind_event("<Control-a>", self._select_all)
+        self.viewport.bind_event("<Control-A>", self._select_all)
+        self.viewport.bind_event(
+            "<KeyPress-f>", lambda _event: self.viewport.frame_selection()
+        )
+        self.viewport.bind_event(
+            "<KeyPress-F>", lambda _event: self.viewport.frame_selection()
+        )
+        self.viewport.bind_event("<Delete>", self._delete_selection)
+        self.viewport.bind_event("<Escape>", lambda _event: self.selection.clear())
+        self._update_renderer_label()
 
         right = ttk.Frame(panes)
         panes.add(right, weight=2)
@@ -268,6 +318,56 @@ class AnyFemApp(ttk.Frame):
         self._status.pack(side="left", fill="x", expand=True)
         self._selection_label = ttk.Label(status, text="")
         self._selection_label.pack(side="right")
+        if self.viewport.backend_diagnostics:
+            self.set_status(
+                "renderer: Tk fallback; "
+                + "; ".join(self.viewport.backend_diagnostics)
+            )
+
+    @property
+    def requested_viewer_backend(self) -> str:
+        return self.viewport.requested_backend
+
+    @property
+    def active_viewer_backend(self) -> str:
+        return self.viewport.active_backend
+
+    @property
+    def viewer_backend_diagnostics(self) -> tuple[str, ...]:
+        return self.viewport.backend_diagnostics
+
+    def _update_renderer_label(self) -> None:
+        active = "GPU" if self.viewport.active_backend == "gpu" else "Tk"
+        self._renderer_active_label.configure(text=f"({active})")
+
+    def switch_viewer_backend(self, backend: str) -> str:
+        """Switch renderers without changing application or project state."""
+
+        active = self.viewport.switch_backend(backend)
+        self._viewer_backend = self.viewport.requested_backend
+        self._renderer_choice.set(_RENDERER_LABELS[self._viewer_backend])
+        self._update_renderer_label()
+        diagnostics = self.viewport.backend_diagnostics
+        detail = f"; {'; '.join(diagnostics)}" if diagnostics else ""
+        self.set_status(f"renderer: {'GPU' if active == 'gpu' else 'Tk'}{detail}")
+        return active
+
+    def _on_renderer_selected(self, _event: tk.Event | None = None) -> None:
+        previous = self.viewport.requested_backend
+        requested = _RENDERER_BACKENDS[self._renderer_choice.get()]
+        try:
+            self.switch_viewer_backend(requested)
+        except Exception as error:
+            self._renderer_choice.set(_RENDERER_LABELS[previous])
+            diagnostics = tuple(getattr(error, "diagnostics", ()))
+            detail = "; ".join(str(item) for item in diagnostics if item)
+            message = str(error) + (f"\n\n{detail}" if detail else "")
+            self.set_status(f"renderer switch failed: {str(error)}", error=True)
+            messagebox.showerror(
+                "Renderer unavailable",
+                message,
+                parent=self.winfo_toplevel(),
+            )
 
     # ------------------------------------------------------------------
     # commands
@@ -342,7 +442,9 @@ class AnyFemApp(ttk.Frame):
         )
         if definition is not None:
             return analysis_hash(
-                definition, getattr(self.project, "output_requests", None)
+                definition,
+                getattr(self.project, "output_requests", None),
+                document=self.session.snapshot().document,
             ) != str(
                 getattr(job, "analysis_hash", "")
             )
@@ -388,19 +490,113 @@ class AnyFemApp(ttk.Frame):
     @staticmethod
     def _triangulation_backend_summary(mesh) -> dict[str, dict[str, Any]]:
         diagnostics = getattr(mesh, "hybrid_diagnostics", {})
-        if not isinstance(diagnostics, dict):
+        if not isinstance(diagnostics, Mapping):
             return {}
         by_face = diagnostics.get("triangulation_backend_by_face", {})
-        if not isinstance(by_face, dict):
+        if not isinstance(by_face, Mapping):
             return {}
         return {
             str(face_id): dict(values)
             for face_id, values in sorted(by_face.items(), key=lambda item: int(item[0]))
-            if isinstance(values, dict)
+            if isinstance(values, Mapping)
         }
 
+    @staticmethod
+    def _meshing_strategy_summary(mesh) -> dict[str, str]:
+        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if not isinstance(diagnostics, Mapping):
+            return {}
+        by_face = diagnostics.get("strategy_by_face", {})
+        if not isinstance(by_face, Mapping):
+            return {}
+        return {
+            str(face_id): str(strategy)
+            for face_id, strategy in sorted(
+                by_face.items(), key=lambda item: int(item[0])
+            )
+        }
+
+    @staticmethod
+    def _mesh_quality_optimization_summary(mesh) -> dict[str, dict[str, Any]]:
+        """Retain ANYmesher 0.2.3 per-face optimization provenance."""
+
+        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if not isinstance(diagnostics, Mapping):
+            return {}
+        direct = diagnostics.get("quality_optimization_by_face", {})
+        if isinstance(direct, Mapping) and direct:
+            return {
+                str(face_id): dict(values)
+                for face_id, values in sorted(
+                    direct.items(), key=lambda item: int(item[0])
+                )
+                if isinstance(values, Mapping)
+            }
+        by_face = diagnostics.get("triangulation_backend_by_face", {})
+        if not isinstance(by_face, Mapping):
+            return {}
+        return {
+            str(face_id): dict(values["quality_optimization"])
+            for face_id, values in sorted(
+                by_face.items(), key=lambda item: int(item[0])
+            )
+            if isinstance(values, Mapping)
+            and isinstance(values.get("quality_optimization"), Mapping)
+        }
+
+    @staticmethod
+    def _project_mesh_strategy(project: Project, requested: str | None) -> str:
+        """Resolve the public hybrid strategy while preserving legacy auto."""
+
+        from anymesher.hybrid import MeshingStrategy
+
+        if requested is None:
+            settings = project.native_mesh_settings
+            backend = (
+                "automatic"
+                if settings is None
+                else str(getattr(settings.backend, "value", settings.backend))
+            )
+            requested = {
+                "automatic": "auto",
+                "auto": "auto",
+                "mapped": "mapped",
+                "native": "native",
+            }.get(backend, backend)
+        try:
+            return MeshingStrategy(str(requested).strip().lower()).value
+        except ValueError as error:
+            choices = ", ".join(item.value for item in MeshingStrategy)
+            raise ValueError(
+                f"unknown meshing strategy {requested!r}; expected one of {choices}"
+            ) from error
+
+    def _store_mesh_strategy(
+        self, strategy: str, *, target_size: float, element_order: str
+    ) -> None:
+        """Persist a UI strategy through the existing native-settings schema."""
+
+        from ..native_meshing import NativeMeshSettings
+
+        current = self.project.native_mesh_settings
+        settings = NativeMeshSettings.create(
+            target_size,
+            element_order=element_order,
+            backend="automatic" if strategy == "auto" else strategy,
+            certification_mode=(
+                "interactive" if current is None else current.certification_mode
+            ),
+            controls=() if current is None else current.controls,
+            parameters={} if current is None else dict(current.parameters),
+        )
+        self.project.set_native_mesh_settings(settings)
+
     def generate_mesh(
-        self, target_size: float, *, native_backend: str | None = None
+        self,
+        target_size: float,
+        *,
+        native_backend: str | None = None,
+        strategy: str | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -408,37 +604,62 @@ class AnyFemApp(ttk.Frame):
         method synchronous preserves the established headless/test contract.
         """
 
+        resolved_strategy = self._project_mesh_strategy(self.project, strategy)
         with self.session.transaction("mesh settings"):
             self.project.target_size = float(target_size)
             self.project.seeding_overrides = dict(self.seeding_overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
+            if strategy is not None:
+                self._store_mesh_strategy(
+                    resolved_strategy,
+                    target_size=float(target_size),
+                    element_order=self.project.element_order,
+                )
         requested_backend = self.project.native_triangulation_backend
+        effective_native_backend = (
+            None if resolved_strategy == "mapped" else requested_backend
+        )
         self.mesh = self.project.generate_mesh(
-            target_size, overrides=self.seeding_overrides
+            target_size,
+            overrides=self.seeding_overrides,
+            strategy=resolved_strategy,
         )
         self.solution = None
-        from anymesher.serialize import mesh_to_dict
         from anymesher import verify_mesh_quality
 
-        mesh_hash = canonical_hash(mesh_to_dict(self.mesh))
+        mesh_input_hash = canonical_hash(
+            {
+                "target_size": float(target_size),
+                "overrides": dict(self.seeding_overrides),
+                "element_order": self.project.element_order,
+                "strategy": resolved_strategy,
+                "native_backend": effective_native_backend,
+            }
+        )
+        preparation = dict(self.project._last_mesh_preparation)
+        mesh_hash = mesh_semantic_hash(
+            self.mesh,
+            model_hash=self.session.revision.model_hash,
+            mesh_input_hash=mesh_input_hash,
+            structural_preparation=preparation,
+        )
         quality = verify_mesh_quality(self.mesh).as_dict()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=self.session.revision.model_hash,
-            mesh_input_hash=canonical_hash(
-                {
-                    "target_size": float(target_size),
-                    "overrides": dict(self.seeding_overrides),
-                    "element_order": self.project.element_order,
-                    "native_backend": requested_backend,
-                }
-            ),
+            mesh_input_hash=mesh_input_hash,
             mesh_hash=mesh_hash,
+            structural_preparation=preparation,
             summary={
                 "nodes": self.mesh.num_nodes,
                 "elements": self.mesh.num_elements,
-                "native_backend_requested": requested_backend,
+                "native_backend_requested": effective_native_backend,
+                "strategy_requested": resolved_strategy,
+                "strategy_by_face": self._meshing_strategy_summary(self.mesh),
+                "quality_optimization_by_face": (
+                    self._mesh_quality_optimization_summary(self.mesh)
+                ),
                 "triangulation_backend_by_face": (
                     self._triangulation_backend_summary(self.mesh)
                 ),
@@ -476,23 +697,38 @@ class AnyFemApp(ttk.Frame):
         return self.mesh
 
     def generate_mesh_async(
-        self, target_size: float, *, native_backend: str | None = None
+        self,
+        target_size: float,
+        *,
+        native_backend: str | None = None,
+        strategy: str | None = None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
+        resolved_strategy = self._project_mesh_strategy(self.project, strategy)
         settings = MeshSettings.create(
             target_size,
             element_order=self.project.element_order,
             overrides=self.seeding_overrides,
+            strategy=resolved_strategy,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
+            if strategy is not None:
+                self._store_mesh_strategy(
+                    resolved_strategy,
+                    target_size=settings.target_size,
+                    element_order=settings.element_order,
+                )
         requested_backend = self.project.native_triangulation_backend
+        effective_native_backend = (
+            None if settings.strategy == "mapped" else requested_backend
+        )
         snapshot = self.session.snapshot()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
@@ -500,7 +736,7 @@ class AnyFemApp(ttk.Frame):
             mesh_input_hash=canonical_hash(
                 {
                     "mesh_settings": settings.input_hash,
-                    "native_backend": requested_backend,
+                    "native_backend": effective_native_backend,
                 }
             ),
             mesh_hash="",
@@ -508,7 +744,8 @@ class AnyFemApp(ttk.Frame):
             summary={
                 "target_size": settings.target_size,
                 "element_order": settings.element_order,
-                "native_backend_requested": requested_backend,
+                "native_backend_requested": effective_native_backend,
+                "strategy_requested": settings.strategy,
                 "status": "running",
             },
         )
@@ -576,12 +813,23 @@ class AnyFemApp(ttk.Frame):
                     "record completed mesh", solver_affecting=False
                 ):
                     record.mesh_hash = result.mesh_hash
+                    record.structural_preparation = dict(
+                        result.structural_preparation
+                    )
                     record.status = "completed" if current else "stale"
                     record.summary.update(
                         {
                             "status": record.status,
                             "nodes": result.mesh.num_nodes,
                             "elements": result.mesh.num_elements,
+                            "strategy_by_face": self._meshing_strategy_summary(
+                                result.mesh
+                            ),
+                            "quality_optimization_by_face": (
+                                self._mesh_quality_optimization_summary(
+                                    result.mesh
+                                )
+                            ),
                             "triangulation_backend_by_face": (
                                 self._triangulation_backend_summary(result.mesh)
                             ),
@@ -728,7 +976,12 @@ class AnyFemApp(ttk.Frame):
     def cancel_solve(self) -> None:
         self.worker.cancel()
 
-    def _on_solved(self, solution, job_id: str | None = None) -> None:
+    def _on_solved(
+        self,
+        solution,
+        job_id: str | None = None,
+        completion: str = "completed",
+    ) -> None:
         self.solution = solution
         if job_id is not None:
             self.solutions[job_id] = solution
@@ -742,7 +995,7 @@ class AnyFemApp(ttk.Frame):
         )
         self.set_status(solution.summary())
         panel = self.panels["Solve"]
-        panel.append_progress("completed")
+        panel.append_progress(completion)
         panel.append_report(_solution_report(solution))
         panel.show_progress("")
         self.notebook.select(self.panels["Results"])
@@ -775,6 +1028,23 @@ class AnyFemApp(ttk.Frame):
                             panel.append_progress(
                                 f"Results controls refresh failed: {refresh_error}"
                             )
+                if self.path is not None:
+                    self._schedule_result_artifact(event.job_id, self.path)
+                    self._schedule_job_log_artifact(event.job_id, self.path)
+                if self.session.dirty:
+                    self._write_recovery()
+            elif event.kind == "partial":
+                try:
+                    self._on_solved(
+                        event.payload,
+                        event.job_id,
+                        completion=f"partial: {event.message}",
+                    )
+                except Exception as error:
+                    self.set_status(
+                        f"partial job retained, but opening Results failed: {error}",
+                        error=True,
+                    )
                 if self.path is not None:
                     self._schedule_result_artifact(event.job_id, self.path)
                     self._schedule_job_log_artifact(event.job_id, self.path)
@@ -1299,7 +1569,7 @@ class AnyFemApp(ttk.Frame):
                 self.project.geometry.features.set_suppressed(
                     feature_id, not record.suppressed
                 )
-                report = self.project.geometry.regenerate_features()
+                report = self.project.regenerate_geometry_features()
                 if not report.success:
                     raise ValueError(report.diagnostic or "feature regeneration failed")
                 self.selection.apply_replacements(report.replacements)
@@ -2042,6 +2312,9 @@ class AnyFemApp(ttk.Frame):
                 document_id=self.project.document_id,
                 model_hash=mesh_record.source_model_hash,
                 mesh_hash=mesh_record.mesh_hash,
+                structural_preparation=(
+                    mesh_record.structural_preparation
+                ),
                 imported_model=imported_metadata,
                 embedded_source=embedded_source,
             )
@@ -2252,7 +2525,9 @@ class AnyFemApp(ttk.Frame):
         self.project = project
         self.session = DocumentSession(project, selection=self.selection, path=path)
         self.commands = self.session.commands
-        self.session.read_only = bool(read_only)
+        self.session.read_only = bool(
+            read_only or getattr(project, "read_only_reason", None)
+        )
         self.commands.add_listener(self.refresh_all)
         self.session.add_listener(self._on_revision_changed)
         self._active_model_hash = self.session.revision.model_hash

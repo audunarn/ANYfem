@@ -722,6 +722,106 @@ def _step_reporter(
         return structured_progress
 
     def report(record: Mapping[str, Any]) -> None:
+        # 0.3 keeps numerical workload, path control, increment and Newton
+        # iteration as separate concepts.  Prefer those canonical fields over
+        # a legacy preformatted message, which could misleadingly render an
+        # adaptive increment as e.g. "1460/10 load steps".
+        increment = record.get("increment")
+        increment_total = record.get("increment_total")
+        iteration = record.get("iteration")
+        iteration_total = record.get("iteration_total")
+        residual = record.get("residual")
+        if residual is None:
+            residual = record.get("residual_norm")
+        control = str(record.get("control") or "").replace("_", " ")
+        control_value = record.get("control_value")
+        control_target = record.get("control_target")
+        legacy_load_factor = False
+        if control_value is None and record.get("load_factor") is not None:
+            control = control or "load factor"
+            control_value = record.get("load_factor")
+            legacy_load_factor = True
+            if control_target is None:
+                control_target = record.get("total")
+        work_done = record.get("workload_completed")
+        work_total = record.get("workload_total")
+        time_s = record.get("time_s")
+        status = record.get("status")
+        maximum = record.get("max_translation")
+        plastic = record.get("max_equivalent_plastic_strain")
+        load_increment = record.get("load_increment")
+        canonical = any(
+            value is not None
+            for value in (
+                increment,
+                iteration,
+                residual,
+                control_value,
+                control_target,
+                work_done,
+                work_total,
+                time_s,
+                status,
+            )
+        )
+        if canonical:
+            pieces = []
+            heading = noun
+            if increment is not None:
+                # An adaptive algorithm can legitimately exceed the nominal
+                # starting increment count.  Only show a denominator when it
+                # is a true bound that still contains the current increment.
+                bounded_total = (
+                    int(increment_total)
+                    if increment_total is not None
+                    and int(increment_total) >= int(increment)
+                    else None
+                )
+                increment_text = f"{int(increment)}" + (
+                    "" if bounded_total is None else f"/{bounded_total}"
+                )
+                if noun.casefold().endswith("increment"):
+                    heading = f"{noun} {increment_text}"
+                else:
+                    pieces.append(f"increment {increment_text}")
+            if control_value is not None:
+                control_label = control or "control"
+                value_text = f"{control_label} {float(control_value):.5g}"
+                if control_target is not None:
+                    target_value = float(control_target)
+                    value_text += f" / target {target_value:.5g}"
+                    if legacy_load_factor and target_value != 0.0:
+                        value_text += (
+                            f" ({100.0 * float(control_value) / target_value:.1f}%)"
+                        )
+                pieces.append(value_text)
+            if time_s is not None:
+                pieces.append(f"t = {float(time_s):.5g} s")
+            if iteration is not None:
+                iteration_text = f"Newton iteration {int(iteration)}"
+                if iteration_total is not None:
+                    iteration_text += f"/{int(iteration_total)}"
+                pieces.append(iteration_text)
+            if residual is not None:
+                pieces.append(f"residual {float(residual):.3g}")
+            if maximum is not None:
+                pieces.append(f"max |u| {float(maximum):.4g} m")
+            if plastic is not None:
+                pieces.append(f"max PEEQ {float(plastic):.4g}")
+            if load_increment is not None:
+                pieces.append(f"load increment {float(load_increment):.3g}")
+            if status is not None:
+                pieces.append(str(status))
+            if work_done is not None and work_total not in (None, 0, 0.0):
+                pieces.append(
+                    f"work {float(work_done):g}/{float(work_total):g}"
+                )
+            text = f"{heading}: " + "; ".join(pieces)
+            progress(_StructuredProgressText(text, record))
+            if structured_progress is not None:
+                structured_progress(record)
+            return
+
         message = record.get("message")
         if message:
             progress(_StructuredProgressText(str(message), record))

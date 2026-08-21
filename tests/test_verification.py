@@ -294,11 +294,13 @@ def test_the_viewport_is_an_optional_extra():
 
     root = Path(__file__).resolve().parents[1]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'gui = ["ANYtk3D' in text
-    # ANYsolver is required; ANYtk3D is not.
+    assert '"ANY3dView[gpu]>=0.5,<0.6"' in text
+    assert '"ANYtk3D>=0.5,<0.6"' in text
+    # ANYsolver is required; concrete viewers are not.
     dependencies = text.split("dependencies = [", 1)[1].split("]", 1)[0]
     assert "ANYsolver" in dependencies
     assert "ANYgeometry" in dependencies
+    assert "ANY3dView" not in dependencies
     assert "ANYtk3D" not in dependencies
 
 

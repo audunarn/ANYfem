@@ -46,7 +46,7 @@ def test_native_settings_and_model_bound_handles_round_trip() -> None:
     payload = project_to_dict(project)
     restored = project_from_dict(payload)
 
-    assert payload["anyfem"]["format"] == FORMAT_VERSION == 6
+    assert payload["anyfem"]["format"] == FORMAT_VERSION == 7
     assert payload["meshing"]["native_backend"] == "auto"
     assert restored.geometry.model_id == project.geometry.model_id
     assert restored.native_triangulation_backend == "auto"
@@ -98,6 +98,10 @@ def _legacy_document(version: int) -> dict:
     document = project_to_dict(Project(f"legacy-{version}"))
     document["anyfem"]["format"] = version
     document["meshing"].pop("native_backend")
+    # This fixture synthesizes an old document from the current writer.  Drop
+    # the v7-only owner-intent section instead of weakening the legacy reader's
+    # strict unknown-generation check.
+    document.pop("ownership", None)
     return document
 
 
@@ -107,7 +111,7 @@ def test_legacy_backend_omission_migrates_to_python(version: int, tmp_path) -> N
 
     assert restored.native_triangulation_backend == "python"
     canonical = project_to_dict(restored)
-    assert canonical["anyfem"]["format"] == 6
+    assert canonical["anyfem"]["format"] == FORMAT_VERSION
     assert canonical["meshing"]["native_backend"] == "python"
     reopened = load_project(
         save_project(restored, tmp_path / f"omitted-v{version}.anyfem")

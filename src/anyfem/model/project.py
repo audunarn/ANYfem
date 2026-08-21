@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from anymaterial import MaterialSpec
+from anygeometry.closure import extract_model_closure
 from anygeometry.entities import EntityRef
+from anygeometry.errors import GeometryError
 from anygeometry.model import GeometryModel
 
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh
@@ -23,6 +25,12 @@ from anymesher.hybrid import generate_hybrid_mesh
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from ..native_meshing import NativeMeshSettings
+from ..structural_preparation import (
+    StructuralPreparationError,
+    prepare_structural_connectivity,
+    remap_mesh_to_source,
+    source_work_mapping,
+)
 from .attributes import Combination, LoadCase, Mass, Support
 from .imperfections import Imperfection
 from .sections import BeamSection, PlateSection, SectionAssignment
@@ -43,6 +51,12 @@ from .regions import (
     RegionRegistry,
 )
 from .units import UnitProfile, unit_profile
+from .ownership import (
+    SheetJoinIntent,
+    infer_sheet_join_intents,
+    reapply_sheet_join_intents,
+    sheet_join_intent_problems,
+)
 
 __all__ = ["Project", "ProjectError"]
 
@@ -71,6 +85,10 @@ class Project:
     # Canonical bindings.  The four dictionaries above remain materialized
     # compatibility views for established headless callers.
     section_assignments: Dict[str, SectionAssignment] = field(default_factory=dict)
+    # Feature-independent structural ownership intent.  Geometry feature
+    # replay may rebuild face topology/owners from its baseline; these exact
+    # anchors deterministically restore explicit multi-face Sheets afterwards.
+    sheet_join_intents: Dict[str, SheetJoinIntent] = field(default_factory=dict)
     supports: List[Support] = field(default_factory=list)
     masses: List[Mass] = field(default_factory=list)
     load_cases: Dict[str, LoadCase] = field(default_factory=dict)
@@ -100,11 +118,24 @@ class Project:
     mesh_only: bool = False
     imported_format: str | None = None
     imported_semantics_artifact_id: str | None = None
+    # Compatibility recovery is persisted document intent, not session state.
+    # A v1--v6 file with the historic detached-feature corruption keeps its
+    # exact topology as one checksummed frozen feature and archives the broken
+    # records here for diagnostics.  Geometry editing may be disabled while
+    # assignments and analyses remain usable; ``read_only_reason`` is reserved
+    # for an unresolved/invalid recovery that must fail closed entirely.
+    archived_feature_histories: List[Dict[str, Any]] = field(default_factory=list)
+    compatibility_diagnostics: List[str] = field(default_factory=list)
+    geometry_editing_disabled_reason: str | None = None
+    read_only_reason: str | None = None
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
     _singleton_region_cache_size: int = field(
         default=-1, init=False, repr=False, compare=False
+    )
+    _last_mesh_preparation: Dict[str, Any] = field(
+        default_factory=dict, init=False, repr=False, compare=False
     )
 
     def __post_init__(self) -> None:
@@ -117,6 +148,80 @@ class Project:
             )
         for case in self.load_cases.values():
             case._region_factory = self.singleton_region
+
+    def infer_existing_sheet_join_intents(self) -> tuple[SheetJoinIntent, ...]:
+        """Adopt losslessly replayable explicit multi-face owners only."""
+
+        inferred = infer_sheet_join_intents(
+            self.geometry, document_id=self.document_id
+        )
+        for identifier, intent in inferred.items():
+            self.sheet_join_intents.setdefault(identifier, intent)
+        return tuple(inferred.values())
+
+    def add_sheet_join_intent(self, intent: SheetJoinIntent) -> SheetJoinIntent:
+        """Register exact structural Sheet ownership intent by stable UUID."""
+
+        if not isinstance(intent, SheetJoinIntent):
+            raise TypeError("add_sheet_join_intent expects a SheetJoinIntent")
+        if intent.id in self.sheet_join_intents:
+            raise ProjectError(f"duplicate Sheet Join intent ID {intent.id!r}")
+        self.sheet_join_intents[intent.id] = intent
+        return intent
+
+    def remove_sheet_join_intent(self, intent_id: str) -> SheetJoinIntent:
+        try:
+            return self.sheet_join_intents.pop(str(intent_id))
+        except KeyError:
+            raise ProjectError(
+                f"no Sheet Join intent with ID {intent_id!r}"
+            ) from None
+
+    def reapply_sheet_join_intents(self) -> tuple[int, ...]:
+        """Rebuild explicit multi-face ownership from exact persistent anchors."""
+
+        return reapply_sheet_join_intents(
+            self.geometry, self.sheet_join_intents.values()
+        )
+
+    def sheet_join_intent_problems(self) -> tuple[str, ...]:
+        """Return read-only diagnostics for unsatisfied structural joins."""
+
+        return sheet_join_intent_problems(
+            self.geometry, self.sheet_join_intents.values()
+        )
+
+    def regenerate_geometry_features(self, registry=None):
+        """Regenerate features and Sheet ownership as one atomic project edit."""
+
+        from anygeometry.features import RegenerationReport
+
+        # Feature replay is already staged by ANYgeometry, but Sheet joins are
+        # ANYfem-owned intent layered on that materialization.  Qualify both
+        # halves on one detached working copy before publishing either half to
+        # the live document.  In particular, an unresolved persistent anchor
+        # must not advance live topology IDs/revisions and must not require a
+        # compensating restore (whose public allocator contract is monotonic).
+        working = self.geometry.clone(include_features=True)
+        report = working.regenerate_features(registry)
+        if not report.success:
+            return report
+        try:
+            reapply_sheet_join_intents(
+                working, self.sheet_join_intents.values()
+            )
+        except (GeometryError, ValueError) as error:
+            return RegenerationReport(
+                False,
+                report.features,
+                (),
+                diagnostic=(
+                    "feature regeneration could not restore structural Sheet "
+                    f"ownership: {error}"
+                ),
+            )
+        self.geometry.restore_design(working.design_snapshot())
+        return report
 
     def singleton_region(
         self,
@@ -339,9 +444,11 @@ class Project:
     def _ensure_plate_ownership(self, face_ids: Iterable[int]) -> tuple[int, ...]:
         """Give unowned assigned faces persistent Part/Sheet topology.
 
-        Faces are grouped only when they already share an authoritative B-rep
-        edge.  Geometrically coincident coordinates never create ownership or
-        connectivity here; intersections require an explicit kernel CONNECT.
+        Each independently authored plate starts as its own Sheet.  Sharing a
+        B-rep edge establishes geometric adjacency, not a promise that both
+        faces have a coherent structural orientation.  Engineers can join
+        compatible faces explicitly; assignment must never guess and create
+        an invalid multi-face Sheet.
         """
 
         geometry = self.geometry
@@ -360,42 +467,12 @@ class Project:
         if not pending:
             return ()
 
-        adjacency = {face_id: set() for face_id in pending}
-        faces_by_edge: dict[int, list[int]] = {}
-        for face_id in pending:
-            face = geometry.faces[face_id]
-            for loop in (face.loop, *face.holes):
-                for oriented_edge in loop:
-                    faces_by_edge.setdefault(oriented_edge.edge, []).append(face_id)
-        for owners in faces_by_edge.values():
-            unique = tuple(dict.fromkeys(owners))
-            for face_id in unique:
-                adjacency[face_id].update(
-                    other for other in unique if other != face_id
-                )
-
-        remaining = set(pending)
-        components: list[tuple[int, ...]] = []
-        while remaining:
-            root = min(remaining)
-            remaining.remove(root)
-            stack = [root]
-            component: list[int] = []
-            while stack:
-                face_id = stack.pop()
-                component.append(face_id)
-                neighbours = sorted(adjacency[face_id].intersection(remaining), reverse=True)
-                for neighbour in neighbours:
-                    remaining.remove(neighbour)
-                    stack.append(neighbour)
-            components.append(tuple(sorted(component)))
-
         created: list[tuple[int, int]] = []
         try:
-            for component in components:
+            for face_id in pending:
                 sheet_id = geometry.add_sheet(
-                    component,
-                    name="assigned plate " + ",".join(map(str, component)),
+                    (face_id,),
+                    name=f"assigned plate {face_id}",
                 )
                 created.append((sheet_id, geometry.sheets[sheet_id].part_id))
         except BaseException:
@@ -408,6 +485,40 @@ class Project:
                         geometry.remove_part(part_id)
             raise
         return tuple(sheet_id for sheet_id, _part_id in created)
+
+    def _ensure_beam_ownership(self, edge_ids: Iterable[int]) -> tuple[int, ...]:
+        """Give each unowned section-bearing edge one persistent Member."""
+
+        geometry = self.geometry
+        owned_edges = {
+            use.edge_id for use in geometry.member_edge_uses.values()
+        }
+        pending = tuple(
+            sorted(
+                {
+                    int(edge_id)
+                    for edge_id in edge_ids
+                    if int(edge_id) not in owned_edges
+                }
+            )
+        )
+        created: list[tuple[int, int]] = []
+        try:
+            for edge_id in pending:
+                member_id = geometry.add_member(
+                    (edge_id,), name=f"assigned beam {edge_id}"
+                )
+                created.append((member_id, geometry.members[member_id].part_id))
+        except BaseException:
+            for member_id, part_id in reversed(created):
+                if member_id in geometry.members:
+                    geometry.remove_member(member_id)
+                if part_id in geometry.parts:
+                    part = geometry.parts[part_id]
+                    if not part.sheet_ids and not part.member_ids:
+                        geometry.remove_part(part_id)
+            raise
+        return tuple(member_id for member_id, _part_id in created)
 
     def assign_plate(self, face_id: int, section: str) -> None:
         """Give a plate its thickness and material.
@@ -620,6 +731,13 @@ class Project:
         self.edge_assignment_ids.clear()
         self.edge_assignment_ids.update(edge_ids)
 
+        if not problems and not self.mesh_only:
+            try:
+                self._ensure_plate_ownership(face_sections)
+                self._ensure_beam_ownership(edge_sections)
+            except GeometryError as error:
+                problems.append(f"structural ownership is invalid: {error}")
+
         result = tuple(problems)
         if strict and result:
             raise ProjectError("invalid section assignments:\n  - " + "\n  - ".join(result))
@@ -778,9 +896,9 @@ class Project:
                 )
             self.resolve_section_assignments(strict=True, adopt_legacy=False)
             if kind == "plate":
-                self._ensure_plate_ownership(
-                    reference.id for reference in references
-                )
+                self._ensure_plate_ownership(reference.id for reference in references)
+            else:
+                self._ensure_beam_ownership(reference.id for reference in references)
         except BaseException:
             self.section_assignments.clear()
             self.section_assignments.update(prior_assignments)
@@ -1253,6 +1371,17 @@ class Project:
         one-off comparison can still override them here.
         """
 
+        if self.read_only_reason is not None:
+            raise ProjectError(
+                "geometry cannot be meshed while compatibility recovery is "
+                f"blocked: {self.read_only_reason}"
+            )
+        ownership_problems = self.sheet_join_intent_problems()
+        if ownership_problems:
+            raise ProjectError(
+                "structural Sheet ownership intent is unresolved:\n  - "
+                + "\n  - ".join(ownership_problems)
+            )
         feature_problems = self._feature_materialization_problems()
         if feature_problems:
             raise ProjectError(
@@ -1307,17 +1436,154 @@ class Project:
         native_backend = self.set_native_triangulation_backend(
             self.native_triangulation_backend
         )
-        return generate_hybrid_mesh(
-            self.geometry,
+        source_geometry = self.geometry
+        closure_handles = tuple(
+            [
+                source_geometry.handle("face", identifier)
+                for identifier in sorted(source_geometry.faces)
+            ]
+            + [
+                source_geometry.handle("edge", identifier)
+                for identifier in self.beam_edges
+            ]
+            + [
+                source_geometry.handle("sheet", identifier)
+                for identifier in sorted(source_geometry.sheets)
+            ]
+            + [
+                source_geometry.handle("member", identifier)
+                for identifier in sorted(source_geometry.members)
+            ]
+        )
+        closure = extract_model_closure(
+            source_geometry,
+            closure_handles,
+            include_structural_closure=True,
+            include_features=False,
+        )
+        working = closure.working_model
+        try:
+            preparation = prepare_structural_connectivity(
+                working,
+                source_model_id=str(closure.source_model_id),
+                source_revision=closure.source_revision,
+                cancellation_check=cancellation_check,
+            )
+        except StructuralPreparationError as error:
+            raise ProjectError(f"structural preparation failed: {error}") from None
+        preparation.source_to_working = source_work_mapping(closure)
+
+        def descendants(kind: str, identifier: int) -> tuple[EntityRef, ...]:
+            source = source_geometry.handle(kind, identifier)
+            initial = closure.source_to_work.get(source)
+            if initial is None:
+                return ()
+            resolved = tuple(
+                working.resolve_ref(EntityRef(kind, initial.id))
+            )
+            if not resolved and initial.id in {
+                "vertex": working.vertices,
+                "edge": working.edges,
+                "face": working.faces,
+            }[kind]:
+                resolved = (EntityRef(kind, initial.id),)
+            return resolved
+
+        working_beam_edges = tuple(
+            sorted(
+                {
+                    item.id
+                    for source_id in self.beam_edges
+                    for item in descendants("edge", source_id)
+                }
+            )
+        )
+        source_members = {
+            member_id
+            for edge_id in self.beam_edges
+            for member_id in source_geometry.members_using_edge(edge_id)
+        }
+        working_member_ids = tuple(
+            sorted(
+                closure.source_to_work[
+                    source_geometry.handle("member", identifier)
+                ].id
+                for identifier in source_members
+                if source_geometry.handle("member", identifier)
+                in closure.source_to_work
+            )
+        )
+        working_offsets = {
+            item.id: offset
+            for source_id, offset in self.beam_offsets.items()
+            for item in descendants("edge", source_id)
+        }
+        source_overrides = (
+            self.seeding_overrides if overrides is None else dict(overrides)
+        )
+        working_overrides: dict[int, int] = {}
+        for source_id, divisions in source_overrides.items():
+            made = descendants("edge", int(source_id))
+            if not made:
+                continue
+            lengths = [working.edge_length(item.id) for item in made]
+            total = sum(lengths)
+            remaining = max(int(divisions), len(made))
+            for index, (item, length) in enumerate(zip(made, lengths)):
+                if index == len(made) - 1:
+                    share = remaining
+                else:
+                    share = max(
+                        1,
+                        round(
+                            int(divisions)
+                            * (length / total if total > 0.0 else 1.0 / len(made))
+                        ),
+                    )
+                    share = min(share, remaining - (len(made) - index - 1))
+                working_overrides[item.id] = int(share)
+                remaining -= int(share)
+
+        source_refinements = (
+            self.refinements if refinements is None else list(refinements)
+        )
+        working_refinements: list[Refinement] = []
+        for refinement in source_refinements:
+            if refinement.ref is None:
+                working_refinements.append(refinement)
+                continue
+            made = descendants(refinement.ref.kind, refinement.ref.id)
+            working_refinements.extend(
+                replace(refinement, ref=item) for item in made
+            )
+
+        working_seeding = seeding
+        if seeding is not None:
+            if preparation.created_count:
+                # Newly imprinted edges need a fresh globally compatible seed.
+                working_seeding = None
+                preparation.diagnostics.append(
+                    "precomputed seeding was recomputed after structural imprint"
+                )
+            else:
+                working_seeding = Seeding(
+                    divisions=dict(seeding.divisions),
+                    sweeps=int(seeding.sweeps),
+                    classes=dict(seeding.classes),
+                    size_field=None,
+                )
+
+        mesh = generate_hybrid_mesh(
+            working,
             target_size=resolved_size,
             strategy=resolved_strategy,
-            overrides=(self.seeding_overrides if overrides is None else overrides),
-            beam_edges=self.beam_edges,
-            beam_offsets=self.beam_offsets,
-            seeding=seeding,
-            refinements=(
-                self.refinements if refinements is None else list(refinements)
-            ),
+            overrides=working_overrides,
+            beam_edges=working_beam_edges,
+            beam_offsets=working_offsets,
+            member_ids=working_member_ids,
+            face_ids=tuple(sorted(working.faces)),
+            seeding=working_seeding,
+            refinements=working_refinements,
             order=resolved_order,
             certification_mode=resolved_certification,
             change_set=change_set,
@@ -1325,6 +1591,40 @@ class Project:
             native_backend=native_backend,
             **supported_parameters,
         )
+        if all(
+            hasattr(mesh, name)
+            for name in (
+                "elements_of_face",
+                "elements_of_edge",
+                "nodes_of_edge",
+                "offset_nodes_of_edge",
+                "node_of_vertex",
+                "grid_of_face",
+                "thickness_of_face",
+            )
+        ):
+            mesh.automatic_intersections = sum(
+                1
+                for item in preparation.connections
+                if item.first.startswith("face:")
+                and item.second.startswith("face:")
+                and not item.reused
+            )
+            mesh.automatic_beam_connections = max(
+                int(getattr(mesh, "automatic_beam_connections", 0)),
+                sum(
+                    1
+                    for item in preparation.connections
+                    if (
+                        item.first.startswith("member:")
+                        or item.second.startswith("member:")
+                    )
+                    and not item.reused
+                )
+            )
+            remap_mesh_to_source(mesh, closure)
+        self._last_mesh_preparation = preparation.to_dict()
+        return mesh
 
     def native_meshing_session(
         self,
@@ -1378,6 +1678,12 @@ class Project:
         """
 
         problems: List[str] = self._feature_materialization_problems()
+        problems.extend(self.sheet_join_intent_problems())
+        if self.read_only_reason is not None:
+            problems.append(
+                "compatibility recovery is blocking solve submission: "
+                f"{self.read_only_reason}"
+            )
         problems.extend(self.resolve_section_assignments(strict=False))
 
         stores = {
