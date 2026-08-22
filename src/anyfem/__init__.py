@@ -139,7 +139,7 @@ from .solve import (
     solve_transient,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.2"
 
 __all__ = [
     "BeamSection",

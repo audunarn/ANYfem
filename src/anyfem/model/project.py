@@ -22,6 +22,7 @@ from anygeometry.model import GeometryModel
 
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh
 from anymesher.hybrid import generate_hybrid_mesh
+from anymesher.structured import StructuredMeshingOptions
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from ..native_meshing import NativeMeshSettings
@@ -1360,6 +1361,8 @@ class Project:
         refinements: Iterable[Refinement] | None = None,
         order: str | None = None,
         strategy: str | None = None,
+        structure_preference: str | None = None,
+        quality_policy: Mapping[str, float] | None = None,
         certification_mode: str | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
@@ -1433,6 +1436,23 @@ class Project:
             for key, value in parameters.items()
             if key in {"recombine", "overlap_policy"}
         }
+        stored_quality = {
+            key.removeprefix("mesh_quality_"): value
+            for key, value in parameters.items()
+            if key.startswith("mesh_quality_")
+        }
+        structure_options = StructuredMeshingOptions(
+            preference=(
+                structure_preference
+                if structure_preference is not None
+                else parameters.get("structure_preference", "balanced")
+            ),
+            quality_policy=(
+                quality_policy
+                if quality_policy is not None
+                else stored_quality
+            ),
+        )
         native_backend = self.set_native_triangulation_backend(
             self.native_triangulation_backend
         )
@@ -1589,6 +1609,7 @@ class Project:
             change_set=change_set,
             cancellation_check=cancellation_check,
             native_backend=native_backend,
+            structured_options=structure_options,
             **supported_parameters,
         )
         if all(
@@ -1623,7 +1644,18 @@ class Project:
                 )
             )
             remap_mesh_to_source(mesh, closure)
-        self._last_mesh_preparation = preparation.to_dict()
+        preparation_payload = preparation.to_dict()
+        hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if isinstance(hybrid_diagnostics, Mapping):
+            structured_layout = hybrid_diagnostics.get("structured_layout")
+            if isinstance(structured_layout, Mapping):
+                # Keep the exact detached plan, source-to-working handle map,
+                # acceptance decision and regularity metrics beside the
+                # structural intersection preparation in the mesh artifact.
+                preparation_payload["structured_layout"] = dict(
+                    structured_layout
+                )
+        self._last_mesh_preparation = preparation_payload
         return mesh
 
     def native_meshing_session(

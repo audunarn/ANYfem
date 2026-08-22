@@ -286,6 +286,24 @@ def test_crossing_beams_prepare_one_declared_junction_on_detached_closure() -> N
     assert closure.working_model.validate_topology() == ()
 
 
+def test_members_with_a_shared_topology_vertex_need_no_imprint() -> None:
+    source = GeometryModel()
+    start, shared, end = source.add_points(
+        ((-1.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    first = source.add_member((source.add_line(start, shared),), name="first")
+    second = source.add_member((source.add_line(shared, end),), name="second")
+    before = geometry_to_dict(source)
+
+    report = prepare_structural_connectivity(source)
+
+    assert geometry_to_dict(source) == before
+    assert report.connections == []
+    assert not source.junctions
+    assert set(source.members) == {first, second}
+    assert source.validate_topology() == ()
+
+
 def test_crossing_beam_project_remaps_axes_and_builds_without_mpc_cycles() -> None:
     geometry = GeometryModel()
     first_edge = geometry.add_line(

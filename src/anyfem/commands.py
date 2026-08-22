@@ -97,6 +97,7 @@ __all__ = [
     "Command",
     "CommandStack",
     "CompositeCommand",
+    "CommitStructuredLayout",
     "CopyEntities",
     "CircularPattern",
     "DeleteEntity",
@@ -796,6 +797,63 @@ class GeometryCommand(Command):
         project.geometry.restore_design(self._after)
         _restore_attributes(project, self._after_attributes)
         return self._result
+
+
+@dataclass(eq=False)
+class CommitStructuredLayout(Command):
+    """Commit one fresh ANYmesher preview as one exact frozen design feature."""
+
+    plan: Any
+    label: str = "commit structured mesh partitions"
+
+    def __post_init__(self) -> None:
+        self._before: Dict[str, object] | None = None
+        self._before_attributes: Dict[str, Any] | None = None
+        self._after: Dict[str, object] | None = None
+        self._after_attributes: Dict[str, Any] | None = None
+        self._report: Any = None
+
+    def do(self, project: Project) -> Any:
+        from anymesher import commit_structured_layout
+
+        self._before = project.geometry.design_snapshot()
+        self._before_attributes = _attribute_snapshot(project)
+        try:
+            working, report, _feature = commit_structured_layout(
+                project.geometry,
+                self.plan,
+            )
+            replacements = tuple(
+                (
+                    EntityRef("face", int(source)),
+                    tuple(EntityRef("face", int(value)) for value in descendants),
+                )
+                for source, descendants in report.source_to_working_faces.items()
+                if tuple(descendants) != (int(source),)
+            )
+            project.geometry.restore_design(working.design_snapshot())
+            _apply_replacements(project, replacements)
+            self._after = project.geometry.design_snapshot()
+            self._after_attributes = _attribute_snapshot(project)
+            self._report = report
+            return report
+        except BaseException:
+            project.geometry.restore_design(self._before)
+            _restore_attributes(project, self._before_attributes)
+            raise
+
+    def undo(self, project: Project) -> None:
+        if self._before is None or self._before_attributes is None:
+            return
+        project.geometry.restore_design(self._before)
+        _restore_attributes(project, self._before_attributes)
+
+    def redo(self, project: Project) -> Any:
+        if self._after is None or self._after_attributes is None:
+            return self.do(project)
+        project.geometry.restore_design(self._after)
+        _restore_attributes(project, self._after_attributes)
+        return self._report
 
 
 def _attribute_snapshot(project: Project) -> Dict[str, Any]:

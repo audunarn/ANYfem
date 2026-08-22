@@ -1577,9 +1577,9 @@ class MeshPanel(StagePanel):
     _METHOD_VALUES = {label: value for value, label in _METHOD_LABELS.items()}
     _METHOD_HELP = {
         "auto": (
-            "Maps eligible four-sided plates and uses unstructured meshing for "
-            "the remaining plates. Shared model edges use one node sequence, "
-            "so mixed interfaces remain conformal."
+            "Plans the selected Sheet/component globally: mapped blocks and "
+            "shared seed equations first, then qualified radial/O-grid partitions, "
+            "then explicit metric-aligned native residual regions. Preview is read-only."
         ),
         "mapped": (
             "Uses the transfinite mapped quadrilateral method for every plate. "
@@ -1591,6 +1591,14 @@ class MeshPanel(StagePanel):
             "quad recombination. This is appropriate for holes and general "
             "plate boundaries."
         ),
+    }
+    _STRUCTURE_LABELS = {
+        "balanced": "Balanced (recommended)",
+        "quad_first": "Prefer mapped quads",
+        "size_first": "Prefer target size",
+    }
+    _STRUCTURE_VALUES = {
+        label: value for value, label in _STRUCTURE_LABELS.items()
     }
     _NATIVE_BACKEND_LABELS = {
         "auto": "Automatic",
@@ -1627,6 +1635,55 @@ class MeshPanel(StagePanel):
             wraplength=300,
         )
         self._method_help.pack(anchor="w", pady=(1, 3))
+        self._structure_options = ttk.Frame(controls)
+        self._structure_options.pack(fill="x", pady=(0, 3))
+        ttk.Label(
+            self._structure_options, text="automatic priority", width=16
+        ).pack(side="left")
+        self._structure_preference = tk.StringVar(
+            value=self._STRUCTURE_LABELS["balanced"]
+        )
+        self._structure_combo = ttk.Combobox(
+            self._structure_options,
+            textvariable=self._structure_preference,
+            values=list(self._STRUCTURE_VALUES),
+            state="readonly",
+            width=24,
+        )
+        self._structure_combo.pack(side="left", fill="x", expand=True)
+        self._preference_dirty = False
+        self._structure_combo.bind(
+            "<<ComboboxSelected>>", lambda _event: self._preference_changed()
+        )
+        self._quality_options = ttk.LabelFrame(
+            controls, text="Automatic hard quality gate", padding=(4, 2)
+        )
+        self._quality_options.pack(fill="x", pady=(0, 3))
+        self._quality_jacobian = self.entry_row(
+            self._quality_options, "min scaled J", "0.10"
+        )
+        self._quality_aspect = self.entry_row(
+            self._quality_options, "max aspect", "5.0"
+        )
+        self._quality_min_angle = self.entry_row(
+            self._quality_options, "min angle [deg]", "20"
+        )
+        self._quality_max_angle = self.entry_row(
+            self._quality_options, "max angle [deg]", "160"
+        )
+        self._quality_warpage = self.entry_row(
+            self._quality_options, "max warpage", "0.10"
+        )
+        ttk.Label(
+            self._quality_options,
+            text=(
+                "A proposed structured layout that misses these limits is rejected "
+                "before publication and Automatic uses the documented residual route."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=280,
+        ).pack(anchor="w")
         self._mapped_status = ttk.Label(
             controls,
             text="",
@@ -1672,6 +1729,32 @@ class MeshPanel(StagePanel):
             justify="left",
             wraplength=220,
         ).pack(anchor="w", pady=(0, 3))
+        preview_actions = ttk.Frame(controls)
+        preview_actions.pack(fill="x", pady=(2, 1))
+        self._preview_button = ttk.Button(
+            preview_actions, text="Preview layout", command=self._preview_layout
+        )
+        self._preview_button.pack(side="left", fill="x", expand=True)
+        self._commit_layout_button = ttk.Button(
+            preview_actions,
+            text="Commit partitions",
+            command=self._commit_layout,
+        )
+        self._commit_layout_button.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self._discard_layout_button = ttk.Button(
+            preview_actions,
+            text="Discard preview",
+            command=self._discard_layout,
+        )
+        self._discard_layout_button.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self._preview_status = ttk.Label(
+            controls,
+            text="Preview shows proposed blocks and residual regions; committing is optional.",
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        )
+        self._preview_status.pack(anchor="w", pady=(0, 3))
         self._generate_button = self.button(controls, "Generate mesh", self._generate)
         self._cancel_button = self.button(controls, "Cancel mesh", self._cancel)
         self.button(controls, "Open standalone ANYmesher...", self._open_mesher)
@@ -1750,8 +1833,48 @@ class MeshPanel(StagePanel):
             "native": "native",
         }.get(backend, "auto")
 
+    def _structure_preference_value(self) -> str:
+        try:
+            return self._STRUCTURE_VALUES[self._structure_preference.get()]
+        except KeyError as error:
+            raise ValueError(
+                f"unknown automatic priority {self._structure_preference.get()!r}"
+            ) from error
+
+    def _stored_structure_preference(self) -> str:
+        settings = self.app.project.native_mesh_settings
+        parameters = {} if settings is None else dict(settings.parameters)
+        value = str(parameters.get("structure_preference", "balanced"))
+        return value if value in self._STRUCTURE_LABELS else "balanced"
+
+    def _quality_policy_value(self) -> dict[str, float]:
+        from anymesher import MeshQualityPolicy
+
+        values = {
+            "minimum_scaled_jacobian": self.number(
+                self._quality_jacobian, "minimum scaled Jacobian"
+            ),
+            "maximum_aspect_ratio": self.number(
+                self._quality_aspect, "maximum aspect ratio"
+            ),
+            "minimum_angle": self.number(
+                self._quality_min_angle, "minimum angle"
+            ),
+            "maximum_angle": self.number(
+                self._quality_max_angle, "maximum angle"
+            ),
+            "maximum_warpage": self.number(
+                self._quality_warpage, "maximum warpage"
+            ),
+        }
+        return MeshQualityPolicy.create(values).to_dict()
+
     def _method_changed(self) -> None:
         self._method_dirty = True
+        self._update_method_controls()
+
+    def _preference_changed(self) -> None:
+        self._preference_dirty = True
         self._update_method_controls()
 
     def _update_method_controls(self, *, busy: bool | None = None) -> None:
@@ -1782,6 +1905,19 @@ class MeshPanel(StagePanel):
                 foreground="#666666",
             )
 
+        if method == "auto":
+            if not self._structure_options.winfo_manager():
+                self._structure_options.pack(
+                    fill="x", pady=(0, 3), before=self._mapped_status
+                )
+            if not self._quality_options.winfo_manager():
+                self._quality_options.pack(
+                    fill="x", pady=(0, 3), before=self._mapped_status
+                )
+        else:
+            self._structure_options.pack_forget()
+            self._quality_options.pack_forget()
+
         if method == "mapped":
             self._native_options.pack_forget()
         elif not self._native_options.winfo_manager():
@@ -1792,6 +1928,22 @@ class MeshPanel(StagePanel):
         blocked = method == "mapped" and not eligible
         self._generate_button.configure(
             state="disabled" if busy or blocked else "normal"
+        )
+        preview_available = method == "auto" and not busy
+        self._preview_button.configure(
+            state="normal" if preview_available else "disabled"
+        )
+        current_preview = getattr(self.app, "_mesh_layout_preview", None)
+        can_commit = bool(
+            preview_available
+            and current_preview is not None
+            and current_preview[0].requires_working_clone
+        )
+        self._commit_layout_button.configure(
+            state="normal" if can_commit else "disabled"
+        )
+        self._discard_layout_button.configure(
+            state="normal" if current_preview is not None else "disabled"
         )
 
     def refresh(self) -> None:
@@ -1808,6 +1960,12 @@ class MeshPanel(StagePanel):
             method_label = self._METHOD_LABELS[self._stored_method_value()]
             if self._method.get() != method_label:
                 self._method.set(method_label)
+        if not self._preference_dirty:
+            preference_label = self._STRUCTURE_LABELS[
+                self._stored_structure_preference()
+            ]
+            if self._structure_preference.get() != preference_label:
+                self._structure_preference.set(preference_label)
         backend_label = self._NATIVE_BACKEND_LABELS[
             self.app.project.native_triangulation_backend
         ]
@@ -1859,6 +2017,74 @@ class MeshPanel(StagePanel):
                 lines.append(
                     f"plate method used: {mapped} mapped, {native} unstructured"
                 )
+            structured = record.summary.get("structured_layout", {})
+            if isinstance(structured, Mapping) and structured:
+                metrics = structured.get("metrics", {})
+                plan = structured.get("plan", {})
+                if isinstance(plan, Mapping):
+                    options = plan.get("options", {})
+                    if isinstance(options, Mapping):
+                        preference = options.get("preference")
+                        if preference:
+                            lines.append(f"automatic priority: {preference}")
+                    blocks = plan.get("blocks", ())
+                    interfaces = plan.get("interfaces", ())
+                    blockers = plan.get("blockers", ())
+                    lines.append(
+                        f"global layout: {len(blocks) if isinstance(blocks, list) else 0} "
+                        f"block/residual region(s), "
+                        f"{len(interfaces) if isinstance(interfaces, list) else 0} interface(s), "
+                        f"{len(blockers) if isinstance(blockers, list) else 0} blocker(s)"
+                    )
+                    if plan.get("plan_hash"):
+                        lines.append(f"layout hash: {str(plan['plan_hash'])[-16:]}")
+                seed_solution = structured.get("seed_solution", {})
+                if isinstance(seed_solution, Mapping) and seed_solution:
+                    values = [int(value) for value in seed_solution.values()]
+                    lines.append(
+                        f"global seed solution: {len(values)} edge(s), "
+                        f"{min(values)}–{max(values)} division(s)"
+                    )
+                structured_quality = structured.get("quality", {})
+                if isinstance(structured_quality, Mapping) and structured_quality:
+                    worst = structured_quality.get("worst", {})
+                    accepted = bool(structured_quality.get("accepted", False))
+                    lines.append(
+                        "structured quality gate: "
+                        + ("accepted" if accepted else "rejected / native fallback")
+                    )
+                    if isinstance(worst, Mapping):
+                        lines.append(
+                            "layout worst: scaled J "
+                            f"{float(worst.get('minimum_scaled_jacobian', 0.0)):.3g}, "
+                            f"aspect {float(worst.get('maximum_aspect_ratio', 0.0)):.3g}, "
+                            f"angles {float(worst.get('minimum_angle', 0.0)):.3g}°–"
+                            f"{float(worst.get('maximum_angle', 0.0)):.3g}°"
+                        )
+                if isinstance(metrics, Mapping) and metrics:
+                    lines.append(
+                        "mesh regularity: "
+                        f"score {100.0 * float(metrics.get('regularity_score', 0.0)):.1f}%, "
+                        f"{100.0 * float(metrics.get('quad_fraction', 0.0)):.1f}% quads, "
+                        f"{100.0 * float(metrics.get('mapped_area_fraction', 0.0)):.1f}% mapped area, "
+                        f"{int(metrics.get('structured_block_count', 0))} structured block(s)"
+                    )
+                    lines.append(
+                        "size regularity: CV "
+                        f"{float(metrics.get('size_coefficient_of_variation', 0.0)):.3g}; "
+                        f"{int(metrics.get('edges_outside_balanced_size_band', 0))} edge(s) "
+                        "outside 0.67–1.50× target"
+                    )
+                    lines.append(
+                        "grid continuity "
+                        f"{100.0 * float(metrics.get('grid_line_continuity_score', 0.0)):.1f}%; "
+                        f"{int(metrics.get('irregular_interior_valence_count', 0))} irregular node(s)"
+                    )
+                diagnostics = structured.get("diagnostics", ())
+                if isinstance(diagnostics, (list, tuple)):
+                    lines.extend(
+                        f"structure note: {message}" for message in diagnostics[:4]
+                    )
             if "automatic_intersections" in record.summary:
                 intersections = int(record.summary["automatic_intersections"])
                 lines.append(
@@ -1983,6 +2209,8 @@ class MeshPanel(StagePanel):
         if size <= 0:
             raise ValueError("element size must be positive")
         strategy = self._method_value()
+        preference = self._structure_preference_value()
+        quality_policy = self._quality_policy_value() if strategy == "auto" else None
         if strategy == "mapped":
             eligible, diagnostic = mapped_mesh_eligibility(
                 self.app.project.geometry
@@ -1996,12 +2224,59 @@ class MeshPanel(StagePanel):
             if strategy == "mapped"
             else self._NATIVE_BACKEND_VALUES[self._native_backend.get()]
         )
-        self.app.generate_mesh_async(
-            size,
-            native_backend=backend,
-            strategy=strategy,
-        )
+        options = {
+            "native_backend": backend,
+            "strategy": strategy,
+            "structure_preference": preference,
+        }
+        if quality_policy is not None:
+            options["quality_policy"] = quality_policy
+        self.app.generate_mesh_async(size, **options)
         self._method_dirty = False
+        self._preference_dirty = False
+
+    def _preview_layout(self) -> None:
+        size = self.number(self._size, "element size")
+        if size <= 0:
+            raise ValueError("element size must be positive")
+        if self._method_value() != "auto":
+            raise ValueError("layout preview is available for Automatic meshing")
+        plan = self.app.preview_mesh_layout(
+            size,
+            structure_preference=self._structure_preference_value(),
+            quality_policy=self._quality_policy_value(),
+        )
+        structured = sum(item.structured for item in plan.faces)
+        residual = len(plan.faces) - structured
+        self._preview_status.configure(
+            text=(
+                f"Preview {plan.plan_hash[-12:]}: {len(plan.blocks)} block(s), "
+                f"{len(plan.interfaces)} shared interface(s), {structured} structured "
+                f"face(s), {residual} native residual(s), approximately "
+                f"{plan.estimated_element_count} element(s)."
+            ),
+            foreground="#16667a",
+        )
+        self._update_method_controls()
+
+    def _commit_layout(self) -> None:
+        report = self.app.commit_mesh_layout_preview()
+        self._preview_status.configure(
+            text=(
+                f"Committed feature: {sum(len(value) for value in report.source_to_working_faces.values())} "
+                "materialized plate region(s). Generate mesh when ready."
+            ),
+            foreground="#267326",
+        )
+        self._update_method_controls()
+
+    def _discard_layout(self) -> None:
+        self.app.clear_mesh_layout_preview()
+        self._preview_status.configure(
+            text="Preview discarded; the model was not changed.",
+            foreground="#666666",
+        )
+        self._update_method_controls()
 
     def _cancel(self) -> None:
         self.app.cancel_mesh()

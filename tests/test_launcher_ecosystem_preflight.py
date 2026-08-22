@@ -18,14 +18,14 @@ def _namespace():
 
 def _versions() -> dict[str, str]:
     return {
-        "ANYmaterial": "0.1.0",
-        "ANYgeometry": "0.2.2",
-        "ANYfileio": "0.2.0",
-        "ANYmesher": "0.2.3",
-        "ANY3dView": "0.5.0",
-        "ANYtk3D": "0.5.0",
+        "ANYmaterial": "0.1.1",
+        "ANYgeometry": "0.2.4",
+        "ANYfileio": "0.2.1",
+        "ANYmesher": "0.2.5",
+        "ANY3dView": "0.5.1",
+        "ANYtk3D": "0.5.1",
         "ANYsolver": "0.3.0",
-        "ANYfem": "0.3.0",
+        "ANYfem": "0.3.2",
     }
 
 
@@ -52,18 +52,18 @@ def test_launcher_selects_the_coordinated_viewer_source_trees():
     software = namespace["_ANYTK3D_PROJECT"]
     command = namespace["editable_repair_command"]()
 
-    assert namespace["_declared_project_version"](core) == "0.5.0"
-    assert namespace["_declared_project_version"](software) == "0.5.0"
+    assert namespace["_declared_project_version"](core) == "0.5.1"
+    assert namespace["_declared_project_version"](software) == "0.5.1"
     assert f'-e "{core}[gpu]"' in command
     assert f'-e "{software}"' in command
     assert command.index(str(core)) < command.index(str(software))
 
 
-def test_launcher_selects_an_exact_anymesher_023_checkout():
+def test_launcher_selects_an_exact_anymesher_025_checkout():
     namespace = _namespace()
     project = namespace["_ANYMESHER_PROJECT"]
 
-    assert namespace["_declared_project_version"](project) == "0.2.3"
+    assert namespace["_declared_project_version"](project) == "0.2.5"
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
 

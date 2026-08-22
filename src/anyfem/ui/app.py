@@ -21,6 +21,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any, Dict, Iterable, Optional
 
+import numpy as np
+
 from ..commands import Command, CommandStack
 from ..document import DocumentSession, canonical_hash
 from ..jobs import JobManager, analysis_hash
@@ -67,6 +69,8 @@ from .panels import (
 )
 from .definitions import DefinitionsPanel
 from .scene import (
+    Polyline,
+    Scene,
     build_attribute_overlay,
     build_collision_overlay,
     build_geometry_scene,
@@ -146,6 +150,7 @@ class AnyFemApp(ttk.Frame):
         self._log_destinations: Dict[str, Path] = {}
         self._active_mesh_task_id: Optional[str] = None
         self._mesh_details_record_id: Optional[str] = None
+        self._mesh_layout_preview: tuple[Any, Any] | None = None
         self.active_job_id: Optional[str] = None
         self.analysis = "Linear static"
         self.shape_index = 0
@@ -518,7 +523,7 @@ class AnyFemApp(ttk.Frame):
 
     @staticmethod
     def _mesh_quality_optimization_summary(mesh) -> dict[str, dict[str, Any]]:
-        """Retain ANYmesher 0.2.3 per-face optimization provenance."""
+        """Retain ANYmesher per-face optimization provenance."""
 
         diagnostics = getattr(mesh, "hybrid_diagnostics", {})
         if not isinstance(diagnostics, Mapping):
@@ -543,6 +548,16 @@ class AnyFemApp(ttk.Frame):
             if isinstance(values, Mapping)
             and isinstance(values.get("quality_optimization"), Mapping)
         }
+
+    @staticmethod
+    def _structured_layout_summary(mesh) -> dict[str, Any]:
+        """Retain the reproducible ANYmesher structure-first plan/report."""
+
+        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if not isinstance(diagnostics, Mapping):
+            return {}
+        report = diagnostics.get("structured_layout", {})
+        return dict(report) if isinstance(report, Mapping) else {}
 
     @staticmethod
     def _project_mesh_strategy(project: Project, requested: str | None) -> str:
@@ -571,14 +586,43 @@ class AnyFemApp(ttk.Frame):
                 f"unknown meshing strategy {requested!r}; expected one of {choices}"
             ) from error
 
+    @staticmethod
+    def _project_structure_preference(
+        project: Project, requested: str | None
+    ) -> str:
+        from anymesher.structured import StructurePreference
+
+        if requested is None:
+            settings = project.native_mesh_settings
+            parameters = {} if settings is None else dict(settings.parameters)
+            requested = str(parameters.get("structure_preference", "balanced"))
+        try:
+            return StructurePreference(str(requested).strip().lower()).value
+        except ValueError as error:
+            choices = ", ".join(item.value for item in StructurePreference)
+            raise ValueError(
+                f"unknown structure preference {requested!r}; expected one of {choices}"
+            ) from error
+
     def _store_mesh_strategy(
-        self, strategy: str, *, target_size: float, element_order: str
+        self,
+        strategy: str,
+        *,
+        target_size: float,
+        element_order: str,
+        structure_preference: str = "balanced",
+        quality_policy: Mapping[str, float] | None = None,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
         from ..native_meshing import NativeMeshSettings
 
         current = self.project.native_mesh_settings
+        parameters = {} if current is None else dict(current.parameters)
+        parameters["structure_preference"] = structure_preference
+        if quality_policy is not None:
+            for key, value in quality_policy.items():
+                parameters[f"mesh_quality_{key}"] = float(value)
         settings = NativeMeshSettings.create(
             target_size,
             element_order=element_order,
@@ -587,7 +631,7 @@ class AnyFemApp(ttk.Frame):
                 "interactive" if current is None else current.certification_mode
             ),
             controls=() if current is None else current.controls,
-            parameters={} if current is None else dict(current.parameters),
+            parameters=parameters,
         )
         self.project.set_native_mesh_settings(settings)
 
@@ -597,6 +641,8 @@ class AnyFemApp(ttk.Frame):
         *,
         native_backend: str | None = None,
         strategy: str | None = None,
+        structure_preference: str | None = None,
+        quality_policy: Mapping[str, float] | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -605,16 +651,21 @@ class AnyFemApp(ttk.Frame):
         """
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        resolved_preference = self._project_structure_preference(
+            self.project, structure_preference
+        )
         with self.session.transaction("mesh settings"):
             self.project.target_size = float(target_size)
             self.project.seeding_overrides = dict(self.seeding_overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if strategy is not None:
+            if strategy is not None or structure_preference is not None or quality_policy is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
                     target_size=float(target_size),
                     element_order=self.project.element_order,
+                    structure_preference=resolved_preference,
+                    quality_policy=quality_policy,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -624,6 +675,8 @@ class AnyFemApp(ttk.Frame):
             target_size,
             overrides=self.seeding_overrides,
             strategy=resolved_strategy,
+            structure_preference=resolved_preference,
+            quality_policy=quality_policy,
         )
         self.solution = None
         from anymesher import verify_mesh_quality
@@ -634,7 +687,13 @@ class AnyFemApp(ttk.Frame):
                 "overrides": dict(self.seeding_overrides),
                 "element_order": self.project.element_order,
                 "strategy": resolved_strategy,
+                "structure_preference": (
+                    resolved_preference if resolved_strategy == "auto" else None
+                ),
                 "native_backend": effective_native_backend,
+                "quality_policy": (
+                    dict(quality_policy or {}) if resolved_strategy == "auto" else None
+                ),
             }
         )
         preparation = dict(self.project._last_mesh_preparation)
@@ -657,6 +716,7 @@ class AnyFemApp(ttk.Frame):
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": resolved_strategy,
                 "strategy_by_face": self._meshing_strategy_summary(self.mesh),
+                "structured_layout": self._structured_layout_summary(self.mesh),
                 "quality_optimization_by_face": (
                     self._mesh_quality_optimization_summary(self.mesh)
                 ),
@@ -702,28 +762,37 @@ class AnyFemApp(ttk.Frame):
         *,
         native_backend: str | None = None,
         strategy: str | None = None,
+        structure_preference: str | None = None,
+        quality_policy: Mapping[str, float] | None = None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        resolved_preference = self._project_structure_preference(
+            self.project, structure_preference
+        )
         settings = MeshSettings.create(
             target_size,
             element_order=self.project.element_order,
             overrides=self.seeding_overrides,
             strategy=resolved_strategy,
+            structure_preference=resolved_preference,
+            quality_policy=quality_policy,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if strategy is not None:
+            if strategy is not None or structure_preference is not None or quality_policy is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
                     target_size=settings.target_size,
                     element_order=settings.element_order,
+                    structure_preference=resolved_preference,
+                    quality_policy=quality_policy,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -746,6 +815,11 @@ class AnyFemApp(ttk.Frame):
                 "element_order": settings.element_order,
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": settings.strategy,
+                "structure_preference": (
+                    settings.structure_preference
+                    if settings.strategy == "auto"
+                    else None
+                ),
                 "status": "running",
             },
         )
@@ -823,6 +897,9 @@ class AnyFemApp(ttk.Frame):
                             "nodes": result.mesh.num_nodes,
                             "elements": result.mesh.num_elements,
                             "strategy_by_face": self._meshing_strategy_summary(
+                                result.mesh
+                            ),
+                            "structured_layout": self._structured_layout_summary(
                                 result.mesh
                             ),
                             "quality_optimization_by_face": (
@@ -1225,10 +1302,96 @@ class AnyFemApp(ttk.Frame):
     # views
     # ------------------------------------------------------------------
     def show_geometry(self, reset_view: bool = False) -> None:
+        self._mesh_layout_preview = None
         self._view_mode = "geometry"
         scene = build_geometry_scene(self.project)
         self.viewport.show(self._with_attributes(scene), reset_view=reset_view)
         self._update_view_label()
+
+    def preview_mesh_layout(
+        self,
+        target_size: float,
+        *,
+        structure_preference: str = "balanced",
+        quality_policy: Mapping[str, float] | None = None,
+    ) -> Any:
+        """Plan and display exact mesh-only partitions without model mutation."""
+
+        from anymesher import apply_structured_layout, plan_structured_layout
+
+        plan = plan_structured_layout(
+            self.project.geometry,
+            target_size=float(target_size),
+            options={
+                "preference": structure_preference,
+                "quality_policy": dict(quality_policy or {}),
+            },
+            overrides=self.seeding_overrides,
+            explicit_seeding=bool(self.seeding_overrides),
+        )
+        working, report = apply_structured_layout(self.project.geometry, plan)
+        overlay = Scene()
+        highlighted_edges = {
+            int(oriented.edge)
+            for item in plan.faces
+            if item.structured
+            for oriented in self.project.geometry.faces[item.source_face_id].loop
+        }
+        highlighted_edges.update(
+            int(edge_id)
+            for edge_id in working.edges
+            if edge_id not in self.project.geometry.edges
+        )
+        parameters = np.linspace(0.0, 1.0, 17)
+        for edge_id in sorted(highlighted_edges):
+            owner = working if edge_id in working.edges else self.project.geometry
+            if edge_id not in owner.edges:
+                continue
+            overlay.lines.append(
+                Polyline(
+                    None,
+                    np.asarray(owner.sample_edge(edge_id, parameters), dtype=float),
+                    color="#00a6d6",
+                    width=3,
+                    draw_overlay=True,
+                )
+            )
+        scene = build_geometry_scene(self.project)
+        scene.merge(overlay)
+        self._mesh_layout_preview = (plan, report)
+        self._view_mode = "mesh-layout-preview"
+        self.viewport.show(self._with_attributes(scene))
+        self._update_view_label()
+        self.set_status(
+            f"mesh layout preview: {len(plan.blocks)} block/residual region(s), "
+            f"{len(plan.interfaces)} shared interface(s), "
+            f"estimated {plan.estimated_element_count} element(s); no model change"
+        )
+        return plan
+
+    def commit_mesh_layout_preview(self) -> Any:
+        """Commit the currently displayed whole plan as one undoable feature."""
+
+        if self._mesh_layout_preview is None:
+            raise ValueError("preview an Automatic mesh layout first")
+        from ..commands import CommitStructuredLayout
+
+        plan, _preview = self._mesh_layout_preview
+        if not plan.is_current(self.project.geometry):
+            self._mesh_layout_preview = None
+            raise ValueError("mesh layout preview is stale; preview it again")
+        report = self.run(CommitStructuredLayout(plan))
+        self._mesh_layout_preview = None
+        self.show_geometry()
+        self.set_status(
+            "committed the complete structured mesh partition plan as one "
+            "checksummed frozen feature; undo restores the exact prior design"
+        )
+        return report
+
+    def clear_mesh_layout_preview(self) -> None:
+        self._mesh_layout_preview = None
+        self.show_geometry()
 
     def show_mesh(self) -> None:
         if self.mesh is None:
@@ -2352,6 +2515,7 @@ class AnyFemApp(ttk.Frame):
                 document_id=self.project.document_id,
                 model_hash=record.source_model_hash,
                 mesh_hash=record.mesh_hash,
+                structural_preparation=record.structural_preparation,
             )
             with self.session.transaction(
                 "record retained mesh artifact", solver_affecting=False

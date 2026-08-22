@@ -26,16 +26,16 @@ def _declared_project_version(project: Path) -> str | None:
 
 
 def _qualified_anymesher_project() -> Path:
-    """Return an exact 0.2.3 checkout, preserving unrelated mesh worktrees."""
+    """Return an exact 0.2.5 checkout, preserving unrelated mesh worktrees."""
 
-    override = os.environ.get("ANYMESHER_023_SOURCE", "").strip()
-    release_checkout = _ROOT.parent / "ANYsolver" / ".compat_anymesher_023"
+    override = os.environ.get("ANYMESHER_025_SOURCE", "").strip()
+    release_checkout = _ROOT.parent / "ANYsolver" / ".compat_anymesher_025"
     candidates = ([Path(override)] if override else []) + [
         _ROOT.parent / "ANYmesh",
         release_checkout,
     ]
     for candidate in candidates:
-        if _declared_project_version(candidate) == "0.2.3":
+        if _declared_project_version(candidate) == "0.2.5":
             return candidate
     return Path(override) if override else release_checkout
 
@@ -62,14 +62,14 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 
 ECOSYSTEM_REQUIREMENTS = (
-    ("ANYmaterial", "ANYmaterial>=0.1,<0.2", "0.1.0", "0.2.0"),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.2.2,<0.3", "0.2.2", "0.3.0"),
-    ("ANYfileio", "ANYfileio[semantics]>=0.2,<0.3", "0.2.0", "0.3.0"),
-    ("ANYmesher", "ANYmesher>=0.2.3,<0.3", "0.2.3", "0.3.0"),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5,<0.6", "0.5.0", "0.6.0"),
-    ("ANYtk3D", "ANYtk3D>=0.5,<0.6", "0.5.0", "0.6.0"),
+    ("ANYmaterial", "ANYmaterial>=0.1,<0.2", "0.1.1", "0.2.0"),
+    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4,<0.3", "0.2.4", "0.3.0"),
+    ("ANYfileio", "ANYfileio[semantics]>=0.2,<0.3", "0.2.1", "0.3.0"),
+    ("ANYmesher", "ANYmesher>=0.2.5,<0.3", "0.2.5", "0.3.0"),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5,<0.6", "0.5.1", "0.6.0"),
+    ("ANYtk3D", "ANYtk3D>=0.5,<0.6", "0.5.1", "0.6.0"),
     ("ANYsolver", "ANYsolver>=0.3,<0.4", "0.3.0", "0.4.0"),
-    ("ANYfem", "ANYfem>=0.3,<0.4", "0.3.0", "0.4.0"),
+    ("ANYfem", "ANYfem>=0.3,<0.4", "0.3.2", "0.4.0"),
 )
 
 
@@ -158,7 +158,7 @@ def require_compatible_ecosystem(
     )
     if problems:
         raise RuntimeError(
-            "ANYfem 0.3.0 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.3.2 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

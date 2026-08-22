@@ -25,16 +25,16 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
-| ANYmaterial | 0.1.0 | material definitions and nonlinear curves |
-| ANYgeometry | 0.2.2 | feature/topology and structural ownership |
-| ANYmesher | 0.2.3 | declared structural meshing and native quality optimization |
-| ANYfileio | 0.2.0 | neutral and solver-file semantics |
-| ANY3dView | 0.5.0 | viewer contract and ModernGL renderer |
-| ANYtk3D | 0.5.0 | compatible software renderer |
+| ANYmaterial | 0.1.1 | material definitions and nonlinear curves |
+| ANYgeometry | 0.2.4 | exact frozen features, topology and structural ownership |
+| ANYmesher | 0.2.5 | global block layouts, hard structured quality and seed/interface diagnostics |
+| ANYfileio | 0.2.1 | neutral and solver-file semantics |
+| ANY3dView | 0.5.1 | viewer contract and ModernGL renderer |
+| ANYtk3D | 0.5.1 | compatible software renderer |
 | ANYsolver | 0.3.0 | analyses, outcomes, progress, reactions and quantities |
-| ANYfem | 0.3.0 | workflow, persistence, jobs and results |
-| ANYbuckling | 0.1.0 | compatible independent buckling adapter |
-| ANYstructure | 6.3.0 | downstream application consumer |
+| ANYfem | 0.3.2 | workflow, mesh-layout preview/commit, persistence, jobs and results |
+| ANYbuckling | 0.1.1 | compatible independent buckling adapter |
+| ANYstructure | 6.3.1 | downstream application consumer |
 
 Only these latest package generations are qualified together. Historical
 ANYfem project formats 1--6 remain readable through the v7 migration path;
@@ -116,7 +116,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYsolver\.compat_anymesher_023" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYsolver\.compat_anymesher_025" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
@@ -124,9 +124,9 @@ so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
 
 The qualified ANYmesher source is selected the same way. The shared
-`ANYmesh` checkout is used only when it declares exactly 0.2.3; otherwise the
-tracked 0.2.3 snapshot is used. `ANYMESHER_023_SOURCE` can name another exact
-0.2.3 checkout. This preserves unrelated changes in a dirty mesher worktree.
+`ANYmesh` checkout is used only when it declares exactly 0.2.5; otherwise the
+qualified 0.2.5 snapshot is used. `ANYMESHER_025_SOURCE` can name another exact
+0.2.5 checkout. This preserves unrelated changes in a dirty mesher worktree.
 
 ```powershell
 python -m anyfem.ui.app
@@ -290,7 +290,7 @@ frame-by-frame and unavailable quantities are never manufactured. Imported
 SESAM source semantics are embedded with the mesh, so reopening does not depend
 on the original file. Legacy ANYfem formats 1--6 and ANYgeometry schemas v1--v3
 remain readable and are migrated deterministically on the next save. The
-qualified release therefore requires ANYgeometry 0.2.2 or newer within the
+qualified release therefore requires ANYgeometry 0.2.4 or newer within the
 0.2 generation; older readers must reject newer schema-v4 materializations
 rather than guessing at their feature or structural identity.
 
@@ -719,8 +719,11 @@ build time. Re-meshing never loses a load.
 **Meshing method is an explicit project setting.** Open **Mesh** and choose the
 prominent **Meshing method** control before Generate mesh:
 
-- **Automatic (recommended)** maps eligible four-sided plates and routes the
-  remaining plates through ANYmesher's unstructured/native surface mesher.
+- **Automatic (recommended)** first uses existing mapped blocks, then safe
+  four-sided partitions on a
+  detached working copy, and finally the quad-dominant native surface mesher.
+  The **Automatic priority** control selects Balanced, Prefer mapped quads, or
+  Prefer target size. Balanced caps partition-driven element growth at 25%.
 - **Mapped quadrilateral** requires every plate region to have four logical
   sides and no holes. The task explains which face must be partitioned when
   this requirement is not met.
@@ -732,8 +735,17 @@ route can be used; it is not the mapped/native method selector. Shared model
 edges use one node sequence, so automatic mixed-method interfaces remain
 conformal without coincident-node merging. After completion, Mesh details show
 the requested method, the actual method used per face, native backend routes,
-intersection preparation, and ANYmesher 0.2.3 quality measures including
-scaled Jacobian, angle range, poor-element count, and optimization provenance.
+intersection preparation, and ANYmesher 0.2.5 global layout/quality measures
+including scaled Jacobian, angle range, poor-element count, and optimization
+provenance.
+
+Use **Preview layout** to inspect the global blocks, shared interfaces, native
+residual regions, estimated element count, and plan hash without changing the
+model. **Commit partitions** records that exact preview as one undoable frozen
+geometry feature; normal mesh generation keeps the partitions mesh-only. The
+Automatic hard quality gate rejects a proposed structured layout before it can
+publish elements when the configured scaled-Jacobian, aspect-ratio, angle, or
+warpage limits are missed.
 
 ## Testing
 

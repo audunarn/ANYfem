@@ -39,9 +39,13 @@ class MeshSettings:
     # None preserves the established headless behaviour: inherit the strategy
     # from the snapshotted project, whose legacy default is Automatic.
     strategy: str | None = None
+    structure_preference: str = "balanced"
+    quality_policy: tuple[tuple[str, float], ...] = ()
 
     def __post_init__(self) -> None:
         from anymesher.hybrid import MeshingStrategy
+        from anymesher.structured import StructurePreference
+        from anymesher.structured import MeshQualityPolicy
 
         if self.strategy is not None:
             try:
@@ -52,6 +56,23 @@ class MeshSettings:
                     f"unknown meshing strategy {self.strategy!r}; expected one of {choices}"
                 ) from error
             object.__setattr__(self, "strategy", strategy)
+        try:
+            preference = StructurePreference(
+                str(self.structure_preference).strip().lower()
+            ).value
+        except ValueError as error:
+            choices = ", ".join(item.value for item in StructurePreference)
+            raise ValueError(
+                "unknown structure preference "
+                f"{self.structure_preference!r}; expected one of {choices}"
+            ) from error
+        object.__setattr__(self, "structure_preference", preference)
+        quality = MeshQualityPolicy.create(dict(self.quality_policy))
+        object.__setattr__(
+            self,
+            "quality_policy",
+            tuple(sorted((key, float(value)) for key, value in quality.to_dict().items())),
+        )
 
     @classmethod
     def create(
@@ -61,6 +82,8 @@ class MeshSettings:
         element_order: str,
         overrides: Mapping[int, int] | None = None,
         strategy: str | None = None,
+        structure_preference: str = "balanced",
+        quality_policy: Mapping[str, float] | None = None,
     ) -> "MeshSettings":
         size = float(target_size)
         if size <= 0.0:
@@ -72,6 +95,10 @@ class MeshSettings:
                 sorted((int(key), int(value)) for key, value in (overrides or {}).items())
             ),
             strategy=strategy,
+            structure_preference=structure_preference,
+            quality_policy=tuple(
+                sorted((str(key), float(value)) for key, value in (quality_policy or {}).items())
+            ),
         )
 
     @property
@@ -82,6 +109,16 @@ class MeshSettings:
                 "element_order": self.element_order,
                 "overrides": dict(self.overrides),
                 "strategy": self.strategy,
+                "structure_preference": (
+                    self.structure_preference
+                    if self.strategy in (None, "auto")
+                    else None
+                ),
+                "quality_policy": (
+                    dict(self.quality_policy)
+                    if self.strategy in (None, "auto")
+                    else None
+                ),
             }
         )
 
@@ -122,6 +159,22 @@ def mesh_semantic_hash(
     preparation.pop("working_revision", None)
     preparation.pop("source_revision", None)
     preparation.pop("source_model_id", None)
+    structured_layout = preparation.get("structured_layout")
+    if isinstance(structured_layout, Mapping):
+        structured_layout = dict(structured_layout)
+        plan = structured_layout.get("plan")
+        if isinstance(plan, Mapping):
+            plan = dict(plan)
+            # The detached clone receives a new UUID on every mesh job.  It is
+            # provenance, not solver-affecting mesh semantics.  The plan hash
+            # already captures its canonical topology/options without either
+            # transaction identifier.
+            plan.pop("model_id", None)
+            plan.pop("revision", None)
+            structured_layout["plan"] = plan
+        structured_layout.pop("source_to_working_faces", None)
+        structured_layout.pop("source_to_working_edges", None)
+        preparation["structured_layout"] = structured_layout
     return canonical_hash(
         {
             "model_hash": str(model_hash),
@@ -286,6 +339,8 @@ class MeshTaskManager:
                 overrides=dict(settings.overrides),
                 order=settings.element_order,
                 strategy=settings.strategy,
+                structure_preference=settings.structure_preference,
+                quality_policy=dict(settings.quality_policy),
                 cancellation_check=cancellation.raise_if_cancelled,
             )
             cancellation.raise_if_cancelled("mesh quality")
@@ -306,6 +361,8 @@ class MeshTaskManager:
                     element_order=settings.element_order,
                     overrides=dict(settings.overrides),
                     strategy=resolved_strategy,
+                    structure_preference=settings.structure_preference,
+                    quality_policy=dict(settings.quality_policy),
                 ).input_hash
             semantic_input_hash = canonical_hash(
                 {

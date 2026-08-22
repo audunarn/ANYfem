@@ -184,6 +184,12 @@ def _candidate_pairs(geometry) -> tuple[tuple[Any, Any], ...]:
         use.edge_id: use.member_id
         for use in geometry.member_edge_uses.values()
     }
+    member_vertices: dict[int, set[int]] = {}
+    for edge_id, member_id in edge_members.items():
+        edge = geometry.edges[edge_id]
+        member_vertices.setdefault(member_id, set()).update(
+            (edge.start, edge.end)
+        )
     member_pairs: set[tuple[int, int]] = set()
     member_sheet_pairs: set[tuple[int, int]] = set()
     for edge_id, member_id in sorted(edge_members.items()):
@@ -196,6 +202,16 @@ def _candidate_pairs(geometry) -> tuple[tuple[Any, Any], ...]:
             if kind == "edge":
                 other_member = edge_members.get(other)
                 if other_member is not None and other_member != member_id:
+                    # Members that already use the same persistent topology
+                    # vertex are conformal.  Their beam meshes reuse that
+                    # vertex directly; sending the pair through the imprint
+                    # planner would create a redundant junction and, for a
+                    # segmented member axis, can produce an ambiguous
+                    # multi-component intersection plan.
+                    if member_vertices.get(member_id, set()) & member_vertices.get(
+                        other_member, set()
+                    ):
+                        continue
                     member_pairs.add(tuple(sorted((member_id, other_member))))
             else:
                 sheet_id = face_sheets.get(other)

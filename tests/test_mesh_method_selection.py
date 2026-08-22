@@ -9,6 +9,7 @@ import pytest
 from anygeometry import GeometryModel
 
 from anyfem.document import DocumentSession
+from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.project_file import project_from_dict, project_to_dict
 from anyfem.mesh_jobs import MeshJobResult, MeshSettings, MeshTaskManager
 from anyfem.model.project import Project
@@ -71,13 +72,53 @@ def test_mesh_settings_strategy_is_canonical_and_hash_affecting() -> None:
     with pytest.raises(ValueError, match="expected one of auto, mapped, native"):
         MeshSettings.create(0.25, element_order="linear", strategy="magic")
 
+    quad_first = MeshSettings.create(
+        0.25,
+        element_order="linear",
+        strategy="auto",
+        structure_preference="quad_first",
+    )
+    size_first = MeshSettings.create(
+        0.25,
+        element_order="linear",
+        strategy="auto",
+        structure_preference="size_first",
+    )
+    assert quad_first.input_hash != size_first.input_hash
+    strict_quality = MeshSettings.create(
+        0.25,
+        element_order="linear",
+        strategy="auto",
+        quality_policy={"maximum_aspect_ratio": 3.0},
+    )
+    assert dict(strict_quality.quality_policy)["maximum_aspect_ratio"] == 3.0
+    assert strict_quality.input_hash != quad_first.input_hash
+    # The preference is not solver-affecting when the user explicitly chooses
+    # a non-Automatic route.
+    assert MeshSettings.create(
+        0.25,
+        element_order="linear",
+        strategy="mapped",
+        structure_preference="quad_first",
+    ).input_hash == MeshSettings.create(
+        0.25,
+        element_order="linear",
+        strategy="mapped",
+        structure_preference="size_first",
+    ).input_hash
+
 
 def test_existing_native_settings_schema_persists_the_method_without_tk() -> None:
     project = Project("method")
     fake_app = SimpleNamespace(project=project)
 
     AnyFemApp._store_mesh_strategy(
-        fake_app, "mapped", target_size=0.3, element_order="quadratic"
+        fake_app,
+        "mapped",
+        target_size=0.3,
+        element_order="quadratic",
+        structure_preference="quad_first",
+        quality_policy={"maximum_aspect_ratio": 3.5},
     )
 
     settings = project.native_mesh_settings
@@ -85,12 +126,15 @@ def test_existing_native_settings_schema_persists_the_method_without_tk() -> Non
     assert settings.backend.value == "mapped"
     assert settings.target_size == pytest.approx(0.3)
     assert settings.element_order == "quadratic"
+    assert dict(settings.parameters)["structure_preference"] == "quad_first"
+    assert dict(settings.parameters)["mesh_quality_maximum_aspect_ratio"] == 3.5
     assert AnyFemApp._project_mesh_strategy(project, None) == "mapped"
 
     reopened = project_from_dict(project_to_dict(project))
     assert reopened.native_mesh_settings is not None
     assert reopened.native_mesh_settings.backend.value == "mapped"
     assert AnyFemApp._project_mesh_strategy(reopened, None) == "mapped"
+    assert AnyFemApp._project_structure_preference(reopened, None) == "quad_first"
 
 
 def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> None:
@@ -113,16 +157,24 @@ def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> No
         _order=_Value("linear"),
         _native_backend=_Value("Compiled native"),
         _method_dirty=True,
+        _preference_dirty=True,
         number=lambda variable, _label: float(variable.get()),
         _method_value=lambda: "mapped",
+        _structure_preference_value=lambda: "balanced",
     )
 
     MeshPanel._generate(panel)
 
     assert submissions == [
-        {"size": 0.2, "native_backend": None, "strategy": "mapped"}
+        {
+            "size": 0.2,
+            "native_backend": None,
+            "strategy": "mapped",
+            "structure_preference": "balanced",
+        }
     ]
     assert panel._method_dirty is False
+    assert panel._preference_dirty is False
 
 
 def test_mapped_submission_reaches_anymesher_as_mapped() -> None:
@@ -178,7 +230,7 @@ def test_each_ui_strategy_reaches_real_project_meshing(
     assert set(mesh.hybrid_diagnostics["strategy_by_face"].values()) == {actual}
 
 
-def test_anymesher_023_quality_optimization_provenance_is_retained() -> None:
+def test_anymesher_quality_optimization_provenance_is_retained() -> None:
     mesh = SimpleNamespace(
         hybrid_diagnostics={
             "triangulation_backend_by_face": {
@@ -214,3 +266,42 @@ def test_anymesher_023_quality_optimization_provenance_is_retained() -> None:
             },
         }
     }
+
+
+def test_automatic_preference_reaches_anymesher_and_report_is_retained() -> None:
+    project = Project("structured automatic")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    project.set_native_triangulation_backend("python")
+
+    mesh = project.generate_mesh(
+        0.25, strategy="auto", structure_preference="quad_first"
+    )
+    report = AnyFemApp._structured_layout_summary(mesh)
+
+    assert report["plan"]["options"]["preference"] == "quad_first"
+    assert report["metrics"]["quad_fraction"] == pytest.approx(1.0)
+    assert report["metrics"]["structured_block_count"] >= 1
+
+
+def test_structured_report_and_source_map_persist_in_mesh_artifact(tmp_path) -> None:
+    project = Project("structured artifact")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    mesh = project.generate_mesh(
+        0.25, strategy="auto", structure_preference="balanced"
+    )
+    preparation = project._last_mesh_preparation
+
+    assert preparation["structured_layout"]["source_to_working_faces"]
+    store = ArtifactStore(tmp_path / "structured.anyfem")
+    artifact = store.write_mesh(mesh, structural_preparation=preparation)
+    metadata = store.read_mesh_metadata(artifact)
+
+    assert metadata["structural_preparation"]["structured_layout"] == preparation[
+        "structured_layout"
+    ]
