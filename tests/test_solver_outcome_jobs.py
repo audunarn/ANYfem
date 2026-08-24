@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
+
 from anysolver import SolveOutcome
+from anysolver.nonlinear_static import NonlinearStaticResult
 
 from anyfem.document import DocumentSession
 from anyfem.jobs import JobManager
@@ -61,3 +65,29 @@ def test_failed_outcome_is_not_published_as_a_result():
         pass
     else:  # pragma: no cover - guards accidental result publication
         raise AssertionError("failed result was published")
+
+
+def test_real_diverged_nonlinear_result_is_not_published_as_completed():
+    project = Project("real-outcome")
+    manager = JobManager(project)
+    analysis = AnalysisDefinition("case", type="nonlinear_static")
+    result = NonlinearStaticResult(
+        steps=[],
+        status="diverged",
+        displacements=np.zeros(6),
+        load_factor=0.0,
+        info={"failure_reason": "nonconvergence"},
+    )
+
+    def solve(**_kwargs):
+        return result
+
+    record = manager.submit(analysis, DocumentSession(project).snapshot(), solve)
+    manager.wait(record.id, timeout=5.0)
+    events = manager.poll()
+
+    assert record.status is JobStatus.FAILED
+    assert record.outcome["termination"] == "nonconvergence"
+    assert events[-1].kind == "failed"
+    with pytest.raises(KeyError):
+        manager.result(record.id)
