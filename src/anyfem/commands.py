@@ -2402,6 +2402,69 @@ def _face_spans(geometry, face_id: int) -> Tuple[float, float]:
     )
 
 
+def _face_axis_direction(geometry, face_id: int, axis: int) -> np.ndarray:
+    """Unit chord direction of one mapped coordinate on a face fragment."""
+
+    side = geometry.faces[face_id].sides()[axis]
+    start = geometry.vertex_position(
+        geometry.oriented_start_vertex(side[0])
+    )
+    end = geometry.vertex_position(
+        geometry.oriented_end_vertex(side[-1])
+    )
+    direction = np.asarray(end, dtype=float) - np.asarray(start, dtype=float)
+    length = float(np.linalg.norm(direction))
+    if length <= 0.0:
+        raise GeometryError(
+            f"face {face_id} has a degenerate mapped axis {axis}"
+        )
+    return direction / length
+
+
+def _cut_face_across_direction(
+    geometry,
+    face_id: int,
+    point: np.ndarray,
+    direction: np.ndarray,
+    radius: float,
+) -> Tuple[int, List[int]]:
+    """Bracket ``point`` on one face along an inherited mapped direction."""
+
+    patch = face_id
+    produced = [face_id]
+    for side in (-1.0, 1.0):
+        local_directions = tuple(
+            _face_axis_direction(geometry, patch, axis) for axis in (0, 1)
+        )
+        alignments = tuple(
+            float(np.dot(candidate, direction))
+            for candidate in local_directions
+        )
+        axis = int(np.argmax(np.abs(alignments)))
+        orientation = 1.0 if alignments[axis] >= 0.0 else -1.0
+        span = _face_spans(geometry, patch)[axis]
+        if span <= 0.0:
+            break
+        _face, where = _closest_face(geometry, [patch], point)
+        fraction = where[axis] + side * orientation * radius / span
+        if not 0.02 < fraction < 0.98:
+            continue
+        before_cut = geometry.design_snapshot()
+        try:
+            _edge, pair = split_face_at(
+                geometry, patch, axis, fraction
+            )
+        except GeometryError:
+            # Keep a skipped, unrepresentable cut observationally atomic even
+            # when paired with an older decomposition provider.
+            geometry.restore_design(before_cut)
+            continue
+        produced.remove(patch)
+        produced.extend(pair)
+        patch, _where = _closest_face(geometry, list(pair), point)
+    return patch, produced
+
+
 def _bracket_face(
     geometry, face_id: int, point: np.ndarray, radius: float
 ) -> Tuple[int, List[int]]:
@@ -2419,26 +2482,25 @@ def _bracket_face(
     seeding.
     """
 
-    patch = face_id
-    produced = [face_id]
-    for axis in (0, 1):
-        for side in (-1.0, 1.0):
-            span = _face_spans(geometry, patch)[axis]
-            if span <= 0.0:
-                break
-            _face, where = _closest_face(geometry, [patch], point)
-            fraction = where[axis] + side * radius / span
-            if not 0.02 < fraction < 0.98:
-                continue
-            try:
-                _edge, pair = split_face_at(
-                    geometry, patch, axis, fraction
-                )
-            except GeometryError:
-                continue
-            produced = [item for item in produced if item != patch]
-            produced.extend(pair)
-            patch, _where = _closest_face(geometry, list(pair), point)
+    # Split the complete strip set in the second direction.  Cutting only the
+    # central descendant leaves T-junctions and forces an abrupt 8:1 mapped
+    # size jump at the contact patch.  A conforming grid lets the size field
+    # grade through every shared edge and satisfy quality_v2.
+    directions = tuple(
+        _face_axis_direction(geometry, face_id, axis) for axis in (0, 1)
+    )
+    _middle, columns = _cut_face_across_direction(
+        geometry, face_id, point, directions[0], radius
+    )
+    central_rows: List[int] = []
+    produced: List[int] = []
+    for column in columns:
+        middle, rows = _cut_face_across_direction(
+            geometry, column, point, directions[1], radius
+        )
+        central_rows.append(middle)
+        produced.extend(rows)
+    patch, _where = _closest_face(geometry, central_rows, point)
     return patch, produced
 
 

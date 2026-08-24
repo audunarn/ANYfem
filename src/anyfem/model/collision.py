@@ -173,7 +173,7 @@ def impact_refinement(
     *,
     elements_per_radius: float = 4.0,
     zone_radii: float = 1.5,
-    growth: float = 1.5,
+    growth: float = 1.15,
 ):
     """A refinement zone covering the contact patch.
 
@@ -182,7 +182,8 @@ def impact_refinement(
     and the local damage both come out of how the patch is discretised.  This
     asks for ``elements_per_radius`` elements across the sphere radius, over a
     zone ``zone_radii`` sphere radii wide, and lets the size grow back to the
-    global target outside it.
+    global target outside it.  The 1.15 default stays below the structured
+    mesher's 1.25 adjacent-element quality limit after integer edge seeding.
 
     Needs a mesh only to find where the sphere lands; that mesh can be as
     coarse as the model's own target size, since the contact point comes from

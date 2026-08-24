@@ -496,6 +496,7 @@ def test_the_impact_zone_is_sized_to_the_sphere():
     )
     assert zone.size == pytest.approx(0.15 / 4.0)
     assert zone.radius == pytest.approx(1.5 * 0.15)
+    assert zone.growth == pytest.approx(1.15)
     assert zone.center is not None
 
 
@@ -509,9 +510,12 @@ def test_refining_for_impact_decomposes_and_concentrates_elements():
     )
     after = project.generate_mesh(0.125)
 
-    assert len(outcome["faces"]) > 1
+    assert len(outcome["faces"]) == 9
     assert outcome["patch"] in project.geometry.faces
     assert after.num_nodes > before.num_nodes
+    from anyfem.solve.run import _contact_resolution
+
+    assert _contact_resolution(after, sphere())["elements_per_radius"] > 3.0
     # Every new plate kept the section the original had.
     assert set(project.geometry.faces) <= set(project.face_sections)
 
