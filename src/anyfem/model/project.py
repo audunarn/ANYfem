@@ -34,6 +34,7 @@ from ..structural_preparation import (
 )
 from .attributes import Combination, LoadCase, Mass, Support
 from .imperfections import Imperfection
+from .formulations import ShellFormulationPolicy
 from .sections import BeamSection, PlateSection, SectionAssignment
 from .coordinates import CoordinateSystem, GLOBAL_COORDINATES
 from .records import (
@@ -129,6 +130,11 @@ class Project:
     compatibility_diagnostics: List[str] = field(default_factory=list)
     geometry_editing_disabled_reason: str | None = None
     read_only_reason: str | None = None
+    # Appended to the public constructor so the additive policy does not shift
+    # any established positional Project argument.
+    shell_formulation_policy: ShellFormulationPolicy = field(
+        default_factory=ShellFormulationPolicy.current_default
+    )
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -141,6 +147,8 @@ class Project:
 
     def __post_init__(self) -> None:
         self.document_id = str(self.document_id)
+        if not isinstance(self.shell_formulation_policy, ShellFormulationPolicy):
+            raise TypeError("shell_formulation_policy must be a ShellFormulationPolicy")
         self.set_native_triangulation_backend(self.native_triangulation_backend)
         self.coordinate_systems.setdefault("global", GLOBAL_COORDINATES)
         for name in self.materials:

@@ -19,10 +19,12 @@ from anysolver import (
     BoundaryCondition,
     CoupledBeamShellElement,
     FEModel,
+    LegacyShellElement,
     QuadraticBeamElement,
-    create_element,
+    create_shell_element,
 )
 from anysolver import LoadCase as SolverLoadCase
+from anymesher import S3QualityError, assert_s3_admissible
 
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
@@ -174,6 +176,47 @@ def _build_combination(
 
 
 def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
+    qualified_ids: list[int] = []
+    owner_normals: dict[int, np.ndarray] = {}
+    if project.shell_formulation_policy.s3 == "e4-pl-s3":
+        for face_id, element_ids in mesh.elements_of_face.items():
+            for element_id in element_ids:
+                connectivity = mesh.tris.get(element_id)
+                if connectivity is None or len(connectivity) != 3:
+                    continue
+                coordinates = np.asarray(
+                    [mesh.nodes[node] for node in connectivity], dtype=float
+                )
+                centroid = np.mean(coordinates, axis=0)
+                try:
+                    owner_id, _point, parameters, _distance = (
+                        project.geometry.closest_face(
+                            centroid, face_ids=(int(face_id),)
+                        )
+                    )
+                    if int(owner_id) != int(face_id):
+                        raise ValueError(
+                            "closest face did not preserve the element owner"
+                        )
+                    normal = project.geometry.face_normal(
+                        int(face_id), float(parameters[0]), float(parameters[1])
+                    )
+                except Exception as error:
+                    raise ProjectError(
+                        f"qualified S3 element {element_id} has no authoritative "
+                        f"owner normal: {error}"
+                    ) from error
+                qualified_ids.append(int(element_id))
+                owner_normals[int(element_id)] = np.asarray(normal, dtype=float)
+        try:
+            assert_s3_admissible(
+                mesh,
+                element_ids=qualified_ids,
+                element_owner_normals=owner_normals,
+            )
+        except S3QualityError as error:
+            raise ProjectError(f"qualified S3 mesh admission failed: {error}") from error
+
     for face_id, element_ids in mesh.elements_of_face.items():
         section = project.plate_section_of(face_id)
         for element_id in element_ids:
@@ -185,16 +228,35 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                 raise ProjectError(
                     f"face {face_id} references missing shell element {element_id}"
                 )
-            fe_model.add_element(
-                element_id,
-                create_element(
-                    "shell",
-                    element_id,
-                    list(node_ids),
-                    material_name=section.material,
-                    thickness=section.thickness,
-                ),
+            formulation = project.shell_formulation_policy.for_node_count(
+                len(node_ids)
             )
+            extra: dict[str, Any] = {}
+            if formulation == "e4-pl-s3":
+                extra["reference_normal"] = owner_normals[int(element_id)]
+            element = create_shell_element(
+                element_id,
+                list(node_ids),
+                material_name=section.material,
+                thickness=section.thickness,
+                formulation=formulation,
+                **extra,
+            )
+            expected_id = project.shell_formulation_policy.formulation_id_for_node_count(
+                len(node_ids)
+            )
+            if formulation in {"e4-pl", "e4-pl-s3"}:
+                if getattr(element, "formulation_id", None) != expected_id:
+                    raise ProjectError(
+                        f"shell element {element_id} formulation identity mismatch: "
+                        f"expected {expected_id}"
+                    )
+            elif type(element) is not LegacyShellElement:
+                raise ProjectError(
+                    f"shell element {element_id} did not resolve to the persisted "
+                    "legacy identity"
+                )
+            fe_model.add_element(element_id, element)
 
 
 def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:

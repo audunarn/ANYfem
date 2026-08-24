@@ -122,7 +122,7 @@ def _entity_materialization(geometry: GeometryModel) -> dict[str, object]:
 def test_v6_detached_record_recovers_exact_frozen_topology_and_archive() -> None:
     payload, corrupt_history = _legacy_corrupt_payload()
     clean_v7 = deepcopy(payload)
-    clean_v7["anyfem"]["format"] = FORMAT_VERSION
+    clean_v7["anyfem"]["format"] = 7
     clean_v7["ownership"] = {"sheet_joins": []}
     clean_v7["geometry"]["features"] = {
         "version": 1,
@@ -159,7 +159,7 @@ def test_v6_detached_record_recovers_exact_frozen_topology_and_archive() -> None
 
     persisted = project_to_dict(recovered)
     reopened = project_from_dict(deepcopy(persisted))
-    assert persisted["anyfem"]["format"] == FORMAT_VERSION == 7
+    assert persisted["anyfem"]["format"] == FORMAT_VERSION == 8
     assert reopened.archived_feature_histories == recovered.archived_feature_histories
     assert _entity_materialization(reopened.geometry) == expected
     assert reopened.geometry.features.records[0].outputs == record.outputs

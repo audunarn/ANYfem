@@ -46,7 +46,7 @@ def test_native_settings_and_model_bound_handles_round_trip() -> None:
     payload = project_to_dict(project)
     restored = project_from_dict(payload)
 
-    assert payload["anyfem"]["format"] == FORMAT_VERSION == 7
+    assert payload["anyfem"]["format"] == FORMAT_VERSION == 8
     assert payload["meshing"]["native_backend"] == "auto"
     assert restored.geometry.model_id == project.geometry.model_id
     assert restored.native_triangulation_backend == "auto"

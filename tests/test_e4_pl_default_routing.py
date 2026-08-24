@@ -78,7 +78,7 @@ def test_anyfem_solver_adapter_has_no_direct_shell_element_bypass() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "create_element"
+        and node.func.id == "create_shell_element"
     ]
     assert direct == []
     assert len(selector) == 1
