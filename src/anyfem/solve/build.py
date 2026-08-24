@@ -20,7 +20,7 @@ from anysolver import (
     CoupledBeamShellElement,
     FEModel,
     QuadraticBeamElement,
-    ShellElement,
+    create_element,
 )
 from anysolver import LoadCase as SolverLoadCase
 
@@ -187,7 +187,8 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                 )
             fe_model.add_element(
                 element_id,
-                ShellElement(
+                create_element(
+                    "shell",
                     element_id,
                     list(node_ids),
                     material_name=section.material,
@@ -199,9 +200,10 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
 def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """Beam elements, linear or quadratic according to the mesh's order.
 
-    Shells need no such branch: the solver's ``ShellElement`` reads its own
-    topology from the node count.  The beam classes are separate, so the choice
-    has to be made here.
+    Shells need no such branch: ANYsolver's public element selector reads
+    topology from the node count and selects the qualified Q4 default while
+    preserving TRI3, TRI6, Q8, and Q8R. The beam classes are separate, so the
+    choice has to be made here.
     """
 
     element_class = QuadraticBeamElement if mesh.is_quadratic else BeamElement
