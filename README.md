@@ -13,7 +13,7 @@ ANYfem owns the application layer across the focused ecosystem packages:
   persistent-ID geometry model, curves, surfaces, topology and serialization.
 - [**ANYmesher**](https://github.com/audunarn/ANYmesh) — neutral meshes,
   mapped decomposition and meshing, refinement and coupling records.
-- [**ANYfileio**](https://github.com/audunarn/ANYio) — SESAM and CalculiX
+- [**ANYfileio**](https://github.com/audunarn/ANYfileIO) — SESAM and CalculiX
   parsing/writing.
 - [**ANY3dView**](https://github.com/audunarn/ANY3dView) — shared viewer
   contracts and the optional ModernGL viewport.
@@ -117,7 +117,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,

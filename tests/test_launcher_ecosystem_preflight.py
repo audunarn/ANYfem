@@ -129,7 +129,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command(
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
-    assert command.index(mesh_project) < command.index("ANYio")
+    assert command.index(mesh_project) < command.index("ANYfileIO")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
     solver_project = str(namespace["_ECOSYSTEM_ROOT"] / "ANYsolver")
     fem_project = str(namespace["_ROOT"])
@@ -162,7 +162,7 @@ def test_missing_distribution_metadata_is_actionable(candidate_namespace):
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio[semantics]>=0.2: distribution metadata is missing",
+        "ANYfileio[semantics]>=0.2.1,<0.3: distribution metadata is missing",
     )
 
 
@@ -174,9 +174,62 @@ def test_s3_policy_binds_coordinated_solver_and_mesher_floors(
     ]
     assert "ANYsolver>=0.4.0" in project["dependencies"]
     assert "ANYmesher>=0.3.2" in project["dependencies"]
+    assert "ANYfileio[semantics]>=0.2.1,<0.3" in project["dependencies"]
 
     versions = _versions()
     versions["ANYmesher"] = "0.3.1"
     assert candidate_namespace["ecosystem_compatibility_problems"](
         versions.__getitem__
     ) == ("ANYmesher>=0.3.2: installed metadata reports 0.3.1",)
+
+    versions = _versions()
+    versions["ANYfileio"] = "0.3.0"
+    assert candidate_namespace["ecosystem_compatibility_problems"](
+        versions.__getitem__
+    ) == (
+        "ANYfileio[semantics]>=0.2.1,<0.3: installed metadata reports 0.3.0",
+    )
+
+
+def test_anyfileio_uses_only_the_canonical_repository_and_source_path(
+    candidate_namespace,
+) -> None:
+    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8"
+    )
+    source = dict(
+        (distribution, project)
+        for distribution, _module, project in candidate_namespace["_SOURCE_PROJECTS"]
+    )
+
+    assert "repository: audunarn/ANYfileIO" in workflow
+    assert "path: .ecosystem/ANYfileIO" in workflow
+    assert "repository: audunarn/ANYio" not in workflow
+    assert ".ecosystem/ANYio" not in workflow
+    assert source["ANYfileio"] == (
+        candidate_namespace["_ECOSYSTEM_ROOT"] / "ANYfileIO" / "src"
+    )
+    assert 'ANYfileio[semantics]>=0.2.1,<0.3' in (
+        ROOT / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+
+
+def test_production_publish_uses_verified_prebuilt_release_assets() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(
+        encoding="utf-8"
+    )
+    production = workflow.split("  publish-production:\n", 1)[1]
+
+    assert "release:\n    types: [published]" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "if: github.event_name == 'workflow_dispatch'" in workflow
+    assert 'test "$RELEASE_TAG" = "v0.4.0"' in production
+    assert 'gh release download "$RELEASE_TAG"' in production
+    assert "ANYfem-0.4.0-SHA256SUMS.txt" in production
+    assert "checksum manifest does not exactly cover distributions" in production
+    assert "unexpected ANYfem distribution asset" in production
+    assert "release checksum mismatch" in production
+    assert "pypa/gh-action-pypi-publish@release/v1" in production
+    assert "packages-dir: dist/" in production
+    assert "python -m build" not in production
+    assert "timeout-minutes:" not in workflow

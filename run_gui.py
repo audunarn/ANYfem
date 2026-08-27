@@ -87,7 +87,7 @@ _ANYMESHER_PROJECT = _qualified_anymesher_project()
 _SOURCE_PROJECTS = (
     ("ANYmaterial", "anymaterial", _ECOSYSTEM_ROOT / "ANYmaterial" / "src"),
     ("ANYgeometry", "anygeometry", _ECOSYSTEM_ROOT / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _ECOSYSTEM_ROOT / "ANYio" / "src"),
+    ("ANYfileio", "anyfileio", _ECOSYSTEM_ROOT / "ANYfileIO" / "src"),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
@@ -103,14 +103,19 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 
 ECOSYSTEM_REQUIREMENTS = (
-    ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
-    ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
-    ("ANYmesher", "ANYmesher>=0.3.2", "0.3.2"),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
-    ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
-    ("ANYsolver", "ANYsolver>=0.4.0", "0.4.0"),
-    ("ANYfem", "ANYfem>=0.4", "0.4.0"),
+    ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0", None),
+    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4", None),
+    (
+        "ANYfileio",
+        "ANYfileio[semantics]>=0.2.1,<0.3",
+        "0.2.1",
+        "0.3.0",
+    ),
+    ("ANYmesher", "ANYmesher>=0.3.2", "0.3.2", None),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0", None),
+    ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0", None),
+    ("ANYsolver", "ANYsolver>=0.4.0", "0.4.0", None),
+    ("ANYfem", "ANYfem>=0.4", "0.4.0", None),
 )
 
 
@@ -121,13 +126,16 @@ def ecosystem_compatibility_problems(
 
     read_version = metadata.version if version_reader is None else version_reader
     problems: list[str] = []
-    for distribution, requirement, minimum in ECOSYSTEM_REQUIREMENTS:
+    for distribution, requirement, minimum, maximum in ECOSYSTEM_REQUIREMENTS:
         try:
             installed = str(read_version(distribution))
         except metadata.PackageNotFoundError:
             problems.append(f"{requirement}: distribution metadata is missing")
             continue
-        if not _version_at_least(installed, minimum):
+        if not _version_at_least(installed, minimum) or (
+            maximum is not None
+            and _numeric_version(installed) >= _numeric_version(maximum)
+        ):
             problems.append(f"{requirement}: installed metadata reports {installed}")
     return tuple(problems)
 
@@ -171,7 +179,7 @@ def editable_repair_command() -> str:
         str(_ECOSYSTEM_ROOT / "ANYmaterial"),
         str(_ECOSYSTEM_ROOT / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_ECOSYSTEM_ROOT / "ANYio") + "[semantics]",
+        str(_ECOSYSTEM_ROOT / "ANYfileIO") + "[semantics]",
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
         str(_ECOSYSTEM_ROOT / "ANYsolver"),
