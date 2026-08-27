@@ -117,21 +117,24 @@ def test_mesh_panel_submits_nonblocking_and_retains_stale_quality(
     original = Project.generate_mesh
     entered = threading.Event()
     release = threading.Event()
+    completed = threading.Event()
 
     def slow_mesh(project, *args, **kwargs):
         entered.set()
-        if not release.wait(5.0):
-            raise TimeoutError("test did not release the mesher")
-        return original(project, *args, **kwargs)
+        try:
+            if not release.wait(5.0):
+                raise TimeoutError("test did not release the mesher")
+            return original(project, *args, **kwargs)
+        finally:
+            completed.set()
 
     monkeypatch.setattr(Project, "generate_mesh", slow_mesh)
     panel = app.panels["Mesh"]
-    started = time.perf_counter()
     panel._generate()
-    elapsed = time.perf_counter() - started
 
-    assert elapsed < 0.25
     assert entered.wait(2.0)
+    assert not completed.is_set()
+    assert not release.is_set()
     root.update()
     record = app.project.mesh_records[app._active_mesh_task_id]
     assert record.status == "running"
@@ -251,6 +254,7 @@ def test_recovery_writes_are_nonblocking_and_coalesce_to_latest_revision(
 
     entered = threading.Event()
     release = threading.Event()
+    first_completed = threading.Event()
     calls: list[tuple[dict, dict]] = []
     active = 0
     max_active = 0
@@ -263,19 +267,23 @@ def test_recovery_writes_are_nonblocking_and_coalesce_to_latest_revision(
             max_active = max(max_active, active)
         calls.append((document, keywords))
         entered.set()
-        if len(calls) == 1 and not release.wait(5.0):
-            raise TimeoutError("test did not release recovery storage")
-        with lock:
-            active -= 1
-        return object()
+        first_call = len(calls) == 1
+        try:
+            if first_call and not release.wait(5.0):
+                raise TimeoutError("test did not release recovery storage")
+            return object()
+        finally:
+            with lock:
+                active -= 1
+            if first_call:
+                first_completed.set()
 
     monkeypatch.setattr(app_module, "write_autosave", slow_autosave)
     app.run(cmd.AddPoint(0.0, 0.0))
-    started = time.perf_counter()
     app._write_recovery()
-    elapsed = time.perf_counter() - started
-    assert elapsed < 0.25
     assert entered.wait(2.0)
+    assert not first_completed.is_set()
+    assert not release.is_set()
 
     # A second dirty revision replaces any older pending request.  The writer
     # remains single-threaded, then immediately stores this newest snapshot.
