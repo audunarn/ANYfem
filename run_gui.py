@@ -27,15 +27,25 @@ def _version_at_least(value: object, minimum: object) -> bool:
     return _numeric_version(value) >= _numeric_version(minimum)
 
 
-def _ecosystem_root() -> Path:
+def _version_before(value: object, maximum: object) -> bool:
+    """Return whether a release is below an exclusive compatibility cap."""
+
+    return _numeric_version(value) < _numeric_version(maximum)
+
+
+def _ecosystem_root(repository_root: Path | None = None) -> Path:
     """Locate sibling repositories from a checkout or nested Git worktree."""
 
-    for candidate in _ROOT.parents:
+    root = _ROOT if repository_root is None else Path(repository_root).resolve()
+    embedded = root / ".ecosystem"
+    if (embedded / "ANYsolver").is_dir() and (embedded / "ANYmesh").is_dir():
+        return embedded
+    for candidate in root.parents:
         if (candidate / "ANYsolver").is_dir() and (
             candidate / "ANYmesh"
         ).is_dir():
             return candidate
-    return _ROOT.parent
+    return root.parent
 
 
 _ECOSYSTEM_ROOT = _ecosystem_root()
@@ -55,10 +65,8 @@ def _declared_project_version(project: Path) -> str | None:
 def _qualified_anymesher_project() -> Path:
     """Return a compatible ANYmesher checkout, preferring the shared tree.
 
-    ANYmesher follows semantic versioning at its public boundary.  A newer
-    checkout must not be rejected merely because it has crossed a minor
-    release boundary; the launcher enforces the qualified S3 API floor and
-    lets normal import/contract tests report an actual incompatibility.
+    The qualified companion is bound to the 0.3 compatibility series.  A
+    different minor series requires its own integration review.
     """
 
     override = (
@@ -73,7 +81,11 @@ def _qualified_anymesher_project() -> Path:
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.3.2"):
+        if (
+            version is not None
+            and _version_at_least(version, "0.3.2")
+            and _version_before(version, "0.4.0")
+        ):
             return candidate
     # Fail closed when neither the explicit candidate, sibling checkout, nor
     # retained compatibility checkout declares the qualified API generation.
@@ -103,19 +115,24 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 
 ECOSYSTEM_REQUIREMENTS = (
-    ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0", None),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4", None),
+    ("ANYmaterial", "ANYmaterial>=0.1.1,<0.2", "0.1.1", "0.2.0"),
+    (
+        "ANYgeometry",
+        "ANYgeometry[planar]>=0.4.1,<0.5",
+        "0.4.1",
+        "0.5.0",
+    ),
     (
         "ANYfileio",
         "ANYfileio[semantics]>=0.2.1,<0.3",
         "0.2.1",
         "0.3.0",
     ),
-    ("ANYmesher", "ANYmesher>=0.3.2", "0.3.2", None),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0", None),
-    ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0", None),
-    ("ANYsolver", "ANYsolver>=0.4.0", "0.4.0", None),
-    ("ANYfem", "ANYfem>=0.4", "0.4.0", None),
+    ("ANYmesher", "ANYmesher>=0.3.2,<0.4", "0.3.2", "0.4.0"),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5.4,<0.6", "0.5.4", "0.6.0"),
+    ("ANYtk3D", "ANYtk3D>=0.5.3,<0.6", "0.5.3", "0.6.0"),
+    ("ANYsolver", "ANYsolver>=0.4.0,<0.5", "0.4.0", "0.5.0"),
+    ("ANYfem", "ANYfem>=0.4.0,<0.5", "0.4.0", "0.5.0"),
 )
 
 

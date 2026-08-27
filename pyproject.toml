@@ -25,10 +25,10 @@ classifiers = [
 dependencies = [
   "numpy>=1.26",
   "scipy>=1.11",
-  "ANYsolver>=0.4.0",
-  "ANYmaterial>=0.1",
-  "ANYgeometry[planar]>=0.2.4",
-  "ANYmesher>=0.3.2",
+  "ANYsolver>=0.4.0,<0.5",
+  "ANYmaterial>=0.1.1,<0.2",
+  "ANYgeometry[planar]>=0.4.1,<0.5",
+  "ANYmesher>=0.3.2,<0.4",
   "ANYfileio[semantics]>=0.2.1,<0.3",
   "h5py>=3.15,<4",
   "platformdirs>=4.5,<5",
@@ -38,8 +38,8 @@ dependencies = [
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [
-  "ANY3dView[gpu]>=0.5",
-  "ANYtk3D>=0.5",
+  "ANY3dView[gpu]>=0.5.4,<0.6",
+  "ANYtk3D>=0.5.3,<0.6",
   "Pillow>=10,<13",
 ]
 dev = [

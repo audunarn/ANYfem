@@ -33,10 +33,10 @@ def candidate_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.1.1",
-        "ANYgeometry": "0.4.0",
+        "ANYgeometry": "0.4.1",
         "ANYfileio": "0.2.1",
         "ANYmesher": "0.3.2",
-        "ANY3dView": "0.5.3",
+        "ANY3dView": "0.5.4",
         "ANYtk3D": "0.5.3",
         "ANYsolver": "0.4.0",
         "ANYfem": "0.4.0",
@@ -70,12 +70,14 @@ def test_launcher_selects_the_coordinated_viewer_source_trees(
     software = namespace["_ANYTK3D_PROJECT"]
     command = namespace["editable_repair_command"]()
 
-    assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](core), "0.5.1"
-    )
-    assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](software), "0.5.1"
-    )
+    requirements = {
+        distribution: requirement
+        for distribution, requirement, _minimum, _maximum in namespace[
+            "ECOSYSTEM_REQUIREMENTS"
+        ]
+    }
+    assert requirements["ANY3dView"] == "ANY3dView[gpu]>=0.5.4,<0.6"
+    assert requirements["ANYtk3D"] == "ANYtk3D>=0.5.3,<0.6"
     assert f'-e "{core}[gpu]"' in command
     assert f'-e "{software}"' in command
     assert command.index(str(core)) < command.index(str(software))
@@ -91,7 +93,7 @@ def test_launcher_selects_a_compatible_anymesher_checkout(candidate_namespace):
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
 
-def test_newer_major_generations_are_not_rejected_by_version_alone(
+def test_incompatible_major_generations_are_rejected_by_declared_caps(
     candidate_namespace,
 ):
     namespace = candidate_namespace
@@ -107,7 +109,12 @@ def test_newer_major_generations_are_not_rejected_by_version_alone(
 
     assert namespace["ecosystem_compatibility_problems"](
         versions.__getitem__
-    ) == ()
+    ) == (
+        "ANYgeometry[planar]>=0.4.1,<0.5: installed metadata reports 4.0.0",
+        "ANYmesher>=0.3.2,<0.4: installed metadata reports 3.0.0",
+        "ANYsolver>=0.4.0,<0.5: installed metadata reports 1.0.0",
+        "ANYfem>=0.4.0,<0.5: installed metadata reports 1.0.0",
+    )
 
 
 def test_stale_metadata_fails_with_one_dependency_order_repair_command(
@@ -124,7 +131,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command(
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4.0: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4.0,<0.5: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
@@ -172,15 +179,23 @@ def test_s3_policy_binds_coordinated_solver_and_mesher_floors(
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]
-    assert "ANYsolver>=0.4.0" in project["dependencies"]
-    assert "ANYmesher>=0.3.2" in project["dependencies"]
-    assert "ANYfileio[semantics]>=0.2.1,<0.3" in project["dependencies"]
+    assert {
+        "ANYsolver>=0.4.0,<0.5",
+        "ANYmaterial>=0.1.1,<0.2",
+        "ANYgeometry[planar]>=0.4.1,<0.5",
+        "ANYmesher>=0.3.2,<0.4",
+        "ANYfileio[semantics]>=0.2.1,<0.3",
+    } <= set(project["dependencies"])
+    assert {
+        "ANY3dView[gpu]>=0.5.4,<0.6",
+        "ANYtk3D>=0.5.3,<0.6",
+    } <= set(project["optional-dependencies"]["gui"])
 
     versions = _versions()
     versions["ANYmesher"] = "0.3.1"
     assert candidate_namespace["ecosystem_compatibility_problems"](
         versions.__getitem__
-    ) == ("ANYmesher>=0.3.2: installed metadata reports 0.3.1",)
+    ) == ("ANYmesher>=0.3.2,<0.4: installed metadata reports 0.3.1",)
 
     versions = _versions()
     versions["ANYfileio"] = "0.3.0"
@@ -189,6 +204,18 @@ def test_s3_policy_binds_coordinated_solver_and_mesher_floors(
     ) == (
         "ANYfileio[semantics]>=0.2.1,<0.3: installed metadata reports 0.3.0",
     )
+
+
+def test_actions_ecosystem_checkout_root_is_preferred(tmp_path) -> None:
+    namespace = _namespace()
+    repository_root = tmp_path / "ANYfem"
+    embedded = repository_root / ".ecosystem"
+    (embedded / "ANYsolver").mkdir(parents=True)
+    (embedded / "ANYmesh").mkdir()
+    (tmp_path / "ANYsolver").mkdir()
+    (tmp_path / "ANYmesh").mkdir()
+
+    assert namespace["_ecosystem_root"](repository_root) == embedded
 
 
 def test_anyfileio_uses_only_the_canonical_repository_and_source_path(
