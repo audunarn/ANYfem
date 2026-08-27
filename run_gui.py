@@ -85,12 +85,12 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 
 ECOSYSTEM_REQUIREMENTS = (
-    ("ANYmaterial", "ANYmaterial>=0.1.1", "0.1.1"),
+    ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
-    ("ANYfileio", "ANYfileio[semantics]>=0.2.1", "0.2.1"),
+    ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
     ("ANYmesher", "ANYmesher>=0.2.5", "0.2.5"),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5.1", "0.5.1"),
-    ("ANYtk3D", "ANYtk3D>=0.5.1", "0.5.1"),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
+    ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
     ("ANYsolver", "ANYsolver>=0.3.0", "0.3.0"),
     ("ANYfem", "ANYfem>=0.3.0", "0.3.0"),
 )

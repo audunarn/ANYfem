@@ -137,5 +137,5 @@ def test_missing_distribution_metadata_is_actionable():
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio[semantics]>=0.2.1: distribution metadata is missing",
+        "ANYfileio[semantics]>=0.2: distribution metadata is missing",
     )
