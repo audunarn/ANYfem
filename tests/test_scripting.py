@@ -104,7 +104,7 @@ def test_script_failure_keeps_project_selection_and_history_byte_exact():
     assert session.revision.sequence == 0
 
 
-def test_invalid_direct_topology_is_rejected_before_commit():
+def test_read_only_topology_view_rejects_direct_mutation_before_commit():
     project = Project("invalid")
     first = project.geometry.add_point(0, 0, 0)
     second = project.geometry.add_point(1, 0, 0)
@@ -113,10 +113,10 @@ def test_invalid_direct_topology_is_rejected_before_commit():
     before = _bytes(project)
 
     with ScriptRunner(session) as runner:
-        with pytest.raises(ScriptValidationError) as caught:
+        with pytest.raises(ScriptExecutionError) as caught:
             runner.run("del project.geometry.vertices[1]")
 
-    assert "topology" in str(caught.value).lower()
+    assert "mappingproxy" in str(caught.value).lower()
     assert _bytes(project) == before
     assert session.commands.history() == []
 

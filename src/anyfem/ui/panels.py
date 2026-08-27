@@ -11,6 +11,7 @@ from dataclasses import replace
 from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
+import traceback
 from tkinter import colorchooser, filedialog, ttk
 from typing import Callable, List, Optional, Sequence
 
@@ -235,16 +236,21 @@ class StagePanel(ttk.Frame):
         def wrapped() -> None:
             try:
                 action()
-            except (
-                ValueError,
-                KeyError,
-                ProjectError,
-                SeedingConflict,
-            ) as error:
+            except Exception as error:
                 # GeometryError and SeedingConflict both derive from
                 # ValueError, so a modelling refusal reaches the status bar
-                # rather than a traceback.
-                self.app.set_status(str(error), error=True)
+                # rather than a traceback.  Unexpected callback errors are
+                # captured too, so Copy diagnosis contains enough evidence to
+                # reproduce them instead of losing them in stderr.
+                self.app.set_status(
+                    f"{type(error).__name__}: {error}",
+                    error=True,
+                    diagnostic={
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
         return wrapped
 

@@ -20,6 +20,7 @@ from typing import Any, Mapping
 from .document import ProjectSnapshot, canonical_hash
 
 __all__ = [
+    "clone_mesh_for_job",
     "MeshJobEvent",
     "MeshJobResult",
     "MeshProgress",
@@ -27,6 +28,21 @@ __all__ = [
     "MeshTaskManager",
     "mesh_semantic_hash",
 ]
+
+
+def clone_mesh_for_job(mesh: Any) -> Any:
+    """Return a detached, solver-ready mesh through its public wire format.
+
+    A current ANYmesher mesh may retain immutable ANYgeometry provenance such
+    as ``mappingproxy`` objects.  Those values are intentionally not pickle or
+    ``deepcopy`` compatible.  The versioned mesh codec is the supported
+    boundary for background jobs and also guarantees that the worker receives
+    no mutable objects shared with the live document.
+    """
+
+    from anymesher.serialize import mesh_from_dict, mesh_to_dict
+
+    return mesh_from_dict(mesh_to_dict(mesh))
 
 
 @dataclass(frozen=True)
