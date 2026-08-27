@@ -1617,7 +1617,9 @@ class Project:
             change_set=change_set,
             cancellation_check=cancellation_check,
             native_backend=native_backend,
-            structured_options=structure_options,
+            structured_options=(
+                None if resolved_strategy == "native" else structure_options
+            ),
             **supported_parameters,
         )
         if all(

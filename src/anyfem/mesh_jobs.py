@@ -170,6 +170,35 @@ def mesh_semantic_hash(
     mesh_payload = dict(mesh_to_dict(mesh))
     mesh_payload.pop("geometry_model_id", None)
     mesh_payload.pop("geometry_revision", None)
+    hybrid_diagnostics = mesh_payload.get("hybrid_diagnostics")
+    if isinstance(hybrid_diagnostics, Mapping):
+        hybrid_diagnostics = dict(hybrid_diagnostics)
+        # Hybrid generation runs on a detached working model.  Its UUID and
+        # the hash that transitively binds that UUID are provenance, not mesh
+        # semantics, and therefore change across otherwise identical jobs.
+        hybrid_diagnostics.pop("geometry_model_id", None)
+        hybrid_diagnostics.pop("structural_preparation_hash", None)
+        mesh_payload["hybrid_diagnostics"] = hybrid_diagnostics
+    mesh_preparation = mesh_payload.get("structural_preparation")
+    if isinstance(mesh_preparation, Mapping):
+        mesh_preparation = dict(mesh_preparation)
+        structural_closure = mesh_preparation.get("structural_closure")
+        if isinstance(structural_closure, Mapping):
+            structural_closure = dict(structural_closure)
+            structural_closure.pop("model_id", None)
+            structural_closure.pop("preparation_hash", None)
+            mesh_preparation["structural_closure"] = structural_closure
+        mesh_structured_layout = mesh_preparation.get("structured_layout")
+        if isinstance(mesh_structured_layout, Mapping):
+            mesh_structured_layout = dict(mesh_structured_layout)
+            mesh_plan = mesh_structured_layout.get("plan")
+            if isinstance(mesh_plan, Mapping):
+                mesh_plan = dict(mesh_plan)
+                mesh_plan.pop("model_id", None)
+                mesh_plan.pop("revision", None)
+                mesh_structured_layout["plan"] = mesh_plan
+            mesh_preparation["structured_layout"] = mesh_structured_layout
+        mesh_payload["structural_preparation"] = mesh_preparation
     preparation = dict(structural_preparation or {})
     preparation.pop("working_model_id", None)
     preparation.pop("working_revision", None)
