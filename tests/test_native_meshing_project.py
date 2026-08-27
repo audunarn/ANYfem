@@ -14,6 +14,7 @@ from anyfem.io.project_file import (
     save_project,
 )
 from anyfem.model.project import Project, ProjectError
+from anyfem.model.formulations import ShellFormulationPolicy
 from anyfem.native_meshing import ControlScope, NativeMeshControl, NativeMeshSettings
 
 
@@ -76,6 +77,9 @@ def test_native_settings_reject_foreign_geometry_handles() -> None:
 
 def test_project_generation_uses_persisted_native_defaults() -> None:
     project, face_id = _project_with_polygon()
+    # This test isolates native-backend persistence; its historical free-form
+    # polygon is outside the qualified-S3 admission envelope.
+    project.shell_formulation_policy = ShellFormulationPolicy.migrated_legacy_s3()
     project.set_native_mesh_settings(
         NativeMeshSettings(target_size=0.32, backend="native")
     )
@@ -220,9 +224,29 @@ def test_project_runtime_forwards_one_explicit_backend(monkeypatch) -> None:
 
     assert project.generate_mesh() is expected
     assert captured["native_backend"] == "python"
+    assert captured["qualified_s3"] is True
     assert list(key for key in captured if key == "native_backend") == [
         "native_backend"
     ]
+
+
+def test_project_runtime_disables_qualified_s3_preparation_for_legacy_policy(
+    monkeypatch,
+) -> None:
+    project, _face_id = _project_with_polygon()
+    project.target_size = 0.3
+    project.shell_formulation_policy = ShellFormulationPolicy.migrated_legacy_s3()
+    captured = {}
+    expected = object()
+
+    def fake_generate(_geometry, **kwargs):
+        captured.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(project_module, "generate_hybrid_mesh", fake_generate)
+
+    assert project.generate_mesh() is expected
+    assert captured["qualified_s3"] is False
 
 
 def test_nested_runtime_backend_setting_is_rejected() -> None:

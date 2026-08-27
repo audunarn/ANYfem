@@ -227,6 +227,9 @@ def test_production_publish_uses_verified_prebuilt_release_assets() -> None:
     assert 'gh release download "$RELEASE_TAG"' in production
     assert "ANYfem-0.4.0-SHA256SUMS.txt" in production
     assert "checksum manifest does not exactly cover distributions" in production
+    assert '"anyfem-0.4.0-py3-none-any.whl"' in production
+    assert '"anyfem-0.4.0.tar.gz"' in production
+    assert "release does not contain the exact ANYfem artifact set" in production
     assert "unexpected ANYfem distribution asset" in production
     assert "release checksum mismatch" in production
     assert "pypa/gh-action-pypi-publish@release/v1" in production

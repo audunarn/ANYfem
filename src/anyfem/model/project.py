@@ -1617,6 +1617,9 @@ class Project:
             change_set=change_set,
             cancellation_check=cancellation_check,
             native_backend=native_backend,
+            qualified_s3=(
+                self.shell_formulation_policy.s3 == "e4-pl-s3"
+            ),
             structured_options=(
                 None if resolved_strategy == "native" else structure_options
             ),
