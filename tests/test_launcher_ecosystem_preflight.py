@@ -19,13 +19,13 @@ def _namespace():
 def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.1.1",
-        "ANYgeometry": "0.2.4",
+        "ANYgeometry": "0.4.0",
         "ANYfileio": "0.2.1",
-        "ANYmesher": "0.2.5",
-        "ANY3dView": "0.5.1",
-        "ANYtk3D": "0.5.1",
-        "ANYsolver": "0.3.0",
-        "ANYfem": "0.3.2",
+        "ANYmesher": "0.3.0",
+        "ANY3dView": "0.5.3",
+        "ANYtk3D": "0.5.3",
+        "ANYsolver": "0.3.1",
+        "ANYfem": "0.3.0",
     }
 
 
@@ -52,19 +52,42 @@ def test_launcher_selects_the_coordinated_viewer_source_trees():
     software = namespace["_ANYTK3D_PROJECT"]
     command = namespace["editable_repair_command"]()
 
-    assert namespace["_declared_project_version"](core) == "0.5.1"
-    assert namespace["_declared_project_version"](software) == "0.5.1"
+    assert namespace["_version_at_least"](
+        namespace["_declared_project_version"](core), "0.5.1"
+    )
+    assert namespace["_version_at_least"](
+        namespace["_declared_project_version"](software), "0.5.1"
+    )
     assert f'-e "{core}[gpu]"' in command
     assert f'-e "{software}"' in command
     assert command.index(str(core)) < command.index(str(software))
 
 
-def test_launcher_selects_an_exact_anymesher_025_checkout():
+def test_launcher_selects_a_compatible_anymesher_checkout():
     namespace = _namespace()
     project = namespace["_ANYMESHER_PROJECT"]
 
-    assert namespace["_declared_project_version"](project) == "0.2.5"
+    assert namespace["_version_at_least"](
+        namespace["_declared_project_version"](project), "0.2.5"
+    )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
+
+
+def test_newer_major_generations_are_not_rejected_by_version_alone():
+    namespace = _namespace()
+    versions = _versions()
+    versions.update(
+        {
+            "ANYgeometry": "4.0.0",
+            "ANYmesher": "3.0.0",
+            "ANYsolver": "1.0.0",
+            "ANYfem": "1.0.0",
+        }
+    )
+
+    assert namespace["ecosystem_compatibility_problems"](
+        versions.__getitem__
+    ) == ()
 
 
 def test_stale_metadata_fails_with_one_dependency_order_repair_command():
@@ -79,7 +102,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.3,<0.4: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.3.0: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
@@ -114,5 +137,5 @@ def test_missing_distribution_metadata_is_actionable():
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio[semantics]>=0.2,<0.3: distribution metadata is missing",
+        "ANYfileio[semantics]>=0.2.1: distribution metadata is missing",
     )

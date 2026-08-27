@@ -14,6 +14,19 @@ from typing import Callable
 _ROOT = Path(__file__).resolve().parent
 
 
+def _numeric_version(value: object) -> tuple[int, int, int]:
+    """Return the numeric release prefix used by the lightweight launcher."""
+
+    parts = [int(item) for item in re.findall(r"\d+", str(value or ""))[:3]]
+    return tuple((parts + [0, 0, 0])[:3])
+
+
+def _version_at_least(value: object, minimum: object) -> bool:
+    """Accept newer ecosystem generations while retaining a safe floor."""
+
+    return _numeric_version(value) >= _numeric_version(minimum)
+
+
 def _declared_project_version(project: Path) -> str | None:
     """Read a source checkout's declared version without importing it."""
 
@@ -26,16 +39,26 @@ def _declared_project_version(project: Path) -> str | None:
 
 
 def _qualified_anymesher_project() -> Path:
-    """Return an exact 0.2.5 checkout, preserving unrelated mesh worktrees."""
+    """Return a compatible ANYmesher checkout, preferring the shared tree.
 
-    override = os.environ.get("ANYMESHER_025_SOURCE", "").strip()
+    ANYmesher follows semantic versioning at its public boundary.  A newer
+    checkout must not be rejected merely because it has crossed a minor or
+    major release boundary; the launcher enforces the minimum API generation
+    and lets normal import/contract tests report an actual incompatibility.
+    """
+
+    override = (
+        os.environ.get("ANYMESHER_SOURCE", "").strip()
+        or os.environ.get("ANYMESHER_025_SOURCE", "").strip()
+    )
     release_checkout = _ROOT.parent / "ANYsolver" / ".compat_anymesher_025"
     candidates = ([Path(override)] if override else []) + [
         _ROOT.parent / "ANYmesh",
         release_checkout,
     ]
     for candidate in candidates:
-        if _declared_project_version(candidate) == "0.2.5":
+        version = _declared_project_version(candidate)
+        if version is not None and _version_at_least(version, "0.2.5"):
             return candidate
     return Path(override) if override else release_checkout
 
@@ -62,20 +85,15 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 
 ECOSYSTEM_REQUIREMENTS = (
-    ("ANYmaterial", "ANYmaterial>=0.1,<0.2", "0.1.1", "0.2.0"),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4,<0.3", "0.2.4", "0.3.0"),
-    ("ANYfileio", "ANYfileio[semantics]>=0.2,<0.3", "0.2.1", "0.3.0"),
-    ("ANYmesher", "ANYmesher>=0.2.5,<0.3", "0.2.5", "0.3.0"),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5,<0.6", "0.5.1", "0.6.0"),
-    ("ANYtk3D", "ANYtk3D>=0.5,<0.6", "0.5.1", "0.6.0"),
-    ("ANYsolver", "ANYsolver>=0.3,<0.4", "0.3.0", "0.4.0"),
-    ("ANYfem", "ANYfem>=0.3,<0.4", "0.3.2", "0.4.0"),
+    ("ANYmaterial", "ANYmaterial>=0.1.1", "0.1.1"),
+    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
+    ("ANYfileio", "ANYfileio[semantics]>=0.2.1", "0.2.1"),
+    ("ANYmesher", "ANYmesher>=0.2.5", "0.2.5"),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5.1", "0.5.1"),
+    ("ANYtk3D", "ANYtk3D>=0.5.1", "0.5.1"),
+    ("ANYsolver", "ANYsolver>=0.3.0", "0.3.0"),
+    ("ANYfem", "ANYfem>=0.3.0", "0.3.0"),
 )
-
-
-def _numeric_version(value: object) -> tuple[int, int, int]:
-    parts = [int(item) for item in re.findall(r"\d+", str(value or ""))[:3]]
-    return tuple((parts + [0, 0, 0])[:3])
 
 
 def ecosystem_compatibility_problems(
@@ -85,14 +103,13 @@ def ecosystem_compatibility_problems(
 
     read_version = metadata.version if version_reader is None else version_reader
     problems: list[str] = []
-    for distribution, requirement, minimum, maximum in ECOSYSTEM_REQUIREMENTS:
+    for distribution, requirement, minimum in ECOSYSTEM_REQUIREMENTS:
         try:
             installed = str(read_version(distribution))
         except metadata.PackageNotFoundError:
             problems.append(f"{requirement}: distribution metadata is missing")
             continue
-        numeric = _numeric_version(installed)
-        if numeric < _numeric_version(minimum) or numeric >= _numeric_version(maximum):
+        if not _version_at_least(installed, minimum):
             problems.append(f"{requirement}: installed metadata reports {installed}")
     return tuple(problems)
 

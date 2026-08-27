@@ -116,17 +116,18 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYsolver\.compat_anymesher_025" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
 so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
 
-The qualified ANYmesher source is selected the same way. The shared
-`ANYmesh` checkout is used only when it declares exactly 0.2.5; otherwise the
-qualified 0.2.5 snapshot is used. `ANYMESHER_025_SOURCE` can name another exact
-0.2.5 checkout. This preserves unrelated changes in a dirty mesher worktree.
+The ANYmesher source is selected the same way. The shared `ANYmesh` checkout
+is used whenever it declares version 0.2.5 or newer; newer compatible releases
+are not rejected by an obsolete upper version bound. `ANYMESHER_SOURCE` can
+name another compatible checkout. The historical `ANYMESHER_025_SOURCE`
+variable remains accepted for one compatibility cycle.
 
 ```powershell
 python -m anyfem.ui.app
@@ -134,7 +135,9 @@ python -m anyfem.ui.app
 
 From a source checkout, `python run_gui.py` first checks both imported module
 origins and installed distribution versions, then launches the application.
-It fails before importing Tk when source and editable metadata are mixed.
+The version check enforces minimum API generations and accepts newer releases.
+It fails before importing Tk when source and editable metadata are missing,
+older than those floors, or resolve from a different checkout.
 
 The default workspace keeps the model tree on the left, the retained 3D view in
 the centre, and contextual Details/tasks on the right. Geometry/features,
