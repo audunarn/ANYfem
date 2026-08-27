@@ -218,6 +218,7 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
     from types import SimpleNamespace
 
     from anymesher import Mesh
+    from anysolver import QualifiedE4PLS3ShellElement
 
     from anyfem.post.extract import nodes_to_elements
     from anyfem.post.fields import element_centroids, evaluate_field, reported_fields
@@ -247,8 +248,12 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
         project, mesh, require_loads=False, require_supports=False
     )
 
-    assert built.fe_model.mesh.elements[1].node_ids == [1, 2, 3]
-    assert built.fe_model.mesh.elements[2].node_ids == [1, 3, 4]
+    first = built.fe_model.mesh.elements[1]
+    second = built.fe_model.mesh.elements[2]
+    assert type(first) is QualifiedE4PLS3ShellElement
+    assert type(second) is QualifiedE4PLS3ShellElement
+    assert first.node_ids == (1, 2, 3)
+    assert second.node_ids == (1, 3, 4)
 
     # Triangles remain first-class shells after the solve boundary too: probes,
     # stress fields, centroids and the result scene must not quietly enumerate

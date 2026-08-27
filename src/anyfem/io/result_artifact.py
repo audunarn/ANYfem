@@ -1748,6 +1748,16 @@ def _solution_submission_identity(solution: Any) -> dict[str, Any]:
         "document_id": str(getattr(project, "document_id", "")),
         "project_name": str(getattr(project, "name", "")),
     }
+    shell_formulation_policy = getattr(
+        built, "shell_formulation_policy", None
+    )
+    if shell_formulation_policy is not None:
+        to_dict = getattr(shell_formulation_policy, "to_dict", None)
+        if not callable(to_dict):
+            raise TypeError(
+                "built shell formulation policy has no canonical representation"
+            )
+        identity["shell_formulations"] = _json_safe(to_dict())
     try:
         # ``DocumentSession`` computes the same canonical v4 semantic hash as
         # job submission.  It is non-serialized and does not mutate Project.

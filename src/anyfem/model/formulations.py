@@ -40,13 +40,14 @@ def _token(value: object, *, field: str, allowed: set[str]) -> str:
 class ShellFormulationPolicy:
     """Topology-specific shell identities used when a project is built.
 
-    The additive S3 candidate remains opt-in.  Files without this record are
-    migrated to the explicit legacy-S3 policy so reopening an older project
-    cannot silently change its triangular mechanics.
+    New format-8 projects use the qualified S3 companion.  Files without this
+    record are migrated to an explicit legacy-S3 policy by the project codec,
+    so reopening an older project cannot silently change its triangular
+    mechanics.
     """
 
     q4: str = "e4-pl"
-    s3: str = "legacy-s3"
+    s3: str = "e4-pl-s3"
     higher_order: str = "legacy"
 
     def __post_init__(self) -> None:
@@ -60,10 +61,16 @@ class ShellFormulationPolicy:
 
     @classmethod
     def qualified_s3_candidate(cls) -> "ShellFormulationPolicy":
-        return cls(s3="e4-pl-s3")
+        return cls.current_default()
 
     @classmethod
     def current_default(cls) -> "ShellFormulationPolicy":
+        return cls(q4="e4-pl", s3="e4-pl-s3")
+
+    @classmethod
+    def migrated_legacy_s3(cls) -> "ShellFormulationPolicy":
+        """Keep historical TRI3 mechanics while retaining qualified Q4."""
+
         return cls(q4="e4-pl", s3="legacy-s3")
 
     @classmethod

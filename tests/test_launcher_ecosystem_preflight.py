@@ -16,6 +16,19 @@ def _namespace():
     return runpy.run_path(str(ROOT / "run_gui.py"), run_name="preflight_test")
 
 
+@pytest.fixture
+def candidate_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    candidate = tmp_path / "ANYmesh-0.3.0"
+    candidate.mkdir()
+    (candidate / "src").mkdir()
+    (candidate / "pyproject.toml").write_text(
+        '[project]\nname = "ANYmesher"\nversion = "0.3.0"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ANYMESHER_SOURCE", str(candidate))
+    return _namespace()
+
+
 def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.1.1",
@@ -24,8 +37,8 @@ def _versions() -> dict[str, str]:
         "ANYmesher": "0.3.0",
         "ANY3dView": "0.5.3",
         "ANYtk3D": "0.5.3",
-        "ANYsolver": "0.3.1",
-        "ANYfem": "0.3.0",
+        "ANYsolver": "0.4.0",
+        "ANYfem": "0.4.0",
     }
 
 
@@ -36,8 +49,10 @@ def _origins(namespace) -> dict[str, str]:
     }
 
 
-def test_latest_sources_and_metadata_pass_without_importing_tk():
-    namespace = _namespace()
+def test_latest_sources_and_metadata_pass_without_importing_tk(
+    candidate_namespace,
+):
+    namespace = candidate_namespace
     versions = _versions()
     origins = _origins(namespace)
 
@@ -46,8 +61,10 @@ def test_latest_sources_and_metadata_pass_without_importing_tk():
     )
 
 
-def test_launcher_selects_the_coordinated_viewer_source_trees():
-    namespace = _namespace()
+def test_launcher_selects_the_coordinated_viewer_source_trees(
+    candidate_namespace,
+):
+    namespace = candidate_namespace
     core = namespace["_ANY3DVIEW_PROJECT"]
     software = namespace["_ANYTK3D_PROJECT"]
     command = namespace["editable_repair_command"]()
@@ -63,18 +80,20 @@ def test_launcher_selects_the_coordinated_viewer_source_trees():
     assert command.index(str(core)) < command.index(str(software))
 
 
-def test_launcher_selects_a_compatible_anymesher_checkout():
-    namespace = _namespace()
+def test_launcher_selects_a_compatible_anymesher_checkout(candidate_namespace):
+    namespace = candidate_namespace
     project = namespace["_ANYMESHER_PROJECT"]
 
     assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](project), "0.2.5"
+        namespace["_declared_project_version"](project), "0.3.0"
     )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
 
-def test_newer_major_generations_are_not_rejected_by_version_alone():
-    namespace = _namespace()
+def test_newer_major_generations_are_not_rejected_by_version_alone(
+    candidate_namespace,
+):
+    namespace = candidate_namespace
     versions = _versions()
     versions.update(
         {
@@ -90,8 +109,10 @@ def test_newer_major_generations_are_not_rejected_by_version_alone():
     ) == ()
 
 
-def test_stale_metadata_fails_with_one_dependency_order_repair_command():
-    namespace = _namespace()
+def test_stale_metadata_fails_with_one_dependency_order_repair_command(
+    candidate_namespace,
+):
+    namespace = candidate_namespace
     versions = _versions()
     origins = _origins(namespace)
     versions["ANYsolver"] = "0.2.9"
@@ -102,21 +123,24 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.3.0: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
     assert command.index(mesh_project) < command.index("ANYio")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
-    solver_project = str(ROOT.parent / "ANYsolver")
+    solver_project = str(namespace["_ECOSYSTEM_ROOT"] / "ANYsolver")
+    fem_project = str(namespace["_ROOT"])
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
-    assert command.index(f'-e "{solver_project}"') < command.index("ANYfem")
+    assert command.index(f'-e "{solver_project}"') < command.index(
+        f'-e "{fem_project}[gui]"'
+    )
 
 
-def test_wrong_module_origin_is_rejected_before_gui_import():
-    namespace = _namespace()
+def test_wrong_module_origin_is_rejected_before_gui_import(candidate_namespace):
+    namespace = candidate_namespace
     origins = _origins(namespace)
     origins["anymesher"] = r"C:\stale\site-packages\anymesher\__init__.py"
 
@@ -127,8 +151,8 @@ def test_wrong_module_origin_is_rejected_before_gui_import():
     assert "C:\\stale\\site-packages" in problems[0]
 
 
-def test_missing_distribution_metadata_is_actionable():
-    namespace = _namespace()
+def test_missing_distribution_metadata_is_actionable(candidate_namespace):
+    namespace = candidate_namespace
     versions = _versions()
 
     def reader(name: str) -> str:

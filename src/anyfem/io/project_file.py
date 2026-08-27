@@ -498,14 +498,24 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         else unit_profile()
     )
     shell_formulations_data = data.get("shell_formulations")
-    if shell_formulations_data is None:
-        if version >= 8:
-            raise ProjectFileError("format 8 shell_formulations is required")
-        shell_formulation_policy = ShellFormulationPolicy.current_default()
+    if version < 8 or shell_formulations_data is None:
+        imported_without_formulation_authority = bool(
+            mesh_only or imported_format is not None
+        )
+        shell_formulation_policy = (
+            ShellFormulationPolicy.legacy_compatible()
+            if imported_without_formulation_authority
+            else ShellFormulationPolicy.migrated_legacy_s3()
+        )
         compatibility_diagnostics = list(compatibility_diagnostics)
         compatibility_diagnostics.append(
-            "project predates persisted shell formulation policy; TRI3 remains "
-            "legacy-s3 while Q4 retains the accepted qualified default"
+            "project lacks an authoritative format-8 shell formulation policy; "
+            + (
+                "imported shell topologies remain explicitly legacy"
+                if imported_without_formulation_authority
+                else "TRI3 remains legacy-s3 explicitly while Q4 retains the "
+                "accepted qualified default"
+            )
         )
     elif isinstance(shell_formulations_data, Mapping):
         try:

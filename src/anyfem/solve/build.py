@@ -8,7 +8,7 @@ node set -- happens here through the mesh association map.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import permutations
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -28,6 +28,7 @@ from anymesher import S3QualityError, assert_s3_admissible
 
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
+from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
 
@@ -43,6 +44,22 @@ class BuiltModel:
     mesh: Mesh
     project: Project
     combination: str | None = None
+    # Capture the immutable policy used to construct this solver model.  The
+    # mutable Project may be edited after a build, but result/restart
+    # provenance must continue to describe the element classes actually in
+    # this BuiltModel.
+    shell_formulation_policy: ShellFormulationPolicy | None = field(
+        default=None,
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        policy = getattr(self.project, "shell_formulation_policy", None)
+        if policy is not None and not isinstance(policy, ShellFormulationPolicy):
+            raise TypeError(
+                "shell_formulation_policy must be a ShellFormulationPolicy"
+            )
+        self.shell_formulation_policy = policy
 
     def node_dofs(self, node_id: int) -> List[int]:
         return self.fe_model.mesh.dof_manager.get_node_dofs(node_id)
@@ -262,10 +279,9 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
 def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """Beam elements, linear or quadratic according to the mesh's order.
 
-    Shells need no such branch: ANYsolver's public element selector reads
-    topology from the node count and selects the qualified Q4 default while
-    preserving TRI3, TRI6, Q8, and Q8R. The beam classes are separate, so the
-    choice has to be made here.
+    Shells use the persisted topology policy above: qualified Q4/S3 identities
+    are explicit, while TRI6, Q8, and Q8R retain the legacy higher-order path.
+    The beam classes are separate, so the order choice has to be made here.
     """
 
     element_class = QuadraticBeamElement if mesh.is_quadratic else BeamElement

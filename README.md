@@ -21,23 +21,24 @@ ANYfem owns the application layer across the focused ecosystem packages:
 
 The dependency direction is one-way. ANYfem never imports ANYstructure.
 
-### Qualified latest-only release graph
+### Coordinated S3 activation-candidate graph
 
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
 | ANYmaterial | 0.1.1 | material definitions and nonlinear curves |
 | ANYgeometry | 0.2.4 | exact frozen features, topology and structural ownership |
-| ANYmesher | 0.2.5 | global block layouts, hard structured quality and seed/interface diagnostics |
+| ANYmesher | 0.3.0 | qualified S3 admission, owner normals, repair, global block layouts and interface diagnostics |
 | ANYfileio | 0.2.1 | neutral and solver-file semantics |
-| ANY3dView | 0.5.1 | viewer contract and ModernGL renderer |
-| ANYtk3D | 0.5.1 | compatible software renderer |
-| ANYsolver | 0.3.0 | analyses, outcomes, progress, reactions and quantities |
-| ANYfem | 0.3.2 | workflow, mesh-layout preview/commit, persistence, jobs and results |
+| ANY3dView | 0.5.3 | viewer contract and ModernGL renderer |
+| ANYtk3D | 0.5.3 | compatible software renderer |
+| ANYsolver | 0.4.0 | qualified Q4/S3 analyses, outcomes, progress, reactions and quantities |
+| ANYfem | 0.4.0 | topology-aware shell policy, workflow, persistence, jobs and results |
 | ANYbuckling | 0.1.1 | compatible independent buckling adapter |
 | ANYstructure | 6.3.1 | downstream application consumer |
 
-Only these latest package generations are qualified together. Historical
-ANYfem project formats 1--6 remain readable through the v7 migration path;
+These exact versions form the frozen default-activation candidate; they are
+not release-qualified until both mixed-mesh cycles pass. Historical
+ANYfem project formats 1--7 remain readable through the v8 migration path;
 that file compatibility does not qualify older installed package generations.
 ANYtimeseries remains independent of this release graph.
 
@@ -52,10 +53,10 @@ results.
 | `anyfem.geometry` | Temporary compatibility imports over ANYgeometry's shared `GeometryModel`, `EntityRef`, curves and topology; new code may import the same owner objects directly from `anygeometry` |
 | `anyfem.geometry.operations` | Compatibility imports: surface evaluation comes from ANYgeometry; historical axis/fraction splits, strips, butterfly decomposition and mappability checks come from ANYmesher |
 | `anyfem.mesh` | Compatibility surface over ANYmesher: edge seeding, Coons mapped meshing, conformal node sharing, refinement, shell/beam topology and couplings |
-| `anyfem.model` | Stable-ID materials/sections/assignments, reusable geometry/mesh regions, named Cartesian/cylindrical coordinates, SI-backed unit profiles, six-component supports/loads, masses, combinations and imperfections |
+| `anyfem.model` | Stable-ID materials/sections/assignments, topology-aware Q4/S3 formulation policy, reusable geometry/mesh regions, named Cartesian/cylindrical coordinates, SI-backed unit profiles, six-component supports/loads, masses, combinations and imperfections |
 | `anyfem.solve` | FEModel construction; linear static, modal, buckling, nonlinear static, arc-length, transient, rigid-sphere impact and the packaged capacity workflow; recovery and resource policy |
 | `anyfem.post` | Displacement and stress fields, probes, along-line extraction, envelopes, deformed shapes, mode and time-step browsing, history series, Markdown and CSV export |
-| `anyfem.io` | v7 project intent, schema-v4 feature geometry, portable SESAM embedding, atomic HDF5 mesh/result sidecars, validation, locks and autosave recovery |
+| `anyfem.io` | v8 project intent with explicit shell-formulation identity, schema-v4 feature geometry, portable SESAM embedding, atomic HDF5 mesh/result sidecars, validation, locks and autosave recovery |
 | `anyfem.commands` | Atomic document transactions and command-stack undo/redo, including feature edit/suppress/regenerate |
 | `anyfem.migration` | Reads ANYstructure's saved FE state without importing it; measures the migration gate |
 | `anyfem.selection` | Geometry and mesh domains; point/edge/plate/node/element/element-face filters; replace/add/toggle/remove and ordered picks |
@@ -124,10 +125,11 @@ so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
 
 The ANYmesher source is selected the same way. The shared `ANYmesh` checkout
-is used whenever it declares version 0.2.5 or newer; newer compatible releases
+is used whenever it declares version 0.3.0 or newer; newer compatible releases
 are not rejected by an obsolete upper version bound. `ANYMESHER_SOURCE` can
-name another compatible checkout. The historical `ANYMESHER_025_SOURCE`
-variable remains accepted for one compatibility cycle.
+name another compatible checkout. The historical `ANYMESHER_030_SOURCE`
+variable remains accepted for one compatibility cycle. Installed pre-0.3
+metadata is rejected before the GUI imports.
 
 ```powershell
 python -m anyfem.ui.app
@@ -738,7 +740,7 @@ route can be used; it is not the mapped/native method selector. Shared model
 edges use one node sequence, so automatic mixed-method interfaces remain
 conformal without coincident-node merging. After completion, Mesh details show
 the requested method, the actual method used per face, native backend routes,
-intersection preparation, and ANYmesher 0.2.5 global layout/quality measures
+intersection preparation, and ANYmesher 0.3.0 global layout/quality measures
 including scaled Jacobian, angle range, poor-element count, and optimization
 provenance.
 

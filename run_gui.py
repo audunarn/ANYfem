@@ -27,6 +27,20 @@ def _version_at_least(value: object, minimum: object) -> bool:
     return _numeric_version(value) >= _numeric_version(minimum)
 
 
+def _ecosystem_root() -> Path:
+    """Locate sibling repositories from a checkout or nested Git worktree."""
+
+    for candidate in _ROOT.parents:
+        if (candidate / "ANYsolver").is_dir() and (
+            candidate / "ANYmesh"
+        ).is_dir():
+            return candidate
+    return _ROOT.parent
+
+
+_ECOSYSTEM_ROOT = _ecosystem_root()
+
+
 def _declared_project_version(project: Path) -> str | None:
     """Read a source checkout's declared version without importing it."""
 
@@ -42,38 +56,42 @@ def _qualified_anymesher_project() -> Path:
     """Return a compatible ANYmesher checkout, preferring the shared tree.
 
     ANYmesher follows semantic versioning at its public boundary.  A newer
-    checkout must not be rejected merely because it has crossed a minor or
-    major release boundary; the launcher enforces the minimum API generation
-    and lets normal import/contract tests report an actual incompatibility.
+    checkout must not be rejected merely because it has crossed a minor
+    release boundary; the launcher enforces the qualified S3 API floor and
+    lets normal import/contract tests report an actual incompatibility.
     """
 
     override = (
         os.environ.get("ANYMESHER_SOURCE", "").strip()
-        or os.environ.get("ANYMESHER_025_SOURCE", "").strip()
+        or os.environ.get("ANYMESHER_030_SOURCE", "").strip()
     )
-    release_checkout = _ROOT.parent / "ANYsolver" / ".compat_anymesher_025"
+    sibling_checkout = _ECOSYSTEM_ROOT / "ANYmesh"
+    release_checkout = _ECOSYSTEM_ROOT / "ANYsolver" / ".compat_anymesher_030"
     candidates = ([Path(override)] if override else []) + [
-        _ROOT.parent / "ANYmesh",
+        sibling_checkout,
         release_checkout,
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.2.5"):
+        if version is not None and _version_at_least(version, "0.3.0"):
             return candidate
-    return Path(override) if override else release_checkout
+    # Fail closed when neither the explicit candidate, sibling checkout, nor
+    # retained compatibility checkout declares the qualified API generation.
+    # The missing source then becomes an actionable preflight diagnostic.
+    return release_checkout
 
 
-_ANY3DVIEW_PROJECT = _ROOT.parent / "ANY3dView"
-_ANYTK3D_PROJECT = _ROOT.parent / "ANYtk3D"
+_ANY3DVIEW_PROJECT = _ECOSYSTEM_ROOT / "ANY3dView"
+_ANYTK3D_PROJECT = _ECOSYSTEM_ROOT / "ANYtk3D"
 _ANYMESHER_PROJECT = _qualified_anymesher_project()
 _SOURCE_PROJECTS = (
-    ("ANYmaterial", "anymaterial", _ROOT.parent / "ANYmaterial" / "src"),
-    ("ANYgeometry", "anygeometry", _ROOT.parent / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _ROOT.parent / "ANYio" / "src"),
+    ("ANYmaterial", "anymaterial", _ECOSYSTEM_ROOT / "ANYmaterial" / "src"),
+    ("ANYgeometry", "anygeometry", _ECOSYSTEM_ROOT / "ANYgeometry" / "src"),
+    ("ANYfileio", "anyfileio", _ECOSYSTEM_ROOT / "ANYio" / "src"),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
-    ("ANYsolver", "anysolver", _ROOT.parent / "ANYsolver" / "src"),
+    ("ANYsolver", "anysolver", _ECOSYSTEM_ROOT / "ANYsolver" / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
 
@@ -88,11 +106,11 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
     ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
-    ("ANYmesher", "ANYmesher>=0.2.5", "0.2.5"),
+    ("ANYmesher", "ANYmesher>=0.3", "0.3.0"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
     ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
-    ("ANYsolver", "ANYsolver>=0.3.0", "0.3.0"),
-    ("ANYfem", "ANYfem>=0.3.0", "0.3.0"),
+    ("ANYsolver", "ANYsolver>=0.4", "0.4.0"),
+    ("ANYfem", "ANYfem>=0.4", "0.4.0"),
 )
 
 
@@ -150,13 +168,13 @@ def editable_repair_command() -> str:
     """One copy/paste bootstrap command in release dependency order."""
 
     projects = (
-        str(_ROOT.parent / "ANYmaterial"),
-        str(_ROOT.parent / "ANYgeometry") + "[planar]",
+        str(_ECOSYSTEM_ROOT / "ANYmaterial"),
+        str(_ECOSYSTEM_ROOT / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_ROOT.parent / "ANYio") + "[semantics]",
+        str(_ECOSYSTEM_ROOT / "ANYio") + "[semantics]",
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
-        str(_ROOT.parent / "ANYsolver"),
+        str(_ECOSYSTEM_ROOT / "ANYsolver"),
         str(_ROOT) + "[gui]",
     )
     editables = " ".join(f'-e "{project}"' for project in projects)
@@ -175,7 +193,7 @@ def require_compatible_ecosystem(
     )
     if problems:
         raise RuntimeError(
-            "ANYfem 0.3.2 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.4.0 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

@@ -11,6 +11,7 @@ from anyfem.solve.build import build_fe_model
 from anymesher import Mesh
 from anysolver import (
     LegacyQ4DeprecationWarning,
+    QualifiedE4PLS3ShellElement,
     QualifiedE4PLShellElement,
     ShellElement,
 )
@@ -19,7 +20,7 @@ from anysolver import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_anyfem_routes_q4_through_default_and_preserves_other_shell_topologies() -> None:
+def test_anyfem_routes_qualified_q4_and_s3_and_preserves_higher_order() -> None:
     project = Project("E4-PL routing")
     project.add_material(steel("S355", 0.01))
     project.add_plate_section("plate", thickness=0.01, material="S355")
@@ -37,15 +38,22 @@ def test_anyfem_routes_q4_through_default_and_preserves_other_shell_topologies()
             2: (1.0, 0.0, 0.0),
             3: (1.0, 1.0, 0.0),
             4: (0.0, 1.0, 0.0),
-            5: (0.5, 0.0, 0.0),
-            6: (1.0, 0.5, 0.0),
-            7: (0.5, 1.0, 0.0),
-            8: (0.0, 0.5, 0.0),
+            5: (1.5, 0.0, 0.0),
+            6: (2.5, 0.0, 0.0),
+            7: (2.5, 1.0, 0.0),
+            8: (1.5, 1.0, 0.0),
+            9: (2.0, 0.0, 0.0),
+            10: (2.5, 0.5, 0.0),
+            11: (2.0, 1.0, 0.0),
+            12: (1.5, 0.5, 0.0),
+            13: (3.0, 0.0, 0.0),
+            14: (4.0, 0.0, 0.0),
+            15: (3.5, np.sqrt(3.0) / 2.0, 0.0),
         }.items()
     }
-    mesh.quads = {10: (1, 2, 3, 4), 11: (1, 2, 3, 4, 5, 6, 7, 8)}
-    mesh.tris = {12: (1, 2, 3)}
-    mesh.elements_of_face = {face: [10, 11, 12]}
+    mesh.quads = {20: (1, 2, 3, 4), 21: (5, 6, 7, 8, 9, 10, 11, 12)}
+    mesh.tris = {22: (13, 14, 15)}
+    mesh.elements_of_face = {face: [20, 21, 22]}
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -57,9 +65,9 @@ def test_anyfem_routes_q4_through_default_and_preserves_other_shell_topologies()
         )
 
     elements = built.fe_model.mesh.elements
-    assert type(elements[10]) is QualifiedE4PLShellElement
-    assert type(elements[11]) is ShellElement
-    assert type(elements[12]) is ShellElement
+    assert type(elements[20]) is QualifiedE4PLShellElement
+    assert type(elements[21]) is ShellElement
+    assert type(elements[22]) is QualifiedE4PLS3ShellElement
     assert [item for item in caught if item.category is LegacyQ4DeprecationWarning] == []
 
 

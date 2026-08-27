@@ -23,6 +23,7 @@ import numpy as np
 from anygeometry.entities import EntityRef
 
 from ..mesh.mapped import Mesh
+from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project
 
 __all__ = [
@@ -91,6 +92,10 @@ class ImportedModel:
             name=self.name,
             mesh_only=True,
             imported_format=self.imported_format,
+            # Historical neutral records carry no qualified formulation or
+            # physical-normal authority.  Keep both shell topologies on their
+            # explicit legacy path rather than inheriting new-project defaults.
+            shell_formulation_policy=ShellFormulationPolicy.legacy_compatible(),
         )
 
     def artifact_embedding(self) -> tuple[dict[str, Any], bytes]:
@@ -181,6 +186,14 @@ class ImportedModel:
         from ..solve.build import BuiltModel, _accumulate_case
 
         active_project = project if project is not None else self.project()
+        if (
+            getattr(active_project, "shell_formulation_policy", None)
+            != ShellFormulationPolicy.legacy_compatible()
+        ):
+            raise SesamImportError(
+                "historical neutral models have no qualified shell-formulation "
+                "authority; use an explicit all-legacy formulation policy"
+            )
         solver_case = None
         if load_case is not None:
             if isinstance(load_case, SolverLoadCase):

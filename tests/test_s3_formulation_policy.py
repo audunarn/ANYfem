@@ -14,6 +14,8 @@ from anysolver import (
 )
 
 from anyfem.io.project_file import ProjectFileError, project_from_dict, project_to_dict
+from anyfem.io.result_artifact import _solution_submission_identity
+from anyfem.io.sesam import ImportedModel, SesamImportError
 from anyfem.model import Project, ProjectError, ShellFormulationPolicy
 import anyfem.solve.build as build_module
 
@@ -41,16 +43,16 @@ def test_shell_formulation_policy_round_trips_exactly() -> None:
     assert project_to_dict(restored) == payload
 
 
-def test_project_default_keeps_s3_legacy_until_coordinated_activation() -> None:
+def test_new_project_default_selects_qualified_s3_companion() -> None:
     policy = Project("current-default").shell_formulation_policy
 
     assert policy.q4 == "e4-pl"
-    assert policy.s3 == "legacy-s3"
+    assert policy.s3 == "e4-pl-s3"
     assert policy.formulation_id_for_node_count(4) == (
         "E4_PL_QUALIFIED_Q4_HYBRID_V2"
     )
     assert policy.formulation_id_for_node_count(3) == (
-        "LEGACY_SHELL_ELEMENT_TRI3"
+        "E4_PL_QUALIFIED_S3_COMPANION_V1"
     )
 
 
@@ -96,12 +98,82 @@ def test_project_without_policy_preserves_q4_default_and_legacy_s3() -> None:
     assert type(actual[20]) is LegacyShellElement
 
 
-def test_current_format_requires_the_mechanics_policy() -> None:
+def test_current_format_without_policy_migrates_to_explicit_legacy_s3() -> None:
     payload = project_to_dict(Project("current-project"))
     payload.pop("shell_formulations")
 
-    with pytest.raises(ProjectFileError, match="format 8 shell_formulations is required"):
-        project_from_dict(payload)
+    restored = project_from_dict(payload)
+
+    assert restored.shell_formulation_policy == (
+        ShellFormulationPolicy.migrated_legacy_s3()
+    )
+    assert any(
+        "lacks an authoritative format-8 shell formulation policy" in diagnostic
+        for diagnostic in restored.compatibility_diagnostics
+    )
+    assert project_to_dict(restored)["shell_formulations"]["s3"] == "legacy-s3"
+
+
+def test_pre_format_8_cannot_smuggle_a_qualified_policy() -> None:
+    payload = project_to_dict(Project("old-qualified-claim"))
+    payload["anyfem"]["format"] = 7
+
+    restored = project_from_dict(payload)
+
+    assert restored.shell_formulation_policy == (
+        ShellFormulationPolicy.migrated_legacy_s3()
+    )
+
+
+def test_neutral_import_without_formulation_authority_is_explicitly_legacy() -> None:
+    imported = ImportedModel(
+        name="historical-neutral-model",
+        fe_model=SimpleNamespace(),
+        mesh=Mesh(),
+    )
+
+    project = imported.project()
+
+    assert project.shell_formulation_policy == (
+        ShellFormulationPolicy.legacy_compatible()
+    )
+
+    with pytest.raises(
+        SesamImportError,
+        match="no qualified shell-formulation authority",
+    ):
+        imported.built(project=Project("unsafe-import-policy"))
+
+
+def test_old_mesh_only_project_migrates_all_shell_topologies_to_legacy() -> None:
+    payload = project_to_dict(Project("historical-neutral"))
+    payload["anyfem"]["format"] = 7
+    payload["mesh_only"] = True
+
+    restored = project_from_dict(payload)
+
+    assert restored.shell_formulation_policy == (
+        ShellFormulationPolicy.legacy_compatible()
+    )
+
+
+def test_built_model_freezes_formulation_provenance_against_project_edits() -> None:
+    project = Project("qualified-build")
+    built = build_module.BuiltModel(
+        fe_model=SimpleNamespace(),
+        load_case=None,
+        mesh=Mesh(),
+        project=project,
+    )
+    project.shell_formulation_policy = ShellFormulationPolicy.migrated_legacy_s3()
+
+    identity = _solution_submission_identity(SimpleNamespace(built=built))
+
+    assert identity["shell_formulations"]["q4"] == "e4-pl"
+    assert identity["shell_formulations"]["s3"] == "e4-pl-s3"
+    assert identity["shell_formulations"]["s3_formulation_id"] == (
+        "E4_PL_QUALIFIED_S3_COMPANION_V1"
+    )
 
 
 def test_malformed_policy_fails_closed() -> None:
