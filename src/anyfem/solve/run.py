@@ -727,6 +727,11 @@ def _step_reporter(
         # a legacy preformatted message, which could misleadingly render an
         # adaptive increment as e.g. "1460/10 load steps".
         increment = record.get("increment")
+        if increment is None and noun.casefold().endswith("increment"):
+            # Older solver events expose the accepted increment as
+            # ``step_index``.  Preserve the truthful increment label while
+            # keeping ``increment_total`` reserved for a real upper bound.
+            increment = record.get("step_index", record.get("step"))
         increment_total = record.get("increment_total")
         iteration = record.get("iteration")
         iteration_total = record.get("iteration_total")

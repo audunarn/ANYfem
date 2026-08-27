@@ -219,14 +219,16 @@ def test_adaptive_increment_never_formats_nominal_steps_as_a_false_bound():
     callback(
         anysolver.ProgressEvent(
             "nonlinear_static_step",
-            phase="nonlinear_static.force",
-            control="load_factor",
-            control_value=0.6896,
-            control_target=1.0,
-            increment=1460,
-            increment_total=10,
+            stage="nonlinear_static.force",
             iteration=7,
-            residual=7.43e-8,
+            metadata={
+                "control": "load_factor",
+                "control_value": 0.6896,
+                "control_target": 1.0,
+                "increment": 1460,
+                "increment_total": 10,
+                "residual": 7.43e-8,
+            },
         )
     )
 
