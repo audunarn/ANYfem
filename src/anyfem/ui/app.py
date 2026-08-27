@@ -14,8 +14,8 @@ from collections.abc import Mapping
 import json
 import os
 import tkinter as tk
+import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from copy import deepcopy
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -25,8 +25,10 @@ import numpy as np
 
 from ..commands import Command, CommandStack
 from ..document import DocumentSession, canonical_hash
+from ..diagnostics import ErrorDiagnostic, build_diagnostic_report
 from ..jobs import JobManager, analysis_hash
 from ..mesh_jobs import (
+    clone_mesh_for_job,
     MeshJobResult,
     MeshSettings,
     MeshTaskManager,
@@ -170,6 +172,7 @@ class AnyFemApp(ttk.Frame):
         self._recovery_pending: tuple[int, dict[str, Any], dict[str, Any]] | None = None
         self._recovery_epoch = 0
         self._recent_paths = self._load_recent_paths()
+        self._error_diagnostics: list[ErrorDiagnostic] = []
 
         self._build()
         self._build_menu()
@@ -958,7 +961,11 @@ class AnyFemApp(ttk.Frame):
                     record.summary["status"] = "failed"
                     if event.payload:
                         record.diagnostics.append(event.payload)
-                self.set_status(f"mesh generation failed: {event.message}", error=True)
+                self.set_status(
+                    f"mesh generation failed: {event.message}",
+                    error=True,
+                    diagnostic=event.payload,
+                )
             self._active_mesh_task_id = None
             self.refresh_all()
 
@@ -986,9 +993,6 @@ class AnyFemApp(ttk.Frame):
             target_id=target_id,
             settings=_record_settings(options),
         )
-        with self.session.transaction("create analysis", solver_affecting=False):
-            self.project.analyses[definition.id] = definition
-
         job_options = dict(options)
         if self.imported is not None:
             # An imported model is already built and has no geometry to mesh,
@@ -1007,7 +1011,15 @@ class AnyFemApp(ttk.Frame):
             }
             job_options["built"] = built
         else:
-            job_options["mesh"] = deepcopy(self.mesh)
+            # Use ANYmesher's public versioned codec as the immutable job
+            # boundary.  Mesh provenance can contain ANYgeometry read-only
+            # mapping views, which deliberately cannot be deep-copied.
+            job_options["mesh"] = clone_mesh_for_job(self.mesh)
+
+        # Do not leave an analysis definition behind when preparation of the
+        # immutable job input fails (for example, an invalid mesh artifact).
+        with self.session.transaction("create analysis", solver_affecting=False):
+            self.project.analyses[definition.id] = definition
 
         mesh_hash = ""
         mesh_record = self.project.mesh_records.get(
@@ -1133,8 +1145,22 @@ class AnyFemApp(ttk.Frame):
                     self._schedule_job_log_artifact(event.job_id, self.path)
                 self.refresh_panels()
             elif event.kind == "failed":
+                job_record = self.project.jobs.get(event.job_id)
+                diagnostic = None
+                if job_record is not None and job_record.diagnostics:
+                    diagnostic = job_record.diagnostics[-1]
+                elif isinstance(event.payload, BaseException):
+                    diagnostic = {
+                        "type": type(event.payload).__name__,
+                        "message": str(event.payload),
+                        "traceback": "".join(
+                            traceback.format_exception(event.payload)
+                        ),
+                    }
                 self.set_status(
-                    f"job {event.job_id[:8]} failed: {event.message}", error=True
+                    f"job {event.job_id[:8]} failed: {event.message}",
+                    error=True,
+                    diagnostic=diagnostic,
                 )
                 panel = self.panels.get("Solve")
                 if panel is not None:
@@ -2276,8 +2302,16 @@ class AnyFemApp(ttk.Frame):
         def wrapped() -> None:
             try:
                 action()
-            except (ValueError, KeyError, OSError, PermissionError) as error:
-                self.set_status(str(error), error=True)
+            except Exception as error:
+                self.set_status(
+                    f"{type(error).__name__}: {error}",
+                    error=True,
+                    diagnostic={
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
         return wrapped
 
@@ -2828,9 +2862,59 @@ class AnyFemApp(ttk.Frame):
         return build_fe_model(self.project, self.mesh)
 
     # ------------------------------------------------------------------
-    def set_status(self, text: str, error: bool = False) -> None:
+    def set_status(
+        self,
+        text: str,
+        error: bool = False,
+        *,
+        diagnostic: Any = None,
+    ) -> None:
         self._status.configure(
             text=text, foreground="#b00020" if error else "#222222"
+        )
+        if error:
+            self._error_diagnostics.append(
+                ErrorDiagnostic.capture(
+                    text,
+                    details=diagnostic,
+                    project_id=str(getattr(self.project, "document_id", "")),
+                    view=str(getattr(self, "_view_mode", "")),
+                )
+            )
+            del self._error_diagnostics[:-10]
+
+    def diagnostic_report(self, *, recent_commands=()) -> str:
+        """Return the current support report without exposing full model data."""
+
+        selection = self.selection
+        mesh_record = self.project.mesh_records.get(
+            str(getattr(self, "mesh_record_id", ""))
+        )
+        context = {
+            "project_path": None if self.path is None else str(self.path),
+            "details_page": getattr(self.details, "_current", None),
+            "view_mode": self._view_mode,
+            "renderer_requested": getattr(self.viewport, "requested_backend", None),
+            "renderer_active": getattr(self.viewport, "active_backend", None),
+            "status_text": self._status.cget("text"),
+            "revision": {
+                "sequence": self.session.revision.sequence,
+                "document_hash": self.session.revision.document_hash,
+                "model_hash": self.session.revision.model_hash,
+            },
+            "selection": {
+                "domain": selection.domain.value,
+                "mode": selection.mode,
+                "allowed_kinds": tuple(sorted(selection.allowed_kinds)),
+                "items": tuple(repr(item) for item in selection.ordered_items),
+            },
+            "active_mesh_record": None if mesh_record is None else mesh_record.to_dict(),
+        }
+        return build_diagnostic_report(
+            self.project,
+            errors=self._error_diagnostics,
+            context=context,
+            recent_commands=recent_commands,
         )
 
     def destroy(self) -> None:
@@ -3108,11 +3192,7 @@ def _execute_analysis_job(
         corotational_tangent=str(resolved.get("corotational_tangent", "auto")),
     )
     if report.errors:
-        details = "\n".join(
-            f"[{issue.code}] {issue.message}"
-            + (f" Suggestion: {issue.suggestion}" if issue.suggestion else "")
-            for issue in report.errors
-        )
+        details = _format_preflight_errors(report.errors)
         if (
             any(issue.code == "CONSTRAINT003" for issue in report.errors)
             and int(getattr(built.mesh, "automatic_shell_connections", 0)) > 0
@@ -3137,6 +3217,40 @@ def _execute_analysis_job(
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
     return solver_function(**resolved)
+
+
+def _format_preflight_errors(errors) -> str:
+    """Format repeated entity diagnostics compactly without losing IDs."""
+
+    grouped: dict[tuple, list[int]] = {}
+    for issue in errors:
+        key = (
+            str(issue.code),
+            str(issue.message),
+            str(issue.suggestion),
+            str(issue.entity_type),
+            issue.measured,
+            issue.limit,
+        )
+        identifiers = grouped.setdefault(key, [])
+        if issue.entity_id is not None:
+            identifiers.append(int(issue.entity_id))
+
+    lines = []
+    for key, identifiers in grouped.items():
+        code, message, suggestion, entity_type, _measured, _limit = key
+        line = f"[{code}] {message}"
+        if identifiers:
+            unique = list(dict.fromkeys(identifiers))
+            shown = ", ".join(str(value) for value in unique[:16])
+            if len(unique) > 16:
+                shown += f", +{len(unique) - 16} more"
+            label = entity_type or "entity"
+            line += f" Affected {label} ID(s): {shown}."
+        if suggestion:
+            line += f" Suggestion: {suggestion}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def default_project() -> Project:

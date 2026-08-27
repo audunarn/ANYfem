@@ -25,7 +25,7 @@ import builtins
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import io
 import json
@@ -36,6 +36,7 @@ import time
 import traceback
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping
+from uuid import UUID
 
 import numpy as np
 
@@ -238,6 +239,20 @@ class _ScriptCommands:
         return self.session.commands
 
     def run(self, command: Command, *, solver_affecting: bool = True) -> Any:
+        if isinstance(command, command_types.AddSupport):
+            support = command.support
+            region = support.region
+            if region is not None and region.id not in self.session.project.regions:
+                try:
+                    generated_singleton = UUID(str(region.id)).version == 5
+                except ValueError:
+                    generated_singleton = False
+                if generated_singleton:
+                    # ANYfem 0.3.0 GUI transcripts captured the source
+                    # document's deterministic hidden singleton UUID.  A
+                    # replay document has another document UUID, so recreate
+                    # the singleton from the authoritative EntityRef instead.
+                    command.support = replace(support, region=None)
         return self.session.execute(command, solver_affecting=solver_affecting)
 
     execute = run
@@ -249,8 +264,24 @@ class _ScriptCommands:
         label: str = "script batch",
         solver_affecting: bool = True,
     ) -> list[Any]:
+        pending = list(commands)
+        if pending and all(not isinstance(item, Command) for item in pending):
+            # Compatibility for transcripts emitted by ANYfem 0.3.0 before
+            # the batch-recorder fix.  Those scripts used
+            # ``run_many([run(A), run(B)])``: A and B have already executed on
+            # this isolated working copy and the list contains only their
+            # results.  The eventual ScriptRunner commit is still one atomic
+            # live-document command, so returning the results is safe and
+            # preserves the intended behavior without executing anything
+            # twice.
+            return pending
+        if any(not isinstance(item, Command) for item in pending):
+            raise TypeError(
+                "commands.run_many expects Command objects; a batch cannot mix "
+                "commands with already-executed return values"
+            )
         return self.session.execute_many(
-            commands, label=label, solver_affecting=solver_affecting
+            pending, label=label, solver_affecting=solver_affecting
         )
 
     execute_many = run_many
@@ -665,48 +696,50 @@ class _ApplyScriptState(Command):
         self.after_selection = selection
         self.after_meshes = None if meshes is None else deepcopy(dict(meshes))
         self.label = label
-        self._before_state: dict[str, Any] | None = None
+        self._before_document: dict[str, Any] | None = None
         self._before_selection: ScriptSelection | None = None
         self._before_meshes: dict[str, Any] | None = None
 
     def do(self, project: Project) -> Project:
-        if self._before_state is None:
-            self._before_state = deepcopy(project.__dict__)
+        if self._before_document is None:
+            # ANYgeometry exposes immutable MappingProxyType topology views.
+            # Project JSON is the supported deep working-copy boundary and is
+            # also what was validated before this command was constructed.
+            self._before_document = deepcopy(project_to_dict(project))
             self._before_selection = ScriptSelection.capture(self.session.selection)
             self._before_meshes = deepcopy(dict(self.session.mesh_cache))
         self._apply(project, after=True)
         return project
 
     def undo(self, project: Project) -> None:
-        if self._before_state is None:
+        if self._before_document is None:
             raise RuntimeError("script command has not been applied")
         self._apply(project, after=False)
 
     def redo(self, project: Project) -> Project:
-        if self._before_state is None:
+        if self._before_document is None:
             return self.do(project)
         self._apply(project, after=True)
         return project
 
     def _apply(self, project: Project, *, after: bool) -> None:
-        rollback_state = deepcopy(project.__dict__)
+        rollback_document = deepcopy(project_to_dict(project))
         rollback_selection = ScriptSelection.capture(self.session.selection)
         rollback_meshes = deepcopy(dict(self.session.mesh_cache))
         try:
             if after:
                 replacement = project_from_dict(deepcopy(self.document))
-                project.__dict__.clear()
-                project.__dict__.update(deepcopy(replacement.__dict__))
-                project.__post_init__()
                 wanted_selection = self.after_selection
                 wanted_meshes = self.after_meshes
             else:
-                assert self._before_state is not None
-                project.__dict__.clear()
-                project.__dict__.update(deepcopy(self._before_state))
-                project.__post_init__()
+                assert self._before_document is not None
+                replacement = project_from_dict(deepcopy(self._before_document))
                 wanted_selection = self._before_selection
                 wanted_meshes = self._before_meshes
+
+            project.__dict__.clear()
+            project.__dict__.update(replacement.__dict__)
+            project.__post_init__()
 
             if wanted_selection is not None:
                 wanted_selection.apply(self.session.selection)
@@ -714,8 +747,9 @@ class _ApplyScriptState(Command):
                 self.session.mesh_cache.clear()
                 self.session.mesh_cache.update(deepcopy(wanted_meshes))
         except BaseException:
+            rollback = project_from_dict(rollback_document)
             project.__dict__.clear()
-            project.__dict__.update(rollback_state)
+            project.__dict__.update(rollback.__dict__)
             project.__post_init__()
             if rollback_selection is not None:
                 rollback_selection.apply(self.session.selection)

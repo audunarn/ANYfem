@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import traceback
 from tkinter import ttk
 
 from ..scripting import (
@@ -10,6 +11,7 @@ from ..scripting import (
     ScriptError,
     ScriptRunner,
 )
+from ..command_recording import command_event_to_python
 
 __all__ = ["ScriptingPanel"]
 
@@ -30,6 +32,9 @@ class ScriptingPanel(ttk.Frame):
         self._runner: ScriptRunner | None = None
         self._task = None
         self._poll_after = None
+        self._observed_stack = None
+        self._observed_session = None
+        self._expected_revision_label = None
 
         ttk.Label(
             self,
@@ -88,15 +93,62 @@ class ScriptingPanel(ttk.Frame):
             buttons, text="Cancel", command=self._cancel, state="disabled"
         )
         self._cancel_button.pack(side="left", padx=4)
-        ttk.Button(buttons, text="Clear output", command=self.clear_output).pack(
-            side="right"
+        self._recording = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            buttons,
+            text="Record GUI commands",
+            variable=self._recording,
+        ).pack(side="right")
+        ttk.Button(
+            buttons,
+            text="Copy diagnosis",
+            command=self.copy_diagnosis,
+        ).pack(side="right", padx=(4, 8))
+
+        transcript = ttk.Notebook(self)
+        transcript.pack(fill="both", expand=True, pady=(4, 0))
+        command_page = ttk.Frame(transcript)
+        output_page = ttk.Frame(transcript)
+        transcript.add(command_page, text="GUI commands")
+        transcript.add(output_page, text="Script output")
+
+        command_buttons = ttk.Frame(command_page)
+        command_buttons.pack(fill="x")
+        ttk.Label(
+            command_buttons,
+            text="Live, replay-oriented model command stream",
+            foreground="#555555",
+        ).pack(side="left")
+        ttk.Button(
+            command_buttons,
+            text="Copy to editor",
+            command=self.copy_commands_to_editor,
+        ).pack(side="right")
+        ttk.Button(
+            command_buttons, text="Clear", command=self.clear_commands
+        ).pack(side="right", padx=4)
+        self.command_stream = tk.Text(
+            command_page,
+            height=9,
+            width=46,
+            wrap="none",
+            state="disabled",
+            font="TkFixedFont",
+        )
+        self.command_stream.pack(fill="both", expand=True, pady=(2, 0))
+        self._write_command(
+            "# GUI model commands appear here after they succeed.\n"
+            "# Paste/copy them into the editor to adapt or replay them.\n"
         )
 
-        ttk.Label(self, text="Console", font=("TkDefaultFont", 9, "bold")).pack(
-            anchor="w"
-        )
+        output_buttons = ttk.Frame(output_page)
+        output_buttons.pack(fill="x")
+        ttk.Label(output_buttons, text="Console").pack(side="left")
+        ttk.Button(
+            output_buttons, text="Clear", command=self.clear_output
+        ).pack(side="right")
         self.output = tk.Text(
-            self,
+            output_page,
             height=9,
             width=46,
             wrap="word",
@@ -104,6 +156,7 @@ class ScriptingPanel(ttk.Frame):
             font="TkFixedFont",
         )
         self.output.pack(fill="both", expand=True, pady=(2, 0))
+        self._bind_recording_sources()
 
     def refresh(self) -> None:
         """Follow document replacement without ever committing to an old one."""
@@ -115,6 +168,87 @@ class ScriptingPanel(ttk.Frame):
         ):
             self._runner.shutdown(wait=False)
             self._runner = None
+        self._bind_recording_sources()
+
+    def _bind_recording_sources(self) -> None:
+        stack = getattr(self.app, "commands", None)
+        if stack is not self._observed_stack:
+            if self._observed_stack is not None:
+                self._observed_stack.remove_action_listener(self._on_command_event)
+            self._observed_stack = stack
+            if stack is not None:
+                stack.add_action_listener(self._on_command_event)
+        session = getattr(self.app, "session", None)
+        if session is not self._observed_session:
+            if self._observed_session is not None:
+                self._observed_session.remove_listener(self._on_revision_event)
+            self._observed_session = session
+            self._expected_revision_label = None
+            if session is not None:
+                session.add_listener(self._on_revision_event)
+
+    def _on_command_event(self, event) -> None:
+        self._expected_revision_label = {
+            "run": event.command.label,
+            "undo": f"undo {event.command.label}",
+            "redo": f"redo {event.command.label}",
+        }.get(event.action)
+        if self._recording.get():
+            self._write_command(command_event_to_python(event) + "\n")
+
+    def _on_revision_event(self, revision) -> None:
+        """Expose committed GUI transactions which are not command objects."""
+
+        label = str(getattr(revision, "label", "edit"))
+        if label == self._expected_revision_label:
+            self._expected_revision_label = None
+            return
+        self._expected_revision_label = None
+        if self._recording.get():
+            self._write_command(f"# GUI transaction: {label}\n")
+
+    def _write_command(self, text: str) -> None:
+        self.command_stream.configure(state="normal")
+        self.command_stream.insert("end", text)
+        self.command_stream.see("end")
+        self.command_stream.configure(state="disabled")
+
+    def clear_commands(self) -> None:
+        self.command_stream.configure(state="normal")
+        self.command_stream.delete("1.0", "end")
+        self.command_stream.configure(state="disabled")
+
+    def copy_commands_to_editor(self) -> None:
+        source = self.command_stream.get("1.0", "end-1c")
+        if not source.strip():
+            self.app.set_status("the GUI command stream is empty")
+            return
+        existing = self.source.get("1.0", "end-1c")
+        separator = "\n" if not existing or existing.endswith("\n") else "\n\n"
+        self.source.insert("end", separator + source + "\n")
+        self.source.see("end")
+        self.app.set_status("GUI commands copied to the scripting editor")
+
+    def copy_diagnosis(self) -> None:
+        commands = self.command_stream.get("1.0", "end-1c").splitlines()
+        report = self.app.diagnostic_report(recent_commands=commands)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(report)
+            # Ask Tk to retain the clipboard after focus moves away from the
+            # application; this does not enter a nested event loop.
+            self.update_idletasks()
+        except tk.TclError as error:
+            self.app.set_status(
+                f"could not copy diagnosis: {error}",
+                error=True,
+                diagnostic={"type": type(error).__name__, "message": str(error)},
+            )
+            return
+        self.app.set_status(
+            f"diagnosis copied ({len(report):,} characters; "
+            f"{len(getattr(self.app, '_error_diagnostics', ()))} error(s))"
+        )
 
     def clear_output(self) -> None:
         self.output.configure(state="normal")
@@ -150,7 +284,15 @@ class ScriptingPanel(ttk.Frame):
             self._task = self._runner.submit(source)
         except (ValueError, TypeError, PermissionError, RuntimeError) as error:
             self._write(f"{type(error).__name__}: {error}\n")
-            self.app.set_status(str(error), error=True)
+            self.app.set_status(
+                f"{type(error).__name__}: {error}",
+                error=True,
+                diagnostic={
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "traceback": traceback.format_exc(),
+                },
+            )
             self._task = None
             return
         self._run_button.configure(state="disabled")
@@ -192,11 +334,29 @@ class ScriptingPanel(ttk.Frame):
             if error.traceback_text:
                 self._write(error.traceback_text)
             self._write(f"Rejected: {error}\n")
-            self.app.set_status(str(error), error=True)
+            self.app.set_status(
+                str(error),
+                error=True,
+                diagnostic={
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "traceback": error.traceback_text,
+                    "stdout": error.stdout,
+                    "stderr": error.stderr,
+                },
+            )
             return
         except (ValueError, TypeError, PermissionError, RuntimeError) as error:
             self._write(f"Rejected: {type(error).__name__}: {error}\n")
-            self.app.set_status(str(error), error=True)
+            self.app.set_status(
+                f"{type(error).__name__}: {error}",
+                error=True,
+                diagnostic={
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "traceback": traceback.format_exc(),
+                },
+            )
             return
 
         self._write(outcome.stdout)
@@ -215,6 +375,12 @@ class ScriptingPanel(ttk.Frame):
             self.app.set_status("script completed")
 
     def destroy(self) -> None:
+        if self._observed_stack is not None:
+            self._observed_stack.remove_action_listener(self._on_command_event)
+            self._observed_stack = None
+        if self._observed_session is not None:
+            self._observed_session.remove_listener(self._on_revision_event)
+            self._observed_session = None
         if self._poll_after is not None:
             try:
                 self.after_cancel(self._poll_after)

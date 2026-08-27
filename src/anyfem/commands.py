@@ -95,6 +95,7 @@ __all__ = [
     "AssignPlate",
     "ButterflyHoleDecomposition",
     "Command",
+    "CommandEvent",
     "CommandStack",
     "CompositeCommand",
     "CommitStructuredLayout",
@@ -147,6 +148,18 @@ class Command:
 
     def redo(self, project: Project) -> Any:
         return self.do(project)
+
+
+@dataclass(frozen=True)
+class CommandEvent:
+    """One successfully completed command-stack action.
+
+    Action listeners are observational: a recorder or integration failure must
+    never roll back a command that has already committed to the project.
+    """
+
+    action: str
+    command: Command
 
 
 class CompositeCommand(Command):
@@ -214,6 +227,7 @@ class CommandStack:
         self._done: List[Command] = []
         self._undone: List[Command] = []
         self._listeners: List[Callable[[], None]] = []
+        self._action_listeners: List[Callable[[CommandEvent], None]] = []
 
     # ------------------------------------------------------------------
     def run(self, command: Command) -> Any:
@@ -247,6 +261,7 @@ class CommandStack:
         self._done.append(command)
         # A new action invalidates the redo branch.
         self._undone.clear()
+        self._notify_action("run", command)
         self._notify()
         return result
 
@@ -258,6 +273,7 @@ class CommandStack:
         if self.selection is not None and hasattr(command, "_selection_before"):
             self.selection.restore(command._selection_before)
         self._undone.append(command)
+        self._notify_action("undo", command)
         self._notify()
         return True
 
@@ -269,6 +285,7 @@ class CommandStack:
         if self.selection is not None and hasattr(command, "_selection_after"):
             self.selection.restore(command._selection_after)
         self._done.append(command)
+        self._notify_action("redo", command)
         self._notify()
         return True
 
@@ -319,6 +336,28 @@ class CommandStack:
 
         while callback in self._listeners:
             self._listeners.remove(callback)
+
+    def add_action_listener(
+        self, callback: Callable[[CommandEvent], None]
+    ) -> None:
+        """Observe successful run/undo/redo actions without affecting them."""
+
+        self._action_listeners.append(callback)
+
+    def remove_action_listener(
+        self, callback: Callable[[CommandEvent], None]
+    ) -> None:
+        while callback in self._action_listeners:
+            self._action_listeners.remove(callback)
+
+    def _notify_action(self, action: str, command: Command) -> None:
+        event = CommandEvent(str(action), command)
+        for callback in list(self._action_listeners):
+            try:
+                callback(event)
+            except Exception:
+                # Recording/telemetry is never part of the model transaction.
+                continue
 
     def _notify(self) -> None:
         for callback in list(self._listeners):
@@ -2034,13 +2073,18 @@ class AssignBeam(Command):
 class AddSupport(Command):
     support: Support
     label: str = "add support"
+    _applied_support: Support | None = field(default=None, init=False)
 
     def do(self, project: Project) -> Support:
-        self.support = project.add_support(self.support)
-        return self.support
+        if self._applied_support is None:
+            self._applied_support = project.add_support(self.support)
+        else:
+            project.supports.append(self._applied_support)
+        return self._applied_support
 
     def undo(self, project: Project) -> None:
-        project.supports.remove(self.support)
+        if self._applied_support is not None:
+            project.supports.remove(self._applied_support)
 
 
 _EDITABLE_ATTRIBUTE_TYPES = (
