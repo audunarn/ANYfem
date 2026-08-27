@@ -73,7 +73,7 @@ def _qualified_anymesher_project() -> Path:
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.3.0"):
+        if version is not None and _version_at_least(version, "0.3.2"):
             return candidate
     # Fail closed when neither the explicit candidate, sibling checkout, nor
     # retained compatibility checkout declares the qualified API generation.
@@ -106,10 +106,10 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
     ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
-    ("ANYmesher", "ANYmesher>=0.3", "0.3.0"),
+    ("ANYmesher", "ANYmesher>=0.3.2", "0.3.2"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
     ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
-    ("ANYsolver", "ANYsolver>=0.4", "0.4.0"),
+    ("ANYsolver", "ANYsolver>=0.4.0", "0.4.0"),
     ("ANYfem", "ANYfem>=0.4", "0.4.0"),
 )
 

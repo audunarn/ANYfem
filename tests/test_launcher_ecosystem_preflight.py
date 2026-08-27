@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib import metadata
 from pathlib import Path
 import runpy
+import tomllib
 
 import pytest
 
@@ -18,11 +19,11 @@ def _namespace():
 
 @pytest.fixture
 def candidate_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    candidate = tmp_path / "ANYmesh-0.3.0"
+    candidate = tmp_path / "ANYmesh-0.3.2"
     candidate.mkdir()
     (candidate / "src").mkdir()
     (candidate / "pyproject.toml").write_text(
-        '[project]\nname = "ANYmesher"\nversion = "0.3.0"\n',
+        '[project]\nname = "ANYmesher"\nversion = "0.3.2"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("ANYMESHER_SOURCE", str(candidate))
@@ -34,7 +35,7 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.1.1",
         "ANYgeometry": "0.4.0",
         "ANYfileio": "0.2.1",
-        "ANYmesher": "0.3.0",
+        "ANYmesher": "0.3.2",
         "ANY3dView": "0.5.3",
         "ANYtk3D": "0.5.3",
         "ANYsolver": "0.4.0",
@@ -85,7 +86,7 @@ def test_launcher_selects_a_compatible_anymesher_checkout(candidate_namespace):
     project = namespace["_ANYMESHER_PROJECT"]
 
     assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](project), "0.3.0"
+        namespace["_declared_project_version"](project), "0.3.2"
     )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
@@ -123,7 +124,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command(
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4.0: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
@@ -163,3 +164,19 @@ def test_missing_distribution_metadata_is_actionable(candidate_namespace):
     assert namespace["ecosystem_compatibility_problems"](reader) == (
         "ANYfileio[semantics]>=0.2: distribution metadata is missing",
     )
+
+
+def test_s3_policy_binds_coordinated_solver_and_mesher_floors(
+    candidate_namespace,
+) -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    assert "ANYsolver>=0.4.0" in project["dependencies"]
+    assert "ANYmesher>=0.3.2" in project["dependencies"]
+
+    versions = _versions()
+    versions["ANYmesher"] = "0.3.1"
+    assert candidate_namespace["ecosystem_compatibility_problems"](
+        versions.__getitem__
+    ) == ("ANYmesher>=0.3.2: installed metadata reports 0.3.1",)
