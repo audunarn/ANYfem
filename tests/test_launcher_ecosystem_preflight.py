@@ -252,7 +252,7 @@ def test_ci_binds_exact_release_graph_revisions_and_fails_closed_for_solver() ->
         "4c55df4cebee1ad285927f7f33487e0a1f66715a",
         "8b899b7a9d08a51d7899c34265b6b0b6e13da554",
         "94fe0e0cf31faeeab182e0a51e3ead94849418f3",
-        "bf9fa2c676507c2c86343c391c73f69319cb4525",
+        "be99edfac8c0a0272010ff2694ffafa65b4a1d51",
     }
     for revision in expected_refs:
         assert workflow.count(f"ref: {revision}") == 2
