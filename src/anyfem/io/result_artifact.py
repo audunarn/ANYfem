@@ -305,13 +305,25 @@ def write_solution_artifact(
     }
     identity = _json_safe(dict(provenance or {}))
     supplied_submission = identity.pop("submission", {})
-    submission = _solution_submission_identity(solution)
-    if isinstance(supplied_submission, Mapping):
-        submission.update(dict(supplied_submission))
+    if not isinstance(supplied_submission, Mapping):
+        raise TypeError("result submission provenance must be an object")
+    submission = _merge_submission_identity(
+        _solution_submission_identity(solution),
+        supplied_submission,
+    )
     from ..document import canonical_hash
 
-    submission.setdefault("project_hash", submission.get("document_hash", ""))
-    submission.setdefault("job_hash", canonical_hash(hashes))
+    expected_project_hash = submission.get("document_hash", "")
+    if (
+        "project_hash" in submission
+        and submission["project_hash"] != expected_project_hash
+    ):
+        raise ValueError("immutable submission identity mismatch for project_hash")
+    submission["project_hash"] = expected_project_hash
+    expected_job_hash = canonical_hash(hashes)
+    if "job_hash" in submission and submission["job_hash"] != expected_job_hash:
+        raise ValueError("immutable submission identity mismatch for job_hash")
+    submission["job_hash"] = expected_job_hash
     identity.update({
         "job_id": str(job_id),
         "document_id": str(document_id),
@@ -336,6 +348,31 @@ def write_solution_artifact(
         analysis_hash=str(analysis_hash),
         **payload.write_result_inputs(),
     )
+
+
+def _merge_submission_identity(
+    derived: Mapping[str, Any],
+    supplied: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Merge caller context without allowing immutable identity replacement."""
+
+    immutable_keys = {
+        "document_hash",
+        "document_hash_error",
+        "document_id",
+        "project_name",
+        "shell_formulations",
+    }
+    for key, value in derived.items():
+        if key in supplied and supplied[key] != value:
+            raise ValueError(f"immutable submission identity mismatch for {key}")
+    fabricated = immutable_keys.intersection(supplied).difference(derived)
+    if fabricated:
+        key = sorted(fabricated)[0]
+        raise ValueError(f"immutable submission identity mismatch for {key}")
+    merged = dict(supplied)
+    merged.update(dict(derived))
+    return merged
 
 
 # ---------------------------------------------------------------------------

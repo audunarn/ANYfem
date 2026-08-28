@@ -6,15 +6,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from anysolver import ReactionFrame, SolveOutcome
 
+from anyfem.document import DocumentSession
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.result_artifact import (
+    _solution_submission_identity,
     build_result_artifact_inputs,
     result_artifact_payload,
     write_solution_artifact,
 )
 from anyfem.io.results import ImportedResults
+from anyfem.model import Project
 from anyfem.post.fields import Field
 from anyfem.post.results import (
     BucklingSolution,
@@ -587,7 +591,11 @@ def test_imported_translations_retain_only_components_the_file_contains():
 
 
 def test_writer_helper_persists_hashes_provenance_and_frame_major_fields(tmp_path):
-    solution = LinearSolution(displacements=_vector(), built=_built())
+    built = _built()
+    built.project = Project("artifact model")
+    built.shell_formulation_policy = built.project.shell_formulation_policy
+    document_hash = DocumentSession(built.project).revision.document_hash
+    solution = LinearSolution(displacements=_vector(), built=built)
     store = ArtifactStore(tmp_path / "model.anyfem")
     artifact = write_solution_artifact(
         store,
@@ -598,7 +606,13 @@ def test_writer_helper_persists_hashes_provenance_and_frame_major_fields(tmp_pat
         model_hash="model-hash",
         mesh_hash="mesh-hash",
         analysis_hash="analysis-hash",
-        provenance={"submission": {"document_hash": "document-hash"}},
+        provenance={
+            "submission": {
+                "campaign": "writer-roundtrip",
+                "document_hash": document_hash,
+                "shell_formulations": built.shell_formulation_policy.to_dict(),
+            }
+        },
         diagnostics=({"path": Path("run.log"), "nonfinite": float("nan")},),
     )
     dataset = store.open_result(artifact)
@@ -610,12 +624,116 @@ def test_writer_helper_persists_hashes_provenance_and_frame_major_fields(tmp_pat
         "mesh_hash": "mesh-hash",
         "model_hash": "model-hash",
     }
-    assert provenance["submission"]["document_hash"] == "document-hash"
-    assert provenance["submission"]["project_hash"] == "document-hash"
+    assert provenance["submission"]["document_hash"] == document_hash
+    assert provenance["submission"]["project_hash"] == document_hash
     assert provenance["submission"]["job_hash"].startswith("sha256:")
+    assert provenance["submission"]["campaign"] == "writer-roundtrip"
+    assert provenance["submission"]["shell_formulations"]["s3"] == "e4-pl-s3"
     assert provenance["producer_versions"]["python"]
     assert dataset.metadata("diagnostics")[0]["nonfinite"] == "NaN"
     assert store.verify(artifact)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("document_hash", "document_id", "project_name", "shell_formulations"),
+)
+def test_writer_rejects_supplied_immutable_submission_identity_mutation(
+    tmp_path,
+    key,
+):
+    built = _built()
+    built.project = Project("immutable submission")
+    built.shell_formulation_policy = built.project.shell_formulation_policy
+    solution = LinearSolution(displacements=_vector(), built=built)
+    derived = _solution_submission_identity(solution)
+    assert key in derived
+
+    with pytest.raises(ValueError, match=f"identity mismatch for {key}"):
+        write_solution_artifact(
+            ArtifactStore(tmp_path / key / "model.anyfem"),
+            solution,
+            job_id="immutable-job",
+            document_id="immutable-document",
+            mesh_id="mesh",
+            model_hash="model",
+            mesh_hash="mesh-hash",
+            analysis_hash="analysis",
+            provenance={"submission": {key: "MUTATED"}},
+        )
+
+
+@pytest.mark.parametrize("key", ("project_hash", "job_hash"))
+def test_writer_rejects_supplied_computed_hash_mutation(tmp_path, key):
+    built = _built()
+    built.project = Project("computed hash")
+    built.shell_formulation_policy = built.project.shell_formulation_policy
+    solution = LinearSolution(displacements=_vector(), built=built)
+
+    with pytest.raises(ValueError, match=f"identity mismatch for {key}"):
+        write_solution_artifact(
+            ArtifactStore(tmp_path / key / "model.anyfem"),
+            solution,
+            job_id="immutable-job",
+            document_id="immutable-document",
+            mesh_id="mesh",
+            model_hash="model",
+            mesh_hash="mesh-hash",
+            analysis_hash="analysis",
+            provenance={"submission": {key: "MUTATED"}},
+        )
+
+
+def test_writer_rejects_fabricated_or_nonobject_submission_identity(tmp_path):
+    solution = LinearSolution(displacements=_vector(), built=_built())
+    common = {
+        "job_id": "immutable-job",
+        "document_id": "immutable-document",
+        "mesh_id": "mesh",
+        "model_hash": "model",
+        "mesh_hash": "mesh-hash",
+        "analysis_hash": "analysis",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="identity mismatch for shell_formulations",
+    ):
+        write_solution_artifact(
+            ArtifactStore(tmp_path / "fabricated" / "model.anyfem"),
+            solution,
+            provenance={"submission": {"shell_formulations": {"s3": "e4-pl-s3"}}},
+            **common,
+        )
+    with pytest.raises(TypeError, match="submission provenance must be an object"):
+        write_solution_artifact(
+            ArtifactStore(tmp_path / "nonobject" / "model.anyfem"),
+            solution,
+            provenance={"submission": "forged"},
+            **common,
+        )
+
+
+def test_writer_rejects_mutated_derived_identity_error(tmp_path):
+    solution = LinearSolution(displacements=_vector(), built=_built())
+    derived = _solution_submission_identity(solution)
+    assert "document_hash_error" in derived
+
+    with pytest.raises(
+        ValueError,
+        match="identity mismatch for document_hash_error",
+    ):
+        write_solution_artifact(
+            ArtifactStore(tmp_path / "error" / "model.anyfem"),
+            solution,
+            job_id="immutable-job",
+            document_id="immutable-document",
+            mesh_id="mesh",
+            model_hash="model",
+            mesh_hash="mesh-hash",
+            analysis_hash="analysis",
+            provenance={"submission": {"document_hash_error": "MUTATED"}},
+        )
 
 
 def test_inputs_helper_matches_the_writer_keyword_contract():
