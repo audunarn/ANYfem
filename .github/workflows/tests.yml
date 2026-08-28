@@ -25,7 +25,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: 90c320e3d6ce22f00c4c20f0b6392127c18c8b5a
+          ref: 3e8db9cedf251b1c77010587ee0bf36fc8243123
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYgeometry
-          ref: 4699eb1849476ee430cddc20164ce871861b2000
+          ref: 254ce138dfc72d48a971035b028ba2dc5e9f082b
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYfileIO
-          ref: 4c55df4cebee1ad285927f7f33487e0a1f66715a
+          ref: 4a98b84879d5ccdc95052f626c4f96ed3340fbb7
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -109,7 +109,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: 90c320e3d6ce22f00c4c20f0b6392127c18c8b5a
+          ref: 3e8db9cedf251b1c77010587ee0bf36fc8243123
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -119,7 +119,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYgeometry
-          ref: 4699eb1849476ee430cddc20164ce871861b2000
+          ref: 254ce138dfc72d48a971035b028ba2dc5e9f082b
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYfileIO
-          ref: 4c55df4cebee1ad285927f7f33487e0a1f66715a
+          ref: 4a98b84879d5ccdc95052f626c4f96ed3340fbb7
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
