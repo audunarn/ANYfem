@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: 0e99077e85e322a800f3bb0a9475b9e94c8d6a36
+          ref: a27014f4dd43fe54fb3ff2323a5e2f40f90df34f
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: 0e99077e85e322a800f3bb0a9475b9e94c8d6a36
+          ref: a27014f4dd43fe54fb3ff2323a5e2f40f90df34f
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
