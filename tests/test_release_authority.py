@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
@@ -160,6 +161,24 @@ def _run_verifier(tmp_path: Path, mutation: str = "") -> subprocess.CompletedPro
             encoding="utf-8",
             newline="\n",
         )
+    if mutation == "duplicate-key":
+        text = target.read_text(encoding="utf-8")
+        target.write_text(
+            text.replace(
+                "{\n",
+                '{\n  "schema": "duplicate-forbidden",\n',
+                1,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+    elif mutation == "nonfinite":
+        text = target.read_text(encoding="utf-8")
+        target.write_text(
+            text.replace(f'"version": "{VERSION}"', '"version": NaN', 1),
+            encoding="utf-8",
+            newline="\n",
+        )
     _git(repository, "add", LEDGER.as_posix())
     if mutation == "extra-child-path":
         (repository / "unexpected.txt").write_text("not ledger-only\n", encoding="utf-8")
@@ -168,6 +187,26 @@ def _run_verifier(tmp_path: Path, mutation: str = "") -> subprocess.CompletedPro
     _git(repository, "tag", TAG)
     if mutation != "unmerged-tag-child":
         _git(repository, "push", "--quiet", "origin", "HEAD:main")
+    if mutation == "replacement-ref":
+        _git(repository, "replace", source_commit, "HEAD")
+    elif mutation in {"graft", "info-attributes"}:
+        git_directory = Path(_git(repository, "rev-parse", "--git-dir"))
+        if not git_directory.is_absolute():
+            git_directory = repository / git_directory
+        info = git_directory / "info"
+        info.mkdir(exist_ok=True)
+        if mutation == "graft":
+            (info / "grafts").write_text(
+                f"{source_commit}\n",
+                encoding="ascii",
+                newline="\n",
+            )
+        else:
+            (info / "attributes").write_text(
+                "* diff=external\n",
+                encoding="ascii",
+                newline="\n",
+            )
 
     _write_checksums(assets)
     invoked_tag = TAG
@@ -279,6 +318,11 @@ def test_release_authority_accepts_exact_ledger_bound_artifacts(tmp_path: Path) 
         "wrong-metadata",
         "extra-child-path",
         "noncanonical",
+        "duplicate-key",
+        "nonfinite",
+        "replacement-ref",
+        "graft",
+        "info-attributes",
     ],
 )
 def test_release_authority_rejects_mutation(tmp_path: Path, mutation: str) -> None:
@@ -290,3 +334,31 @@ def test_paired_asset_and_checksum_replacement_is_not_authority(tmp_path: Path) 
     completed = _run_verifier(tmp_path, "paired-replacement")
     assert completed.returncode != 0
     assert "committed authority" in completed.stderr
+
+
+def test_git_environment_scrubs_inherited_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "_anyfem_release_authority", VERIFIER
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for key in (
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+    ):
+        monkeypatch.setenv(key, "attacker-controlled")
+    environment = module._git_environment()
+    assert not {
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+    } & set(environment)
+    assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert environment["GIT_ATTR_NOSYSTEM"] == "1"
+    assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
