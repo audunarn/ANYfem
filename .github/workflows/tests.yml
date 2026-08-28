@@ -25,7 +25,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: 9a309e9a1ed27641439a46ad12bc7284744a2d89
+          ref: c6548eb733f961972df345188543d37a7e0d0706
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: 8b899b7a9d08a51d7899c34265b6b0b6e13da554
+          ref: 0e99077e85e322a800f3bb0a9475b9e94c8d6a36
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -109,7 +109,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: 9a309e9a1ed27641439a46ad12bc7284744a2d89
+          ref: c6548eb733f961972df345188543d37a7e0d0706
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: 8b899b7a9d08a51d7899c34265b6b0b6e13da554
+          ref: 0e99077e85e322a800f3bb0a9475b9e94c8d6a36
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
