@@ -25,7 +25,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: e8f80c105172275bf009bc2f3683e0088822bbf4
+          ref: 2cce09e5e072a95da58fdba3770f029e8b075a0e
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -109,7 +109,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: e8f80c105172275bf009bc2f3683e0088822bbf4
+          ref: 2cce09e5e072a95da58fdba3770f029e8b075a0e
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
