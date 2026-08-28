@@ -252,10 +252,10 @@ def test_ci_binds_exact_release_graph_revisions_and_fails_closed_for_solver() ->
         "07124405ce0160437928e9b0c3c7a0d530c1f5de",
         "ebe8245538504633b2b5a6579e16c4fd321d2f0e",
         "516aa46ec8affaa737fd165efad7c7b45a2b852a",
+        "c9115d91bbf4856b9a6cb4d5450aab98c8c3c53e",
     }
     for revision in expected_refs:
         assert workflow.count(f"ref: {revision}") == 2
-    assert workflow.count("ref: REBIND_FINAL_ANYSOLVER_COMMIT") == 2
     assert workflow.count("repository: audunarn/") == 14
     assert workflow.count("          ref: ") == 14
 
