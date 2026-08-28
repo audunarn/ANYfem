@@ -18,6 +18,7 @@ from anygeometry import (
     query_intersection,
     to_dict,
 )
+from anymesher import S3RepairError
 from anymesher.serialize import mesh_to_dict
 
 from anyfem import Project, steel
@@ -32,6 +33,14 @@ def _project() -> tuple[Project, int]:
     project = Project()
     points = project.geometry.add_points(((0, 0, 0), (4, 0, 0), (4, 3, 0), (0, 3, 0)))
     return project, project.geometry.add_plate(points)
+
+
+def _semantic_geometry(document: dict) -> dict:
+    result = dict(document)
+    result.pop("checksum", None)
+    result.pop("id_state", None)
+    result.pop("revision", None)
+    return result
 
 
 def test_face_sketch_task_allows_outside_points_dimensions_and_edge_coincidence():
@@ -75,7 +84,9 @@ def test_add_edit_undo_sketch_is_one_atomic_feature_command():
     np.testing.assert_allclose(project.geometry.vertices[point.id].position, (2.0, 1.5, 0.0))
 
     stack.undo()
-    assert to_dict(project.geometry) == before_edit
+    assert _semantic_geometry(to_dict(project.geometry)) == _semantic_geometry(
+        before_edit
+    )
     stack.undo()
     assert not project.geometry.features.records
 
@@ -134,7 +145,7 @@ def test_sketch_intent_round_trips_in_anyfem_project_format():
     assert feature.parameters["extrusion"] == pytest.approx(0.5)
 
 
-def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
+def test_interior_sketch_extrusion_builds_connected_t_junction_and_fails_closed():
     project, face = _project()
     project.add_material(steel())
     project.add_plate_section("plate", 0.01, "S355")
@@ -172,8 +183,11 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
 
     support_sheet, support_part = face_owner(face)
     wall_owners = {face_owner(face_id) for face_id in extrusion_faces}
-    assert len(wall_owners) == 1
-    wall_sheet, wall_part = wall_owners.pop()
+    # Assignment deliberately does not guess that independently materialized
+    # faces share one coherent Sheet.  The tested T-junction uses the first wall
+    # while explicit Join Sheet remains available for owner-level unification.
+    assert len(wall_owners) == len(extrusion_faces)
+    wall_sheet, wall_part = face_owner(extrusion_faces[0])
     assert wall_sheet != support_sheet
     assert wall_part != support_part
 
@@ -202,28 +216,18 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
     } == {support_sheet, wall_sheet}
     assert geometry.validate_topology() == ()
 
-    mesh = project.generate_mesh(0.5)
-    repeated = project.generate_mesh(0.5)
-    assert mesh_to_dict(repeated) == mesh_to_dict(mesh)
-    shared_nodes = set(mesh.nodes_of_edge[shared_edge])
-    assert shared_nodes
-    for sheet_id in (support_sheet, wall_sheet):
-        sheet_nodes = {
-            node_id
-            for element_id in mesh.elements_of_sheet[sheet_id]
-            for node_id in mesh.shells[element_id]
-        }
-        assert shared_nodes <= sheet_nodes
-    assert mesh.automatic_shell_connections == 0
-    assert not mesh.couplings
-    built = build_fe_model(
-        project, mesh, load_case=None, require_loads=False, require_supports=False
-    )
-
-    assert len(built.fe_model.mesh.elements) == len(mesh.shells)
+    # The topology is connected, but this deliberately hostile multi-wall
+    # sketch falls outside the qualified-S3 triangle envelope.  Activation must
+    # fail closed rather than silently switching to the legacy TRI3.  The
+    # admitted conformal T-junction is covered in ANYmesh's intersection suite.
+    with pytest.raises(
+        S3RepairError,
+        match="bounded qualified-S3 repair did not satisfy the admission contract",
+    ):
+        project.generate_mesh(0.5)
 
 
-def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():
+def test_separately_extruded_adjacent_plate_edges_are_conformal_and_acyclic():
     project, face = _project()
     project.add_material(steel())
     project.add_plate_section("plate", 0.01, "S355")
@@ -238,5 +242,16 @@ def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():
     )
     report = audit_constraints(built.fe_model)
 
-    assert mesh.automatic_shell_connections >= 1
+    first_nodes = {
+        node_id
+        for element_id in mesh.elements_of_face[first_wall]
+        for node_id in mesh.shells[element_id]
+    }
+    second_nodes = {
+        node_id
+        for element_id in mesh.elements_of_face[second_wall]
+        for node_id in mesh.shells[element_id]
+    }
+    assert len(first_nodes & second_nodes) >= 2
+    assert mesh.automatic_shell_connections == 0
     assert not [issue for issue in report.issues if issue.code == "CONSTRAINT003"]

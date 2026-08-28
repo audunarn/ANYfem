@@ -556,10 +556,19 @@ class AnyFemApp(ttk.Frame):
     def _structured_layout_summary(mesh) -> dict[str, Any]:
         """Retain the reproducible ANYmesher structure-first plan/report."""
 
-        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
-        if not isinstance(diagnostics, Mapping):
-            return {}
-        report = diagnostics.get("structured_layout", {})
+        preparation = getattr(mesh, "structural_preparation", {})
+        report = (
+            preparation.get("structured_layout", {})
+            if isinstance(preparation, Mapping)
+            else {}
+        )
+        if not isinstance(report, Mapping):
+            diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+            report = (
+                diagnostics.get("structured_layout", {})
+                if isinstance(diagnostics, Mapping)
+                else {}
+            )
         return dict(report) if isinstance(report, Mapping) else {}
 
     @staticmethod

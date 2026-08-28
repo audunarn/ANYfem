@@ -1852,6 +1852,7 @@ class Project:
             native_backend=native_backend,
             qualified_s3=(
                 self.shell_formulation_policy.s3 == "e4-pl-s3"
+                and resolved_order == "linear"
             ),
             structured_options=(
                 None if resolved_strategy == "native" else structure_options
@@ -1890,17 +1891,16 @@ class Project:
                 )
             )
             remap_mesh_to_source(mesh, closure)
+        mesh_preparation = getattr(mesh, "structural_preparation", {})
         preparation_payload = preparation.to_dict()
-        hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
-        if isinstance(hybrid_diagnostics, Mapping):
-            structured_layout = hybrid_diagnostics.get("structured_layout")
-            if isinstance(structured_layout, Mapping):
-                # Keep the exact detached plan, source-to-working handle map,
-                # acceptance decision and regularity metrics beside the
-                # structural intersection preparation in the mesh artifact.
-                preparation_payload["structured_layout"] = dict(
-                    structured_layout
-                )
+        if isinstance(mesh_preparation, Mapping) and mesh_preparation:
+            # Preserve ANYfem's established top-level structural-closure fields
+            # while retaining ANYmesher's canonical structured report and exact
+            # association maps.  Consumers written before the combined report
+            # therefore keep working without reconstructing compact diagnostics.
+            for key in ("structured_layout", "qualified_s3"):
+                if key in mesh_preparation:
+                    preparation_payload[key] = mesh_preparation[key]
         self._last_mesh_preparation = preparation_payload
         return mesh
 

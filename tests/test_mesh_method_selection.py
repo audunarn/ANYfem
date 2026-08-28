@@ -283,7 +283,7 @@ def test_automatic_preference_reaches_anymesher_and_report_is_retained() -> None
 
     assert report["plan"]["options"]["preference"] == "quad_first"
     assert report["metrics"]["quad_fraction"] == pytest.approx(1.0)
-    assert report["metrics"]["structured_block_count"] >= 1
+    assert len(report["blocks"]) >= 1
 
 
 def test_structured_report_and_source_map_persist_in_mesh_artifact(tmp_path) -> None:

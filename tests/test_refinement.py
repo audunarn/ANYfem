@@ -667,8 +667,8 @@ def test_meshing_controls_survive_a_project_file(workspace):
     assert restored.refinements[1].center == pytest.approx((0.5, 0.5, 0.0))
     assert restored.refinements[1].growth == pytest.approx(1.8)
     # And it meshes to the same thing.
-    assert restored.generate_mesh(0.25).num_nodes == (
-        project.generate_mesh(0.25).num_nodes
+    assert restored.generate_mesh(0.08).num_nodes == (
+        project.generate_mesh(0.08).num_nodes
     )
 
 
@@ -681,6 +681,8 @@ def test_a_file_without_meshing_controls_still_loads(workspace):
 
     project = plate_project()
     data = project_to_dict(project)
+    data["anyfem"]["format"] = 5
+    data.pop("ownership")
     del data["meshing"]
     path = workspace / "old.anyfem"
     path.write_text(json.dumps(data), encoding="utf-8")

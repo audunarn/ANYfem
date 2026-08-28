@@ -96,7 +96,7 @@ def test_in_flight_native_cancellation_stops_before_recombination(
         assert previous is not None
 
         original_triangulate = surface_mesh.triangulate_polygon
-        original_recombine = surface_mesh.recombine_triangles
+        original_recombine = surface_mesh.recombine_triangles_with_report
 
         def blocked_triangulate(*args, **kwargs):
             entered.set()
@@ -108,7 +108,9 @@ def test_in_flight_native_cancellation_stops_before_recombination(
             return original_recombine(*args, **kwargs)
 
         monkeypatch.setattr(surface_mesh, "triangulate_polygon", blocked_triangulate)
-        monkeypatch.setattr(surface_mesh, "recombine_triangles", observed_recombine)
+        monkeypatch.setattr(
+            surface_mesh, "recombine_triangles_with_report", observed_recombine
+        )
 
         try:
             session.request_remesh(component)

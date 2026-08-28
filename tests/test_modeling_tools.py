@@ -13,6 +13,17 @@ from anyfem.model.project import Project
 
 
 def _geometry_bytes(project: Project) -> str:
+    document = dict(to_dict(project.geometry))
+    # Undo restores the exact design while ANYgeometry deliberately keeps
+    # revision and allocator high-water marks monotonic so stale handles can
+    # never alias newly created entities.
+    document.pop("checksum", None)
+    document.pop("id_state", None)
+    document.pop("revision", None)
+    return json.dumps(document, sort_keys=True, separators=(",", ":"))
+
+
+def _exact_geometry_bytes(project: Project) -> str:
     return json.dumps(to_dict(project.geometry), sort_keys=True, separators=(",", ":"))
 
 
@@ -74,7 +85,7 @@ def test_failed_owner_operation_is_byte_for_byte_non_mutating():
     project = Project("atomic mirror")
     stack = cmd.CommandStack(project)
     face = _plate(stack)
-    before = _geometry_bytes(project)
+    before = _exact_geometry_bytes(project)
     history = stack.history()
 
     with pytest.raises(GeometryError, match="normal must be non-zero"):
@@ -84,7 +95,7 @@ def test_failed_owner_operation_is_byte_for_byte_non_mutating():
             )
         )
 
-    assert _geometry_bytes(project) == before
+    assert _exact_geometry_bytes(project) == before
     assert stack.history() == history
 
 

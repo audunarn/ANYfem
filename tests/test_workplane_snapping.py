@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from anyfem import commands as cmd
 from anyfem.document import DocumentSession
 from anyfem.geometry.construction import (
     ConstructionMode,
@@ -219,7 +220,7 @@ def test_failed_construction_apply_is_exactly_non_mutating(monkeypatch):
     def fail(*_args, **_kwargs):
         raise RuntimeError("synthetic polyline failure")
 
-    monkeypatch.setattr(project.geometry, "add_polyline", fail)
+    monkeypatch.setattr(cmd.AddPolyline, "do", fail)
     with pytest.raises(RuntimeError, match="synthetic"):
         task.apply(session.execute)
 

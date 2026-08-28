@@ -167,6 +167,30 @@ def mesh_semantic_hash(
 
     from anymesher.serialize import mesh_to_dict
 
+    preparation_provenance_keys = {
+        "geometry_model_id",
+        "geometry_revision",
+        "model_id",
+        "preparation_hash",
+        "revision",
+        "source_model_id",
+        "source_revision",
+        "structural_preparation_hash",
+        "working_model_id",
+        "working_revision",
+    }
+
+    def without_preparation_provenance(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): without_preparation_provenance(item)
+                for key, item in value.items()
+                if str(key) not in preparation_provenance_keys
+            }
+        if isinstance(value, (list, tuple)):
+            return [without_preparation_provenance(item) for item in value]
+        return value
+
     mesh_payload = dict(mesh_to_dict(mesh))
     mesh_payload.pop("geometry_model_id", None)
     mesh_payload.pop("geometry_revision", None)
@@ -177,33 +201,17 @@ def mesh_semantic_hash(
         # the hash that transitively binds that UUID are provenance, not mesh
         # semantics, and therefore change across otherwise identical jobs.
         hybrid_diagnostics.pop("geometry_model_id", None)
+        hybrid_diagnostics.pop("geometry_revision", None)
         hybrid_diagnostics.pop("structural_preparation_hash", None)
         mesh_payload["hybrid_diagnostics"] = hybrid_diagnostics
     mesh_preparation = mesh_payload.get("structural_preparation")
     if isinstance(mesh_preparation, Mapping):
-        mesh_preparation = dict(mesh_preparation)
-        structural_closure = mesh_preparation.get("structural_closure")
-        if isinstance(structural_closure, Mapping):
-            structural_closure = dict(structural_closure)
-            structural_closure.pop("model_id", None)
-            structural_closure.pop("preparation_hash", None)
-            mesh_preparation["structural_closure"] = structural_closure
-        mesh_structured_layout = mesh_preparation.get("structured_layout")
-        if isinstance(mesh_structured_layout, Mapping):
-            mesh_structured_layout = dict(mesh_structured_layout)
-            mesh_plan = mesh_structured_layout.get("plan")
-            if isinstance(mesh_plan, Mapping):
-                mesh_plan = dict(mesh_plan)
-                mesh_plan.pop("model_id", None)
-                mesh_plan.pop("revision", None)
-                mesh_structured_layout["plan"] = mesh_plan
-            mesh_preparation["structured_layout"] = mesh_structured_layout
-        mesh_payload["structural_preparation"] = mesh_preparation
-    preparation = dict(structural_preparation or {})
-    preparation.pop("working_model_id", None)
-    preparation.pop("working_revision", None)
-    preparation.pop("source_revision", None)
-    preparation.pop("source_model_id", None)
+        mesh_payload["structural_preparation"] = without_preparation_provenance(
+            mesh_preparation
+        )
+    preparation = without_preparation_provenance(
+        dict(structural_preparation or {})
+    )
     structured_layout = preparation.get("structured_layout")
     if isinstance(structured_layout, Mapping):
         structured_layout = dict(structured_layout)

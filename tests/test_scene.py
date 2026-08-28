@@ -202,12 +202,14 @@ def test_straight_topology_does_not_flatten_an_explicit_ruled_surface():
     project = Project()
     geometry = project.geometry
     points = geometry.add_points(
-        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0.3), (0, 1, 0)]
     )
-    face = geometry.add_face(geometry.add_polyline(points, close=True))
-    geometry.faces[face].surface = RuledSurface(
-        np.array([(0, 0, 0), (0.5, 0, 0.3), (1, 0, 0)]),
-        np.array([(0, 1, 0), (0.5, 1, 0.3), (1, 1, 0)]),
+    face = geometry.add_face(
+        geometry.add_polyline(points, close=True),
+        surface=RuledSurface(
+            np.array([(0, 0, 0), (1, 0, 0)]),
+            np.array([(0, 1, 0), (1, 1, 0.3)]),
+        ),
     )
 
     patch = build_geometry_scene(project).faces[0]
