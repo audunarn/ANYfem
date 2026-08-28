@@ -19,26 +19,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out candidate source
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.x"
+          python-version: "3.13"
       - name: Install release tooling
         run: python -m pip install --upgrade build twine
       - name: Build wheel and source distribution
         run: python -m build --outdir dist
       - name: Check distribution metadata
         run: python -m twine check dist/*
-      - name: Write release checksums
+      - name: Write diagnostic checksums
         shell: bash
         run: |
           cd dist
-          sha256sum *.whl *.tar.gz > ANYfem-0.4.0-SHA256SUMS.txt
+          sha256sum *.whl *.tar.gz > SHA256SUMS
       - name: Store candidate release assets
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-package-distributions
           path: dist/
@@ -46,8 +46,11 @@ jobs:
           retention-days: 7
 
   publish-production:
-    name: Publish verified release assets to PyPI
-    if: github.event_name == 'release'
+    name: Publish ledger-authorized release assets to PyPI
+    if: >-
+      github.event_name == 'release' &&
+      github.event.release.draft == false &&
+      github.event.release.prerelease == false
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -56,69 +59,40 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download prebuilt GitHub release assets
+      - name: Check out the ledger-only release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Download the complete prebuilt release asset set
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         shell: bash
         run: |
-          test "$RELEASE_TAG" = "v0.4.0"
           mkdir release-assets
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir release-assets \
-            --pattern "*.whl" \
-            --pattern "*.tar.gz" \
-            --pattern "ANYfem-0.4.0-SHA256SUMS.txt"
-      - name: Verify release checksums and select distributions
-        shell: bash
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+      - name: Verify sole-child ledger authority and exact distributions
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          python - <<'PY'
-          import hashlib
-          import shutil
-          from pathlib import Path
-
-          source = Path("release-assets")
-          checksum_path = source / "ANYfem-0.4.0-SHA256SUMS.txt"
-          if not checksum_path.is_file() or checksum_path.is_symlink():
-              raise SystemExit("missing regular ANYfem checksum asset")
-          expected = {}
-          for line in checksum_path.read_text(encoding="ascii").splitlines():
-              digest, separator, filename = line.partition("  ")
-              if not separator or len(digest) != 64 or Path(filename).name != filename:
-                  raise SystemExit(f"malformed checksum row: {line!r}")
-              if filename in expected:
-                  raise SystemExit(f"duplicate checksum row: {filename}")
-              expected[filename] = digest.lower()
-          artifacts = sorted((*source.glob("*.whl"), *source.glob("*.tar.gz")))
-          if not artifacts or set(expected) != {item.name for item in artifacts}:
-              raise SystemExit("checksum manifest does not exactly cover distributions")
-          exact_artifact_names = {
-              "anyfem-0.4.0-py3-none-any.whl",
-              "anyfem-0.4.0.tar.gz",
-          }
-          if {item.name for item in artifacts} != exact_artifact_names:
-              raise SystemExit("release does not contain the exact ANYfem artifact set")
-          if any(
-              item.name != "anyfem-0.4.0.tar.gz"
-              and not (
-                  item.name.startswith("anyfem-0.4.0-")
-                  and item.name.endswith(".whl")
-              )
-              for item in artifacts
-          ):
-              raise SystemExit("unexpected ANYfem distribution asset")
-          target = Path("dist")
-          target.mkdir()
-          for artifact in artifacts:
-              if not artifact.is_file() or artifact.is_symlink():
-                  raise SystemExit(f"release asset is not a regular file: {artifact.name}")
-              actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
-              if actual != expected[artifact.name]:
-                  raise SystemExit(f"release checksum mismatch: {artifact.name}")
-              shutil.copy2(artifact, target / artifact.name)
-          PY
-      - name: Publish exact distributions using Trusted Publishing
-        uses: pypa/gh-action-pypi-publish@release/v1
+          python tools/verify_release_authority.py \
+            --ledger docs/release/anyfem-0.4.0-ledger.json \
+            --assets release-assets \
+            --output dist \
+            --tag "$RELEASE_TAG" \
+            --protected-ref refs/remotes/origin/main \
+            --expected-terminal ACCEPTED_ANYFEM_0_4_0_RELEASE \
+            --distribution ANYfem \
+            --version 0.4.0 \
+            --artifact anyfem-0.4.0-py3-none-any.whl \
+            --artifact anyfem-0.4.0.tar.gz
+      - name: Publish exact ledger-authorized distributions
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist/

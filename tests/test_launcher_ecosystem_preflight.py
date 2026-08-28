@@ -269,16 +269,20 @@ def test_production_publish_uses_verified_prebuilt_release_assets() -> None:
     assert "release:\n    types: [published]" in workflow
     assert "workflow_dispatch:" in workflow
     assert "if: github.event_name == 'workflow_dispatch'" in workflow
-    assert 'test "$RELEASE_TAG" = "v0.4.0"' in production
     assert 'gh release download "$RELEASE_TAG"' in production
-    assert "ANYfem-0.4.0-SHA256SUMS.txt" in production
-    assert "checksum manifest does not exactly cover distributions" in production
-    assert '"anyfem-0.4.0-py3-none-any.whl"' in production
-    assert '"anyfem-0.4.0.tar.gz"' in production
-    assert "release does not contain the exact ANYfem artifact set" in production
-    assert "unexpected ANYfem distribution asset" in production
-    assert "release checksum mismatch" in production
-    assert "pypa/gh-action-pypi-publish@release/v1" in production
+    assert "--protected-ref refs/remotes/origin/main" in production
+    assert "--expected-terminal ACCEPTED_ANYFEM_0_4_0_RELEASE" in production
+    assert "docs/release/anyfem-0.4.0-ledger.json" in production
+    assert "--artifact anyfem-0.4.0-py3-none-any.whl" in production
+    assert "--artifact anyfem-0.4.0.tar.gz" in production
+    assert "github.event.release.prerelease == false" in production
+    assert "fetch-depth: 0" in production
+    assert "--pattern" not in production
+    assert "@release/v1" not in production
+    assert (
+        "pypa/gh-action-pypi-publish@"
+        "dc37677b2e1c63e2034f94d8a5b11f265b73ba33"
+    ) in production
     assert "packages-dir: dist/" in production
     assert "python -m build" not in production
     assert "timeout-minutes:" not in workflow
