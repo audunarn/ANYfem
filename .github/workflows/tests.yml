@@ -16,49 +16,49 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
       # until normal versioned installation can replace these checkouts.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: c9115d91bbf4856b9a6cb4d5450aab98c8c3c53e
+          ref: bf9fa2c676507c2c86343c391c73f69319cb4525
           path: .ecosystem/ANYsolver
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYmaterial
-          ref: 2b6431c291c8f571803484f69d08807875996b72
+          ref: 0591d4833806ee95bdd710c352a1f836af7b910e
           path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYgeometry
-          ref: 97b06b0cfc72179c4f6522f9077d8a1d91911d61
+          ref: 4699eb1849476ee430cddc20164ce871861b2000
           path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYmesh
-          ref: c06c8fa9ca58f282941a921548bf8303a8ddd084
+          ref: 7a2605232a041f6a5b7ecb5679b626570612884b
           path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYfileIO
-          ref: 07124405ce0160437928e9b0c3c7a0d530c1f5de
+          ref: 4c55df4cebee1ad285927f7f33487e0a1f66715a
           path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: ebe8245538504633b2b5a6579e16c4fd321d2f0e
+          ref: 8b899b7a9d08a51d7899c34265b6b0b6e13da554
           path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYtk3D
-          ref: 516aa46ec8affaa737fd165efad7c7b45a2b852a
+          ref: 94fe0e0cf31faeeab182e0a51e3ead94849418f3
           path: .ecosystem/ANYtk3D
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -95,7 +95,7 @@ jobs:
 
       - name: Publish evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evidence-${{ matrix.os }}-py${{ matrix.python-version }}
           path: reports/
@@ -103,46 +103,46 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYsolver
           # Exact S3/Q4 qualification candidate; update only through review.
-          ref: c9115d91bbf4856b9a6cb4d5450aab98c8c3c53e
+          ref: bf9fa2c676507c2c86343c391c73f69319cb4525
           path: .ecosystem/ANYsolver
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYmaterial
-          ref: 2b6431c291c8f571803484f69d08807875996b72
+          ref: 0591d4833806ee95bdd710c352a1f836af7b910e
           path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYgeometry
-          ref: 97b06b0cfc72179c4f6522f9077d8a1d91911d61
+          ref: 4699eb1849476ee430cddc20164ce871861b2000
           path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYmesh
-          ref: c06c8fa9ca58f282941a921548bf8303a8ddd084
+          ref: 7a2605232a041f6a5b7ecb5679b626570612884b
           path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYfileIO
-          ref: 07124405ce0160437928e9b0c3c7a0d530c1f5de
+          ref: 4c55df4cebee1ad285927f7f33487e0a1f66715a
           path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANY3dView
-          ref: ebe8245538504633b2b5a6579e16c4fd321d2f0e
+          ref: 8b899b7a9d08a51d7899c34265b6b0b6e13da554
           path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: audunarn/ANYtk3D
-          ref: 516aa46ec8affaa737fd165efad7c7b45a2b852a
+          ref: 94fe0e0cf31faeeab182e0a51e3ead94849418f3
           path: .ecosystem/ANYtk3D
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
 

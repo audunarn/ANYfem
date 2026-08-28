@@ -246,18 +246,30 @@ def test_ci_binds_exact_release_graph_revisions_and_fails_closed_for_solver() ->
         encoding="utf-8"
     )
     expected_refs = {
-        "2b6431c291c8f571803484f69d08807875996b72",
-        "97b06b0cfc72179c4f6522f9077d8a1d91911d61",
-        "c06c8fa9ca58f282941a921548bf8303a8ddd084",
-        "07124405ce0160437928e9b0c3c7a0d530c1f5de",
-        "ebe8245538504633b2b5a6579e16c4fd321d2f0e",
-        "516aa46ec8affaa737fd165efad7c7b45a2b852a",
-        "c9115d91bbf4856b9a6cb4d5450aab98c8c3c53e",
+        "0591d4833806ee95bdd710c352a1f836af7b910e",
+        "4699eb1849476ee430cddc20164ce871861b2000",
+        "7a2605232a041f6a5b7ecb5679b626570612884b",
+        "4c55df4cebee1ad285927f7f33487e0a1f66715a",
+        "8b899b7a9d08a51d7899c34265b6b0b6e13da554",
+        "94fe0e0cf31faeeab182e0a51e3ead94849418f3",
+        "bf9fa2c676507c2c86343c391c73f69319cb4525",
     }
     for revision in expected_refs:
         assert workflow.count(f"ref: {revision}") == 2
     assert workflow.count("repository: audunarn/") == 14
     assert workflow.count("          ref: ") == 14
+    assert workflow.count(
+        "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+    ) == 16
+    assert workflow.count(
+        "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"
+    ) == 2
+    assert workflow.count(
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+    ) == 1
+    assert "actions/checkout@v4" not in workflow
+    assert "actions/setup-python@v5" not in workflow
+    assert "actions/upload-artifact@v4" not in workflow
 
 
 def test_production_publish_uses_verified_prebuilt_release_assets() -> None:
