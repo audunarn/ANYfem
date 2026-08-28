@@ -134,11 +134,13 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command(
     assert "ANYsolver>=0.4.0,<0.5: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
+    geometry_project = str(namespace["_ANYGEOMETRY_PROJECT"])
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
-    assert command.index("ANYgeometry") < command.index(mesh_project)
-    assert command.index(mesh_project) < command.index("ANYfileIO")
+    fileio_project = str(namespace["_ANYFILEIO_PROJECT"])
+    assert command.index(geometry_project) < command.index(mesh_project)
+    assert command.index(mesh_project) < command.index(fileio_project)
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
-    solver_project = str(namespace["_ECOSYSTEM_ROOT"] / "ANYsolver")
+    solver_project = str(namespace["_ANYSOLVER_PROJECT"])
     fem_project = str(namespace["_ROOT"])
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
@@ -218,6 +220,23 @@ def test_actions_ecosystem_checkout_root_is_preferred(tmp_path) -> None:
     assert namespace["_ecosystem_root"](repository_root) == embedded
 
 
+def test_explicit_solver_checkout_binding_supports_isolated_worktrees(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    solver = tmp_path / "qualified-solver"
+    (solver / "src").mkdir(parents=True)
+    monkeypatch.setenv("ANYFEM_ANYSOLVER_ROOT", str(solver))
+
+    namespace = _namespace()
+
+    assert namespace["_ANYSOLVER_PROJECT"] == solver.resolve()
+    assert dict(
+        (distribution, source)
+        for distribution, _module, source in namespace["_SOURCE_PROJECTS"]
+    )["ANYsolver"] == solver.resolve() / "src"
+    assert f'-e "{solver.resolve()}"' in namespace["editable_repair_command"]()
+
+
 def test_anyfileio_uses_only_the_canonical_repository_and_source_path(
     candidate_namespace,
 ) -> None:
@@ -233,9 +252,7 @@ def test_anyfileio_uses_only_the_canonical_repository_and_source_path(
     assert "path: .ecosystem/ANYfileIO" in workflow
     assert "repository: audunarn/ANYio" not in workflow
     assert ".ecosystem/ANYio" not in workflow
-    assert source["ANYfileio"] == (
-        candidate_namespace["_ECOSYSTEM_ROOT"] / "ANYfileIO" / "src"
-    )
+    assert source["ANYfileio"] == candidate_namespace["_ANYFILEIO_PROJECT"] / "src"
     assert 'ANYfileio[semantics]>=0.2.1,<0.3' in (
         ROOT / "pyproject.toml"
     ).read_text(encoding="utf-8")

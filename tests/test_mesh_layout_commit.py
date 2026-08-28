@@ -6,7 +6,7 @@ import pytest
 from anygeometry.entities import EntityRef, OrientedEdge
 from anygeometry.serialization import to_dict
 from anygeometry.surfaces import Plane
-from anymesher import plan_structured_layout
+from anymesher import Mesh, plan_structured_layout
 
 from anyfem.commands import CommitStructuredLayout
 from anyfem.mesh_jobs import MeshSettings, mesh_semantic_hash
@@ -96,3 +96,35 @@ def test_commit_then_exact_undo_restores_the_mesh_semantic_hash() -> None:
     )
 
     assert second_hash == first_hash
+
+
+def test_mesh_semantic_hash_excludes_nested_runtime_samples() -> None:
+    mesh = Mesh()
+    mesh.hybrid_diagnostics["native_diagnostics"] = {
+        "insertion_seconds": 0.1,
+        "inserted_points": 12,
+    }
+
+    first = mesh_semantic_hash(
+        mesh,
+        model_hash="same-model-semantics",
+        mesh_input_hash="same-mesh-input",
+        structural_preparation={},
+    )
+    mesh.hybrid_diagnostics["native_diagnostics"]["insertion_seconds"] = 9.9
+    second = mesh_semantic_hash(
+        mesh,
+        model_hash="same-model-semantics",
+        mesh_input_hash="same-mesh-input",
+        structural_preparation={},
+    )
+    mesh.hybrid_diagnostics["native_diagnostics"]["inserted_points"] = 13
+    changed = mesh_semantic_hash(
+        mesh,
+        model_hash="same-model-semantics",
+        mesh_input_hash="same-mesh-input",
+        structural_preparation={},
+    )
+
+    assert first == second
+    assert changed != second

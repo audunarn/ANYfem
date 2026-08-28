@@ -191,6 +191,18 @@ def mesh_semantic_hash(
             return [without_preparation_provenance(item) for item in value]
         return value
 
+    def without_runtime_samples(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): without_runtime_samples(item)
+                for key, item in value.items()
+                if str(key) != "phase_seconds"
+                and not str(key).endswith("_seconds")
+            }
+        if isinstance(value, (list, tuple)):
+            return [without_runtime_samples(item) for item in value]
+        return value
+
     mesh_payload = dict(mesh_to_dict(mesh))
     mesh_payload.pop("geometry_model_id", None)
     mesh_payload.pop("geometry_revision", None)
@@ -203,7 +215,9 @@ def mesh_semantic_hash(
         hybrid_diagnostics.pop("geometry_model_id", None)
         hybrid_diagnostics.pop("geometry_revision", None)
         hybrid_diagnostics.pop("structural_preparation_hash", None)
-        mesh_payload["hybrid_diagnostics"] = hybrid_diagnostics
+        mesh_payload["hybrid_diagnostics"] = without_runtime_samples(
+            hybrid_diagnostics
+        )
     mesh_preparation = mesh_payload.get("structural_preparation")
     if isinstance(mesh_preparation, Mapping):
         mesh_payload["structural_preparation"] = without_preparation_provenance(

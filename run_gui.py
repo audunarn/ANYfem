@@ -51,6 +51,13 @@ def _ecosystem_root(repository_root: Path | None = None) -> Path:
 _ECOSYSTEM_ROOT = _ecosystem_root()
 
 
+def _project_root(environment: str, fallback: Path) -> Path:
+    """Resolve one explicitly bound sibling checkout or its normal fallback."""
+
+    override = os.environ.get(environment, "").strip()
+    return Path(override).resolve() if override else fallback
+
+
 def _declared_project_version(project: Path) -> str | None:
     """Read a source checkout's declared version without importing it."""
 
@@ -93,17 +100,33 @@ def _qualified_anymesher_project() -> Path:
     return release_checkout
 
 
-_ANY3DVIEW_PROJECT = _ECOSYSTEM_ROOT / "ANY3dView"
-_ANYTK3D_PROJECT = _ECOSYSTEM_ROOT / "ANYtk3D"
+_ANYMATERIAL_PROJECT = _project_root(
+    "ANYFEM_ANYMATERIAL_ROOT", _ECOSYSTEM_ROOT / "ANYmaterial"
+)
+_ANYGEOMETRY_PROJECT = _project_root(
+    "ANYFEM_ANYGEOMETRY_ROOT", _ECOSYSTEM_ROOT / "ANYgeometry"
+)
+_ANYFILEIO_PROJECT = _project_root(
+    "ANYFEM_ANYFILEIO_ROOT", _ECOSYSTEM_ROOT / "ANYfileIO"
+)
+_ANY3DVIEW_PROJECT = _project_root(
+    "ANYFEM_ANY3DVIEW_ROOT", _ECOSYSTEM_ROOT / "ANY3dView"
+)
+_ANYTK3D_PROJECT = _project_root(
+    "ANYFEM_ANYTK3D_ROOT", _ECOSYSTEM_ROOT / "ANYtk3D"
+)
+_ANYSOLVER_PROJECT = _project_root(
+    "ANYFEM_ANYSOLVER_ROOT", _ECOSYSTEM_ROOT / "ANYsolver"
+)
 _ANYMESHER_PROJECT = _qualified_anymesher_project()
 _SOURCE_PROJECTS = (
-    ("ANYmaterial", "anymaterial", _ECOSYSTEM_ROOT / "ANYmaterial" / "src"),
-    ("ANYgeometry", "anygeometry", _ECOSYSTEM_ROOT / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _ECOSYSTEM_ROOT / "ANYfileIO" / "src"),
+    ("ANYmaterial", "anymaterial", _ANYMATERIAL_PROJECT / "src"),
+    ("ANYgeometry", "anygeometry", _ANYGEOMETRY_PROJECT / "src"),
+    ("ANYfileio", "anyfileio", _ANYFILEIO_PROJECT / "src"),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
-    ("ANYsolver", "anysolver", _ECOSYSTEM_ROOT / "ANYsolver" / "src"),
+    ("ANYsolver", "anysolver", _ANYSOLVER_PROJECT / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
 
@@ -193,13 +216,13 @@ def editable_repair_command() -> str:
     """One copy/paste bootstrap command in release dependency order."""
 
     projects = (
-        str(_ECOSYSTEM_ROOT / "ANYmaterial"),
-        str(_ECOSYSTEM_ROOT / "ANYgeometry") + "[planar]",
+        str(_ANYMATERIAL_PROJECT),
+        str(_ANYGEOMETRY_PROJECT) + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_ECOSYSTEM_ROOT / "ANYfileIO") + "[semantics]",
+        str(_ANYFILEIO_PROJECT) + "[semantics]",
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
-        str(_ECOSYSTEM_ROOT / "ANYsolver"),
+        str(_ANYSOLVER_PROJECT),
         str(_ROOT) + "[gui]",
     )
     editables = " ".join(f'-e "{project}"' for project in projects)
