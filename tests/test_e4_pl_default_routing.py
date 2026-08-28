@@ -8,7 +8,12 @@ import numpy as np
 
 from anyfem import Project, steel
 from anyfem.solve.build import build_fe_model
-from anymesher import Mesh
+from anymesher import (
+    Mesh,
+    QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
+    S3_QUALITY_CONTRACT_ID,
+    S3_REPAIR_CONTRACT_ID,
+)
 from anysolver import (
     LegacyQ4DeprecationWarning,
     QualifiedE4PLS3ShellElement,
@@ -18,6 +23,58 @@ from anysolver import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _bind_qualified_s3_authority(project: Project, mesh: Mesh) -> None:
+    shell_ids = tuple(sorted(int(value) for value in mesh.shells))
+    shell_nodes = {
+        int(node_id)
+        for connectivity in mesh.shells.values()
+        for node_id in connectivity
+    }
+    face_by_element = {
+        int(element_id): int(face_id)
+        for face_id, element_ids in mesh.elements_of_face.items()
+        for element_id in element_ids
+    }
+    mesh.geometry_model_id = str(project.geometry.model_id)
+    mesh.geometry_revision = int(project.geometry.revision)
+    mesh.structural_preparation = {
+        "qualified_s3": {
+            "admission": {"elements": [], "topology_violations": []},
+            "authority_model": {
+                "prepared_revision": int(project.geometry.revision),
+                "scope": "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+                "source_model_id": str(project.geometry.model_id),
+                "source_revision": int(project.geometry.revision),
+            },
+            "contract_id": QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
+            "element_ids": sorted(int(value) for value in mesh.tris),
+            "element_owner_normals": {
+                str(element_id): [0.0, 0.0, 1.0]
+                for element_id in shell_ids
+            },
+            "element_owner_sources": {
+                str(element_id): {
+                    "face_id": face_by_element[element_id],
+                    "face_use_ids": [1],
+                    "sheet_ids": [1],
+                }
+                for element_id in shell_ids
+            },
+            "formulation_id": "E4_PL_QUALIFIED_S3_COMPANION_V1",
+            "legacy_fallback": "FORBIDDEN",
+            "nodal_normals": {
+                str(node_id): [0.0, 0.0, 1.0]
+                for node_id in sorted(shell_nodes)
+            },
+            "quality_contract_id": S3_QUALITY_CONTRACT_ID,
+            "repair": {},
+            "repair_contract_id": S3_REPAIR_CONTRACT_ID,
+            "schema": "anymesher.qualified-s3-production-preparation-v1",
+            "status": "ADMITTED",
+        }
+    }
 
 
 def test_anyfem_routes_qualified_q4_and_s3_and_preserves_higher_order() -> None:
@@ -54,6 +111,7 @@ def test_anyfem_routes_qualified_q4_and_s3_and_preserves_higher_order() -> None:
     mesh.quads = {20: (1, 2, 3, 4), 21: (5, 6, 7, 8, 9, 10, 11, 12)}
     mesh.tris = {22: (13, 14, 15)}
     mesh.elements_of_face = {face: [20, 21, 22]}
+    _bind_qualified_s3_authority(project, mesh)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

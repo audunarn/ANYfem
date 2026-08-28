@@ -217,7 +217,7 @@ def test_couplings_reach_the_solver_as_mpc_elements():
 def test_triangular_neutral_mesh_reaches_solver_shells():
     from types import SimpleNamespace
 
-    from anymesher import Mesh
+    from anymesher import Mesh, prepare_qualified_s3_mesh
     from anysolver import QualifiedE4PLS3ShellElement
 
     from anyfem.post.extract import nodes_to_elements
@@ -232,6 +232,7 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
         [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
     )
     face = project.geometry.add_face(project.geometry.add_polyline(points, close=True))
+    project.geometry.add_sheet((face,))
     project.assign_plate(face, "plate")
 
     mesh = Mesh()
@@ -243,6 +244,16 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
     }
     mesh.tris = {1: (1, 2, 3), 2: (1, 3, 4)}
     mesh.elements_of_face = {face: [1, 2]}
+    mesh, authority = prepare_qualified_s3_mesh(mesh, project.geometry)
+    authority["authority_model"].update(
+        {
+            "source_model_id": str(project.geometry.model_id),
+            "source_revision": int(project.geometry.revision),
+        }
+    )
+    mesh.structural_preparation = {"qualified_s3": authority}
+    mesh.geometry_model_id = str(project.geometry.model_id)
+    mesh.geometry_revision = int(project.geometry.revision)
 
     built = build_fe_model(
         project, mesh, require_loads=False, require_supports=False
