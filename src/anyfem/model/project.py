@@ -10,6 +10,7 @@ front-end would later call into.
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -68,6 +69,52 @@ class ProjectError(ValueError):
 
 
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
+_ASSIGNMENT_MEMBER_KIND = "anyfem.section_assignment_owner"
+_ASSIGNMENT_MEMBER_ID = "anyfem.section_assignment_id"
+_BUTTERFLY_FEATURE_KIND = "anyfem.mesh.butterfly_hole"
+
+
+def _anyfem_feature_registry():
+    """Return neutral geometry executors plus ANYfem-owned mesh intent.
+
+    Butterfly decomposition is an editable meshing-control operation, not a
+    neutral CAD hole.  It nevertheless changes materialized topology, so it
+    must participate in feature replay instead of mutating outputs owned by
+    earlier neutral features behind their checksums.
+    """
+
+    from anygeometry.features import builtin_feature_registry
+    from anymesher.decomposition import punch_circular_hole
+
+    registry = builtin_feature_registry()
+
+    def butterfly_hole(geometry, feature, inputs):
+        faces = tuple(inputs.get("face", ()))
+        if len(faces) != 1 or faces[0].kind != "face":
+            raise GeometryError("a butterfly-hole feature needs one face")
+        patches, boundaries = punch_circular_hole(
+            geometry,
+            faces[0].id,
+            feature.parameters["centre"],
+            float(feature.parameters["radius"]),
+        )
+        return {
+            **{
+                f"face/{index}": EntityRef("face", identifier)
+                for index, identifier in enumerate(patches)
+            },
+            **{
+                f"boundary/{index}": EntityRef("edge", identifier)
+                for index, identifier in enumerate(boundaries)
+            },
+        }
+
+    registry.register(
+        _BUTTERFLY_FEATURE_KIND,
+        butterfly_hole,
+        replay_mode="mutating",
+    )
+    return registry
 
 
 @dataclass
@@ -201,7 +248,7 @@ class Project:
         )
 
     def regenerate_geometry_features(self, registry=None):
-        """Regenerate features and Sheet ownership as one atomic project edit."""
+        """Regenerate neutral features and project-owned structure atomically."""
 
         from anygeometry.features import RegenerationReport
 
@@ -211,13 +258,35 @@ class Project:
         # the live document.  In particular, an unresolved persistent anchor
         # must not advance live topology IDs/revisions and must not require a
         # compensating restore (whose public allocator contract is monotonic).
-        working = self.geometry.clone(include_features=True)
-        report = working.regenerate_features(registry)
+        # ``GeometryModel.clone`` intentionally enforces portable persistence.
+        # A just-appended downstream feature is still pending and therefore
+        # has no output checksum yet, so serializing it before its registered
+        # executor runs would reject the otherwise valid transaction.  A
+        # design snapshot is already a detached deep copy and preserves the
+        # pending record without weakening save/load validation.
+        working = GeometryModel()
+        working.restore_design(self.geometry.design_snapshot())
+        staged = self._detached_regeneration_project(working)
+        try:
+            staged._detach_assignment_beam_ownership(working)
+        except (GeometryError, KeyError, TypeError, ValueError) as error:
+            return RegenerationReport(
+                False,
+                (),
+                (),
+                diagnostic=(
+                    "feature regeneration could not detach assignment-derived "
+                    f"Member ownership: {error}"
+                ),
+            )
+        report = working.regenerate_features(
+            _anyfem_feature_registry() if registry is None else registry
+        )
         if not report.success:
             return report
         try:
             reapply_sheet_join_intents(
-                working, self.sheet_join_intents.values()
+                working, staged.sheet_join_intents.values()
             )
         except (GeometryError, ValueError) as error:
             return RegenerationReport(
@@ -229,8 +298,88 @@ class Project:
                     f"ownership: {error}"
                 ),
             )
-        self.geometry.restore_design(working.design_snapshot())
+        try:
+            # A valid feature edit may deliberately suppress the last output
+            # of a canonical region.  Preserve that unresolved assignment as
+            # document intent, clear its compatibility view, and let the
+            # established strict mesh/solve boundary report the diagnostic.
+            staged.resolve_section_assignments(
+                strict=False,
+                adopt_legacy=False,
+            )
+        except (GeometryError, ProjectError, TypeError, ValueError) as error:
+            return RegenerationReport(
+                False,
+                report.features,
+                (),
+                diagnostic=(
+                    "feature regeneration could not restore canonical section "
+                    f"ownership: {error}"
+                ),
+            )
+        before_geometry = self.geometry.design_snapshot()
+        before_owner = self._regeneration_owner_snapshot()
+        try:
+            self.geometry.restore_design(working.design_snapshot())
+            self._restore_regeneration_owner(
+                staged._regeneration_owner_snapshot()
+            )
+        except BaseException:
+            self.geometry.restore_design(before_geometry)
+            self._restore_regeneration_owner(before_owner)
+            raise
         return report
+
+    def _detached_regeneration_project(
+        self, geometry: GeometryModel
+    ) -> "Project":
+        """Clone every mutable owner map that feature replay may transport."""
+
+        staged = copy(self)
+        staged.geometry = geometry
+        staged.face_sections = dict(self.face_sections)
+        staged.edge_sections = dict(self.edge_sections)
+        staged.face_assignment_ids = dict(self.face_assignment_ids)
+        staged.edge_assignment_ids = dict(self.edge_assignment_ids)
+        staged.section_assignments = dict(self.section_assignments)
+        staged.regions = RegionRegistry(deepcopy(tuple(self.regions)))
+        staged._singleton_region_cache = dict(self._singleton_region_cache)
+        staged._singleton_region_cache_size = self._singleton_region_cache_size
+        staged.sheet_join_intents = deepcopy(self.sheet_join_intents)
+        return staged
+
+    def _regeneration_owner_snapshot(self) -> dict[str, object]:
+        """Snapshot the project-owned state transported with feature topology."""
+
+        return {
+            "section_assignments": dict(self.section_assignments),
+            "regions": deepcopy(tuple(self.regions)),
+            "section_compatibility": self._section_compatibility_snapshot(),
+            "singleton_region_cache": dict(self._singleton_region_cache),
+            "singleton_region_cache_size": self._singleton_region_cache_size,
+            "sheet_join_intents": deepcopy(self.sheet_join_intents),
+        }
+
+    def _restore_regeneration_owner(self, snapshot: Mapping[str, object]) -> None:
+        """Publish or roll back one complete feature-owner transaction."""
+
+        self.section_assignments.clear()
+        self.section_assignments.update(snapshot["section_assignments"])  # type: ignore[arg-type]
+        self.regions = RegionRegistry(deepcopy(snapshot["regions"]))  # type: ignore[arg-type]
+        self._restore_section_compatibility(
+            snapshot["section_compatibility"]  # type: ignore[arg-type]
+        )
+        self._singleton_region_cache.clear()
+        self._singleton_region_cache.update(
+            snapshot["singleton_region_cache"]  # type: ignore[arg-type]
+        )
+        self._singleton_region_cache_size = int(
+            snapshot["singleton_region_cache_size"]
+        )
+        self.sheet_join_intents.clear()
+        self.sheet_join_intents.update(
+            deepcopy(snapshot["sheet_join_intents"])  # type: ignore[arg-type]
+        )
 
     def singleton_region(
         self,
@@ -514,8 +663,21 @@ class Project:
         created: list[tuple[int, int]] = []
         try:
             for edge_id in pending:
+                assignment_id = self.edge_assignment_ids.get(edge_id)
+                assignment = self.section_assignments.get(
+                    "" if assignment_id is None else assignment_id
+                )
+                if assignment is None or assignment.kind != "beam":
+                    raise GeometryError(
+                        f"assigned beam edge {edge_id} has no canonical beam binding"
+                    )
                 member_id = geometry.add_member(
-                    (edge_id,), name=f"assigned beam {edge_id}"
+                    (edge_id,),
+                    name=f"assigned beam {edge_id}",
+                    metadata={
+                        _ASSIGNMENT_MEMBER_KIND: "beam",
+                        _ASSIGNMENT_MEMBER_ID: assignment.id,
+                    },
                 )
                 created.append((member_id, geometry.members[member_id].part_id))
         except BaseException:
@@ -528,6 +690,77 @@ class Project:
                         geometry.remove_part(part_id)
             raise
         return tuple(member_id for member_id, _part_id in created)
+
+    def _detach_assignment_beam_ownership(
+        self, geometry: GeometryModel
+    ) -> tuple[int, ...]:
+        """Remove only section-assignment compatibility Members before replay.
+
+        Canonical regions retain the engineering intent.  Their Members are a
+        materialized meshing view and must not pin obsolete neutral-feature
+        outputs while those features replay.  Explicit user-authored Members
+        remain untouched and therefore continue to fail closed if their own
+        persistent transport has not been defined.
+        """
+
+        made: list[tuple[int, int]] = []
+        for member_id, member in sorted(geometry.members.items()):
+            uses = tuple(
+                geometry.member_edge_uses[use_id]
+                for use_id in member.edge_use_ids
+            )
+            marker = member.metadata.get(_ASSIGNMENT_MEMBER_KIND)
+            assignment_id = member.metadata.get(_ASSIGNMENT_MEMBER_ID)
+            if marker is None and assignment_id is None:
+                continue
+            if marker != "beam" or not isinstance(assignment_id, str):
+                raise GeometryError(
+                    f"Member {member_id} has malformed assignment-owner metadata"
+                )
+            elif assignment_id not in self.section_assignments:
+                # A removed canonical assignment leaves no intent to rebuild;
+                # its marked compatibility owner is deliberately retired.
+                pass
+            elif self.section_assignments[assignment_id].kind != "beam":
+                raise GeometryError(
+                    f"Member {member_id} references a non-beam section assignment"
+                )
+            elif any(
+                self.edge_assignment_ids.get(use.edge_id) != assignment_id
+                for use in uses
+            ):
+                raise GeometryError(
+                    f"Member {member_id} no longer matches its canonical beam region"
+                )
+
+            part = geometry.parts[member.part_id]
+            if part.sheet_ids or part.member_ids != (member_id,):
+                raise GeometryError(
+                    f"assignment-derived Member {member_id} no longer has its "
+                    "isolated compatibility Part"
+                )
+            attachments = geometry.attachments_for_member(member_id)
+            junctions = tuple(
+                junction.id
+                for junction in geometry.junctions.values()
+                if member_id in junction.member_ids
+            )
+            if attachments or junctions:
+                raise GeometryError(
+                    f"assignment-derived Member {member_id} has structural "
+                    f"connections attachments={list(attachments)}, "
+                    f"junctions={list(junctions)}"
+                )
+            made.append((member_id, member.part_id))
+
+        for member_id, _part_id in reversed(made):
+            geometry.remove_member(member_id)
+        for _member_id, part_id in reversed(made):
+            if part_id in geometry.parts:
+                part = geometry.parts[part_id]
+                if not part.sheet_ids and not part.member_ids:
+                    geometry.remove_part(part_id)
+        return tuple(member_id for member_id, _part_id in made)
 
     def assign_plate(self, face_id: int, section: str) -> None:
         """Give a plate its thickness and material.

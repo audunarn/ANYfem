@@ -10,7 +10,7 @@ ANYfem persists with the mesh record.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from anygeometry import (
     ConnectionIntent,
@@ -22,6 +22,8 @@ from anygeometry import (
 from anygeometry.closure import ModelClosure
 from anygeometry.entities import EntityRef
 from anygeometry.errors import GeometryError
+
+from .mesh.seeding import Seeding
 
 
 __all__ = [
@@ -406,15 +408,112 @@ def _aggregate(mapping: Mapping[int, Iterable[int]], owners: Mapping[int, int]):
     }
 
 
+def _remapped_seeding(
+    mesh,
+    divisions: Mapping[int, int],
+    source_to_working_edges: Mapping[int, Sequence[int]],
+) -> Seeding | None:
+    """Re-express a working-geometry seed solution on source edge handles."""
+
+    if not divisions:
+        return None
+    original = getattr(mesh, "seeding", None)
+    if original is None:
+        return Seeding(
+            divisions=dict(divisions),
+            classes={edge_id: edge_id for edge_id in divisions},
+        )
+    if all(
+        tuple(source_to_working_edges[edge_id]) == (edge_id,)
+        for edge_id in divisions
+    ):
+        groups: dict[tuple[int, int], list[int]] = {}
+        for edge_id in sorted(divisions):
+            signature = (
+                int(divisions[edge_id]),
+                int(original.classes.get(edge_id, edge_id)),
+            )
+            groups.setdefault(signature, []).append(edge_id)
+        classes = {
+            edge_id: min(group)
+            for group in groups.values()
+            for edge_id in group
+        }
+        return Seeding(
+            divisions=dict(divisions),
+            sweeps=int(original.sweeps),
+            classes=classes,
+            size_field=original.size_field,
+        )
+
+    groups: dict[tuple[int, tuple[int, ...]], list[int]] = {}
+    for source_edge in sorted(divisions):
+        descendant_classes = tuple(
+            sorted(
+                int(original.classes.get(working_edge, working_edge))
+                for working_edge in source_to_working_edges[source_edge]
+            )
+        )
+        signature = (int(divisions[source_edge]), descendant_classes)
+        groups.setdefault(signature, []).append(source_edge)
+    classes = {
+        source_edge: min(group)
+        for group in groups.values()
+        for source_edge in group
+    }
+
+    return Seeding(
+        divisions=dict(divisions),
+        sweeps=int(original.sweeps),
+        classes=classes,
+        size_field=original.size_field,
+    )
+
+
 def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
     """Publish prepared mesh associations against immutable source handles."""
 
     face_owner = _descendant_to_source(closure, "face")
     edge_owner = _descendant_to_source(closure, "edge")
     vertex_owner = _descendant_to_source(closure, "vertex")
+    source_to_working_edges: dict[int, list[int]] = {}
+    for working_edge, source_edge in sorted(
+        edge_owner.items(), key=lambda item: (item[1], item[0])
+    ):
+        source_to_working_edges.setdefault(source_edge, []).append(working_edge)
+    remapped_nodes_of_edge = _aggregate(mesh.nodes_of_edge, edge_owner)
+    steps = 2 if bool(getattr(mesh, "is_quadratic", False)) else 1
+    invalid_node_chains = {
+        edge_id: len(nodes)
+        for edge_id, nodes in remapped_nodes_of_edge.items()
+        if len(nodes) < steps + 1 or (len(nodes) - 1) % steps != 0
+    }
+    if invalid_node_chains:
+        order = "quadratic" if steps == 2 else "linear"
+        details = ", ".join(
+            f"{edge_id}:{count}"
+            for edge_id, count in sorted(invalid_node_chains.items())
+        )
+        raise StructuralPreparationError(
+            f"prepared {order} source-edge node chains have invalid parity "
+            f"(edge:node-count {details})"
+        )
+    divisions = {
+        edge_id: (len(nodes) - 1) // steps
+        for edge_id, nodes in remapped_nodes_of_edge.items()
+    }
+    if any(value < 1 for value in divisions.values()):
+        raise StructuralPreparationError(
+            "prepared mesh produced an invalid zero-division source edge"
+        )
+    remapped_seeding = _remapped_seeding(
+        mesh,
+        divisions,
+        source_to_working_edges,
+    )
     mesh.elements_of_face = _aggregate(mesh.elements_of_face, face_owner)
     mesh.elements_of_edge = _aggregate(mesh.elements_of_edge, edge_owner)
-    mesh.nodes_of_edge = _aggregate(mesh.nodes_of_edge, edge_owner)
+    mesh.nodes_of_edge = remapped_nodes_of_edge
     mesh.offset_nodes_of_edge = _aggregate(
         mesh.offset_nodes_of_edge, edge_owner
     )
@@ -431,5 +530,6 @@ def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
         for working_id, value in mesh.thickness_of_face.items()
         if working_id in face_owner
     }
+    mesh.seeding = remapped_seeding
     mesh.geometry_model_id = closure.source_model_id
     mesh.geometry_revision = closure.source_revision

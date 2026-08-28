@@ -12,6 +12,7 @@ import pytest
 from anygeometry import EntityRef, GeometryModel, extract_model_closure
 from anygeometry.serialization import to_dict as geometry_to_dict
 from anymesher.hybrid import generate_hybrid_mesh
+from anymesher.seeding import Seeding
 from anysolver import audit_constraints
 
 from anyfem import Project, ProjectError, steel
@@ -31,6 +32,7 @@ from anyfem.native_meshing_backend import NativeProjectMeshingSession
 from anyfem.solve.build import build_fe_model
 from anyfem.structural_preparation import (
     StructuralPreparationError,
+    _remapped_seeding,
     prepare_structural_connectivity,
     remap_mesh_to_source,
     source_work_mapping,
@@ -397,9 +399,104 @@ def test_prepared_mesh_associations_are_remapped_to_source_faces() -> None:
     assert {first_face, second_face} <= set(mesh.elements_of_face)
     assert mesh.geometry_model_id == closure.source_model_id
     assert mesh.geometry_revision == closure.source_revision
+    assert mesh.seeding is not None
+    assert set(mesh.seeding.divisions) == set(mesh.nodes_of_edge)
+    assert set(mesh.seeding.classes) == set(mesh.nodes_of_edge)
+    assert set(mesh.seeding.classes.values()) <= set(mesh.nodes_of_edge)
+    steps = 2 if mesh.is_quadratic else 1
+    assert mesh.seeding.divisions == {
+        edge_id: (len(nodes) - 1) // steps
+        for edge_id, nodes in mesh.nodes_of_edge.items()
+    }
     first_nodes = set(mesh.nodes_on(EntityRef("face", first_face)))
     second_nodes = set(mesh.nodes_on(EntityRef("face", second_face)))
     assert first_nodes & second_nodes
+
+
+def test_remapped_seeding_requires_the_complete_equal_descendant_signature() -> None:
+    mesh = SimpleNamespace(
+        seeding=Seeding(
+            divisions={101: 2, 102: 2, 201: 2},
+            classes={101: 10, 102: 10, 201: 10},
+            sweeps=3,
+        )
+    )
+
+    remapped = _remapped_seeding(
+        mesh,
+        {10: 4, 20: 2},
+        {10: (101, 102), 20: (201,)},
+    )
+
+    assert remapped is not None
+    assert remapped.divisions == {10: 4, 20: 2}
+    assert remapped.classes == {10: 10, 20: 20}
+    assert remapped.sweeps == 3
+
+
+def test_identity_seeding_classes_use_retained_equal_division_source_keys() -> None:
+    mesh = SimpleNamespace(
+        seeding=Seeding(
+            divisions={1: 2, 2: 2, 3: 2, 4: 3},
+            classes={1: 1, 2: 1, 3: 1, 4: 1},
+            sweeps=2,
+        )
+    )
+
+    remapped = _remapped_seeding(
+        mesh,
+        {2: 2, 3: 2, 4: 3},
+        {2: (2,), 3: (3,), 4: (4,)},
+    )
+
+    assert remapped is not None
+    assert remapped.classes == {2: 2, 3: 2, 4: 4}
+    assert set(remapped.classes.values()) <= set(remapped.divisions)
+
+
+@pytest.mark.parametrize(
+    ("is_quadratic", "node_ids", "order"),
+    ((False, [1], "linear"), (True, [1, 2], "quadratic")),
+)
+def test_source_edge_parity_rejects_before_mesh_publication(
+    is_quadratic, node_ids, order
+) -> None:
+    source = GeometryModel()
+    edge = source.add_line(*source.add_points(((0, 0, 0), (1, 0, 0))))
+    source_handle = source.handle("edge", edge)
+    closure = extract_model_closure(
+        source,
+        (source_handle,),
+        include_structural_closure=True,
+        include_features=False,
+    )
+    working_edge = closure.source_to_work[source_handle].id
+    mesh = SimpleNamespace(
+        elements_of_face={},
+        elements_of_edge={working_edge: []},
+        nodes_of_edge={working_edge: list(node_ids)},
+        offset_nodes_of_edge={},
+        node_of_vertex={},
+        grid_of_face={},
+        thickness_of_face={},
+        seeding=Seeding(
+            divisions={working_edge: 1},
+            classes={working_edge: working_edge},
+        ),
+        is_quadratic=is_quadratic,
+        geometry_model_id="working-model",
+        geometry_revision=99,
+    )
+
+    with pytest.raises(
+        StructuralPreparationError,
+        match=f"{order} source-edge node chains have invalid parity",
+    ):
+        remap_mesh_to_source(mesh, closure)
+
+    assert mesh.nodes_of_edge == {working_edge: list(node_ids)}
+    assert mesh.geometry_model_id == "working-model"
+    assert mesh.geometry_revision == 99
 
 
 def test_background_snapshot_mesh_keeps_live_geometry_immutable_and_reports_mapping() -> None:

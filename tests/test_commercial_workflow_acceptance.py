@@ -111,7 +111,9 @@ def test_stiffened_panel_runs_linear_and_buckling_through_semantic_scopes():
         region=RegionRef(deck.id),
     )
 
-    mesh = project.generate_mesh(0.25)
+    # Stay below the deterministic 0.34 m strip-seeding transition so the
+    # wider strips receive two transverse divisions under quality_v2.
+    mesh = project.generate_mesh(0.20)
     linear = solve_linear_static(project, mesh=mesh, load_case="design")
     buckling = solve_buckling(
         project, mesh=mesh, load_case="design", num_modes=1

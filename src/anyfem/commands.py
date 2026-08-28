@@ -13,7 +13,7 @@ undo that renumbered the model would silently re-target them.
 
 from __future__ import annotations
 
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -57,7 +57,7 @@ from .model.imperfections import Imperfection
 from .model.project import Project, ProjectError
 from .model.coordinates import CoordinateSystem
 from .model.records import MeshRecord, OutputRequest
-from .model.regions import Region
+from .model.regions import Region, RegionRegistry
 from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import PlateSection
@@ -378,7 +378,9 @@ class FeatureCommand(Command):
 
     def __init__(self) -> None:
         self._before: Mapping[str, object] | None = None
+        self._before_attributes: Dict[str, Any] | None = None
         self._after: Mapping[str, object] | None = None
+        self._after_attributes: Dict[str, Any] | None = None
         self._feature_id: int | None = None
         self._replacements: tuple[
             tuple[EntityRef, tuple[EntityRef, ...]], ...
@@ -396,8 +398,10 @@ class FeatureCommand(Command):
     def do(self, project: Project) -> Any:
         geometry = project.geometry
         self._before = geometry.design_snapshot()
-        working_project = copy(project)
-        working_project.geometry = geometry.clone(include_features=True)
+        self._before_attributes = _attribute_snapshot(project)
+        working_project = project._detached_regeneration_project(
+            geometry.clone(include_features=True)
+        )
         feature_id = int(self.change(working_project))
         report = working_project.regenerate_geometry_features()
         if not report.success:
@@ -417,22 +421,37 @@ class FeatureCommand(Command):
         # The entire feature + structural-owner result is now known valid.
         # Publish the detached design once; validation failures above have not
         # touched the live feature history, revision, or allocator state.
-        geometry.restore_design(working_project.geometry.design_snapshot())
+        try:
+            geometry.restore_design(working_project.geometry.design_snapshot())
+            project._restore_regeneration_owner(
+                working_project._regeneration_owner_snapshot()
+            )
+        except BaseException:
+            geometry.restore_design(self._before)
+            _restore_attributes(project, self._before_attributes)
+            raise
         committed = geometry.features.get(feature_id)
         self._feature_id = feature_id
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
+        self._after_attributes = _attribute_snapshot(project)
         return committed
 
     def undo(self, project: Project) -> None:
-        if self._before is None:
+        if self._before is None or self._before_attributes is None:
             raise RuntimeError("feature command has not been applied")
         project.geometry.restore_design(self._before)
+        _restore_attributes(project, self._before_attributes)
 
     def redo(self, project: Project) -> Any:
-        if self._after is None or self._feature_id is None:
+        if (
+            self._after is None
+            or self._after_attributes is None
+            or self._feature_id is None
+        ):
             return self.do(project)
         project.geometry.restore_design(self._after)
+        _restore_attributes(project, self._after_attributes)
         return project.geometry.features.get(self._feature_id)
 
 
@@ -544,8 +563,10 @@ class DeleteFeature(FeatureCommand):
     def do(self, project: Project) -> int:
         geometry = project.geometry
         self._before = geometry.design_snapshot()
-        working_project = copy(project)
-        working_project.geometry = geometry.clone(include_features=True)
+        self._before_attributes = _attribute_snapshot(project)
+        working_project = project._detached_regeneration_project(
+            geometry.clone(include_features=True)
+        )
         working_project.geometry.features.remove(
             int(self.feature_id), cascade=False
         )
@@ -555,21 +576,32 @@ class DeleteFeature(FeatureCommand):
                 report.diagnostic
                 or f"feature {self.feature_id} failed to regenerate"
             )
-        geometry.restore_design(working_project.geometry.design_snapshot())
+        try:
+            geometry.restore_design(working_project.geometry.design_snapshot())
+            project._restore_regeneration_owner(
+                working_project._regeneration_owner_snapshot()
+            )
+        except BaseException:
+            geometry.restore_design(self._before)
+            _restore_attributes(project, self._before_attributes)
+            raise
         self._feature_id = int(self.feature_id)
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
+        self._after_attributes = _attribute_snapshot(project)
         return int(self.feature_id)
 
     def undo(self, project: Project) -> None:
-        if self._before is None:
+        if self._before is None or self._before_attributes is None:
             raise RuntimeError("feature delete has not been applied")
         project.geometry.restore_design(self._before)
+        _restore_attributes(project, self._before_attributes)
 
     def redo(self, project: Project) -> int:
-        if self._after is None:
+        if self._after is None or self._after_attributes is None:
             return self.do(project)
         project.geometry.restore_design(self._after)
+        _restore_attributes(project, self._after_attributes)
         return int(self.feature_id)
 
 
@@ -766,6 +798,9 @@ class GeometryCommand(Command):
     def preflight(self, project: Project) -> None:
         """Qualify expected validation failures before any live bookkeeping."""
 
+    def post_materialize(self, project: Project, result: Any) -> None:
+        """Apply project-owned intent after a neutral feature materializes."""
+
     def do(self, project: Project) -> Any:
         self._snapshot = project.geometry.design_snapshot()
         self._attributes = _attribute_snapshot(project)
@@ -780,9 +815,8 @@ class GeometryCommand(Command):
                 self._replacements = tuple(project.geometry.replacement_log())
             else:
                 kind, parameters, inputs = definition
-                working_project = copy(project)
-                working_project.geometry = project.geometry.clone(
-                    include_features=True
+                working_project = project._detached_regeneration_project(
+                    project.geometry.clone(include_features=True)
                 )
                 working_geometry = working_project.geometry
                 working_geometry.features.capture_baseline(working_geometry)
@@ -806,16 +840,19 @@ class GeometryCommand(Command):
                         getattr(staged, "diagnostic", None)
                         or f"feature {pending.feature_id} did not produce a valid materialization"
                     )
-                project.geometry.restore_design(
-                    working_geometry.design_snapshot()
-                )
                 published = True
+                project.geometry.restore_design(working_geometry.design_snapshot())
+                project._restore_regeneration_owner(
+                    working_project._regeneration_owner_snapshot()
+                )
                 committed = project.geometry.features.get(pending.feature_id)
                 result = _feature_command_result(self, project.geometry, committed)
             # Splitting a line that carries a load, or a plate that carries a
             # pressure, must not throw the attribute away: it follows onto
             # whatever replaced the entity.
             _apply_replacements(project, self._replacements)
+            if definition is not None:
+                self.post_materialize(project, result)
             self._after = project.geometry.design_snapshot()
             self._after_attributes = _attribute_snapshot(project)
             self._result = result
@@ -901,7 +938,12 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
     return {
         "face_sections": dict(project.face_sections),
         "edge_sections": dict(project.edge_sections),
-        "sheet_join_intents": dict(project.sheet_join_intents),
+        "section_assignments": dict(project.section_assignments),
+        "regions": deepcopy(tuple(project.regions)),
+        "section_compatibility": project._section_compatibility_snapshot(),
+        "singleton_region_cache": dict(project._singleton_region_cache),
+        "singleton_region_cache_size": project._singleton_region_cache_size,
+        "sheet_join_intents": deepcopy(project.sheet_join_intents),
         "supports": list(project.supports),
         "masses": list(project.masses),
         "imperfections": list(project.imperfections),
@@ -922,12 +964,17 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
 def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
     if not snapshot:
         return
-    project.face_sections.clear()
-    project.face_sections.update(snapshot["face_sections"])
-    project.edge_sections.clear()
-    project.edge_sections.update(snapshot["edge_sections"])
+    project.section_assignments.clear()
+    project.section_assignments.update(snapshot["section_assignments"])
+    project.regions = RegionRegistry(deepcopy(snapshot["regions"]))
+    project._restore_section_compatibility(snapshot["section_compatibility"])
+    project._singleton_region_cache.clear()
+    project._singleton_region_cache.update(snapshot["singleton_region_cache"])
+    project._singleton_region_cache_size = snapshot["singleton_region_cache_size"]
     project.sheet_join_intents.clear()
-    project.sheet_join_intents.update(snapshot.get("sheet_join_intents", {}))
+    project.sheet_join_intents.update(
+        deepcopy(snapshot.get("sheet_join_intents", {}))
+    )
     project.supports[:] = list(snapshot["supports"])
     project.masses[:] = list(snapshot.get("masses", ()))
     project.imperfections[:] = list(snapshot.get("imperfections", ()))
@@ -1134,6 +1181,11 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
         return "geometry.strip_face", {
             "axis": int(command.axis), "count": int(command.count)
         }, {"face": (anchor("face", command.face_id),)}
+    if isinstance(command, ButterflyHoleDecomposition):
+        return "anyfem.mesh.butterfly_hole", {
+            "centre": tuple(float(item) for item in command.centre),
+            "radius": float(command.radius),
+        }, {"face": (anchor("face", command.face_id),)}
     if isinstance(command, NeutralTrimHole):
         return "geometry.trim_hole", {
             "centre": tuple(float(item) for item in command.centre),
@@ -1175,8 +1227,8 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
         return "geometry.reverse", {}, {
             "entity": (_feature_anchor(geometry, command.reference),)
         }
-    # Mesher decomposition commands deliberately stay out of design history:
-    # they are element-control intent, not neutral geometric features.
+    # Remaining one-shot mesher commands stay out of design history.  A
+    # topology-mutating control must opt in above with a replayable executor.
     return None
 
 
@@ -1238,6 +1290,11 @@ def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any
         return (
             [item.id for item in _numbered_outputs(outputs, "face")],
             [item.id for item in _numbered_outputs(outputs, "divider")],
+        )
+    if isinstance(command, ButterflyHoleDecomposition):
+        return (
+            [item.id for item in _numbered_outputs(outputs, "face")],
+            [item.id for item in _numbered_outputs(outputs, "boundary")],
         )
     if isinstance(command, NeutralTrimHole):
         return (
@@ -2337,6 +2394,13 @@ class StripFace(GeometryCommand):
             for edge_id in dividers:
                 project.assign_beam(edge_id, self.section)
         return strips, dividers
+
+    def post_materialize(
+        self, project: Project, result: Tuple[List[int], List[int]]
+    ) -> None:
+        if self.section is not None:
+            _strips, dividers = result
+            project.assign_beams(dividers, self.section)
 
 
 @dataclass(eq=False)
