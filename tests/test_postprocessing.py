@@ -24,6 +24,7 @@ from anyfem.post import (
     write_csv,
     write_report,
 )
+from anyfem.post.fields import _reduce
 
 MODULUS = 210.0e9
 POISSON = 0.3
@@ -54,6 +55,18 @@ def loaded_plate():
 # ----------------------------------------------------------------------
 # fields
 # ----------------------------------------------------------------------
+def test_max_abs_reduction_preserves_a_negative_peak_in_two_dimensions():
+    values = np.array([[1.0, -7.0], [3.0, 2.0]])
+
+    assert _reduce(values, "max_abs") == -7.0
+
+
+def test_max_abs_reduction_uses_the_first_c_order_value_for_tied_peaks():
+    values = np.array([[1.0, -7.0], [7.0, 2.0]])
+
+    assert _reduce(values, "max_abs") == -7.0
+
+
 def test_plate_bending_stress_matches_timoshenko(loaded_plate):
     """Against sigma = 6M/t^2 with M = 0.0479 q a^2."""
 

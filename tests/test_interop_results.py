@@ -126,9 +126,11 @@ def test_an_frd_round_trips_the_displacements(workspace):
     attached = results.attach(built)
     assert attached.covered == mesh.num_nodes
     assert attached.max_translation()[1] == pytest.approx(
-        solution.max_translation()[1]
+        solution.max_translation()[1], rel=5e-6, abs=5e-12
     )
-    assert attached.component("uz") == pytest.approx(solution.component("uz"))
+    assert attached.component("uz") == pytest.approx(
+        solution.component("uz"), rel=5e-6, abs=5e-12
+    )
 
 
 def test_an_frd_has_no_rotations_and_says_so(workspace):

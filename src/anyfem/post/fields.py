@@ -157,7 +157,8 @@ def _reduce(values: Any, reduction: str) -> float:
     if reduction == "mean":
         return float(array.mean())
     if reduction == "max_abs":
-        return float(array[int(np.argmax(np.abs(array)))])
+        flattened = array.ravel(order="C")
+        return float(flattened[int(np.argmax(np.abs(flattened)))])
     if reduction == "min":
         return float(array.min())
     if reduction == "max":
