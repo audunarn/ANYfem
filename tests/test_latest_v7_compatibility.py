@@ -13,6 +13,7 @@ from anygeometry import EntityRef, GeometryModel, extract_model_closure
 from anygeometry.serialization import to_dict as geometry_to_dict
 from anymesher.hybrid import generate_hybrid_mesh
 from anymesher.seeding import Seeding
+from anymesher.serialize import mesh_to_dict
 from anysolver import audit_constraints
 
 from anyfem import Project, ProjectError, steel
@@ -413,6 +414,37 @@ def test_prepared_mesh_associations_are_remapped_to_source_faces() -> None:
     assert first_nodes & second_nodes
 
 
+def test_malformed_qualified_s3_authority_fails_before_remap_mutation() -> None:
+    source, _first_face, _second_face, first_sheet, second_sheet = (
+        _crossing_sheets()
+    )
+    closure = extract_model_closure(
+        source,
+        (source.handle("sheet", first_sheet), source.handle("sheet", second_sheet)),
+        include_structural_closure=True,
+        include_features=False,
+    )
+    prepare_structural_connectivity(closure.working_model)
+    mesh = generate_hybrid_mesh(
+        closure.working_model,
+        target_size=0.5,
+        strategy="auto",
+        certification_mode="interactive",
+    )
+    mesh.structural_preparation = {
+        "qualified_s3": {"authority_model": "not-a-mapping"}
+    }
+    before = mesh_to_dict(mesh)
+
+    with pytest.raises(
+        StructuralPreparationError,
+        match="qualified-S3 preparation record lacks model authority",
+    ):
+        remap_mesh_to_source(mesh, closure)
+
+    assert mesh_to_dict(mesh) == before
+
+
 def test_remapped_seeding_requires_the_complete_equal_descendant_signature() -> None:
     mesh = SimpleNamespace(
         seeding=Seeding(
@@ -558,6 +590,17 @@ def test_mesh_hash_excludes_ephemeral_working_identity_and_is_repeatable() -> No
 
     assert first_report["working_model_id"] != second_report["working_model_id"]
     assert first_report["working_revision"] == second_report["working_revision"]
+    source_authority = {
+        "source_model_id": str(project.geometry.model_id),
+        "source_revision": int(project.geometry.revision),
+    }
+    for mesh in (first_mesh, second_mesh):
+        authority = mesh.structural_preparation["qualified_s3"][
+            "authority_model"
+        ]
+        assert {
+            key: authority[key] for key in source_authority
+        } == source_authority
     assert first_hash == second_hash
     assert geometry_to_dict(project.geometry) == source_before
 

@@ -473,6 +473,25 @@ def _remapped_seeding(
 def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
     """Publish prepared mesh associations against immutable source handles."""
 
+    qualified_authority: dict[str, Any] | None = None
+    preparation = getattr(mesh, "structural_preparation", None)
+    if isinstance(preparation, Mapping) and "qualified_s3" in preparation:
+        if not isinstance(preparation, dict):
+            raise StructuralPreparationError(
+                "qualified-S3 preparation provenance must be mutable"
+            )
+        qualified_s3 = preparation["qualified_s3"]
+        if not isinstance(qualified_s3, dict):
+            raise StructuralPreparationError(
+                "qualified-S3 preparation record must be a mapping"
+            )
+        authority = qualified_s3.get("authority_model")
+        if not isinstance(authority, dict):
+            raise StructuralPreparationError(
+                "qualified-S3 preparation record lacks model authority"
+            )
+        qualified_authority = authority
+
     face_owner = _descendant_to_source(closure, "face")
     edge_owner = _descendant_to_source(closure, "edge")
     vertex_owner = _descendant_to_source(closure, "vertex")
@@ -533,3 +552,10 @@ def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
     mesh.seeding = remapped_seeding
     mesh.geometry_model_id = closure.source_model_id
     mesh.geometry_revision = closure.source_revision
+    if qualified_authority is not None:
+        # The mesher binds its proof to the exact detached geometry it reads.
+        # Publication remaps every association to the immutable project source,
+        # so the nested proof provenance must follow that same ownership
+        # transition instead of retaining a fresh working-copy UUID.
+        qualified_authority["source_model_id"] = str(closure.source_model_id)
+        qualified_authority["source_revision"] = int(closure.source_revision)
