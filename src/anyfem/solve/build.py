@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import permutations
+import warnings
 from typing import Any, Dict, Iterable, List, Sequence
 
 import numpy as np
@@ -19,8 +20,10 @@ from anysolver import (
     BoundaryCondition,
     CoupledBeamShellElement,
     FEModel,
+    LegacyQ4DeprecationWarning,
+    LegacyShellElement,
     QuadraticBeamElement,
-    create_element,
+    create_shell_element,
 )
 from anysolver import LoadCase as SolverLoadCase
 
@@ -185,25 +188,43 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                 raise ProjectError(
                     f"face {face_id} references missing shell element {element_id}"
                 )
-            fe_model.add_element(
-                element_id,
-                create_element(
-                    "shell",
+            formulation = project.shell_formulation_policy.for_node_count(
+                len(node_ids)
+            )
+            # The application policy is explicit and persisted, so the solver's
+            # user-facing deprecation warning would otherwise be repeated once
+            # per legacy Q4 element.  Keep the warning for direct solver callers.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", LegacyQ4DeprecationWarning)
+                element = create_shell_element(
                     element_id,
                     list(node_ids),
                     material_name=section.material,
                     thickness=section.thickness,
-                ),
+                    formulation=formulation,
+                )
+            expected_id = project.shell_formulation_policy.formulation_id_for_node_count(
+                len(node_ids)
             )
+            if formulation == "e4-pl":
+                if getattr(element, "formulation_id", None) != expected_id:
+                    raise ProjectError(
+                        f"shell element {element_id} formulation identity mismatch: "
+                        f"expected {expected_id}"
+                    )
+            elif type(element) is not LegacyShellElement:
+                raise ProjectError(
+                    f"shell element {element_id} did not resolve to the "
+                    "persisted legacy identity"
+                )
+            fe_model.add_element(element_id, element)
 
 
 def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """Beam elements, linear or quadratic according to the mesh's order.
 
-    Shells need no such branch: ANYsolver's public element selector reads
-    topology from the node count and selects the qualified Q4 default while
-    preserving TRI3, TRI6, Q8, and Q8R. The beam classes are separate, so the
-    choice has to be made here.
+    Shell topology is resolved above through the project's persisted policy.
+    The beam classes are separate, so their order choice is made here.
     """
 
     element_class = QuadraticBeamElement if mesh.is_quadratic else BeamElement

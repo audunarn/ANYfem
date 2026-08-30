@@ -39,6 +39,7 @@ from ..mesh.refinement import Refinement
 from ..model.imperfections import Imperfection
 from ..model.materials import Material
 from ..model.project import Project
+from ..model.formulations import ShellFormulationPolicy
 from ..model.ownership import SheetJoinIntent
 from ..model.sections import BeamSection, SectionAssignment
 from ..model.coordinates import CoordinateSystem, GLOBAL_COORDINATES
@@ -62,7 +63,7 @@ __all__ = [
     "save_project",
 ]
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -193,6 +194,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             "read_only_reason": project.read_only_reason,
         },
         "units": project.units.to_dict(),
+        "shell_formulations": project.shell_formulation_policy.to_dict(),
         "coordinate_systems": [
             system.to_dict()
             for system in sorted(
@@ -495,6 +497,25 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         if isinstance(units_data, Mapping)
         else unit_profile()
     )
+    shell_formulations_data = data.get("shell_formulations")
+    if shell_formulations_data is None:
+        if version >= 8:
+            raise ProjectFileError("format 8 shell_formulations is required")
+        shell_formulation_policy = ShellFormulationPolicy.legacy_compatible()
+        compatibility_diagnostics = list(compatibility_diagnostics)
+        compatibility_diagnostics.append(
+            "project predates persisted shell formulation policy; Q4 and TRI3 "
+            "remain explicit legacy formulations until coordinated activation"
+        )
+    elif isinstance(shell_formulations_data, Mapping):
+        try:
+            shell_formulation_policy = ShellFormulationPolicy.from_dict(
+                shell_formulations_data
+            )
+        except ValueError as error:
+            raise ProjectFileError(f"shell_formulations: {error}") from None
+    else:
+        raise ProjectFileError("shell_formulations must be an object")
 
     geometry_data = data.get("geometry", {})
     if not isinstance(geometry_data, Mapping):
@@ -508,6 +529,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             name=str(data.get("name", "model")),
             geometry=geometry,
             units=units,
+            shell_formulation_policy=shell_formulation_policy,
             mesh_only=mesh_only,
             imported_format=imported_format,
             imported_semantics_artifact_id=imported_artifact_id,
@@ -525,6 +547,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         project = Project(
             name=str(data.get("name", "model")),
             units=units,
+            shell_formulation_policy=shell_formulation_policy,
             mesh_only=mesh_only,
             imported_format=imported_format,
             imported_semantics_artifact_id=imported_artifact_id,

@@ -159,7 +159,7 @@ def test_v6_detached_record_recovers_exact_frozen_topology_and_archive() -> None
 
     persisted = project_to_dict(recovered)
     reopened = project_from_dict(deepcopy(persisted))
-    assert persisted["anyfem"]["format"] == FORMAT_VERSION == 7
+    assert persisted["anyfem"]["format"] == FORMAT_VERSION == 8
     assert reopened.archived_feature_histories == recovered.archived_feature_histories
     assert _entity_materialization(reopened.geometry) == expected
     assert reopened.geometry.features.records[0].outputs == record.outputs
