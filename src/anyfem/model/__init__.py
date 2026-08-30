@@ -34,6 +34,7 @@ from .materials import (
     steel,
 )
 from .project import Project, ProjectError
+from .formulations import ShellFormulationPolicy
 from .ownership import SheetJoinIntent
 from .sections import (
     PROFILES,
@@ -118,6 +119,7 @@ __all__ = [
     "RegionStatus",
     "ResultQuantityDescriptor",
     "SectionAssignment",
+    "ShellFormulationPolicy",
     "SheetJoinIntent",
     "Support",
     "SurfaceTraction",
