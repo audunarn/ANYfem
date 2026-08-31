@@ -100,6 +100,7 @@ def test_wireframe_background_edges_and_legend_are_shared_viewport_settings(
         ({"surface_opacity": 1.1}, "opacity"),
         ({"edge_width": 0}, "edge width"),
         ({"render_mode": "X-ray"}, "render mode"),
+        ({"geometry_detail": "Unlimited"}, "geometry detail"),
     ],
 )
 def test_invalid_visualization_settings_fail_closed(changes, message):

@@ -50,6 +50,7 @@ class RichCanvas:
         self.preselections = []
         self.face_calls = []
         self.line_calls = []
+        self.mesh_calls = []
         self.marker_calls = []
         self.box_calls = []
         self.fit_calls = 0
@@ -82,6 +83,9 @@ class RichCanvas:
 
     def add_line(self, start, end, **options) -> None:
         self.line_calls.append((start, end, options))
+
+    def add_mesh_arrays(self, mesh, **options):
+        self.mesh_calls.append((mesh, options))
 
     def add_markers(self, points, **options) -> None:
         self.marker_calls.append((points, options))
@@ -275,18 +279,114 @@ def test_scene_primitives_carry_geometry_owners_and_points_are_batched(
 
     viewport.show(scene)
     face_binding = viewport.canvas.face_calls[0][1]["bindings"]
-    line_binding = viewport.canvas.line_calls[0][2]["binding"]
+    line_mesh, line_options = viewport.canvas.mesh_calls[0]
     marker_bindings = viewport.canvas.marker_calls[0][1]["bindings"]
 
     assert face_binding.owners == (PickOwner("ent_face7", "geometry.face", 10),)
-    assert len(viewport.canvas.line_calls) == 2
-    assert line_binding.owners == (PickOwner("ent_edge8", "geometry.edge", 20),)
+    assert len(line_mesh.lines) == 2
+    assert line_options["owners"].owners_for("line", 0) == (
+        PickOwner("ent_edge8", "geometry.edge", 20),
+    )
     assert len(viewport.canvas.marker_calls) == 1
     assert [binding.owners[0].key for binding in marker_bindings] == [
         "ent_vertex9",
         "ent_vertex10",
     ]
     assert viewport.canvas.box_calls == []
+
+
+def test_geometry_face_patches_are_batched_without_losing_pick_owners(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+    scene = Scene(
+        faces=[
+            FacePatch(
+                EntityRef("face", identifier),
+                [
+                    np.asarray(
+                        [
+                            [identifier, 0, 0],
+                            [identifier + 1, 0, 0],
+                            [identifier + 1, 1, 0],
+                            [identifier, 1, 0],
+                        ],
+                        dtype=float,
+                    )
+                ],
+                ["#7799bb"],
+            )
+            for identifier in (7, 8)
+        ]
+    )
+
+    viewport.show(scene)
+
+    assert len(viewport.canvas.face_calls) == 1
+    bindings = viewport.canvas.face_calls[0][1]["bindings"]
+    assert [binding.owners[0].key for binding in bindings] == [
+        "ent_face7",
+        "ent_face8",
+    ]
+
+
+def test_geometry_lines_are_one_retained_batch_with_segment_owners(monkeypatch) -> None:
+    viewport = _viewport(monkeypatch, Selection("edge"))
+    scene = Scene(
+        lines=[
+            Polyline(
+                EntityRef("edge", identifier),
+                np.asarray(((identifier, 0, 0), (identifier, 1, 0)), dtype=float),
+            )
+            for identifier in (7, 8, 9)
+        ]
+    )
+
+    viewport.show(scene)
+
+    assert viewport.canvas.line_calls == []
+    assert len(viewport.canvas.mesh_calls) == 1
+    mesh, options = viewport.canvas.mesh_calls[0]
+    assert len(mesh.lines) == 3
+    owners = options["owners"]
+    assert [owners.owners_for("line", index)[0].key for index in range(3)] == [
+        "ent_edge7",
+        "ent_edge8",
+        "ent_edge9",
+    ]
+
+
+def test_pan_orbit_uses_low_detail_scene_then_restores_full_scene(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+
+    def made_scene(polygons):
+        return Scene(
+            faces=[
+                FacePatch(
+                    EntityRef("face", 1),
+                    polygons,
+                    ["#7799bb"] * len(polygons),
+                )
+            ]
+        )
+
+    polygon = np.asarray(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float
+    )
+    full = made_scene([polygon, polygon + np.asarray([0, 0, 1])])
+    interaction = made_scene([polygon])
+
+    viewport.show(full, interaction_scene=interaction)
+    viewport._begin_interaction_scene()
+    assert viewport._interaction_scene_active
+    assert len(viewport.canvas.face_calls[-1][0]) == 1
+
+    # The headless double has no Tk timer, so release restores synchronously.
+    viewport._schedule_full_scene()
+    assert not viewport._interaction_scene_active
+    assert len(viewport.canvas.face_calls[-1][0]) == 2
 
 
 def test_mesh_domain_filter_and_owner_are_forward_compatible(monkeypatch) -> None:

@@ -30,6 +30,7 @@ from anyfem.ui.scene import (
     build_mesh_scene,
     build_result_scene,
     face_display_polygons,
+    geometry_display_resolution,
     geometry_characteristic_size,
 )
 
@@ -196,25 +197,49 @@ def test_curved_geometry_keeps_display_tessellation():
     assert len(curve.points) == 24
 
 
+def test_geometry_display_resolution_adapts_to_curved_face_count():
+    from types import SimpleNamespace
+
+    def geometry(count):
+        return SimpleNamespace(
+            faces={
+                identifier: SimpleNamespace(support_surface=object())
+                for identifier in range(count)
+            }
+        )
+
+    fine = geometry_display_resolution(geometry(64))
+    balanced = geometry_display_resolution(geometry(65))
+    fast = geometry_display_resolution(geometry(257))
+
+    assert (fine.divisions, fine.interaction_divisions) == (8, 2)
+    assert (balanced.divisions, balanced.interaction_divisions) == (4, 1)
+    assert (fast.divisions, fast.interaction_divisions) == (2, 1)
+    assert geometry_display_resolution(geometry(1000), "Fine") == fine
+
+
 def test_straight_topology_does_not_flatten_an_explicit_ruled_surface():
     from anygeometry.surfaces import RuledSurface
 
     project = Project()
     geometry = project.geometry
     points = geometry.add_points(
-        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]
+        [(0, 0, 0), (1, 0, 0), (1, 1, 1), (0, 1, 0)]
     )
     face = geometry.add_face(geometry.add_polyline(points, close=True))
-    geometry.faces[face].surface = RuledSurface(
-        np.array([(0, 0, 0), (0.5, 0, 0.3), (1, 0, 0)]),
-        np.array([(0, 1, 0), (0.5, 1, 0.3), (1, 1, 0)]),
+    geometry.set_face_surface(
+        face,
+        RuledSurface(
+            np.array([(0, 0, 0), (1, 0, 0)]),
+            np.array([(0, 1, 0), (1, 1, 1)]),
+        ),
     )
 
     patch = build_geometry_scene(project).faces[0]
 
     assert len(patch.polygons) == 8 * 8
     height = max(point[2] for polygon in patch.polygons for point in polygon)
-    assert height == pytest.approx(0.3)
+    assert height == pytest.approx(1.0)
 
 
 def test_mesh_scene_batches_one_patch_per_plate(plate_project):

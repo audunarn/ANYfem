@@ -613,8 +613,8 @@ class AddCylinder(AddFeature):
 
     def __init__(
         self,
-        radius: float,
-        height: float,
+        radius: float | None = None,
+        height: float | None = None,
         *,
         circumferential_segments: int = 12,
         longitudinal_spacing: float | None = None,
@@ -623,7 +623,42 @@ class AddCylinder(AddFeature):
         axis: Sequence[float] = (0.0, 0.0, 1.0),
         radial_direction: Sequence[float] = (1.0, 0.0, 0.0),
         name: str = "Cylinder",
+        **legacy: Any,
     ) -> None:
+        recorded_parameters = legacy.pop("parameters", None)
+        recorded_kind = legacy.pop("kind", None)
+        recorded_label = legacy.pop("label", None)
+        if legacy:
+            unexpected = next(iter(legacy))
+            raise TypeError(
+                f"AddCylinder.__init__() got an unexpected keyword argument "
+                f"{unexpected!r}"
+            )
+        if recorded_parameters is not None:
+            if radius is not None or height is not None:
+                raise TypeError(
+                    "legacy AddCylinder parameters cannot be combined with "
+                    "radius or height"
+                )
+            if recorded_kind not in (None, "generator.cylinder"):
+                raise GeometryError(
+                    f"AddCylinder cannot replay feature kind {recorded_kind!r}"
+                )
+            if not isinstance(recorded_parameters, Mapping):
+                raise TypeError("AddCylinder parameters must be a mapping")
+            super().__init__(
+                "generator.cylinder",
+                name=name,
+                parameters=dict(recorded_parameters),
+                label=str(recorded_label or "add cylinder"),
+            )
+            return
+        if recorded_kind is not None or recorded_label is not None:
+            raise TypeError(
+                "AddCylinder kind/label are accepted only with legacy parameters"
+            )
+        if radius is None or height is None:
+            raise TypeError("AddCylinder requires radius and height")
         parameters: Dict[str, Any] = {
             "radius": float(radius),
             "height": float(height),

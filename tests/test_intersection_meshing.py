@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from anyfem import Project, steel
+from anyfem.commands import AddCylinder, AddFeature, CommandStack
 from anyfem.model import BeamSection
 from anyfem.solve.build import build_fe_model
+from anygeometry.serialization import to_dict as geometry_to_dict
 from anymesher import mesh_to_dict
 
 
@@ -103,6 +105,69 @@ def test_project_meshes_exact_floating_plate_and_diagonal_extrusion():
     assert len(project.geometry.edges) == 12
     assert len(project.geometry.faces) == 3
     assert len(project.geometry.sheets) == 2
+
+
+def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beams():
+    project = Project("cylinder deck")
+    commands = CommandStack(project)
+    commands.run(
+        AddCylinder(
+            kind="generator.cylinder",
+            name="Cylinder",
+            parameters={
+                "radius": 0.5,
+                "height": 2.0,
+                "circumferential_segments": 12,
+                "origin": (0.0, 0.0, 0.0),
+                "axis": (0.0, 0.0, 1.0),
+                "radial_direction": (1.0, 0.0, 0.0),
+                "longitudinal_spacing": 0.5,
+                "ring_spacing": 1.0,
+            },
+            label="add cylinder",
+        )
+    )
+    commands.run(
+        AddFeature(
+            "generator.plate",
+            name="Plate",
+            parameters={
+                "length": 2.0,
+                "width": 2.0,
+                "origin": (-1.0, -1.0, 1.0),
+                "u_direction": (1.0, 0.0, 0.0),
+                "v_direction": (0.0, 1.0, 0.0),
+                "semantic_group": "shell",
+            },
+        )
+    )
+    before = geometry_to_dict(project.geometry)
+
+    mesh = project.generate_mesh(
+        0.25,
+        strategy="auto",
+        structure_preference="balanced",
+        quality_policy={
+            "minimum_scaled_jacobian": 0.1,
+            "maximum_aspect_ratio": 5.0,
+            "minimum_angle": 20.0,
+            "maximum_angle": 160.0,
+            "maximum_warpage": 0.1,
+        },
+        certification_mode="interactive",
+    )
+
+    cylinder_nodes = {
+        node
+        for face_id in range(1, 25)
+        for node in mesh.nodes_on(project.geometry.entity_ref("face", face_id))
+    }
+    plate_nodes = set(mesh.nodes_on(project.geometry.entity_ref("face", 25)))
+    assert len(cylinder_nodes & plate_nodes) == 12
+    assert len(mesh.declared_plate_junction_edges) == 12
+    assert mesh.automatic_intersections == 1
+    assert not mesh.beams
+    assert geometry_to_dict(project.geometry) == before
 
 
 def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():

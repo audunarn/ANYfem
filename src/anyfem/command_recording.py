@@ -32,6 +32,15 @@ def _default_value(item) -> tuple[bool, Any]:
 
 def _qualified_type(value: Any) -> tuple[str, bool]:
     kind = type(value)
+    if kind is not command_types.AddFeature and issubclass(
+        kind, command_types.AddFeature
+    ):
+        # Generator convenience commands provide a user-friendly custom
+        # constructor but inherit AddFeature's dataclass fields.  Serializing
+        # those fields with the subclass name produces a non-replayable call
+        # such as AddCylinder(kind=..., parameters=...).  The fully populated
+        # base feature command is the exact, public replay representation.
+        return "commands.AddFeature", True
     if getattr(command_types, kind.__name__, None) is kind:
         return f"commands.{kind.__name__}", True
     module = str(getattr(kind, "__module__", ""))

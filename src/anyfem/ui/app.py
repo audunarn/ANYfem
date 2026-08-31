@@ -68,6 +68,7 @@ from .panels import (
     ResultsPanel,
     SectionPanel,
     SolvePanel,
+    VisualizationPanel,
 )
 from .definitions import DefinitionsPanel
 from .scene import (
@@ -79,6 +80,7 @@ from .scene import (
     build_mesh_scene,
     build_persisted_result_scene,
     build_result_scene,
+    geometry_display_resolution,
 )
 from .tree import ModelTree
 from .viewport import Viewport
@@ -249,6 +251,7 @@ class AnyFemApp(ttk.Frame):
             ("Assign", "Sections"), ("Load/BC", "Loads & BC"),
             ("Run", "Solve"), ("Inspect", "Results"),
             ("Script", "Scripting"),
+            ("Visual", "Visualization"),
         ):
             ttk.Button(
                 toolbar,
@@ -310,7 +313,7 @@ class AnyFemApp(ttk.Frame):
         self.panels = {}
         for panel_class in (
             GeometryPanel, DefinitionsPanel, MeshPanel, SectionPanel, LoadPanel, SolvePanel,
-            ResultsPanel, ScriptingPanel,
+            ResultsPanel, ScriptingPanel, VisualizationPanel,
         ):
             panel = panel_class(self.details._content, self)
             self.details.add(panel, text=panel_class.title)
@@ -1330,8 +1333,25 @@ class AnyFemApp(ttk.Frame):
     def show_geometry(self, reset_view: bool = False) -> None:
         self._mesh_layout_preview = None
         self._view_mode = "geometry"
-        scene = build_geometry_scene(self.project)
-        self.viewport.show(self._with_attributes(scene), reset_view=reset_view)
+        resolution = geometry_display_resolution(
+            self.project.geometry,
+            self.viewport.visualization.geometry_detail,
+        )
+        scene = build_geometry_scene(
+            self.project,
+            divisions=resolution.divisions,
+            curve_samples=resolution.curve_samples,
+        )
+        interaction_scene = build_geometry_scene(
+            self.project,
+            divisions=resolution.interaction_divisions,
+            curve_samples=resolution.interaction_curve_samples,
+        )
+        self.viewport.show(
+            self._with_attributes(scene),
+            interaction_scene=self._with_attributes(interaction_scene),
+            reset_view=reset_view,
+        )
         self._update_view_label()
 
     def preview_mesh_layout(
@@ -1459,6 +1479,11 @@ class AnyFemApp(ttk.Frame):
         if page == "Sections":
             self.show_geometry()
             self.details.set_hint("Assign on model geometry")
+            return
+        if page == "Visualization":
+            self.details.set_hint("Viewport appearance and performance")
+            self.panels["Visualization"].sync_from_viewport()
+            self.panels["Visualization"].refresh()
             return
         if page in ("Mesh", "Solve") and self.mesh is not None:
             self.show_mesh()
@@ -2009,6 +2034,7 @@ class AnyFemApp(ttk.Frame):
             "Analysis and jobs": lambda: self.details.select("Solve"),
             "Results explorer": lambda: self.details.select("Results"),
             "Python scripting console": lambda: self.details.select("Scripting"),
+            "Visualization settings": lambda: self.details.select("Visualization"),
             "Frame model": self._fit,
             "Isometric view": lambda: self.viewport.set_view("iso"),
             "Top view": lambda: self.viewport.set_view("top"),
@@ -2281,6 +2307,11 @@ class AnyFemApp(ttk.Frame):
         )
         menu.add_cascade(label="Edit", menu=edit)
         view = tk.Menu(menu, tearoff=0)
+        view.add_command(
+            label="Visualization settings...",
+            command=lambda: self.details.select("Visualization"),
+        )
+        view.add_separator()
         for label, name in (
             ("Isometric", "iso"), ("Top", "top"),
             ("Front", "front"), ("Side", "side"),

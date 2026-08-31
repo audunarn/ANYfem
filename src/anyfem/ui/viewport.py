@@ -116,6 +116,9 @@ class Viewport:
         # selection object.
         self.selection = Selection() if selection is None else selection
         self._scene: Optional[Scene] = None
+        self._interaction_scene: Optional[Scene] = None
+        self._interaction_scene_active = False
+        self._interaction_restore_after_id: object | None = None
         self._on_pick: Optional[Callable[[Optional[object]], None]] = None
         self._on_hover: Optional[Callable[[Optional[object]], None]] = None
         self._on_frame_selection: Optional[Callable[[List[object]], Any]] = None
@@ -152,6 +155,13 @@ class Viewport:
         self.bind_event("<Escape>", self._handle_construction_escape, add="+")
         self.bind_event("<Return>", self._handle_construction_enter, add="+")
         self.bind_event("<KP_Enter>", self._handle_construction_enter, add="+")
+        # Geometry scenes may contain a high-quality retained preview and a
+        # lower-detail sibling for camera motion.  Only pan/orbit use this
+        # path; LMB selection remains on the complete semantic scene.
+        self.bind_event("<ButtonPress-2>", self._begin_interaction_scene, add="+")
+        self.bind_event("<ButtonPress-3>", self._begin_interaction_scene, add="+")
+        self.bind_event("<ButtonRelease-2>", self._schedule_full_scene, add="+")
+        self.bind_event("<ButtonRelease-3>", self._schedule_full_scene, add="+")
         self.selection.add_listener(self._apply_highlight)
 
     def _new_canvas(self, backend: str):
@@ -315,6 +325,8 @@ class Viewport:
         requested = _backend_name(backend)
         if requested == self._requested_backend:
             return self.active_backend
+        self._cancel_interaction_restore()
+        self._interaction_scene_active = False
         old = self.canvas
         exporter = getattr(old, "export_view_state", None)
         state = exporter() if callable(exporter) else None
@@ -389,10 +401,30 @@ class Viewport:
             updater()
 
     # ------------------------------------------------------------------
-    def show(self, scene: Scene, *, reset_view: bool = False) -> None:
-        """Replace what is drawn."""
+    def show(
+        self,
+        scene: Scene,
+        *,
+        interaction_scene: Scene | None = None,
+        reset_view: bool = False,
+    ) -> None:
+        """Replace what is drawn.
 
+        ``interaction_scene`` is an optional, semantically equivalent
+        low-detail representation used only while panning or orbiting.  It
+        keeps cylinders/cones responsive without making click selection less
+        precise or changing the retained full-quality scene.
+        """
+
+        self._cancel_interaction_restore()
         self._scene = scene
+        self._interaction_scene = interaction_scene
+        self._interaction_scene_active = False
+        self._render_scene(scene, reset_view=reset_view)
+
+    def _render_scene(self, scene: Scene, *, reset_view: bool = False) -> None:
+        """Draw one retained scene while retaining ``self._scene`` as source."""
+
         self._marker_size = 0.012 * scene.characteristic_size()
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
@@ -403,8 +435,59 @@ class Viewport:
         self._apply_highlight()
         self.canvas.redraw()
 
+    def _cancel_interaction_restore(self) -> None:
+        handle = self._interaction_restore_after_id
+        self._interaction_restore_after_id = None
+        if handle is None:
+            return
+        cancel = getattr(self.event_widget, "after_cancel", None)
+        if not callable(cancel):
+            cancel = getattr(self.canvas, "after_cancel", None)
+        if callable(cancel):
+            try:
+                cancel(handle)
+            except (tk.TclError, ValueError):
+                pass
+
+    def _begin_interaction_scene(self, _event: tk.Event | None = None) -> None:
+        """Temporarily draw the pre-built low-detail scene for camera motion."""
+
+        self._cancel_interaction_restore()
+        if (
+            self._interaction_scene_active
+            or self._scene is None
+            or self._interaction_scene is None
+        ):
+            return
+        self._interaction_scene_active = True
+        self._render_scene(self._interaction_scene)
+
+    def _restore_full_scene(self) -> None:
+        self._interaction_restore_after_id = None
+        if not self._interaction_scene_active or self._scene is None:
+            return
+        self._interaction_scene_active = False
+        self._render_scene(self._scene)
+
+    def _schedule_full_scene(self, _event: tk.Event | None = None) -> None:
+        """Restore detail once a pan/orbit gesture has settled."""
+
+        if not self._interaction_scene_active:
+            return
+        self._cancel_interaction_restore()
+        after = getattr(self.event_widget, "after", None)
+        if not callable(after):
+            after = getattr(self.canvas, "after", None)
+        if not callable(after):
+            self._restore_full_scene()
+            return
+        self._interaction_restore_after_id = after(120, self._restore_full_scene)
+
     def clear(self) -> None:
+        self._cancel_interaction_restore()
         self._scene = None
+        self._interaction_scene = None
+        self._interaction_scene_active = False
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
         self.canvas.redraw()
@@ -440,7 +523,7 @@ class Viewport:
         elif hasattr(widget, "configure"):
             widget.configure(background=style.background)
         if getattr(self, "_scene", None) is not None:
-            self.show(self._scene)
+            self.show(self._scene, interaction_scene=self._interaction_scene)
 
     # ------------------------------------------------------------------
     # workplane projection and click construction
@@ -526,7 +609,7 @@ class Viewport:
         self._construction_grid_extent = grid_extent
         self._construction_length_formatter = length_formatter
         if getattr(self, "_scene", None) is not None:
-            self.show(self._scene)
+            self.show(self._scene, interaction_scene=self._interaction_scene)
 
     def _draw_construction_overlay(self) -> None:
         """Draw a bounded face/workplane grid and the uncommitted sketch."""
@@ -635,7 +718,7 @@ class Viewport:
         result = engine.snap(point, workplane, frame, data)
         task.add(result)
         if getattr(self, "_scene", None) is not None:
-            self.show(self._scene)
+            self.show(self._scene, interaction_scene=self._interaction_scene)
         if self._on_construction_update is not None:
             self._on_construction_update(task, result)
         return result
@@ -644,7 +727,7 @@ class Viewport:
         """Redraw a changed working-copy task without mutating the model."""
 
         if getattr(self, "_scene", None) is not None and self._construction_task is not None:
-            self.show(self._scene)
+            self.show(self._scene, interaction_scene=self._interaction_scene)
 
     def finish_construction(self, execute: Callable[[Any], Any]) -> Any:
         """Apply one task atomically; leave it active if validation fails."""
@@ -666,7 +749,7 @@ class Viewport:
         self._construction_grid_extent = None
         self._construction_length_formatter = None
         if getattr(self, "_scene", None) is not None:
-            self.show(self._scene)
+            self.show(self._scene, interaction_scene=self._interaction_scene)
 
     def cancel_construction(self) -> bool:
         """Cancel the working preview.  The live model remains untouched."""
@@ -828,69 +911,40 @@ class Viewport:
     def _draw(self, scene: Scene) -> None:
         point3d = self._point3d
 
-        for patch in scene.faces:
-            if not patch.polygons:
-                continue
-            style = self._visualization
-            outline = patch.outline
-            opacity = style.surface_opacity
-            lit = True
-            if style.render_mode == "Shaded":
-                outline = ""
-            elif style.render_mode == "Shaded with edges":
-                outline = style.edge_color
-            else:
-                outline = style.edge_color
-                opacity = 0.0
-                lit = False
-            options: dict[str, Any] = {
-                "colors": patch.colors,
-                "outline": outline,
-                "width": style.edge_width,
-                "opacity": opacity,
-                "lit": lit,
-                "tags": patch.tag,
-            }
-            if patch.polygon_owners is not None:
-                # A single retained mesh batch keeps one binding per element
-                # polygon.  Each binding may simultaneously expose its parent
-                # geometry plate, FE element and element face.
-                options["bindings"] = [
-                    self._pick_binding(
-                        patch.owners_for_polygon(index), patch.tag
-                    )
-                    for index in range(len(patch.polygons))
-                ]
-            else:
-                binding = self._pick_binding(
-                    patch.owners_for_polygon(0), patch.tag
-                )
-                if binding is not None:
-                    # One geometry plate owns every tessellation polygon in
-                    # this batch.  ANYtk3D broadcasts a scalar binding.
-                    options["bindings"] = binding
-            self.canvas.add_faces(
-                [polygon.tolist() for polygon in patch.polygons],
-                **options,
-            )
+        face_patches = [patch for patch in scene.faces if patch.polygons]
+        if self._commercial_selection and len(face_patches) > 1:
+            self._draw_face_batches(face_patches)
+        else:
+            for patch in face_patches:
+                self._draw_face_patch(patch)
 
-        for line in scene.lines:
-            points = np.asarray(line.points, dtype=float)
-            binding = self._pick_binding(line.pick_owners, line.tag)
-            for start, end in zip(points, points[1:]):
-                options = {
-                    "color": line.color,
-                    "width": line.width,
-                    "tags": line.tag,
-                    "draw_overlay": line.draw_overlay,
-                }
-                if binding is not None:
-                    options["binding"] = binding
-                self.canvas.add_line(
-                    point3d(*start),
-                    point3d(*end),
-                    **options,
-                )
+        line_segment_count = sum(
+            max(len(np.asarray(line.points)) - 1, 0) for line in scene.lines
+        )
+        if (
+            self._commercial_selection
+            and line_segment_count > 1
+            and hasattr(self.canvas, "add_mesh_arrays")
+        ):
+            self._draw_line_batches(scene.lines)
+        else:
+            for line in scene.lines:
+                points = np.asarray(line.points, dtype=float)
+                binding = self._pick_binding(line.pick_owners, line.tag)
+                for start, end in zip(points, points[1:]):
+                    options = {
+                        "color": line.color,
+                        "width": line.width,
+                        "tags": line.tag,
+                        "draw_overlay": line.draw_overlay,
+                    }
+                    if binding is not None:
+                        options["binding"] = binding
+                    self.canvas.add_line(
+                        point3d(*start),
+                        point3d(*end),
+                        **options,
+                    )
 
         if (
             self._commercial_selection
@@ -934,6 +988,155 @@ class Viewport:
             )
         else:
             self.canvas.clear_thickness_legend()
+
+    def _face_style(self, patch) -> tuple[str, float, bool]:
+        """Resolve global visualization settings for one face patch."""
+
+        style = self._visualization
+        outline = patch.outline
+        opacity = style.surface_opacity
+        lit = True
+        if style.render_mode == "Shaded":
+            outline = ""
+        elif style.render_mode == "Shaded with edges":
+            outline = style.edge_color
+        else:
+            outline = style.edge_color
+            opacity = 0.0
+            lit = False
+        return outline, opacity, lit
+
+    def _draw_face_patch(self, patch) -> None:
+        """Submit one legacy-compatible semantic face patch."""
+
+        if not patch.polygons:
+            return
+        outline, opacity, lit = self._face_style(patch)
+        style = self._visualization
+        options: dict[str, Any] = {
+            "colors": patch.colors,
+            "outline": outline,
+            "width": style.edge_width,
+            "opacity": opacity,
+            "lit": lit,
+            "tags": patch.tag,
+        }
+        if patch.polygon_owners is not None:
+            options["bindings"] = [
+                self._pick_binding(patch.owners_for_polygon(index), patch.tag)
+                for index in range(len(patch.polygons))
+            ]
+        else:
+            binding = self._pick_binding(patch.owners_for_polygon(0), patch.tag)
+            if binding is not None:
+                options["bindings"] = binding
+        self.canvas.add_faces(
+            [polygon.tolist() for polygon in patch.polygons],
+            **options,
+        )
+
+    def _draw_face_batches(self, patches) -> None:
+        """Batch same-style semantic patches into a few retained submissions.
+
+        Geometry used to submit one viewer object per structural plate.  A
+        segmented cylinder could consequently require hundreds of Python/API
+        calls even though every patch used the same material.  Commercial
+        pick bindings preserve the original owner per polygon, so batching is
+        both faster and selection-equivalent.
+        """
+
+        groups: dict[tuple[str, float, bool], list[object]] = {}
+        for patch in patches:
+            groups.setdefault(self._face_style(patch), []).append(patch)
+        for (outline, opacity, lit), group in groups.items():
+            polygons = []
+            colors = []
+            bindings = []
+            for patch in group:
+                for index, polygon in enumerate(patch.polygons):
+                    polygons.append(polygon.tolist())
+                    colors.append(patch.colors[index])
+                    bindings.append(
+                        self._pick_binding(
+                            patch.owners_for_polygon(index), patch.tag
+                        )
+                    )
+            self.canvas.add_faces(
+                polygons,
+                colors=colors,
+                outline=outline,
+                width=self._visualization.edge_width,
+                opacity=opacity,
+                lit=lit,
+                tags="",
+                bindings=bindings,
+            )
+
+    def _draw_line_batches(self, polylines) -> None:
+        """Submit model edges as a few retained indexed line meshes.
+
+        The GPU backend has a meaningful cost per retained mesh and buffer
+        upload.  A segmented cylinder can contain hundreds of model edges, so
+        the historic one-``add_line``-per-segment path overwhelmed the GPU
+        even though the actual vertex count was modest.  Grouping by visual
+        style keeps one owner per segment while reducing submissions to a
+        handful of meshes.  Overlay centre-lines use the same fast path on the
+        GPU and retain the compatibility path on older/Tk viewers.
+        """
+
+        from any3dview import MeshArrays, PackedOwnerTable
+
+        groups: dict[tuple[str, int, bool], list[tuple[object, object, object]]] = {}
+        for line in polylines:
+            points = np.asarray(line.points, dtype=float)
+            binding = self._pick_binding(line.pick_owners, line.tag)
+            key = (str(line.color), int(line.width), bool(line.draw_overlay))
+            for start, end in zip(points, points[1:]):
+                groups.setdefault(key, []).append((start, end, binding))
+
+        for (color, width, draw_overlay), segments in groups.items():
+            if draw_overlay and self.active_backend != "gpu":
+                for start, end, binding in segments:
+                    options: dict[str, Any] = {
+                        "color": color,
+                        "width": width,
+                        "draw_overlay": True,
+                    }
+                    if binding is not None:
+                        options["binding"] = binding
+                    self.canvas.add_line(
+                        self._point3d(*start), self._point3d(*end), **options
+                    )
+                continue
+
+            positions = np.asarray(
+                [point for start, end, _binding in segments for point in (start, end)],
+                dtype=np.float64,
+            )
+            indices = np.arange(len(positions), dtype=np.uint32).reshape((-1, 2))
+            bindings = [binding for _start, _end, binding in segments]
+            owners = (
+                PackedOwnerTable.from_owners(lines=bindings)
+                if any(binding is not None for binding in bindings)
+                else None
+            )
+            options = {
+                "color": color,
+                "line_color": color,
+                "line_width": width,
+                "layer": 30,
+                "owners": owners,
+            }
+            if draw_overlay:
+                options["draw_overlay"] = True
+            self.canvas.add_mesh_arrays(
+                MeshArrays(
+                    positions,
+                    np.empty((0, 3), dtype=np.uint32),
+                    lines=indices,
+                ),
+                **options,
+            )
 
     def _draw_point(self, marker: PointMarker) -> None:
         """Points are drawn as small boxes so they can be picked and shaded."""

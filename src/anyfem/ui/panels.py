@@ -1,4 +1,4 @@
-"""The stage panels: Geometry, Mesh, Loads & BC, Solve, Results.
+"""The stage panels: Geometry, Mesh, Loads & BC, Solve, Results, Visualization.
 
 Every panel acts through the command stack, never directly on the project, so
 everything the user does here is undoable and scriptable by the same calls.
@@ -73,7 +73,7 @@ from .result_summary import (
     prescribed_path_progress,
     submitted_target_load_factor,
 )
-from .visualization import RENDER_MODES, VisualizationStyle
+from .visualization import GEOMETRY_DETAILS, RENDER_MODES, VisualizationStyle
 from .scene import (
     COLOR_LOAD,
     COLOR_MASS,
@@ -92,6 +92,7 @@ __all__ = [
     "SectionPanel",
     "SolvePanel",
     "StagePanel",
+    "VisualizationPanel",
     "mapped_mesh_eligibility",
 ]
 
@@ -3780,6 +3781,206 @@ class SolvePanel(StagePanel):
 
 
 # ----------------------------------------------------------------------
+class VisualizationPanel(StagePanel):
+    """Application-wide viewport appearance and performance controls."""
+
+    title = "Visualization"
+
+    def build(self) -> None:
+        ttk.Label(
+            self,
+            text=(
+                "These settings apply to model, mesh and result views. "
+                "Geometry detail changes display tessellation only; it does "
+                "not change model geometry, mesh density or solver inputs."
+            ),
+            justify="left",
+            wraplength=560,
+        ).pack(fill="x", pady=(0, 8))
+
+        style = self.app.viewport.visualization
+        appearance = self.section("Viewport appearance")
+
+        render_row = ttk.Frame(appearance)
+        render_row.pack(fill="x", pady=1)
+        ttk.Label(render_row, text="render", width=18).pack(side="left")
+        self._render_mode = tk.StringVar(value=style.render_mode)
+        ttk.Combobox(
+            render_row,
+            textvariable=self._render_mode,
+            values=RENDER_MODES,
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+
+        detail_row = ttk.Frame(appearance)
+        detail_row.pack(fill="x", pady=1)
+        ttk.Label(detail_row, text="geometry detail", width=18).pack(side="left")
+        self._geometry_detail = tk.StringVar(value=style.geometry_detail)
+        ttk.Combobox(
+            detail_row,
+            textvariable=self._geometry_detail,
+            values=GEOMETRY_DETAILS,
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Label(
+            appearance,
+            text=(
+                "Auto reduces curved-face display density as cylinders and "
+                "cones gain structural segments. Fast is useful for very "
+                "large models; Fine preserves the densest preview."
+            ),
+            justify="left",
+            foreground="#666666",
+            wraplength=540,
+        ).pack(fill="x", pady=(1, 4))
+
+        self._surface_opacity = self.entry_row(
+            appearance, "surface opacity [%]", f"{100.0 * style.surface_opacity:g}"
+        )
+        self._edge_width = self.entry_row(
+            appearance, "edge width [px]", str(style.edge_width)
+        )
+        self._background_color = self._colour_row(
+            appearance, "background", style.background
+        )
+        self._edge_color = self._colour_row(
+            appearance, "model / mesh edges", style.edge_color
+        )
+        self._show_legend = tk.BooleanVar(value=style.show_legend)
+        ttk.Checkbutton(
+            appearance,
+            text="Show result legend",
+            variable=self._show_legend,
+        ).pack(anchor="w", pady=(3, 0))
+
+        actions = ttk.Frame(appearance)
+        actions.pack(fill="x", pady=(6, 0))
+        ttk.Button(
+            actions,
+            text="Apply",
+            command=self.guarded(self._apply),
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            actions,
+            text="Reset defaults",
+            command=self.guarded(self._reset),
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        view = self.section("View and renderer")
+        self._renderer_status = ttk.Label(view, text="", justify="left", wraplength=540)
+        self._renderer_status.pack(fill="x", pady=(0, 5))
+        view_actions = ttk.Frame(view)
+        view_actions.pack(fill="x")
+        ttk.Button(
+            view_actions, text="Model view", command=self.app.show_geometry
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            view_actions, text="Mesh view", command=self.app.show_mesh
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        ttk.Button(
+            view_actions, text="Fit", command=self.app.viewport.fit
+        ).pack(side="left", fill="x", expand=True, padx=(4, 0))
+        self.refresh()
+
+    def _colour_row(self, parent, label: str, value: str) -> tk.StringVar:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=1)
+        ttk.Label(row, text=label, width=18).pack(side="left")
+        variable = tk.StringVar(value=value)
+        ttk.Entry(row, textvariable=variable, width=14).pack(
+            side="left", fill="x", expand=True
+        )
+        ttk.Button(
+            row,
+            text="Choose…",
+            width=9,
+            command=lambda: self._choose_colour(variable),
+        ).pack(side="left", padx=(4, 0))
+        return variable
+
+    def _choose_colour(self, variable: tk.StringVar) -> None:
+        _rgb, colour = colorchooser.askcolor(
+            color=variable.get(), parent=self, title="Choose viewport colour"
+        )
+        if colour:
+            variable.set(colour)
+
+    def _style(self) -> VisualizationStyle:
+        try:
+            opacity = float(self._surface_opacity.get()) / 100.0
+        except ValueError:
+            raise ValueError(
+                "surface opacity must be a percentage from 0 to 100"
+            ) from None
+        try:
+            edge_width = int(self._edge_width.get())
+        except ValueError:
+            raise ValueError("edge width must be a whole number") from None
+        return VisualizationStyle(
+            render_mode=self._render_mode.get(),
+            surface_opacity=opacity,
+            background=self._background_color.get().strip(),
+            edge_color=self._edge_color.get().strip(),
+            edge_width=edge_width,
+            show_legend=bool(self._show_legend.get()),
+            geometry_detail=self._geometry_detail.get(),
+        )
+
+    def _load_style(self, style: VisualizationStyle) -> None:
+        self._render_mode.set(style.render_mode)
+        self._geometry_detail.set(style.geometry_detail)
+        self._surface_opacity.set(f"{100.0 * style.surface_opacity:g}")
+        self._edge_width.set(str(style.edge_width))
+        self._background_color.set(style.background)
+        self._edge_color.set(style.edge_color)
+        self._show_legend.set(style.show_legend)
+
+    def sync_from_viewport(self) -> None:
+        """Load the last applied style when this task page is opened."""
+
+        self._load_style(self.app.viewport.visualization)
+
+    def _apply(self) -> None:
+        style = self._style()
+        self.app.viewport.set_visualization(style)
+        results = self.app.panels.get("Results")
+        if results is not None:
+            results.sync_visualization_from_viewport()
+        # Rebuild geometry scenes so a changed curved-detail policy takes
+        # effect immediately instead of waiting for the next workflow page.
+        self.app.refresh_views()
+        self.app.set_status(
+            f"visualization applied: {style.render_mode}, "
+            f"geometry detail {style.geometry_detail}"
+        )
+        self.refresh()
+
+    def _reset(self) -> None:
+        self._load_style(VisualizationStyle())
+        self._apply()
+
+    def refresh(self) -> None:
+        if not hasattr(self, "_renderer_status"):
+            return
+        requested = self.app.viewport.requested_backend
+        active = self.app.viewport.active_backend
+        diagnostics = self.app.viewport.backend_diagnostics
+        text = f"Requested: {requested}   Active: {active.upper()}"
+        if diagnostics:
+            text += "\n" + "\n".join(str(item) for item in diagnostics)
+        renderer = getattr(self.app.viewport.canvas, "renderer_diagnostics", None)
+        if renderer:
+            text += (
+                f"\nRetained meshes: {renderer.get('retained_meshes', 0)}   "
+                f"GPU uploads: {renderer.get('geometry_uploads', 0)}   "
+                f"draw calls: {renderer.get('draw_calls', 0)}"
+            )
+        self._renderer_status.configure(text=text)
+
+
+# ----------------------------------------------------------------------
 class ResultsPanel(StagePanel):
     title = "Results"
 
@@ -3921,6 +4122,19 @@ class ResultsPanel(StagePanel):
         self._edge_width = self.entry_row(
             appearance, "edge width [px]", str(initial_style.edge_width)
         )
+        geometry_detail_row = ttk.Frame(appearance)
+        geometry_detail_row.pack(fill="x", pady=1)
+        ttk.Label(geometry_detail_row, text="geometry detail", width=16).pack(
+            side="left"
+        )
+        self._geometry_detail = tk.StringVar(value=initial_style.geometry_detail)
+        ttk.Combobox(
+            geometry_detail_row,
+            textvariable=self._geometry_detail,
+            values=GEOMETRY_DETAILS,
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
         self._background_color = self._colour_row(
             appearance, "background", initial_style.background
         )
@@ -4208,17 +4422,34 @@ class ResultsPanel(StagePanel):
             edge_color=self._edge_color.get().strip(),
             edge_width=edge_width,
             show_legend=bool(self._show_result_legend.get()),
+            geometry_detail=self._geometry_detail.get(),
         )
 
     def _apply_visualization(self) -> None:
         self.app.viewport.set_visualization(self._visualization_style())
+        panel = self.app.panels.get("Visualization")
+        if panel is not None:
+            panel.sync_from_viewport()
         self._show_if_available()
+
+    def sync_visualization_from_viewport(self) -> None:
+        """Keep the result-local appearance controls consistent globally."""
+
+        style = self.app.viewport.visualization
+        self._render_mode.set(style.render_mode)
+        self._surface_opacity.set(f"{100.0 * style.surface_opacity:g}")
+        self._edge_width.set(str(style.edge_width))
+        self._geometry_detail.set(style.geometry_detail)
+        self._background_color.set(style.background)
+        self._edge_color.set(style.edge_color)
+        self._show_result_legend.set(style.show_legend)
 
     def _reset_visualization(self) -> None:
         style = VisualizationStyle()
         self._render_mode.set(style.render_mode)
         self._surface_opacity.set(f"{100.0 * style.surface_opacity:g}")
         self._edge_width.set(str(style.edge_width))
+        self._geometry_detail.set(style.geometry_detail)
         self._background_color.set(style.background)
         self._edge_color.set(style.edge_color)
         self._colormap.set("Cool-warm")

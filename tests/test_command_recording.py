@@ -5,6 +5,7 @@ from anygeometry import EntityRef
 from anyfem import Project, steel
 from anyfem.command_recording import command_event_to_python, command_to_python
 from anyfem.commands import (
+    AddCylinder,
     AddLine,
     AddPoint,
     AddMaterial,
@@ -26,6 +27,53 @@ def test_simple_command_is_replayable_python() -> None:
     assert command_to_python(AddPoint(1.0, 2.0, 3.0)) == (
         "commands.run(commands.AddPoint(x=1.0, y=2.0, z=3.0))"
     )
+
+
+def test_generator_convenience_command_records_as_replayable_feature() -> None:
+    command = AddCylinder(
+        0.5,
+        2.0,
+        circumferential_segments=12,
+        longitudinal_spacing=0.5,
+        ring_spacing=1.0,
+    )
+    text = command_to_python(command)
+
+    assert "commands.AddFeature(" in text
+    assert "commands.AddCylinder(kind=" not in text
+    target = DocumentSession(Project("recorded cylinder"))
+    with ScriptRunner(target) as runner:
+        outcome = runner.run(text)
+    assert outcome.committed
+    assert len(target.project.geometry.faces) == 24
+
+
+def test_legacy_recorded_cylinder_constructor_remains_replayable() -> None:
+    source = """
+commands.run(commands.AddCylinder(
+    kind='generator.cylinder',
+    name='Cylinder',
+    parameters={
+        'radius': 0.5,
+        'height': 2.0,
+        'circumferential_segments': 12,
+        'origin': (0.0, 0.0, 0.0),
+        'axis': (0.0, 0.0, 1.0),
+        'radial_direction': (1.0, 0.0, 0.0),
+        'longitudinal_spacing': 0.5,
+        'ring_spacing': 1.0,
+    },
+    label='add cylinder',
+))
+"""
+    target = DocumentSession(Project("legacy cylinder"))
+
+    with ScriptRunner(target) as runner:
+        outcome = runner.run(source)
+
+    assert outcome.committed
+    assert len(target.project.geometry.faces) == 24
+    assert len(target.project.geometry.members) == 13
 
 
 def test_nested_public_values_are_replayable() -> None:

@@ -18,6 +18,7 @@ from anygeometry.curves import Straight
 from anygeometry.entities import EntityRef
 from anygeometry.model import GeometryModel
 from anygeometry.operations import surface_point
+from anygeometry.surfaces import Plane
 
 from ..mesh.mapped import Mesh
 from ..model.project import Project
@@ -42,12 +43,74 @@ __all__ = [
     "entity_sample_points",
     "face_display_polygons",
     "face_normal",
+    "GeometryDisplayResolution",
+    "geometry_display_resolution",
     "geometry_characteristic_size",
 ]
 
 # Faces are drawn as a coarse Coons tessellation.  Straight-sided plates need
 # only one quad, but curved ones need enough to read as curved.
 DISPLAY_DIVISIONS = 8
+
+
+@dataclass(frozen=True)
+class GeometryDisplayResolution:
+    """One full and interaction display resolution for model geometry.
+
+    Structural cylinders/cones commonly contain many narrow curved faces.
+    Tessellating each such face at the normal 8 x 8 preview resolution turns a
+    few hundred engineering panels into tens of thousands of render polygons.
+    The resolution is deliberately renderer-neutral so the viewport can swap
+    to the interaction scene during pan/orbit without altering model intent.
+    """
+
+    divisions: int
+    curve_samples: int
+    interaction_divisions: int
+    interaction_curve_samples: int
+
+
+def geometry_display_resolution(
+    geometry: GeometryModel,
+    detail: str = "Auto",
+) -> GeometryDisplayResolution:
+    """Choose bounded display resolution for the current geometry.
+
+    ``Auto`` preserves the high-quality preview for a small number of curved
+    faces, then reduces *per-face* display tessellation as a revolved model
+    gains structural segments.  Flat four-sided plates remain one polygon via
+    :func:`_flat_four_edge_polygon`, so this specifically addresses curved
+    geometry rather than reducing ordinary plate-model readability.
+    """
+
+    policies = {
+        "Fine": (8, 24, 2, 8),
+        "Balanced": (4, 16, 1, 6),
+        "Fast": (2, 8, 1, 4),
+    }
+    try:
+        normalized = str(detail).strip().title()
+    except AttributeError as error:  # defensive for scripted display settings
+        raise ValueError("geometry detail must be text") from error
+    if normalized != "Auto":
+        try:
+            return GeometryDisplayResolution(*policies[normalized])
+        except KeyError as error:
+            raise ValueError(
+                "geometry detail must be Auto, Fine, Balanced or Fast"
+            ) from error
+
+    curved_faces = sum(
+        1
+        for face in geometry.faces.values()
+        if face.support_surface is not None
+        and not isinstance(face.support_surface, Plane)
+    )
+    if curved_faces <= 64:
+        return GeometryDisplayResolution(*policies["Fine"])
+    if curved_faces <= 256:
+        return GeometryDisplayResolution(*policies["Balanced"])
+    return GeometryDisplayResolution(*policies["Fast"])
 
 COLOR_PLATE = "#7ba7cc"
 COLOR_LINE = "#37474f"

@@ -108,7 +108,11 @@ def _face_sheet_map(geometry) -> dict[int, int]:
     }
 
 
-def _candidate_pairs(geometry) -> tuple[tuple[Any, Any], ...]:
+def _candidate_pairs(
+    geometry,
+    *,
+    member_ids: Iterable[int] | None = None,
+) -> tuple[tuple[Any, Any], ...]:
     """Spatially bounded structural parent candidates in stable order."""
 
     face_sheets = _face_sheet_map(geometry)
@@ -180,9 +184,13 @@ def _candidate_pairs(geometry) -> tuple[tuple[Any, Any], ...]:
                 continue
             face_pairs.add((face_id, other))
 
+    active_members = (
+        None if member_ids is None else {int(identifier) for identifier in member_ids}
+    )
     edge_members = {
         use.edge_id: use.member_id
         for use in geometry.member_edge_uses.values()
+        if active_members is None or use.member_id in active_members
     }
     member_vertices: dict[int, set[int]] = {}
     for edge_id, member_id in edge_members.items():
@@ -255,6 +263,7 @@ def prepare_structural_connectivity(
     *,
     source_model_id: str | None = None,
     source_revision: int | None = None,
+    member_ids: Iterable[int] | None = None,
     cancellation_check: Callable[[str], None] | None = None,
 ) -> StructuralPreparationReport:
     """Declare every qualified plate/beam connection on ``geometry``.
@@ -262,7 +271,9 @@ def prepare_structural_connectivity(
     Coplanar area overlap is intentionally not assigned an implicit owner.
     Engineers must run ANYfem's previewable Fragment Overlaps geometry command
     first.  Any unclassified local candidate likewise blocks instead of being
-    silently welded or ignored.
+    silently welded or ignored.  ``member_ids`` limits beam connectivity to
+    active FE members; generated but unassigned construction members remain
+    available in the editable model without entering this mesh job.
     """
 
     report = StructuralPreparationReport(
@@ -280,7 +291,7 @@ def prepare_structural_connectivity(
     while True:
         _check(cancellation_check, "structural intersection query")
         restarted = False
-        for first, second in _candidate_pairs(geometry):
+        for first, second in _candidate_pairs(geometry, member_ids=member_ids):
             result = query_intersection(geometry, first, second)
             kind = result.kind
             if kind is IntersectionKind.DISJOINT:

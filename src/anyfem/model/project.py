@@ -1464,6 +1464,11 @@ class Project:
             self.native_triangulation_backend
         )
         source_geometry = self.geometry
+        source_members = {
+            member_id
+            for edge_id in self.beam_edges
+            for member_id in source_geometry.members_using_edge(edge_id)
+        }
         closure_handles = tuple(
             [
                 source_geometry.handle("face", identifier)
@@ -1479,7 +1484,7 @@ class Project:
             ]
             + [
                 source_geometry.handle("member", identifier)
-                for identifier in sorted(source_geometry.members)
+                for identifier in sorted(source_members)
             ]
         )
         closure = extract_model_closure(
@@ -1489,11 +1494,22 @@ class Project:
             include_features=False,
         )
         working = closure.working_model
+        working_member_ids = tuple(
+            sorted(
+                closure.source_to_work[
+                    source_geometry.handle("member", identifier)
+                ].id
+                for identifier in source_members
+                if source_geometry.handle("member", identifier)
+                in closure.source_to_work
+            )
+        )
         try:
             preparation = prepare_structural_connectivity(
                 working,
                 source_model_id=str(closure.source_model_id),
                 source_revision=closure.source_revision,
+                member_ids=working_member_ids,
                 cancellation_check=cancellation_check,
             )
         except StructuralPreparationError as error:
@@ -1523,21 +1539,6 @@ class Project:
                     for source_id in self.beam_edges
                     for item in descendants("edge", source_id)
                 }
-            )
-        )
-        source_members = {
-            member_id
-            for edge_id in self.beam_edges
-            for member_id in source_geometry.members_using_edge(edge_id)
-        }
-        working_member_ids = tuple(
-            sorted(
-                closure.source_to_work[
-                    source_geometry.handle("member", identifier)
-                ].id
-                for identifier in source_members
-                if source_geometry.handle("member", identifier)
-                in closure.source_to_work
             )
         )
         working_offsets = {
