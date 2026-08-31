@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from anygeometry import punch_hole
 
-from anyfem import Project, pinned, solve_linear_static, steel
+from anyfem import BeamSection, Project, pinned, solve_linear_static, steel
 from anyfem.model import member_bow, plate_mode
 from anyfem.post.fields import Field
 from anyfem.geometry.entities import EntityRef
@@ -137,6 +137,64 @@ def test_beams_are_drawn_differently_from_plain_lines(plate_project):
     assert beam.width > plain.width
     assert beam.draw_overlay
     assert not plain.draw_overlay
+
+
+def test_assigned_beam_section_is_swept_in_geometry_mesh_and_results(plate_project):
+    project, face, edges, _points = plate_project
+    project.add_beam_section(
+        BeamSection(
+            name="tee",
+            profile="T-bar",
+            material="S355",
+            web_height=0.20,
+            web_thickness=0.010,
+            flange_width=0.10,
+            flange_thickness=0.012,
+            offset_mode="automatic",
+        )
+    )
+    project.assign_beam(edges[0], "tee")
+
+    geometry_scene = build_geometry_scene(project)
+    geometry_solids = [
+        patch for patch in geometry_scene.faces
+        if patch.ref == EntityRef("edge", edges[0])
+    ]
+    assert geometry_solids
+    assert len(geometry_solids[0].polygons) == 12
+
+    for edge in edges[1:]:
+        project.add_support(pinned(project.edge(edge)))
+    project.load_case().add_pressure(project.face(face), 10_000.0)
+    solution = solve_linear_static(project, target_size=0.25)
+    mesh_scene = build_mesh_scene(project, solution.built.mesh)
+    result_scene = build_result_scene(solution)
+    assert any(patch.ref == EntityRef("edge", edges[0]) for patch in mesh_scene.faces)
+    assert any(patch.ref == EntityRef("edge", edges[0]) for patch in result_scene.faces)
+
+
+def test_back_side_axial_rotation_offsets_from_plate_intersection(plate_project):
+    project, _face, edges, _points = plate_project
+    project.add_beam_section(
+        BeamSection(
+            name="rotated tee",
+            profile="T-bar",
+            material="S355",
+            web_height=0.20,
+            web_thickness=0.010,
+            flange_width=0.10,
+            flange_thickness=0.012,
+            offset_mode="automatic",
+            attachment_side="back",
+            rotation_deg=90.0,
+        )
+    )
+    project.assign_beam(edges[0], "rotated tee")
+
+    offset = np.asarray(project.beam_offset_vector(edges[0]))
+    assert offset[0] == pytest.approx(0.0, abs=1.0e-12)
+    assert offset[1] > 0.0
+    assert offset[2] == pytest.approx(0.0, abs=1.0e-12)
 
 
 def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_project):
@@ -332,6 +390,29 @@ def test_result_scene_carries_a_legend(plate_project):
     assert scene.legend is not None
     assert scene.legend["title"] == "Displacement Z"
     assert len(scene.legend["levels"]) == 5
+
+
+def test_result_scene_with_shells_and_beams_builds_legend(plate_project):
+    """A beam node tuple must not replace the scalar colour-range span."""
+
+    project, face, edges, _points = plate_project
+    project.add_beam_section(
+        BeamSection(
+            "stiffener",
+            "Flatbar",
+            "S355",
+            flange_width=0.10,
+            flange_thickness=0.010,
+        )
+    )
+    project.assign_beam(edges[0], "stiffener")
+    solution = solved(project, face, edges)
+
+    scene = build_result_scene(solution, component="magnitude")
+
+    assert scene.legend is not None
+    assert len(scene.legend["colors"]) == 5
+    assert scene.lines
 
 
 def test_result_scene_components_differ(plate_project):

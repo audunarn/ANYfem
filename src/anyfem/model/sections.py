@@ -20,6 +20,8 @@ from .regions import RegionRef
 
 __all__ = [
     "BeamSection",
+    "ATTACHMENT_SIDES",
+    "OFFSET_MODES",
     "PLATE_PROFILES",
     "PlateSection",
     "PROFILES",
@@ -31,6 +33,8 @@ __all__ = [
 # (hw, tw, b, tf) web/flange set.
 PROFILES: tuple[str, ...] = ("Flatbar", "T-bar", "Angle", "L-bulb")
 PLATE_PROFILES = PROFILES  # backwards-friendly alias
+OFFSET_MODES: tuple[str, ...] = ("manual", "automatic", "centerline")
+ATTACHMENT_SIDES: tuple[str, ...] = ("front", "back")
 
 
 def _uuid() -> str:
@@ -62,12 +66,11 @@ class BeamSection:
     leaves asymmetric sections unconstrained, so it is worth setting for
     angles and bulbs.
 
-    ``eccentricity`` offsets the beam's neutral axis from the plate
-    midsurface, along the plate normal.  It is not a detail: a stiffener whose
-    neutral axis sits in the plating is a materially different structure from
-    one standing proud of it, and modelling the second as the first understates
-    the stiffness considerably.  Zero keeps the stiffener sharing the plate
-    nodes, which is what it did before this existed.
+    ``offset_mode`` controls the neutral-axis location. ``automatic`` derives
+    the actual centroid from the profile rectangles, ``manual`` retains the
+    historical explicit eccentricity, and ``centerline`` shares plate nodes.
+    ``attachment_side`` and ``rotation_deg`` place the section relative to the
+    plate attachment line and are used by meshing, solving and visualization.
     """
 
     name: str
@@ -79,6 +82,9 @@ class BeamSection:
     flange_thickness: float = 0.0
     web_direction: Sequence[float] | None = None
     eccentricity: float = 0.0
+    offset_mode: Literal["manual", "automatic", "centerline"] = "manual"
+    attachment_side: Literal["front", "back"] = "front"
+    rotation_deg: float = 0.0
     id: str = field(default_factory=_uuid)
 
     def __post_init__(self) -> None:
@@ -106,6 +112,19 @@ class BeamSection:
         if not np.isfinite(self.eccentricity):
             raise ValueError(
                 f"beam section {self.name!r}: eccentricity must be finite"
+            )
+        if self.offset_mode not in OFFSET_MODES:
+            raise ValueError(
+                f"beam section {self.name!r}: offset_mode must be one of "
+                f"{', '.join(OFFSET_MODES)}"
+            )
+        if self.attachment_side not in ATTACHMENT_SIDES:
+            raise ValueError(
+                f"beam section {self.name!r}: attachment_side must be front or back"
+            )
+        if not np.isfinite(self.rotation_deg):
+            raise ValueError(
+                f"beam section {self.name!r}: rotation_deg must be finite"
             )
         if self.profile == "Flatbar":
             if self.flange_width <= 0.0 or self.flange_thickness <= 0.0:
@@ -140,7 +159,50 @@ class BeamSection:
                 self, "web_direction", tuple(float(value) for value in direction)
             )
 
-    def properties(self) -> Dict[str, float]:
+    def profile_rectangles(self) -> tuple[tuple[float, float, float, float], ...]:
+        """Idealized rectangles as ``(y, z, width_y, height_z)``.
+
+        Coordinates are measured from the attachment line on the plate. They
+        use the same profile convention as ANYmesher's section-property
+        calculation, so the displayed solid and the numerical section agree.
+        """
+
+        hw, tw = float(self.web_height), float(self.web_thickness)
+        b, tf = float(self.flange_width), float(self.flange_thickness)
+        if self.profile == "T-bar":
+            return ((0.0, hw / 2.0, tw, hw), (0.0, hw + tf / 2.0, b, tf))
+        if self.profile in ("Angle", "L-bulb"):
+            return (
+                (tw / 2.0, hw / 2.0, tw, hw),
+                (b / 2.0, hw + tf / 2.0, b, tf),
+            )
+        return ((0.0, tf / 2.0, b, tf),)
+
+    def centroid_from_attachment(self) -> tuple[float, float]:
+        """Local ``(y, z)`` centroid measured from the plate attachment line."""
+
+        rectangles = self.profile_rectangles()
+        areas = np.asarray([width * height for _y, _z, width, height in rectangles])
+        area = float(np.sum(areas))
+        return (
+            float(sum(a * item[0] for a, item in zip(areas, rectangles)) / area),
+            float(sum(a * item[1] for a, item in zip(areas, rectangles)) / area),
+        )
+
+    def centered_profile_rectangles(
+        self,
+    ) -> tuple[tuple[float, float, float, float], ...]:
+        """Profile rectangles around the beam neutral-axis line."""
+
+        cy, cz = self.centroid_from_attachment()
+        return tuple(
+            (y - cy, z - cz, width, height)
+            for y, z, width, height in self.profile_rectangles()
+        )
+
+    def properties(
+        self, *, orientation: Sequence[float] | None = None
+    ) -> Dict[str, float]:
         """Cross-section properties in the solver's own dictionary form."""
 
         section = StiffenerCrossSection.from_geometry(
@@ -161,8 +223,11 @@ class BeamSection:
             "c_z": float(section.c_z),
             "torsion_modulus": float(section.torsion_modulus),
         }
-        if self.web_direction is not None:
-            properties["orientation"] = np.asarray(self.web_direction, dtype=float)
+        resolved_orientation = (
+            self.web_direction if orientation is None else orientation
+        )
+        if resolved_orientation is not None:
+            properties["orientation"] = np.asarray(resolved_orientation, dtype=float)
         return properties
 
 

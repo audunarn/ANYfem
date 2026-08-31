@@ -9,7 +9,9 @@ from anyfem.commands import (
     AddLine,
     AddPoint,
     AddMaterial,
+    AddBeamSection,
     AddPlateSection,
+    AssignBeam,
     AssignPlate,
     AddPressure,
     AddSupport,
@@ -19,7 +21,7 @@ from anyfem.commands import (
 )
 from anyfem.document import DocumentSession
 from anyfem.model.attributes import support
-from anyfem.model.sections import PlateSection
+from anyfem.model.sections import BeamSection, PlateSection
 from anyfem.scripting import ScriptRunner
 
 
@@ -147,6 +149,39 @@ def test_recorded_section_assignment_batch_replays_commands_not_results() -> Non
     assert outcome.committed
     assert session.project.plate_sections["recorded"].thickness == 0.012
     assert session.project.face_sections[face] == "recorded"
+
+
+def test_recorded_beam_assignment_carries_its_definition() -> None:
+    project = Project("beam section replay")
+    project.add_material(steel())
+    start, end = project.geometry.add_points(((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
+    edge = project.geometry.add_line(start, end)
+    section = BeamSection(
+        "stiffener",
+        "T-bar",
+        "S355",
+        web_height=0.200,
+        web_thickness=0.010,
+        flange_width=0.100,
+        flange_thickness=0.012,
+        offset_mode="automatic",
+    )
+    batch = CompositeCommand(
+        (AddBeamSection(section), AssignBeam(edge, section.name)),
+        label="batch edit",
+    )
+
+    text = command_to_python(batch)
+    assert "commands.AddBeamSection" in text
+    assert "commands.AssignBeam" in text
+
+    session = DocumentSession(project)
+    with ScriptRunner(session) as runner:
+        outcome = runner.run(text)
+
+    assert outcome.committed
+    assert session.project.beam_sections["stiffener"].id == section.id
+    assert session.project.edge_sections[edge] == "stiffener"
 
 
 def test_legacy_nested_run_batch_from_gui_transcript_remains_replayable() -> None:

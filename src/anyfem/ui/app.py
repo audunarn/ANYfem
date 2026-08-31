@@ -48,6 +48,7 @@ from ..solve.build import build_fe_model
 from ..model.materials import steel
 from ..model.project import Project, ProjectError
 from ..model.records import AnalysisDefinition, MeshRecord
+from ..model.sections import BeamSection
 from ..selection import MeshEntityRef, Selection, mode_label
 from ..solve.run import (
     solve_arc_length,
@@ -1341,11 +1342,13 @@ class AnyFemApp(ttk.Frame):
             self.project,
             divisions=resolution.divisions,
             curve_samples=resolution.curve_samples,
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
         )
         interaction_scene = build_geometry_scene(
             self.project,
             divisions=resolution.interaction_divisions,
             curve_samples=resolution.interaction_curve_samples,
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
         )
         self.viewport.show(
             self._with_attributes(scene),
@@ -1444,7 +1447,11 @@ class AnyFemApp(ttk.Frame):
             self.show_geometry()
             return
         self._view_mode = "mesh"
-        scene = build_mesh_scene(self.project, self.mesh)
+        scene = build_mesh_scene(
+            self.project,
+            self.mesh,
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
+        )
         self.viewport.show(self._with_attributes(scene))
         self._update_view_label()
 
@@ -1515,6 +1522,7 @@ class AnyFemApp(ttk.Frame):
             colormap=self.panels["Results"].colormap(),
             display_units=self.panels["Results"].display_units(),
             show_nodes=self.panels["Results"].show_result_nodes(),
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
         )
         panel = self.panels["Results"]
         scene = self._with_attributes(
@@ -1586,6 +1594,7 @@ class AnyFemApp(ttk.Frame):
             colormap=panel.colormap(),
             display_units=panel.display_units(),
             show_nodes=panel.show_result_nodes(),
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
         )
         scene = self._with_attributes(
             scene,
@@ -1765,6 +1774,14 @@ class AnyFemApp(ttk.Frame):
                         f"Editing actual values of {self.tree.tree.item(key, 'text')}"
                     )
                     self.set_status("selected imperfection loaded into Details")
+                    return
+            if prefix in {"plate_section", "beam_section"}:
+                section_panel = self.panels.get("Sections")
+                if section_panel is not None and section_panel.edit_tree_item(key):
+                    self.details.set_hint(
+                        f"Editing {self.tree.tree.item(key, 'text')}"
+                    )
+                    self.set_status("selected section definition loaded into Details")
                     return
             if prefix in {"support", "mass", "load"}:
                 load_panel = self.panels.get("Loads & BC")
@@ -3285,11 +3302,29 @@ def _format_preflight_errors(errors) -> str:
 
 
 def default_project() -> Project:
-    """A new project with one steel already defined, so nothing is empty."""
+    """A new project with usable plate and beam defaults.
+
+    The Sections panel exposes ``plate`` and ``stiffener`` as its initial
+    definition names.  Both must exist in the document baseline: recorded GUI
+    assignments may legitimately refer to either name before the user edits
+    its properties, and replay must not depend on an unrecorded UI mutation.
+    """
 
     project = Project(name="model")
     project.add_material(steel("S355", 0.010))
     project.add_plate_section("plate", thickness=0.010, material="S355")
+    project.add_beam_section(
+        BeamSection(
+            name="stiffener",
+            profile="T-bar",
+            material="S355",
+            web_height=0.200,
+            web_thickness=0.010,
+            flange_width=0.100,
+            flange_thickness=0.012,
+            offset_mode="automatic",
+        )
+    )
     return project
 
 

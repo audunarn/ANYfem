@@ -425,12 +425,83 @@ def _flat_four_edge_polygon(
     return corners if float(np.max(distances)) <= 1.0e-9 * scale else None
 
 
+def _beam_section_polygons(section, points, reference_z) -> List[np.ndarray]:
+    """Sweep the actual idealized section rectangles along a beam polyline."""
+
+    coordinates = np.asarray(points, dtype=float)
+    reference_z = np.asarray(reference_z, dtype=float)
+    polygons: List[np.ndarray] = []
+    for start, end in zip(coordinates, coordinates[1:]):
+        axis = end - start
+        length = float(np.linalg.norm(axis))
+        if length <= 0.0:
+            continue
+        axis /= length
+        local_z = reference_z - float(reference_z @ axis) * axis
+        z_length = float(np.linalg.norm(local_z))
+        if z_length <= 1.0e-12:
+            fallback = np.eye(3)[int(np.argmin(np.abs(np.eye(3) @ axis)))]
+            local_z = fallback - float(fallback @ axis) * axis
+            z_length = float(np.linalg.norm(local_z))
+        local_z /= z_length
+        local_y = np.cross(local_z, axis)
+        local_y /= float(np.linalg.norm(local_y))
+        for y, z, width, height in section.centered_profile_rectangles():
+            if width <= 0.0 or height <= 0.0:
+                continue
+            offsets = (
+                (y - width / 2.0) * local_y + (z - height / 2.0) * local_z,
+                (y + width / 2.0) * local_y + (z - height / 2.0) * local_z,
+                (y + width / 2.0) * local_y + (z + height / 2.0) * local_z,
+                (y - width / 2.0) * local_y + (z + height / 2.0) * local_z,
+            )
+            first = [start + offset for offset in offsets]
+            last = [end + offset for offset in offsets]
+            polygons.extend(
+                (
+                    np.asarray(first),
+                    np.asarray(last[::-1]),
+                    np.asarray((first[0], first[1], last[1], last[0])),
+                    np.asarray((first[1], first[2], last[2], last[1])),
+                    np.asarray((first[2], first[3], last[3], last[2])),
+                    np.asarray((first[3], first[0], last[0], last[3])),
+                )
+            )
+    return polygons
+
+
+def _add_beam_section_patch(
+    scene: Scene,
+    section,
+    points,
+    reference_z,
+    *,
+    color: str,
+    ref: Optional[SceneOwner],
+    owners: tuple[SceneOwner, ...] = (),
+) -> bool:
+    polygons = _beam_section_polygons(section, points, reference_z)
+    if not polygons:
+        return False
+    scene.faces.append(
+        FacePatch(
+            ref=ref,
+            polygons=polygons,
+            colors=[color] * len(polygons),
+            outline=COLOR_MESH_EDGE,
+            owners=owners,
+        )
+    )
+    return True
+
+
 def build_geometry_scene(
     project: Project,
     *,
     divisions: int = DISPLAY_DIVISIONS,
     curve_samples: int = 24,
     show_points: bool = True,
+    show_beam_sections: bool = True,
 ) -> Scene:
     """Draw the model as modelled: points, lines, plates."""
 
@@ -460,14 +531,28 @@ def build_geometry_scene(
             if isinstance(geometry.edges[edge_id].curve, Straight)
             else curve_samples
         )
+        points = geometry.sample_edge(
+            edge_id, np.linspace(0.0, 1.0, samples)
+        )
+        rendered_section = False
+        if is_beam and show_beam_sections:
+            section = project.beam_section_of(edge_id)
+            _axis, _local_y, local_z = project.beam_section_frame(edge_id)
+            points = points + np.asarray(project.beam_offset_vector(edge_id))
+            rendered_section = _add_beam_section_patch(
+                scene,
+                section,
+                points,
+                local_z,
+                color=COLOR_BEAM,
+                ref=EntityRef("edge", edge_id),
+            )
         scene.lines.append(
             Polyline(
                 ref=EntityRef("edge", edge_id),
-                points=geometry.sample_edge(
-                    edge_id, np.linspace(0.0, 1.0, samples)
-                ),
+                points=points,
                 color=COLOR_BEAM if is_beam else COLOR_LINE,
-                width=4 if is_beam else 2,
+                width=(3 if rendered_section else 4) if is_beam else 2,
                 draw_overlay=is_beam,
             )
         )
@@ -487,7 +572,9 @@ def build_geometry_scene(
 # ----------------------------------------------------------------------
 # mesh
 # ----------------------------------------------------------------------
-def build_mesh_scene(project: Project, mesh: Mesh) -> Scene:
+def build_mesh_scene(
+    project: Project, mesh: Mesh, *, show_beam_sections: bool = True
+) -> Scene:
     """Draw a retained mesh with geometry and FE ownership in one scene.
 
     Shells remain batched by their owning geometry plate for rendering and
@@ -573,27 +660,41 @@ def build_mesh_scene(project: Project, mesh: Mesh) -> Scene:
                 continue
             grouped_beams.add(int(element_id))
             # Through every node, so a quadratic beam draws its curvature.
-            span = mesh.beams[element_id]
+            beam_nodes = mesh.beams[element_id]
             geometry_ref = (
                 EntityRef("edge", edge_id)
                 if edge_id in project.geometry.edges
                 else None
             )
+            owners = tuple(
+                owner
+                for owner in (
+                    geometry_ref,
+                    MeshEntityRef("element", int(element_id)),
+                )
+                if owner is not None
+            )
+            rendered_section = False
+            if show_beam_sections and edge_id in project.edge_sections:
+                section = project.beam_section_of(edge_id)
+                _axis, _local_y, local_z = project.beam_section_frame(edge_id)
+                rendered_section = _add_beam_section_patch(
+                    scene,
+                    section,
+                    np.asarray([mesh.nodes[node] for node in beam_nodes]),
+                    local_z,
+                    color=COLOR_BEAM,
+                    ref=geometry_ref,
+                    owners=owners,
+                )
             scene.lines.append(
                 Polyline(
                     ref=geometry_ref,
-                    points=np.array([mesh.nodes[node] for node in span]),
+                    points=np.array([mesh.nodes[node] for node in beam_nodes]),
                     color=COLOR_BEAM,
-                    width=4,
+                    width=1 if rendered_section else 4,
                     draw_overlay=True,
-                    owners=tuple(
-                        owner
-                        for owner in (
-                            geometry_ref,
-                            MeshEntityRef("element", int(element_id)),
-                        )
-                        if owner is not None
-                    ),
+                    owners=owners,
                 )
             )
 
@@ -650,6 +751,7 @@ def build_result_scene(
     values: Optional[object] = None,
     display_units: str = "SI (m / Pa)",
     show_nodes: bool = False,
+    show_beam_sections: bool = True,
 ) -> Scene:
     """Draw the deformed shape, coloured by any field.
 
@@ -788,7 +890,7 @@ def build_result_scene(
         for element_id in element_ids:
             if element_id not in mesh.beams:
                 continue
-            span = mesh.beams[element_id]
+            beam_nodes = mesh.beams[element_id]
             if resolved.per_element:
                 value = resolved.element_values.get(element_id)
                 line_colour = (
@@ -797,7 +899,7 @@ def build_result_scene(
                     else colour(float(value))
                 )
             else:
-                value = nodal_average(span)
+                value = nodal_average(beam_nodes)
                 line_colour = (
                     COLOR_BEAM if value is None else colour(float(value))
                 )
@@ -806,21 +908,39 @@ def build_result_scene(
                 if geometry is not None and edge_id in geometry.edges
                 else None
             )
+            owners = tuple(
+                owner
+                for owner in (
+                    geometry_ref,
+                    MeshEntityRef("element", int(element_id)),
+                )
+                if owner is not None
+            )
+            rendered_section = False
+            if (
+                show_beam_sections
+                and built_project is not None
+                and edge_id in built_project.edge_sections
+            ):
+                section = built_project.beam_section_of(edge_id)
+                _axis, _local_y, local_z = built_project.beam_section_frame(edge_id)
+                rendered_section = _add_beam_section_patch(
+                    scene,
+                    section,
+                    np.asarray([deformed[node] for node in beam_nodes]),
+                    local_z,
+                    color=line_colour,
+                    ref=geometry_ref,
+                    owners=owners,
+                )
             scene.lines.append(
                 Polyline(
                     ref=geometry_ref,
-                    points=np.array([deformed[node] for node in span]),
+                    points=np.array([deformed[node] for node in beam_nodes]),
                     color=line_colour,
-                    width=4,
+                    width=1 if rendered_section else 4,
                     draw_overlay=True,
-                    owners=tuple(
-                        owner
-                        for owner in (
-                            geometry_ref,
-                            MeshEntityRef("element", int(element_id)),
-                        )
-                        if owner is not None
-                    ),
+                    owners=owners,
                 )
             )
 
@@ -867,6 +987,7 @@ def build_persisted_result_scene(
     colormap: Optional[Sequence[tuple[float, str]]] = None,
     display_units: str = "SI (m / Pa)",
     show_nodes: bool = False,
+    show_beam_sections: bool = True,
 ) -> Scene:
     """Render one lazily-read artifact field without inventing quantities."""
 
@@ -941,6 +1062,7 @@ def build_persisted_result_scene(
         colormap=colormap,
         display_units=display_units,
         show_nodes=show_nodes,
+        show_beam_sections=show_beam_sections,
     )
 
 

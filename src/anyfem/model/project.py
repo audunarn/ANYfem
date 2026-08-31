@@ -1160,15 +1160,128 @@ class Project:
     def beam_edges(self) -> List[int]:
         return sorted(self.edge_sections)
 
-    @property
-    def beam_offsets(self) -> Dict[int, float]:
-        """Eccentricity per beam line, taken from its section."""
+    def beam_section_frame(self, edge_id: int) -> tuple[Any, Any, Any]:
+        """Return unit beam-axis, local-y and local-z vectors for one line.
 
-        return {
-            edge_id: float(self.beam_sections[name].eccentricity)
-            for edge_id, name in self.edge_sections.items()
-            if name in self.beam_sections and self.beam_sections[name].eccentricity
-        }
+        Local z is the web direction. By default it follows the first attached
+        plate normal; Front/Back and the section's axial rotation are then
+        applied deterministically. An explicit ``web_direction`` remains the
+        advanced override for beam-only models.
+        """
+
+        import numpy as np
+
+        section = self.beam_section_of(int(edge_id))
+        samples = np.asarray(
+            self.geometry.sample_edge(int(edge_id), np.asarray((0.0, 1.0))),
+            dtype=float,
+        )
+        axis = samples[-1] - samples[0]
+        axis_length = float(np.linalg.norm(axis))
+        if axis_length <= 0.0:
+            raise ProjectError(f"beam line {edge_id} has zero length")
+        axis /= axis_length
+
+        if section.web_direction is not None:
+            local_z = np.asarray(section.web_direction, dtype=float)
+        else:
+            face_ids = tuple(sorted(self.geometry.faces_using_edge(int(edge_id))))
+            if not face_ids:
+                midpoint = 0.5 * (samples[0] + samples[-1])
+                attached: list[int] = []
+                for face_id in sorted(self.geometry.faces):
+                    _point, _uv, distance = self.geometry.project_to_face(
+                        face_id, midpoint
+                    )
+                    bounds = self.geometry.conservative_face_bounds(face_id)
+                    extent = (
+                        1.0
+                        if bounds is None
+                        else float(
+                            np.linalg.norm(
+                                np.asarray(bounds[3:]) - np.asarray(bounds[:3])
+                            )
+                        )
+                    )
+                    tolerance = self.geometry.tolerance.effective_surface_residual(
+                        extent
+                    )
+                    if float(distance) <= tolerance:
+                        attached.append(int(face_id))
+                face_ids = tuple(attached)
+            if face_ids:
+                local_z = np.asarray(
+                    self.geometry.face_normal(face_ids[0], 0.5, 0.5), dtype=float
+                )
+            else:
+                # A free beam still needs a stable frame. Choose the global
+                # direction least parallel to its axis.
+                candidates = np.eye(3)
+                local_z = candidates[
+                    int(np.argmin(np.abs(candidates @ axis)))
+                ]
+
+        local_z = local_z - float(local_z @ axis) * axis
+        length = float(np.linalg.norm(local_z))
+        if length <= 1.0e-12:
+            raise ProjectError(
+                f"beam section {section.name!r} web direction is parallel to line {edge_id}"
+            )
+        local_z /= length
+        if section.attachment_side == "back":
+            local_z *= -1.0
+        angle = np.deg2rad(float(section.rotation_deg))
+        if angle:
+            local_z = (
+                local_z * np.cos(angle)
+                + np.cross(axis, local_z) * np.sin(angle)
+            )
+            local_z /= float(np.linalg.norm(local_z))
+        local_y = np.cross(local_z, axis)
+        local_y /= float(np.linalg.norm(local_y))
+        return axis, local_y, local_z
+
+    def beam_offset_vector(self, edge_id: int) -> tuple[float, float, float]:
+        """Exact neutral-axis offset from the line attached to the plate."""
+
+        import numpy as np
+
+        section = self.beam_section_of(int(edge_id))
+        if section.offset_mode == "centerline":
+            return (0.0, 0.0, 0.0)
+        _axis, local_y, local_z = self.beam_section_frame(int(edge_id))
+        if section.offset_mode == "automatic":
+            y, z = section.centroid_from_attachment()
+            vector = y * local_y + z * local_z
+        else:
+            vector = float(section.eccentricity) * local_z
+        return tuple(float(value) for value in np.asarray(vector, dtype=float))
+
+    @property
+    def beam_offsets(self) -> Dict[int, float | tuple[float, float, float]]:
+        """Non-zero neutral-axis offsets for assigned beam lines.
+
+        Historical unrotated manual offsets remain scalars. Automatic,
+        back-side or rotated attachment uses ANYmesher's exact vector form.
+        """
+
+        offsets: Dict[int, float | tuple[float, float, float]] = {}
+        for edge_id, name in self.edge_sections.items():
+            if name not in self.beam_sections:
+                continue
+            section = self.beam_sections[name]
+            if (
+                section.offset_mode == "manual"
+                and section.attachment_side == "front"
+                and float(section.rotation_deg) == 0.0
+            ):
+                if section.eccentricity:
+                    offsets[int(edge_id)] = float(section.eccentricity)
+                continue
+            vector = self.beam_offset_vector(int(edge_id))
+            if any(value != 0.0 for value in vector):
+                offsets[int(edge_id)] = vector
+        return offsets
 
     # ------------------------------------------------------------------
     # supports and loads

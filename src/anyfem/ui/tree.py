@@ -345,7 +345,9 @@ class ModelTree(ttk.Frame):
                     sections,
                     f"beam_section:{name}",
                     f"Beam section {name!r}   {beam.profile}"
-                    f"   material={beam.material}   -> {target}",
+                    f"   material={beam.material}   offset={beam.offset_mode}/"
+                    f"{beam.attachment_side}   rotation={beam.rotation_deg:g} deg"
+                    f"   -> {target}",
                 )
 
             imperfections = self._group(

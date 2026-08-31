@@ -137,6 +137,23 @@ def test_custom_material_name_is_separate_from_readonly_dnv_grade(app, root):
     assert material.hardening["thickness"] == pytest.approx(0.010)
 
 
+def test_beam_offset_controls_build_and_toggle_manual_entry(app, root):
+    """Building the Sections panel must keep the variable and Entry distinct."""
+
+    sections = app.panels["Sections"]
+    assert isinstance(sections._beam_manual_offset, tk.StringVar)
+    assert isinstance(sections._beam_manual_offset_entry, ttk.Entry)
+    assert str(sections._beam_manual_offset_entry.cget("state")) == "disabled"
+
+    sections._beam_offset_mode.set("Manual")
+    sections._update_beam_offset_mode()
+    root.update_idletasks()
+    assert str(sections._beam_manual_offset_entry.cget("state")) == "normal"
+
+    sections._beam_manual_offset.set("12.5")
+    assert sections._beam_manual_offset.get() == "12.5"
+
+
 def test_assigning_a_new_plate_section_replaces_the_existing_one(app, root):
     _points, face = build_plate(app)
     sections = app.panels["Sections"]
@@ -442,6 +459,8 @@ def wait_for_mesh(app, root, timeout=20.0):
 def test_app_opens_with_a_usable_default_project(app):
     assert app.project.materials
     assert app.project.plate_sections
+    assert app.project.beam_sections["stiffener"].profile == "T-bar"
+    assert app.project.beam_sections["stiffener"].offset_mode == "automatic"
     assert app.selection.mode == "vertex"
     assert app.mesh is None
 

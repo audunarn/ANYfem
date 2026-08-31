@@ -38,6 +38,7 @@ class VisualizationStyle:
     show_result_loads: bool = True
     show_result_masses: bool = True
     show_imperfect_reference: bool = False
+    show_beam_sections: bool = True
     geometry_detail: str = "Auto"
 
     def __post_init__(self) -> None:

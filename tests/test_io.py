@@ -143,6 +143,31 @@ def test_a_round_trip_preserves_every_attribute(workspace):
     assert np.allclose(section.web_direction, [0, 0, 1])
 
 
+def test_beam_attachment_and_rotation_round_trip():
+    project = Project("section placement")
+    project.add_material(steel("S355", 0.010))
+    project.add_beam_section(
+        BeamSection(
+            "tee",
+            "T-bar",
+            "S355",
+            web_height=0.2,
+            web_thickness=0.01,
+            flange_width=0.1,
+            flange_thickness=0.012,
+            offset_mode="automatic",
+            attachment_side="back",
+            rotation_deg=37.5,
+        )
+    )
+
+    restored = project_from_dict(project_to_dict(project))
+    section = restored.beam_sections["tee"]
+    assert section.offset_mode == "automatic"
+    assert section.attachment_side == "back"
+    assert section.rotation_deg == pytest.approx(37.5)
+
+
 def test_a_prescribed_displacement_keeps_its_value(workspace):
     project, _face, _edges, _points, _arc = rich_project()
     reloaded = load_project(save_project(project, workspace / "model"))

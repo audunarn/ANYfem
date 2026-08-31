@@ -2434,8 +2434,59 @@ class SectionPanel(StagePanel):
         self._beam_dims = self.vector_row(beam, "hw, tw, b [mm]", ("200", "10", "100"))
         self._beam_flange = self.entry_row(beam, "tf [mm]", "12")
         self._beam_material, self._beam_material_box = self._material_row(beam)
-        self.button(beam, "Add section", self._add_beam_section)
+        offset_row = ttk.Frame(beam)
+        offset_row.pack(fill="x", pady=1)
+        ttk.Label(offset_row, text="neutral-axis offset", width=16).pack(side="left")
+        self._beam_offset_mode = tk.StringVar(value="Automatic")
+        self._beam_offset_box = ttk.Combobox(
+            offset_row,
+            textvariable=self._beam_offset_mode,
+            values=("Automatic", "Manual", "Centreline"),
+            state="readonly",
+            width=12,
+        )
+        self._beam_offset_box.pack(side="left", fill="x", expand=True)
+        self._beam_offset_box.bind(
+            "<<ComboboxSelected>>", lambda _event: self._update_beam_offset_mode()
+        )
+        side_row = ttk.Frame(beam)
+        side_row.pack(fill="x", pady=1)
+        ttk.Label(side_row, text="plate side", width=16).pack(side="left")
+        self._beam_side = tk.StringVar(value="Front")
+        ttk.Combobox(
+            side_row,
+            textvariable=self._beam_side,
+            values=("Front", "Back"),
+            state="readonly",
+            width=12,
+        ).pack(side="left", fill="x", expand=True)
+        manual_offset_row = ttk.Frame(beam)
+        manual_offset_row.pack(fill="x", pady=1)
+        ttk.Label(
+            manual_offset_row, text="manual offset [mm]", width=16
+        ).pack(side="left")
+        self._beam_manual_offset = tk.StringVar(value="0")
+        self._beam_manual_offset_entry = ttk.Entry(
+            manual_offset_row,
+            textvariable=self._beam_manual_offset,
+            width=10,
+        )
+        self._beam_manual_offset_entry.pack(side="left", fill="x", expand=True)
+        self._beam_rotation = self.entry_row(beam, "axial rotation [deg]", "0")
+        ttk.Label(
+            beam,
+            text=(
+                "Automatic places the neutral axis at the section centroid. "
+                "Front follows the plate normal; Back mirrors it. Rotation is "
+                "about the model line at the plate intersection."
+            ),
+            foreground="#666666",
+            wraplength=430,
+            justify="left",
+        ).pack(anchor="w", pady=(1, 3))
+        self.button(beam, "Create / update section", self._add_beam_section)
         self.button(beam, "Assign to selected lines", self._assign_beam)
+        self._update_beam_offset_mode()
 
         usage = self.section("Section definitions and assigned model entities")
         self._section_usage = ttk.Treeview(
@@ -2573,6 +2624,57 @@ class SectionPanel(StagePanel):
             state="disabled" if self._auto_dnv_plate.get() else "readonly"
         )
 
+    def _update_beam_offset_mode(self) -> None:
+        self._beam_manual_offset_entry.configure(
+            state="normal" if self._beam_offset_mode.get() == "Manual" else "disabled"
+        )
+
+    def edit_tree_item(self, key: str) -> bool:
+        """Load a selected plate/beam definition into its editable controls."""
+
+        if key.startswith("plate_section:"):
+            name = key.split(":", 1)[1]
+            section = self.app.project.plate_sections.get(name)
+            if section is None:
+                return False
+            self._plate_name.set(section.name)
+            self._plate_thickness.set(f"{section.thickness * 1000.0:.12g}")
+            self._plate_material.set(section.material)
+            self._auto_dnv_plate.set(False)
+            self._update_plate_material_mode()
+            return True
+        if key.startswith("beam_section:"):
+            name = key.split(":", 1)[1]
+            section = self.app.project.beam_sections.get(name)
+            if section is None:
+                return False
+            self._beam_name.set(section.name)
+            self._profile.set(section.profile)
+            for variable, value in zip(
+                self._beam_dims,
+                (
+                    section.web_height,
+                    section.web_thickness,
+                    section.flange_width,
+                ),
+            ):
+                variable.set(f"{value * 1000.0:.12g}")
+            self._beam_flange.set(f"{section.flange_thickness * 1000.0:.12g}")
+            self._beam_material.set(section.material)
+            self._beam_offset_mode.set(
+                {
+                    "automatic": "Automatic",
+                    "manual": "Manual",
+                    "centerline": "Centreline",
+                }[section.offset_mode]
+            )
+            self._beam_side.set(section.attachment_side.title())
+            self._beam_manual_offset.set(f"{section.eccentricity * 1000.0:.12g}")
+            self._beam_rotation.set(f"{section.rotation_deg:.12g}")
+            self._update_beam_offset_mode()
+            return True
+        return False
+
     def _add_material(self) -> None:
         thickness = self.number(self._grade_thickness, "thickness") / 1000.0
         requested_name = self._material_name.get().strip()
@@ -2681,28 +2783,56 @@ class SectionPanel(StagePanel):
             f"material {material_name}"
         )
 
-    def _add_beam_section(self) -> None:
+    def _beam_section_command(self) -> cmd.AddBeamSection:
         web_height, web_thickness, flange_width = (
             value / 1000.0 for value in self.vector(self._beam_dims, "beam dimension")
         )
+        name = self._beam_name.get().strip()
+        existing = self.app.project.beam_sections.get(name)
+        offset_mode = {
+            "Automatic": "automatic",
+            "Manual": "manual",
+            "Centreline": "centerline",
+        }[self._beam_offset_mode.get()]
         section = BeamSection(
-            name=self._beam_name.get().strip(),
+            name=name,
             profile=self._profile.get(),
             material=self._beam_material.get().strip(),
             web_height=web_height,
             web_thickness=web_thickness,
             flange_width=flange_width,
             flange_thickness=self.number(self._beam_flange, "tf") / 1000.0,
+            eccentricity=(
+                self.number(self._beam_manual_offset, "manual offset") / 1000.0
+                if offset_mode == "manual"
+                else 0.0
+            ),
+            offset_mode=offset_mode,
+            attachment_side=self._beam_side.get().lower(),
+            rotation_deg=self.number(self._beam_rotation, "axial rotation"),
+            **({"id": existing.id} if existing is not None else {}),
         )
-        self.app.project.add_beam_section(section)
-        self.app.set_status(f"added beam section {section.name}")
+        return cmd.AddBeamSection(section)
+
+    def _add_beam_section(self) -> None:
+        command = self._beam_section_command()
+        self.app.run(command)
+        section = command.section
+        self.app.set_status(
+            f"created beam section {section.name}: {section.profile}, "
+            f"{section.offset_mode} offset on {section.attachment_side}, "
+            f"rotation {section.rotation_deg:g} deg"
+        )
         self.app.refresh_all()
 
     def _assign_beam(self) -> None:
         edges = self.require_selection("edge")
         name = self._beam_name.get().strip()
-        self.app.run_many(cmd.AssignBeam(ref.id, name) for ref in edges)
-        self.app.set_status(f"assigned {name} to {len(edges)} line(s)")
+        definition = self._beam_section_command()
+        self.app.run_many((definition, *(cmd.AssignBeam(ref.id, name) for ref in edges)))
+        self.app.set_status(
+            f"updated {name} and assigned it to {len(edges)} line(s)"
+        )
 
     def _add_imperfection(self) -> None:
         text = self._imperfection_amplitude.get().strip().lower()
@@ -3885,8 +4015,10 @@ class VisualizationPanel(StagePanel):
         self._show_imperfect_reference = tk.BooleanVar(
             value=style.show_imperfect_reference
         )
+        self._show_beam_sections = tk.BooleanVar(value=style.show_beam_sections)
         for text, variable in (
             ("Show contour legend", self._show_legend),
+            ("Render assigned beam sections in 3D", self._show_beam_sections),
             ("Show FE nodes", self._show_result_nodes),
             ("Show supports", self._show_result_supports),
             ("Show loads", self._show_result_loads),
@@ -3985,6 +4117,7 @@ class VisualizationPanel(StagePanel):
             show_imperfect_reference=bool(
                 self._show_imperfect_reference.get()
             ),
+            show_beam_sections=bool(self._show_beam_sections.get()),
             geometry_detail=self._geometry_detail.get(),
         )
 
@@ -4004,6 +4137,7 @@ class VisualizationPanel(StagePanel):
         self._show_result_loads.set(style.show_result_loads)
         self._show_result_masses.set(style.show_result_masses)
         self._show_imperfect_reference.set(style.show_imperfect_reference)
+        self._show_beam_sections.set(style.show_beam_sections)
 
     def sync_from_viewport(self) -> None:
         """Load the last applied style when this task page is opened."""
@@ -4245,7 +4379,11 @@ class ResultsPanel(StagePanel):
         self._show_imperfect_reference = tk.BooleanVar(
             value=initial_style.show_imperfect_reference
         )
+        self._show_beam_sections = tk.BooleanVar(
+            value=initial_style.show_beam_sections
+        )
         for index, (text, variable) in enumerate((
+            ("beam sections in 3D", self._show_beam_sections),
             ("FE nodes", self._show_result_nodes),
             ("contour legend", self._show_result_legend),
             ("supports", self._show_result_supports),
@@ -4510,6 +4648,7 @@ class ResultsPanel(StagePanel):
             show_imperfect_reference=bool(
                 self._show_imperfect_reference.get()
             ),
+            show_beam_sections=bool(self._show_beam_sections.get()),
             geometry_detail=self._geometry_detail.get(),
         )
 
@@ -4537,6 +4676,7 @@ class ResultsPanel(StagePanel):
         self._show_result_loads.set(style.show_result_loads)
         self._show_result_masses.set(style.show_result_masses)
         self._show_imperfect_reference.set(style.show_imperfect_reference)
+        self._show_beam_sections.set(style.show_beam_sections)
 
     def _reset_visualization(self) -> None:
         style = VisualizationStyle()
@@ -4553,6 +4693,7 @@ class ResultsPanel(StagePanel):
         self._show_result_loads.set(style.show_result_loads)
         self._show_result_masses.set(style.show_result_masses)
         self._show_imperfect_reference.set(style.show_imperfect_reference)
+        self._show_beam_sections.set(style.show_beam_sections)
         self._apply_visualization()
 
     def _show_if_available(self) -> None:

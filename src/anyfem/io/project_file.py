@@ -238,6 +238,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
                     else _vector(section.web_direction)
                 ),
                 "eccentricity": section.eccentricity,
+                "offset_mode": section.offset_mode,
+                "attachment_side": section.attachment_side,
+                "rotation_deg": section.rotation_deg,
             }
             for section in _by_name(project.beam_sections)
         ],
@@ -681,6 +684,9 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 flange_thickness=float(entry.get("flange_thickness", 0.0)),
                 web_direction=entry.get("web_direction"),
                 eccentricity=float(entry.get("eccentricity", 0.0)),
+                offset_mode=str(entry.get("offset_mode", "manual")),
+                attachment_side=str(entry.get("attachment_side", "front")),
+                rotation_deg=float(entry.get("rotation_deg", 0.0)),
             )
         )
 

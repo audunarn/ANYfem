@@ -230,7 +230,8 @@ def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     element_class = QuadraticBeamElement if mesh.is_quadratic else BeamElement
     for edge_id, element_ids in mesh.elements_of_edge.items():
         section = project.beam_section_of(edge_id)
-        properties = section.properties()
+        _axis, _local_y, local_z = project.beam_section_frame(edge_id)
+        properties = section.properties(orientation=local_z)
         for element_id in element_ids:
             fe_model.add_element(
                 element_id,

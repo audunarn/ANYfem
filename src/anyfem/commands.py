@@ -60,7 +60,7 @@ from .model.records import MeshRecord, OutputRequest
 from .model.regions import Region
 from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
-from .model.sections import PlateSection
+from .model.sections import BeamSection, PlateSection
 from .model.units import UnitProfile
 
 __all__ = [
@@ -82,6 +82,7 @@ __all__ = [
     "AddPoint",
     "AddPointLoad",
     "AddPlateSection",
+    "AddBeamSection",
     "AddPolyline",
     "AddPressure",
     "AddRefinement",
@@ -3155,6 +3156,29 @@ class AddPlateSection(Command):
         else:
             project.materials.pop(self.material.name, None)
             project.material_ids.pop(self.material.name, None)
+
+
+@dataclass(eq=False)
+class AddBeamSection(Command):
+    """Add or update one beam definition as an undoable model command."""
+
+    section: BeamSection
+    label: str = "add beam section"
+    _captured: bool = field(default=False, init=False)
+    _previous: BeamSection | None = field(default=None, init=False)
+
+    def do(self, project: Project) -> BeamSection:
+        if not self._captured:
+            self._previous = project.beam_sections.get(self.section.name)
+            self._captured = True
+        project.add_beam_section(self.section)
+        return self.section
+
+    def undo(self, project: Project) -> None:
+        if self._previous is None:
+            project.beam_sections.pop(self.section.name, None)
+        else:
+            project.beam_sections[self.section.name] = self._previous
 
 
 @dataclass(eq=False)
