@@ -310,6 +310,32 @@ def test_point_markers_support_click_shift_click_and_box_selection(app, root):
     assert app.selection.ordered_items == (EntityRef("vertex", first),)
 
 
+def test_selection_quick_buttons_and_dropdown_stay_synchronised(app, root):
+    strip = app.selection_strip
+
+    strip._quick_buttons["Line"].invoke()
+    root.update()
+    assert app.selection.mode == "edge"
+    assert strip.domain.get() == "Geometry"
+    assert strip.filter.get() == "Line"
+    assert tuple(strip._filter_box.cget("values")) == ("Point", "Line", "Plate")
+
+    strip.domain.set("Mesh")
+    strip._set_domain()
+    root.update()
+    assert app.selection.mode == "element"
+    assert strip.filter.get() == "Element"
+    assert tuple(strip._filter_box.cget("values")) == (
+        "Node", "Element", "Element face"
+    )
+
+    strip._quick_buttons["Element face"].invoke()
+    root.update()
+    assert app.selection.mode == "element_face"
+    assert strip.domain.get() == "Mesh"
+    assert strip.filter.get() == "Element face"
+
+
 def test_large_visible_box_selects_standalone_points(app, root):
     """A window enclosing unconnected point markers selects every point."""
 
@@ -427,6 +453,26 @@ def test_building_geometry_updates_the_view_and_tree(app, root):
     assert face in app.project.geometry.faces
     assert app.tree.tree.exists(f"ent_face{face}")
     assert app._view_mode == "geometry"
+
+
+def test_generated_geometry_is_nested_under_its_user_feature(app, root):
+    cylinder = app.run(
+        cmd.AddCylinder(1.0, 2.0, circumferential_segments=8)
+    )
+    manual_point = app.run(cmd.AddPoint(3.0, 0.0, 0.0))
+    root.update()
+
+    feature_row = f"feature:{cylinder.feature_id}"
+    face = next(
+        output for output in cylinder.outputs.values() if output.kind == "face"
+    )
+    face_row = f"ent_face{face.id}"
+    face_branch = f"generated_{cylinder.feature_id}_face"
+
+    assert app.tree.tree.parent(face_branch) == feature_row
+    assert app.tree.tree.parent(face_row) == face_branch
+    assert app.tree.tree.parent(f"ent_vertex{manual_point}") == "points"
+    assert "User Geometry Points (1)" == app.tree.tree.item("points", "text")
 
 
 def test_full_workflow_geometry_to_results(app, root):

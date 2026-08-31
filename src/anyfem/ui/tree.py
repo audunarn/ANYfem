@@ -17,10 +17,73 @@ from ..model.project import Project
 from ..model.regions import BooleanRegion, QueryRegion, RegionDomain, RegionStatus
 from ..selection import Selection, entity_tag, parse_entity_tag
 
-__all__ = ["ModelTree", "TREE_ENTITY_ROW_LIMIT", "bounded_entity_ids"]
+__all__ = [
+    "ModelTree",
+    "TREE_ENTITY_ROW_LIMIT",
+    "bounded_entity_ids",
+    "feature_entity_owners",
+]
 
 
 TREE_ENTITY_ROW_LIMIT = 2000
+
+_GEOMETRY_COLLECTION_NAMES = {
+    "vertex": "vertices",
+    "edge": "edges",
+    "face": "faces",
+}
+
+# Public point/curve/plate construction is feature-recorded for regeneration,
+# but those records describe geometry the user authored directly. Their output
+# rows remain peers in the user-geometry branches. Multi-entity generators and
+# modelling operations own subordinate, automatically created topology.
+_DIRECT_USER_GEOMETRY_FEATURES = {
+    "geometry.point",
+    "geometry.line",
+    "geometry.arc",
+    "geometry.polyline",
+    "geometry.face",
+    "geometry.plate",
+}
+
+
+def feature_entity_owners(geometry: object) -> dict[EntityRef, int]:
+    """Map current topology to the feature that originally created it.
+
+    Feature outputs are persistent design identities. Resolving their exact
+    replacement lineage lets a regenerated or partitioned entity remain below
+    its original user-authored feature without relying on names or geometric
+    proximity. Records are considered in monotonic feature-ID order and the
+    first producer wins, so a later modifier does not move a cylinder plate to
+    a top-level ``Reverse normal`` or ``Split`` feature.
+
+    Geometry made directly through point/line/plate commands has no feature
+    output owner and is intentionally absent from the returned mapping.
+    """
+
+    history = getattr(geometry, "features", None)
+    records = tuple(getattr(history, "records", ()))
+    owners: dict[EntityRef, int] = {}
+    for record in sorted(records, key=lambda item: int(item.feature_id)):
+        if str(record.kind) in _DIRECT_USER_GEOMETRY_FEATURES:
+            continue
+        feature_id = int(record.feature_id)
+        for output in record.outputs.values():
+            if output.kind not in _GEOMETRY_COLLECTION_NAMES:
+                continue
+            try:
+                current_outputs = tuple(geometry.resolve_ref(output))
+            except (AttributeError, KeyError, TypeError, ValueError):
+                current_outputs = ()
+            for current in current_outputs:
+                if current.kind not in _GEOMETRY_COLLECTION_NAMES:
+                    continue
+                collection = getattr(
+                    geometry, _GEOMETRY_COLLECTION_NAMES[current.kind], ()
+                )
+                if current.id in collection:
+                    owners.setdefault(current, feature_id)
+    return owners
 
 
 def _vector_text(values: Iterable[float]) -> str:
@@ -137,17 +200,61 @@ class ModelTree(ttk.Frame):
             feature_records = getattr(
                 getattr(geometry, "features", None), "records", ()
             )
+            entity_owners = feature_entity_owners(geometry)
+            owned_by_feature: dict[int, dict[str, list[int]]] = {
+                int(feature.feature_id): {
+                    "vertex": [],
+                    "edge": [],
+                    "face": [],
+                }
+                for feature in feature_records
+            }
+            for reference, feature_id in entity_owners.items():
+                owned_by_feature.setdefault(
+                    feature_id,
+                    {"vertex": [], "edge": [], "face": []},
+                )[reference.kind].append(reference.id)
+            for feature_entities in owned_by_feature.values():
+                for identifiers in feature_entities.values():
+                    identifiers.sort()
+
+            visible_geometry_ids = {
+                "vertex": set(self._visible_ids(geometry.vertices)),
+                "edge": set(self._visible_ids(geometry.edges)),
+                "face": set(self._visible_ids(geometry.faces)),
+            }
             features = self._group(
                 "features",
                 f"Geometry / Features ({len(feature_records)})",
             )
             for feature in feature_records:
                 status = "suppressed" if feature.suppressed else feature.state
-                self._leaf(
+                feature_row = self._leaf(
                     features,
                     f"feature:{feature.feature_id}",
                     f"{feature.name}   [{status}]",
                 )
+                feature_entities = owned_by_feature.get(
+                    int(feature.feature_id), {}
+                )
+                for kind, plural in (
+                    ("vertex", "Generated Points"),
+                    ("edge", "Generated Lines"),
+                    ("face", "Generated Plates"),
+                ):
+                    identifiers = feature_entities.get(kind, ())
+                    if not identifiers:
+                        continue
+                    branch = self._leaf(
+                        feature_row,
+                        f"generated_{feature.feature_id}_{kind}",
+                        f"{plural} ({len(identifiers)})",
+                    )
+                    for identifier in identifiers:
+                        if identifier in visible_geometry_ids[kind]:
+                            self._insert_geometry_entity(
+                                branch, EntityRef(kind, identifier), generated=True
+                            )
 
             coordinates = self._group(
                 "coordinates",
@@ -268,47 +375,32 @@ class ModelTree(ttk.Frame):
                     ref=item.ref,
                 )
 
-            points = self._group(
-                "points", f"Model Geometry Points ({len(geometry.vertices)})"
-            )
-            for vertex_id in self._visible_ids(geometry.vertices):
-                position = geometry.vertex_position(vertex_id)
-                self._leaf(
-                    points,
-                    entity_tag(EntityRef("vertex", vertex_id)),
-                    f"Model Point {vertex_id}   "
-                    f"({position[0]:g}, {position[1]:g}, {position[2]:g})",
+            manual_ids = {
+                kind: tuple(
+                    identifier
+                    for identifier in collection
+                    if EntityRef(kind, identifier) not in entity_owners
                 )
-
-            lines = self._group(
-                "lines", f"Model Geometry Lines ({len(geometry.edges)})"
-            )
-            for edge_id in self._visible_ids(geometry.edges):
-                edge = geometry.edges[edge_id]
-                kind = type(edge.curve).__name__.lower()
-                section = self.project.edge_sections.get(edge_id)
-                suffix = f"   [{section}]" if section else ""
-                self._leaf(
-                    lines,
-                    entity_tag(EntityRef("edge", edge_id)),
-                    f"Model Line {edge_id}   {kind} {edge.start}->{edge.end}{suffix}",
+                for kind, collection in (
+                    ("vertex", geometry.vertices),
+                    ("edge", geometry.edges),
+                    ("face", geometry.faces),
                 )
-
-            plates = self._group(
-                "plates", f"Model Geometry Plates ({len(geometry.faces)})"
-            )
-            for face_id in self._visible_ids(geometry.faces):
-                section = self.project.face_sections.get(face_id)
-                suffix = (
-                    f"   -> section definition {section!r}"
-                    if section
-                    else "   -> no section definition assigned"
+            }
+            for kind, branch_key, plural in (
+                ("vertex", "points", "User Geometry Points"),
+                ("edge", "lines", "User Geometry Lines"),
+                ("face", "plates", "User Geometry Plates"),
+            ):
+                identifiers = manual_ids[kind]
+                branch = self._group(
+                    branch_key, f"{plural} ({len(identifiers)})"
                 )
-                self._leaf(
-                    plates,
-                    entity_tag(EntityRef("face", face_id)),
-                    f"Model Plate {face_id}{suffix}",
-                )
+                for identifier in identifiers:
+                    if identifier in visible_geometry_ids[kind]:
+                        self._insert_geometry_entity(
+                            branch, EntityRef(kind, identifier), generated=False
+                        )
 
             supports = self._group(
                 "supports", f"Supports ({len(self.project.supports)})"
@@ -629,6 +721,45 @@ class ModelTree(ttk.Frame):
             self._row_refs[key] = ref
         return item
 
+    def _insert_geometry_entity(
+        self,
+        parent: str,
+        reference: EntityRef,
+        *,
+        generated: bool,
+    ) -> str:
+        """Insert one canonical selectable topology row at its intent level."""
+
+        geometry = self.project.geometry
+        identifier = int(reference.id)
+        origin = "Generated" if generated else "User"
+        if reference.kind == "vertex":
+            position = geometry.vertex_position(identifier)
+            label = (
+                f"{origin} Point {identifier}   "
+                f"({position[0]:g}, {position[1]:g}, {position[2]:g})"
+            )
+        elif reference.kind == "edge":
+            edge = geometry.edges[identifier]
+            curve_kind = type(edge.curve).__name__.lower()
+            section = self.project.edge_sections.get(identifier)
+            suffix = f"   [{section}]" if section else ""
+            label = (
+                f"{origin} Line {identifier}   {curve_kind} "
+                f"{edge.start}->{edge.end}{suffix}"
+            )
+        elif reference.kind == "face":
+            section = self.project.face_sections.get(identifier)
+            suffix = (
+                f"   -> section definition {section!r}"
+                if section
+                else "   -> no section definition assigned"
+            )
+            label = f"{origin} Plate {identifier}{suffix}"
+        else:  # pragma: no cover - guarded by callers and EntityRef.
+            raise ValueError(f"unsupported tree geometry kind {reference.kind!r}")
+        return self._leaf(parent, entity_tag(reference), label)
+
     def _visible_ids(self, collection: object) -> list[int]:
         """Return a bounded, filtered set of entity IDs for the virtual tree.
 
@@ -684,8 +815,11 @@ class ModelTree(ttk.Frame):
         view = self.tree.yview()
         if view:
             self._scroll_fraction = float(view[0])
-        for key in self.tree.get_children():
+        pending = list(self.tree.get_children())
+        while pending:
+            key = pending.pop()
             self._open_state[key] = bool(self.tree.item(key, "open"))
+            pending.extend(self.tree.get_children(key))
 
     def _restore_open_state(self) -> None:
         for key, is_open in self._open_state.items():

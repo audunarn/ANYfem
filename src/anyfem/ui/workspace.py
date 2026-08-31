@@ -6,9 +6,34 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
 
-from ..selection import SELECTION_MODES, mode_label
+from ..selection import SELECTION_KINDS, mode_label
 
-__all__ = ["DetailsWorkspace", "JobStatusView", "SelectionStrip"]
+
+_SELECTION_KIND_BY_LABEL = {
+    "Point": "vertex",
+    "Line": "edge",
+    "Plate": "face",
+    "Node": "node",
+    "Element": "element",
+    "Element face": "element_face",
+}
+_QUICK_FILTERS_BY_DOMAIN = {
+    "Geometry": ("Point", "Line", "Plate"),
+    "Mesh": ("Node", "Element", "Element face"),
+}
+
+
+def quick_filter_labels(domain: str) -> tuple[str, ...]:
+    """Return the compact selection choices shown for one domain."""
+
+    return _QUICK_FILTERS_BY_DOMAIN.get(str(domain), ())
+
+__all__ = [
+    "DetailsWorkspace",
+    "JobStatusView",
+    "SelectionStrip",
+    "quick_filter_labels",
+]
 
 
 class DetailsWorkspace(ttk.Frame):
@@ -220,20 +245,40 @@ class SelectionStrip(ttk.Frame):
             foreground="#666666",
         )
         self._hint.pack(side="right", padx=12)
+
+        ttk.Separator(self, orient="vertical").pack(
+            side="left", fill="y", padx=(8, 6)
+        )
+        self._quick_frame = ttk.Frame(self)
+        self._quick_frame.pack(side="left", fill="x", expand=True)
+        self._quick_buttons: dict[str, ttk.Radiobutton] = {}
+        for label in _SELECTION_KIND_BY_LABEL:
+            button = ttk.Radiobutton(
+                self._quick_frame,
+                text=label,
+                value=label,
+                variable=self.filter,
+                command=self._quick_filter_selected,
+                style="Toolbutton",
+                takefocus=True,
+            )
+            self._quick_buttons[label] = button
+        self._show_quick_filters(self.domain.get())
         app.selection.add_listener(self.refresh)
 
     def refresh(self) -> None:
         domain = getattr(self.app.selection.domain, "value", "geometry")
-        self.domain.set("Mesh" if domain == "mesh" else "Geometry")
+        domain_label = "Mesh" if domain == "mesh" else "Geometry"
+        self.domain.set(domain_label)
         self.filter.set(mode_label(self.app.selection.mode))
+        self._show_quick_filters(domain_label)
         count = len(self.app.selection)
         self._count.configure(text=f"{count} selected")
 
     def set_context(self, kind: str, hint: str = "") -> None:
         self._activate_selection_mode()
-        if kind in SELECTION_MODES:
+        if kind in SELECTION_KINDS:
             self.app.selection.set_mode(kind)
-            self.domain.set("Geometry")
         if hint:
             self._hint.configure(text=hint)
         self.refresh()
@@ -241,25 +286,33 @@ class SelectionStrip(ttk.Frame):
 
     def _set_filter(self, _event=None) -> None:
         self._activate_selection_mode()
-        mapping = {
-            "Point": "vertex", "Line": "edge", "Plate": "face",
-            "Node": "node", "Element": "element",
-            "Element face": "element_face",
-        }
-        kind = mapping.get(self.filter.get())
+        kind = _SELECTION_KIND_BY_LABEL.get(self.filter.get())
         if kind is not None:
-            self.domain.set(
-                "Geometry" if kind in ("vertex", "edge", "face") else "Mesh"
-            )
             self.app.selection.set_mode(kind)
+        self.refresh()
         self._apply_canvas()
 
     def _set_domain(self, _event=None) -> None:
         self._activate_selection_mode()
         kind = "face" if self.domain.get() == "Geometry" else "element"
         self.app.selection.set_mode(kind)
-        self.filter.set(mode_label(kind))
+        self.refresh()
         self._apply_canvas()
+
+    def _quick_filter_selected(self) -> None:
+        """Apply a toolbar radio choice through the canonical filter path."""
+
+        self._set_filter()
+
+    def _show_quick_filters(self, domain: str) -> None:
+        """Show only choices valid for the selected geometry/mesh domain."""
+
+        labels = quick_filter_labels(domain)
+        self._filter_box.configure(values=labels)
+        for button in self._quick_buttons.values():
+            button.pack_forget()
+        for label in labels:
+            self._quick_buttons[label].pack(side="left", padx=1)
 
     def _selection_control_changed(self, _event=None) -> None:
         self._activate_selection_mode()
