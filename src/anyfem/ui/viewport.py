@@ -985,6 +985,8 @@ class Viewport:
                 unit=str(scene.legend.get("unit", "")),
                 title=str(scene.legend.get("title", "")),
                 colors=scene.legend.get("colors"),
+                width=self._visualization.legend_width,
+                font_size=self._visualization.legend_font_size,
             )
         else:
             self.canvas.clear_thickness_legend()

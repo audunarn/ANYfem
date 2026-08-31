@@ -15,6 +15,7 @@ class _Canvas:
         self.face_calls = []
         self.background = None
         self.legend_calls = 0
+        self.legend_options = None
 
     def set_pick_callback(self, *_args, **_kwargs):
         pass
@@ -28,8 +29,9 @@ class _Canvas:
     def add_faces(self, polygons, **options):
         self.face_calls.append((polygons, options))
 
-    def set_thickness_legend(self, *_args, **_kwargs):
+    def set_thickness_legend(self, *_args, **kwargs):
         self.legend_calls += 1
+        self.legend_options = kwargs
 
     def clear_thickness_legend(self):
         pass
@@ -94,6 +96,17 @@ def test_wireframe_background_edges_and_legend_are_shared_viewport_settings(
     assert viewport.canvas.legend_calls == 1  # only the view before legend hiding
 
 
+def test_result_legend_uses_readable_default_size(monkeypatch):
+    viewport = _viewport(monkeypatch)
+
+    viewport.show(_face_scene())
+
+    assert viewport.visualization.legend_font_size == 12
+    assert viewport.visualization.legend_width == 220
+    assert viewport.canvas.legend_options["font_size"] == 12
+    assert viewport.canvas.legend_options["width"] == 220
+
+
 @pytest.mark.parametrize(
     "changes, message",
     [
@@ -101,6 +114,9 @@ def test_wireframe_background_edges_and_legend_are_shared_viewport_settings(
         ({"edge_width": 0}, "edge width"),
         ({"render_mode": "X-ray"}, "render mode"),
         ({"geometry_detail": "Unlimited"}, "geometry detail"),
+        ({"legend_font_size": 7}, "legend font size"),
+        ({"legend_width": 100}, "legend width"),
+        ({"result_colormap": ""}, "colour map"),
     ],
 )
 def test_invalid_visualization_settings_fail_closed(changes, message):

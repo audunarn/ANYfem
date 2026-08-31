@@ -30,6 +30,14 @@ class VisualizationStyle:
     edge_color: str = "#4a6572"
     edge_width: int = 1
     show_legend: bool = True
+    legend_font_size: int = 12
+    legend_width: int = 220
+    result_colormap: str = "Cool-warm"
+    show_result_nodes: bool = False
+    show_result_supports: bool = True
+    show_result_loads: bool = True
+    show_result_masses: bool = True
+    show_imperfect_reference: bool = False
     geometry_detail: str = "Auto"
 
     def __post_init__(self) -> None:
@@ -48,7 +56,15 @@ class VisualizationStyle:
         width = int(self.edge_width)
         if not 1 <= width <= 8:
             raise ValueError("edge width must be between 1 and 8 pixels")
+        legend_font_size = int(self.legend_font_size)
+        if not 8 <= legend_font_size <= 28:
+            raise ValueError("legend font size must be between 8 and 28 pixels")
+        legend_width = int(self.legend_width)
+        if not 140 <= legend_width <= 600:
+            raise ValueError("legend width must be between 140 and 600 pixels")
         if not str(self.background).strip():
             raise ValueError("background colour cannot be empty")
         if not str(self.edge_color).strip():
             raise ValueError("edge colour cannot be empty")
+        if not str(self.result_colormap).strip():
+            raise ValueError("result colour map cannot be empty")

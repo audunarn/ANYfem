@@ -3848,14 +3848,56 @@ class VisualizationPanel(StagePanel):
         self._edge_color = self._colour_row(
             appearance, "model / mesh edges", style.edge_color
         )
-        self._show_legend = tk.BooleanVar(value=style.show_legend)
-        ttk.Checkbutton(
-            appearance,
-            text="Show result legend",
-            variable=self._show_legend,
-        ).pack(anchor="w", pady=(3, 0))
 
-        actions = ttk.Frame(appearance)
+        result_style = self.section("Result visualization")
+        ttk.Label(
+            result_style,
+            text=(
+                "These controls apply when a contour result is displayed and "
+                "are synchronized with Results > Visualization."
+            ),
+            justify="left",
+            foreground="#666666",
+            wraplength=540,
+        ).pack(fill="x", pady=(0, 4))
+        palette_row = ttk.Frame(result_style)
+        palette_row.pack(fill="x", pady=1)
+        ttk.Label(palette_row, text="contour colours", width=18).pack(side="left")
+        self._result_colormap = tk.StringVar(value=style.result_colormap)
+        ttk.Combobox(
+            palette_row,
+            textvariable=self._result_colormap,
+            values=tuple(RESULT_COLORMAPS),
+            state="readonly",
+            width=22,
+        ).pack(side="left", fill="x", expand=True)
+        self._legend_font_size = self.entry_row(
+            result_style, "legend text [px]", str(style.legend_font_size)
+        )
+        self._legend_width = self.entry_row(
+            result_style, "legend width [px]", str(style.legend_width)
+        )
+        self._show_legend = tk.BooleanVar(value=style.show_legend)
+        self._show_result_nodes = tk.BooleanVar(value=style.show_result_nodes)
+        self._show_result_supports = tk.BooleanVar(value=style.show_result_supports)
+        self._show_result_loads = tk.BooleanVar(value=style.show_result_loads)
+        self._show_result_masses = tk.BooleanVar(value=style.show_result_masses)
+        self._show_imperfect_reference = tk.BooleanVar(
+            value=style.show_imperfect_reference
+        )
+        for text, variable in (
+            ("Show contour legend", self._show_legend),
+            ("Show FE nodes", self._show_result_nodes),
+            ("Show supports", self._show_result_supports),
+            ("Show loads", self._show_result_loads),
+            ("Show masses", self._show_result_masses),
+            ("Show initial imperfect reference", self._show_imperfect_reference),
+        ):
+            ttk.Checkbutton(
+                result_style, text=text, variable=variable
+            ).pack(anchor="w")
+
+        actions = ttk.Frame(result_style)
         actions.pack(fill="x", pady=(6, 0))
         ttk.Button(
             actions,
@@ -3918,6 +3960,14 @@ class VisualizationPanel(StagePanel):
             edge_width = int(self._edge_width.get())
         except ValueError:
             raise ValueError("edge width must be a whole number") from None
+        try:
+            legend_font_size = int(self._legend_font_size.get())
+        except ValueError:
+            raise ValueError("legend text size must be a whole number") from None
+        try:
+            legend_width = int(self._legend_width.get())
+        except ValueError:
+            raise ValueError("legend width must be a whole number") from None
         return VisualizationStyle(
             render_mode=self._render_mode.get(),
             surface_opacity=opacity,
@@ -3925,6 +3975,16 @@ class VisualizationPanel(StagePanel):
             edge_color=self._edge_color.get().strip(),
             edge_width=edge_width,
             show_legend=bool(self._show_legend.get()),
+            legend_font_size=legend_font_size,
+            legend_width=legend_width,
+            result_colormap=self._result_colormap.get(),
+            show_result_nodes=bool(self._show_result_nodes.get()),
+            show_result_supports=bool(self._show_result_supports.get()),
+            show_result_loads=bool(self._show_result_loads.get()),
+            show_result_masses=bool(self._show_result_masses.get()),
+            show_imperfect_reference=bool(
+                self._show_imperfect_reference.get()
+            ),
             geometry_detail=self._geometry_detail.get(),
         )
 
@@ -3936,6 +3996,14 @@ class VisualizationPanel(StagePanel):
         self._background_color.set(style.background)
         self._edge_color.set(style.edge_color)
         self._show_legend.set(style.show_legend)
+        self._legend_font_size.set(str(style.legend_font_size))
+        self._legend_width.set(str(style.legend_width))
+        self._result_colormap.set(style.result_colormap)
+        self._show_result_nodes.set(style.show_result_nodes)
+        self._show_result_supports.set(style.show_result_supports)
+        self._show_result_loads.set(style.show_result_loads)
+        self._show_result_masses.set(style.show_result_masses)
+        self._show_imperfect_reference.set(style.show_imperfect_reference)
 
     def sync_from_viewport(self) -> None:
         """Load the last applied style when this task page is opened."""
@@ -4144,7 +4212,7 @@ class ResultsPanel(StagePanel):
         palette_row = ttk.Frame(appearance)
         palette_row.pack(fill="x", pady=1)
         ttk.Label(palette_row, text="contour colours", width=16).pack(side="left")
-        self._colormap = tk.StringVar(value="Cool-warm")
+        self._colormap = tk.StringVar(value=initial_style.result_colormap)
         ttk.Combobox(
             palette_row,
             textvariable=self._colormap,
@@ -4158,15 +4226,25 @@ class ResultsPanel(StagePanel):
             visual_columns, text="Visible result layers", padding=6
         )
         layers.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        self._show_result_nodes = tk.BooleanVar(value=False)
+        self._show_result_nodes = tk.BooleanVar(
+            value=initial_style.show_result_nodes
+        )
         self._show_result_legend = tk.BooleanVar(value=initial_style.show_legend)
-        self._show_result_supports = tk.BooleanVar(value=True)
-        self._show_result_loads = tk.BooleanVar(value=True)
-        self._show_result_masses = tk.BooleanVar(value=True)
+        self._show_result_supports = tk.BooleanVar(
+            value=initial_style.show_result_supports
+        )
+        self._show_result_loads = tk.BooleanVar(
+            value=initial_style.show_result_loads
+        )
+        self._show_result_masses = tk.BooleanVar(
+            value=initial_style.show_result_masses
+        )
         # The purple stress-free reference is useful while defining an
         # imperfection, but obscures contours and modes.  Results default to a
         # clean view and let the engineer opt it back in.
-        self._show_imperfect_reference = tk.BooleanVar(value=False)
+        self._show_imperfect_reference = tk.BooleanVar(
+            value=initial_style.show_imperfect_reference
+        )
         for index, (text, variable) in enumerate((
             ("FE nodes", self._show_result_nodes),
             ("contour legend", self._show_result_legend),
@@ -4422,6 +4500,16 @@ class ResultsPanel(StagePanel):
             edge_color=self._edge_color.get().strip(),
             edge_width=edge_width,
             show_legend=bool(self._show_result_legend.get()),
+            legend_font_size=self.app.viewport.visualization.legend_font_size,
+            legend_width=self.app.viewport.visualization.legend_width,
+            result_colormap=self._colormap.get(),
+            show_result_nodes=bool(self._show_result_nodes.get()),
+            show_result_supports=bool(self._show_result_supports.get()),
+            show_result_loads=bool(self._show_result_loads.get()),
+            show_result_masses=bool(self._show_result_masses.get()),
+            show_imperfect_reference=bool(
+                self._show_imperfect_reference.get()
+            ),
             geometry_detail=self._geometry_detail.get(),
         )
 
@@ -4443,6 +4531,12 @@ class ResultsPanel(StagePanel):
         self._background_color.set(style.background)
         self._edge_color.set(style.edge_color)
         self._show_result_legend.set(style.show_legend)
+        self._colormap.set(style.result_colormap)
+        self._show_result_nodes.set(style.show_result_nodes)
+        self._show_result_supports.set(style.show_result_supports)
+        self._show_result_loads.set(style.show_result_loads)
+        self._show_result_masses.set(style.show_result_masses)
+        self._show_imperfect_reference.set(style.show_imperfect_reference)
 
     def _reset_visualization(self) -> None:
         style = VisualizationStyle()
@@ -4452,13 +4546,13 @@ class ResultsPanel(StagePanel):
         self._geometry_detail.set(style.geometry_detail)
         self._background_color.set(style.background)
         self._edge_color.set(style.edge_color)
-        self._colormap.set("Cool-warm")
-        self._show_result_nodes.set(False)
-        self._show_result_legend.set(True)
-        self._show_result_supports.set(True)
-        self._show_result_loads.set(True)
-        self._show_result_masses.set(True)
-        self._show_imperfect_reference.set(False)
+        self._colormap.set(style.result_colormap)
+        self._show_result_nodes.set(style.show_result_nodes)
+        self._show_result_legend.set(style.show_legend)
+        self._show_result_supports.set(style.show_result_supports)
+        self._show_result_loads.set(style.show_result_loads)
+        self._show_result_masses.set(style.show_result_masses)
+        self._show_imperfect_reference.set(style.show_imperfect_reference)
         self._apply_visualization()
 
     def _show_if_available(self) -> None:

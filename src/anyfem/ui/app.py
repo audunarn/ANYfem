@@ -1481,7 +1481,7 @@ class AnyFemApp(ttk.Frame):
             self.details.set_hint("Assign on model geometry")
             return
         if page == "Visualization":
-            self.details.set_hint("Viewport appearance and performance")
+            self.details.set_hint("Viewport and result appearance")
             self.panels["Visualization"].sync_from_viewport()
             self.panels["Visualization"].refresh()
             return
