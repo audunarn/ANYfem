@@ -5,6 +5,7 @@ from __future__ import annotations
 from anyfem import Project, steel
 from anyfem.model import BeamSection
 from anyfem.solve.build import build_fe_model
+from anymesher import mesh_to_dict
 
 
 def _plate(project: Project, points) -> int:
@@ -51,6 +52,57 @@ def test_project_meshes_crossing_plates_with_shared_intersection_nodes():
         require_supports=False,
     )
     assert len(built.fe_model.mesh.elements) == len(mesh.shells)
+
+
+def test_project_meshes_exact_floating_plate_and_diagonal_extrusion():
+    project = Project()
+    first, second, third, fourth = project.geometry.add_points(
+        ((0, 0, 0), (2, 0, 0), (0, 2, 0), (2, 2, 0)),
+    )
+    support = project.geometry.add_plate((first, second, fourth, third))
+    fifth, sixth, seventh, eighth = project.geometry.add_points(
+        ((0.5, 0.5, 0.5), (1.5, 0.5, 0.5), (0.5, 1.5, 0.5), (1.5, 1.5, 0.5)),
+    )
+    floating = project.geometry.add_plate((fifth, sixth, eighth, seventh))
+    diagonal = project.geometry.add_line(second, third)
+    before = set(project.geometry.faces)
+    project.geometry.extrude((diagonal,), (0, 0, 1))
+    wall = (set(project.geometry.faces) - before).pop()
+    project.geometry.add_sheet((support,))
+    project.geometry.add_sheet((floating,))
+
+    options = {
+        "strategy": "auto",
+        "structure_preference": "balanced",
+        "quality_policy": {
+            "minimum_scaled_jacobian": 0.1,
+            "maximum_aspect_ratio": 5.0,
+            "minimum_angle": 20.0,
+            "maximum_angle": 160.0,
+            "maximum_warpage": 0.1,
+        },
+        "certification_mode": "interactive",
+    }
+    first = project.generate_mesh(0.25, **options)
+    second = project.generate_mesh(0.25, **options)
+
+    first_payload = mesh_to_dict(first)
+    second_payload = mesh_to_dict(second)
+    for payload in (first_payload, second_payload):
+        payload.pop("hybrid_diagnostics")
+        payload.pop("structural_preparation")
+    assert first_payload == second_payload
+    assert first.automatic_intersections == 2
+    assert first.hybrid_diagnostics["structured_quality"]["accepted"] is True
+    support_nodes = set(first.nodes_on(project.geometry.entity_ref("face", support)))
+    floating_nodes = set(first.nodes_on(project.geometry.entity_ref("face", floating)))
+    wall_nodes = set(first.nodes_on(project.geometry.entity_ref("face", wall)))
+    assert support_nodes & wall_nodes
+    assert floating_nodes & wall_nodes
+    assert len(project.geometry.vertices) == 10
+    assert len(project.geometry.edges) == 12
+    assert len(project.geometry.faces) == 3
+    assert len(project.geometry.sheets) == 2
 
 
 def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
