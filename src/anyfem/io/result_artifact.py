@@ -1748,6 +1748,9 @@ def _solution_submission_identity(solution: Any) -> dict[str, Any]:
         "document_id": str(getattr(project, "document_id", "")),
         "project_name": str(getattr(project, "name", "")),
     }
+    policy = getattr(built, "shell_formulation_policy", None)
+    if policy is not None and callable(getattr(policy, "to_dict", None)):
+        identity["shell_formulations"] = _json_safe(policy.to_dict())
     try:
         # ``DocumentSession`` computes the same canonical v4 semantic hash as
         # job submission.  It is non-serialized and does not mutate Project.

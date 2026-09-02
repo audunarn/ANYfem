@@ -1730,6 +1730,10 @@ class Project:
             change_set=change_set,
             cancellation_check=cancellation_check,
             native_backend=native_backend,
+            qualified_s3=(
+                self.shell_formulation_policy.s3 == "e4-pl-s3-v2d"
+                and resolved_order == "linear"
+            ),
             structured_options=(
                 None if resolved_strategy == "native" else structure_options
             ),
@@ -1767,7 +1771,10 @@ class Project:
                 )
             )
             remap_mesh_to_source(mesh, closure)
+        mesh_preparation = getattr(mesh, "structural_preparation", {})
         preparation_payload = preparation.to_dict()
+        if isinstance(mesh_preparation, Mapping) and "qualified_s3" in mesh_preparation:
+            preparation_payload["qualified_s3"] = mesh_preparation["qualified_s3"]
         hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
         if isinstance(hybrid_diagnostics, Mapping):
             structured_layout = hybrid_diagnostics.get("structured_layout")

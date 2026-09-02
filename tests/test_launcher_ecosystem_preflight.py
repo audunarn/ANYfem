@@ -21,11 +21,11 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.1.1",
         "ANYgeometry": "0.4.0",
         "ANYfileio": "0.2.1",
-        "ANYmesher": "0.3.1",
+        "ANYmesher": "0.3.2",
         "ANY3dView": "0.5.3",
         "ANYtk3D": "0.5.3",
-        "ANYsolver": "0.3.1",
-        "ANYfem": "0.3.0",
+        "ANYsolver": "0.4.0",
+        "ANYfem": "0.4.0",
     }
 
 
@@ -68,7 +68,7 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
     project = namespace["_ANYMESHER_PROJECT"]
 
     assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](project), "0.3.1"
+        namespace["_declared_project_version"](project), "0.3.2"
     )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
@@ -78,10 +78,10 @@ def test_launcher_uses_selected_source_version_when_metadata_is_stale(
 ):
     namespace = _namespace()
     versions = _versions()
-    versions["ANYmesher"] = "0.3.0"
+    versions["ANYmesher"] = "0.3.1"
     monkeypatch.setattr(namespace["metadata"], "version", versions.__getitem__)
 
-    assert namespace["_active_distribution_version"]("ANYmesher") == "0.3.1"
+    assert namespace["_active_distribution_version"]("ANYmesher") == "0.3.2"
     assert namespace["ecosystem_compatibility_problems"]() == ()
 
 
@@ -114,17 +114,19 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.3.0: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4,<0.5: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
-    assert command.index(mesh_project) < command.index("ANYio")
+    assert command.index(mesh_project) < command.index("ANYfileIO")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
-    solver_project = str(ROOT.parent / "ANYsolver")
+    solver_project = str(namespace["_ANYSOLVER_PROJECT"])
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
-    assert command.index(f'-e "{solver_project}"') < command.index("ANYfem")
+    assert command.index(f'-e "{solver_project}"') < command.index(
+        f'-e "{ROOT}[gui]"'
+    )
 
 
 def test_wrong_module_origin_is_rejected_before_gui_import():

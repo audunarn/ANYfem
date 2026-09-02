@@ -29,7 +29,7 @@ def test_report_contains_full_error_and_reproducibility_context() -> None:
         errors=(error,),
         context={"details_page": "Mesh", "selection": {"items": []}},
         recent_commands=("commands.run(commands.AddPoint(x=0.0, y=0.0))",),
-        version_reader=lambda name: {"ANYfem": "0.3.2"}.get(name, "test"),
+        version_reader=lambda name: {"ANYfem": "0.4.0"}.get(name, "test"),
         origin_reader=lambda module: f"C:/test/{module}.py",
     )
     payload = json.loads(report)
@@ -39,7 +39,7 @@ def test_report_contains_full_error_and_reproducibility_context() -> None:
     assert payload["project"]["mesh_settings"]["target_size"] == 0.25
     assert payload["application"]["details_page"] == "Mesh"
     assert payload["recent_gui_commands"][-1].startswith("commands.run")
-    assert payload["packages"][0]["version"] == "0.3.2"
+    assert payload["packages"][0]["version"] == "0.4.0"
 
 
 def test_report_retains_only_ten_recent_errors_and_one_hundred_commands() -> None:
