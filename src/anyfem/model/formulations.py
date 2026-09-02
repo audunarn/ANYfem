@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from anysolver import QUALIFIED_Q4_FORMULATION_ID
+from anysolver import QUALIFIED_Q4_FORMULATION_ID, S3_V2D_FORMULATION_ID
 
 __all__ = ["ShellFormulationPolicy"]
 
 
 _Q4 = {"legacy", "e4-pl"}
-_S3 = {"legacy-s3"}
+_S3 = {"legacy-s3", "e4-pl-s3-v2d"}
 _HIGHER = {"legacy"}
 
 
@@ -31,14 +31,13 @@ def _token(value: object, *, field: str, allowed: set[str]) -> str:
 class ShellFormulationPolicy:
     """Topology-specific identities used to construct solver shell elements.
 
-    Downstream applications remain fully legacy until the S3 companion has a
-    successful qualification.  Qualified Q4 remains representable as an
-    explicit future policy choice; qualified S3 is intentionally not accepted
-    by this schema because the V1 candidate was rejected.
+    Current models select the qualified Q4 and V2D S3 formulations. Historical
+    models remain explicit legacy through :meth:`legacy_compatible`; loading a
+    file never infers the current policy when formulation authority is absent.
     """
 
-    q4: str = "legacy"
-    s3: str = "legacy-s3"
+    q4: str = "e4-pl"
+    s3: str = "e4-pl-s3-v2d"
     higher_order: str = "legacy"
 
     def __post_init__(self) -> None:
@@ -52,7 +51,7 @@ class ShellFormulationPolicy:
 
     @classmethod
     def current_default(cls) -> "ShellFormulationPolicy":
-        return cls.legacy_compatible()
+        return cls(q4="e4-pl", s3="e4-pl-s3-v2d")
 
     @classmethod
     def legacy_compatible(cls) -> "ShellFormulationPolicy":
@@ -60,7 +59,7 @@ class ShellFormulationPolicy:
 
     @classmethod
     def qualified_q4_only(cls) -> "ShellFormulationPolicy":
-        """Return the dormant Q4-only policy; never selected implicitly."""
+        """Return the transition policy used before V2D S3 activation."""
 
         return cls(q4="e4-pl", s3="legacy-s3")
 
@@ -76,7 +75,11 @@ class ShellFormulationPolicy:
     def formulation_id_for_node_count(self, node_count: int) -> str:
         token = self.for_node_count(node_count)
         if node_count == 3:
-            return "LEGACY_SHELL_ELEMENT_TRI3"
+            return (
+                S3_V2D_FORMULATION_ID
+                if token == "e4-pl-s3-v2d"
+                else "LEGACY_SHELL_ELEMENT_TRI3"
+            )
         if node_count == 4:
             return (
                 QUALIFIED_Q4_FORMULATION_ID

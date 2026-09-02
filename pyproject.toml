@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ANYfem"
-version = "0.3.2"
+version = "0.4.0"
 description = "Shell and beam finite-element application with native hybrid meshing, solving and postprocessing"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,10 +25,10 @@ classifiers = [
 dependencies = [
   "numpy>=1.26",
   "scipy>=1.11",
-  "ANYsolver>=0.3",
+  "ANYsolver>=0.4,<0.5",
   "ANYmaterial>=0.1",
   "ANYgeometry[planar]>=0.4,<0.5",
-  "ANYmesher>=0.3.1",
+  "ANYmesher>=0.3.2,<0.4",
   "ANYfileio[semantics]>=0.2",
   "h5py>=3.15,<4",
   "platformdirs>=4.5,<5",

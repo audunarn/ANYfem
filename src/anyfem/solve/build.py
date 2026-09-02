@@ -8,10 +8,10 @@ node set -- happens here through the mesh association map.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import permutations
 import warnings
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 import numpy as np
 from anygeometry.entities import EntityRef
@@ -26,9 +26,18 @@ from anysolver import (
     create_shell_element,
 )
 from anysolver import LoadCase as SolverLoadCase
+from anymesher import (
+    QUALIFIED_S3_FORMULATION_ID,
+    QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
+    S3_QUALITY_CONTRACT_ID,
+    S3_REPAIR_CONTRACT_ID,
+    S3QualityError,
+    assert_s3_admissible,
+)
 
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
+from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
 
@@ -44,6 +53,18 @@ class BuiltModel:
     mesh: Mesh
     project: Project
     combination: str | None = None
+    shell_formulation_policy: ShellFormulationPolicy | None = field(
+        default=None,
+        init=False,
+    )
+
+    def __post_init__(self) -> None:
+        policy = getattr(self.project, "shell_formulation_policy", None)
+        if policy is not None and not isinstance(policy, ShellFormulationPolicy):
+            raise TypeError(
+                "shell_formulation_policy must be a ShellFormulationPolicy"
+            )
+        self.shell_formulation_policy = policy
 
     def node_dofs(self, node_id: int) -> List[int]:
         return self.fe_model.mesh.dof_manager.get_node_dofs(node_id)
@@ -177,6 +198,22 @@ def _build_combination(
 
 
 def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
+    qualified_ids: list[int] = []
+    owner_normals: dict[int, np.ndarray] = {}
+    if project.shell_formulation_policy.s3 == "e4-pl-s3-v2d":
+        qualified_ids, owner_normals = _qualified_s3_owner_normals(project, mesh)
+        if qualified_ids:
+            try:
+                assert_s3_admissible(
+                    mesh,
+                    element_ids=qualified_ids,
+                    element_owner_normals=owner_normals,
+                )
+            except S3QualityError as error:
+                raise ProjectError(
+                    f"qualified S3 mesh admission failed: {error}"
+                ) from error
+
     for face_id, element_ids in mesh.elements_of_face.items():
         section = project.plate_section_of(face_id)
         for element_id in element_ids:
@@ -191,6 +228,9 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             formulation = project.shell_formulation_policy.for_node_count(
                 len(node_ids)
             )
+            extra: dict[str, Any] = {}
+            if formulation == "e4-pl-s3-v2d":
+                extra["reference_normal"] = owner_normals[int(element_id)]
             # The application policy is explicit and persisted, so the solver's
             # user-facing deprecation warning would otherwise be repeated once
             # per legacy Q4 element.  Keep the warning for direct solver callers.
@@ -202,11 +242,12 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                     material_name=section.material,
                     thickness=section.thickness,
                     formulation=formulation,
+                    **extra,
                 )
             expected_id = project.shell_formulation_policy.formulation_id_for_node_count(
                 len(node_ids)
             )
-            if formulation == "e4-pl":
+            if formulation in {"e4-pl", "e4-pl-s3-v2d"}:
                 if getattr(element, "formulation_id", None) != expected_id:
                     raise ProjectError(
                         f"shell element {element_id} formulation identity mismatch: "
@@ -218,6 +259,171 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                     "persisted legacy identity"
                 )
             fe_model.add_element(element_id, element)
+
+
+def _qualified_s3_owner_normals(
+    project: Project,
+    mesh: Mesh,
+) -> tuple[list[int], dict[int, np.ndarray]]:
+    """Validate and return the mesher's immutable physical-normal authority."""
+
+    triangle_ids = tuple(
+        sorted(
+            int(element_id)
+            for element_id, node_ids in mesh.tris.items()
+            if len(node_ids) == 3
+        )
+    )
+    if not triangle_ids:
+        return [], {}
+
+    preparation = getattr(mesh, "structural_preparation", None)
+    if not isinstance(preparation, Mapping):
+        raise ProjectError(
+            "qualified S3 mesh authority is missing structural preparation"
+        )
+    record = preparation.get("qualified_s3")
+    expected_keys = {
+        "admission",
+        "authority_model",
+        "contract_id",
+        "element_ids",
+        "element_owner_normals",
+        "element_owner_sources",
+        "formulation_id",
+        "legacy_fallback",
+        "nodal_normals",
+        "quality_contract_id",
+        "repair",
+        "repair_contract_id",
+        "schema",
+        "status",
+    }
+    if not isinstance(record, Mapping) or set(record) != expected_keys:
+        raise ProjectError(
+            "qualified S3 mesh authority has a malformed preparation record"
+        )
+    expected_identity = {
+        "contract_id": QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
+        "formulation_id": QUALIFIED_S3_FORMULATION_ID,
+        "legacy_fallback": "FORBIDDEN",
+        "quality_contract_id": S3_QUALITY_CONTRACT_ID,
+        "repair_contract_id": S3_REPAIR_CONTRACT_ID,
+        "schema": "anymesher.qualified-s3-production-preparation-v1",
+        "status": "ADMITTED",
+    }
+    if any(record[key] != value for key, value in expected_identity.items()):
+        raise ProjectError("qualified S3 mesh authority identity or terminal differs")
+    if not isinstance(record["admission"], Mapping):
+        raise ProjectError("qualified S3 mesh admission evidence is malformed")
+    if not isinstance(record["repair"], Mapping):
+        raise ProjectError("qualified S3 mesh repair evidence is malformed")
+
+    raw_ids = record["element_ids"]
+    if (
+        type(raw_ids) is not list
+        or any(type(value) is not int for value in raw_ids)
+        or raw_ids != list(triangle_ids)
+    ):
+        raise ProjectError(
+            "qualified S3 mesh authority element scope differs from the mesh"
+        )
+
+    authority = record["authority_model"]
+    authority_keys = {
+        "prepared_revision",
+        "scope",
+        "source_model_id",
+        "source_revision",
+    }
+    if not isinstance(authority, Mapping) or set(authority) != authority_keys:
+        raise ProjectError("qualified S3 source-model authority is malformed")
+    if (
+        type(authority["prepared_revision"]) is not int
+        or authority["scope"] != "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE"
+        or type(authority["source_model_id"]) is not str
+        or type(authority["source_revision"]) is not int
+    ):
+        raise ProjectError("qualified S3 source-model authority is malformed")
+    project_model_id = str(getattr(project.geometry, "model_id", ""))
+    project_revision = getattr(project.geometry, "revision", None)
+    mesh_model_id = str(getattr(mesh, "geometry_model_id", ""))
+    mesh_revision = getattr(mesh, "geometry_revision", None)
+    if (
+        not project_model_id
+        or type(project_revision) is not int
+        or not mesh_model_id
+        or type(mesh_revision) is not int
+        or authority["source_model_id"] != project_model_id
+        or authority["source_model_id"] != mesh_model_id
+        or authority["source_revision"] != project_revision
+        or authority["source_revision"] != mesh_revision
+    ):
+        raise ProjectError("qualified S3 mesh authority is stale for the source geometry")
+
+    shell_ids = tuple(sorted(int(value) for value in mesh.shells))
+    expected_normal_keys = {str(value) for value in shell_ids}
+    raw_normals = record["element_owner_normals"]
+    if not isinstance(raw_normals, Mapping) or set(raw_normals) != expected_normal_keys:
+        raise ProjectError(
+            "qualified S3 physical owner-normal scope differs from the mesh"
+        )
+    raw_sources = record["element_owner_sources"]
+    if not isinstance(raw_sources, Mapping) or set(raw_sources) != expected_normal_keys:
+        raise ProjectError(
+            "qualified S3 physical owner-source scope differs from the mesh"
+        )
+    for key, source in raw_sources.items():
+        if (
+            not isinstance(source, Mapping)
+            or set(source) != {"face_id", "face_use_ids", "sheet_ids"}
+            or type(source["face_id"]) is not int
+            or type(source["face_use_ids"]) is not list
+            or type(source["sheet_ids"]) is not list
+            or not source["face_use_ids"]
+            or len(source["face_use_ids"]) != len(source["sheet_ids"])
+            or any(type(value) is not int for value in source["face_use_ids"])
+            or any(type(value) is not int for value in source["sheet_ids"])
+        ):
+            raise ProjectError(
+                f"qualified S3 physical owner source {key!r} is malformed"
+            )
+
+    nodal_normals = record["nodal_normals"]
+    shell_node_ids = {
+        int(node_id)
+        for connectivity in mesh.shells.values()
+        for node_id in connectivity
+    }
+    if (
+        not isinstance(nodal_normals, Mapping)
+        or set(nodal_normals) != {str(value) for value in shell_node_ids}
+    ):
+        raise ProjectError("qualified S3 nodal-normal scope differs from the mesh")
+    for key, value in nodal_normals.items():
+        _validated_unit_normal(value, label=f"qualified S3 nodal normal {key}")
+
+    owner_normals = {
+        element_id: _validated_unit_normal(
+            raw_normals[str(element_id)],
+            label=f"qualified S3 element {element_id} owner normal",
+        )
+        for element_id in triangle_ids
+    }
+    return list(triangle_ids), owner_normals
+
+
+def _validated_unit_normal(value: object, *, label: str) -> np.ndarray:
+    try:
+        normal = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ProjectError(f"{label} must be a finite unit three-vector") from error
+    if normal.shape != (3,) or not np.all(np.isfinite(normal)):
+        raise ProjectError(f"{label} must be a finite unit three-vector")
+    length = float(np.linalg.norm(normal))
+    if not np.isfinite(length) or abs(length - 1.0) > 1.0e-12:
+        raise ProjectError(f"{label} must be a finite unit three-vector")
+    return normal.copy()
 
 
 def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:

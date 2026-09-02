@@ -13,6 +13,7 @@ from anyfem.io.project_file import (
     project_to_dict,
     save_project,
 )
+from anyfem.model.formulations import ShellFormulationPolicy
 from anyfem.model.project import Project, ProjectError
 from anyfem.native_meshing import ControlScope, NativeMeshControl, NativeMeshSettings
 
@@ -76,6 +77,10 @@ def test_native_settings_reject_foreign_geometry_handles() -> None:
 
 def test_project_generation_uses_persisted_native_defaults() -> None:
     project, face_id = _project_with_polygon()
+    # This fixture exercises persisted meshing settings rather than qualified
+    # S3 admission. Preserve the intentionally unrestricted historical route
+    # explicitly now that current-policy triangle meshes fail closed.
+    project.shell_formulation_policy = ShellFormulationPolicy.legacy_compatible()
     project.set_native_mesh_settings(
         NativeMeshSettings(target_size=0.32, backend="native")
     )

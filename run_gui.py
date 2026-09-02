@@ -12,6 +12,11 @@ from typing import Callable
 
 
 _ROOT = Path(__file__).resolve().parent
+_WORKSPACE = (
+    _ROOT.parents[2]
+    if _ROOT.parent.name in {".worktrees", ".perf2-worktrees"}
+    else _ROOT.parent
+)
 
 
 def _numeric_version(value: object) -> tuple[int, int, int]:
@@ -51,29 +56,32 @@ def _qualified_anymesher_project() -> Path:
         os.environ.get("ANYMESHER_SOURCE", "").strip()
         or os.environ.get("ANYMESHER_025_SOURCE", "").strip()
     )
-    release_checkout = _ROOT.parent / "ANYsolver" / ".compat_anymesher_025"
+    release_checkout = _WORKSPACE / "ANYsolver" / ".compat_anymesher_025"
     candidates = ([Path(override)] if override else []) + [
-        _ROOT.parent / "ANYmesh",
+        _WORKSPACE / "ANYmesh",
         release_checkout,
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.3.1"):
+        if version is not None and _version_at_least(version, "0.3.2"):
             return candidate
     return Path(override) if override else release_checkout
 
 
-_ANY3DVIEW_PROJECT = _ROOT.parent / "ANY3dView"
-_ANYTK3D_PROJECT = _ROOT.parent / "ANYtk3D"
+_ANY3DVIEW_PROJECT = _WORKSPACE / "ANY3dView"
+_ANYTK3D_PROJECT = _WORKSPACE / "ANYtk3D"
 _ANYMESHER_PROJECT = _qualified_anymesher_project()
+_ANYSOLVER_PROJECT = Path(
+    os.environ.get("ANYSOLVER_SOURCE", "").strip() or _WORKSPACE / "ANYsolver"
+)
 _SOURCE_PROJECTS = (
-    ("ANYmaterial", "anymaterial", _ROOT.parent / "ANYmaterial" / "src"),
-    ("ANYgeometry", "anygeometry", _ROOT.parent / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _ROOT.parent / "ANYio" / "src"),
+    ("ANYmaterial", "anymaterial", _WORKSPACE / "ANYmaterial" / "src"),
+    ("ANYgeometry", "anygeometry", _WORKSPACE / "ANYgeometry" / "src"),
+    ("ANYfileio", "anyfileio", _WORKSPACE / "ANYfileIO" / "src"),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
-    ("ANYsolver", "anysolver", _ROOT.parent / "ANYsolver" / "src"),
+    ("ANYsolver", "anysolver", _ANYSOLVER_PROJECT / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
 
@@ -107,11 +115,11 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.4,<0.5", "0.4.0"),
     ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
-    ("ANYmesher", "ANYmesher>=0.3.1", "0.3.1"),
+    ("ANYmesher", "ANYmesher>=0.3.2,<0.4", "0.3.2"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
     ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
-    ("ANYsolver", "ANYsolver>=0.3.0", "0.3.0"),
-    ("ANYfem", "ANYfem>=0.3.0", "0.3.0"),
+    ("ANYsolver", "ANYsolver>=0.4,<0.5", "0.4.0"),
+    ("ANYfem", "ANYfem>=0.4,<0.5", "0.4.0"),
 )
 
 
@@ -173,13 +181,13 @@ def editable_repair_command() -> str:
     """One copy/paste bootstrap command in release dependency order."""
 
     projects = (
-        str(_ROOT.parent / "ANYmaterial"),
-        str(_ROOT.parent / "ANYgeometry") + "[planar]",
+        str(_WORKSPACE / "ANYmaterial"),
+        str(_WORKSPACE / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_ROOT.parent / "ANYio") + "[semantics]",
+        str(_WORKSPACE / "ANYfileIO") + "[semantics]",
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
-        str(_ROOT.parent / "ANYsolver"),
+        str(_ANYSOLVER_PROJECT),
         str(_ROOT) + "[gui]",
     )
     editables = " ".join(f'-e "{project}"' for project in projects)
@@ -198,7 +206,7 @@ def require_compatible_ecosystem(
     )
     if problems:
         raise RuntimeError(
-            "ANYfem 0.3.2 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.4.0 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

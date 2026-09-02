@@ -508,7 +508,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         compatibility_diagnostics = list(compatibility_diagnostics)
         compatibility_diagnostics.append(
             "project predates persisted shell formulation policy; Q4 and TRI3 "
-            "remain explicit legacy formulations until coordinated activation"
+            "remain explicit legacy formulations and are not upgraded implicitly"
         )
     elif isinstance(shell_formulations_data, Mapping):
         try:
