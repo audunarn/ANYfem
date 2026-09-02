@@ -317,6 +317,72 @@ def test_interpolated_coupling_record_becomes_weighted_solver_mpc():
     ) == pytest.approx(1.0)
 
 
+def test_identical_shared_station_couplings_make_one_solver_mpc_element():
+    """Adjacent stiffener spans may repeat their common end-station record."""
+
+    from anymesher import Coupling, Mesh
+    from anysolver import CoupledBeamShellElement, FEModel
+
+    from anyfem.solve.build import _add_couplings
+
+    project = Project(name="segmented stiffener coupling")
+    specification = project.add_material(steel("S355", THICKNESS))
+    mesh = Mesh()
+    mesh.nodes = {
+        1: np.array([0.0, 0.0, 0.0]),
+        10: np.array([0.0, 0.0, 0.2]),
+    }
+    repeated = Coupling.node_to_node(10, 1, (0.0, 0.0, 0.2))
+    mesh.couplings = {30: repeated, 31: repeated}
+
+    fe_model = FEModel("segmented stiffener coupling")
+    fe_model.register_material(specification.build())
+    for node_id, coordinates in mesh.nodes.items():
+        fe_model.add_node(node_id, *coordinates)
+
+    _add_couplings(project, mesh, fe_model)
+
+    coupling_elements = {
+        identifier: element
+        for identifier, element in fe_model.mesh.elements.items()
+        if isinstance(element, CoupledBeamShellElement)
+    }
+    assert tuple(coupling_elements) == (30,)
+    assert len(coupling_elements[30].get_mpc_constraints(fe_model.mesh)) == 6
+
+
+def test_conflicting_shared_station_couplings_are_refused_concisely():
+    from anymesher import Coupling, Mesh
+    from anysolver import FEModel
+
+    from anyfem.model.project import ProjectError
+    from anyfem.solve.build import _add_couplings
+
+    project = Project(name="conflicting stiffener coupling")
+    specification = project.add_material(steel("S355", THICKNESS))
+    mesh = Mesh()
+    mesh.nodes = {
+        1: np.array([0.0, 0.0, 0.0]),
+        2: np.array([0.0, 1.0, 0.0]),
+        10: np.array([0.0, 0.0, 0.2]),
+    }
+    mesh.couplings = {
+        30: Coupling.node_to_node(10, 1, (0.0, 0.0, 0.2)),
+        31: Coupling.node_to_node(10, 2, (0.0, -1.0, 0.2)),
+    }
+
+    fe_model = FEModel("conflicting stiffener coupling")
+    fe_model.register_material(specification.build())
+    for node_id, coordinates in mesh.nodes.items():
+        fe_model.add_node(node_id, *coordinates)
+
+    with pytest.raises(
+        ProjectError,
+        match="offset beam node 10 has conflicting shell coupling records 30 and 31",
+    ):
+        _add_couplings(project, mesh, fe_model)
+
+
 def test_the_solve_actually_applies_the_constraints():
     project, _divider = stiffened_strip(OFFSET)
     mesh = project.generate_mesh(0.1)

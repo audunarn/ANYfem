@@ -253,6 +253,17 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """
 
     material = next(iter(project.materials), "default")
+    # Adjacent geometry edges may represent consecutive spans of one physical
+    # stiffener.  ANYmesher deliberately reuses their shared offset node, and
+    # older/generated meshes can consequently carry the same end-station
+    # coupling once for each span.  One dependent beam-node DOF may have only
+    # one MPC owner, so collapse semantically identical records here at the
+    # solver boundary.  Do not silently choose between genuinely different
+    # master definitions: that would change structural connectivity.
+    coupling_by_beam_node: dict[
+        int,
+        tuple[int, tuple[tuple[int, float], ...], tuple[float, float, float]],
+    ] = {}
     for element_id, coupling in mesh.couplings.items():
         if hasattr(coupling, "beam_node"):
             beam_node = int(coupling.beam_node)
@@ -270,6 +281,44 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                 float(value)
                 for value in (mesh.nodes[beam_node] - mesh.nodes[int(shell_node)])
             )
+
+        masters = tuple(
+            sorted(
+                (int(node), float(weight))
+                for node, weight in zip(plate_nodes, weights)
+            )
+        )
+        previous = coupling_by_beam_node.get(beam_node)
+        if previous is not None:
+            previous_id, previous_masters, previous_eccentricity = previous
+            same_masters = (
+                tuple(node for node, _weight in previous_masters)
+                == tuple(node for node, _weight in masters)
+                and np.allclose(
+                    tuple(weight for _node, weight in previous_masters),
+                    tuple(weight for _node, weight in masters),
+                    rtol=0.0,
+                    atol=1.0e-12,
+                )
+            )
+            same_eccentricity = np.allclose(
+                previous_eccentricity,
+                eccentricity,
+                rtol=0.0,
+                atol=1.0e-12,
+            )
+            if same_masters and same_eccentricity:
+                continue
+            raise ProjectError(
+                f"offset beam node {beam_node} has conflicting shell coupling "
+                f"records {previous_id} and {element_id}; the same dependent "
+                "node cannot be tied to two different plate interpolations"
+            )
+        coupling_by_beam_node[beam_node] = (
+            int(element_id),
+            masters,
+            tuple(float(value) for value in eccentricity),
+        )
 
         if len(plate_nodes) == 1:
             element = CoupledBeamShellElement(

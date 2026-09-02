@@ -126,6 +126,86 @@ def test_stiffened_panel_runs_linear_and_buckling_through_semantic_scopes():
     assert len(buckling) == 1
 
 
+def test_segmented_automatic_offset_stiffener_has_one_mpc_owner_per_station():
+    """A continuous stiffener split by panel bays must solve as one member."""
+
+    project = Project("segmented automatic-offset stiffener")
+    session = DocumentSession(project)
+    session.execute(
+        cmd.AddFeature(
+            "generator.stiffened_panel",
+            name="Main stiffened panel",
+            parameters={
+                "length": 4.0,
+                "width": 2.0,
+                "longitudinal_spacing": 0.5,
+                "transverse_spacing": 1.0,
+                "semantic_group": "shell",
+            },
+        )
+    )
+    project.add_material(steel("S355", 0.010))
+    project.add_plate_section("plate", 0.010, "S355")
+    project.add_beam_section(
+        BeamSection(
+            "stiffener",
+            "T-bar",
+            "S355",
+            web_height=0.200,
+            web_thickness=0.010,
+            flange_width=0.100,
+            flange_thickness=0.012,
+            offset_mode="automatic",
+        )
+    )
+    project.assign_plate_group("shell", "plate")
+
+    def endpoints(edge_id: int) -> tuple[np.ndarray, np.ndarray]:
+        edge = project.geometry.edges[edge_id]
+        return (
+            np.asarray(project.geometry.vertices[edge.start].position),
+            np.asarray(project.geometry.vertices[edge.end].position),
+        )
+
+    stiffener_edges = []
+    for edge_id in project.geometry.edges:
+        start, end = endpoints(edge_id)
+        if np.allclose((start[1], end[1]), (1.0, 1.0)):
+            stiffener_edges.append(edge_id)
+            project.assign_beam(edge_id, "stiffener")
+        if np.allclose((start[0], end[0]), (0.0, 0.0)):
+            project.add_support(
+                Support(
+                    f"left edge {edge_id}",
+                    project.edge(edge_id),
+                    {"ux": 0.0, "uy": 0.0, "uz": 0.0},
+                )
+            )
+        elif np.allclose((start[0], end[0]), (4.0, 4.0)):
+            project.add_support(
+                Support(
+                    f"right edge {edge_id}",
+                    project.edge(edge_id),
+                    {"uy": 0.0, "uz": 0.0},
+                )
+            )
+    for face_id in project.geometry.faces:
+        project.load_case().add_pressure(project.face(face_id), 10_000.0)
+
+    assert len(stiffener_edges) == 4
+    mesh = project.generate_mesh(0.25)
+    solution = solve_linear_static(project, mesh=mesh)
+
+    unique_coupled_stations = {
+        int(coupling.beam_node) for coupling in mesh.couplings.values()
+    }
+    assert len(unique_coupled_stations) < len(mesh.couplings)
+    assert solution.info["constraint_info"]["num_mpc_constraints"] == (
+        6 * len(unique_coupled_stations)
+    )
+    assert np.isfinite(solution.max_translation()[1])
+
+
 def test_feature_edit_suppress_undo_redo_preserves_scope_identity():
     project = Project("feature identity")
     # A nearby baseline plate proves that a missing feature output is not
