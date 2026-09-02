@@ -58,7 +58,7 @@ def _qualified_anymesher_project() -> Path:
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.2.5"):
+        if version is not None and _version_at_least(version, "0.3.1"):
             return candidate
     return Path(override) if override else release_checkout
 
@@ -77,6 +77,25 @@ _SOURCE_PROJECTS = (
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
 
+
+def _active_distribution_version(distribution: str) -> str:
+    """Return the version of the source tree the launcher will import.
+
+    Editable-install metadata can lag behind a checkout after its project
+    version changes.  The launcher prepends the selected source roots and
+    separately verifies every imported module origin, so compatibility must
+    be evaluated against those source trees rather than stale dist-info.
+    """
+
+    for candidate_distribution, _module, source in _SOURCE_PROJECTS:
+        if candidate_distribution != distribution:
+            continue
+        declared = _declared_project_version(source.parent)
+        if declared is not None:
+            return declared
+        break
+    return metadata.version(distribution)
+
 # Insert in reverse so ANYfem itself remains first and every module inspected
 # below is the sibling checkout that the launcher is about to execute.
 for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
@@ -86,9 +105,9 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.1", "0.1.0"),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.2.4", "0.2.4"),
+    ("ANYgeometry", "ANYgeometry[planar]>=0.4,<0.5", "0.4.0"),
     ("ANYfileio", "ANYfileio[semantics]>=0.2", "0.2.0"),
-    ("ANYmesher", "ANYmesher>=0.2.5", "0.2.5"),
+    ("ANYmesher", "ANYmesher>=0.3.1", "0.3.1"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5", "0.5.0"),
     ("ANYtk3D", "ANYtk3D>=0.5", "0.5.0"),
     ("ANYsolver", "ANYsolver>=0.3.0", "0.3.0"),
@@ -101,7 +120,11 @@ def ecosystem_compatibility_problems(
 ) -> tuple[str, ...]:
     """Return missing or out-of-range distribution metadata."""
 
-    read_version = metadata.version if version_reader is None else version_reader
+    read_version = (
+        _active_distribution_version
+        if version_reader is None
+        else version_reader
+    )
     problems: list[str] = []
     for distribution, requirement, minimum in ECOSYSTEM_REQUIREMENTS:
         try:

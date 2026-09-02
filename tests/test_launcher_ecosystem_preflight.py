@@ -21,7 +21,7 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.1.1",
         "ANYgeometry": "0.4.0",
         "ANYfileio": "0.2.1",
-        "ANYmesher": "0.3.0",
+        "ANYmesher": "0.3.1",
         "ANY3dView": "0.5.3",
         "ANYtk3D": "0.5.3",
         "ANYsolver": "0.3.1",
@@ -68,9 +68,21 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
     project = namespace["_ANYMESHER_PROJECT"]
 
     assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](project), "0.2.5"
+        namespace["_declared_project_version"](project), "0.3.1"
     )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
+
+
+def test_launcher_uses_selected_source_version_when_metadata_is_stale(
+    monkeypatch,
+):
+    namespace = _namespace()
+    versions = _versions()
+    versions["ANYmesher"] = "0.3.0"
+    monkeypatch.setattr(namespace["metadata"], "version", versions.__getitem__)
+
+    assert namespace["_active_distribution_version"]("ANYmesher") == "0.3.1"
+    assert namespace["ecosystem_compatibility_problems"]() == ()
 
 
 def test_newer_major_generations_are_not_rejected_by_version_alone():

@@ -1816,6 +1816,9 @@ class MeshPanel(StagePanel):
         )
         self._refine_label.pack(anchor="w")
 
+        self._copy_mesh_diagnosis_button = self.button(
+            self, "Copy mesh diagnosis", self._copy_mesh_diagnosis
+        )
         self._stats = ttk.Label(self, text="no mesh", justify="left")
         self._stats.pack(anchor="w")
         self._update_method_controls()
@@ -2028,7 +2031,10 @@ class MeshPanel(StagePanel):
             if isinstance(structured, Mapping) and structured:
                 metrics = structured.get("metrics", {})
                 plan = structured.get("plan", {})
-                if isinstance(plan, Mapping):
+                status = structured.get("status")
+                if status:
+                    lines.append(f"structured layout: {status}")
+                if isinstance(plan, Mapping) and plan:
                     options = plan.get("options", {})
                     if isinstance(options, Mapping):
                         preference = options.get("preference")
@@ -2045,6 +2051,10 @@ class MeshPanel(StagePanel):
                     )
                     if plan.get("plan_hash"):
                         lines.append(f"layout hash: {str(plan['plan_hash'])[-16:]}")
+                if structured.get("plan_hash"):
+                    lines.append(
+                        f"layout hash: {str(structured['plan_hash'])[-16:]}"
+                    )
                 seed_solution = structured.get("seed_solution", {})
                 if isinstance(seed_solution, Mapping) and seed_solution:
                     values = [int(value) for value in seed_solution.values()]
@@ -2054,7 +2064,7 @@ class MeshPanel(StagePanel):
                     )
                 structured_quality = structured.get("quality", {})
                 if isinstance(structured_quality, Mapping) and structured_quality:
-                    worst = structured_quality.get("worst", {})
+                    worst = structured_quality.get("worst", structured_quality)
                     accepted = bool(structured_quality.get("accepted", False))
                     lines.append(
                         "structured quality gate: "
@@ -2091,6 +2101,71 @@ class MeshPanel(StagePanel):
                 if isinstance(diagnostics, (list, tuple)):
                     lines.extend(
                         f"structure note: {message}" for message in diagnostics[:4]
+                    )
+            complex_geometry = record.summary.get("complex_geometry", {})
+            if isinstance(complex_geometry, Mapping) and complex_geometry:
+                components = complex_geometry.get("components", ())
+                component_count = complex_geometry.get("component_count")
+                if (
+                    component_count is None
+                    and "components" in complex_geometry
+                    and isinstance(components, (list, tuple))
+                ):
+                    component_count = len(components)
+                if component_count is not None:
+                    lines.append(
+                        f"complex geometry plan: {int(component_count)} component(s)"
+                    )
+                if isinstance(components, (list, tuple)):
+                    for index, component in enumerate(components):
+                        if not isinstance(component, Mapping):
+                            continue
+                        component_id = component.get("component_id", index)
+                        selected = component.get("selected_strategy")
+                        attempted = component.get("attempted_strategies", ())
+                        details: list[str] = []
+                        if selected:
+                            details.append(f"selected {selected}")
+                        if isinstance(attempted, (list, tuple)) and attempted:
+                            details.append(
+                                "attempted " + ", ".join(str(item) for item in attempted)
+                            )
+                        fallback = component.get("fallback_reason")
+                        if fallback:
+                            details.append(f"fallback {fallback}")
+                        if details:
+                            lines.append(
+                                f"component {component_id}: " + "; ".join(details)
+                            )
+                source_faces = complex_geometry.get("source_face_count")
+                final_faces = complex_geometry.get("final_face_count")
+                if source_faces is not None and final_faces is not None:
+                    lines.append(
+                        f"complex geometry faces: {int(source_faces)} source, "
+                        f"{int(final_faces)} final"
+                    )
+                junction_edges = complex_geometry.get("declared_junction_edge_count")
+                if junction_edges is not None:
+                    lines.append(
+                        f"declared junction edges: {int(junction_edges)}"
+                    )
+                strategies = complex_geometry.get("source_strategy_by_face", {})
+                if isinstance(strategies, Mapping) and strategies:
+                    counts: dict[str, int] = {}
+                    for strategy in strategies.values():
+                        name = str(strategy)
+                        counts[name] = counts.get(name, 0) + 1
+                    lines.append(
+                        "component strategy selection: "
+                        + ", ".join(
+                            f"{name}={counts[name]}" for name in sorted(counts)
+                        )
+                    )
+                rejection = complex_geometry.get("alignment_candidate_rejected")
+                if isinstance(rejection, Mapping):
+                    lines.append(
+                        "boundary alignment: attempted, rejected; "
+                        + str(rejection.get("reason", "whole-mesh quality"))
                     )
             if "automatic_intersections" in record.summary:
                 intersections = int(record.summary["automatic_intersections"])
@@ -2137,10 +2212,29 @@ class MeshPanel(StagePanel):
                 ):
                     if not isinstance(optimisation, Mapping):
                         continue
+                    selected_strategy = optimisation.get("selected_strategy")
+                    if selected_strategy:
+                        lines.append(
+                            f"face {face_id} native strategy: {selected_strategy}"
+                        )
+                    face_complex = optimisation.get("complex_geometry", {})
+                    if isinstance(face_complex, Mapping):
+                        alignment = face_complex.get("alignment_evaluation")
+                        if alignment:
+                            lines.append(
+                                f"face {face_id} boundary alignment: {alignment}"
+                            )
+                    collar_skip = optimisation.get("boundary_collar_skip_reason")
+                    if collar_skip:
+                        lines.append(
+                            f"face {face_id} collar fallback: {collar_skip}"
+                        )
                     scalars = [
                         f"{key}={value}"
                         for key, value in optimisation.items()
                         if isinstance(value, (str, int, float, bool))
+                        and key
+                        not in {"selected_strategy", "boundary_collar_skip_reason"}
                     ]
                     if scalars:
                         lines.append(
@@ -2210,6 +2304,27 @@ class MeshPanel(StagePanel):
                 )
             )
         self._stats.configure(text="\n".join(lines) if lines else "no mesh")
+
+    def _copy_mesh_diagnosis(self) -> None:
+        report = str(self._stats.cget("text")).strip()
+        if not report or report == "no mesh":
+            self.app.set_status("no mesh diagnosis is available")
+            return
+        payload = "ANYfem mesh diagnosis\n\n" + report + "\n"
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(payload)
+            self.update_idletasks()
+        except tk.TclError as error:
+            self.app.set_status(
+                f"could not copy mesh diagnosis: {error}",
+                error=True,
+                diagnostic={"type": type(error).__name__, "message": str(error)},
+            )
+            return
+        self.app.set_status(
+            f"mesh diagnosis copied ({len(payload):,} characters)"
+        )
 
     def _generate(self) -> None:
         size = self.number(self._size, "element size")

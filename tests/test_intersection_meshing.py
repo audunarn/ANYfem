@@ -107,6 +107,81 @@ def test_project_meshes_exact_floating_plate_and_diagonal_extrusion():
     assert len(project.geometry.sheets) == 2
 
 
+def test_project_accepts_declared_three_plate_junction_growth_repair():
+    project = Project()
+    geometry = project.geometry
+    first, second, third, fourth = geometry.add_points(
+        ((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 2.0, 0.0), (0.0, 2.0, 0.0))
+    )
+    support = geometry.add_plate((first, second, third, fourth))
+    support_edge = geometry.faces[support].loop[0].edge
+    edge_wall = geometry.extrude((support_edge,), (0.0, 0.0, 1.0))[0]
+    diagonal_start, diagonal_end = geometry.add_points(
+        ((0.5, 0.35, 0.0), (3.5, 1.65, 0.0))
+    )
+    diagonal = geometry.add_line(diagonal_start, diagonal_end)
+    top_end, top_start = geometry.add_points(
+        ((3.5, 1.80, 1.0), (0.5, 0.35, 1.0))
+    )
+    diagonal_wall = geometry.add_face(
+        (
+            diagonal,
+            geometry.add_line(diagonal_end, top_end),
+            geometry.add_line(top_end, top_start),
+            geometry.add_line(top_start, diagonal_start),
+        )
+    )
+    geometry.add_sheet((support,))
+    geometry.add_sheet((edge_wall,))
+    geometry.add_sheet((diagonal_wall,))
+    before = geometry_to_dict(geometry)
+    project.set_native_triangulation_backend("python")
+
+    mesh = project.generate_mesh(
+        0.25,
+        strategy="auto",
+        structure_preference="balanced",
+        quality_policy={
+            "minimum_scaled_jacobian": 0.1,
+            "maximum_aspect_ratio": 5.0,
+            "minimum_angle": 20.0,
+            "maximum_angle": 160.0,
+            "maximum_warpage": 0.1,
+        },
+        certification_mode="interactive",
+    )
+
+    assert geometry_to_dict(geometry) == before
+    assert mesh.hybrid_diagnostics["structured_quality"]["accepted"] is True
+    repair = mesh.hybrid_diagnostics["junction_growth_repair"]
+    assert repair["attempted"] is True
+    assert repair["committed"] is True
+    assert repair["initial_quality"]["growth_violation_count"] == 1
+    assert repair["final_quality"]["growth_violation_count"] == 0
+    assert repair["final_quality"]["maximum_aspect_ratio"] <= 5.0
+    protected_nodes = {
+        node_id
+        for sequence in mesh.nodes_of_edge.values()
+        for node_id in sequence
+    }
+    assert protected_nodes.isdisjoint(repair["moved_node_ids"])
+    for edge_id, wall_id in (
+        (support_edge, edge_wall),
+        (diagonal, diagonal_wall),
+    ):
+        shared = set(mesh.nodes_on(geometry.entity_ref("edge", edge_id)))
+        assert shared
+        incident_faces = {
+            geometry.face_uses[face_use_id].face_id
+            for face_use_id in geometry.face_uses_using_edge(edge_id)
+        }
+        assert wall_id in incident_faces
+        assert all(
+            shared <= set(mesh.nodes_on(geometry.entity_ref("face", face_id)))
+            for face_id in incident_faces
+        )
+
+
 def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beams():
     project = Project("cylinder deck")
     commands = CommandStack(project)

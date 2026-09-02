@@ -230,6 +230,23 @@ def test_each_ui_strategy_reaches_real_project_meshing(
     assert set(mesh.hybrid_diagnostics["strategy_by_face"].values()) == {actual}
 
 
+def test_strict_native_does_not_forward_structured_layout_options() -> None:
+    project = Project("strict native handoff")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    project.set_native_triangulation_backend("python")
+
+    mesh = project.generate_mesh(
+        0.5,
+        strategy="native",
+        structure_preference="quad_first",
+    )
+
+    assert set(mesh.hybrid_diagnostics["strategy_by_face"].values()) == {"native"}
+
+
 def test_anymesher_quality_optimization_provenance_is_retained() -> None:
     mesh = SimpleNamespace(
         hybrid_diagnostics={
@@ -268,6 +285,37 @@ def test_anymesher_quality_optimization_provenance_is_retained() -> None:
     }
 
 
+def test_anymesher_complex_geometry_provenance_is_retained() -> None:
+    report = {
+        "component_count": 1,
+        "components": [
+            {
+                "component_id": "faces:7,8",
+                "classification": "trimmed_regular",
+                "attempted_strategies": ["native_aligned", "decomposed_residual"],
+                "selected_strategy": "native_aligned",
+                "fallback_reason": None,
+            }
+        ],
+    }
+    rejection = {
+        "reason": "whole_mesh_quality_regression",
+        "aligned_quality": {"accepted": False},
+        "accepted_baseline_quality": {"accepted": True},
+    }
+    mesh = SimpleNamespace(
+        hybrid_diagnostics={
+            "complex_geometry": report,
+            "alignment_candidate_rejected": rejection,
+        }
+    )
+
+    assert AnyFemApp._complex_geometry_summary(mesh) == {
+        **report,
+        "alignment_candidate_rejected": rejection,
+    }
+
+
 def test_automatic_preference_reaches_anymesher_and_report_is_retained() -> None:
     project = Project("structured automatic")
     project.geometry = _plate_geometry(
@@ -281,9 +329,10 @@ def test_automatic_preference_reaches_anymesher_and_report_is_retained() -> None
     )
     report = AnyFemApp._structured_layout_summary(mesh)
 
-    assert report["plan"]["options"]["preference"] == "quad_first"
-    assert report["metrics"]["quad_fraction"] == pytest.approx(1.0)
-    assert report["metrics"]["structured_block_count"] >= 1
+    assert report["status"] == "applied"
+    assert report["plan_hash"].startswith("sha256:")
+    assert report["quality"]["accepted"] is True
+    assert report["quality"]["minimum_scaled_jacobian"] == pytest.approx(1.0)
 
 
 def test_structured_report_and_source_map_persist_in_mesh_artifact(tmp_path) -> None:
@@ -297,11 +346,11 @@ def test_structured_report_and_source_map_persist_in_mesh_artifact(tmp_path) -> 
     )
     preparation = project._last_mesh_preparation
 
-    assert preparation["structured_layout"]["source_to_working_faces"]
+    assert preparation["source_to_working"]
     store = ArtifactStore(tmp_path / "structured.anyfem")
     artifact = store.write_mesh(mesh, structural_preparation=preparation)
     metadata = store.read_mesh_metadata(artifact)
 
-    assert metadata["structural_preparation"]["structured_layout"] == preparation[
-        "structured_layout"
+    assert metadata["structural_preparation"]["source_to_working"] == preparation[
+        "source_to_working"
     ]

@@ -557,6 +557,20 @@ class AnyFemApp(ttk.Frame):
         }
 
     @staticmethod
+    def _complex_geometry_summary(mesh) -> dict[str, Any]:
+        """Retain ANYmesher's component strategy and alignment provenance."""
+
+        diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+        if not isinstance(diagnostics, Mapping):
+            return {}
+        report = diagnostics.get("complex_geometry", {})
+        result = dict(report) if isinstance(report, Mapping) else {}
+        alignment_rejection = diagnostics.get("alignment_candidate_rejected")
+        if isinstance(alignment_rejection, Mapping):
+            result["alignment_candidate_rejected"] = dict(alignment_rejection)
+        return result
+
+    @staticmethod
     def _structured_layout_summary(mesh) -> dict[str, Any]:
         """Retain the reproducible ANYmesher structure-first plan/report."""
 
@@ -564,7 +578,20 @@ class AnyFemApp(ttk.Frame):
         if not isinstance(diagnostics, Mapping):
             return {}
         report = diagnostics.get("structured_layout", {})
-        return dict(report) if isinstance(report, Mapping) else {}
+        if isinstance(report, Mapping) and report:
+            return dict(report)
+        status = diagnostics.get("structured_layout_status")
+        plan_hash = diagnostics.get("structured_plan_hash")
+        quality = diagnostics.get("structured_quality")
+        if status is None and plan_hash is None and not isinstance(quality, Mapping):
+            return {}
+        current: dict[str, Any] = {
+            "status": status,
+            "plan_hash": plan_hash,
+        }
+        if isinstance(quality, Mapping):
+            current["quality"] = dict(quality)
+        return current
 
     @staticmethod
     def _project_mesh_strategy(project: Project, requested: str | None) -> str:
@@ -724,6 +751,7 @@ class AnyFemApp(ttk.Frame):
                 "strategy_requested": resolved_strategy,
                 "strategy_by_face": self._meshing_strategy_summary(self.mesh),
                 "structured_layout": self._structured_layout_summary(self.mesh),
+                "complex_geometry": self._complex_geometry_summary(self.mesh),
                 "quality_optimization_by_face": (
                     self._mesh_quality_optimization_summary(self.mesh)
                 ),
@@ -907,6 +935,9 @@ class AnyFemApp(ttk.Frame):
                                 result.mesh
                             ),
                             "structured_layout": self._structured_layout_summary(
+                                result.mesh
+                            ),
+                            "complex_geometry": self._complex_geometry_summary(
                                 result.mesh
                             ),
                             "quality_optimization_by_face": (
@@ -1795,15 +1826,30 @@ class AnyFemApp(ttk.Frame):
             return
         if action == "suppress" and prefix == "feature":
             feature_id = int(key.split(":", 1)[1])
-            with self.session.transaction("suppress feature"):
-                record = self.project.geometry.features.get(feature_id)
-                self.project.geometry.features.set_suppressed(
-                    feature_id, not record.suppressed
+            try:
+                with self.session.transaction("suppress feature"):
+                    record = self.project.geometry.features.get(feature_id)
+                    self.project.geometry.features.set_suppressed(
+                        feature_id, not record.suppressed
+                    )
+                    report = self.project.regenerate_geometry_features()
+                    if not report.success:
+                        raise ValueError(
+                            report.diagnostic or "feature regeneration failed"
+                        )
+                    self.selection.apply_replacements(report.replacements)
+            except ValueError as error:
+                self.set_status(
+                    f"feature {feature_id} unchanged: {error}",
+                    error=True,
+                    diagnostic={
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "feature_id": feature_id,
+                        "action": "suppress",
+                    },
                 )
-                report = self.project.regenerate_geometry_features()
-                if not report.success:
-                    raise ValueError(report.diagnostic or "feature regeneration failed")
-                self.selection.apply_replacements(report.replacements)
+                return
             self.set_status(
                 f"feature {feature_id} "
                 f"{'suppressed' if record.suppressed else 'resumed'}"

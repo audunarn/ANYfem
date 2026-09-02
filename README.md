@@ -26,8 +26,8 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
 | ANYmaterial | 0.1.1 | material definitions and nonlinear curves |
-| ANYgeometry | 0.2.4 | exact frozen features, topology and structural ownership |
-| ANYmesher | 0.2.5 | global block layouts, hard structured quality and seed/interface diagnostics |
+| ANYgeometry | 0.4.0 | exact frozen features, topology, structural ownership and automation contracts |
+| ANYmesher | 0.3.1 | flexible component strategies, boundary alignment, global layouts and quality provenance |
 | ANYfileio | 0.2.1 | neutral and solver-file semantics |
 | ANY3dView | 0.5.1 | viewer contract and ModernGL renderer |
 | ANYtk3D | 0.5.1 | compatible software renderer |
@@ -124,10 +124,13 @@ so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
 
 The ANYmesher source is selected the same way. The shared `ANYmesh` checkout
-is used whenever it declares version 0.2.5 or newer; newer compatible releases
+is used whenever it declares version 0.3.1 or newer; newer compatible releases
 are not rejected by an obsolete upper version bound. `ANYMESHER_SOURCE` can
 name another compatible checkout. The historical `ANYMESHER_025_SOURCE`
-variable remains accepted for one compatibility cycle.
+variable remains accepted for one compatibility cycle. Launcher compatibility
+uses the selected checkout's declared version because that is the code placed
+on `sys.path`; the independent origin gate still rejects an installed package
+that appears in place of the selected source tree.
 
 ```powershell
 python -m anyfem.ui.app
@@ -738,9 +741,9 @@ route can be used; it is not the mapped/native method selector. Shared model
 edges use one node sequence, so automatic mixed-method interfaces remain
 conformal without coincident-node merging. After completion, Mesh details show
 the requested method, the actual method used per face, native backend routes,
-intersection preparation, and ANYmesher 0.2.5 global layout/quality measures
-including scaled Jacobian, angle range, poor-element count, and optimization
-provenance.
+intersection preparation, and ANYmesher 0.3.1 component strategy, alignment,
+fallback, global-layout, and quality measures including scaled Jacobian, angle
+range, poor-element count, and optimization provenance.
 
 Use **Preview layout** to inspect the global blocks, shared interfaces, native
 residual regions, estimated element count, and plan hash without changing the
