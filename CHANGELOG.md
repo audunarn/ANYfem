@@ -8,7 +8,7 @@
   direct-dependency license inventory and third-party notices.
 - Qualify the application against ANYmaterial 0.2, ANYgeometry 0.4.2,
   ANYmesher 0.4, ANYfileio 0.3.1, ANY3dView 0.5.5, ANYtk3D 0.5.5, and
-  ANYsolver 0.4.1.
+  ANYsolver 0.4.2, including canonical qualified-Q4 plastic-state replay.
 - Stabilize semantic mesh hashes against ANYmesher 0.4 runtime provenance and
   timing fields so identical remeshes and exact undo remain deterministic.
 - Correct imported multi-point stress reduction and make CalculiX FRD
