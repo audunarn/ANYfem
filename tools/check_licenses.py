@@ -50,7 +50,7 @@ INSTALLED_LICENSE_ALIASES = {
         "BSD-3-Clause",
         "BSD License",
     },
-    "pillow": {"HPND", "Historical Permission Notice and Disclaimer"},
+    "pillow": {"HPND", "Historical Permission Notice and Disclaimer", "MIT-CMU"},
     "platformdirs": {"MIT", "MIT License"},
     "pytest": {"MIT", "MIT License"},
     "scipy": {
