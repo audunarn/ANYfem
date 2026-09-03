@@ -66,6 +66,9 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
           python -m pip install -e ".[dev,gui]"
 
+      - name: Check source and installed dependency licensing
+        run: python tools/check_licenses.py --check-installed
+
       - name: Run the test suite (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m pytest tests -q
@@ -133,12 +136,14 @@ jobs:
       - name: Build the wheel
         run: |
           python -m pip install --upgrade pip build
+          python tools/check_licenses.py
           python -m build
 
       - name: Check the metadata
         run: |
           python -m pip install twine
           python -m twine check dist/*
+          python tools/check_release_artifacts.py dist
 
       - name: Install and import the wheel in a clean environment
         run: |
