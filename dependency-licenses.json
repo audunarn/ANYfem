@@ -1,0 +1,143 @@
+{
+  "dependencies": [
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANY3dView",
+      "requirement": "ANY3dView[gpu]>=0.5.5,<0.6",
+      "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANY3dView"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYfileio",
+      "requirement": "ANYfileio>=0.3.1,<0.4",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYfileIO"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYgeometry",
+      "requirement": "ANYgeometry[planar]>=0.4.2,<0.5",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYgeometry"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYmaterial",
+      "requirement": "ANYmaterial>=0.2,<0.3",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYmaterial"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYmesher",
+      "requirement": "ANYmesher>=0.4,<0.5",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYmesh"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYsolver",
+      "requirement": "ANYsolver>=0.4.1,<0.5",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYsolver"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYtk3D",
+      "requirement": "ANYtk3D>=0.5.5,<0.6",
+      "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANYtk3D"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "build",
+      "requirement": "build>=1.2",
+      "scope": "development",
+      "upstream": "https://github.com/pypa/build"
+    },
+    {
+      "bundled": false,
+      "license_expression": "BSD-3-Clause",
+      "name": "h5py",
+      "requirement": "h5py>=3.15,<4",
+      "scope": "runtime",
+      "upstream": "https://www.h5py.org/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "BSD-3-Clause AND bundled-component-licenses",
+      "name": "numpy",
+      "requirement": "numpy>=1.26",
+      "scope": "runtime",
+      "upstream": "https://numpy.org/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "HPND",
+      "name": "Pillow",
+      "requirement": "Pillow>=10,<13",
+      "scope": "optional:gui",
+      "upstream": "https://python-pillow.github.io/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "platformdirs",
+      "requirement": "platformdirs>=4.5,<5",
+      "scope": "runtime",
+      "upstream": "https://github.com/tox-dev/platformdirs"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "pytest",
+      "requirement": "pytest>=8",
+      "scope": "development",
+      "upstream": "https://pytest.org/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "BSD-3-Clause AND bundled-component-licenses",
+      "name": "scipy",
+      "requirement": "scipy>=1.11",
+      "scope": "runtime",
+      "upstream": "https://scipy.org/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "setuptools",
+      "requirement": "setuptools>=77.0.3",
+      "scope": "build",
+      "upstream": "https://github.com/pypa/setuptools"
+    },
+    {
+      "bundled": false,
+      "license_expression": "Apache-2.0",
+      "name": "twine",
+      "requirement": "twine>=5",
+      "scope": "development",
+      "upstream": "https://twine.readthedocs.io/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "wheel",
+      "requirement": "wheel",
+      "scope": "build",
+      "upstream": "https://github.com/pypa/wheel"
+    }
+  ],
+  "project": "ANYfem",
+  "project_license": "MPL-2.0",
+  "schema": "anyecosystem.dependency-licenses-v1"
+}

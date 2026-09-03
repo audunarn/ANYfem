@@ -1,6 +1,12 @@
 include README.md
+include CHANGELOG.md
 include LICENSE
+include NOTICE
+include THIRD_PARTY_NOTICES.md
+include dependency-licenses.json
 include run_gui.py
+include tools/check_licenses.py
+include tools/check_release_artifacts.py
 recursive-include docs *.md
 prune reports
 global-exclude __pycache__

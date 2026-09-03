@@ -103,7 +103,7 @@ def in_clean_interpreter(script: str) -> str:
         ecosystem / "ANYmaterial" / "src",
         ecosystem / "ANYgeometry" / "src",
         ecosystem / "ANYmesh" / "src",
-        ecosystem / "ANYio" / "src",
+        ecosystem / "ANYfileIO" / "src",
     ]
     environment = os.environ.copy()
     inherited = environment.get("PYTHONPATH")

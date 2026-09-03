@@ -170,6 +170,36 @@ def mesh_semantic_hash(
     mesh_payload = dict(mesh_to_dict(mesh))
     mesh_payload.pop("geometry_model_id", None)
     mesh_payload.pop("geometry_revision", None)
+    # ANYmesher 0.4 records its full preparation provenance in the neutral
+    # mesh.  That block contains the detached working model UUID and hashes
+    # derived from it, so it changes on every otherwise identical mesh job.
+    # The canonicalized preparation report below already carries the
+    # solver-affecting preparation semantics; keep the mesh portion limited to
+    # materialized nodes, elements, associations, and coupling equations.
+    mesh_payload.pop("structural_preparation", None)
+    hybrid_diagnostics = mesh_payload.get("hybrid_diagnostics")
+    if isinstance(hybrid_diagnostics, Mapping):
+        hybrid_diagnostics = dict(hybrid_diagnostics)
+        hybrid_diagnostics.pop("geometry_model_id", None)
+        hybrid_diagnostics.pop("geometry_revision", None)
+        hybrid_diagnostics.pop("structural_preparation_hash", None)
+
+        def without_runtime_timings(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {
+                    key: without_runtime_timings(item)
+                    for key, item in value.items()
+                    if not str(key).endswith("_seconds")
+                }
+            if isinstance(value, list):
+                return [without_runtime_timings(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(without_runtime_timings(item) for item in value)
+            return value
+
+        mesh_payload["hybrid_diagnostics"] = without_runtime_timings(
+            hybrid_diagnostics
+        )
     preparation = dict(structural_preparation or {})
     preparation.pop("working_model_id", None)
     preparation.pop("working_revision", None)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from uuid import uuid4
 
 from anygeometry import ChangeSet, EntityHandle, GeometryModel
@@ -11,8 +10,8 @@ from anyfem.native_meshing import (
     NativeMeshSettings,
     NativeMeshingRuntime,
 )
+from anyfem.mesh_jobs import mesh_semantic_hash
 from anymesher.hybrid import generate_hybrid_mesh
-from anymesher.serialize import mesh_to_dict
 
 
 def test_only_dirty_components_regenerate_and_empty_resolution_is_a_cache_hit() -> None:
@@ -85,7 +84,12 @@ def test_serial_and_concurrent_component_meshing_publish_identical_meshes() -> N
             strategy="native",
             face_ids=(request.component.id,),
         )
-        return json.dumps(mesh_to_dict(mesh), sort_keys=True, separators=(",", ":"))
+        return mesh_semantic_hash(
+            mesh,
+            model_hash="component-model",
+            mesh_input_hash="native-cache-reuse",
+            structural_preparation=mesh.structural_preparation,
+        )
 
     def run(max_background_jobs: int, order):
         runtime = NativeMeshingRuntime(

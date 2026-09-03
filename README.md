@@ -13,7 +13,7 @@ ANYfem owns the application layer across the focused ecosystem packages:
   persistent-ID geometry model, curves, surfaces, topology and serialization.
 - [**ANYmesher**](https://github.com/audunarn/ANYmesh) — neutral meshes,
   mapped decomposition and meshing, refinement and coupling records.
-- [**ANYfileio**](https://github.com/audunarn/ANYio) — SESAM and CalculiX
+- [**ANYfileio**](https://github.com/audunarn/ANYfileIO) — SESAM and CalculiX
   parsing/writing.
 - [**ANY3dView**](https://github.com/audunarn/ANY3dView) — shared viewer
   contracts and the optional ModernGL viewport.
@@ -25,13 +25,13 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
-| ANYmaterial | 0.1.1 | material definitions and nonlinear curves |
-| ANYgeometry | 0.4.0 | exact frozen features, topology, structural ownership and automation contracts |
-| ANYmesher | 0.3.2 | qualified S3 admission, repair, owner-normal authority and mixed-topology provenance |
-| ANYfileio | 0.2.1 | neutral and solver-file semantics |
-| ANY3dView | 0.5.1 | viewer contract and ModernGL renderer |
-| ANYtk3D | 0.5.1 | compatible software renderer |
-| ANYsolver | 0.4.0 | qualified Q4 and S3 V2D defaults, analyses, recovery and provenance |
+| ANYmaterial | 0.2.0 | material definitions and nonlinear curves |
+| ANYgeometry | 0.4.2 | exact frozen features, topology, structural ownership and automation contracts |
+| ANYmesher | 0.4.0 | qualified structured/hybrid meshing, repair and mixed-topology provenance |
+| ANYfileio | 0.3.0 | neutral and solver-file semantics |
+| ANY3dView | 0.5.5 | viewer contract and ModernGL renderer |
+| ANYtk3D | 0.5.5 | compatible software renderer |
+| ANYsolver | 0.4.1 | qualified Q4 and S3 V2D defaults, analyses, recovery and provenance |
 | ANYfem | 0.4.0 | topology-aware shell defaults, migration, meshing, solving and results |
 | ANYbuckling | 0.1.1 | compatible independent buckling adapter |
 | ANYstructure | 6.3.1 | downstream application consumer |
@@ -116,7 +116,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYio[semantics]" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
@@ -124,7 +124,7 @@ so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
 
 The ANYmesher source is selected the same way. The shared `ANYmesh` checkout
-is used whenever it declares version 0.3.1 or newer; newer compatible releases
+is used whenever it declares version 0.4.0 or newer; newer compatible releases
 are not rejected by an obsolete upper version bound. `ANYMESHER_SOURCE` can
 name another compatible checkout. The historical `ANYMESHER_025_SOURCE`
 variable remains accepted for one compatibility cycle. Launcher compatibility
@@ -741,7 +741,7 @@ route can be used; it is not the mapped/native method selector. Shared model
 edges use one node sequence, so automatic mixed-method interfaces remain
 conformal without coincident-node merging. After completion, Mesh details show
 the requested method, the actual method used per face, native backend routes,
-intersection preparation, and ANYmesher 0.3.1 component strategy, alignment,
+intersection preparation, and ANYmesher 0.4.0 component strategy, alignment,
 fallback, global-layout, and quality measures including scaled Jacobian, angle
 range, poor-element count, and optimization provenance.
 
@@ -774,4 +774,9 @@ the representative workstation used for timing acceptance.
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+Starting with version 0.4.0, ANYfem source code is licensed under the
+[Mozilla Public License 2.0](LICENSE). Earlier releases retain the license
+terms that applied when they were published. Original project documentation
+is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
+third-party components retain their own terms as recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
