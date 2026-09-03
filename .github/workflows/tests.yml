@@ -24,30 +24,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
+          ref: 5017827b0e88b4b52d7fee0fad6a1f405e2d33cf
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmaterial
+          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
           path: .ecosystem/ANYmaterial
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
+          ref: dd954f088a4cb95e267280cc4777b09e16232bd9
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
+          ref: 27e428188a891705288fef82bab0b166e330aff2
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
+          ref: b48ba51c7b79e6d64b3f99c1fb131b9b602e7e1d
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
+          ref: 7d36c97dd0dbec8884f8894a4258ece83ad61271
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYtk3D
+          ref: 2caa92325885938c594f27145ed16069d807e364
           path: .ecosystem/ANYtk3D
 
       - uses: actions/setup-python@v5
@@ -64,7 +71,10 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYsolver
           python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
-          python -m pip install -e ".[dev,gui]"
+          # The matrix exercises the supported Tk/headless UI path. ModernGL
+          # backend build coverage belongs to ANY3dView and is not required
+          # for ANYfem's platform-independent GUI contract.
+          python -m pip install -e ".[dev]" "Pillow>=10,<13"
 
       - name: Check source and installed dependency licensing
         run: python tools/check_licenses.py --check-installed
@@ -103,30 +113,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
+          ref: 5017827b0e88b4b52d7fee0fad6a1f405e2d33cf
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmaterial
+          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
           path: .ecosystem/ANYmaterial
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
+          ref: dd954f088a4cb95e267280cc4777b09e16232bd9
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
+          ref: 27e428188a891705288fef82bab0b166e330aff2
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
+          ref: b48ba51c7b79e6d64b3f99c1fb131b9b602e7e1d
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
+          ref: 7d36c97dd0dbec8884f8894a4258ece83ad61271
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYtk3D
+          ref: 2caa92325885938c594f27145ed16069d807e364
           path: .ecosystem/ANYtk3D
 
       - uses: actions/setup-python@v5
