@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          ref: 5017827b0e88b4b52d7fee0fad6a1f405e2d33cf
+          ref: 7322bf6f5b25092908ed41f26554970da4f5643f
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          ref: 5017827b0e88b4b52d7fee0fad6a1f405e2d33cf
+          ref: 7322bf6f5b25092908ed41f26554970da4f5643f
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:

@@ -31,7 +31,7 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 | ANYfileio | 0.3.0 | neutral and solver-file semantics |
 | ANY3dView | 0.5.5 | viewer contract and ModernGL renderer |
 | ANYtk3D | 0.5.5 | compatible software renderer |
-| ANYsolver | 0.4.1 | qualified Q4 and S3 V2D defaults, analyses, recovery and provenance |
+| ANYsolver | 0.4.2 | qualified Q4 and S3 V2D defaults, analyses, recovery and provenance |
 | ANYfem | 0.4.0 | topology-aware shell defaults, migration, meshing, solving and results |
 | ANYbuckling | 0.1.1 | compatible independent buckling adapter |
 | ANYstructure | 6.3.1 | downstream application consumer |

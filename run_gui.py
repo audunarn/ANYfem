@@ -118,7 +118,7 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYmesher", "ANYmesher>=0.4,<0.5", "0.4.0"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5.5,<0.6", "0.5.5"),
     ("ANYtk3D", "ANYtk3D>=0.5.5,<0.6", "0.5.5"),
-    ("ANYsolver", "ANYsolver>=0.4.1,<0.5", "0.4.1"),
+    ("ANYsolver", "ANYsolver>=0.4.2,<0.5", "0.4.2"),
     ("ANYfem", "ANYfem>=0.4,<0.5", "0.4.0"),
 )
 
