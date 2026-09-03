@@ -20,7 +20,7 @@ def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.2.0",
         "ANYgeometry": "0.4.2",
-        "ANYfileio": "0.3.0",
+        "ANYfileio": "0.3.1",
         "ANYmesher": "0.4.0",
         "ANY3dView": "0.5.5",
         "ANYtk3D": "0.5.5",
@@ -125,7 +125,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
-    assert command.index(mesh_project) < command.index("ANYio")
+    assert command.index(mesh_project) < command.index("ANYfileIO")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
     solver_project = str(namespace["_ANYSOLVER_PROJECT"])
     assert command.index(mesh_project) < command.index(tk_project)
@@ -157,5 +157,5 @@ def test_missing_distribution_metadata_is_actionable():
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio>=0.3,<0.4: distribution metadata is missing",
+        "ANYfileio>=0.3.1,<0.4: distribution metadata is missing",
     )

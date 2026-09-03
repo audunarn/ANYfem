@@ -12,7 +12,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYfileio",
-      "requirement": "ANYfileio>=0.3,<0.4",
+      "requirement": "ANYfileio>=0.3.1,<0.4",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYfileIO"
     },

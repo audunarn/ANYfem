@@ -36,7 +36,7 @@ dependencies = [
   "ANYmaterial>=0.2,<0.3",
   "ANYgeometry[planar]>=0.4.2,<0.5",
   "ANYmesher>=0.4,<0.5",
-  "ANYfileio>=0.3,<0.4",
+  "ANYfileio>=0.3.1,<0.4",
   "h5py>=3.15,<4",
   "platformdirs>=4.5,<5",
 ]

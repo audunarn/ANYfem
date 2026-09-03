@@ -77,7 +77,7 @@ _ANYSOLVER_PROJECT = Path(
 _SOURCE_PROJECTS = (
     ("ANYmaterial", "anymaterial", _WORKSPACE / "ANYmaterial" / "src"),
     ("ANYgeometry", "anygeometry", _WORKSPACE / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _WORKSPACE / "ANYio" / "src"),
+    ("ANYfileio", "anyfileio", _WORKSPACE / "ANYfileIO" / "src"),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
@@ -114,7 +114,7 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.2,<0.3", "0.2.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.4.2,<0.5", "0.4.2"),
-    ("ANYfileio", "ANYfileio>=0.3,<0.4", "0.3.0"),
+    ("ANYfileio", "ANYfileio>=0.3.1,<0.4", "0.3.1"),
     ("ANYmesher", "ANYmesher>=0.4,<0.5", "0.4.0"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5.5,<0.6", "0.5.5"),
     ("ANYtk3D", "ANYtk3D>=0.5.5,<0.6", "0.5.5"),
@@ -184,7 +184,7 @@ def editable_repair_command() -> str:
         str(_WORKSPACE / "ANYmaterial"),
         str(_WORKSPACE / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_WORKSPACE / "ANYio"),
+        str(_WORKSPACE / "ANYfileIO"),
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
         str(_ANYSOLVER_PROJECT),
