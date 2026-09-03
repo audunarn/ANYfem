@@ -45,6 +45,7 @@ INSTALLED_LICENSE_ALIASES = {
     "build": {"MIT"},
     "h5py": {"BSD-3-Clause", "BSD License"},
     "numpy": {
+        "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
         "BSD-3-Clause AND bundled-component-licenses",
         "BSD-3-Clause",
         "BSD License",
@@ -110,13 +111,31 @@ def _read_inventory() -> dict[str, object]:
     return inventory
 
 
-def _license_from_metadata(distribution: importlib_metadata.Distribution) -> str:
+def _license_from_metadata(
+    distribution: importlib_metadata.Distribution, *, name: str
+) -> str:
     expression = distribution.metadata.get("License-Expression")
     if expression:
         return expression.strip()
     legacy = distribution.metadata.get("License")
     if legacy and legacy.strip() and legacy.strip().upper() != "UNKNOWN":
-        return legacy.strip()
+        normalized_legacy = legacy.strip()
+        # Current SciPy wheels still publish the complete project and bundled
+        # runtime notices in the legacy License field instead of exposing a
+        # License-Expression.  Recognize that reviewed notice set narrowly;
+        # a missing or changed component marker remains a hard failure.
+        if name == "scipy" and all(
+            marker in normalized_legacy
+            for marker in (
+                "Copyright (c) 2001-2002 Enthought, Inc.",
+                "Name: OpenBLAS",
+                "License: BSD-3-Clause",
+                "Name: GCC runtime library",
+                "GPL-3.0-or-later WITH GCC-exception-3.1",
+            )
+        ):
+            return "BSD-3-Clause AND bundled-component-licenses"
+        return normalized_legacy
     classifiers = distribution.metadata.get_all("Classifier", [])
     for classifier in classifiers:
         if classifier.endswith("MIT License"):
@@ -137,7 +156,7 @@ def _check_installed(rows: list[dict[str, object]]) -> None:
             distribution = importlib_metadata.distribution(str(row["name"]))
         except importlib_metadata.PackageNotFoundError:
             _fail(f"declared dependency {name!r} is not installed")
-        actual = _license_from_metadata(distribution)
+        actual = _license_from_metadata(distribution, name=name)
         if not actual:
             _fail(f"installed dependency {name!r} has unknown license metadata")
         if any(token in actual.upper() for token in FORBIDDEN_LICENSE_TOKENS):
