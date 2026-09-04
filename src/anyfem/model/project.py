@@ -10,6 +10,7 @@ front-end would later call into.
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -202,21 +203,29 @@ class Project:
     def regenerate_geometry_features(self, registry=None):
         """Regenerate features and Sheet ownership as one atomic project edit."""
 
+        working_project = copy(self)
+        working_project.geometry = self.geometry.clone(include_features=True)
+        report = working_project._regenerate_geometry_features_detached(registry)
+        if report.success:
+            self.geometry.restore_design(working_project.geometry.design_snapshot())
+        return report
+
+    def _regenerate_geometry_features_detached(self, registry=None):
+        """Regenerate an already-detached project without another clone.
+
+        Command staging owns the surrounding project clone. Keeping that fact
+        explicit avoids serializing large generated geometry twice while the
+        public method above remains atomic for direct callers.
+        """
+
         from anygeometry.features import RegenerationReport
 
-        # Feature replay is already staged by ANYgeometry, but Sheet joins are
-        # ANYfem-owned intent layered on that materialization.  Qualify both
-        # halves on one detached working copy before publishing either half to
-        # the live document.  In particular, an unresolved persistent anchor
-        # must not advance live topology IDs/revisions and must not require a
-        # compensating restore (whose public allocator contract is monotonic).
-        working = self.geometry.clone(include_features=True)
-        report = working.regenerate_features(registry)
+        report = self.geometry.regenerate_features(registry)
         if not report.success:
             return report
         try:
             reapply_sheet_join_intents(
-                working, self.sheet_join_intents.values()
+                self.geometry, self.sheet_join_intents.values()
             )
         except (GeometryError, ValueError) as error:
             return RegenerationReport(
@@ -228,7 +237,6 @@ class Project:
                     f"ownership: {error}"
                 ),
             )
-        self.geometry.restore_design(working.design_snapshot())
         return report
 
     def singleton_region(

@@ -5,7 +5,11 @@ from __future__ import annotations
 from anyfem import Project
 from anyfem.commands import AddPoint, CommandStack
 from anyfem.ui.app import AnyFemApp
-from anyfem.ui.tree import TREE_ENTITY_ROW_LIMIT, bounded_entity_ids
+from anyfem.ui.tree import (
+    TREE_ENTITY_ROW_LIMIT,
+    bounded_entity_ids,
+    bounded_unowned_entity_ids,
+)
 
 
 class _AppHarness:
@@ -78,3 +82,22 @@ def test_virtual_tree_numeric_jump_uses_index_membership_without_a_scan():
     assert ids.membership_checks == 2
     assert ids.iterations == 0
     assert ids.yielded == 0
+
+
+def test_virtual_tree_skips_collapsed_generated_ids_without_materializing_rest():
+    ids = _CountingIds()
+    generated = frozenset(range(1, 49_991))
+
+    visible = bounded_unowned_entity_ids(ids, generated, limit=5)
+
+    assert visible == [49_991, 49_992, 49_993, 49_994, 49_995]
+    assert ids.iterations == 1
+    assert ids.yielded == 49_995
+
+
+def test_virtual_tree_numeric_jump_does_not_expose_generated_topology():
+    ids = _CountingIds()
+
+    assert bounded_unowned_entity_ids(ids, frozenset({49_999}), "Point 49,999") == []
+    assert ids.membership_checks == 0
+    assert ids.iterations == 0

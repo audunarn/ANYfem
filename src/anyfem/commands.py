@@ -400,7 +400,7 @@ class FeatureCommand(Command):
         working_project = copy(project)
         working_project.geometry = geometry.clone(include_features=True)
         feature_id = int(self.change(working_project))
-        report = working_project.regenerate_geometry_features()
+        report = working_project._regenerate_geometry_features_detached()
         if not report.success:
             raise GeometryError(
                 report.diagnostic or f"feature {feature_id} failed to regenerate"
@@ -828,7 +828,7 @@ class GeometryCommand(Command):
                     parameters=parameters,
                     inputs=inputs,
                 )
-                report = working_project.regenerate_geometry_features()
+                report = working_project._regenerate_geometry_features_detached()
                 if not report.success:
                     raise GeometryError(
                         report.diagnostic
@@ -848,6 +848,9 @@ class GeometryCommand(Command):
                 published = True
                 committed = project.geometry.features.get(pending.feature_id)
                 result = _feature_command_result(self, project.geometry, committed)
+                if isinstance(self, StripFace) and self.section is not None:
+                    for edge_id in result[1]:
+                        project.assign_beam(edge_id, self.section)
             # Splitting a line that carries a load, or a plate that carries a
             # pressure, must not throw the attribute away: it follows onto
             # whatever replaced the entity.

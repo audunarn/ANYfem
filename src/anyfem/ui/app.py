@@ -156,6 +156,7 @@ class AnyFemApp(ttk.Frame):
         self._active_mesh_task_id: Optional[str] = None
         self._mesh_details_record_id: Optional[str] = None
         self._mesh_layout_preview: tuple[Any, Any] | None = None
+        self._geometry_scene_cache: tuple[object, Scene, Scene] | None = None
         self.active_job_id: Optional[str] = None
         self.analysis = "Linear static"
         self.shape_index = 0
@@ -1371,25 +1372,37 @@ class AnyFemApp(ttk.Frame):
         )
         entity_owners = self.tree.generated_entity_owners()
         exposed_features = self.tree.exploded_feature_ids
-        scene = build_geometry_scene(
-            self.project,
-            divisions=resolution.divisions,
-            curve_samples=resolution.curve_samples,
-            show_beam_sections=self.viewport.visualization.show_beam_sections,
-            entity_owners=entity_owners,
-            exposed_feature_ids=exposed_features,
+        cache_key = (
+            id(self.project.geometry),
+            int(self.project.geometry.revision),
+            resolution,
+            bool(self.viewport.visualization.show_beam_sections),
+            tuple(sorted(exposed_features)),
         )
-        interaction_scene = build_geometry_scene(
-            self.project,
-            divisions=resolution.interaction_divisions,
-            curve_samples=resolution.interaction_curve_samples,
-            show_beam_sections=self.viewport.visualization.show_beam_sections,
-            entity_owners=entity_owners,
-            exposed_feature_ids=exposed_features,
-        )
+        cached = self._geometry_scene_cache
+        if cached is None or cached[0] != cache_key:
+            scene = build_geometry_scene(
+                self.project,
+                divisions=resolution.divisions,
+                curve_samples=resolution.curve_samples,
+                show_beam_sections=self.viewport.visualization.show_beam_sections,
+                entity_owners=entity_owners,
+                exposed_feature_ids=exposed_features,
+            )
+            interaction_scene = build_geometry_scene(
+                self.project,
+                divisions=resolution.interaction_divisions,
+                curve_samples=resolution.interaction_curve_samples,
+                show_beam_sections=self.viewport.visualization.show_beam_sections,
+                entity_owners=entity_owners,
+                exposed_feature_ids=exposed_features,
+            )
+            self._geometry_scene_cache = (cache_key, scene, interaction_scene)
+        else:
+            _key, scene, interaction_scene = cached
         self.viewport.show(
-            self._with_attributes(scene),
-            interaction_scene=self._with_attributes(interaction_scene),
+            self._with_attributes(scene.copy()),
+            interaction_scene=self._with_attributes(interaction_scene.copy()),
             reset_view=reset_view,
         )
         self._update_view_label()
@@ -1665,6 +1678,7 @@ class AnyFemApp(ttk.Frame):
     def refresh_all(self) -> None:
         if self._closing or self._refresh_suspended:
             return
+        self._geometry_scene_cache = None
         self.tree.refresh()
         self.refresh_panels()
         self._refresh_toolbar()

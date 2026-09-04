@@ -58,6 +58,20 @@ def test_geometry_scene_covers_every_entity(plate_project):
     assert len(scene.points) == len(points)
 
 
+def test_scene_copy_can_receive_overlays_without_mutating_cached_geometry(
+    plate_project,
+):
+    project, _face, _edges, _points = plate_project
+    cached = build_geometry_scene(project)
+    displayed = cached.copy()
+
+    displayed.lines.clear()
+    displayed.legend = {"title": "temporary"}
+
+    assert cached.lines
+    assert cached.legend is None
+
+
 def test_generated_topology_is_lightweight_until_feature_is_exploded():
     project = Project(name="light generated geometry")
     stack = cmd.CommandStack(project)

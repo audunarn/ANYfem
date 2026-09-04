@@ -249,6 +249,23 @@ class Scene:
     spheres: List["Sphere"] = field(default_factory=list)
     legend: Optional[Dict[str, object]] = None
 
+    def copy(self) -> "Scene":
+        """Return independent draw lists while sharing coordinate payloads.
+
+        Geometry caches reuse large NumPy polygon arrays. Overlays only extend
+        the outer lists, so this avoids mutating the cache without duplicating
+        the coordinate buffers.
+        """
+
+        return Scene(
+            faces=list(self.faces),
+            lines=list(self.lines),
+            points=list(self.points),
+            arrows=list(self.arrows),
+            spheres=list(self.spheres),
+            legend=None if self.legend is None else dict(self.legend),
+        )
+
     def tags(self) -> List[str]:
         return [
             item.tag
@@ -321,6 +338,21 @@ class Scene:
 # ----------------------------------------------------------------------
 # geometry
 # ----------------------------------------------------------------------
+def _face_grid(
+    geometry: GeometryModel,
+    face_id: int,
+    parameters: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    """Evaluate one square UV grid through ANYgeometry's batch API."""
+
+    values = np.asarray(parameters, dtype=float)
+    u, v = np.meshgrid(values, values, indexing="ij")
+    uv = np.column_stack((u.reshape(-1), v.reshape(-1)))
+    return geometry.evaluate_face_many(face_id, uv).reshape(
+        (len(values), len(values), 3)
+    )
+
+
 def face_display_polygons(
     geometry: GeometryModel, face_id: int, divisions: int = DISPLAY_DIVISIONS
 ) -> List[np.ndarray]:
@@ -361,12 +393,7 @@ def face_display_polygons(
         return polygons
 
     parameters = np.linspace(0.0, 1.0, divisions + 1)
-    grid = np.asarray(
-        [
-            [surface_point(geometry, face, float(u), float(v)) for v in parameters]
-            for u in parameters
-        ]
-    )
+    grid = _face_grid(geometry, face_id, parameters)
 
     polygons: List[np.ndarray] = []
     for i in range(divisions):
@@ -1311,13 +1338,8 @@ def entity_sample_points(
             geometry.sample_edge(ref.id, np.linspace(0.15, 0.85, _EDGE_SAMPLES))
         )
     if ref.kind == "face":
-        face = geometry.faces[ref.id]
         steps = np.linspace(0.25, 0.75, _FACE_SAMPLES)
-        return [
-            surface_point(geometry, face, float(u), float(v))
-            for u in steps
-            for v in steps
-        ]
+        return list(_face_grid(geometry, ref.id, steps).reshape((-1, 3)))
     return []
 
 
@@ -1355,15 +1377,8 @@ def _plate_preview_grid(geometry, item, mesh: Optional[Mesh]) -> np.ndarray:
                 [[mesh.nodes[int(node)] for node in row] for row in identifiers],
                 dtype=float,
             )
-    face = geometry.faces[item.ref.id]
     parameters = np.linspace(0.0, 1.0, 13)
-    return np.asarray(
-        [
-            [surface_point(geometry, face, float(u), float(v)) for v in parameters]
-            for u in parameters
-        ],
-        dtype=float,
-    )
+    return _face_grid(geometry, item.ref.id, parameters)
 
 
 def _plate_imperfection_preview(

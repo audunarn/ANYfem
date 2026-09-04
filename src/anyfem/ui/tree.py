@@ -21,6 +21,7 @@ __all__ = [
     "ModelTree",
     "TREE_ENTITY_ROW_LIMIT",
     "bounded_entity_ids",
+    "bounded_unowned_entity_ids",
 ]
 
 
@@ -67,6 +68,43 @@ def bounded_entity_ids(
             present = any(int(identifier) == wanted for identifier in collection)
         return [wanted] if present else []
     return [int(value) for value in islice(iter(collection), limit)]
+
+
+def bounded_unowned_entity_ids(
+    collection: Iterable[object],
+    owned_ids: set[int] | frozenset[int],
+    query: str = "",
+    *,
+    limit: int = TREE_ENTITY_ROW_LIMIT,
+) -> list[int]:
+    """Return a bounded window of independently authored entity IDs.
+
+    Generated topology is normally collapsed below its feature. Filtering it
+    while iterating prevents the tree from materializing every remaining ID,
+    and ensures generated IDs at the beginning of a large mapping do not hide
+    later user-authored entities from the virtualized window.
+    """
+
+    if limit < 0:
+        raise ValueError("tree row limit cannot be negative")
+    normalized = str(query).strip().casefold()
+    digits = "".join(character for character in normalized if character.isdigit())
+    if digits:
+        wanted = int(digits)
+        if wanted in owned_ids:
+            return []
+        try:
+            present = wanted in collection  # type: ignore[operator]
+        except (TypeError, AttributeError):
+            present = any(int(identifier) == wanted for identifier in collection)
+        return [wanted] if present else []
+    return [
+        int(value)
+        for value in islice(
+            (identifier for identifier in collection if int(identifier) not in owned_ids),
+            limit,
+        )
+    ]
 
 
 class ModelTree(ttk.Frame):
@@ -179,12 +217,6 @@ class ModelTree(ttk.Frame):
             for feature_entities in owned_by_feature.values():
                 for identifiers in feature_entities.values():
                     identifiers.sort()
-
-            visible_geometry_ids = {
-                "vertex": set(self._visible_ids(geometry.vertices)),
-                "edge": set(self._visible_ids(geometry.edges)),
-                "face": set(self._visible_ids(geometry.faces)),
-            }
             features = self._group(
                 "features",
                 f"Geometry / Features ({len(feature_records)})",
@@ -373,32 +405,38 @@ class ModelTree(ttk.Frame):
                     ref=item.ref,
                 )
 
-            manual_ids = {
-                kind: tuple(
-                    identifier
-                    for identifier in collection
-                    if EntityRef(kind, identifier) not in entity_owners
-                )
-                for kind, collection in (
-                    ("vertex", geometry.vertices),
-                    ("edge", geometry.edges),
-                    ("face", geometry.faces),
-                )
+            collections = {
+                "vertex": geometry.vertices,
+                "edge": geometry.edges,
+                "face": geometry.faces,
+            }
+            owned_ids = {
+                kind: {
+                    reference.id
+                    for reference in entity_owners
+                    if reference.kind == kind
+                }
+                for kind in collections
             }
             for kind, branch_key, plural in (
                 ("vertex", "points", "User Geometry Points"),
                 ("edge", "lines", "User Geometry Lines"),
                 ("face", "plates", "User Geometry Plates"),
             ):
-                identifiers = manual_ids[kind]
+                collection = collections[kind]
+                generated = owned_ids[kind]
                 branch = self._group(
-                    branch_key, f"{plural} ({len(identifiers)})"
+                    branch_key, f"{plural} ({len(collection) - len(generated)})"
                 )
-                for identifier in identifiers:
-                    if identifier in visible_geometry_ids[kind]:
-                        self._insert_geometry_entity(
-                            branch, EntityRef(kind, identifier), generated=False
-                        )
+                for identifier in bounded_unowned_entity_ids(
+                    collection,
+                    generated,
+                    self._filter_text.get(),
+                    limit=TREE_ENTITY_ROW_LIMIT,
+                ):
+                    self._insert_geometry_entity(
+                        branch, EntityRef(kind, identifier), generated=False
+                    )
 
             supports = self._group(
                 "supports", f"Supports ({len(self.project.supports)})"
@@ -791,13 +829,11 @@ class ModelTree(ttk.Frame):
         """Return the cached exact feature owner of each generated entity."""
 
         geometry = self.project.geometry
-        records = tuple(
-            getattr(getattr(geometry, "features", None), "records", ())
-        )
+        history = getattr(geometry, "features", None)
         cache_key = (
             id(geometry),
             int(getattr(geometry, "revision", 0)),
-            len(records),
+            0 if history is None else len(history),
         )
         if cache_key != self._entity_owner_cache_key:
             self._entity_owner_cache = feature_entity_owners(geometry)
