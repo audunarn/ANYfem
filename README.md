@@ -248,6 +248,10 @@ entities must be inspected or selected; **Collapse generated topology** returns
 to the lightweight representation. Explode/Collapse is a view operation and
 does not modify geometry or stale a mesh.
 
+The authored/composite/modifier classification and exact lineage ownership
+come from ANYgeometry's public `feature_entity_owners()` contract. ANYfem owns
+only the presentation state and grouped viewport rendering.
+
 Interactive point, line and polyline construction uses a session-owned
 `Workplane` resolved from Global or a named Cartesian/cylindrical coordinate
 system. The Geometry Details controls expose plane offset, unit-aware grid and

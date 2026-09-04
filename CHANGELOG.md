@@ -5,7 +5,9 @@
 - Present multi-entity generators as lightweight feature objects: generated
   plates are grouped into one selectable surface, and generated points and
   lines stay hidden until an explicit per-feature Explode action, while exact
-  topology remains available to meshing and saved references.
+  topology remains available to meshing and saved references. Consume
+  ANYgeometry's public topology-role and exact feature-owner contract rather
+  than maintaining a duplicate feature-kind policy in the UI.
 
 ## 0.4.0 - 2026-09-03
 

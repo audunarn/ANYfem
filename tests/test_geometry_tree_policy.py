@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from anygeometry import EntityRef
+from anygeometry import EntityRef, feature_entity_owners
 
 from anyfem import commands as cmd
 from anyfem.model.project import Project
-from anyfem.ui.tree import feature_entity_owners
 
 
 def test_generated_cylinder_topology_belongs_to_its_feature():

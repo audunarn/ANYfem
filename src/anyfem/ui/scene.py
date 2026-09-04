@@ -516,9 +516,7 @@ def build_geometry_scene(
     geometry = project.geometry
     scene = Scene()
     if entity_owners is None:
-        # Local import avoids making the retained scene data depend on Tk at
-        # module import time while reusing the tree's exact lineage policy.
-        from .tree import feature_entity_owners
+        from anygeometry import feature_entity_owners
 
         entity_owners = feature_entity_owners(geometry)
     exposed = {int(identifier) for identifier in exposed_feature_ids}

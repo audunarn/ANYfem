@@ -11,7 +11,7 @@ from itertools import islice
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Dict, Iterable, Mapping, Optional
-from anygeometry.entities import EntityRef
+from anygeometry import EntityRef, feature_entity_owners
 
 from ..model.project import Project
 from ..model.regions import BooleanRegion, QueryRegion, RegionDomain, RegionStatus
@@ -21,70 +21,10 @@ __all__ = [
     "ModelTree",
     "TREE_ENTITY_ROW_LIMIT",
     "bounded_entity_ids",
-    "feature_entity_owners",
 ]
 
 
 TREE_ENTITY_ROW_LIMIT = 2000
-
-_GEOMETRY_COLLECTION_NAMES = {
-    "vertex": "vertices",
-    "edge": "edges",
-    "face": "faces",
-}
-
-# Public point/curve/plate construction is feature-recorded for regeneration,
-# but those records describe geometry the user authored directly. Their output
-# rows remain peers in the user-geometry branches. Multi-entity generators and
-# modelling operations own subordinate, automatically created topology.
-_DIRECT_USER_GEOMETRY_FEATURES = {
-    "geometry.point",
-    "geometry.line",
-    "geometry.arc",
-    "geometry.polyline",
-    "geometry.face",
-    "geometry.plate",
-}
-
-
-def feature_entity_owners(geometry: object) -> dict[EntityRef, int]:
-    """Map current topology to the feature that originally created it.
-
-    Feature outputs are persistent design identities. Resolving their exact
-    replacement lineage lets a regenerated or partitioned entity remain below
-    its original user-authored feature without relying on names or geometric
-    proximity. Records are considered in monotonic feature-ID order and the
-    first producer wins, so a later modifier does not move a cylinder plate to
-    a top-level ``Reverse normal`` or ``Split`` feature.
-
-    Geometry made directly through point/line/plate commands has no feature
-    output owner and is intentionally absent from the returned mapping.
-    """
-
-    history = getattr(geometry, "features", None)
-    records = tuple(getattr(history, "records", ()))
-    owners: dict[EntityRef, int] = {}
-    for record in sorted(records, key=lambda item: int(item.feature_id)):
-        if str(record.kind) in _DIRECT_USER_GEOMETRY_FEATURES:
-            continue
-        feature_id = int(record.feature_id)
-        for output in record.outputs.values():
-            if output.kind not in _GEOMETRY_COLLECTION_NAMES:
-                continue
-            try:
-                current_outputs = tuple(geometry.resolve_ref(output))
-            except (AttributeError, KeyError, TypeError, ValueError):
-                current_outputs = ()
-            for current in current_outputs:
-                if current.kind not in _GEOMETRY_COLLECTION_NAMES:
-                    continue
-                collection = getattr(
-                    geometry, _GEOMETRY_COLLECTION_NAMES[current.kind], ()
-                )
-                if current.id in collection:
-                    owners.setdefault(current, feature_id)
-    return owners
-
 
 def _vector_text(values: Iterable[float]) -> str:
     return "(" + ", ".join(f"{float(value):g}" for value in values) + ")"
