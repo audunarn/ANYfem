@@ -1369,17 +1369,23 @@ class AnyFemApp(ttk.Frame):
             self.project.geometry,
             self.viewport.visualization.geometry_detail,
         )
+        entity_owners = self.tree.generated_entity_owners()
+        exposed_features = self.tree.exploded_feature_ids
         scene = build_geometry_scene(
             self.project,
             divisions=resolution.divisions,
             curve_samples=resolution.curve_samples,
             show_beam_sections=self.viewport.visualization.show_beam_sections,
+            entity_owners=entity_owners,
+            exposed_feature_ids=exposed_features,
         )
         interaction_scene = build_geometry_scene(
             self.project,
             divisions=resolution.interaction_divisions,
             curve_samples=resolution.interaction_curve_samples,
             show_beam_sections=self.viewport.visualization.show_beam_sections,
+            entity_owners=entity_owners,
+            exposed_feature_ids=exposed_features,
         )
         self.viewport.show(
             self._with_attributes(scene),
@@ -1436,7 +1442,10 @@ class AnyFemApp(ttk.Frame):
                     draw_overlay=True,
                 )
             )
-        scene = build_geometry_scene(self.project)
+        scene = build_geometry_scene(
+            self.project,
+            exposed_feature_ids=self.tree.exploded_feature_ids,
+        )
         scene.merge(overlay)
         self._mesh_layout_preview = (plan, report)
         self._view_mode = "mesh-layout-preview"
@@ -1758,6 +1767,26 @@ class AnyFemApp(ttk.Frame):
             return
         if action == "delete":
             self._delete_tree_items(keys)
+            return
+        if action == "explode":
+            if not all(key.startswith("feature:") for key in keys):
+                self.set_status(
+                    "Explode applies to geometry feature rows only",
+                    error=True,
+                )
+                return
+            try:
+                exposed = self.tree.toggle_feature_topology(
+                    int(key.split(":", 1)[1]) for key in keys
+                )
+            except ValueError as error:
+                self.set_status(str(error), error=True)
+                return
+            self.show_geometry()
+            self.set_status(
+                f"{'exposed' if exposed else 'collapsed'} generated topology "
+                f"for {len(keys)} feature(s); geometry was not changed"
+            )
             return
         key = keys[0]
         prefix = key.split(":", 1)[0]
@@ -2827,6 +2856,7 @@ class AnyFemApp(ttk.Frame):
         self.mesh_task_manager = MeshTaskManager()
         self.worker = JobWorkerFacade(self.job_manager)
         self.tree.project = project
+        self.tree.reset_feature_exposure()
         self.imported = imported
         self.path = path
         self.mesh = None

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Present multi-entity generators as lightweight feature objects: generated
+  plates are grouped into one selectable surface, and generated points and
+  lines stay hidden until an explicit per-feature Explode action, while exact
+  topology remains available to meshing and saved references.
+
 ## 0.4.0 - 2026-09-03
 
 - Relicense source releases from 0.4.0 onward under MPL-2.0; earlier releases

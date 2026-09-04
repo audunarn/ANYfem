@@ -12,6 +12,7 @@ import pytest
 from anygeometry import punch_hole
 
 from anyfem import BeamSection, Project, pinned, solve_linear_static, steel
+from anyfem import commands as cmd
 from anyfem.model import member_bow, plate_mode
 from anyfem.post.fields import Field
 from anyfem.geometry.entities import EntityRef
@@ -55,6 +56,38 @@ def test_geometry_scene_covers_every_entity(plate_project):
     assert len(scene.faces) == 1
     assert len(scene.lines) == len(edges)
     assert len(scene.points) == len(points)
+
+
+def test_generated_topology_is_lightweight_until_feature_is_exploded():
+    project = Project(name="light generated geometry")
+    stack = cmd.CommandStack(project)
+    manual_point = stack.run(cmd.AddPoint(3.0, 0.0, 0.0))
+    cylinder = stack.run(
+        cmd.AddCylinder(1.0, 2.0, circumferential_segments=8)
+    )
+
+    collapsed = build_geometry_scene(project)
+
+    # Exact generated faces remain visible as one feature-level surface, while
+    # implementation-level vertices and edges do not become retained draw
+    # objects by default. Picking that surface targets the complete feature.
+    assert len(collapsed.faces) == 1
+    assert collapsed.faces[0].owners == tuple(
+        EntityRef("face", face_id) for face_id in project.geometry.faces
+    )
+    assert len(collapsed.faces[0].polygons) == 32
+    assert not collapsed.lines
+    assert [marker.ref for marker in collapsed.points] == [
+        EntityRef("vertex", manual_point)
+    ]
+
+    exploded = build_geometry_scene(
+        project, exposed_feature_ids=(cylinder.feature_id,)
+    )
+    assert len(exploded.faces) == len(project.geometry.faces)
+    assert len(exploded.lines) == len(project.geometry.edges)
+    assert len(exploded.points) == len(project.geometry.vertices)
+    assert sum(len(patch.polygons) for patch in exploded.faces) == 512
 
 
 def test_flat_geometry_uses_native_display_complexity(plate_project):

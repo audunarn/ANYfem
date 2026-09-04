@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Sequence, TypeVar
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
 from anygeometry.curves import Straight
@@ -502,30 +502,78 @@ def build_geometry_scene(
     curve_samples: int = 24,
     show_points: bool = True,
     show_beam_sections: bool = True,
+    entity_owners: Optional[Mapping[EntityRef, int]] = None,
+    exposed_feature_ids: Iterable[int] = (),
 ) -> Scene:
-    """Draw the model as modelled: points, lines, plates."""
+    """Draw user geometry plus the surfaces of generated features.
+
+    Generator topology remains exact in the geometry model.  Its auxiliary
+    points and lines are presentation details and are omitted until the owning
+    feature is explicitly exploded.  Assigned beam edges remain visible
+    because they represent structural members rather than construction lines.
+    """
 
     geometry = project.geometry
     scene = Scene()
+    if entity_owners is None:
+        # Local import avoids making the retained scene data depend on Tk at
+        # module import time while reusing the tree's exact lineage policy.
+        from .tree import feature_entity_owners
 
+        entity_owners = feature_entity_owners(geometry)
+    exposed = {int(identifier) for identifier in exposed_feature_ids}
+
+    collapsed_face_patches: dict[int, FacePatch] = {}
+    collapsed_face_owners: dict[int, list[EntityRef]] = {}
     for face_id in sorted(geometry.faces):
+        face_ref = EntityRef("face", face_id)
+        feature_id = entity_owners.get(face_ref)
+        collapsed_feature = feature_id is not None and feature_id not in exposed
         flat_polygon = _flat_four_edge_polygon(geometry, face_id)
         polygons = (
             [flat_polygon]
             if flat_polygon is not None
-            else face_display_polygons(geometry, face_id, divisions)
+            else face_display_polygons(
+                geometry,
+                face_id,
+                min(divisions, 2) if collapsed_feature else divisions,
+            )
         )
+        if collapsed_feature:
+            # A collapsed generator is one semantic surface.  Retain all exact
+            # face owners on that surface so selecting it applies to the
+            # complete cylinder/cone/panel; Explode restores per-face picking.
+            patch = collapsed_face_patches.get(feature_id)
+            if patch is None:
+                patch = FacePatch(
+                    ref=face_ref,
+                    polygons=[],
+                    colors=[],
+                    outline="",
+                )
+                collapsed_face_patches[feature_id] = patch
+                collapsed_face_owners[feature_id] = []
+                scene.faces.append(patch)
+            patch.polygons.extend(polygons)
+            patch.colors.extend([COLOR_PLATE] * len(polygons))
+            collapsed_face_owners[feature_id].append(face_ref)
+            continue
         scene.faces.append(
             FacePatch(
-                ref=EntityRef("face", face_id),
+                ref=face_ref,
                 polygons=polygons,
                 colors=[COLOR_PLATE] * len(polygons),
                 outline="",
             )
         )
+    for feature_id, patch in collapsed_face_patches.items():
+        patch.owners = tuple(collapsed_face_owners[feature_id])
 
     for edge_id in sorted(geometry.edges):
         is_beam = edge_id in project.edge_sections
+        feature_id = entity_owners.get(EntityRef("edge", edge_id))
+        if feature_id is not None and feature_id not in exposed and not is_beam:
+            continue
         samples = (
             2
             if isinstance(geometry.edges[edge_id].curve, Straight)
@@ -559,6 +607,9 @@ def build_geometry_scene(
 
     if show_points:
         for vertex_id in sorted(geometry.vertices):
+            feature_id = entity_owners.get(EntityRef("vertex", vertex_id))
+            if feature_id is not None and feature_id not in exposed:
+                continue
             scene.points.append(
                 PointMarker(
                     ref=EntityRef("vertex", vertex_id),

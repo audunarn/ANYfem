@@ -10,7 +10,7 @@ from __future__ import annotations
 from itertools import islice
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable, Dict, Iterable, Optional
+from typing import Callable, Dict, Iterable, Mapping, Optional
 from anygeometry.entities import EntityRef
 
 from ..model.project import Project
@@ -153,6 +153,13 @@ class ModelTree(ttk.Frame):
             Callable[[str, tuple[str, ...]], None]
         ] = None
         self._filter_text = tk.StringVar(value="")
+        # Generated topology is an implementation detail of its user-authored
+        # feature until the user explicitly asks to inspect it.  This state is
+        # presentation-only: exploding a row never mutates geometry, changes
+        # persistent IDs, or makes a mesh stale.
+        self._exploded_feature_ids: set[int] = set()
+        self._entity_owner_cache: dict[EntityRef, int] = {}
+        self._entity_owner_cache_key: tuple[int, int, int] | None = None
         self._job_is_stale = job_is_stale or (lambda _job: False)
         self._mesh_is_stale = mesh_is_stale or (lambda _mesh: False)
 
@@ -197,23 +204,38 @@ class ModelTree(ttk.Frame):
                 f"{profile.symbol('pressure')}]",
             )
 
-            feature_records = getattr(
-                getattr(geometry, "features", None), "records", ()
+            feature_records = tuple(
+                getattr(
+                    getattr(geometry, "features", None), "records", ()
+                )
             )
-            entity_owners = feature_entity_owners(geometry)
-            owned_by_feature: dict[int, dict[str, list[int]]] = {
+            active_feature_ids = {
+                int(feature.feature_id) for feature in feature_records
+            }
+            self._exploded_feature_ids.intersection_update(active_feature_ids)
+            entity_owners = self.generated_entity_owners()
+            topology_count_by_feature: dict[int, dict[str, int]] = {
                 int(feature.feature_id): {
-                    "vertex": [],
-                    "edge": [],
-                    "face": [],
+                    "vertex": 0,
+                    "edge": 0,
+                    "face": 0,
                 }
                 for feature in feature_records
             }
+            owned_by_feature: dict[int, dict[str, list[int]]] = {
+                feature_id: {"vertex": [], "edge": [], "face": []}
+                for feature_id in self._exploded_feature_ids
+            }
             for reference, feature_id in entity_owners.items():
-                owned_by_feature.setdefault(
+                topology_count_by_feature.setdefault(
                     feature_id,
-                    {"vertex": [], "edge": [], "face": []},
-                )[reference.kind].append(reference.id)
+                    {"vertex": 0, "edge": 0, "face": 0},
+                )[reference.kind] += 1
+                if feature_id in self._exploded_feature_ids:
+                    owned_by_feature.setdefault(
+                        feature_id,
+                        {"vertex": [], "edge": [], "face": []},
+                    )[reference.kind].append(reference.id)
             for feature_entities in owned_by_feature.values():
                 for identifiers in feature_entities.values():
                     identifiers.sort()
@@ -229,14 +251,45 @@ class ModelTree(ttk.Frame):
             )
             for feature in feature_records:
                 status = "suppressed" if feature.suppressed else feature.state
-                feature_row = self._leaf(
-                    features,
-                    f"feature:{feature.feature_id}",
-                    f"{feature.name}   [{status}]",
-                )
                 feature_entities = owned_by_feature.get(
                     int(feature.feature_id), {}
                 )
+                feature_counts = (
+                    (
+                        "plates",
+                        topology_count_by_feature[int(feature.feature_id)]["face"],
+                    ),
+                    (
+                        "lines",
+                        topology_count_by_feature[int(feature.feature_id)]["edge"],
+                    ),
+                    (
+                        "points",
+                        topology_count_by_feature[int(feature.feature_id)]["vertex"],
+                    ),
+                )
+                topology_summary = ", ".join(
+                    f"{count} {label}"
+                    for label, count in feature_counts
+                    if count
+                )
+                exposure = (
+                    "exploded"
+                    if int(feature.feature_id) in self._exploded_feature_ids
+                    else "internal"
+                )
+                suffix = (
+                    f"   {topology_summary} [{exposure}]"
+                    if topology_summary
+                    else ""
+                )
+                feature_row = self._leaf(
+                    features,
+                    f"feature:{feature.feature_id}",
+                    f"{feature.name}   [{status}]{suffix}",
+                )
+                if int(feature.feature_id) not in self._exploded_feature_ids:
+                    continue
                 for kind, plural in (
                     ("vertex", "Generated Points"),
                     ("edge", "Generated Lines"),
@@ -250,11 +303,14 @@ class ModelTree(ttk.Frame):
                         f"generated_{feature.feature_id}_{kind}",
                         f"{plural} ({len(identifiers)})",
                     )
-                    for identifier in identifiers:
-                        if identifier in visible_geometry_ids[kind]:
-                            self._insert_geometry_entity(
-                                branch, EntityRef(kind, identifier), generated=True
-                            )
+                    for identifier in bounded_entity_ids(
+                        identifiers,
+                        self._filter_text.get(),
+                        limit=TREE_ENTITY_ROW_LIMIT,
+                    ):
+                        self._insert_geometry_entity(
+                            branch, EntityRef(kind, identifier), generated=True
+                        )
 
             coordinates = self._group(
                 "coordinates",
@@ -785,12 +841,112 @@ class ModelTree(ttk.Frame):
 
         self._action_handler = callback
 
+    @property
+    def exploded_feature_ids(self) -> frozenset[int]:
+        """Feature IDs whose generated topology is exposed in this view."""
+
+        return frozenset(self._exploded_feature_ids)
+
+    def generated_entity_owners(self) -> Mapping[EntityRef, int]:
+        """Return the cached exact feature owner of each generated entity."""
+
+        geometry = self.project.geometry
+        records = tuple(
+            getattr(getattr(geometry, "features", None), "records", ())
+        )
+        cache_key = (
+            id(geometry),
+            int(getattr(geometry, "revision", 0)),
+            len(records),
+        )
+        if cache_key != self._entity_owner_cache_key:
+            self._entity_owner_cache = feature_entity_owners(geometry)
+            self._entity_owner_cache_key = cache_key
+        return self._entity_owner_cache
+
+    def reset_feature_exposure(self) -> None:
+        """Collapse generated topology when the tree adopts another project."""
+
+        self._exploded_feature_ids.clear()
+        self._entity_owner_cache.clear()
+        self._entity_owner_cache_key = None
+        self._open_state = {
+            key: value
+            for key, value in self._open_state.items()
+            if not key.startswith("feature:")
+            and not key.startswith("generated_")
+        }
+
+    def toggle_feature_topology(self, feature_ids: Iterable[int]) -> bool:
+        """Explode or collapse feature children without changing the model.
+
+        A mixed selection is exploded as a group.  Selecting only already
+        exploded features collapses them.  The return value is the new common
+        exposure state.
+        """
+
+        identifiers = {
+            int(identifier)
+            for identifier in feature_ids
+            if int(identifier) > 0
+        }
+        if not identifiers:
+            raise ValueError("select at least one geometry feature to explode")
+        active = {
+            int(record.feature_id)
+            for record in getattr(
+                getattr(self.project.geometry, "features", None), "records", ()
+            )
+        }
+        missing = identifiers - active
+        if missing:
+            raise ValueError(
+                "geometry feature(s) no longer exist: "
+                + ", ".join(map(str, sorted(missing)))
+            )
+        expose = not identifiers.issubset(self._exploded_feature_ids)
+        if expose:
+            self._exploded_feature_ids.update(identifiers)
+        else:
+            self._exploded_feature_ids.difference_update(identifiers)
+        self.refresh()
+        for identifier in identifiers:
+            row = f"feature:{identifier}"
+            if self.tree.exists(row):
+                self.tree.item(row, open=expose)
+            self._open_state[row] = expose
+            for kind in ("vertex", "edge", "face"):
+                branch = f"generated_{identifier}_{kind}"
+                if self.tree.exists(branch):
+                    self.tree.item(branch, open=expose)
+                self._open_state[branch] = expose
+        return expose
+
     def _context_menu(self, event: tk.Event) -> None:
         row = self.tree.identify_row(event.y)
         if row and row not in self.tree.selection():
             self.tree.selection_set(row)
         menu = tk.Menu(self, tearoff=False)
-        selected_count = len(self.tree.selection())
+        selected_rows = tuple(self.tree.selection())
+        selected_count = len(selected_rows)
+        selected_features = tuple(
+            int(row.split(":", 1)[1])
+            for row in selected_rows
+            if row.startswith("feature:")
+        )
+        if selected_features and len(selected_features) == selected_count:
+            all_exploded = set(selected_features).issubset(
+                self._exploded_feature_ids
+            )
+            menu.add_command(
+                label=(
+                    "Collapse generated topology"
+                    if all_exploded
+                    else "Explode generated topology"
+                ),
+                command=lambda: self._invoke("explode"),
+            )
+            menu.add_separator()
         for label, action in (
             ("Edit", "edit"),
             ("Rename", "rename"),

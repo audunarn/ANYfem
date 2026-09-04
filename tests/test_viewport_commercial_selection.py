@@ -295,6 +295,36 @@ def test_scene_primitives_carry_geometry_owners_and_points_are_batched(
     assert viewport.canvas.box_calls == []
 
 
+def test_collapsed_feature_surface_retains_every_generated_face_owner(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+    owners = (EntityRef("face", 7), EntityRef("face", 8))
+    viewport.show(
+        Scene(
+            faces=[
+                FacePatch(
+                    ref=owners[0],
+                    polygons=[
+                        np.asarray(
+                            [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]],
+                            dtype=float,
+                        )
+                    ],
+                    colors=["#7799bb"],
+                    owners=owners,
+                )
+            ]
+        )
+    )
+
+    binding = viewport.canvas.face_calls[0][1]["bindings"]
+    assert binding.owners == (
+        PickOwner("ent_face7", "geometry.face", 10),
+        PickOwner("ent_face8", "geometry.face", 10),
+    )
+
+
 def test_geometry_face_patches_are_batched_without_losing_pick_owners(
     monkeypatch,
 ) -> None:

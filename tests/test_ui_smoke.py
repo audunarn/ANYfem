@@ -488,10 +488,25 @@ def test_generated_geometry_is_nested_under_its_user_feature(app, root):
     face_row = f"ent_face{face.id}"
     face_branch = f"generated_{cylinder.feature_id}_face"
 
-    assert app.tree.tree.parent(face_branch) == feature_row
-    assert app.tree.tree.parent(face_row) == face_branch
+    assert not app.tree.tree.exists(face_branch)
+    assert not app.tree.tree.exists(face_row)
+    assert "8 plates" in app.tree.tree.item(feature_row, "text")
+    assert "[internal]" in app.tree.tree.item(feature_row, "text")
     assert app.tree.tree.parent(f"ent_vertex{manual_point}") == "points"
     assert "User Geometry Points (1)" == app.tree.tree.item("points", "text")
+
+    app._tree_action("explode", (feature_row,))
+    root.update()
+
+    assert app.tree.tree.parent(face_branch) == feature_row
+    assert app.tree.tree.parent(face_row) == face_branch
+    assert "[exploded]" in app.tree.tree.item(feature_row, "text")
+    assert cylinder.feature_id in app.tree.exploded_feature_ids
+
+    app._tree_action("explode", (feature_row,))
+    root.update()
+    assert not app.tree.tree.exists(face_branch)
+    assert cylinder.feature_id not in app.tree.exploded_feature_ids
 
 
 def test_full_workflow_geometry_to_results(app, root):

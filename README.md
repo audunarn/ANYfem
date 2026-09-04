@@ -237,6 +237,17 @@ session = DocumentSession(project)
 session.execute(feature)  # one atomic undo item
 ```
 
+Multi-entity generators such as cylinders, cones, and stiffened panels appear
+as one user-authored feature in the model tree and as one selectable surface in
+the viewport. Their exact generated plates, lines, and points remain available
+to geometry, meshing, and saved-project references, but are treated as internal
+topology by default. Selecting the collapsed surface targets all of its plates,
+and curved display tessellation is kept coarse while collapsed. Use **Explode
+generated topology** on a feature when individual subplates or construction
+entities must be inspected or selected; **Collapse generated topology** returns
+to the lightweight representation. Explode/Collapse is a view operation and
+does not modify geometry or stale a mesh.
+
 Interactive point, line and polyline construction uses a session-owned
 `Workplane` resolved from Global or a named Cartesian/cylindrical coordinate
 system. The Geometry Details controls expose plane offset, unit-aware grid and
