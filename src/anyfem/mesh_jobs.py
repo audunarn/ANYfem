@@ -45,6 +45,28 @@ def clone_mesh_for_job(mesh: Any) -> Any:
     return mesh_from_dict(mesh_to_dict(mesh))
 
 
+def _exception_diagnostic(error: BaseException) -> dict[str, Any]:
+    """Preserve public structured evidence exposed by a meshing error."""
+
+    payload: dict[str, Any] = {
+        "type": type(error).__name__,
+        "message": str(error),
+        "traceback": traceback.format_exc(),
+    }
+    provider = getattr(error, "to_diagnostic", None)
+    if callable(provider):
+        try:
+            details = provider()
+        except BaseException as diagnostic_error:  # noqa: BLE001
+            payload["diagnostic_error"] = (
+                f"{type(diagnostic_error).__name__}: {diagnostic_error}"
+            )
+        else:
+            if isinstance(details, Mapping):
+                payload["details"] = dict(details)
+    return payload
+
+
 @dataclass(frozen=True)
 class MeshSettings:
     """All explicit inputs needed to reproduce one mesh submission."""
@@ -442,11 +464,7 @@ class MeshTaskManager:
                         job_id,
                         "failed",
                         str(error),
-                        {
-                            "type": type(error).__name__,
-                            "message": str(error),
-                            "traceback": traceback.format_exc(),
-                        },
+                        _exception_diagnostic(error),
                     )
                 )
             return

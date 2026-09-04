@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from queue import Empty, Queue
 from threading import Thread
+import json
 import tkinter as tk
 import traceback
 from tkinter import colorchooser, filedialog, ttk
@@ -2308,6 +2309,51 @@ class MeshPanel(StagePanel):
                     else str(diagnostic)
                 )
                 lines.append(f"error: {message}")
+                details = (
+                    diagnostic.get("details")
+                    if isinstance(diagnostic, Mapping)
+                    else None
+                )
+                admission = (
+                    details.get("admission")
+                    if isinstance(details, Mapping)
+                    else None
+                )
+                if isinstance(admission, Mapping):
+                    total = int(admission.get("element_count", 0))
+                    failing = int(admission.get("failing_element_count", 0))
+                    topology = admission.get("topology_violations", ())
+                    lines.append(
+                        f"qualified S3 admission: {failing}/{total} "
+                        "triangle(s) failed"
+                    )
+                    if isinstance(topology, (list, tuple)) and topology:
+                        lines.append(
+                            f"topology violations: {len(topology)}; "
+                            f"first: {topology[0]}"
+                        )
+                    failing_elements = admission.get("failing_elements", ())
+                    if (
+                        isinstance(failing_elements, (list, tuple))
+                        and failing_elements
+                        and isinstance(failing_elements[0], Mapping)
+                    ):
+                        first = failing_elements[0]
+                        violations = first.get("violations", ())
+                        lines.append(
+                            f"first failing triangle {first.get('element_id')}: "
+                            + "; ".join(str(item) for item in violations)
+                        )
+                repair = (
+                    details.get("repair")
+                    if isinstance(details, Mapping)
+                    else None
+                )
+                if isinstance(repair, Mapping):
+                    lines.append(
+                        f"qualified S3 repair attempts: "
+                        f"{int(repair.get('attempt_count', 0))}"
+                    )
         if mesh is not None:
             beams = "3-node" if mesh.is_quadratic else "2-node"
             lines.extend(
@@ -2325,6 +2371,26 @@ class MeshPanel(StagePanel):
             self.app.set_status("no mesh diagnosis is available")
             return
         payload = "ANYfem mesh diagnosis\n\n" + report + "\n"
+        record_id = (
+            getattr(self.app, "_active_mesh_task_id", None)
+            or getattr(self.app, "_mesh_details_record_id", None)
+            or getattr(self.app, "mesh_record_id", None)
+        )
+        record = self.app.project.mesh_records.get(record_id or "")
+        if record is None and self.app.project.mesh_records:
+            record = next(reversed(self.app.project.mesh_records.values()))
+        if record is not None and record.diagnostics:
+            payload += (
+                "\nStructured error evidence\n"
+                + json.dumps(
+                    record.diagnostics[-1],
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    default=str,
+                )
+                + "\n"
+            )
         try:
             self.app.clipboard.copy_text(payload)
         except tk.TclError as error:

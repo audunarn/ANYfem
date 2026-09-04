@@ -207,6 +207,66 @@ def test_background_mesh_error_is_retained_in_details(app, root, monkeypatch):
     assert "deliberately invalid" in app.panels["Mesh"]._stats["text"]
 
 
+def test_mesh_error_public_diagnostic_is_retained_headlessly():
+    from anyfem.mesh_jobs import _exception_diagnostic
+
+    class DetailedError(ValueError):
+        def to_diagnostic(self):
+            return {"schema": "test.mesh-error-v1", "failing_elements": 3}
+
+    try:
+        raise DetailedError("mesh rejected")
+    except DetailedError as error:
+        payload = _exception_diagnostic(error)
+
+    assert payload["type"] == "DetailedError"
+    assert payload["message"] == "mesh rejected"
+    assert payload["details"] == {
+        "schema": "test.mesh-error-v1",
+        "failing_elements": 3,
+    }
+    assert "DetailedError: mesh rejected" in payload["traceback"]
+
+
+def test_background_mesh_retains_public_structured_error_evidence(
+    app, root, monkeypatch
+):
+    _plate(app)
+
+    class QualifiedMeshError(ValueError):
+        def to_diagnostic(self):
+            return {
+                "schema": "test.qualified-mesh-error-v1",
+                "admission": {
+                    "element_count": 12,
+                    "failing_element_count": 2,
+                    "topology_violations": [],
+                    "failing_elements": [
+                        {
+                            "element_id": 7,
+                            "violations": ["minimum angle 12 is below 30 degrees"],
+                        }
+                    ],
+                },
+                "repair": {"attempt_count": 4, "attempts": []},
+            }
+
+    def broken_mesh(_project, *_args, **_kwargs):
+        raise QualifiedMeshError("qualified mesh rejected")
+
+    monkeypatch.setattr(Project, "generate_mesh", broken_mesh)
+    record = app.generate_mesh_async(0.25)
+    _wait(root, lambda: record.status == "failed")
+
+    details = record.diagnostics[-1]["details"]
+    assert details["schema"] == "test.qualified-mesh-error-v1"
+    assert details["admission"]["failing_element_count"] == 2
+    text = app.panels["Mesh"]._stats["text"]
+    assert "qualified S3 admission: 2/12 triangle(s) failed" in text
+    assert "first failing triangle 7" in text
+    assert "qualified S3 repair attempts: 4" in text
+
+
 def test_terminal_job_log_is_written_off_thread_and_survives_save_as(
     app, root, monkeypatch, tmp_path: Path
 ):
