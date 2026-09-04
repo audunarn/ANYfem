@@ -121,7 +121,7 @@ def test_wrappers_forward_cancellation_and_structured_progress(
             completed=1,
             total=2,
             metadata={
-                "step_index": 1,
+                "increment": 1,
                 "load_factor": 0.5,
                 "load_increment": 0.05,
             },
@@ -264,14 +264,16 @@ def test_adaptive_increment_never_formats_nominal_steps_as_a_false_bound():
     callback(
         anysolver.ProgressEvent(
             "nonlinear_static_step",
-            phase="nonlinear_static.force",
-            control="load_factor",
-            control_value=0.6896,
-            control_target=1.0,
-            increment=1460,
-            increment_total=10,
+            "nonlinear_static.force",
             iteration=7,
-            residual=7.43e-8,
+            metadata={
+                "control": "load_factor",
+                "control_value": 0.6896,
+                "control_target": 1.0,
+                "increment": 1460,
+                "increment_total": 10,
+                "residual": 7.43e-8,
+            },
         )
     )
 
