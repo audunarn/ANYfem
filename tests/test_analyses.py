@@ -371,6 +371,32 @@ def test_buckling_resource_policy_covers_both_solver_stages(
         assert observed == {"linear": "omitted", "buckling": "omitted"}
 
 
+def test_buckling_reuses_static_stiffness_assembly(monkeypatch):
+    """The prestress solve and eigensolve share one immutable stiffness plan."""
+
+    import anysolver.matrix_assembly as matrix_assembly
+
+    project, _section, _start, _end = strut_project()
+    original = matrix_assembly.assemble_stiffness_matrix
+    calls = 0
+
+    def recording_assembly(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        matrix_assembly,
+        "assemble_stiffness_matrix",
+        recording_assembly,
+    )
+
+    solution = solve_buckling(project, target_size=0.5, num_modes=1)
+
+    assert solution.status == "ok"
+    assert calls == 1
+
+
 # ----------------------------------------------------------------------
 # nonlinear static
 # ----------------------------------------------------------------------

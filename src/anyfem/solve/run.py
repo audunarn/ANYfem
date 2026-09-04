@@ -329,10 +329,13 @@ def solve_buckling(
     displacement path.  Prestress therefore always comes from solving the
     actual affine static problem first.  That solve, and recovery of its
     stresses into element states, are the solver's own -- this only sequences
-    them.
+    them.  A revision-aware analysis session is shared between the static and
+    buckling stages so unchanged assembly work can be reused.  Callers may
+    supply ``session=...`` and retain ownership of that session.
     """
 
     from anysolver import (
+        AnalysisSession,
         recover_prestress_from_static_result,
         solve_eigenvalue_buckling,
         solve_linear,
@@ -353,31 +356,43 @@ def solve_buckling(
     reference_options = {}
     if "resource_config" in solver_options:
         reference_options["resource_config"] = solver_options["resource_config"]
+    supplied_session = solver_options.pop("session", None)
+    analysis_session = (
+        AnalysisSession(built.fe_model)
+        if supplied_session is None
+        else supplied_session
+    )
+    reference_options["session"] = analysis_session
     structured_progress = solver_options.pop("progress_callback", None)
-    displacements, _info = solve_linear(
-        built.fe_model,
-        built.load_case,
-        cancellation_token=cancellation_token,
-        progress_callback=_step_reporter(progress, "buckling reference solve"),
-        **reference_options,
-    )
+    try:
+        displacements, _info = solve_linear(
+            built.fe_model,
+            built.load_case,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(progress, "buckling reference solve"),
+            **reference_options,
+        )
 
-    _report(progress, "recovering prestress")
-    states, provenance = recover_prestress_from_static_result(
-        built.fe_model, displacements
-    )
+        _report(progress, "recovering prestress")
+        states, provenance = recover_prestress_from_static_result(
+            built.fe_model, displacements
+        )
 
-    _report(progress, f"solving for {num_modes} buckling modes")
-    result = solve_eigenvalue_buckling(
-        built.fe_model,
-        element_states=states,
-        num_modes=num_modes,
-        cancellation_token=cancellation_token,
-        progress_callback=_step_reporter(
-            progress, "buckling solve", structured_progress
-        ),
-        **solver_options,
-    )
+        _report(progress, f"solving for {num_modes} buckling modes")
+        result = solve_eigenvalue_buckling(
+            built.fe_model,
+            element_states=states,
+            num_modes=num_modes,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(
+                progress, "buckling solve", structured_progress
+            ),
+            session=analysis_session,
+            **solver_options,
+        )
+    finally:
+        if supplied_session is None:
+            analysis_session.close()
 
     shapes = [
         ShapeView(

@@ -121,7 +121,7 @@ def test_wrappers_forward_cancellation_and_structured_progress(
             completed=1,
             total=2,
             metadata={
-                "step_index": 1,
+                "increment": 1,
                 "load_factor": 0.5,
                 "load_increment": 0.05,
             },
@@ -141,6 +141,14 @@ def test_buckling_forwards_one_token_and_progress_to_both_solver_stages(
 ):
     calls = {}
 
+    class RecordingSession:
+        def __init__(self, model):
+            self.model = model
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
     def reference_solver(*args, **kwargs):
         calls["reference"] = kwargs
         return np.zeros(1), {}
@@ -155,6 +163,7 @@ def test_buckling_forwards_one_token_and_progress_to_both_solver_stages(
     monkeypatch.setattr(anysolver, "solve_linear", reference_solver)
     monkeypatch.setattr(anysolver, "recover_prestress_from_static_result", recover)
     monkeypatch.setattr(anysolver, "solve_eigenvalue_buckling", buckling_solver)
+    monkeypatch.setattr(anysolver, "AnalysisSession", RecordingSession)
 
     token = anysolver.CancellationToken()
     messages = []
@@ -178,8 +187,44 @@ def test_buckling_forwards_one_token_and_progress_to_both_solver_stages(
                 metadata={"status": "ok"},
             )
         )
+    assert calls["reference"]["session"] is calls["buckling"]["session"]
+    assert calls["reference"]["session"].closed is True
     assert any("reference solve: ok" in message for message in messages)
     assert any("buckling solve: ok" in message for message in messages)
+
+
+def test_buckling_preserves_a_caller_owned_analysis_session(monkeypatch):
+    calls = {}
+
+    class CallerSession:
+        def __init__(self):
+            self.close_count = 0
+
+        def close(self):
+            self.close_count += 1
+
+    def reference_solver(*args, **kwargs):
+        calls["reference"] = kwargs
+        return np.zeros(1), {}
+
+    def recover(*args, **kwargs):
+        return {}, {"source": "test"}
+
+    def buckling_solver(*args, **kwargs):
+        calls["buckling"] = kwargs
+        raise _StopAtSolver
+
+    monkeypatch.setattr(anysolver, "solve_linear", reference_solver)
+    monkeypatch.setattr(anysolver, "recover_prestress_from_static_result", recover)
+    monkeypatch.setattr(anysolver, "solve_eigenvalue_buckling", buckling_solver)
+
+    session = CallerSession()
+    with pytest.raises(_StopAtSolver):
+        solve_run.solve_buckling(built=_built(), session=session)
+
+    assert calls["reference"]["session"] is session
+    assert calls["buckling"]["session"] is session
+    assert session.close_count == 0
 
 
 def test_string_progress_adapter_preserves_a_direct_structured_callback(
@@ -219,14 +264,16 @@ def test_adaptive_increment_never_formats_nominal_steps_as_a_false_bound():
     callback(
         anysolver.ProgressEvent(
             "nonlinear_static_step",
-            phase="nonlinear_static.force",
-            control="load_factor",
-            control_value=0.6896,
-            control_target=1.0,
-            increment=1460,
-            increment_total=10,
+            "nonlinear_static.force",
             iteration=7,
-            residual=7.43e-8,
+            metadata={
+                "control": "load_factor",
+                "control_value": 0.6896,
+                "control_target": 1.0,
+                "increment": 1460,
+                "increment_total": 10,
+                "residual": 7.43e-8,
+            },
         )
     )
 
