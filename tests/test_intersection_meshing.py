@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from anyfem import Project, steel
 from anyfem.commands import AddCylinder, AddFeature, CommandStack
 from anyfem.model import BeamSection
@@ -182,7 +184,14 @@ def test_project_accepts_declared_three_plate_junction_growth_repair():
         )
 
 
-def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beams():
+@pytest.mark.parametrize(
+    ("target_size", "expected_junction_segments"),
+    ((0.25, 12), (0.20, 24)),
+)
+def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beams(
+    target_size,
+    expected_junction_segments,
+):
     project = Project("cylinder deck")
     commands = CommandStack(project)
     commands.run(
@@ -219,7 +228,7 @@ def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beam
     before = geometry_to_dict(project.geometry)
 
     mesh = project.generate_mesh(
-        0.25,
+        target_size,
         strategy="auto",
         structure_preference="balanced",
         quality_policy={
@@ -238,8 +247,9 @@ def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beam
         for node in mesh.nodes_on(project.geometry.entity_ref("face", face_id))
     }
     plate_nodes = set(mesh.nodes_on(project.geometry.entity_ref("face", 25)))
-    assert len(cylinder_nodes & plate_nodes) == 12
-    assert len(mesh.declared_plate_junction_edges) == 12
+    assert len(cylinder_nodes & plate_nodes) == expected_junction_segments
+    assert len(mesh.declared_plate_junction_edges) == expected_junction_segments
+    assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
     assert mesh.automatic_intersections == 1
     assert not mesh.beams
     assert geometry_to_dict(project.geometry) == before
