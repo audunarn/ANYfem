@@ -159,6 +159,15 @@ class StagePanel(ttk.Frame):
     def __init__(self, master: tk.Misc, app) -> None:
         super().__init__(master, padding=8)
         self.app = app
+        workbench = getattr(app, "workbench", None)
+        self.presenter = (
+            None
+            if workbench is None
+            else workbench.presenter(
+                self.title,
+                status=getattr(app, "_status_port", None),
+            )
+        )
         self.build()
 
     # -- construction ---------------------------------------------------
@@ -243,15 +252,18 @@ class StagePanel(ttk.Frame):
                 # rather than a traceback.  Unexpected callback errors are
                 # captured too, so Copy diagnosis contains enough evidence to
                 # reproduce them instead of losing them in stderr.
-                self.app.set_status(
-                    f"{type(error).__name__}: {error}",
-                    error=True,
-                    diagnostic={
-                        "type": type(error).__name__,
-                        "message": str(error),
-                        "traceback": traceback.format_exc(),
-                    },
-                )
+                if self.presenter is not None:
+                    self.presenter.report_error(error)
+                else:
+                    self.app.set_status(
+                        f"{type(error).__name__}: {error}",
+                        error=True,
+                        diagnostic={
+                            "type": type(error).__name__,
+                            "message": str(error),
+                            "traceback": traceback.format_exc(),
+                        },
+                    )
 
         return wrapped
 
@@ -271,6 +283,8 @@ class StagePanel(ttk.Frame):
 
     # -- selection ------------------------------------------------------
     def require_selection(self, kind: str, count: Optional[int] = None) -> List[EntityRef]:
+        if self.presenter is not None:
+            return self.presenter.require_selection(kind, count)
         selection = self.app.selection
         if selection.mode != kind:
             raise ValueError(
@@ -2312,9 +2326,7 @@ class MeshPanel(StagePanel):
             return
         payload = "ANYfem mesh diagnosis\n\n" + report + "\n"
         try:
-            self.clipboard_clear()
-            self.clipboard_append(payload)
-            self.update_idletasks()
+            self.app.clipboard.copy_text(payload)
         except tk.TclError as error:
             self.app.set_status(
                 f"could not copy mesh diagnosis: {error}",

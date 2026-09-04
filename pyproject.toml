@@ -57,7 +57,7 @@ dev = [
 
 # A GUI entry point so no console window opens alongside the application.
 [project.gui-scripts]
-anyfem = "anyfem.ui.app:main"
+anyfem = "anyfem.ui.tk:main"
 
 [project.scripts]
 anyfem-verify = "anyfem.verification:main"

@@ -233,11 +233,7 @@ class ScriptingPanel(ttk.Frame):
         commands = self.command_stream.get("1.0", "end-1c").splitlines()
         report = self.app.diagnostic_report(recent_commands=commands)
         try:
-            self.clipboard_clear()
-            self.clipboard_append(report)
-            # Ask Tk to retain the clipboard after focus moves away from the
-            # application; this does not enter a nested event loop.
-            self.update_idletasks()
+            self.app.clipboard.copy_text(report)
         except tk.TclError as error:
             self.app.set_status(
                 f"could not copy diagnosis: {error}",

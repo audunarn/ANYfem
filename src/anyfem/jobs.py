@@ -214,8 +214,8 @@ class JobRequest:
 class JobManager:
     """One active local solve with a persistent FIFO queue.
 
-    Worker threads only publish :class:`JobEvent` objects.  A Tk application
-    drains them with :meth:`poll`, so no widget is ever touched off the main
+    Worker threads only publish :class:`JobEvent` objects.  A desktop frontend
+    drains them with :meth:`poll`, so no widget is ever touched off its owner
     thread.
     """
 

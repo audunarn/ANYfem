@@ -121,6 +121,36 @@ def test_failed_explicit_switch_keeps_working_canvas(monkeypatch) -> None:
     assert not software.destroyed
 
 
+def test_explicit_viewer_host_is_forwarded_for_initial_and_replacement_canvas(
+    monkeypatch,
+) -> None:
+    host = object()
+    calls = []
+
+    def factory(_master, *, backend, **options):
+        calls.append((backend, options))
+        return _Viewer("software" if backend == "auto" else backend)
+
+    monkeypatch.setattr(viewport_module, "require_canvas", lambda: (_point, factory))
+    viewport = viewport_module.Viewport(
+        object(),
+        commercial_interaction=False,
+        viewer_host=host,
+    )
+
+    assert viewport.switch_backend("gpu") == "gpu"
+    assert calls == [
+        (
+            "auto",
+            {"width": 900, "height": 640, "bg": "#fbfbfd", "host": host},
+        ),
+        (
+            "gpu",
+            {"width": 900, "height": 640, "bg": "#fbfbfd", "host": host},
+        ),
+    ]
+
+
 def test_switch_supports_legacy_state_importer_without_redraw_keyword(
     monkeypatch,
 ) -> None:

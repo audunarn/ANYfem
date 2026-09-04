@@ -103,6 +103,7 @@ class Viewport:
         background: str = "#fbfbfd",
         commercial_interaction: bool = True,
         backend: str = "auto",
+        viewer_host=None,
     ) -> None:
         self._master = master
         self._width = int(width)
@@ -110,6 +111,7 @@ class Viewport:
         self._background = str(background)
         self._commercial_interaction_requested = bool(commercial_interaction)
         self._requested_backend = _backend_name(backend)
+        self._viewer_host = viewer_host
         self._point3d, self._viewer_factory = require_canvas()
         # Not ``selection or Selection()``: Selection defines __len__, so an
         # empty one is falsy and that would quietly make a second, unshared
@@ -165,13 +167,17 @@ class Viewport:
         self.selection.add_listener(self._apply_highlight)
 
     def _new_canvas(self, backend: str):
-        return self._viewer_factory(
-            self._master,
-            backend=backend,
-            width=self._width,
-            height=self._height,
-            bg=self._background,
-        )
+        options = {
+            "width": self._width,
+            "height": self._height,
+            "bg": self._background,
+        }
+        # Preserve compatibility with ANY3DView 0.5.5 when the default Tk host
+        # is used.  The explicit host keyword belongs to the new host-adapter
+        # contract and is sent only when a frontend selects one.
+        if self._viewer_host is not None:
+            options["host"] = self._viewer_host
+        return self._viewer_factory(self._master, backend=backend, **options)
 
     def _configure_canvas(self, canvas) -> None:
         commercial = bool(

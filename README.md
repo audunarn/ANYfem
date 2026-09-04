@@ -133,7 +133,7 @@ on `sys.path`; the independent origin gate still rejects an installed package
 that appears in place of the selected source tree.
 
 ```powershell
-python -m anyfem.ui.app
+python -m anyfem.ui.tk
 ```
 
 From a source checkout, `python run_gui.py` first checks both imported module
@@ -141,6 +141,13 @@ origins and installed distribution versions, then launches the application.
 The version check enforces minimum API generations and accepts newer releases.
 It fails before importing Tk when source and editable metadata are missing,
 older than those floors, or resolve from a different checkout.
+
+The Tk window is an adapter over `anyfem.application.WorkbenchController`.
+Commands, document state, selection, jobs, meshes and retained results remain
+headless, while scheduling, dialogs, clipboard, status and viewer creation use
+small toolkit ports. A future Qt frontend can bind the same controller and
+`anyfem.presentation` scene/result models instead of duplicating engineering
+workflow logic. See [`docs/FRONTEND_ARCHITECTURE.md`](docs/FRONTEND_ARCHITECTURE.md).
 
 The default workspace keeps the model tree on the left, the retained 3D view in
 the centre, and contextual Details/tasks on the right. Geometry/features,

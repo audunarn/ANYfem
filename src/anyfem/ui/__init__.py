@@ -34,9 +34,9 @@ def __getattr__(name: str):
     """Load the Tk-dependent parts only when they are actually asked for."""
 
     if name in ("AnyFemApp", "main", "default_project"):
-        from . import app
+        from . import tk
 
-        return getattr(app, name)
+        return getattr(tk, name)
     if name == "Viewport":
         from .viewport import Viewport
 

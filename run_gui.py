@@ -217,7 +217,7 @@ def main() -> None:
     """Launch the GUI only after the latest-only release graph is verified."""
 
     require_compatible_ecosystem()
-    from anyfem.ui.app import main as gui_main
+    from anyfem.ui.tk import main as gui_main
 
     gui_main()
 

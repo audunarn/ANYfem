@@ -1,11 +1,8 @@
 """The ANYfem application window.
 
 Layout: model tree on the left, 3D viewport in the middle, stage panels on the
-right, status bar along the bottom.
-
-The app owns the shared state -- project, command stack, selection, current
-mesh and solution -- and the panels act on it.  Every model change goes through
-the command stack, so the same calls are available from a script.
+right, status bar along the bottom. Shared workbench state and commands belong
+to the toolkit-neutral application controller; this module is the Tk adapter.
 """
 
 from __future__ import annotations
@@ -23,15 +20,15 @@ from typing import Any, Dict, Iterable, Optional
 
 import numpy as np
 
-from ..commands import Command, CommandStack
-from ..document import DocumentSession, canonical_hash
+from ..application import WorkbenchController, default_project as _default_project
+from ..commands import Command
+from ..document import canonical_hash
 from ..diagnostics import ErrorDiagnostic, build_diagnostic_report
-from ..jobs import JobManager, analysis_hash
+from ..jobs import analysis_hash
 from ..mesh_jobs import (
     clone_mesh_for_job,
     MeshJobResult,
     MeshSettings,
-    MeshTaskManager,
     mesh_semantic_hash,
 )
 from ..io.decks import export_calculix_deck
@@ -45,11 +42,9 @@ from ..io.results import import_calculix_results, import_sesam_results
 from ..io.result_artifact import write_solution_artifact
 from ..io.sesam import import_sesam
 from ..solve.build import build_fe_model
-from ..model.materials import steel
 from ..model.project import Project, ProjectError
 from ..model.records import AnalysisDefinition, MeshRecord
-from ..model.sections import BeamSection
-from ..selection import MeshEntityRef, Selection, mode_label
+from ..selection import MeshEntityRef, mode_label
 from ..solve.run import (
     solve_arc_length,
     solve_buckling,
@@ -88,6 +83,12 @@ from .viewport import Viewport
 from .worker import JobWorkerFacade
 from .workspace import DetailsWorkspace, JobStatusView, SelectionStrip
 from .scripting import ScriptingPanel
+from .tk_adapters import (
+    CallbackStatusPort,
+    TkClipboardPort,
+    TkDialogPort,
+    TkSchedulerPort,
+)
 
 __all__ = ["ANALYSES", "AnyFemApp", "main"]
 
@@ -112,8 +113,54 @@ _RENDERER_LABELS = {
 _RENDERER_BACKENDS = {label: backend for backend, label in _RENDERER_LABELS.items()}
 
 
+class _WorkbenchField:
+    """Data descriptor keeping legacy ``app.field`` access controller-owned."""
+
+    def __init__(self, field: str) -> None:
+        self.field = field
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+        workbench = instance.__dict__.get("workbench")
+        if workbench is None:
+            raise AttributeError(self.field)
+        return getattr(workbench, self.field)
+
+    def __set__(self, instance, value) -> None:
+        workbench = instance.__dict__.get("workbench")
+        if workbench is None:
+            raise AttributeError(
+                f"workbench is not initialized; cannot set {self.field!r}"
+            )
+        workbench.update(self.field, value)
+
+
 class AnyFemApp(ttk.Frame):
     """The main window."""
+
+    project = _WorkbenchField("project")
+    selection = _WorkbenchField("selection")
+    session = _WorkbenchField("session")
+    commands = _WorkbenchField("commands")
+    job_manager = _WorkbenchField("job_manager")
+    mesh_task_manager = _WorkbenchField("mesh_task_manager")
+    mesh = _WorkbenchField("mesh")
+    _meshes = _WorkbenchField("meshes")
+    mesh_record_id = _WorkbenchField("mesh_record_id")
+    solution = _WorkbenchField("solution")
+    solutions = _WorkbenchField("solutions")
+    result_datasets = _WorkbenchField("result_datasets")
+    submitted_input_reports = _WorkbenchField("submitted_input_reports")
+    active_job_id = _WorkbenchField("active_job_id")
+    analysis = _WorkbenchField("analysis")
+    shape_index = _WorkbenchField("shape_index")
+    imported = _WorkbenchField("imported")
+    path = _WorkbenchField("path")
+    seeding_overrides = _WorkbenchField("seeding_overrides")
+    _view_mode = _WorkbenchField("view_mode")
+    _geometry_selection_mode = _WorkbenchField("geometry_selection_mode")
+    _active_model_hash = _WorkbenchField("active_model_hash")
 
     def __init__(
         self,
@@ -121,6 +168,7 @@ class AnyFemApp(ttk.Frame):
         project: Optional[Project] = None,
         *,
         viewer_backend: str = "auto",
+        viewer_host=None,
     ) -> None:
         super().__init__(master)
         normalized_backend = str(viewer_backend).strip().casefold()
@@ -130,19 +178,19 @@ class AnyFemApp(ttk.Frame):
         if normalized_backend not in _RENDERER_LABELS:
             raise ValueError("viewer_backend must be 'auto', 'gpu', or 'software'")
         self._viewer_backend = normalized_backend
-        self.project = project if project is not None else default_project()
-        self.selection = Selection(mode="vertex")
-        self.session = DocumentSession(self.project, selection=self.selection)
-        self.commands = self.session.commands
-        self._active_model_hash = self.session.revision.model_hash
-        self.job_manager = JobManager(self.project)
-        self.mesh_task_manager = MeshTaskManager()
-        self.mesh = None
-        self._meshes: Dict[str, Any] = {}
-        self.solution = None
-        self.solutions: Dict[str, Any] = {}
-        self.result_datasets: Dict[str, Any] = {}
-        self.submitted_input_reports: Dict[str, str] = {}
+        self._viewer_host = viewer_host
+        self.workbench = WorkbenchController(
+            project if project is not None else _default_project()
+        )
+        self.scheduler = TkSchedulerPort(self)
+        self.dialogs = TkDialogPort(
+            lambda: self.winfo_toplevel(),
+            messagebox=messagebox,
+            filedialog=filedialog,
+            simpledialog=simpledialog,
+        )
+        self.clipboard = TkClipboardPort(self)
+        self._status_port = CallbackStatusPort(self.set_status)
         self._artifact_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="anyfem-artifact"
         )
@@ -157,14 +205,6 @@ class AnyFemApp(ttk.Frame):
         self._mesh_details_record_id: Optional[str] = None
         self._mesh_layout_preview: tuple[Any, Any] | None = None
         self._geometry_scene_cache: tuple[object, Scene, Scene] | None = None
-        self.active_job_id: Optional[str] = None
-        self.analysis = "Linear static"
-        self.shape_index = 0
-        self.imported = None
-        self.path: Optional[Path] = None
-        self.seeding_overrides: Dict[int, int] = {}
-        self._view_mode = "geometry"
-        self._geometry_selection_mode = "vertex"
         self._closing = False
         self._refresh_suspended = 0
         self._project_lock: ProjectLock | None = None
@@ -185,7 +225,9 @@ class AnyFemApp(ttk.Frame):
         self.session.add_listener(self._on_revision_changed)
         self.selection.add_listener(self._on_selection_changed)
         self.worker = JobWorkerFacade(self.job_manager)
-        self._job_poll = self.after(self.worker.POLL_MS, self._poll_jobs)
+        self._job_poll = self.scheduler.call_later(
+            self.worker.POLL_MS, self._poll_jobs
+        )
 
         self.refresh_all()
         self.show_geometry(reset_view=True)
@@ -288,6 +330,7 @@ class AnyFemApp(ttk.Frame):
             centre,
             selection=self.selection,
             backend=self._viewer_backend,
+            viewer_host=self._viewer_host,
         )
         self.viewport.pack(fill="both", expand=True)
         self.viewport.set_pick_handler(self._on_pick)
@@ -376,11 +419,7 @@ class AnyFemApp(ttk.Frame):
             detail = "; ".join(str(item) for item in diagnostics if item)
             message = str(error) + (f"\n\n{detail}" if detail else "")
             self.set_status(f"renderer switch failed: {str(error)}", error=True)
-            messagebox.showerror(
-                "Renderer unavailable",
-                message,
-                parent=self.winfo_toplevel(),
-            )
+            self.dialogs.show_error("Renderer unavailable", message)
 
     # ------------------------------------------------------------------
     # commands
@@ -388,7 +427,7 @@ class AnyFemApp(ttk.Frame):
     def run(self, command: Command) -> Any:
         """Run a command; the stack notifies everything that must refresh."""
 
-        return self.session.execute(command)
+        return self.workbench.execute(command)
 
     def run_many(self, commands: Iterable[Command]) -> list[Any]:
         """Run independent commands with one final expensive GUI refresh.
@@ -401,8 +440,8 @@ class AnyFemApp(ttk.Frame):
         pending = list(commands)
         if not pending:
             return []
-        if hasattr(self, "session"):
-            return self.session.execute_many(pending, label="batch edit")
+        if getattr(self, "workbench", None) is not None:
+            return self.workbench.execute_many(pending, label="batch edit")
         self._refresh_suspended += 1
         try:
             return [self.commands.run(command) for command in pending]
@@ -1210,7 +1249,9 @@ class AnyFemApp(ttk.Frame):
         self._poll_job_log_artifacts()
         self._poll_mesh_jobs()
         self._poll_recovery_write()
-        self._job_poll = self.after(self.worker.POLL_MS, self._poll_jobs)
+        self._job_poll = self.scheduler.call_later(
+            self.worker.POLL_MS, self._poll_jobs
+        )
 
     def _schedule_result_artifact(self, job_id: str, destination: Path) -> None:
         """Write a completed result off the Tk event thread."""
@@ -1901,9 +1942,8 @@ class AnyFemApp(ttk.Frame):
         if action == "rename" and prefix == "feature":
             feature_id = int(key.split(":", 1)[1])
             record = self.project.geometry.features.get(feature_id)
-            name = simpledialog.askstring(
-                "Rename feature", "Name", initialvalue=record.name,
-                parent=self.winfo_toplevel(),
+            name = self.dialogs.ask_text(
+                "Rename feature", "Name", initial=record.name,
             )
             if name:
                 with self.session.transaction("rename feature", solver_affecting=False):
@@ -2184,12 +2224,16 @@ class AnyFemApp(ttk.Frame):
     def _schedule_autosave(self) -> None:
         if self._autosave_after is not None:
             try:
-                self.after_cancel(self._autosave_after)
+                self.scheduler.cancel_call(self._autosave_after)
             except tk.TclError:
                 pass
-        self._autosave_after = self.after(30_000, self._write_recovery)
+        self._autosave_after = self.scheduler.call_later(
+            30_000, self._write_recovery
+        )
         if self._autosave_hard_after is None:
-            self._autosave_hard_after = self.after(300_000, self._write_recovery)
+            self._autosave_hard_after = self.scheduler.call_later(
+                300_000, self._write_recovery
+            )
 
     def _write_recovery(self) -> None:
         """Capture recovery state on Tk, then queue all file I/O off-thread."""
@@ -2198,7 +2242,7 @@ class AnyFemApp(ttk.Frame):
             identifier = getattr(self, attribute, None)
             if identifier is not None:
                 try:
-                    self.after_cancel(identifier)
+                    self.scheduler.cancel_call(identifier)
                 except tk.TclError:
                     pass
                 setattr(self, attribute, None)
@@ -2230,7 +2274,9 @@ class AnyFemApp(ttk.Frame):
             # atomic bundle finishes.
             self._recovery_pending = request
         if self.session.dirty:
-            self._autosave_hard_after = self.after(300_000, self._write_recovery)
+            self._autosave_hard_after = self.scheduler.call_later(
+                300_000, self._write_recovery
+            )
 
     def _start_recovery_write(
         self, request: tuple[int, dict[str, Any], dict[str, Any]]
@@ -2266,11 +2312,10 @@ class AnyFemApp(ttk.Frame):
         if not candidates:
             raise ValueError("no recoverable ANYfem autosaves were found")
         candidate = candidates[0]
-        if not messagebox.askyesno(
+        if not self.dialogs.confirm(
             "Recover ANYfem autosave",
             f"Recover snapshot from {candidate.created_utc}?\n"
             f"Recommended action: {candidate.recommendation.replace('_', ' ')}",
-            parent=self.winfo_toplevel(),
         ):
             return
         project = project_from_dict(load_recovery(candidate))
@@ -2480,7 +2525,7 @@ class AnyFemApp(ttk.Frame):
         if confirm and not self._confirm_discard():
             return
         if path is None:
-            path = filedialog.askopenfilename(
+            path = self.dialogs.open_file(
                 filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")]
             )
             if not path:
@@ -2489,13 +2534,12 @@ class AnyFemApp(ttk.Frame):
         lock = ProjectLock(source)
         decision = lock.acquire()
         if decision.can_take_over:
-            answer = messagebox.askyesnocancel(
+            answer = self.dialogs.confirm_save(
                 "Stale ANYfem project lock",
                 "The previous ANYfem process no longer owns this project.\n\n"
                 "Yes: take over the stale lock and edit the project.\n"
                 "No: open the project read-only.\n"
                 "Cancel: leave the current project open.",
-                parent=self.winfo_toplevel(),
             )
             if answer is None:
                 return
@@ -2576,7 +2620,7 @@ class AnyFemApp(ttk.Frame):
         if path is None:
             path = str(self.path) if self.path and not ask else ""
         if not path:
-            path = filedialog.asksaveasfilename(
+            path = self.dialogs.save_file(
                 defaultextension=".anyfem",
                 filetypes=[("ANYfem project", "*.anyfem"), ("All files", "*.*")],
                 initialfile=f"{self.project.name}.anyfem",
@@ -2807,7 +2851,7 @@ class AnyFemApp(ttk.Frame):
 
     def import_sesam_model(self, path: Optional[str] = None) -> None:
         if path is None:
-            path = filedialog.askopenfilename(
+            path = self.dialogs.open_file(
                 filetypes=[("SESAM FEM", "*.FEM *.fem"), ("All files", "*.*")]
             )
             if not path:
@@ -2847,7 +2891,6 @@ class AnyFemApp(ttk.Frame):
         try:
             self.viewport.cancel_construction()
             self.worker.cancel()
-            self.mesh_task_manager.shutdown()
             self.commands.remove_listener(self.refresh_all)
             self.session.remove_listener(self._on_revision_changed)
         except (AttributeError, ValueError):
@@ -2857,45 +2900,32 @@ class AnyFemApp(ttk.Frame):
         self._project_lock = project_lock
         self._recovery_epoch += 1
         self._recovery_pending = None
-        self.project = project
-        self.session = DocumentSession(project, selection=self.selection, path=path)
-        self.commands = self.session.commands
-        self.session.read_only = bool(
-            read_only or getattr(project, "read_only_reason", None)
+        self.workbench.replace_project(
+            project,
+            path=path,
+            imported=imported,
+            read_only=read_only,
         )
         self.commands.add_listener(self.refresh_all)
         self.session.add_listener(self._on_revision_changed)
-        self._active_model_hash = self.session.revision.model_hash
-        self.job_manager = JobManager(project)
-        self.mesh_task_manager = MeshTaskManager()
         self.worker = JobWorkerFacade(self.job_manager)
         self.tree.project = project
         self.tree.reset_feature_exposure()
-        self.imported = imported
-        self.path = path
-        self.mesh = None
-        self._meshes = {}
-        self.mesh_record_id = ""
-        self.solution = None
-        self.solutions = {}
-        self.result_datasets = {}
         self._artifact_futures.clear()
         self._artifact_destinations.clear()
         self._log_futures.clear()
         self._log_destinations.clear()
         self._active_mesh_task_id = None
         self._mesh_details_record_id = None
-        self.active_job_id = None
         self.selection.clear()
         self._update_window_title()
 
     def _confirm_discard(self) -> bool:
         if not getattr(self, "session", None) or not self.session.dirty:
             return True
-        answer = messagebox.askyesnocancel(
+        answer = self.dialogs.confirm_save(
             "Unsaved ANYfem project",
             "Save the current project before continuing?",
-            parent=self.winfo_toplevel(),
         )
         if answer is None:
             return False
@@ -2917,7 +2947,7 @@ class AnyFemApp(ttk.Frame):
         """Read a CalculiX FRD onto the current model."""
 
         if path is None:
-            path = filedialog.askopenfilename(
+            path = self.dialogs.open_file(
                 filetypes=[
                     ("CalculiX results", "*.frd *.FRD *.dat *.DAT"),
                     ("All files", "*.*"),
@@ -2931,7 +2961,7 @@ class AnyFemApp(ttk.Frame):
         """Read SESAM SIF shell stresses onto the current model."""
 
         if path is None:
-            path = filedialog.askopenfilename(
+            path = self.dialogs.open_file(
                 filetypes=[("SESAM SIF", "*.SIF *.sif"), ("All files", "*.*")]
             )
             if not path:
@@ -2974,7 +3004,7 @@ class AnyFemApp(ttk.Frame):
         if self.mesh is None:
             raise ValueError("generate or import a mesh first")
         if path is None:
-            path = filedialog.asksaveasfilename(
+            path = self.dialogs.save_file(
                 defaultextension=".inp",
                 filetypes=[("CalculiX deck", "*.inp"), ("All files", "*.*")],
                 initialfile=f"{self.project.name}.inp",
@@ -3069,18 +3099,18 @@ class AnyFemApp(ttk.Frame):
                 identifier = getattr(self, attribute, None)
                 if identifier is not None:
                     try:
-                        self.after_cancel(identifier)
+                        self.scheduler.cancel_call(identifier)
                     except tk.TclError:
                         pass
                     setattr(self, attribute, None)
             if getattr(self, "_job_poll", None) is not None:
                 try:
-                    self.after_cancel(self._job_poll)
+                    self.scheduler.cancel_call(self._job_poll)
                 except tk.TclError:
                     pass
                 self._job_poll = None
             self.worker.stop()
-            self.mesh_task_manager.shutdown()
+            self.workbench.close()
             self.selection.remove_listener(self._on_selection_changed)
             self.selection.remove_listener(self.tree.sync_from_selection)
             self.selection.remove_listener(self.viewport._apply_highlight)
@@ -3400,22 +3430,7 @@ def default_project() -> Project:
     its properties, and replay must not depend on an unrecorded UI mutation.
     """
 
-    project = Project(name="model")
-    project.add_material(steel("S355", 0.010))
-    project.add_plate_section("plate", thickness=0.010, material="S355")
-    project.add_beam_section(
-        BeamSection(
-            name="stiffener",
-            profile="T-bar",
-            material="S355",
-            web_height=0.200,
-            web_thickness=0.010,
-            flange_width=0.100,
-            flange_thickness=0.012,
-            offset_mode="automatic",
-        )
-    )
-    return project
+    return _default_project()
 
 
 def main() -> None:  # pragma: no cover - entry point

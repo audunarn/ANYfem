@@ -284,7 +284,7 @@ def test_the_ledger_writes_json_and_markdown():
 def test_the_package_declares_its_entry_points():
     root = Path(__file__).resolve().parents[1]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'anyfem = "anyfem.ui.app:main"' in text
+    assert 'anyfem = "anyfem.ui.tk:main"' in text
     assert 'anyfem-verify = "anyfem.verification:main"' in text
     assert 'anyfem-parity = "anyfem.parity:main"' in text
 
@@ -294,7 +294,8 @@ def test_the_viewport_is_an_optional_extra():
 
     root = Path(__file__).resolve().parents[1]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"ANY3dView[gpu]>=0.5"' in text
+    assert '"ANY3dView[gpu]>=0.5.5,<0.6"' in text
+    assert '"ANYtk3D>=0.5.5,<0.6"' in text
     assert '"ANYtk3D>=0.5"' in text
     # ANYsolver is required; concrete viewers are not.
     dependencies = text.split("dependencies = [", 1)[1].split("]", 1)[0]

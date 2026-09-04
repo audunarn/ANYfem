@@ -83,6 +83,13 @@ from .model import (
     WorkplaneFrame,
 )
 from .document import DocumentRevision, DocumentSession, ProjectSnapshot
+from .application import (
+    TaskPresenter,
+    TaskViewModel,
+    WorkbenchController,
+    WorkbenchEvent,
+    WorkbenchSnapshot,
+)
 from .native_meshing import (
     AutomaticMeshPredictor,
     CertificationMode,
@@ -225,10 +232,15 @@ __all__ = [
     "ShellFormulationPolicy",
     "SheetJoinIntent",
     "TransientSolution",
+    "TaskPresenter",
+    "TaskViewModel",
     "UnitProfile",
     "Workplane",
     "WorkplaneError",
     "WorkplaneFrame",
+    "WorkbenchController",
+    "WorkbenchEvent",
+    "WorkbenchSnapshot",
     "Vertex",
     "__version__",
     "build_fe_model",
