@@ -225,6 +225,13 @@ def test_project_runtime_forwards_one_explicit_backend(monkeypatch) -> None:
 
     assert project.generate_mesh() is expected
     assert captured["native_backend"] == "python"
+    assert captured["structural_preparation"] == {
+        "automatic_face_connections": False,
+        "automatic_member_connections": False,
+        "automatic_member_sheet_connections": False,
+        "declare_missing_owners": True,
+    }
+    assert captured["mutation_policy"] == "working_copy"
     assert list(key for key in captured if key == "native_backend") == [
         "native_backend"
     ]

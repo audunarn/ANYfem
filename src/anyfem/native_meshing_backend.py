@@ -309,6 +309,13 @@ class NativeProjectMeshingSession:
             certification_mode="strict" if strict else "none",
             cancellation_check=request.cancellation.raise_if_cancelled,
             native_backend=self._native_backend,
+            structural_preparation={
+                "automatic_face_connections": False,
+                "automatic_member_connections": False,
+                "automatic_member_sheet_connections": False,
+                "declare_missing_owners": True,
+            },
+            mutation_policy="working_copy",
             **supported,
         )
         request.cancellation.raise_if_cancelled("hybrid component completion")

@@ -1738,6 +1738,13 @@ class Project:
             change_set=change_set,
             cancellation_check=cancellation_check,
             native_backend=native_backend,
+            structural_preparation={
+                "automatic_face_connections": False,
+                "automatic_member_connections": False,
+                "automatic_member_sheet_connections": False,
+                "declare_missing_owners": True,
+            },
+            mutation_policy="working_copy",
             qualified_s3=(
                 self.shell_formulation_policy.s3 == "e4-pl-s3-v2d"
                 and resolved_order == "linear"

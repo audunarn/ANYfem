@@ -159,6 +159,13 @@ def test_incremental_session_snapshots_project_backend(monkeypatch) -> None:
     def fake_generate(_geometry, **kwargs):
         captured.append(kwargs["native_backend"])
         assert "native_backend" not in dict(settings.parameters)
+        assert kwargs["structural_preparation"] == {
+            "automatic_face_connections": False,
+            "automatic_member_connections": False,
+            "automatic_member_sheet_connections": False,
+            "declare_missing_owners": True,
+        }
+        assert kwargs["mutation_policy"] == "working_copy"
         return SimpleNamespace(
             mesh=object(), certifiable=False, strategy_by_face={}
         )
