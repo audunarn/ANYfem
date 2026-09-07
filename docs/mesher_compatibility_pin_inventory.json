@@ -1,0 +1,99 @@
+{
+  "schema": "anyfem.mesher-compatibility-pin-inventory/1",
+  "purpose": "Preparation inventory only; NOT an installable requirements lock",
+  "observed_date": "2026-09-07",
+  "ready_for_install": false,
+  "production_requirements_changed": false,
+  "consumer_implementation_commit": "e10f024245b6083e508b0674dab97ed5080fd6e3",
+  "consumer_implementation_tree": "1e1397c1fdda31d0d3e50626b6100dae1ad66eb6",
+  "expected_capability_environment_variable": "ANYFEM_EXPECT_NATIVE_V2",
+  "candidate_comparison_solver": {
+    "same_private_solver_wheel_in_both_lanes": true,
+    "identity_reference": "alpha.solver_candidate_base",
+    "published_solver_artifact_role": "separately labelled released-baseline evidence only"
+  },
+  "legacy": {
+    "expected_native_v2": "0",
+    "channel": "published immutable artifacts; installation not yet qualified",
+    "artifacts": [
+      {
+        "distribution": "ANYmesher",
+        "version": "0.4.0",
+        "platform": "CPython 3.14 Windows x86_64",
+        "filename": "anymesher-0.4.0-cp314-cp314-win_amd64.whl",
+        "sha256": "1812161c8f04ac7c5584cb2226c8605fed875004f2a561ae4261032503bf44e5"
+      },
+      {
+        "distribution": "ANYmesher",
+        "version": "0.4.0",
+        "platform": "CPython 3.14 manylinux x86_64",
+        "filename": "anymesher-0.4.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "74370ee0e147dbfba498e616310662d238fb5bb1a90dcace7c2d86e11929e42e"
+      },
+      {
+        "distribution": "ANYgeometry",
+        "version": "0.4.2",
+        "filename": "anygeometry-0.4.2-py3-none-any.whl",
+        "sha256": "d7a0b8d9cd3d5b0c8e673162b3747ad12ff0726e30ac8cae0e7ac16cd9a41b92"
+      },
+      {
+        "distribution": "ANYsolver",
+        "version": "0.4.2",
+        "role": "released-baseline evidence only; not the solver for candidate comparison",
+        "filename": "anysolver-0.4.2-py3-none-any.whl",
+        "sha256": "2f07253f9c58af93001dbb8a86ee0a1e340fdf114bb38aaddaef525448532889"
+      }
+    ],
+    "metadata_sources": [
+      "https://pypi.org/pypi/ANYmesher/json",
+      "https://pypi.org/pypi/ANYgeometry/0.4.2/json",
+      "https://pypi.org/pypi/ANYsolver/json"
+    ]
+  },
+  "alpha": {
+    "expected_native_v2": "1",
+    "channel": "owner-approved private candidates before any public adoption",
+    "mesher_source": {
+      "commit": "76b9e7af534fb6c44a1259afc9e3d923bf453606",
+      "tree": "21adb3db5074a56bb2b8f75c9ac9537c9e0cce07",
+      "preserved_raw_parent": "b8ea86b485257cf8eea8ef07e6d604062255a31b",
+      "scope": "local accepted planar native-v2/junction/trim baseline; not cylindrical atlas or full 0.5 release",
+      "remotely_available_verified": false,
+      "candidate_version": null,
+      "artifact_sha256": null
+    },
+    "geometry_source": {
+      "commit": "12683ae5d6dbb2620f5020b67c0a7673f2601766",
+      "tree": "7bbcea8893eb9cbe9aae313379fea2427340a058",
+      "remotely_available_verified": false,
+      "candidate_version": null,
+      "artifact_sha256": null
+    },
+    "solver_candidate_base": {
+      "commit": "09351645ba17a0a5b130a1c7a48007d36dd08ada",
+      "tree": "cfb0cf9a19f6519abf335694253efa264cd2e695",
+      "scope": "metadata-only private compatibility candidate, NOT GE-B3",
+      "proposed_private_version": "0.4.3.dev1 (owner proposal; collision/freeze pending)",
+      "proposed_mesher_requirement": "ANYmesher>=0.4,<0.6 (candidate only; not adopted)",
+      "candidate_commit": null,
+      "candidate_version": null,
+      "artifact_sha256": null
+    },
+    "fem_metadata_candidate": {
+      "proposed_private_version": "0.4.1.dev1 (proposal; collision/freeze pending)",
+      "proposed_mesher_requirement": "ANYmesher>=0.4,<0.6 (candidate only; not adopted)",
+      "proposed_solver_requirement": "ANYsolver>=0.4.2,<0.5 (exact private version in Alpha lock)",
+      "candidate_commit": null,
+      "candidate_version": null,
+      "artifact_sha256": null
+    }
+  },
+  "unresolved_gates": [
+    "Approved complete candidate source/metadata manifests and actual artifact digests",
+    "Hash locks for all remaining runtime, GUI and transitive dependencies on each platform",
+    "Exact private ANYfem and ANYsolver candidate Requires-Dist agreement",
+    "Fresh installed origins/capability verification outside source trees and pip check",
+    "Resource approval/lock for any installation, build or heavy qualification",
+    "Real installed legacy lane run; current local native-v2 test run is not that evidence"
+  ]
+}

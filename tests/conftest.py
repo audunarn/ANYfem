@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import gc
 import inspect
+import importlib
+import importlib.util
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -40,6 +42,43 @@ def pytest_configure(config):
         "markers",
         "gui: opt-in test that creates a real Tk desktop window",
     )
+    config.addinivalue_line(
+        "markers", "native_v2: requires the real public ANYmesher native-v2 options API"
+    )
+
+
+@pytest.fixture(scope="session")
+def mesher_native_v2_capability():
+    """Never interpret a present-but-broken module as legacy capability absence."""
+    name = "anymesher.native_v2"
+    if importlib.util.find_spec(name) is None:
+        available = False
+    else:
+        module = importlib.import_module(name)  # Broken imports must fail.
+        options = getattr(module, "NativeMeshingOptions")
+        assert callable(options), "native-v2 options API is present but unusable"
+        available = True
+    expected = os.environ.get("ANYFEM_EXPECT_NATIVE_V2")
+    if expected not in {None, "0", "1"}:
+        pytest.fail("ANYFEM_EXPECT_NATIVE_V2 must be 0 (legacy) or 1 (Alpha)")
+    if expected is not None and available != (expected == "1"):
+        pytest.fail(f"expected native-v2 capability {expected}, found {int(available)}")
+    return available
+
+
+@pytest.fixture(autouse=True)
+def _require_marked_native_v2(request):
+    if request.node.get_closest_marker("native_v2") is not None:
+        if not request.getfixturevalue("mesher_native_v2_capability"):
+            pytest.skip("explicit native_v2 test: API absent in legacy mesher lane")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _enforce_requested_mesher_lane(request):
+    # Installed runners must enforce the lane even when selecting only tests
+    # outside the GUI-controls module or deselecting every Alpha-marked node.
+    if "ANYFEM_EXPECT_NATIVE_V2" in os.environ:
+        request.getfixturevalue("mesher_native_v2_capability")
 
 
 def pytest_collection_modifyitems(items):
