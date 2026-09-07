@@ -27,6 +27,7 @@ from anymesher.structured import StructuredMeshingOptions
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from ..native_meshing import NativeMeshSettings
+from ..mesh_controls import MeshControls
 from ..structural_preparation import (
     StructuralPreparationError,
     prepare_structural_connectivity,
@@ -1492,6 +1493,7 @@ class Project:
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
         certification_mode: str | None = None,
+        mesh_controls: MeshControls | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
     ) -> Mesh:
@@ -1550,20 +1552,23 @@ class Project:
             "mapped": "mapped",
             "native": "native",
         }.get(settings_backend, str(settings_backend))
-        resolved_certification = certification_mode or (
-            "interactive"
-            if settings is None
-            else str(getattr(settings.certification_mode, "value", settings.certification_mode))
-        )
         resolved_order = order or (
             self.element_order if settings is None else settings.element_order
         )
         parameters = {} if settings is None else dict(settings.parameters)
+        controls = mesh_controls or MeshControls.from_settings(settings)
+        resolved_certification = certification_mode or controls.certification_mode
         supported_parameters = {
             key: value
             for key, value in parameters.items()
             if key in {"recombine", "overlap_policy"}
         }
+        supported_parameters["recombine"] = controls.recombine
+        # Mapped-only runs must not activate the opt-in native path.
+        if resolved_strategy != "mapped":
+            native_options = controls.native_options()
+            if native_options is not None:
+                supported_parameters["native_options"] = native_options
         stored_quality = {
             key.removeprefix("mesh_quality_"): value
             for key, value in parameters.items()

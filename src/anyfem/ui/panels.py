@@ -32,6 +32,7 @@ from ..geometry.snapping import (
 )
 from anymesher.decomposition import check_mappable
 from ..mesh.mapped import ELEMENT_ORDERS
+from ..mesh_controls import MeshControls, native_v2_options_type
 from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
 from ..model.attributes import (
@@ -1591,6 +1592,18 @@ class GeometryPanel(StagePanel):
 # ----------------------------------------------------------------------
 class MeshPanel(StagePanel):
     title = "Mesh"
+    _PLACEMENT_LABELS = {
+        "legacy_lattice": "Legacy lattice (default)",
+        "frontal_delaunay": "Frontal Delaunay (Alpha; planar only)",
+    }
+    _METRIC_LABELS = {
+        "legacy": "Legacy sizing",
+        "isotropic_spatial": "Spatial isotropic sizing (Alpha)",
+    }
+    _CERTIFICATION_LABELS = {
+        "interactive": "Interactive (default)",
+        "strict": "Strict full geometry audit",
+    }
     _METHOD_LABELS = {
         "auto": "Automatic (recommended)",
         "mapped": "Mapped quadrilateral",
@@ -1649,6 +1662,13 @@ class MeshPanel(StagePanel):
             "<<ComboboxSelected>>", lambda _event: self._method_changed()
         )
         self._method_dirty = False
+        shortcuts = ttk.Frame(controls)
+        shortcuts.pack(fill="x", pady=(2, 3))
+        for value, label in (("auto", "Automatic"), ("mapped", "Mapped"), ("native", "Unstructured")):
+            ttk.Radiobutton(
+                shortcuts, text=label, variable=self._method,
+                value=self._METHOD_LABELS[value], command=self._method_changed,
+            ).pack(side="left")
         self._method_help = ttk.Label(
             controls,
             text=self._METHOD_HELP["auto"],
@@ -1751,6 +1771,81 @@ class MeshPanel(StagePanel):
             justify="left",
             wraplength=220,
         ).pack(anchor="w", pady=(0, 3))
+        self._controls_dirty = False
+        self._loading_mesh_controls = False
+        self._recombine = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            self._native_options, text="Recombine triangles into quads where admissible",
+            variable=self._recombine,
+        ).pack(anchor="w")
+        self._advanced_native = ttk.LabelFrame(
+            self._native_options, text="Native surface filling — explicit Alpha opt-in",
+            padding=(4, 2),
+        )
+        self._show_native_controls = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self._native_options, text="Show advanced native / Alpha controls",
+            variable=self._show_native_controls, command=self._toggle_native_controls,
+        ).pack(anchor="w")
+        self._native_filling_status = ttk.Label(self._native_options, foreground="#666666")
+        self._native_filling_status.pack(anchor="w")
+        self._point_placement = tk.StringVar(value=self._PLACEMENT_LABELS["legacy_lattice"])
+        self._metric_mode = tk.StringVar(value=self._METRIC_LABELS["legacy"])
+        for label, variable, values in (
+            ("point placement", self._point_placement, self._PLACEMENT_LABELS),
+            ("size metric", self._metric_mode, self._METRIC_LABELS),
+        ):
+            row = ttk.Frame(self._advanced_native)
+            row.pack(fill="x", pady=1)
+            ttk.Label(row, text=label, width=16).pack(side="left")
+            combo = ttk.Combobox(row, textvariable=variable, values=list(values.values()), state="readonly")
+            combo.pack(side="left", fill="x", expand=True)
+            if variable is self._metric_mode:
+                self._metric_combo = combo
+            else:
+                self._placement_combo = combo
+        self._native_v2_available = native_v2_options_type() is not None
+        if not self._native_v2_available:
+            self._placement_combo.configure(state="disabled")
+            ttk.Label(self._advanced_native, text="Native-v2 controls unavailable in installed ANYmesher.",
+                      foreground="#8a5a00").pack(anchor="w")
+        self._point_placement.trace_add("write", self._placement_changed)
+        self._native_budget_frame = ttk.Frame(self._advanced_native)
+        self._native_budget_frame.pack(fill="x")
+        self._native_max_insertions = self.entry_row(self._native_budget_frame, "max insertions", "10000")
+        self._native_max_operations = self.entry_row(self._native_budget_frame, "max topology ops", "1000000")
+        self._native_cancel_interval = self.entry_row(self._native_budget_frame, "cancel check interval", "256")
+        ttk.Label(self._advanced_native, wraplength=300, justify="left", foreground="#666666",
+                  text="Metric and budgets apply to Frontal Delaunay only. When inactive, saved budgets are retained.").pack(anchor="w")
+        ttk.Label(
+            self._advanced_native, wraplength=300, justify="left", foreground="#8a5a00",
+            text=("Alpha: Frontal Delaunay is planar-only; curved native faces are rejected. "
+                  "Spatial sizing uses the target size and local refinements. Qualification "
+                  "is incomplete; compiled availability is not a quality/performance guarantee. "
+                  "Budgets bound insertion/topology work; cancellation checks are cooperative. "
+                  "Field-guided quad fronts are not available."),
+        ).pack(anchor="w", pady=2)
+        audit_row = self._audit_row = ttk.Frame(controls)
+        audit_row.pack(fill="x", pady=2)
+        ttk.Label(audit_row, text="geometry validation", width=16).pack(side="left")
+        self._certification = tk.StringVar(value=self._CERTIFICATION_LABELS["interactive"])
+        ttk.Combobox(audit_row, textvariable=self._certification,
+                     values=list(self._CERTIFICATION_LABELS.values()), state="readonly").pack(
+                         side="left", fill="x", expand=True)
+        ttk.Label(
+            controls, wraplength=300, justify="left", foreground="#666666",
+            text=("Interactive audits changed regions when supplied; it does not run a full "
+                  "geometry audit for every job. Strict audits the full working geometry and "
+                  "can take longer. Element quality/admission checks remain enabled in both."),
+        ).pack(anchor="w")
+        for variable in (
+            self._native_backend, self._recombine, self._point_placement, self._metric_mode,
+            self._native_max_insertions, self._native_max_operations, self._native_cancel_interval,
+            self._certification, self._quality_jacobian, self._quality_aspect,
+            self._quality_min_angle, self._quality_max_angle, self._quality_warpage,
+        ):
+            variable.trace_add("write", self._mesh_control_edited)
+        self._placement_changed()
         preview_actions = ttk.Frame(controls)
         preview_actions.pack(fill="x", pady=(2, 1))
         self._preview_button = ttk.Button(
@@ -1837,6 +1932,131 @@ class MeshPanel(StagePanel):
         self._stats = ttk.Label(self, text="no mesh", justify="left")
         self._stats.pack(anchor="w")
         self._update_method_controls()
+
+    def _toggle_native_controls(self):
+        if self._show_native_controls.get():
+            self._advanced_native.pack(fill="x", pady=3)
+        else:
+            self._advanced_native.pack_forget()
+
+    def reset_mesh_drafts(self):
+        """An explicit document open/new discards drafts, even for the same ID."""
+        self._controls_dirty = self._method_dirty = self._preference_dirty = False
+        self._controls_project_id = None
+
+    def _mesh_control_edited(self, *_args):
+        if not self._loading_mesh_controls:
+            self._controls_dirty = True
+
+    def _placement_changed(self, *_args):
+        frontal = self._point_placement.get() == self._PLACEMENT_LABELS["frontal_delaunay"]
+        self._native_filling_status.configure(
+            text="Alpha Frontal Delaunay (planar only)" if frontal else "Legacy lattice (default)",
+            foreground="#8a5a00" if frontal else "#666666",
+        )
+        enabled = frontal and self._native_v2_available
+        self._metric_combo.configure(state="readonly" if enabled else "disabled")
+        if (not frontal and not getattr(self, "_loading_mesh_controls", False)
+                and self._metric_mode.get() != self._METRIC_LABELS["legacy"]):
+            self._metric_mode.set(self._METRIC_LABELS["legacy"])
+        if hasattr(self, "_native_budget_frame"):
+            for row in self._native_budget_frame.winfo_children():
+                for widget in row.winfo_children():
+                    if isinstance(widget, ttk.Entry):
+                        widget.configure(state="normal" if enabled else "disabled")
+
+    @staticmethod
+    def _control_choice(labels, variable, name):
+        for key, label in labels.items():
+            if label == variable.get():
+                return key
+        raise ValueError(f"unknown {name}: {variable.get()!r}")
+
+    def _mesh_controls_value(self):
+        if getattr(self, "_controls_error", None):
+            raise ValueError(self._controls_error)
+        certification = self._control_choice(self._CERTIFICATION_LABELS, self._certification, "geometry validation")
+        if self._method_value() == "mapped":
+            # Hidden native entries must not block a mapped-only submission.
+            return replace(MeshControls.from_settings(self.app.project.native_mesh_settings),
+                           certification_mode=certification)
+        def integer(variable, name):
+            try:
+                value = int(variable.get())
+            except (ValueError, TypeError):
+                raise ValueError(f"{name} must be a positive integer") from None
+            if value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+            return value
+        placement = self._control_choice(self._PLACEMENT_LABELS, self._point_placement, "point placement")
+        saved = MeshControls.from_settings(self.app.project.native_mesh_settings)
+        frontal = placement == "frontal_delaunay"
+        return MeshControls(
+            recombine=self._recombine.get(),
+            certification_mode=certification,
+            point_placement=placement,
+            metric_mode=self._control_choice(self._METRIC_LABELS, self._metric_mode, "size metric"),
+            max_insertions=(integer(self._native_max_insertions, "max insertions") if frontal else saved.max_insertions),
+            max_topology_operations=(integer(self._native_max_operations, "max topology operations") if frontal else saved.max_topology_operations),
+            cancellation_interval=(integer(self._native_cancel_interval, "cancellation interval") if frontal else saved.cancellation_interval),
+        )
+
+    def _refresh_mesh_controls(self):
+        project_id = self.app.project.document_id
+        new_document = getattr(self, "_controls_project_id", None) != project_id
+        if new_document:
+            self._controls_dirty = False
+            self._method_dirty = False
+            self._preference_dirty = False
+        self._controls_project_id = project_id
+        if self._controls_dirty:
+            return
+        settings = self.app.project.native_mesh_settings
+        try:
+            controls = MeshControls.from_settings(settings)
+        except ValueError as error:
+            # Display-only saved intent; never pass this stand-in to execution.
+            from types import SimpleNamespace
+            controls = SimpleNamespace(**MeshControls.display_values(settings))
+            self._controls_error = (
+                f"Saved mesh controls cannot run: {error}. "
+                "Use a compatible ANYmesher installation; saved settings are unchanged."
+            )
+        else:
+            self._controls_error = None
+        placement_label = self._PLACEMENT_LABELS.get(controls.point_placement, str(controls.point_placement))
+        changed_placement = self._point_placement.get() != placement_label
+        self._loading_mesh_controls = True
+        try:
+            self._native_backend.set(self._NATIVE_BACKEND_LABELS[self.app.project.native_triangulation_backend])
+            self._recombine.set(controls.recombine)
+            self._point_placement.set(placement_label)
+            self._metric_mode.set(self._METRIC_LABELS.get(controls.metric_mode, str(controls.metric_mode)))
+            self._certification.set(self._CERTIFICATION_LABELS[controls.certification_mode])
+            self._native_max_insertions.set(str(controls.max_insertions))
+            self._native_max_operations.set(str(controls.max_topology_operations))
+            self._native_cancel_interval.set(str(controls.cancellation_interval))
+            if controls.point_placement == "frontal_delaunay" and (new_document or changed_placement):
+                self._show_native_controls.set(True)
+                self._toggle_native_controls()
+            from anymesher import MeshQualityPolicy
+            parameters = {} if settings is None else dict(settings.parameters)
+            quality = MeshQualityPolicy.create({
+                key.removeprefix("mesh_quality_"): value for key, value in parameters.items()
+                if key.startswith("mesh_quality_")
+            }).to_dict()
+            for key, variable in (
+                ("minimum_scaled_jacobian", self._quality_jacobian),
+                ("maximum_aspect_ratio", self._quality_aspect),
+                ("minimum_angle", self._quality_min_angle),
+                ("maximum_angle", self._quality_max_angle),
+                ("maximum_warpage", self._quality_warpage),
+            ):
+                variable.set(str(quality[key]))
+            if self._controls_error:
+                self._native_filling_status.configure(text=self._controls_error, foreground="#a03020", wraplength=300)
+        finally:
+            self._loading_mesh_controls = False
 
     def _method_value(self) -> str:
         try:
@@ -1946,11 +2166,13 @@ class MeshPanel(StagePanel):
         if method == "mapped":
             self._native_options.pack_forget()
         elif not self._native_options.winfo_manager():
-            self._native_options.pack(fill="x", before=self._generate_button)
+            self._native_options.pack(fill="x", before=self._audit_row)
 
         if busy is None:
             busy = bool(getattr(self.app, "mesh_job_running", False))
-        blocked = method == "mapped" and not eligible
+        blocked = (method == "mapped" and not eligible) or bool(getattr(self, "_controls_error", None))
+        if getattr(self, "_controls_error", None):
+            self._mapped_status.configure(text=self._controls_error, foreground="#a03020")
         self._generate_button.configure(
             state="disabled" if busy or blocked else "normal"
         )
@@ -1972,6 +2194,7 @@ class MeshPanel(StagePanel):
         )
 
     def refresh(self) -> None:
+        self._refresh_mesh_controls()
         pins = self.app.seeding_overrides
         self._pin_label.configure(
             text="no pinned lines"
@@ -1991,11 +2214,6 @@ class MeshPanel(StagePanel):
             ]
             if self._structure_preference.get() != preference_label:
                 self._structure_preference.set(preference_label)
-        backend_label = self._NATIVE_BACKEND_LABELS[
-            self.app.project.native_triangulation_backend
-        ]
-        if self._native_backend.get() != backend_label:
-            self._native_backend.set(backend_label)
 
         zones = self.app.project.refinements
         self._refine_label.configure(
@@ -2032,6 +2250,11 @@ class MeshPanel(StagePanel):
                 )
                 lines.append(f"meshing method requested: {method}")
             strategy_by_face = record.summary.get("strategy_by_face", {})
+            requested_controls = record.summary.get("controls_requested")
+            if isinstance(requested_controls, Mapping):
+                lines.append("requested surface controls: " + ", ".join(
+                    f"{key}={value}" for key, value in requested_controls.items()
+                ))
             if isinstance(strategy_by_face, dict) and strategy_by_face:
                 mapped = sum(
                     str(value) == "mapped" for value in strategy_by_face.values()
@@ -2417,8 +2640,6 @@ class MeshPanel(StagePanel):
             )
             if not eligible:
                 raise ValueError(diagnostic)
-        if self._order.get() != self.app.project.element_order:
-            self.app.run(cmd.SetElementOrder(order=self._order.get()))
         backend = (
             None
             if strategy == "mapped"
@@ -2428,12 +2649,19 @@ class MeshPanel(StagePanel):
             "native_backend": backend,
             "strategy": strategy,
             "structure_preference": preference,
+            "mesh_controls": self._mesh_controls_value(),
         }
         if quality_policy is not None:
             options["quality_policy"] = quality_policy
+        # Validate every active control before any undoable model mutation.
+        if self._order.get() not in ELEMENT_ORDERS:
+            raise ValueError(f"unknown element order {self._order.get()!r}")
+        if self._order.get() != self.app.project.element_order:
+            self.app.run(cmd.SetElementOrder(order=self._order.get()))
         self.app.generate_mesh_async(size, **options)
         self._method_dirty = False
         self._preference_dirty = False
+        self._controls_dirty = False
 
     def _preview_layout(self) -> None:
         size = self.number(self._size, "element size")

@@ -18,6 +18,7 @@ import traceback
 from typing import Any, Mapping
 
 from .document import ProjectSnapshot, canonical_hash
+from .mesh_controls import MeshControls
 
 __all__ = [
     "clone_mesh_for_job",
@@ -79,8 +80,11 @@ class MeshSettings:
     strategy: str | None = None
     structure_preference: str = "balanced"
     quality_policy: tuple[tuple[str, float], ...] = ()
+    controls: MeshControls | None = None
 
     def __post_init__(self) -> None:
+        if self.controls is not None and not isinstance(self.controls, MeshControls):
+            raise TypeError("mesh controls must be MeshControls")
         from anymesher.hybrid import MeshingStrategy
         from anymesher.structured import StructurePreference
         from anymesher.structured import MeshQualityPolicy
@@ -122,6 +126,7 @@ class MeshSettings:
         strategy: str | None = None,
         structure_preference: str = "balanced",
         quality_policy: Mapping[str, float] | None = None,
+        controls: MeshControls | None = None,
     ) -> "MeshSettings":
         size = float(target_size)
         if size <= 0.0:
@@ -133,6 +138,7 @@ class MeshSettings:
                 sorted((int(key), int(value)) for key, value in (overrides or {}).items())
             ),
             strategy=strategy,
+            controls=controls,
             structure_preference=structure_preference,
             quality_policy=tuple(
                 sorted((str(key), float(value)) for key, value in (quality_policy or {}).items())
@@ -147,6 +153,8 @@ class MeshSettings:
                 "element_order": self.element_order,
                 "overrides": dict(self.overrides),
                 "strategy": self.strategy,
+                "controls": (None if self.controls is None else
+                             self.controls.effective_dict(self.strategy)),
                 "structure_preference": (
                     self.structure_preference
                     if self.strategy in (None, "auto")
@@ -399,6 +407,7 @@ class MeshTaskManager:
                     "native": "native",
                 }.get(backend, backend)
             resolved_strategy = MeshingStrategy(requested_strategy).value
+            resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
             progress("snapshot", "prepared immutable model snapshot", 0.1)
             cancellation.raise_if_cancelled("mesh generation")
             progress("generation", "generating mesh elements", 0.2)
@@ -409,6 +418,7 @@ class MeshTaskManager:
                 strategy=settings.strategy,
                 structure_preference=settings.structure_preference,
                 quality_policy=dict(settings.quality_policy),
+                mesh_controls=resolved_controls,
                 cancellation_check=cancellation.raise_if_cancelled,
             )
             cancellation.raise_if_cancelled("mesh quality")
@@ -420,7 +430,7 @@ class MeshTaskManager:
             progress("hash", "hashing immutable mesh result", 0.94)
             structural_preparation = dict(project._last_mesh_preparation)
             resolved_settings_hash = settings.input_hash
-            if settings.strategy is None:
+            if settings.strategy is None or settings.controls is None:
                 # Older/headless callers inherit the snapshotted project
                 # strategy. Canonicalize that resolved value so their hash is
                 # identical to an explicit UI submission of the same method.
@@ -431,6 +441,7 @@ class MeshTaskManager:
                     strategy=resolved_strategy,
                     structure_preference=settings.structure_preference,
                     quality_policy=dict(settings.quality_policy),
+                    controls=resolved_controls,
                 ).input_hash
             semantic_input_hash = canonical_hash(
                 {

@@ -25,6 +25,7 @@ from ..commands import Command
 from ..document import canonical_hash
 from ..diagnostics import ErrorDiagnostic, build_diagnostic_report
 from ..jobs import analysis_hash
+from ..mesh_controls import MeshControls
 from ..mesh_jobs import (
     clone_mesh_for_job,
     MeshJobResult,
@@ -686,6 +687,7 @@ class AnyFemApp(ttk.Frame):
         element_order: str,
         structure_preference: str = "balanced",
         quality_policy: Mapping[str, float] | None = None,
+        mesh_controls: MeshControls | None = None,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
@@ -694,6 +696,8 @@ class AnyFemApp(ttk.Frame):
         current = self.project.native_mesh_settings
         parameters = {} if current is None else dict(current.parameters)
         parameters["structure_preference"] = structure_preference
+        if mesh_controls is not None:
+            parameters.update(mesh_controls.parameters())
         if quality_policy is not None:
             for key, value in quality_policy.items():
                 parameters[f"mesh_quality_{key}"] = float(value)
@@ -702,7 +706,8 @@ class AnyFemApp(ttk.Frame):
             element_order=element_order,
             backend="automatic" if strategy == "auto" else strategy,
             certification_mode=(
-                "interactive" if current is None else current.certification_mode
+                mesh_controls.certification_mode if mesh_controls is not None
+                else ("interactive" if current is None else current.certification_mode)
             ),
             controls=() if current is None else current.controls,
             parameters=parameters,
@@ -717,6 +722,7 @@ class AnyFemApp(ttk.Frame):
         strategy: str | None = None,
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
+        mesh_controls: MeshControls | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -725,6 +731,7 @@ class AnyFemApp(ttk.Frame):
         """
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -733,13 +740,14 @@ class AnyFemApp(ttk.Frame):
             self.project.seeding_overrides = dict(self.seeding_overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if strategy is not None or structure_preference is not None or quality_policy is not None:
+            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
                     target_size=float(target_size),
                     element_order=self.project.element_order,
                     structure_preference=resolved_preference,
                     quality_policy=quality_policy,
+                    mesh_controls=mesh_controls,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -751,6 +759,7 @@ class AnyFemApp(ttk.Frame):
             strategy=resolved_strategy,
             structure_preference=resolved_preference,
             quality_policy=quality_policy,
+            mesh_controls=mesh_controls,
         )
         self.solution = None
         from anymesher import verify_mesh_quality
@@ -765,6 +774,7 @@ class AnyFemApp(ttk.Frame):
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
                 "native_backend": effective_native_backend,
+                "controls": mesh_controls.effective_dict(resolved_strategy),
                 "quality_policy": (
                     dict(quality_policy or {}) if resolved_strategy == "auto" else None
                 ),
@@ -789,6 +799,7 @@ class AnyFemApp(ttk.Frame):
                 "elements": self.mesh.num_elements,
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": resolved_strategy,
+                "controls_requested": mesh_controls.effective_dict(resolved_strategy),
                 "strategy_by_face": self._meshing_strategy_summary(self.mesh),
                 "structured_layout": self._structured_layout_summary(self.mesh),
                 "complex_geometry": self._complex_geometry_summary(self.mesh),
@@ -839,12 +850,14 @@ class AnyFemApp(ttk.Frame):
         strategy: str | None = None,
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
+        mesh_controls: MeshControls | None = None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -855,19 +868,21 @@ class AnyFemApp(ttk.Frame):
             strategy=resolved_strategy,
             structure_preference=resolved_preference,
             quality_policy=quality_policy,
+            controls=mesh_controls,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if strategy is not None or structure_preference is not None or quality_policy is not None:
+            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
                     target_size=settings.target_size,
                     element_order=settings.element_order,
                     structure_preference=resolved_preference,
                     quality_policy=quality_policy,
+                    mesh_controls=mesh_controls,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -890,6 +905,7 @@ class AnyFemApp(ttk.Frame):
                 "element_order": settings.element_order,
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": settings.strategy,
+                "controls_requested": mesh_controls.effective_dict(settings.strategy),
                 "structure_preference": (
                     settings.structure_preference
                     if settings.strategy == "auto"
@@ -2906,6 +2922,9 @@ class AnyFemApp(ttk.Frame):
             imported=imported,
             read_only=read_only,
         )
+        mesh_panel = self.panels.get("Mesh")
+        if mesh_panel is not None:
+            mesh_panel.reset_mesh_drafts()
         self.commands.add_listener(self.refresh_all)
         self.session.add_listener(self._on_revision_changed)
         self.worker = JobWorkerFacade(self.job_manager)
