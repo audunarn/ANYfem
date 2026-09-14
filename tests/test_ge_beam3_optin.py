@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from anyfem.solve.ge_beam3 import B3GENativeOptIn, GeBeam3OptIn
 from anysolver.ge_beam3_element import GeometricallyExactBeam3D3NElement
@@ -40,3 +41,7 @@ def test_b3_ge_native_consumer_roundtrip_and_legacy_default():
     assert restored.policy["selector"] == "b3-ge"
     assert restored.policy["legacy_b3_default"] is True
     assert type(create_element("quadratic_beam", 99, [1, 2, 3])) is QuadraticBeamElement
+    oversized = policy.to_dict()
+    oversized["definitions"][0]["raw_base64"] = "a" * 2_800_001
+    with pytest.raises(ValueError, match="bounded"):
+        B3GENativeOptIn.from_dict(oversized)

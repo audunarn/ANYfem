@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import numpy as np
-from anysolver import b3_ge
-from anysolver._ge_beam3_native_definition import NativeBeamDefinition
 from anysolver.beam_sections import GeneralizedBeamSection
 from anysolver.elements import create_element
 from anysolver.ge_beam3_element import (
@@ -25,7 +23,7 @@ CONSUMER_POLICY = {
 B3_GE_CONSUMER_POLICY = {
     "enabled": True,
     "selector": "b3-ge",
-    "native_profile_id": b3_ge.NATIVE_PROFILE_ID,
+    "native_profile_id": "GE_BEAM3_NATIVE_OWNED_WORKFLOWS_V1",
     "explicit_opt_in": True,
     "legacy_b3_default": True,
 }
@@ -111,9 +109,11 @@ class GeBeam3OptIn:
 class B3GENativeOptIn:
     """Exact native definition graph selected explicitly as B3-GE."""
 
-    definitions: Sequence[NativeBeamDefinition]
+    definitions: Sequence[Any]
 
     def __post_init__(self) -> None:
+        from anysolver._ge_beam3_native_definition import NativeBeamDefinition
+
         rows = tuple(self.definitions)
         if not rows or any(type(row) is not NativeBeamDefinition for row in rows):
             raise ValueError("one or more exact native B3-GE definitions required")
@@ -128,6 +128,8 @@ class B3GENativeOptIn:
         return dict(B3_GE_CONSUMER_POLICY)
 
     def create_analysis(self, boundaries: Sequence[Any], *, retained_refinement: bool = False):
+        from anysolver import b3_ge
+
         return b3_ge.create_analysis(
             b3_ge.SELECTOR,
             self.definitions,
@@ -159,9 +161,18 @@ class B3GENativeOptIn:
         ):
             raise ValueError("strict ANYfem B3-GE native opt-in record required")
         rows = []
+        from anysolver._ge_beam3_native_definition import NativeBeamDefinition
+
         for item in data["definitions"]:
             if type(item) is not dict or set(item) != {"raw_base64", "sha256"}:
                 raise ValueError("strict B3-GE definition binding required")
+            if (
+                type(item["raw_base64"]) is not str
+                or len(item["raw_base64"]) > 2_800_000
+                or type(item["sha256"]) is not str
+                or len(item["sha256"]) != 64
+            ):
+                raise ValueError("bounded B3-GE definition binding required")
             try:
                 raw = base64.b64decode(item["raw_base64"], validate=True)
             except Exception as exc:
