@@ -10,10 +10,14 @@ from anysolver.elements import create_element
 from anysolver.ge_beam3_element import (
     GE_BEAM3_QUALIFIED_FORMULATION_ID, GeometricallyExactBeam3D3NElement,
 )
-from anysolver.ge_beam3_native import ConsumerPolicy
 
 
 SCHEMA = "anyfem.ge-beam3-explicit-opt-in-v1"
+CONSUMER_POLICY = {
+    "enabled": True,
+    "selector": "ge-beam3",
+    "formulation_id": GE_BEAM3_QUALIFIED_FORMULATION_ID,
+}
 
 
 def _matrix(value: Any, label: str) -> np.ndarray:
@@ -52,8 +56,8 @@ class GeBeam3OptIn:
         object.__setattr__(self, "reference_orientation", orientation)
 
     @property
-    def policy(self) -> ConsumerPolicy:
-        return ConsumerPolicy.ge_beam3()
+    def policy(self) -> dict[str, object]:
+        return dict(CONSUMER_POLICY)
 
     def build(self, element_id: int, node_ids: Sequence[int], material_name: str) -> GeometricallyExactBeam3D3NElement:
         section = GeneralizedBeamSection(
@@ -72,7 +76,7 @@ class GeBeam3OptIn:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema": SCHEMA,
-            "consumer_policy": self.policy.to_bytes().decode("ascii").strip(),
+            "consumer_policy": self.policy,
             "section_stiffness": self.section_stiffness.tolist(),
             "section_mass_per_length": self.section_mass_per_length.tolist(),
             "reference_orientation": self.reference_orientation.tolist(),
@@ -86,9 +90,7 @@ class GeBeam3OptIn:
                     "reference_orientation", "section_name", "contact_radius"}
         if type(data) is not dict or set(data) != required or data["schema"] != SCHEMA:
             raise ValueError("strict ANYfem GE-B3 opt-in record required")
-        raw = (str(data["consumer_policy"]) + "\n").encode("ascii")
-        from hashlib import sha256
-        if ConsumerPolicy.from_bytes(raw, expected_sha256=sha256(raw).hexdigest()) != ConsumerPolicy.ge_beam3():
+        if data["consumer_policy"] != CONSUMER_POLICY:
             raise ValueError("qualified GE-B3 consumer policy required")
         return cls(data["section_stiffness"], data["section_mass_per_length"],
                    data["reference_orientation"], data["section_name"], data["contact_radius"])
