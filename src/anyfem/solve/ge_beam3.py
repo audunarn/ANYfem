@@ -1,10 +1,13 @@
-"""Explicit GE-B3 consumer adapter; no project or beam alias is changed."""
+"""Explicit historical GE-B3 and production B3-GE consumer adapters."""
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+from anysolver import b3_ge
+from anysolver._ge_beam3_native_definition import NativeBeamDefinition
 from anysolver.beam_sections import GeneralizedBeamSection
 from anysolver.elements import create_element
 from anysolver.ge_beam3_element import (
@@ -13,10 +16,18 @@ from anysolver.ge_beam3_element import (
 
 
 SCHEMA = "anyfem.ge-beam3-explicit-opt-in-v1"
+B3_GE_SCHEMA = "anyfem.b3-ge-native-opt-in-v2"
 CONSUMER_POLICY = {
     "enabled": True,
     "selector": "ge-beam3",
     "formulation_id": GE_BEAM3_QUALIFIED_FORMULATION_ID,
+}
+B3_GE_CONSUMER_POLICY = {
+    "enabled": True,
+    "selector": "b3-ge",
+    "native_profile_id": b3_ge.NATIVE_PROFILE_ID,
+    "explicit_opt_in": True,
+    "legacy_b3_default": True,
 }
 
 
@@ -96,4 +107,67 @@ class GeBeam3OptIn:
                    data["reference_orientation"], data["section_name"], data["contact_radius"])
 
 
-__all__ = ["GeBeam3OptIn", "SCHEMA"]
+@dataclass(frozen=True)
+class B3GENativeOptIn:
+    """Exact native definition graph selected explicitly as B3-GE."""
+
+    definitions: Sequence[NativeBeamDefinition]
+
+    def __post_init__(self) -> None:
+        rows = tuple(self.definitions)
+        if not rows or any(type(row) is not NativeBeamDefinition for row in rows):
+            raise ValueError("one or more exact native B3-GE definitions required")
+        detached = tuple(
+            NativeBeamDefinition.from_bytes(bytes(row.raw), expected_sha256=row.sha256)
+            for row in rows
+        )
+        object.__setattr__(self, "definitions", detached)
+
+    @property
+    def policy(self) -> dict[str, object]:
+        return dict(B3_GE_CONSUMER_POLICY)
+
+    def create_analysis(self, boundaries: Sequence[Any], *, retained_refinement: bool = False):
+        return b3_ge.create_analysis(
+            b3_ge.SELECTOR,
+            self.definitions,
+            tuple(boundaries),
+            retained_refinement=retained_refinement,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": B3_GE_SCHEMA,
+            "consumer_policy": self.policy,
+            "definitions": [
+                {
+                    "raw_base64": base64.b64encode(row.raw).decode("ascii"),
+                    "sha256": row.sha256,
+                }
+                for row in self.definitions
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "B3GENativeOptIn":
+        if (
+            type(data) is not dict
+            or set(data) != {"schema", "consumer_policy", "definitions"}
+            or data["schema"] != B3_GE_SCHEMA
+            or data["consumer_policy"] != B3_GE_CONSUMER_POLICY
+            or type(data["definitions"]) is not list
+        ):
+            raise ValueError("strict ANYfem B3-GE native opt-in record required")
+        rows = []
+        for item in data["definitions"]:
+            if type(item) is not dict or set(item) != {"raw_base64", "sha256"}:
+                raise ValueError("strict B3-GE definition binding required")
+            try:
+                raw = base64.b64decode(item["raw_base64"], validate=True)
+            except Exception as exc:
+                raise ValueError("invalid B3-GE definition encoding") from exc
+            rows.append(NativeBeamDefinition.from_bytes(raw, expected_sha256=item["sha256"]))
+        return cls(tuple(rows))
+
+
+__all__ = ["GeBeam3OptIn", "B3GENativeOptIn", "SCHEMA", "B3_GE_SCHEMA"]
