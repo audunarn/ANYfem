@@ -12,7 +12,7 @@ from anyfem.document import DocumentSession
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.project_file import project_from_dict, project_to_dict
 from anyfem.mesh_jobs import MeshJobResult, MeshSettings, MeshTaskManager
-from anyfem.mesh_controls import MeshControls
+from anyfem.mesh_controls import MeshControls, StructuredMeshControls
 from anyfem.model.project import Project
 from anyfem.ui.app import AnyFemApp
 from anyfem.ui.panels import MeshPanel, mapped_mesh_eligibility
@@ -163,6 +163,7 @@ def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> No
         _method_value=lambda: "mapped",
         _structure_preference_value=lambda: "balanced",
         _mesh_controls_value=lambda: MeshControls(),
+        _structured_controls_value=lambda: StructuredMeshControls(),
     )
 
     MeshPanel._generate(panel)
@@ -174,6 +175,7 @@ def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> No
             "strategy": "mapped",
             "structure_preference": "balanced",
             "mesh_controls": MeshControls(),
+            "structured_controls": StructuredMeshControls(),
         }
     ]
     assert panel._method_dirty is False

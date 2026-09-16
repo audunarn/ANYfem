@@ -18,14 +18,21 @@ from anygeometry import (
     query_intersection,
     to_dict,
 )
-from anymesher.serialize import mesh_to_dict
-
 from anyfem import Project, steel
 from anyfem import commands as cmd
+from anyfem.document import DocumentSession
 from anyfem.geometry.sketching import FaceSketchTask
 from anyfem.io.project_file import project_from_dict, project_to_dict
+from anyfem.mesh_jobs import mesh_semantic_hash
 from anyfem.solve.build import build_fe_model
 from anysolver import audit_constraints
+
+
+def _geometry_intent(geometry):
+    data = to_dict(geometry)
+    for key in ("checksum", "id_state", "revision"):
+        data.pop(key, None)
+    return data
 
 
 def _project() -> tuple[Project, int]:
@@ -63,7 +70,7 @@ def test_add_edit_undo_sketch_is_one_atomic_feature_command():
 
     assert feature.kind == "geometry.sketch.extrude"
     assert len([key for key in feature.outputs if key.startswith("extrusion/face/")]) == 3
-    before_edit = to_dict(project.geometry)
+    before_edit = _geometry_intent(project.geometry)
     changed = SketchDefinition(
         points={**definition.points, "p3": (2.0, 1.5)},
         path=definition.path,
@@ -75,7 +82,7 @@ def test_add_edit_undo_sketch_is_one_atomic_feature_command():
     np.testing.assert_allclose(project.geometry.vertices[point.id].position, (2.0, 1.5, 0.0))
 
     stack.undo()
-    assert to_dict(project.geometry) == before_edit
+    assert _geometry_intent(project.geometry) == before_edit
     stack.undo()
     assert not project.geometry.features.records
 
@@ -172,10 +179,15 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
 
     support_sheet, support_part = face_owner(face)
     wall_owners = {face_owner(face_id) for face_id in extrusion_faces}
-    assert len(wall_owners) == 1
-    wall_sheet, wall_part = wall_owners.pop()
-    assert wall_sheet != support_sheet
-    assert wall_part != support_part
+    # ANYgeometry 0.4 owns each independently authored wall face as one Sheet
+    # and Part.  Joining them is an explicit modeling operation, not an
+    # implicit side effect of sketch extrusion.
+    assert len(wall_owners) == len(extrusion_faces)
+    assert all(
+        sheet_id != support_sheet and part_id != support_part
+        for sheet_id, part_id in wall_owners
+    )
+    wall_sheet, _wall_part = face_owner(extrusion_faces[0])
 
     result = query_intersection(
         geometry,
@@ -203,8 +215,21 @@ def test_interior_sketch_extrusion_meshes_as_connected_shell_t_junction():
     assert geometry.validate_topology() == ()
 
     mesh = project.generate_mesh(0.5)
+    first_preparation = dict(project._last_mesh_preparation)
     repeated = project.generate_mesh(0.5)
-    assert mesh_to_dict(repeated) == mesh_to_dict(mesh)
+    second_preparation = dict(project._last_mesh_preparation)
+    model_hash = DocumentSession(project).revision.model_hash
+    assert mesh_semantic_hash(
+        repeated,
+        model_hash=model_hash,
+        mesh_input_hash="target-size:0.5",
+        structural_preparation=second_preparation,
+    ) == mesh_semantic_hash(
+        mesh,
+        model_hash=model_hash,
+        mesh_input_hash="target-size:0.5",
+        structural_preparation=first_preparation,
+    )
     shared_nodes = set(mesh.nodes_of_edge[shared_edge])
     assert shared_nodes
     for sheet_id in (support_sheet, wall_sheet):
@@ -238,5 +263,26 @@ def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():
     )
     report = audit_constraints(built.fe_model)
 
-    assert mesh.automatic_shell_connections >= 1
+    def face_sheet(face_id: int) -> int:
+        use = next(
+            item for item in project.geometry.face_uses.values()
+            if item.face_id == face_id
+        )
+        return use.sheet_id
+
+    first_nodes = {
+        node_id
+        for element_id in mesh.elements_of_sheet[face_sheet(first_wall)]
+        for node_id in mesh.shells[element_id]
+    }
+    second_nodes = {
+        node_id
+        for element_id in mesh.elements_of_sheet[face_sheet(second_wall)]
+        for node_id in mesh.shells[element_id]
+    }
+    # Adjacent extrusions share their common edge topologically and therefore
+    # mesh conformally.  No redundant shell MPC should be created.
+    assert len(first_nodes & second_nodes) >= 2
+    assert mesh.automatic_shell_connections == 0
+    assert not mesh.couplings
     assert not [issue for issue in report.issues if issue.code == "CONSTRAINT003"]

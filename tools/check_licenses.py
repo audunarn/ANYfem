@@ -174,8 +174,11 @@ def _check_installed(rows: list[dict[str, object]]) -> None:
 def check(*, check_installed: bool = False) -> None:
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = metadata["project"]
-    if project.get("version") != "0.4.0":
-        _fail("pyproject.toml does not declare the release version 0.4.0")
+    version_match = re.fullmatch(
+        r"(\d+)\.(\d+)\.(\d+)", str(project.get("version", ""))
+    )
+    if version_match is None or tuple(map(int, version_match.groups())) < (0, 4, 0):
+        _fail("pyproject.toml does not declare an MPL release version >=0.4.0")
     if project.get("license") != EXPECTED_LICENSE:
         _fail("pyproject.toml does not declare MPL-2.0")
     if project.get("license-files") != EXPECTED_LICENSE_FILES:

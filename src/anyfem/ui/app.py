@@ -25,7 +25,7 @@ from ..commands import Command
 from ..document import canonical_hash
 from ..diagnostics import ErrorDiagnostic, build_diagnostic_report
 from ..jobs import analysis_hash
-from ..mesh_controls import MeshControls
+from ..mesh_controls import MeshControls, StructuredMeshControls
 from ..mesh_jobs import (
     clone_mesh_for_job,
     MeshJobResult,
@@ -688,6 +688,7 @@ class AnyFemApp(ttk.Frame):
         structure_preference: str = "balanced",
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
+        structured_controls: StructuredMeshControls | None = None,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
@@ -698,6 +699,8 @@ class AnyFemApp(ttk.Frame):
         parameters["structure_preference"] = structure_preference
         if mesh_controls is not None:
             parameters.update(mesh_controls.parameters())
+        if structured_controls is not None:
+            parameters.update(structured_controls.parameters())
         if quality_policy is not None:
             for key, value in quality_policy.items():
                 parameters[f"mesh_quality_{key}"] = float(value)
@@ -723,6 +726,7 @@ class AnyFemApp(ttk.Frame):
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
+        structured_controls: StructuredMeshControls | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -732,6 +736,12 @@ class AnyFemApp(ttk.Frame):
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
+        structured_controls = (
+            structured_controls
+            or StructuredMeshControls.from_settings(
+                self.project.native_mesh_settings
+            )
+        )
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -748,6 +758,7 @@ class AnyFemApp(ttk.Frame):
                     structure_preference=resolved_preference,
                     quality_policy=quality_policy,
                     mesh_controls=mesh_controls,
+                    structured_controls=structured_controls,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -760,6 +771,7 @@ class AnyFemApp(ttk.Frame):
             structure_preference=resolved_preference,
             quality_policy=quality_policy,
             mesh_controls=mesh_controls,
+            structured_controls=structured_controls,
         )
         self.solution = None
         from anymesher import verify_mesh_quality
@@ -777,6 +789,11 @@ class AnyFemApp(ttk.Frame):
                 "controls": mesh_controls.effective_dict(resolved_strategy),
                 "quality_policy": (
                     dict(quality_policy or {}) if resolved_strategy == "auto" else None
+                ),
+                "structured_controls": (
+                    structured_controls.effective_dict()
+                    if resolved_strategy == "auto"
+                    else None
                 ),
             }
         )
@@ -800,6 +817,11 @@ class AnyFemApp(ttk.Frame):
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": resolved_strategy,
                 "controls_requested": mesh_controls.effective_dict(resolved_strategy),
+                "structured_controls_requested": (
+                    structured_controls.effective_dict()
+                    if resolved_strategy == "auto"
+                    else None
+                ),
                 "strategy_by_face": self._meshing_strategy_summary(self.mesh),
                 "structured_layout": self._structured_layout_summary(self.mesh),
                 "complex_geometry": self._complex_geometry_summary(self.mesh),
@@ -851,6 +873,7 @@ class AnyFemApp(ttk.Frame):
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
+        structured_controls: StructuredMeshControls | None = None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
@@ -858,6 +881,12 @@ class AnyFemApp(ttk.Frame):
             raise ValueError("a mesh is already being generated")
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
+        structured_controls = (
+            structured_controls
+            or StructuredMeshControls.from_settings(
+                self.project.native_mesh_settings
+            )
+        )
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -869,6 +898,7 @@ class AnyFemApp(ttk.Frame):
             structure_preference=resolved_preference,
             quality_policy=quality_policy,
             controls=mesh_controls,
+            structured_controls=structured_controls,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
@@ -883,6 +913,7 @@ class AnyFemApp(ttk.Frame):
                     structure_preference=resolved_preference,
                     quality_policy=quality_policy,
                     mesh_controls=mesh_controls,
+                    structured_controls=structured_controls,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -906,6 +937,11 @@ class AnyFemApp(ttk.Frame):
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": settings.strategy,
                 "controls_requested": mesh_controls.effective_dict(settings.strategy),
+                "structured_controls_requested": (
+                    structured_controls.effective_dict()
+                    if settings.strategy == "auto"
+                    else None
+                ),
                 "structure_preference": (
                     settings.structure_preference
                     if settings.strategy == "auto"
@@ -1470,18 +1506,25 @@ class AnyFemApp(ttk.Frame):
         *,
         structure_preference: str = "balanced",
         quality_policy: Mapping[str, float] | None = None,
+        structured_controls: StructuredMeshControls | None = None,
     ) -> Any:
         """Plan and display exact mesh-only partitions without model mutation."""
 
         from anymesher import apply_structured_layout, plan_structured_layout
 
+        structured_controls = (
+            structured_controls
+            or StructuredMeshControls.from_settings(
+                self.project.native_mesh_settings
+            )
+        )
         plan = plan_structured_layout(
             self.project.geometry,
             target_size=float(target_size),
-            options={
-                "preference": structure_preference,
-                "quality_policy": dict(quality_policy or {}),
-            },
+            options=structured_controls.owner_options(
+                preference=structure_preference,
+                quality_policy=dict(quality_policy or {}),
+            ),
             overrides=self.seeding_overrides,
             explicit_seeding=bool(self.seeding_overrides),
         )

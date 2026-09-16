@@ -12,7 +12,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYfileio",
-      "requirement": "ANYfileio>=0.3.1,<0.4",
+      "requirement": "ANYfileio>=0.3.2,<0.4",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYfileIO"
     },
@@ -20,7 +20,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYgeometry",
-      "requirement": "ANYgeometry[planar]>=0.4.2,<0.5",
+      "requirement": "ANYgeometry[planar]>=0.4.3,<0.5",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYgeometry"
     },
@@ -36,7 +36,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYmesher",
-      "requirement": "ANYmesher>=0.4,<0.5",
+      "requirement": "ANYmesher>=0.5,<0.6",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYmesh"
     },
@@ -44,7 +44,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYsolver",
-      "requirement": "ANYsolver>=0.4.2,<0.5",
+      "requirement": "ANYsolver>=0.4.6,<0.5",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYsolver"
     },

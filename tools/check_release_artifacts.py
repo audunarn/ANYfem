@@ -6,10 +6,16 @@ import argparse
 from pathlib import Path, PurePosixPath
 import sys
 import tarfile
+import tomllib
 import zipfile
 
 
-VERSION = "0.4.0"
+ROOT = Path(__file__).resolve().parents[1]
+VERSION = str(
+    tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+        "version"
+    ]
+)
 LICENSE_FILES = (
     "LICENSE",
     "NOTICE",

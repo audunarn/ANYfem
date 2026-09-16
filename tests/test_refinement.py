@@ -656,8 +656,10 @@ def test_meshing_controls_survive_a_project_file(workspace):
 
     project = plate_project()
     project.set_element_order("quadratic")
-    project.add_refinement(refine_around(project.point(1), 0.05, 0.1))
-    project.add_refinement(refine_at((0.5, 0.5, 0.0), 0.04, 0.2, growth=1.8))
+    # Persist representative controls that also satisfy the current mesher's
+    # bounded growth contract; aggressive grading belongs to quality tests.
+    project.add_refinement(refine_around(project.point(1), 0.10, 0.2))
+    project.add_refinement(refine_at((0.5, 0.5, 0.0), 0.10, 0.3, growth=1.8))
 
     restored = load_project(save_project(project, workspace / "model"))
 
@@ -681,7 +683,10 @@ def test_a_file_without_meshing_controls_still_loads(workspace):
 
     project = plate_project()
     data = project_to_dict(project)
-    del data["meshing"]
+    # Current formats require the meshing object and its backend authority,
+    # but these optional controls were absent in earlier files.
+    data["meshing"].pop("element_order")
+    data["meshing"].pop("refinements")
     path = workspace / "old.anyfem"
     path.write_text(json.dumps(data), encoding="utf-8")
 

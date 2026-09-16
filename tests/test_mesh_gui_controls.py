@@ -7,7 +7,7 @@ import pytest
 
 from anyfem.document import DocumentSession
 from anyfem.io.project_file import project_from_dict, project_to_dict
-from anyfem.mesh_controls import MeshControls
+from anyfem.mesh_controls import MeshControls, StructuredMeshControls
 from anyfem.mesh_jobs import MeshSettings, MeshTaskManager, _cancellation_token
 from anyfem.model.project import Project
 from anyfem.ui.app import AnyFemApp
@@ -42,9 +42,15 @@ def panel_for(project=None):
         _native_max_insertions=Value("10000"),
         _native_max_operations=Value("1000000"),
         _native_cancel_interval=Value("256"),
-        _quality_jacobian=Value("0.1"), _quality_aspect=Value("5"),
-        _quality_min_angle=Value("20"), _quality_max_angle=Value("160"),
+        _quality_jacobian=Value("0.2"), _quality_aspect=Value("4"),
+        _quality_min_angle=Value("30"), _quality_max_angle=Value("150"),
         _quality_warpage=Value("0.1"), _method_value=lambda: "native",
+        _allow_detached_partition=Value(True),
+        _structured_entries={
+            name: Value(str(getattr(StructuredMeshControls(), name)))
+            for name in StructuredMeshControls.__dataclass_fields__
+            if name != "allow_detached_partition"
+        },
         _control_choice=MeshPanel._control_choice,
     )
     for name in ("_PLACEMENT_LABELS", "_METRIC_LABELS", "_CERTIFICATION_LABELS", "_NATIVE_BACKEND_LABELS"):
@@ -116,6 +122,86 @@ def test_defaults_match_public_owner_options():
     from anymesher.native_v2 import NativeMeshingOptions
     assert MeshControls().native_options().to_dict() == NativeMeshingOptions().to_dict()
     assert MeshPanel._mesh_controls_value(panel_for()) == MeshControls()
+    assert (
+        StructuredMeshControls().owner_options().to_dict()
+        == __import__(
+            "anymesher.structured", fromlist=["StructuredMeshingOptions"]
+        ).StructuredMeshingOptions().to_dict()
+    )
+
+
+def test_structured_controls_round_trip_through_saved_project_settings():
+    project = Project("structured controls")
+    controls = replace(
+        StructuredMeshControls(),
+        allow_detached_partition=False,
+        max_element_growth=1.25,
+        maximum_radial_sides=12,
+        maximum_estimated_elements=345_678,
+    )
+    AnyFemApp._store_mesh_strategy(
+        SimpleNamespace(project=project),
+        "auto",
+        target_size=0.25,
+        element_order="linear",
+        structured_controls=controls,
+    )
+
+    reopened = project_from_dict(project_to_dict(project))
+
+    assert StructuredMeshControls.from_settings(
+        reopened.native_mesh_settings
+    ) == controls
+
+
+def test_structured_controls_affect_automatic_job_identity_only():
+    baseline = StructuredMeshControls()
+    changed = replace(baseline, max_element_growth=1.25)
+    automatic = MeshSettings.create(
+        0.2,
+        element_order="linear",
+        strategy="auto",
+        structured_controls=baseline,
+    )
+    assert automatic.input_hash != replace(
+        automatic, structured_controls=changed
+    ).input_hash
+    native = replace(automatic, strategy="native")
+    assert native.input_hash == replace(
+        native, structured_controls=changed
+    ).input_hash
+
+
+def test_panel_collects_public_structured_planning_controls():
+    panel = panel_for()
+    panel._method_value = lambda: "auto"
+    panel.number = lambda variable, _label: float(variable.get())
+    panel._allow_detached_partition.set(False)
+    panel._structured_entries["max_element_growth"].set("1.25")
+    panel._structured_entries["maximum_radial_sides"].set("12")
+
+    controls = MeshPanel._structured_controls_value(panel)
+
+    assert controls.allow_detached_partition is False
+    assert controls.max_element_growth == 1.25
+    assert controls.maximum_radial_sides == 12
+    assert controls.owner_options().max_element_growth == 1.25
+
+
+def test_hidden_structured_draft_does_not_block_explicit_native_method():
+    project = Project("native ignores structured draft")
+    saved = replace(StructuredMeshControls(), max_element_growth=1.25)
+    AnyFemApp._store_mesh_strategy(
+        SimpleNamespace(project=project),
+        "native",
+        target_size=0.25,
+        element_order="linear",
+        structured_controls=saved,
+    )
+    panel = panel_for(project)
+    panel._structured_entries["maximum_blocks"].set("invalid hidden value")
+
+    assert MeshPanel._structured_controls_value(panel) == saved
 
 
 def test_missing_native_v2_retains_legacy_and_refuses_alpha(monkeypatch):
@@ -437,6 +523,13 @@ def test_project_passes_public_owner_options_without_meshing(monkeypatch, strate
         assert "native_options" not in captured[0]
     else:
         assert captured[0]["native_options"].to_dict() == controls.native_options().to_dict()
+    if strategy == "native":
+        assert captured[0]["structured_options"] is None
+    else:
+        assert (
+            captured[0]["structured_options"].to_dict()
+            == StructuredMeshControls().owner_options().to_dict()
+        )
 
 
 def test_legacy_job_hashes_include_recombine_and_audit():

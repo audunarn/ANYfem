@@ -13,7 +13,12 @@ from anyfem.model.project import Project
 
 
 def _geometry_bytes(project: Project) -> str:
-    return json.dumps(to_dict(project.geometry), sort_keys=True, separators=(",", ":"))
+    """Canonical editable intent, excluding monotone persistence metadata."""
+
+    data = to_dict(project.geometry)
+    for key in ("checksum", "id_state", "revision"):
+        data.pop(key, None)
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
 
 def _plate(stack: cmd.CommandStack, width: float = 4.0, height: float = 3.0) -> int:

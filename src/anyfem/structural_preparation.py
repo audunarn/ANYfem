@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from anygeometry import (
     ConnectionIntent,
+    IntersectionDimension,
     IntersectionKind,
     apply_imprint,
     plan_imprint,
@@ -127,38 +128,6 @@ def _candidate_pairs(
     sheet_edges: dict[int, set[int]] = {}
     for face_id, sheet_id in face_sheets.items():
         sheet_edges.setdefault(sheet_id, set()).update(face_edges[face_id])
-    # Exact shared-edge topology already forms one conformal shell component,
-    # even when independently authored faces deliberately retain separate
-    # Sheet owners.  Do not send non-neighbouring faces from that same
-    # component through a broad curved-surface AABB query: a conservative
-    # Coons bound can overlap the opposite side of a closed cylinder.  Any
-    # self-intersection of one conformal component belongs to geometry
-    # validation, not to creation of redundant structural attachments.
-    component_parent = {face_id: face_id for face_id in face_edges}
-
-    def find(face_id: int) -> int:
-        root = face_id
-        while component_parent[root] != root:
-            root = component_parent[root]
-        while component_parent[face_id] != face_id:
-            following = component_parent[face_id]
-            component_parent[face_id] = root
-            face_id = following
-        return root
-
-    edge_faces: dict[int, list[int]] = {}
-    for face_id, edges in face_edges.items():
-        for edge_id in edges:
-            edge_faces.setdefault(edge_id, []).append(face_id)
-    for connected in edge_faces.values():
-        if len(connected) < 2:
-            continue
-        first_root = find(connected[0])
-        for face_id in connected[1:]:
-            second_root = find(face_id)
-            if first_root != second_root:
-                component_parent[second_root] = first_root
-
     face_pairs: set[tuple[int, int]] = set()
     for face_id in sorted(geometry.faces):
         bounds = geometry.entity_bounds_many((('face', face_id),))[0]
@@ -173,8 +142,6 @@ def _candidate_pairs(
             second_sheet = face_sheets.get(other)
             if first_sheet is not None and first_sheet == second_sheet:
                 continue
-            if find(face_id) == find(other):
-                continue
             # Reusing the exact edge definition is already explicit,
             # conformal topology.  It must not be sent back through the
             # geometric intersection classifier (which would at best be
@@ -182,6 +149,14 @@ def _candidate_pairs(
             # unavailable even though the topology is exact).
             if face_edges[face_id] & face_edges[other]:
                 continue
+            # Faces intentionally grouped into one Sheet are already one
+            # structural shell.  This also prevents conservative curved-face
+            # bounds (for example opposite cylinder panels) from producing
+            # redundant self-connections.  Independently authored Sheets may
+            # still meet again elsewhere in the connected topology: adjacent
+            # edge extrusions are the common case, and their coincident free
+            # edges must be imprinted rather than hidden by a broad connected-
+            # component shortcut.
             face_pairs.add((face_id, other))
 
     active_members = (
@@ -296,6 +271,17 @@ def prepare_structural_connectivity(
             kind = result.kind
             if kind is IntersectionKind.DISJOINT:
                 continue
+            if (
+                first.kind == "face"
+                and second.kind == "face"
+                and result.dimension is IntersectionDimension.POINT
+            ):
+                # Shells touching at only one point do not form a weld line
+                # and ANYgeometry intentionally has no face-imprint plan for
+                # that case.  Exact shared vertices already reuse their mesh
+                # node; merely coincident corners remain separate structural
+                # parts unless the user declares a stronger relationship.
+                continue
             if kind is IntersectionKind.OVERLAP_REGION:
                 raise StructuralPreparationError(
                     f"coplanar plate overlap between {_label(first)} and "
@@ -379,11 +365,11 @@ def source_work_mapping(closure: ModelClosure) -> dict[str, tuple[str, ...]]:
     return mapping
 
 
-def _descendant_to_source(
+def _descendant_to_sources(
     closure: ModelClosure, kind: str
-) -> dict[int, int]:
+) -> dict[int, tuple[int, ...]]:
     geometry = closure.working_model
-    made: dict[int, int] = {}
+    made: dict[int, list[int]] = {}
     for source, initial in closure.source_to_work.items():
         if source.kind != kind:
             continue
@@ -391,22 +377,27 @@ def _descendant_to_source(
         if not resolved and initial.id in getattr(geometry, f"{kind}s"):
             resolved = (EntityRef(kind, initial.id),)
         for item in resolved:
-            previous = made.setdefault(item.id, source.id)
-            if previous != source.id:
-                raise StructuralPreparationError(
-                    f"prepared {kind} {item.id} descends from multiple source "
-                    "owners; resolve plate overlap explicitly"
-                )
-    return made
+            owners = made.setdefault(item.id, [])
+            if source.id not in owners:
+                owners.append(source.id)
+    return {
+        working_id: tuple(sorted(source_ids))
+        for working_id, source_ids in made.items()
+    }
 
 
-def _aggregate(mapping: Mapping[int, Iterable[int]], owners: Mapping[int, int]):
+def _aggregate(
+    mapping: Mapping[int, Iterable[int]],
+    owners: Mapping[int, tuple[int, ...]],
+):
     result: dict[int, list[int]] = {}
     for working_id, values in mapping.items():
-        source_id = owners.get(int(working_id))
-        if source_id is None:
+        source_ids = owners.get(int(working_id), ())
+        if not source_ids:
             continue
-        result.setdefault(source_id, []).extend(int(item) for item in values)
+        materialized = [int(item) for item in values]
+        for source_id in source_ids:
+            result.setdefault(source_id, []).extend(materialized)
     return {
         # Preserve boundary-node order.  Sorting node IDs puts both endpoint
         # nodes before the later-allocated interior nodes and turns a straight
@@ -435,27 +426,42 @@ def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
             )
         qualified_authority = authority
 
-    face_owner = _descendant_to_source(closure, "face")
-    edge_owner = _descendant_to_source(closure, "edge")
-    vertex_owner = _descendant_to_source(closure, "vertex")
+    face_owner = _descendant_to_sources(closure, "face")
+    edge_owner = _descendant_to_sources(closure, "edge")
+    vertex_owner = _descendant_to_sources(closure, "vertex")
     mesh.elements_of_face = _aggregate(mesh.elements_of_face, face_owner)
     mesh.elements_of_edge = _aggregate(mesh.elements_of_edge, edge_owner)
     mesh.nodes_of_edge = _aggregate(mesh.nodes_of_edge, edge_owner)
     mesh.offset_nodes_of_edge = _aggregate(
         mesh.offset_nodes_of_edge, edge_owner
     )
+    seeding = getattr(mesh, "seeding", None)
+    if seeding is not None:
+        source_divisions: dict[int, int] = {}
+        source_classes: dict[int, int] = {}
+        for working_id, divisions in seeding.divisions.items():
+            for source_id in edge_owner.get(int(working_id), ()):
+                source_divisions[source_id] = (
+                    source_divisions.get(source_id, 0) + int(divisions)
+                )
+                if working_id in seeding.classes:
+                    source_classes.setdefault(
+                        source_id, int(seeding.classes[working_id])
+                    )
+        seeding.divisions = source_divisions
+        seeding.classes = source_classes
     mesh.node_of_vertex = {
-        vertex_owner[working_id]: node_id
+        source_id: node_id
         for working_id, node_id in mesh.node_of_vertex.items()
-        if working_id in vertex_owner
+        for source_id in vertex_owner.get(working_id, ())
     }
     # A prepared source face may be represented by several work-face grids;
     # the neutral Mesh fallback derives its nodes from aggregated elements.
     mesh.grid_of_face = {}
     mesh.thickness_of_face = {
-        face_owner[working_id]: value
+        source_id: value
         for working_id, value in mesh.thickness_of_face.items()
-        if working_id in face_owner
+        for source_id in face_owner.get(working_id, ())
     }
     mesh.geometry_model_id = closure.source_model_id
     mesh.geometry_revision = closure.source_revision

@@ -24,6 +24,13 @@ In **Mesh → Mesh generation**, the method dropdown and Automatic / Mapped /
 Unstructured radio shortcuts share the same value. Existing Automatic priority,
 quality, preview, seeding and local refinement controls remain available.
 
+**Show advanced structured planning controls** exposes the remaining public
+ANYmesher 0.5 structured planner policy: detached mesh-only partitions,
+element-growth and size-ratio bounds, radial-side limit, and bounded candidate,
+topology-record, element-estimate and edge-division budgets. These values use
+the same immutable policy for Preview and Generate and are collapsed by
+default. They are ignored by explicit Native/Unstructured runs.
+
 For Automatic residual faces and Unstructured, quad recombination is selectable.
 **Show advanced native / Alpha controls** reveals point placement, sizing metric
 and bounded insertion/topology/cancellation settings. Legacy lattice remains the
@@ -45,8 +52,9 @@ discards drafts (including re-opening the same document). Undo/redo with no draf
 reloads persisted controls; an existing unsaved draft remains until submitted or
 the document is reopened. Cancelled document switching leaves the draft intact.
 
-Controls use immutable `MeshControls`, persist in existing native-settings
-parameters, survive project/snapshot serialization, and affect job hashes.
+Controls use immutable `MeshControls` and `StructuredMeshControls`, persist in
+existing native-settings parameters, survive project/snapshot serialization,
+and affect job hashes.
 Mapped hashes exclude unused native controls. Requested controls appear in mesh
 record diagnostics. Missing native-v2 API disables that opt-in while preserving
 legacy operation; an explicit unsupported opt-in refuses with an explanation.
@@ -62,7 +70,8 @@ tests/test_mesh_method_selection.py::test_existing_native_settings_schema_persis
 tests/test_mesh_method_selection.py::test_mesh_settings_strategy_is_canonical_and_hash_affecting
 ```
 
-Final result: **33 passed in 2.94 seconds**. The real panel builder executes with widget
+Current combined mesh/solve/launcher control result: **71 passed in 5.43
+seconds**. The real panel builder executes with widget
 and variable-trace doubles, not Tcl. Worker/public-API propagation tests stop at
 the mesher boundary without generating a mesh. `git diff --check` passes.
 The earlier 28-test pass predates the constructor-trace/API-absence tests; the
@@ -94,24 +103,13 @@ there is no GUI runtime, algorithm, platform-scale or release qualification clai
 
 ## Local integration boundary
 
-The ecosystem boss accepted the bounded source/headless milestone and authorized
-scoped local preservation of these eight registered files. Version remains 0.4.0;
-no dependency metadata or workflow pins were changed.
-
-Published dependency requirements still include ANYmesher `>=0.4,<0.5`,
-ANYgeometry[planar] `>=0.4.2,<0.5`, ANYsolver `>=0.4.2,<0.5`, ANYmaterial
-`>=0.2,<0.3`, ANYfileio `>=0.3.1,<0.4`, and the GUI viewer pair `>=0.5.5,<0.6`.
-Native-v2 controls were qualified only against the current local 0.5 mesher API;
-the older supported generation retains legacy behavior/capability refusal.
-Release dependency reconciliation is a separate owner-coordinated gate.
+Version 0.4.1 is the qualified compatibility release. Source metadata and the
+launcher use the qualified graph floors: ANYmesher `>=0.5,<0.6`,
+ANYgeometry[planar] `>=0.4.3,<0.5`, ANYsolver `>=0.4.6,<0.5`, ANYmaterial
+`>=0.2,<0.3`, ANYfileio `>=0.3.2,<0.4`, and the GUI viewer pair `>=0.5.5,<0.6`.
 
 A push to main/master or a pull request triggers tests.yml: Linux/Windows across
 Python 3.11–3.14, full pytest, verification/parity, and build/wheel-install work.
-It currently pins ANYmesh to the legacy `27e4281` reference rather than the local
-native-v2 implementation. Broad CI/push readiness is therefore not claimed.
-The Alpha-specific tests require the public native-v2 API and matching reviewed
-source dependencies; CI pins must be reconciled before triggering that workload.
-Tags `v*` trigger publish.yml and can publish to PyPI; no tag/push is authorized
-by this local integration milestone. Remaining qualification includes exact
-dependency pins/metadata, complete headless CI and separately authorized visual
-and numerical/platform checks. No such workloads were run during preservation.
+The workflow pins the exact qualified production revisions, including
+ANYmesher 0.5.0 and ANYsolver 0.4.6. Tags `v*` trigger the separately gated
+Trusted Publishing workflow after source, artifact, and installed-graph checks.

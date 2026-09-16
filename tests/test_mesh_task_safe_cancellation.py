@@ -28,7 +28,7 @@ def test_desktop_mesh_task_cancels_before_native_recombination(monkeypatch) -> N
     release = threading.Event()
     recombined = threading.Event()
     original_triangulate = surface_mesh.triangulate_polygon
-    original_recombine = surface_mesh.recombine_triangles
+    original_recombine = surface_mesh.recombine_triangles_with_report
 
     def blocked_triangulate(*args, **kwargs):
         entered.set()
@@ -40,7 +40,9 @@ def test_desktop_mesh_task_cancels_before_native_recombination(monkeypatch) -> N
         return original_recombine(*args, **kwargs)
 
     monkeypatch.setattr(surface_mesh, "triangulate_polygon", blocked_triangulate)
-    monkeypatch.setattr(surface_mesh, "recombine_triangles", observed_recombine)
+    monkeypatch.setattr(
+        surface_mesh, "recombine_triangles_with_report", observed_recombine
+    )
 
     try:
         manager.submit(

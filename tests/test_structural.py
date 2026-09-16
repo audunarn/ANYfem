@@ -15,7 +15,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from anyfem import Project, pinned, solve_linear_static, steel, support
+from anyfem import (
+    Project,
+    ShellFormulationPolicy,
+    pinned,
+    solve_linear_static,
+    steel,
+    support,
+)
 from anyfem.geometry.operations import strip_face
 from anyfem.model import BeamSection, fracture
 
@@ -225,6 +232,9 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
     from anyfem.ui.scene import build_result_scene
 
     project = Project(name="triangles")
+    # This hand-authored neutral mesh intentionally has no mesher-owned S3
+    # admission record, so exercise the explicit legacy compatibility route.
+    project.shell_formulation_policy = ShellFormulationPolicy.legacy_compatible()
     project.add_material(steel("S355", THICKNESS))
     project.add_plate_section("plate", thickness=THICKNESS, material="S355")
     points = project.geometry.add_points(

@@ -63,7 +63,7 @@ def _qualified_anymesher_project() -> Path:
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.4.0"):
+        if version is not None and _version_at_least(version, "0.5.0"):
             return candidate
     return Path(override) if override else release_checkout
 
@@ -113,12 +113,12 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.2,<0.3", "0.2.0"),
-    ("ANYgeometry", "ANYgeometry[planar]>=0.4.2,<0.5", "0.4.2"),
-    ("ANYfileio", "ANYfileio>=0.3.1,<0.4", "0.3.1"),
-    ("ANYmesher", "ANYmesher>=0.4,<0.5", "0.4.0"),
+    ("ANYgeometry", "ANYgeometry[planar]>=0.4.3,<0.5", "0.4.3"),
+    ("ANYfileio", "ANYfileio>=0.3.2,<0.4", "0.3.2"),
+    ("ANYmesher", "ANYmesher>=0.5,<0.6", "0.5.0"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5.5,<0.6", "0.5.5"),
     ("ANYtk3D", "ANYtk3D>=0.5.5,<0.6", "0.5.5"),
-    ("ANYsolver", "ANYsolver>=0.4.2,<0.5", "0.4.2"),
+    ("ANYsolver", "ANYsolver>=0.4.6,<0.5", "0.4.6"),
     ("ANYfem", "ANYfem>=0.4,<0.5", "0.4.0"),
 )
 
@@ -206,7 +206,7 @@ def require_compatible_ecosystem(
     )
     if problems:
         raise RuntimeError(
-            "ANYfem 0.4.0 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.4.1 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

@@ -21,13 +21,13 @@ from anygeometry.entities import EntityRef
 from anygeometry.errors import GeometryError
 from anygeometry.model import GeometryModel
 
-from ..mesh.mapped import ELEMENT_ORDERS, Mesh
+from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh as generate_mapped_mesh
 from anymesher.hybrid import generate_hybrid_mesh
-from anymesher.structured import StructuredMeshingOptions
+from anymesher import check_mappable
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from ..native_meshing import NativeMeshSettings
-from ..mesh_controls import MeshControls
+from ..mesh_controls import MeshControls, StructuredMeshControls
 from ..structural_preparation import (
     StructuralPreparationError,
     prepare_structural_connectivity,
@@ -221,6 +221,10 @@ class Project:
 
         from anygeometry.features import RegenerationReport
 
+        if registry is None:
+            from ..geometry_features import anyfem_feature_registry
+
+            registry = anyfem_feature_registry()
         report = self.geometry.regenerate_features(registry)
         if not report.success:
             return report
@@ -1232,6 +1236,16 @@ class Project:
 
         local_z = local_z - float(local_z @ axis) * axis
         length = float(np.linalg.norm(local_z))
+        if length <= 1.0e-12 and section.web_direction is None:
+            # A beam that pierces a shell can have its midpoint on that shell
+            # while its axis is parallel to the shell normal.  The shell is a
+            # connection target, not a usable section-frame reference.  Fall
+            # back to the same deterministic global direction as a free beam;
+            # an explicit, invalid web direction remains an actionable error.
+            candidates = np.eye(3)
+            local_z = candidates[int(np.argmin(np.abs(candidates @ axis)))]
+            local_z = local_z - float(local_z @ axis) * axis
+            length = float(np.linalg.norm(local_z))
         if length <= 1.0e-12:
             raise ProjectError(
                 f"beam section {section.name!r} web direction is parallel to line {edge_id}"
@@ -1494,6 +1508,7 @@ class Project:
         quality_policy: Mapping[str, float] | None = None,
         certification_mode: str | None = None,
         mesh_controls: MeshControls | None = None,
+        structured_controls: StructuredMeshControls | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
     ) -> Mesh:
@@ -1557,6 +1572,10 @@ class Project:
         )
         parameters = {} if settings is None else dict(settings.parameters)
         controls = mesh_controls or MeshControls.from_settings(settings)
+        structured_controls = (
+            structured_controls
+            or StructuredMeshControls.from_settings(settings)
+        )
         resolved_certification = certification_mode or controls.certification_mode
         supported_parameters = {
             key: value
@@ -1574,7 +1593,7 @@ class Project:
             for key, value in parameters.items()
             if key.startswith("mesh_quality_")
         }
-        structure_options = StructuredMeshingOptions(
+        structure_options = structured_controls.owner_options(
             preference=(
                 structure_preference
                 if structure_preference is not None
@@ -1711,6 +1730,11 @@ class Project:
                 replace(refinement, ref=item) for item in made
             )
 
+        already_structured = bool(working.faces) and all(
+            check_mappable(working, face_id).ok
+            for face_id in working.faces
+        )
+
         working_seeding = seeding
         if seeding is not None:
             if preparation.created_count:
@@ -1727,38 +1751,101 @@ class Project:
                     size_field=None,
                 )
 
-        mesh = generate_hybrid_mesh(
-            working,
-            target_size=resolved_size,
-            strategy=resolved_strategy,
-            overrides=working_overrides,
-            beam_edges=working_beam_edges,
-            beam_offsets=working_offsets,
-            member_ids=working_member_ids,
-            face_ids=tuple(sorted(working.faces)),
-            seeding=working_seeding,
-            refinements=working_refinements,
-            order=resolved_order,
-            certification_mode=resolved_certification,
-            change_set=change_set,
-            cancellation_check=cancellation_check,
-            native_backend=native_backend,
-            structural_preparation={
-                "automatic_face_connections": False,
-                "automatic_member_connections": False,
-                "automatic_member_sheet_connections": False,
-                "declare_missing_owners": True,
-            },
-            mutation_policy="working_copy",
-            qualified_s3=(
-                self.shell_formulation_policy.s3 == "e4-pl-s3-v2d"
-                and resolved_order == "linear"
-            ),
-            structured_options=(
-                None if resolved_strategy == "native" else structure_options
-            ),
-            **supported_parameters,
+        mapped_fast_path = (
+            resolved_strategy != "native"
+            and already_structured
+            and len(working.faces) > 1
+            and not working_beam_edges
+            and preparation.created_count == 0
         )
+        if mapped_fast_path:
+            if cancellation_check is not None:
+                cancellation_check("mapped generation start")
+            mesh = generate_mapped_mesh(
+                working,
+                target_size=resolved_size,
+                overrides=working_overrides,
+                face_ids=tuple(sorted(working.faces)),
+                seeding=working_seeding,
+                refinements=working_refinements,
+                order=resolved_order,
+            )
+            for sheet_id, sheet in working.sheets.items():
+                element_ids = {
+                    int(element_id)
+                    for face_use_id in sheet.face_use_ids
+                    for element_id in mesh.elements_of_face.get(
+                        working.face_uses[face_use_id].face_id, ()
+                    )
+                }
+                if element_ids:
+                    mesh.elements_of_sheet[int(sheet_id)] = sorted(element_ids)
+            mesh.structural_preparation = {
+                "schema": "anyfem.prepared-mapped-closure",
+                "status": "already_structured",
+            }
+            mesh.hybrid_diagnostics = {
+                "requested_target_size": resolved_size,
+                "strategy_by_face": {
+                    int(face_id): "mapped" for face_id in working.faces
+                },
+                "triangulation_backend_by_face": {},
+                "geometry_model_id": str(working.model_id),
+                "geometry_revision": int(working.revision),
+                "certification_mode": str(resolved_certification),
+                "certifiable": True,
+                "preflight_count": 0,
+                "structured_layout_status": "already_structured",
+                "structured_plan_hash": None,
+                "structured_quality": None,
+                "structural_preparation_hash": None,
+                "qualified_s3_preparation": None,
+                "reused_prepared_working_copy": True,
+                "phase_seconds": {},
+                "completed_phases": ["mapped_generation"],
+            }
+            if cancellation_check is not None:
+                cancellation_check("mapped generation complete")
+        else:
+            mesh = generate_hybrid_mesh(
+                working,
+                target_size=resolved_size,
+                strategy=resolved_strategy,
+                overrides=working_overrides,
+                beam_edges=working_beam_edges,
+                beam_offsets=working_offsets,
+                member_ids=working_member_ids,
+                face_ids=tuple(sorted(working.faces)),
+                seeding=working_seeding,
+                refinements=working_refinements,
+                order=resolved_order,
+                certification_mode=resolved_certification,
+                change_set=change_set,
+                cancellation_check=cancellation_check,
+                native_backend=native_backend,
+                structural_preparation={
+                    "automatic_face_connections": False,
+                    "automatic_member_connections": False,
+                    "automatic_member_sheet_connections": False,
+                    "declare_missing_owners": True,
+                },
+                mutation_policy="working_copy",
+                qualified_s3=(
+                    self.shell_formulation_policy.s3 == "e4-pl-s3-v2d"
+                    and resolved_order == "linear"
+                ),
+                structured_options=(
+                    # ANYmesher's structured-layout seed solution is
+                    # intentionally authoritative for its generated blocks.
+                    # A local size zone is a stronger, explicit user request,
+                    # so retain the existing topology and let refinement-aware
+                    # global seeding solve it.
+                    None
+                    if resolved_strategy == "native" or working_refinements
+                    else structure_options
+                ),
+                **supported_parameters,
+            )
         if all(
             hasattr(mesh, name)
             for name in (

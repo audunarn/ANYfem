@@ -11,6 +11,7 @@ import pytest
 from anyfem import DocumentSession, Project, Region, RegionRef, steel
 from anyfem import commands as cmd
 from anyfem.io import project_from_dict, project_to_dict
+from anyfem.io.project_file import FORMAT_VERSION
 from anyfem.model import ManualRegion, ProjectError, SectionAssignment
 from anygeometry import FeatureOutputRef
 
@@ -103,7 +104,7 @@ def test_v3_direct_assignments_migrate_deterministically_to_regions():
     assert first_assignment.id == second_assignment.id
     assert first_assignment.region.id == second_assignment.region.id
     assert first.face_sections == second.face_sections == {face: "deck"}
-    assert project_to_dict(first)["anyfem"]["format"] == 7
+    assert project_to_dict(first)["anyfem"]["format"] == FORMAT_VERSION
 
 
 def test_feature_output_assignment_follows_regeneration_and_blocks_suppression():

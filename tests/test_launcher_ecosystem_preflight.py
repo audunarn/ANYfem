@@ -19,12 +19,12 @@ def _namespace():
 def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.2.0",
-        "ANYgeometry": "0.4.2",
-        "ANYfileio": "0.3.1",
-        "ANYmesher": "0.4.0",
+        "ANYgeometry": "0.4.3",
+        "ANYfileio": "0.3.2",
+        "ANYmesher": "0.5.0",
         "ANY3dView": "0.5.5",
         "ANYtk3D": "0.5.5",
-        "ANYsolver": "0.4.2",
+        "ANYsolver": "0.4.6",
         "ANYfem": "0.4.0",
     }
 
@@ -68,7 +68,7 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
     project = namespace["_ANYMESHER_PROJECT"]
 
     assert namespace["_version_at_least"](
-        namespace["_declared_project_version"](project), "0.4.0"
+        namespace["_declared_project_version"](project), "0.5.0"
     )
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
@@ -81,7 +81,7 @@ def test_launcher_uses_selected_source_version_when_metadata_is_stale(
     versions["ANYmesher"] = "0.3.2"
     monkeypatch.setattr(namespace["metadata"], "version", versions.__getitem__)
 
-    assert namespace["_active_distribution_version"]("ANYmesher") == "0.4.0"
+    assert namespace["_active_distribution_version"]("ANYmesher") == "0.5.0"
 
     def source_aware_reader(name: str) -> str:
         if name == "ANYmesher":
@@ -120,7 +120,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4.2,<0.5: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4.6,<0.5: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
@@ -157,5 +157,5 @@ def test_missing_distribution_metadata_is_actionable():
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio>=0.3.1,<0.4: distribution metadata is missing",
+        "ANYfileio>=0.3.2,<0.4: distribution metadata is missing",
     )

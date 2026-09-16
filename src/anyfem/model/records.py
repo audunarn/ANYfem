@@ -262,6 +262,13 @@ class AnalysisDefinition:
     # in Project.output_requests and references only their UUIDs above.
     output_requests: dict[str, Any] = field(default_factory=dict)
     resource_policy: dict[str, Any] = field(default_factory=dict)
+    # B3-GE is a standalone, exact-definition solver workflow.  It must never
+    # replace the ordinary quadratic-beam element just because a project is
+    # reopened with a newer ANYsolver.  Missing data therefore means legacy
+    # B3, while the opt-in requires its own analysis type and authenticated
+    # B3GENativeOptIn payload.
+    beam_formulation: str = "legacy-b3"
+    beam_formulation_options: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=_uuid)
     schema_version: int = 1
 
@@ -277,6 +284,66 @@ class AnalysisDefinition:
         )
         if any(not value for value in self.output_request_ids):
             raise ValueError("analysis output-request IDs must not be empty")
+        if self.beam_formulation == "legacy-b3":
+            if self.beam_formulation_options:
+                raise ValueError(
+                    "legacy B3 must not carry B3-GE formulation options"
+                )
+        elif self.beam_formulation == "b3-ge":
+            if self.type != "b3_ge_native":
+                raise ValueError(
+                    "b3-ge requires the dedicated b3_ge_native analysis type"
+                )
+            from ..solve.ge_beam3 import B3GENativeOptIn
+
+            opt_in = B3GENativeOptIn.from_dict(
+                dict(self.beam_formulation_options)
+            )
+            # Detach and canonicalize now.  Later mutation of the caller's
+            # dictionary must not change the persisted solver selection.
+            self.beam_formulation_options = opt_in.to_dict()
+        else:
+            raise ValueError(
+                f"unknown beam formulation {self.beam_formulation!r}; "
+                "use 'legacy-b3' or explicit 'b3-ge'"
+            )
+
+    @classmethod
+    def b3_ge(cls, name: str, opt_in: Any, **options: Any) -> "AnalysisDefinition":
+        """Create the only analysis record that explicitly selects B3-GE."""
+
+        from ..solve.ge_beam3 import B3GENativeOptIn
+
+        if type(opt_in) is not B3GENativeOptIn:
+            raise ValueError("an exact B3GENativeOptIn is required")
+        return cls(
+            name=name,
+            type="b3_ge_native",
+            target_kind="none",
+            target_id="",
+            beam_formulation="b3-ge",
+            beam_formulation_options=opt_in.to_dict(),
+            **options,
+        )
+
+    def create_b3_ge_analysis(
+        self,
+        boundaries: Any,
+        *,
+        retained_refinement: bool = False,
+    ):
+        """Materialize this exact opt-in through ANYsolver's public facade."""
+
+        if self.beam_formulation != "b3-ge" or self.type != "b3_ge_native":
+            raise ValueError("this analysis uses legacy B3, not explicit b3-ge")
+        from ..solve.ge_beam3 import B3GENativeOptIn
+
+        return B3GENativeOptIn.from_dict(
+            self.beam_formulation_options
+        ).create_analysis(
+            boundaries,
+            retained_refinement=retained_refinement,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -290,6 +357,8 @@ class AnalysisDefinition:
             "output_request_ids": list(self.output_request_ids),
             "output_requests": dict(self.output_requests),
             "resource_policy": dict(self.resource_policy),
+            "beam_formulation": self.beam_formulation,
+            "beam_formulation_options": dict(self.beam_formulation_options),
         }
 
     @classmethod
@@ -307,6 +376,10 @@ class AnalysisDefinition:
             ),
             output_requests=dict(data.get("output_requests", {})),
             resource_policy=dict(data.get("resource_policy", {})),
+            beam_formulation=str(data.get("beam_formulation", "legacy-b3")),
+            beam_formulation_options=dict(
+                data.get("beam_formulation_options", {})
+            ),
         )
 
 

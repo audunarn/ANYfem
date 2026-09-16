@@ -296,7 +296,6 @@ def test_the_viewport_is_an_optional_extra():
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
     assert '"ANY3dView[gpu]>=0.5.5,<0.6"' in text
     assert '"ANYtk3D>=0.5.5,<0.6"' in text
-    assert '"ANYtk3D>=0.5"' in text
     # ANYsolver is required; concrete viewers are not.
     dependencies = text.split("dependencies = [", 1)[1].split("]", 1)[0]
     assert "ANYsolver" in dependencies

@@ -2,12 +2,26 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-09-17
+
 - Present multi-entity generators as lightweight feature objects: generated
   plates are grouped into one selectable surface, and generated points and
   lines stay hidden until an explicit per-feature Explode action, while exact
   topology remains available to meshing and saved references. Consume
   ANYgeometry's public topology-role and exact feature-owner contract rather
   than maintaining a duplicate feature-kind policy in the UI.
+- Qualify the latest-only application graph against ANYgeometry 0.4.3,
+  ANYmesher 0.5.0, ANYfileio 0.3.2, and ANYsolver 0.4.6.
+- Expose structured/hybrid planning budgets, solver numerics, resource limits,
+  and analysis-specific controls in the GUI while preserving the legacy B3
+  shell as the default and keeping B3-GE an explicit opt-in.
+- Make mapped butterfly-hole decomposition replayable through ANYgeometry's
+  public feature-registry extension contract, with atomic regeneration and
+  exact materialization checksums.
+- Correct adjacent independently extruded plate connectivity, source-to-work
+  association remapping, and refinement-aware hybrid mesh generation.
+- Keep mesh hashes deterministic while retaining detached-work provenance in
+  saved artifacts.
 
 ## 0.4.0 - 2026-09-03
 

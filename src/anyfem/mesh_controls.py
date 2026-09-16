@@ -75,3 +75,69 @@ class MeshControls:
     @classmethod
     def from_settings(cls, settings):
         return cls(**cls.display_values(settings))
+
+
+@dataclass(frozen=True)
+class StructuredMeshControls:
+    """Serializable GUI controls for ANYmesher's global structure planner.
+
+    Preference and element-quality limits remain first-class Mesh-panel
+    fields.  This object carries the remaining public
+    ``StructuredMeshingOptions`` values so background jobs, previews and saved
+    projects all use the same explicit policy.
+    """
+
+    allow_detached_partition: bool = True
+    max_element_growth: float = 1.5
+    minimum_size_ratio: float = 0.67
+    maximum_size_ratio: float = 1.5
+    maximum_radial_sides: int = 8
+    maximum_candidates_per_component: int = 256
+    maximum_face_records: int = 100_000
+    maximum_blocks: int = 100_000
+    maximum_edge_records: int = 200_000
+    maximum_estimated_elements: int = 2_000_000
+    maximum_divisions_per_edge: int = 100_000
+
+    def __post_init__(self):
+        # The owning package remains authoritative for range and combination
+        # validation.  Constructing its public options object also prevents a
+        # future ANYmesher field change from being silently accepted here.
+        self.owner_options()
+
+    def owner_options(self, *, preference="balanced", quality_policy=None):
+        from anymesher.structured import StructuredMeshingOptions
+
+        return StructuredMeshingOptions(
+            preference=preference,
+            quality_policy={} if quality_policy is None else quality_policy,
+            **asdict(self),
+        )
+
+    def parameters(self):
+        return {
+            "structured_" + key: value for key, value in asdict(self).items()
+        }
+
+    def effective_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def display_values(cls, settings):
+        values = {
+            key: field.default for key, field in cls.__dataclass_fields__.items()
+        }
+        if settings is not None:
+            parameters = dict(settings.parameters)
+            values.update(
+                {
+                    key: parameters["structured_" + key]
+                    for key in cls.__dataclass_fields__
+                    if "structured_" + key in parameters
+                }
+            )
+        return values
+
+    @classmethod
+    def from_settings(cls, settings):
+        return cls(**cls.display_values(settings))

@@ -32,7 +32,11 @@ from ..geometry.snapping import (
 )
 from anymesher.decomposition import check_mappable
 from ..mesh.mapped import ELEMENT_ORDERS
-from ..mesh_controls import MeshControls, native_v2_options_type
+from ..mesh_controls import (
+    MeshControls,
+    StructuredMeshControls,
+    native_v2_options_type,
+)
 from ..mesh.refinement import refine_around
 from ..mesh.seeding import SeedingConflict
 from ..model.attributes import (
@@ -1702,16 +1706,16 @@ class MeshPanel(StagePanel):
         )
         self._quality_options.pack(fill="x", pady=(0, 3))
         self._quality_jacobian = self.entry_row(
-            self._quality_options, "min scaled J", "0.10"
+            self._quality_options, "min scaled J", "0.20"
         )
         self._quality_aspect = self.entry_row(
-            self._quality_options, "max aspect", "5.0"
+            self._quality_options, "max aspect", "4.0"
         )
         self._quality_min_angle = self.entry_row(
-            self._quality_options, "min angle [deg]", "20"
+            self._quality_options, "min angle [deg]", "30"
         )
         self._quality_max_angle = self.entry_row(
-            self._quality_options, "max angle [deg]", "160"
+            self._quality_options, "max angle [deg]", "150"
         )
         self._quality_warpage = self.entry_row(
             self._quality_options, "max warpage", "0.10"
@@ -1778,6 +1782,61 @@ class MeshPanel(StagePanel):
             self._native_options, text="Recombine triangles into quads where admissible",
             variable=self._recombine,
         ).pack(anchor="w")
+        self._show_structured_controls = tk.BooleanVar(value=False)
+        self._structured_disclosure = ttk.Checkbutton(
+            controls,
+            text="Show advanced structured planning controls",
+            variable=self._show_structured_controls,
+            command=self._toggle_structured_controls,
+        )
+        self._advanced_structured = ttk.LabelFrame(
+            controls, text="Automatic structured planning", padding=(4, 2)
+        )
+        self._allow_detached_partition = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            self._advanced_structured,
+            text="Allow detached mesh-only partitions",
+            variable=self._allow_detached_partition,
+        ).pack(anchor="w")
+        self._structured_entries = {}
+        for name, label, default in (
+            ("max_element_growth", "max element growth", "1.5"),
+            ("minimum_size_ratio", "minimum size ratio", "0.67"),
+            ("maximum_size_ratio", "maximum size ratio", "1.5"),
+            ("maximum_radial_sides", "max radial sides", "8"),
+            (
+                "maximum_candidates_per_component",
+                "candidates / component",
+                "256",
+            ),
+            ("maximum_face_records", "max face records", "100000"),
+            ("maximum_blocks", "max blocks", "100000"),
+            ("maximum_edge_records", "max edge records", "200000"),
+            (
+                "maximum_estimated_elements",
+                "max estimated elements",
+                "2000000",
+            ),
+            (
+                "maximum_divisions_per_edge",
+                "max divisions / edge",
+                "100000",
+            ),
+        ):
+            self._structured_entries[name] = self.entry_row(
+                self._advanced_structured, label, default
+            )
+        ttk.Label(
+            self._advanced_structured,
+            text=(
+                "These are hard planning limits from ANYmesher 0.5. "
+                "Preview and Generate use the same values. Lower limits fail "
+                "with a diagnostic instead of silently changing the layout."
+            ),
+            foreground="#666666",
+            justify="left",
+            wraplength=300,
+        ).pack(anchor="w", pady=(2, 0))
         self._advanced_native = ttk.LabelFrame(
             self._native_options, text="Native surface filling — explicit Alpha opt-in",
             padding=(4, 2),
@@ -1843,6 +1902,7 @@ class MeshPanel(StagePanel):
             self._native_max_insertions, self._native_max_operations, self._native_cancel_interval,
             self._certification, self._quality_jacobian, self._quality_aspect,
             self._quality_min_angle, self._quality_max_angle, self._quality_warpage,
+            self._allow_detached_partition, *self._structured_entries.values(),
         ):
             variable.trace_add("write", self._mesh_control_edited)
         self._placement_changed()
@@ -1939,6 +1999,17 @@ class MeshPanel(StagePanel):
         else:
             self._advanced_native.pack_forget()
 
+    def _toggle_structured_controls(self):
+        if (
+            self._show_structured_controls.get()
+            and self._method_value() == "auto"
+        ):
+            self._advanced_structured.pack(
+                fill="x", pady=(0, 3), before=self._mapped_status
+            )
+        else:
+            self._advanced_structured.pack_forget()
+
     def reset_mesh_drafts(self):
         """An explicit document open/new discards drafts, even for the same ID."""
         self._controls_dirty = self._method_dirty = self._preference_dirty = False
@@ -2001,6 +2072,41 @@ class MeshPanel(StagePanel):
             cancellation_interval=(integer(self._native_cancel_interval, "cancellation interval") if frontal else saved.cancellation_interval),
         )
 
+    def _structured_controls_value(self) -> StructuredMeshControls:
+        if self._method_value() != "auto":
+            # Hidden structured-planner drafts must not block a mapped-only or
+            # native-only submission. Preserve the last saved Automatic policy.
+            return StructuredMeshControls.from_settings(
+                self.app.project.native_mesh_settings
+            )
+        integer_fields = {
+            "maximum_radial_sides",
+            "maximum_candidates_per_component",
+            "maximum_face_records",
+            "maximum_blocks",
+            "maximum_edge_records",
+            "maximum_estimated_elements",
+            "maximum_divisions_per_edge",
+        }
+        values = {}
+        for name, variable in self._structured_entries.items():
+            label = name.replace("_", " ")
+            if name in integer_fields:
+                try:
+                    numeric = float(variable.get())
+                except (TypeError, ValueError):
+                    raise ValueError(f"{label} must be a positive whole number") from None
+                value = int(numeric)
+                if numeric != value or value < 1:
+                    raise ValueError(f"{label} must be a positive whole number")
+            else:
+                value = self.number(variable, label)
+            values[name] = value
+        return StructuredMeshControls(
+            allow_detached_partition=bool(self._allow_detached_partition.get()),
+            **values,
+        )
+
     def _refresh_mesh_controls(self):
         project_id = self.app.project.document_id
         new_document = getattr(self, "_controls_project_id", None) != project_id
@@ -2014,10 +2120,14 @@ class MeshPanel(StagePanel):
         settings = self.app.project.native_mesh_settings
         try:
             controls = MeshControls.from_settings(settings)
+            structured_controls = StructuredMeshControls.from_settings(settings)
         except ValueError as error:
             # Display-only saved intent; never pass this stand-in to execution.
             from types import SimpleNamespace
             controls = SimpleNamespace(**MeshControls.display_values(settings))
+            structured_controls = SimpleNamespace(
+                **StructuredMeshControls.display_values(settings)
+            )
             self._controls_error = (
                 f"Saved mesh controls cannot run: {error}. "
                 "Use a compatible ANYmesher installation; saved settings are unchanged."
@@ -2036,6 +2146,11 @@ class MeshPanel(StagePanel):
             self._native_max_insertions.set(str(controls.max_insertions))
             self._native_max_operations.set(str(controls.max_topology_operations))
             self._native_cancel_interval.set(str(controls.cancellation_interval))
+            self._allow_detached_partition.set(
+                structured_controls.allow_detached_partition
+            )
+            for name, variable in self._structured_entries.items():
+                variable.set(str(getattr(structured_controls, name)))
             if controls.point_placement == "frontal_delaunay" and (new_document or changed_placement):
                 self._show_native_controls.set(True)
                 self._toggle_native_controls()
@@ -2159,9 +2274,16 @@ class MeshPanel(StagePanel):
                 self._quality_options.pack(
                     fill="x", pady=(0, 3), before=self._mapped_status
                 )
+            if not self._structured_disclosure.winfo_manager():
+                self._structured_disclosure.pack(
+                    anchor="w", pady=(0, 2), before=self._mapped_status
+                )
+            self._toggle_structured_controls()
         else:
             self._structure_options.pack_forget()
             self._quality_options.pack_forget()
+            self._structured_disclosure.pack_forget()
+            self._advanced_structured.pack_forget()
 
         if method == "mapped":
             self._native_options.pack_forget()
@@ -2254,6 +2376,14 @@ class MeshPanel(StagePanel):
             if isinstance(requested_controls, Mapping):
                 lines.append("requested surface controls: " + ", ".join(
                     f"{key}={value}" for key, value in requested_controls.items()
+                ))
+            requested_structured = record.summary.get(
+                "structured_controls_requested"
+            )
+            if isinstance(requested_structured, Mapping):
+                lines.append("requested structured controls: " + ", ".join(
+                    f"{key}={value}"
+                    for key, value in requested_structured.items()
                 ))
             if isinstance(strategy_by_face, dict) and strategy_by_face:
                 mapped = sum(
@@ -2650,6 +2780,7 @@ class MeshPanel(StagePanel):
             "strategy": strategy,
             "structure_preference": preference,
             "mesh_controls": self._mesh_controls_value(),
+            "structured_controls": self._structured_controls_value(),
         }
         if quality_policy is not None:
             options["quality_policy"] = quality_policy
@@ -2673,6 +2804,7 @@ class MeshPanel(StagePanel):
             size,
             structure_preference=self._structure_preference_value(),
             quality_policy=self._quality_policy_value(),
+            structured_controls=self._structured_controls_value(),
         )
         structured = sum(item.structured for item in plan.faces)
         residual = len(plan.faces) - structured
@@ -3909,7 +4041,47 @@ class SolvePanel(StagePanel):
         "Arc length": ("arc_steps",),
         "Transient": ("dt", "t_end", "damping"),
         "Impact": ("mass", "radius", "speed", "start", "direction"),
-        "Capacity": ("modes", "steps", "factor", "imperfection"),
+        "Capacity": (
+            "modes", "buckling_mode", "steps", "factor", "imperfection"
+        ),
+    }
+
+    # Advanced rows remain discoverable without making the normal Run form
+    # intimidating.  Keep this map next to ANALYSES so adding a public solver
+    # option cannot accidentally leave it visible for an unrelated analysis.
+    ADVANCED_ANALYSES = {
+        "Linear static": (),
+        "Batch linear static": (),
+        "Modal": ("modal_shift",),
+        "Buckling": (),
+        "Nonlinear static": (
+            "nonlinear_iterations", "nonlinear_tolerance",
+            "nonlinear_layers", "nonlinear_min_step",
+        ),
+        "Arc length": (
+            "nonlinear_iterations", "nonlinear_tolerance",
+            "nonlinear_layers", "arc_tolerance", "arc_initial",
+            "arc_minimum", "arc_maximum", "arc_load_scaling",
+            "arc_rotation_scale", "arc_target_iterations",
+            "arc_growth", "arc_cutback", "arc_retries", "arc_peak_steps",
+            "arc_peak_tolerance", "arc_load_limit", "arc_post_peak",
+            "arc_translation_limit", "arc_preload_steps",
+        ),
+        "Transient": (
+            "transient_beta", "transient_gamma", "transient_hht",
+            "rayleigh_beta", "save_every", "stress_history",
+        ),
+        "Impact": (
+            "impact_dt", "impact_duration", "save_every",
+            "steps_per_contact", "steps_per_radius", "post_contact_periods",
+            "impact_rayleigh_alpha", "rayleigh_beta", "skip_approach",
+            "nonlinear_impact",
+            "contact_surface", "beam_contact",
+        ),
+        "Capacity": (
+            "nonlinear_iterations", "nonlinear_tolerance",
+            "nonlinear_layers", "capacity_half_wave",
+        ),
     }
 
     def build(self) -> None:
@@ -3950,6 +4122,7 @@ class SolvePanel(StagePanel):
         for name, label, default in (
             ("batch_cases", "case names", "*"),
             ("modes", "modes", "6"),
+            ("buckling_mode", "imperfection mode", "1"),
             ("steps", "initial load increments", "10"),
             ("factor", "max load factor", "1.0"),
             ("arc_steps", "max arc steps", "60"),
@@ -3990,18 +4163,156 @@ class SolvePanel(StagePanel):
             command=self._show_advanced,
         ).pack(anchor="w", pady=(5, 1))
         self._advanced = ttk.Frame(self)
-        self._kinematics = self.entry_row(
-            self._advanced, "kinematics", "von_karman"
+        advanced_tabs = ttk.Notebook(self._advanced, height=260)
+        advanced_tabs.pack(fill="x", expand=True)
+        numerics = ttk.Frame(advanced_tabs, padding=4)
+        resources = ttk.Frame(advanced_tabs, padding=4)
+        advanced_tabs.add(numerics, text="Numerics")
+        advanced_tabs.add(resources, text="Resources")
+
+        self._advanced_options = {}
+        self._advanced_option_frames = {}
+
+        def advanced_entry(name: str, label: str, default: str) -> None:
+            frame, variable = self.labelled_entry(
+                numerics, label, default, label_width=23
+            )
+            self._advanced_options[name] = variable
+            self._advanced_option_frames[name] = frame
+
+        for name, label, default in (
+            ("modal_shift", "spectral shift", "0"),
+            ("nonlinear_iterations", "max Newton iterations", "25"),
+            ("nonlinear_tolerance", "residual tolerance", "1e-6"),
+            ("nonlinear_layers", "shell integration layers", "5"),
+            ("nonlinear_min_step", "minimum step fraction", "0.0009765625"),
+            ("arc_tolerance", "arc constraint tolerance", "1e-6"),
+            ("arc_initial", "initial load increment", "0.05"),
+            ("arc_minimum", "minimum load increment", "0.0005"),
+            ("arc_maximum", "maximum load increment", "0.20"),
+            ("arc_load_scaling", "load scaling", "auto"),
+            ("arc_rotation_scale", "rotation length scale", "auto"),
+            ("arc_target_iterations", "target Newton iterations", "5"),
+            ("arc_growth", "arc growth factor", "1.25"),
+            ("arc_cutback", "arc cutback factor", "0.5"),
+            ("arc_retries", "retries per arc step", "8"),
+            ("arc_peak_steps", "steps after peak", "4"),
+            ("arc_peak_tolerance", "peak drop tolerance", "0.001"),
+            ("arc_load_limit", "absolute load limit", "auto"),
+            ("arc_post_peak", "stop at peak fraction", "auto"),
+            ("arc_translation_limit", "translation limit [m]", "auto"),
+            ("arc_preload_steps", "preload increments", "10"),
+            ("transient_beta", "Newmark beta", "0.25"),
+            ("transient_gamma", "Newmark gamma", "0.5"),
+            ("transient_hht", "HHT alpha", "0"),
+            ("rayleigh_beta", "Rayleigh beta", "0"),
+            ("save_every", "save every N steps", "1"),
+            ("impact_dt", "time step [s]", "auto"),
+            ("impact_duration", "duration [s]", "auto"),
+            ("impact_rayleigh_alpha", "Rayleigh alpha", "0"),
+            ("steps_per_contact", "steps per contact period", "20"),
+            ("steps_per_radius", "steps per sphere radius", "20"),
+            ("post_contact_periods", "post-contact periods", "20"),
+            ("capacity_half_wave", "elements per half-wave", "4"),
+        ):
+            advanced_entry(name, label, default)
+
+        self._kinematics_frame, self._kinematics = self.labelled_entry(
+            numerics, "kinematics", "von_karman", label_width=23
         )
-        self._corotational_tangent = self.entry_row(
-            self._advanced, "corotational tangent", "auto"
+        self._corotational_frame, self._corotational_tangent = self.labelled_entry(
+            numerics, "corotational tangent", "auto", label_width=23
         )
+
+        contact_row = ttk.Frame(numerics)
+        contact_row.pack(fill="x", pady=1)
+        ttk.Label(contact_row, text="contact surface", width=23).pack(side="left")
+        self._contact_surface = tk.StringVar(value="midsurface")
+        ttk.Combobox(
+            contact_row,
+            textvariable=self._contact_surface,
+            values=("midsurface", "top", "bottom"),
+            state="readonly",
+            width=16,
+        ).pack(side="left", fill="x", expand=True)
+        self._advanced_options["contact_surface"] = self._contact_surface
+        self._advanced_option_frames["contact_surface"] = contact_row
+
+        self._advanced_checks = {}
+        for name, text, default in (
+            ("stress_history", "Save transient stress history", False),
+            ("skip_approach", "Skip free-flight approach", True),
+            ("nonlinear_impact", "Use nonlinear impact integration", False),
+            ("beam_contact", "Include beam contact", False),
+        ):
+            frame = ttk.Frame(numerics)
+            frame.pack(fill="x", pady=1)
+            variable = tk.BooleanVar(value=default)
+            ttk.Checkbutton(frame, text=text, variable=variable).pack(anchor="w")
+            self._advanced_checks[name] = variable
+            self._advanced_option_frames[name] = frame
+
+        self._advanced_hint = ttk.Label(
+            numerics,
+            text=(
+                "Auto keeps solver-selected timing or stopping limits. "
+                "Only controls supported by the selected analysis are shown."
+            ),
+            foreground="#555555",
+            justify="left",
+            wraplength=520,
+        )
+        self._advanced_hint.pack(fill="x", pady=(4, 0))
+
+        self._use_resources = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            resources,
+            text="Override solver resource settings",
+            variable=self._use_resources,
+            command=self._toggle_resource_controls,
+        ).pack(anchor="w", pady=(0, 3))
+        self._resource_options = {}
+        self._resource_entries = []
+        for name, label in (
+            ("solver_threads", "solver threads"),
+            ("assembly_threads", "assembly threads"),
+            ("recovery_threads", "recovery threads"),
+            ("process_workers", "process workers"),
+            ("memory_mib", "memory limit [MiB]"),
+        ):
+            frame, variable = self.labelled_entry(
+                resources, label, "auto", label_width=20
+            )
+            self._resource_options[name] = variable
+            self._resource_entries.extend(
+                widget for widget in frame.winfo_children()
+                if isinstance(widget, ttk.Entry)
+            )
+        self._deterministic = tk.BooleanVar(value=True)
+        self._deterministic_check = ttk.Checkbutton(
+            resources,
+            text="Deterministic execution",
+            variable=self._deterministic,
+        )
+        self._deterministic_check.pack(anchor="w", pady=(2, 0))
+        ttk.Label(
+            resources,
+            text=(
+                "Leave values on Auto to use the solver backend defaults. "
+                "Resource controls change cost and reproducibility, not the model."
+            ),
+            foreground="#555555",
+            justify="left",
+            wraplength=520,
+        ).pack(fill="x", pady=(3, 0))
+
         self._record_snapshots = tk.BooleanVar(value=False)
         ttk.Checkbutton(
-            self._advanced,
+            numerics,
             text="save converged nonlinear increments",
             variable=self._record_snapshots,
         ).pack(anchor="w")
+        self._toggle_resource_controls()
 
         self._run = ttk.Button(
             self, text="Run", command=self.guarded(self._solve)
@@ -4079,6 +4390,27 @@ class SolvePanel(StagePanel):
             self._nominal_steps_hint.pack(fill="x", anchor="w", pady=(3, 0))
         else:
             self._nominal_steps_hint.pack_forget()
+        self._show_advanced_options()
+
+    def _show_advanced_options(self) -> None:
+        wanted = set(self.ADVANCED_ANALYSES.get(self._analysis.get(), ()))
+        for name, frame in self._advanced_option_frames.items():
+            if name in wanted:
+                frame.pack(fill="x", pady=1, before=self._advanced_hint)
+            else:
+                frame.pack_forget()
+        nonlinear = self._analysis.get() in ("Nonlinear static", "Arc length")
+        for frame in (self._kinematics_frame, self._corotational_frame):
+            if nonlinear:
+                frame.pack(fill="x", pady=1, before=self._advanced_hint)
+            else:
+                frame.pack_forget()
+
+    def _toggle_resource_controls(self) -> None:
+        state = "normal" if self._use_resources.get() else "disabled"
+        for entry in self._resource_entries:
+            entry.configure(state=state)
+        self._deterministic_check.configure(state=state)
 
     def _show_advanced(self) -> None:
         if self._advanced_open.get():
@@ -4245,12 +4577,75 @@ class SolvePanel(StagePanel):
         name = choice.split(": ", 1)[-1] if ": " in choice else choice
         return {"load_case": name or "default"}
 
+    def _advanced_number(self, name: str, label: str) -> float:
+        return self.number(self._advanced_options[name], label)
+
+    def _advanced_integer(self, name: str, label: str) -> int:
+        value = self._advanced_number(name, label)
+        integer = int(value)
+        if value != integer:
+            raise ValueError(f"{label} must be a whole number")
+        return integer
+
+    def _optional_advanced_number(self, name: str, label: str) -> float | None:
+        value = self._advanced_options[name].get().strip()
+        if value.casefold() in ("", "auto", "none"):
+            return None
+        return self._advanced_number(name, label)
+
+    def _optional_resource_integer(self, name: str, label: str) -> int | None:
+        value = self._resource_options[name].get().strip()
+        if value.casefold() in ("", "auto", "none"):
+            return None
+        try:
+            numeric = float(value)
+        except ValueError:
+            raise ValueError(
+                f"{label} must be a positive whole number or Auto"
+            ) from None
+        integer = int(numeric)
+        if numeric != integer or integer <= 0:
+            raise ValueError(f"{label} must be a positive whole number or Auto")
+        return integer
+
+    def _resource_policy(self):
+        if not self._use_resources.get():
+            return None
+        from ..solve import resource_policy
+
+        memory_mib = self._optional_resource_integer(
+            "memory_mib", "memory limit"
+        )
+        return resource_policy(
+            solver_threads=self._optional_resource_integer(
+                "solver_threads", "solver threads"
+            ),
+            assembly_threads=self._optional_resource_integer(
+                "assembly_threads", "assembly threads"
+            ),
+            recovery_threads=self._optional_resource_integer(
+                "recovery_threads", "recovery threads"
+            ),
+            process_workers=self._optional_resource_integer(
+                "process_workers", "process workers"
+            ),
+            deterministic=bool(self._deterministic.get()),
+            memory_limit_bytes=(
+                None if memory_mib is None else memory_mib * 1024 * 1024
+            ),
+        )
+
     def _solve(self) -> None:
         analysis = self._analysis.get()
         kwargs = self._target_kwargs()
 
         if analysis == "Modal":
-            kwargs = {"num_modes": int(self.number(self._analysis_options["modes"], "modes"))}
+            kwargs = {
+                "num_modes": int(
+                    self.number(self._analysis_options["modes"], "modes")
+                ),
+                "shift": self._advanced_number("modal_shift", "spectral shift"),
+            }
         elif analysis == "Batch linear static":
             value = self._analysis_options["batch_cases"].get().strip()
             names = (
@@ -4275,13 +4670,86 @@ class SolvePanel(StagePanel):
             kwargs["max_load_factor"] = self.number(
                 self._analysis_options["factor"], "max load factor"
             )
+            kwargs.update(
+                max_iterations=self._advanced_integer(
+                    "nonlinear_iterations", "max Newton iterations"
+                ),
+                tolerance=self._advanced_number(
+                    "nonlinear_tolerance", "residual tolerance"
+                ),
+                num_layers=self._advanced_integer(
+                    "nonlinear_layers", "shell integration layers"
+                ),
+                min_step_fraction=self._advanced_number(
+                    "nonlinear_min_step", "minimum step fraction"
+                ),
+            )
         elif analysis == "Arc length":
             from anysolver import ArcLengthControl
 
             kwargs["control"] = ArcLengthControl(
+                initial_load_increment=self._advanced_number(
+                    "arc_initial", "initial load increment"
+                ),
+                minimum_load_increment=self._advanced_number(
+                    "arc_minimum", "minimum load increment"
+                ),
+                maximum_load_increment=self._advanced_number(
+                    "arc_maximum", "maximum load increment"
+                ),
+                load_scaling=self._optional_advanced_number(
+                    "arc_load_scaling", "load scaling"
+                ),
+                rotation_length_scale=self._optional_advanced_number(
+                    "arc_rotation_scale", "rotation length scale"
+                ),
+                target_iterations=self._advanced_integer(
+                    "arc_target_iterations", "target Newton iterations"
+                ),
+                growth_factor=self._advanced_number(
+                    "arc_growth", "arc growth factor"
+                ),
+                cutback_factor=self._advanced_number(
+                    "arc_cutback", "arc cutback factor"
+                ),
                 max_steps=int(
                     self.number(self._analysis_options["arc_steps"], "max arc steps")
-                )
+                ),
+                max_retries_per_step=self._advanced_integer(
+                    "arc_retries", "retries per arc step"
+                ),
+                stop_after_peak_steps=self._advanced_integer(
+                    "arc_peak_steps", "steps after peak"
+                ),
+                peak_drop_tolerance=self._advanced_number(
+                    "arc_peak_tolerance", "peak drop tolerance"
+                ),
+                maximum_absolute_load_factor=self._optional_advanced_number(
+                    "arc_load_limit", "absolute load limit"
+                ),
+                post_peak_load_fraction=self._optional_advanced_number(
+                    "arc_post_peak", "post-peak load fraction"
+                ),
+                max_translation=self._optional_advanced_number(
+                    "arc_translation_limit", "translation limit"
+                ),
+                preload_steps=self._advanced_integer(
+                    "arc_preload_steps", "preload increments"
+                ),
+            )
+            kwargs.update(
+                max_iterations=self._advanced_integer(
+                    "nonlinear_iterations", "max Newton iterations"
+                ),
+                tolerance=self._advanced_number(
+                    "nonlinear_tolerance", "residual tolerance"
+                ),
+                arc_tolerance=self._advanced_number(
+                    "arc_tolerance", "arc constraint tolerance"
+                ),
+                num_layers=self._advanced_integer(
+                    "nonlinear_layers", "shell integration layers"
+                ),
             )
         elif analysis == "Transient":
             kwargs["dt"] = self.number(self._analysis_options["dt"], "time step")
@@ -4289,8 +4757,21 @@ class SolvePanel(StagePanel):
             kwargs["rayleigh_alpha"] = self.number(
                 self._analysis_options["damping"], "Rayleigh alpha"
             )
+            kwargs.update(
+                beta=self._advanced_number("transient_beta", "Newmark beta"),
+                gamma=self._advanced_number("transient_gamma", "Newmark gamma"),
+                hht_alpha=self._advanced_number("transient_hht", "HHT alpha"),
+                rayleigh_beta=self._advanced_number(
+                    "rayleigh_beta", "Rayleigh beta"
+                ),
+                save_every=self._advanced_integer("save_every", "save interval"),
+                include_stress_history=bool(
+                    self._advanced_checks["stress_history"].get()
+                ),
+            )
         elif analysis == "Impact":
             from ..model.collision import Collision
+            from anysolver import SphereContactConfig
 
             # An impact does not need a load case; the sphere is the load.
             kwargs.pop("combination", None)
@@ -4304,9 +4785,42 @@ class SolvePanel(StagePanel):
                     self._analysis_options["direction"], "direction"
                 ),
             )
+            kwargs.update(
+                dt=self._optional_advanced_number("impact_dt", "time step"),
+                t_end=self._optional_advanced_number(
+                    "impact_duration", "duration"
+                ),
+                save_every=self._advanced_integer("save_every", "save interval"),
+                steps_per_contact=self._advanced_number(
+                    "steps_per_contact", "steps per contact period"
+                ),
+                steps_per_radius=self._advanced_number(
+                    "steps_per_radius", "steps per sphere radius"
+                ),
+                post_contact_periods=self._advanced_number(
+                    "post_contact_periods", "post-contact periods"
+                ),
+                skip_approach=bool(self._advanced_checks["skip_approach"].get()),
+                nonlinear=bool(self._advanced_checks["nonlinear_impact"].get()),
+                rayleigh_alpha=self._advanced_number(
+                    "impact_rayleigh_alpha", "Rayleigh alpha"
+                ),
+                rayleigh_beta=self._advanced_number(
+                    "rayleigh_beta", "Rayleigh beta"
+                ),
+                contact=SphereContactConfig(
+                    contact_surface=self._contact_surface.get(),
+                    beam_contact=bool(self._advanced_checks["beam_contact"].get()),
+                ),
+            )
         elif analysis == "Capacity":
             kwargs["num_buckling_modes"] = int(
                 self.number(self._analysis_options["modes"], "buckling modes")
+            )
+            kwargs["buckling_mode_number"] = int(
+                self.number(
+                    self._analysis_options["buckling_mode"], "imperfection mode"
+                )
             )
             kwargs["num_steps"] = int(
                 self.number(
@@ -4319,6 +4833,20 @@ class SolvePanel(StagePanel):
             kwargs["imperfection_amplitude"] = self.number(
                 self._analysis_options["imperfection"], "imperfection"
             ) / 1000.0
+            kwargs.update(
+                nonlinear_max_iterations=self._advanced_integer(
+                    "nonlinear_iterations", "max Newton iterations"
+                ),
+                nonlinear_tolerance=self._advanced_number(
+                    "nonlinear_tolerance", "residual tolerance"
+                ),
+                nonlinear_num_layers=self._advanced_integer(
+                    "nonlinear_layers", "shell integration layers"
+                ),
+                mesh_min_elements_per_half_wave=self._advanced_integer(
+                    "capacity_half_wave", "elements per half-wave"
+                ),
+            )
 
         if analysis in ("Nonlinear static", "Arc length"):
             kwargs["kinematics"] = self._kinematics.get().strip() or "von_karman"
@@ -4327,6 +4855,13 @@ class SolvePanel(StagePanel):
             )
         if analysis in ("Nonlinear static", "Arc length", "Capacity"):
             kwargs["record_increment_snapshots"] = self._record_snapshots.get()
+
+        resources = self._resource_policy()
+        if resources is not None:
+            if analysis in ("Nonlinear static", "Capacity"):
+                kwargs["resources"] = resources
+            else:
+                kwargs["resource_config"] = resources
 
         self.app.solve(analysis, **kwargs)
 

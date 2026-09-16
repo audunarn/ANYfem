@@ -25,7 +25,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Frozen G7 B3-GE production opt-in implementation.
-          ref: 67381475e5c6ed1583d92d8fa7f0fb5d64b43c6f
+          ref: d04199ac851c0d0f61430c2bc40136582aa8d659
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -35,17 +35,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 7edbb8b624d3f7d4548d2ec11b2d00c55f1265d2
+          ref: 91846898b03fa02b029abde82508eddb981efdc0
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 27e428188a891705288fef82bab0b166e330aff2
+          ref: 2ccef378c3efb4ba3a9957b9ab896ac8fc454b9d
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: b48ba51c7b79e6d64b3f99c1fb131b9b602e7e1d
+          ref: db73950018e1c87dab0ca618c25c965030ba08ce
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -115,7 +115,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Frozen G7 B3-GE production opt-in implementation.
-          ref: 67381475e5c6ed1583d92d8fa7f0fb5d64b43c6f
+          ref: d04199ac851c0d0f61430c2bc40136582aa8d659
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -125,17 +125,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 7edbb8b624d3f7d4548d2ec11b2d00c55f1265d2
+          ref: 91846898b03fa02b029abde82508eddb981efdc0
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 27e428188a891705288fef82bab0b166e330aff2
+          ref: 2ccef378c3efb4ba3a9957b9ab896ac8fc454b9d
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: b48ba51c7b79e6d64b3f99c1fb131b9b602e7e1d
+          ref: db73950018e1c87dab0ca618c25c965030ba08ce
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:

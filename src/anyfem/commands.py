@@ -62,6 +62,7 @@ from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import BeamSection, PlateSection
 from .model.units import UnitProfile
+from .geometry_features import BUTTERFLY_HOLE_KIND
 
 __all__ = [
     "AddArc",
@@ -522,6 +523,7 @@ class FragmentPlateOverlaps(FeatureCommand):
         record = geometry.features.append(
             "geometry.fragment.overlaps",
             name="Plate overlap fragmentation",
+            parameters={"ownership_policy": "first_selected"},
             inputs={
                 "faces": tuple(
                     _feature_anchor(geometry, EntityRef("face", face_id))
@@ -1178,6 +1180,11 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
             "centre": tuple(float(item) for item in command.centre),
             "radius": float(command.radius),
         }, {"face": (anchor("face", command.face_id),)}
+    if isinstance(command, ButterflyHoleDecomposition):
+        return BUTTERFLY_HOLE_KIND, {
+            "centre": tuple(float(item) for item in command.centre),
+            "radius": float(command.radius),
+        }, {"face": (anchor("face", command.face_id),)}
     if isinstance(command, SetFaceCorners):
         return "geometry.set_face_corners", {"corners": tuple(command.corners)}, {
             "face": (anchor("face", command.face_id),)
@@ -1282,6 +1289,11 @@ def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any
         return (
             outputs["face"].id,
             tuple(item.id for item in _numbered_outputs(outputs, "boundary")),
+        )
+    if isinstance(command, ButterflyHoleDecomposition):
+        return (
+            [item.id for item in _numbered_outputs(outputs, "face")],
+            [item.id for item in _numbered_outputs(outputs, "boundary")],
         )
     if isinstance(command, SetFaceCorners):
         return None
