@@ -17,6 +17,16 @@ _WORKSPACE = (
     if _ROOT.parent.name in {".worktrees", ".perf2-worktrees"}
     else _ROOT.parent
 )
+# Hosted ecosystem qualification checks out the exact dependency revisions
+# beneath the application checkout.  Local editable development keeps the
+# traditional sibling-repository layout.  Select either layout before source
+# paths and repair commands are constructed so the same preflight contract is
+# exercised in both environments.
+_ECOSYSTEM_WORKSPACE = (
+    _ROOT / ".ecosystem"
+    if (_ROOT / ".ecosystem").is_dir()
+    else _WORKSPACE
+)
 
 
 def _numeric_version(value: object) -> tuple[int, int, int]:
@@ -56,9 +66,11 @@ def _qualified_anymesher_project() -> Path:
         os.environ.get("ANYMESHER_SOURCE", "").strip()
         or os.environ.get("ANYMESHER_025_SOURCE", "").strip()
     )
-    release_checkout = _WORKSPACE / "ANYsolver" / ".compat_anymesher_025"
+    release_checkout = (
+        _ECOSYSTEM_WORKSPACE / "ANYsolver" / ".compat_anymesher_025"
+    )
     candidates = ([Path(override)] if override else []) + [
-        _WORKSPACE / "ANYmesh",
+        _ECOSYSTEM_WORKSPACE / "ANYmesh",
         release_checkout,
     ]
     for candidate in candidates:
@@ -68,16 +80,29 @@ def _qualified_anymesher_project() -> Path:
     return Path(override) if override else release_checkout
 
 
-_ANY3DVIEW_PROJECT = _WORKSPACE / "ANY3dView"
-_ANYTK3D_PROJECT = _WORKSPACE / "ANYtk3D"
+_ANY3DVIEW_PROJECT = _ECOSYSTEM_WORKSPACE / "ANY3dView"
+_ANYTK3D_PROJECT = _ECOSYSTEM_WORKSPACE / "ANYtk3D"
 _ANYMESHER_PROJECT = _qualified_anymesher_project()
 _ANYSOLVER_PROJECT = Path(
-    os.environ.get("ANYSOLVER_SOURCE", "").strip() or _WORKSPACE / "ANYsolver"
+    os.environ.get("ANYSOLVER_SOURCE", "").strip()
+    or _ECOSYSTEM_WORKSPACE / "ANYsolver"
 )
 _SOURCE_PROJECTS = (
-    ("ANYmaterial", "anymaterial", _WORKSPACE / "ANYmaterial" / "src"),
-    ("ANYgeometry", "anygeometry", _WORKSPACE / "ANYgeometry" / "src"),
-    ("ANYfileio", "anyfileio", _WORKSPACE / "ANYfileIO" / "src"),
+    (
+        "ANYmaterial",
+        "anymaterial",
+        _ECOSYSTEM_WORKSPACE / "ANYmaterial" / "src",
+    ),
+    (
+        "ANYgeometry",
+        "anygeometry",
+        _ECOSYSTEM_WORKSPACE / "ANYgeometry" / "src",
+    ),
+    (
+        "ANYfileio",
+        "anyfileio",
+        _ECOSYSTEM_WORKSPACE / "ANYfileIO" / "src",
+    ),
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
@@ -181,10 +206,10 @@ def editable_repair_command() -> str:
     """One copy/paste bootstrap command in release dependency order."""
 
     projects = (
-        str(_WORKSPACE / "ANYmaterial"),
-        str(_WORKSPACE / "ANYgeometry") + "[planar]",
+        str(_ECOSYSTEM_WORKSPACE / "ANYmaterial"),
+        str(_ECOSYSTEM_WORKSPACE / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
-        str(_WORKSPACE / "ANYfileIO"),
+        str(_ECOSYSTEM_WORKSPACE / "ANYfileIO"),
         str(_ANY3DVIEW_PROJECT) + "[gpu]",
         str(_ANYTK3D_PROJECT),
         str(_ANYSOLVER_PROJECT),

@@ -36,6 +36,24 @@ def _origins(namespace) -> dict[str, str]:
     }
 
 
+def test_launcher_recognizes_hosted_ecosystem_checkout_layout(monkeypatch):
+    ecosystem = ROOT / ".ecosystem"
+    original_is_dir = Path.is_dir
+
+    def is_dir(path: Path) -> bool:
+        if path == ecosystem:
+            return True
+        return original_is_dir(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    namespace = _namespace()
+
+    assert namespace["_ECOSYSTEM_WORKSPACE"] == ecosystem
+    assert namespace["_ANY3DVIEW_PROJECT"] == ecosystem / "ANY3dView"
+    assert namespace["_ANYTK3D_PROJECT"] == ecosystem / "ANYtk3D"
+    assert namespace["_ANYSOLVER_PROJECT"] == ecosystem / "ANYsolver"
+
+
 def test_latest_sources_and_metadata_pass_without_importing_tk():
     namespace = _namespace()
     versions = _versions()
