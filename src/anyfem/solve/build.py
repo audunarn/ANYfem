@@ -82,6 +82,11 @@ def build_fe_model(
 ) -> BuiltModel:
     """Build the solver model for one load case or combination."""
 
+    automation = mesh.hybrid_diagnostics.get("automation", {})
+    if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
+        raise ProjectError(
+            "inspection-only mesh is not admitted for solver assembly"
+        )
     project.validate(
         require_loads=require_loads, require_supports=require_supports
     )

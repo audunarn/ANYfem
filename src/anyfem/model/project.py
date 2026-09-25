@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from anymaterial import MaterialSpec
@@ -24,6 +24,8 @@ from anygeometry.model import GeometryModel
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh as generate_mapped_mesh
 from anymesher.hybrid import generate_hybrid_mesh
 from anymesher import check_mappable
+if TYPE_CHECKING:
+    from anymesher import MeshAutomationOptions
 from ..mesh.refinement import Refinement
 from ..mesh.seeding import Seeding
 from ..native_meshing import NativeMeshSettings
@@ -1509,6 +1511,9 @@ class Project:
         certification_mode: str | None = None,
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
+        quad_options: object | None = None,
+        layout_policy: str | None = None,
+        automation: MeshAutomationOptions | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
     ) -> Mesh:
@@ -1566,7 +1571,36 @@ class Project:
             "automatic": "auto",
             "mapped": "mapped",
             "native": "native",
+            "quad_first": "quad_first",
         }.get(settings_backend, str(settings_backend))
+        if resolved_strategy == "quad_first":
+            from ..quad_first import effective_quad_options
+            from anymesher.quad.public_integration import QuadPublicUnsupported
+
+            if quad_options is None and settings is not None:
+                quad_options = settings.to_dict()["parameters"].get("quad_options")
+            quad_options = effective_quad_options(quad_options)
+            if layout_policy is None:
+                layout_policy = (
+                    settings.to_dict()["parameters"].get("layout_policy", "existing")
+                    if settings is not None else "existing"
+                )
+            if layout_policy not in ("existing", "adaptive"):
+                raise ProjectError("layout_policy must be 'existing' or 'adaptive'")
+            boundary_beams = [
+                int(edge_id) for edge_id in self.beam_edges
+                if self.geometry.faces_using_edge(int(edge_id))
+            ]
+            if boundary_beams:
+                raise QuadPublicUnsupported(
+                    "quad-first source-boundary edge beam ownership is unsupported: "
+                    + ", ".join(str(edge_id) for edge_id in sorted(boundary_beams))
+                )
+            resolved_strategy = "native"
+        elif quad_options is not None:
+            raise ProjectError("quad_options requires strategy='quad_first'")
+        elif layout_policy not in (None, "existing"):
+            raise ProjectError("adaptive layout requires strategy='quad_first'")
         resolved_order = order or (
             self.element_order if settings is None else settings.element_order
         )
@@ -1608,6 +1642,8 @@ class Project:
         native_backend = self.set_native_triangulation_backend(
             self.native_triangulation_backend
         )
+        if quad_options is not None:
+            native_backend = "python"
         source_geometry = self.geometry
         source_members = {
             member_id
@@ -1752,7 +1788,9 @@ class Project:
                 )
 
         mapped_fast_path = (
-            resolved_strategy != "native"
+            automation is None
+            and resolved_strategy != "native"
+            and quad_options is None
             and already_structured
             and len(working.faces) > 1
             and not working_beam_edges
@@ -1807,8 +1845,7 @@ class Project:
             if cancellation_check is not None:
                 cancellation_check("mapped generation complete")
         else:
-            mesh = generate_hybrid_mesh(
-                working,
+            meshing_parameters = dict(
                 target_size=resolved_size,
                 strategy=resolved_strategy,
                 overrides=working_overrides,
@@ -1823,6 +1860,8 @@ class Project:
                 change_set=change_set,
                 cancellation_check=cancellation_check,
                 native_backend=native_backend,
+                quad_options=quad_options,
+                layout_policy=layout_policy or "existing",
                 structural_preparation={
                     "automatic_face_connections": False,
                     "automatic_member_connections": False,
@@ -1846,6 +1885,24 @@ class Project:
                 ),
                 **supported_parameters,
             )
+            if automation is None:
+                mesh = generate_hybrid_mesh(working, **meshing_parameters)
+            else:
+                try:
+                    from anymesher import generate_automatic_mesh_result
+                except ImportError as error:
+                    raise ProjectError(
+                        "automatic mesh recovery requires an ANYmesher installation "
+                        "with the MeshAutomationOptions owner API"
+                    ) from error
+                mesh = generate_automatic_mesh_result(
+                    working,
+                    automation=automation,
+                    fallback_structured_options=(
+                        None if working_refinements else structure_options
+                    ),
+                    **meshing_parameters,
+                ).mesh
         if all(
             hasattr(mesh, name)
             for name in (
@@ -1884,6 +1941,9 @@ class Project:
             preparation_payload["qualified_s3"] = mesh_preparation["qualified_s3"]
         hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
         if isinstance(hybrid_diagnostics, Mapping):
+            automation_record = hybrid_diagnostics.get("automation")
+            if isinstance(automation_record, Mapping):
+                preparation_payload["automation"] = dict(automation_record)
             structured_layout = hybrid_diagnostics.get("structured_layout")
             if isinstance(structured_layout, Mapping):
                 # Keep the exact detached plan, source-to-working handle map,

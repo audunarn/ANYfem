@@ -205,6 +205,7 @@ class AnyFemApp(ttk.Frame):
         self._active_mesh_task_id: Optional[str] = None
         self._mesh_details_record_id: Optional[str] = None
         self._mesh_layout_preview: tuple[Any, Any] | None = None
+        self._inspection_mesh = None
         self._geometry_scene_cache: tuple[object, Scene, Scene] | None = None
         self._closing = False
         self._refresh_suspended = 0
@@ -510,6 +511,7 @@ class AnyFemApp(ttk.Frame):
         self._active_model_hash = revision.model_hash
         if model_changed:
             self.mesh = None
+            self._inspection_mesh = None
             self.solution = None
             self.shape_index = 0
             # Derived views belong to the previous immutable revision.  Move
@@ -534,6 +536,7 @@ class AnyFemApp(ttk.Frame):
         """A geometry change makes any existing mesh and result stale."""
 
         self.mesh = None
+        self._inspection_mesh = None
         self.solution = None
         self.show_geometry()
 
@@ -652,7 +655,10 @@ class AnyFemApp(ttk.Frame):
                 "auto": "auto",
                 "mapped": "mapped",
                 "native": "native",
+                "quad_first": "quad_first",
             }.get(backend, backend)
+        if str(requested).strip().lower() == "quad_first":
+            return "quad_first"
         try:
             return MeshingStrategy(str(requested).strip().lower()).value
         except ValueError as error:
@@ -689,13 +695,23 @@ class AnyFemApp(ttk.Frame):
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
+        quad_options: object | None = None,
+        layout_policy: str = "existing",
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
         from ..native_meshing import NativeMeshSettings
 
         current = self.project.native_mesh_settings
-        parameters = {} if current is None else dict(current.parameters)
+        parameters = {} if current is None else current.to_dict()["parameters"]
+        if strategy == "quad_first":
+            from ..quad_first import effective_quad_options
+
+            parameters["quad_options"] = effective_quad_options(quad_options).to_dict()
+            parameters["layout_policy"] = layout_policy
+        else:
+            parameters.pop("quad_options", None)
+            parameters.pop("layout_policy", None)
         parameters["structure_preference"] = structure_preference
         if mesh_controls is not None:
             parameters.update(mesh_controls.parameters())
@@ -727,6 +743,9 @@ class AnyFemApp(ttk.Frame):
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
+        quad_options: object | None = None,
+        layout_policy: str | None = None,
+        automation: object | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -735,6 +754,17 @@ class AnyFemApp(ttk.Frame):
         """
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        if resolved_strategy == "quad_first":
+            from ..quad_first import effective_quad_options
+
+            if quad_options is None and self.project.native_mesh_settings is not None:
+                quad_options = self.project.native_mesh_settings.to_dict()["parameters"].get("quad_options")
+            quad_options = effective_quad_options(quad_options)
+            if layout_policy is None:
+                layout_policy = (
+                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
+                    if self.project.native_mesh_settings is not None else "existing"
+                )
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         structured_controls = (
             structured_controls
@@ -750,6 +780,8 @@ class AnyFemApp(ttk.Frame):
             self.project.seeding_overrides = dict(self.seeding_overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
+            if resolved_strategy == "quad_first":
+                self.project.set_native_triangulation_backend("python")
             if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
@@ -759,12 +791,14 @@ class AnyFemApp(ttk.Frame):
                     quality_policy=quality_policy,
                     mesh_controls=mesh_controls,
                     structured_controls=structured_controls,
+                    quad_options=quad_options,
+                    layout_policy=layout_policy or "existing",
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
             None if resolved_strategy == "mapped" else requested_backend
         )
-        self.mesh = self.project.generate_mesh(
+        created_mesh = self.project.generate_mesh(
             target_size,
             overrides=self.seeding_overrides,
             strategy=resolved_strategy,
@@ -772,8 +806,12 @@ class AnyFemApp(ttk.Frame):
             quality_policy=quality_policy,
             mesh_controls=mesh_controls,
             structured_controls=structured_controls,
+            quad_options=quad_options,
+            layout_policy=layout_policy,
+            automation=automation,
         )
-        self.solution = None
+        automation_result = created_mesh.hybrid_diagnostics.get("automation", {})
+        inspection_only = automation_result.get("status") == "inspection_only"
         from anymesher import verify_mesh_quality
 
         mesh_input_hash = canonical_hash(
@@ -782,6 +820,10 @@ class AnyFemApp(ttk.Frame):
                 "overrides": dict(self.seeding_overrides),
                 "element_order": self.project.element_order,
                 "strategy": resolved_strategy,
+                "quad_options": (
+                    None if quad_options is None else quad_options.to_dict()
+                ),
+                "layout_policy": layout_policy if resolved_strategy == "quad_first" else None,
                 "structure_preference": (
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
@@ -795,74 +837,96 @@ class AnyFemApp(ttk.Frame):
                     if resolved_strategy == "auto"
                     else None
                 ),
+                **({"automation": automation.to_dict()} if automation is not None else {}),
             }
         )
         preparation = dict(self.project._last_mesh_preparation)
         mesh_hash = mesh_semantic_hash(
-            self.mesh,
+            created_mesh,
             model_hash=self.session.revision.model_hash,
             mesh_input_hash=mesh_input_hash,
             structural_preparation=preparation,
         )
-        quality = verify_mesh_quality(self.mesh).as_dict()
+        quality = verify_mesh_quality(created_mesh).as_dict()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=self.session.revision.model_hash,
             mesh_input_hash=mesh_input_hash,
             mesh_hash=mesh_hash,
+            status="inspection_only" if inspection_only else "completed",
             structural_preparation=preparation,
             summary={
-                "nodes": self.mesh.num_nodes,
-                "elements": self.mesh.num_elements,
+                "nodes": created_mesh.num_nodes,
+                "elements": created_mesh.num_elements,
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": resolved_strategy,
+                "quad_options_requested": (
+                    None if quad_options is None else quad_options.to_dict()
+                ),
+                "layout_policy_requested": layout_policy if resolved_strategy == "quad_first" else None,
+                "automation_requested": (
+                    None if automation is None else automation.to_dict()
+                ),
+                "strict_high_order_status": created_mesh.hybrid_diagnostics.get(
+                    "high_order_geometry", {}
+                ).get("status"),
                 "controls_requested": mesh_controls.effective_dict(resolved_strategy),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
                     if resolved_strategy == "auto"
                     else None
                 ),
-                "strategy_by_face": self._meshing_strategy_summary(self.mesh),
-                "structured_layout": self._structured_layout_summary(self.mesh),
-                "complex_geometry": self._complex_geometry_summary(self.mesh),
+                "strategy_by_face": self._meshing_strategy_summary(created_mesh),
+                "structured_layout": self._structured_layout_summary(created_mesh),
+                "complex_geometry": self._complex_geometry_summary(created_mesh),
                 "quality_optimization_by_face": (
-                    self._mesh_quality_optimization_summary(self.mesh)
+                    self._mesh_quality_optimization_summary(created_mesh)
                 ),
                 "triangulation_backend_by_face": (
-                    self._triangulation_backend_summary(self.mesh)
+                    self._triangulation_backend_summary(created_mesh)
                 ),
                 "automatic_intersections": int(
-                    getattr(self.mesh, "automatic_intersections", 0)
+                    getattr(created_mesh, "automatic_intersections", 0)
                 ),
                 "automatic_beam_connections": int(
-                    getattr(self.mesh, "automatic_beam_connections", 0)
+                    getattr(created_mesh, "automatic_beam_connections", 0)
                 ),
                 "automatic_shell_connections": int(
-                    getattr(self.mesh, "automatic_shell_connections", 0)
+                    getattr(created_mesh, "automatic_shell_connections", 0)
                 ),
                 "quality": quality,
+                "automation": dict(automation_result),
+                "solver_admission": "BLOCKED" if inspection_only else "ADMITTED",
             },
         )
         with self.session.transaction("record mesh", solver_affecting=False):
             self.project.mesh_records[record.id] = record
-        self.mesh_record_id = record.id
         self._mesh_details_record_id = record.id
-        self._meshes[record.id] = self.mesh
-        self.set_status(
-            f"meshed: {self.mesh.num_nodes} nodes, "
-            f"{self.mesh.num_elements} elements; "
-            f"{getattr(self.mesh, 'automatic_intersections', 0)} plate "
-            "intersection(s) imprinted; "
-            f"{getattr(self.mesh, 'automatic_beam_connections', 0)} beam "
-            "connection(s) created; "
-            f"{getattr(self.mesh, 'automatic_shell_connections', 0)} shell "
-            "T-junction tie(s) created; "
-            f"max aspect {quality['max_aspect_ratio']:.3g}, "
-            f"warp {quality['max_warp']:.3g}"
-        )
-        self.show_mesh()
+        self._meshes[record.id] = created_mesh
+        if inspection_only:
+            self._inspection_mesh = created_mesh
+            self.show_inspection_mesh()
+            self.set_status("Mesh created — inspection only; solver admission is blocked")
+        else:
+            self.mesh = created_mesh
+            self._inspection_mesh = None
+            self.solution = None
+            self.mesh_record_id = record.id
+            self.set_status(
+                f"Mesh created — ready to solve: {created_mesh.num_nodes} nodes, "
+                f"{created_mesh.num_elements} elements; "
+                f"{getattr(created_mesh, 'automatic_intersections', 0)} plate "
+                "intersection(s) imprinted; "
+                f"{getattr(created_mesh, 'automatic_beam_connections', 0)} beam "
+                "connection(s) created; "
+                f"{getattr(created_mesh, 'automatic_shell_connections', 0)} shell "
+                "T-junction tie(s) created; "
+                f"max aspect {quality['max_aspect_ratio']:.3g}, "
+                f"warp {quality['max_warp']:.3g}"
+            )
+            self.show_mesh()
         self.refresh_panels()
-        return self.mesh
+        return created_mesh
 
     def generate_mesh_async(
         self,
@@ -874,12 +938,26 @@ class AnyFemApp(ttk.Frame):
         quality_policy: Mapping[str, float] | None = None,
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
+        quad_options: object | None = None,
+        layout_policy: str | None = None,
+        automation: object | None = None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately."""
 
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
+        if resolved_strategy == "quad_first":
+            from ..quad_first import effective_quad_options
+
+            if quad_options is None and self.project.native_mesh_settings is not None:
+                quad_options = self.project.native_mesh_settings.to_dict()["parameters"].get("quad_options")
+            quad_options = effective_quad_options(quad_options)
+            if layout_policy is None:
+                layout_policy = (
+                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
+                    if self.project.native_mesh_settings is not None else "existing"
+                )
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         structured_controls = (
             structured_controls
@@ -899,12 +977,17 @@ class AnyFemApp(ttk.Frame):
             quality_policy=quality_policy,
             controls=mesh_controls,
             structured_controls=structured_controls,
+            quad_options=quad_options,
+            layout_policy=layout_policy or "existing",
+            automation=automation,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
+            if resolved_strategy == "quad_first":
+                self.project.set_native_triangulation_backend("python")
             if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
                     resolved_strategy,
@@ -914,6 +997,8 @@ class AnyFemApp(ttk.Frame):
                     quality_policy=quality_policy,
                     mesh_controls=mesh_controls,
                     structured_controls=structured_controls,
+                    quad_options=quad_options,
+                    layout_policy=layout_policy or "existing",
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -936,6 +1021,13 @@ class AnyFemApp(ttk.Frame):
                 "element_order": settings.element_order,
                 "native_backend_requested": effective_native_backend,
                 "strategy_requested": settings.strategy,
+                "quad_options_requested": (
+                    None if settings.quad_options is None else settings.quad_options.to_dict()
+                ),
+                "layout_policy_requested": settings.layout_policy if settings.strategy == "quad_first" else None,
+                "automation_requested": (
+                    None if settings.automation is None else settings.automation.to_dict()
+                ),
                 "controls_requested": mesh_controls.effective_dict(settings.strategy),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
@@ -986,7 +1078,7 @@ class AnyFemApp(ttk.Frame):
     def mesh_record_state(self, record: MeshRecord) -> str:
         """Return persisted state with revision-based staleness applied."""
 
-        if record.status in ("completed", "stale") and (
+        if record.status in ("completed", "inspection_only", "stale") and (
             record.source_model_hash
             and record.source_model_hash != self.session.revision.model_hash
         ):
@@ -1017,12 +1109,23 @@ class AnyFemApp(ttk.Frame):
                     record.structural_preparation = dict(
                         result.structural_preparation
                     )
-                    record.status = "completed" if current else "stale"
+                    automation_result = result.mesh.hybrid_diagnostics.get("automation", {})
+                    inspection_only = (
+                        isinstance(automation_result, Mapping)
+                        and automation_result.get("status") == "inspection_only"
+                    )
+                    record.status = (
+                        "stale" if not current else
+                        "inspection_only" if inspection_only else "completed"
+                    )
                     record.summary.update(
                         {
                             "status": record.status,
                             "nodes": result.mesh.num_nodes,
                             "elements": result.mesh.num_elements,
+                            "strict_high_order_status": result.mesh.hybrid_diagnostics.get(
+                                "high_order_geometry", {}
+                            ).get("status"),
                             "strategy_by_face": self._meshing_strategy_summary(
                                 result.mesh
                             ),
@@ -1050,27 +1153,46 @@ class AnyFemApp(ttk.Frame):
                                 getattr(result.mesh, "automatic_shell_connections", 0)
                             ),
                             "quality": dict(result.quality),
+                            "automation": dict(automation_result),
+                            "mesh_validity": "VALID",
+                            "solver_admission": (
+                                "BLOCKED" if inspection_only else "ADMITTED"
+                            ),
                         }
                     )
                 self._meshes[record.id] = result.mesh
                 if current:
-                    self.mesh = result.mesh
-                    self.mesh_record_id = record.id
-                    self.solution = None
-                    self.show_mesh()
-                    quality = result.quality
-                    self.set_status(
-                        f"meshed: {result.mesh.num_nodes} nodes, "
-                        f"{result.mesh.num_elements} elements; "
-                        f"{getattr(result.mesh, 'automatic_intersections', 0)} "
-                        "plate intersection(s) imprinted; "
-                        f"{getattr(result.mesh, 'automatic_beam_connections', 0)} "
-                        "beam connection(s) created; "
-                        f"{getattr(result.mesh, 'automatic_shell_connections', 0)} "
-                        "shell T-junction tie(s) created; "
-                        f"max aspect {float(quality['max_aspect_ratio']):.3g}, "
-                        f"warp {float(quality['max_warp']):.3g}"
-                    )
+                    self._mesh_details_record_id = record.id
+                    if inspection_only:
+                        self._inspection_mesh = result.mesh
+                        self.show_inspection_mesh()
+                        self.set_status(
+                            "Mesh created — inspection only; solver admission is blocked"
+                        )
+                    else:
+                        self._inspection_mesh = None
+                        self.mesh = result.mesh
+                        self.mesh_record_id = record.id
+                        self.solution = None
+                        self.show_mesh()
+                        quality = result.quality
+                        used_method = automation_result.get("selected_method")
+                        method_note = (
+                            f"; method used: {used_method}"
+                            if used_method is not None else ""
+                        )
+                        self.set_status(
+                            f"Mesh created — ready to solve: {result.mesh.num_nodes} nodes, "
+                            f"{result.mesh.num_elements} elements{method_note}; "
+                            f"{getattr(result.mesh, 'automatic_intersections', 0)} "
+                            "plate intersection(s) imprinted; "
+                            f"{getattr(result.mesh, 'automatic_beam_connections', 0)} "
+                            "beam connection(s) created; "
+                            f"{getattr(result.mesh, 'automatic_shell_connections', 0)} "
+                            "shell T-junction tie(s) created; "
+                            f"max aspect {float(quality['max_aspect_ratio']):.3g}, "
+                            f"warp {float(quality['max_warp']):.3g}"
+                        )
                 else:
                     self.set_status(
                         "mesh completed for an older model revision and was retained as stale"
@@ -1083,13 +1205,17 @@ class AnyFemApp(ttk.Frame):
                     record.summary["status"] = "cancelled"
                 self.set_status("mesh generation cancelled")
             elif event.kind == "failed":
+                incomplete = (
+                    isinstance(event.payload, Mapping)
+                    and event.payload.get("type") == "MeshRecoveryIncomplete"
+                )
                 with self.session.transaction("record failed mesh", solver_affecting=False):
-                    record.status = "failed"
-                    record.summary["status"] = "failed"
+                    record.status = "incomplete" if incomplete else "failed"
+                    record.summary["status"] = record.status
                     if event.payload:
                         record.diagnostics.append(event.payload)
                 self.set_status(
-                    f"mesh generation failed: {event.message}",
+                    f"mesh generation {record.status}: {event.message}",
                     error=True,
                     diagnostic=event.payload,
                 )
@@ -1101,6 +1227,8 @@ class AnyFemApp(ttk.Frame):
 
         if self.mesh is None:
             raise ValueError("generate a mesh first")
+        if self.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":
+            raise ValueError("inspection-only mesh cannot be solved")
         try:
             function = ANALYSES[analysis]
         except KeyError:
@@ -1608,6 +1736,36 @@ class AnyFemApp(ttk.Frame):
         self.viewport.show(self._with_attributes(scene))
         self._update_view_label()
 
+    def show_inspection_mesh(self) -> None:
+        """Display a valid candidate without making it available to solving."""
+
+        if self._inspection_mesh is None:
+            return
+        self._view_mode = "inspection_mesh"
+        scene = build_mesh_scene(
+            self.project, self._inspection_mesh,
+            show_beam_sections=self.viewport.visualization.show_beam_sections,
+        )
+        details = self._inspection_mesh.hybrid_diagnostics.get("automation", {})
+        problem_ids = {
+            int(element_id)
+            for attempt in details.get("attempts", ())
+            for element_id in attempt.get("problem_element_ids", ())
+        }
+        for face in scene.faces:
+            if face.polygon_owners is None or face.colors is None:
+                continue
+            face.colors = [
+                "#e67459" if any(
+                    getattr(owner, "kind", None) == "element"
+                    and getattr(owner, "id", None) in problem_ids
+                    for owner in owners
+                ) else color
+                for color, owners in zip(face.colors, face.polygon_owners)
+            ]
+        self.viewport.show(self._with_attributes(scene))
+        self._update_view_label()
+
     def _on_details_page_selected(self, page: str) -> None:
         """Keep task navigation and the viewport in the same workflow context."""
 
@@ -1645,7 +1803,10 @@ class AnyFemApp(ttk.Frame):
             self.panels["Visualization"].sync_from_viewport()
             self.panels["Visualization"].refresh()
             return
-        if page in ("Mesh", "Solve") and self.mesh is not None:
+        if page == "Mesh" and self._inspection_mesh is not None:
+            self.show_inspection_mesh()
+            self.details.set_hint("Inspection mesh — solver admission blocked")
+        elif page in ("Mesh", "Solve") and self.mesh is not None:
             self.show_mesh()
             self.details.set_hint("Mesh view")
 
@@ -2196,6 +2357,8 @@ class AnyFemApp(ttk.Frame):
             self._mesh_details_record_id = None
             self.solution = None
             self.show_geometry()
+        if self._inspection_mesh is not None and self._mesh_details_record_id in mesh_ids:
+            self._inspection_mesh = None
         active_result_removed = self.active_job_id in job_ids
         if self.active_job_id is not None and result_ids:
             old_job = next(
@@ -2629,9 +2792,11 @@ class AnyFemApp(ttk.Frame):
                 artifact = loaded.artifacts.get(latest.artifact_id or "")
                 if artifact is not None:
                     loaded_mesh = store.read_mesh(artifact)
-                    self.mesh_record_id = latest.id
                     self._meshes[latest.id] = loaded_mesh
-                    if latest.kind == "imported" or self.mesh_record_state(latest) != "stale":
+                    if self.mesh_record_state(latest) == "inspection_only":
+                        self._inspection_mesh = loaded_mesh
+                    elif latest.kind == "imported" or self.mesh_record_state(latest) != "stale":
+                        self.mesh_record_id = latest.id
                         self.mesh = loaded_mesh
                     if loaded.mesh_only and loaded.imported_format == "sesam_fem":
                         from ..io.sesam import import_sesam_artifact
@@ -2640,6 +2805,17 @@ class AnyFemApp(ttk.Frame):
                         # Use the verified sidecar association map so mesh
                         # regions and result IDs are byte-for-byte those saved.
                         self.imported.mesh = loaded_mesh
+                if self._inspection_mesh is not None:
+                    for prior in reversed(list(loaded.mesh_records.values())[:-1]):
+                        if self.mesh_record_state(prior) != "completed":
+                            continue
+                        prior_artifact = loaded.artifacts.get(prior.artifact_id or "")
+                        if prior_artifact is None:
+                            continue
+                        self.mesh = store.read_mesh(prior_artifact)
+                        self.mesh_record_id = prior.id
+                        self._meshes[prior.id] = self.mesh
+                        break
         except (OSError, ValueError):
             self.mesh = None
         try:
@@ -2965,6 +3141,7 @@ class AnyFemApp(ttk.Frame):
             imported=imported,
             read_only=read_only,
         )
+        self._inspection_mesh = None
         mesh_panel = self.panels.get("Mesh")
         if mesh_panel is not None:
             mesh_panel.reset_mesh_drafts()

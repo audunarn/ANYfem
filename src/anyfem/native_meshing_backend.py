@@ -272,7 +272,7 @@ class NativeProjectMeshingSession:
             )
 
         target_size = float(request.settings.target_size)
-        parameters: dict[str, Any] = dict(request.settings.parameters)
+        parameters: dict[str, Any] = request.settings.to_dict()["parameters"]
         if "native_backend" in parameters:
             raise ValueError(
                 "native_backend is a project-level setting, not a mesh parameter"
@@ -292,12 +292,25 @@ class NativeProjectMeshingSession:
             "automatic": "auto",
             "mapped": "mapped",
             "native": "native",
+            "quad_first": "native",
         }[str(backend)]
+        if str(backend) == "quad_first":
+            from .quad_first import effective_quad_options
+
+            quad_options = effective_quad_options(
+                parameters.get("quad_options")
+            )
+            native_backend = "python"
+        else:
+            native_backend = self._native_backend
         supported = {
             key: value
             for key, value in parameters.items()
             if key in {"recombine", "overlap_policy"}
         }
+        if str(backend) == "quad_first":
+            supported["quad_options"] = quad_options
+            supported["layout_policy"] = parameters.get("layout_policy", "existing")
         strict = request.certification_mode is CertificationMode.STRICT
         generated = generate_hybrid_mesh_result(
             geometry,
@@ -308,7 +321,7 @@ class NativeProjectMeshingSession:
             order=request.settings.element_order,
             certification_mode="strict" if strict else "none",
             cancellation_check=request.cancellation.raise_if_cancelled,
-            native_backend=self._native_backend,
+            native_backend=native_backend,
             structural_preparation={
                 "automatic_face_connections": False,
                 "automatic_member_connections": False,

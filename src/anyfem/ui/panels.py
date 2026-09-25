@@ -1612,6 +1612,7 @@ class MeshPanel(StagePanel):
         "auto": "Automatic (recommended)",
         "mapped": "Mapped quadrilateral",
         "native": "Unstructured / native",
+        "quad_first": "Quad-first",
     }
     _METHOD_VALUES = {label: value for value, label in _METHOD_LABELS.items()}
     _METHOD_HELP = {
@@ -1629,6 +1630,10 @@ class MeshPanel(StagePanel):
             "Uses unstructured surface meshing for every plate, with optional "
             "quad recombination. This is appropriate for holes and general "
             "plate boundaries."
+        ),
+        "quad_first": (
+            "Explicit quad-first meshing with Python triangulation. Advanced "
+            "changes leave the SG1-tested configuration."
         ),
     }
     _STRUCTURE_LABELS = {
@@ -1668,7 +1673,7 @@ class MeshPanel(StagePanel):
         self._method_dirty = False
         shortcuts = ttk.Frame(controls)
         shortcuts.pack(fill="x", pady=(2, 3))
-        for value, label in (("auto", "Automatic"), ("mapped", "Mapped"), ("native", "Unstructured")):
+        for value, label in (("auto", "Automatic"), ("mapped", "Mapped"), ("native", "Unstructured"), ("quad_first", "Quad-first")):
             ttk.Radiobutton(
                 shortcuts, text=label, variable=self._method,
                 value=self._METHOD_LABELS[value], command=self._method_changed,
@@ -1743,15 +1748,57 @@ class MeshPanel(StagePanel):
         row.pack(fill="x", pady=1)
         ttk.Label(row, text="element order", width=16).pack(side="left")
         self._order = tk.StringVar(value="linear")
-        ttk.Combobox(
+        self._order_combo = ttk.Combobox(
             row,
             textvariable=self._order,
             values=list(ELEMENT_ORDERS),
             state="readonly",
             width=12,
-        ).pack(side="left", fill="x", expand=True)
+        )
+        self._order_combo.pack(side="left", fill="x", expand=True)
+        self._order_combo.bind(
+            "<<ComboboxSelected>>", lambda _event: self._order_changed()
+        )
+        self._order_dirty = False
+        self._show_method_advanced = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            controls, text="Advanced method settings",
+            variable=self._show_method_advanced,
+            command=self._toggle_method_advanced,
+        ).pack(anchor="w")
+        self._method_advanced = ttk.Frame(controls)
+        self._strict_method = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self._method_advanced,
+            text="Use only the selected method",
+            variable=self._strict_method,
+        ).pack(anchor="w")
         self._native_options = ttk.Frame(controls)
         self._native_options.pack(fill="x")
+        self._quad_advanced = ttk.LabelFrame(controls, text="Advanced quad-first settings", padding=(4, 2))
+        self._quad_layout = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self._quad_advanced, text="Automatic geometry layout",
+            variable=self._quad_layout,
+            command=self._update_method_controls,
+        ).pack(anchor="w")
+        self._quad_orientation = tk.StringVar(value="cross_4theta")
+        self._quad_quality = tk.StringVar(value="shape_jacobian")
+        self._quad_optimization = tk.StringVar(value="safeguarded")
+        for label, variable, choices in (
+            ("orientation", self._quad_orientation, ("cross_4theta", "boundary_tangent")),
+            ("quality model", self._quad_quality, ("shape_jacobian", "shape")),
+            ("optimization", self._quad_optimization, ("safeguarded", "off")),
+        ):
+            quad_row = ttk.Frame(self._quad_advanced)
+            quad_row.pack(fill="x")
+            ttk.Label(quad_row, text=label, width=16).pack(side="left")
+            ttk.Combobox(quad_row, textvariable=variable, values=choices, state="readonly", width=20).pack(side="left")
+        self._quad_front = self.entry_row(self._quad_advanced, "front iterations", "100000")
+        self._quad_local = self.entry_row(self._quad_advanced, "local optimizations", "64")
+        self._quad_cancel = self.entry_row(self._quad_advanced, "cancel interval", "256")
+        self._quad_preset_status = ttk.Label(self._quad_advanced, text="SG1-compatible preset", foreground="#267326")
+        self._quad_preset_status.pack(anchor="w")
         backend_row = ttk.Frame(self._native_options)
         backend_row.pack(fill="x", pady=1)
         ttk.Label(backend_row, text="triangulator", width=16).pack(
@@ -1999,6 +2046,12 @@ class MeshPanel(StagePanel):
         else:
             self._advanced_native.pack_forget()
 
+    def _toggle_method_advanced(self) -> None:
+        if self._show_method_advanced.get():
+            self._method_advanced.pack(fill="x", pady=(0, 3))
+        else:
+            self._method_advanced.pack_forget()
+
     def _toggle_structured_controls(self):
         if (
             self._show_structured_controls.get()
@@ -2012,7 +2065,7 @@ class MeshPanel(StagePanel):
 
     def reset_mesh_drafts(self):
         """An explicit document open/new discards drafts, even for the same ID."""
-        self._controls_dirty = self._method_dirty = self._preference_dirty = False
+        self._controls_dirty = self._method_dirty = self._preference_dirty = self._order_dirty = False
         self._controls_project_id = None
 
     def _mesh_control_edited(self, *_args):
@@ -2118,6 +2171,25 @@ class MeshPanel(StagePanel):
         if self._controls_dirty:
             return
         settings = self.app.project.native_mesh_settings
+        parameters = {} if settings is None else settings.to_dict()["parameters"]
+        quad_token = (project_id, repr(parameters.get("quad_options")),
+                      parameters.get("layout_policy", "existing"))
+        if (hasattr(self, "_quad_orientation")
+                and getattr(self, "_quad_loaded_token", None) != quad_token):
+            from ..quad_first import effective_quad_options
+
+            quad = effective_quad_options(parameters.get("quad_options"))
+            self._quad_layout.set(parameters.get("layout_policy", "existing") == "adaptive")
+            self._quad_orientation.set(quad.orientation)
+            self._quad_quality.set(quad.quality_model)
+            self._quad_optimization.set(quad.line_search)
+            for variable, value in (
+                (self._quad_front, quad.max_front_iterations),
+                (self._quad_local, quad.max_local_optimizations),
+                (self._quad_cancel, quad.cancellation_interval),
+            ):
+                variable.set(str(value))
+            self._quad_loaded_token = quad_token
         try:
             controls = MeshControls.from_settings(settings)
             structured_controls = StructuredMeshControls.from_settings(settings)
@@ -2191,6 +2263,7 @@ class MeshPanel(StagePanel):
             "auto": "auto",
             "mapped": "mapped",
             "native": "native",
+            "quad_first": "quad_first",
         }.get(backend, "auto")
 
     def _structure_preference_value(self) -> str:
@@ -2232,6 +2305,9 @@ class MeshPanel(StagePanel):
     def _method_changed(self) -> None:
         self._method_dirty = True
         self._update_method_controls()
+
+    def _order_changed(self) -> None:
+        self._order_dirty = True
 
     def _preference_changed(self) -> None:
         self._preference_dirty = True
@@ -2285,10 +2361,25 @@ class MeshPanel(StagePanel):
             self._structured_disclosure.pack_forget()
             self._advanced_structured.pack_forget()
 
-        if method == "mapped":
+        if method in ("mapped", "quad_first"):
             self._native_options.pack_forget()
         elif not self._native_options.winfo_manager():
             self._native_options.pack(fill="x", before=self._audit_row)
+        if method == "quad_first":
+            if not self._quad_advanced.winfo_manager():
+                self._quad_advanced.pack(fill="x", before=self._audit_row)
+            try:
+                from ..quad_first import sg1_compatible
+                compatible = sg1_compatible(self._quad_options_value())
+                compatible = compatible and not self._quad_layout.get()
+                self._quad_preset_status.configure(
+                    text="SG1-compatible preset" if compatible else "Settings differ from SG1-tested configuration",
+                    foreground="#267326" if compatible else "#8a5a00",
+                )
+            except (ValueError, TypeError) as error:
+                self._quad_preset_status.configure(text=str(error), foreground="#a03020")
+        else:
+            self._quad_advanced.pack_forget()
 
         if busy is None:
             busy = bool(getattr(self.app, "mesh_job_running", False))
@@ -2324,7 +2415,7 @@ class MeshPanel(StagePanel):
             else "pinned: "
             + ", ".join(f"{edge}→{count}" for edge, count in sorted(pins.items()))
         )
-        if self._order.get() != self.app.project.element_order:
+        if not self._order_dirty and self._order.get() != self.app.project.element_order:
             self._order.set(self.app.project.element_order)
         if not self._method_dirty:
             method_label = self._METHOD_LABELS[self._stored_method_value()]
@@ -2360,11 +2451,34 @@ class MeshPanel(StagePanel):
         record = self.app.project.mesh_records.get(record_id or "")
         if record is None and self.app.project.mesh_records:
             record = next(reversed(self.app.project.mesh_records.values()))
-        mesh = self.app.mesh
+        state = None if record is None else self.app.mesh_record_state(record)
+        mesh = (
+            self.app._inspection_mesh
+            if record is not None and state == "inspection_only"
+            else self.app.mesh
+        )
         lines: list[str] = []
         if record is not None:
-            state = self.app.mesh_record_state(record)
             lines.append(f"{record.name}: {state}")
+            automation = record.summary.get("automation")
+            if isinstance(automation, Mapping):
+                method_used = automation.get("selected_method")
+                if method_used:
+                    lines.append(f"meshing method used: {method_used}")
+                admission = automation.get("solver_admission")
+                if admission:
+                    lines.append(f"solver admission: {admission}")
+                attempts = automation.get("attempts", ())
+                if isinstance(attempts, (list, tuple)):
+                    for attempt in attempts:
+                        if isinstance(attempt, Mapping) and attempt.get("status") == "rejected":
+                            lines.append(
+                                f"recovery from {attempt.get('method')}: "
+                                f"{attempt.get('reason')}"
+                            )
+            requested_order = record.summary.get("element_order")
+            if requested_order is not None:
+                lines.append(f"element order requested: {requested_order}")
             requested_strategy = record.summary.get("strategy_requested")
             if requested_strategy is not None:
                 method = self._METHOD_LABELS.get(
@@ -2764,7 +2878,7 @@ class MeshPanel(StagePanel):
         strategy = self._method_value()
         preference = self._structure_preference_value()
         quality_policy = self._quality_policy_value() if strategy == "auto" else None
-        if strategy == "mapped":
+        if strategy == "mapped" and self._strict_method.get():
             eligible, diagnostic = mapped_mesh_eligibility(
                 self.app.project.geometry
             )
@@ -2782,17 +2896,46 @@ class MeshPanel(StagePanel):
             "mesh_controls": self._mesh_controls_value(),
             "structured_controls": self._structured_controls_value(),
         }
+        if strategy == "quad_first":
+            options["quad_options"] = self._quad_options_value()
+            options["layout_policy"] = "adaptive" if self._quad_layout.get() else "existing"
         if quality_policy is not None:
             options["quality_policy"] = quality_policy
+        try:
+            from anymesher import MeshAutomationOptions
+        except ImportError as error:
+            raise ValueError(
+                "Automatic mesh recovery needs a compatible ANYmesher installation"
+            ) from error
+
+        options["automation"] = MeshAutomationOptions(
+            strict_method=self._strict_method.get()
+        )
         # Validate every active control before any undoable model mutation.
         if self._order.get() not in ELEMENT_ORDERS:
             raise ValueError(f"unknown element order {self._order.get()!r}")
         if self._order.get() != self.app.project.element_order:
             self.app.run(cmd.SetElementOrder(order=self._order.get()))
         self.app.generate_mesh_async(size, **options)
+        self._order_dirty = False
         self._method_dirty = False
         self._preference_dirty = False
         self._controls_dirty = False
+
+    def _quad_options_value(self):
+        from anymesher.quad.options import QuadMeshingOptions
+
+        optimization = self._quad_optimization.get()
+        return QuadMeshingOptions(
+            orientation=self._quad_orientation.get(),
+            quality_model=self._quad_quality.get(),
+            line_search=optimization,
+            max_front_iterations=int(self.number(self._quad_front, "front iterations")),
+            max_local_optimizations=(
+                0 if optimization == "off" else int(self.number(self._quad_local, "local optimizations"))
+            ),
+            cancellation_interval=int(self.number(self._quad_cancel, "cancel interval")),
+        )
 
     def _preview_layout(self) -> None:
         size = self.number(self._size, "element size")

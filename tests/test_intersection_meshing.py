@@ -9,7 +9,7 @@ from anyfem.commands import AddCylinder, AddFeature, CommandStack
 from anyfem.model import BeamSection
 from anyfem.solve.build import build_fe_model
 from anygeometry.serialization import to_dict as geometry_to_dict
-from anymesher import mesh_to_dict
+from anymesher import MeshAutomationOptions, MeshRecoveryIncomplete, mesh_to_dict
 
 
 def _plate(project: Project, points) -> int:
@@ -255,6 +255,89 @@ def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beam
     assert geometry_to_dict(project.geometry) == before
 
 
+def _automatic_deck_project() -> Project:
+    project = Project("automatic linear cylinder deck")
+    commands = CommandStack(project)
+    commands.run(AddCylinder(
+        kind="generator.cylinder", name="Cylinder",
+        parameters={
+            "radius": 0.5, "height": 2.0, "circumferential_segments": 12,
+            "origin": (0.0, 0.0, 0.0), "axis": (0.0, 0.0, 1.0),
+            "radial_direction": (1.0, 0.0, 0.0),
+            "longitudinal_spacing": 0.5, "ring_spacing": 1.0,
+        },
+    ))
+    commands.run(AddFeature(
+        "generator.plate", name="Plate", parameters={
+            "length": 2.0, "width": 2.0, "origin": (-1.0, -1.0, 1.0),
+            "u_direction": (1.0, 0.0, 0.0),
+            "v_direction": (0.0, 1.0, 0.0),
+            "semantic_group": "shell",
+        },
+    ))
+    return project
+
+
+def test_quad_first_linear_deck_recovers_to_admitted_automatic_mesh():
+    project = _automatic_deck_project()
+    before = geometry_to_dict(project.geometry)
+
+    mesh = project.generate_mesh(
+        0.25, strategy="quad_first", order="linear",
+        automation=MeshAutomationOptions(),
+    )
+
+    record = mesh.hybrid_diagnostics["automation"]
+    assert record["status"] == "ready"
+    assert record["selected_method"] == "auto"
+    assert record["attempts"][0]["error_type"] == "S3RepairError"
+    assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
+    assert mesh.order == "linear"
+    assert geometry_to_dict(project.geometry) == before
+
+
+def test_unadmitted_candidate_is_inspection_only(monkeypatch):
+    import anymesher.recovery as recovery
+
+    project = _automatic_deck_project()
+    monkeypatch.setattr(
+        recovery, "_attempt_options",
+        lambda first, _fallback: (("quad_first", dict(first)),),
+    )
+    mesh = project.generate_mesh(
+        0.25, strategy="quad_first", order="linear",
+        automation=MeshAutomationOptions(),
+    )
+
+    assert mesh.hybrid_diagnostics["automation"]["status"] == "inspection_only"
+    assert mesh.hybrid_diagnostics["automation"]["attempts"][-1]["problem_element_ids"]
+    with pytest.raises(ValueError, match="inspection-only mesh"):
+        build_fe_model(
+            project, mesh, load_case=None,
+            require_loads=False, require_supports=False,
+        )
+
+
+def test_strict_method_retains_typed_s3_failure():
+    from anymesher.s3_repair import S3RepairError
+
+    project = _automatic_deck_project()
+    with pytest.raises(S3RepairError):
+        project.generate_mesh(
+            0.25, strategy="quad_first", order="linear",
+            automation=MeshAutomationOptions(strict_method=True),
+        )
+
+
+def test_automatic_mesh_budget_expires_without_publishing_result():
+    project = _automatic_deck_project()
+    with pytest.raises(MeshRecoveryIncomplete, match="time budget expired"):
+        project.generate_mesh(
+            0.25, strategy="quad_first", order="linear",
+            automation=MeshAutomationOptions(max_seconds=1e-12),
+        )
+
+
 def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
     project = Project()
     plate = _plate(
@@ -292,3 +375,26 @@ def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
     assert len(built.fe_model.mesh.elements) == (
         len(mesh.shells) + len(mesh.beams) + len(mesh.couplings)
     )
+
+
+def test_quad_first_quadratic_point_coupling_reaches_solver_unchanged():
+    project = Project("RA1 point coupling")
+    plate = _plate(project, ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)))
+    beam = _beam(project, (0.3, 0.4, -1), (0.3, 0.4, 1))
+    project.add_material(steel())
+    project.add_plate_section("plate", 0.01, "S355")
+    project.add_beam_section(
+        BeamSection(name="beam", profile="Flatbar", material="S355",
+                    flange_width=0.01, flange_thickness=0.1)
+    )
+    project.assign_plate(plate, "plate")
+    project.assign_beam(beam, "beam")
+    mesh = project.generate_mesh(0.5, strategy="quad_first", order="quadratic")
+    assert mesh.hybrid_diagnostics["high_order_geometry"]["status"] == "CERTIFIED_POSITIVE"
+    assert len(mesh.couplings) == 1
+    from anymesher.serialize import mesh_from_dict
+    assert mesh_from_dict(mesh_to_dict(mesh)).couplings == mesh.couplings
+    built = build_fe_model(
+        project, mesh, load_case=None, require_loads=False, require_supports=False,
+    )
+    assert len(built.fe_model.mesh.elements) == len(mesh.shells) + len(mesh.beams) + 1

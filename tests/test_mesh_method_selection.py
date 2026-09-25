@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from anygeometry import GeometryModel
+from anymesher import MeshAutomationOptions
 
 from anyfem.document import DocumentSession
 from anyfem.io.artifacts import ArtifactStore
@@ -53,6 +54,56 @@ def test_mapped_eligibility_explains_supported_and_unsupported_plates() -> None:
     assert "Mapped is unavailable" in message
     assert "four-sided" in message
     assert "Automatic/Unstructured" in message
+
+
+def test_mapped_preference_accepts_owner_supported_triangular_plate() -> None:
+    project = Project("mapped preference")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    mesh = project.generate_mesh(
+        0.25, order="linear", strategy="mapped",
+        automation=MeshAutomationOptions(),
+    )
+    record = mesh.hybrid_diagnostics["automation"]
+    assert record["selected_method"] == "mapped"
+    assert record["status"] == "ready"
+    assert mesh.num_elements > 0
+
+
+def test_automatic_multiface_mapped_request_records_actual_route() -> None:
+    project = Project("two mapped plates")
+    geometry = project.geometry
+    vertices = geometry.add_points((
+        (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0), (0.0, 1.0, 0.0),
+        (2.0, 0.0, 0.0), (2.0, 1.0, 0.0),
+    ))
+    geometry.add_plate(vertices[:4])
+    geometry.add_plate((vertices[1], vertices[4], vertices[5], vertices[2]))
+    mesh = project.generate_mesh(
+        0.25, order="linear", strategy="mapped",
+        automation=MeshAutomationOptions(),
+    )
+    assert mesh.hybrid_diagnostics["automation"]["selected_method"] == "mapped"
+    assert mesh.hybrid_diagnostics["automation"]["status"] == "ready"
+    assert mesh.num_elements > 0
+
+
+def test_missing_recovery_api_does_not_break_legacy_meshing(monkeypatch) -> None:
+    import anymesher
+
+    project = Project("older owner")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    monkeypatch.delattr(anymesher, "generate_automatic_mesh_result")
+    assert project.generate_mesh(0.25, order="linear").num_elements > 0
+    with pytest.raises(ValueError, match="automatic mesh recovery requires"):
+        project.generate_mesh(
+            0.25, order="linear", automation=MeshAutomationOptions(),
+        )
 
 
 def test_mesh_settings_strategy_is_canonical_and_hash_affecting() -> None:
@@ -108,6 +159,19 @@ def test_mesh_settings_strategy_is_canonical_and_hash_affecting() -> None:
         structure_preference="size_first",
     ).input_hash
 
+    recoverable = MeshSettings.create(
+        0.25, element_order="linear", strategy="quad_first",
+        automation=MeshAutomationOptions(),
+    )
+    strict = MeshSettings.create(
+        0.25, element_order="linear", strategy="quad_first",
+        automation=MeshAutomationOptions(strict_method=True),
+    )
+    assert recoverable.input_hash != strict.input_hash
+    assert recoverable.input_hash != MeshSettings.create(
+        0.25, element_order="linear", strategy="quad_first",
+    ).input_hash
+
 
 def test_existing_native_settings_schema_persists_the_method_without_tk() -> None:
     project = Project("method")
@@ -138,6 +202,143 @@ def test_existing_native_settings_schema_persists_the_method_without_tk() -> Non
     assert AnyFemApp._project_structure_preference(reopened, None) == "quad_first"
 
 
+def test_explicit_quad_first_settings_persist_and_change_cache_identity() -> None:
+    from anyfem.quad_first import sg1_quad_options
+
+    project = Project("quad-first")
+    fake_app = SimpleNamespace(project=project)
+    AnyFemApp._store_mesh_strategy(
+        fake_app, "quad_first", target_size=0.25, element_order="quadratic",
+        quad_options=sg1_quad_options(),
+    )
+    reopened = project_from_dict(project_to_dict(project))
+    assert AnyFemApp._project_mesh_strategy(reopened, None) == "quad_first"
+    assert reopened.native_mesh_settings.to_dict()["parameters"]["quad_options"] == sg1_quad_options().to_dict()
+    selected = MeshSettings.create(0.25, element_order="quadratic", strategy="quad_first")
+    legacy = MeshSettings.create(0.25, element_order="quadratic", strategy="native")
+    assert selected.input_hash != legacy.input_hash
+
+
+def test_adaptive_quad_layout_persists_and_changes_job_identity() -> None:
+    project = Project("adaptive quad layout")
+    fake_app = SimpleNamespace(project=project)
+    AnyFemApp._store_mesh_strategy(
+        fake_app, "quad_first", target_size=0.5, element_order="linear",
+        layout_policy="adaptive",
+    )
+    reopened = project_from_dict(project_to_dict(project))
+    assert reopened.native_mesh_settings.to_dict()["parameters"]["layout_policy"] == "adaptive"
+    existing = MeshSettings.create(0.5, element_order="linear", strategy="quad_first")
+    adaptive = MeshSettings.create(0.5, element_order="linear", strategy="quad_first",
+                                   layout_policy="adaptive")
+    assert existing.input_hash != adaptive.input_hash
+    with pytest.raises(ValueError, match="requires strategy"):
+        MeshSettings.create(0.5, element_order="linear", strategy="native",
+                            layout_policy="adaptive")
+
+
+def test_explicit_quad_first_reaches_owner_without_changing_source() -> None:
+    from anygeometry.serialization import to_dict as geometry_to_dict
+
+    project = Project("quad-first owner")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    before = geometry_to_dict(project.geometry)
+    mesh = project.generate_mesh(0.5, order="quadratic", strategy="quad_first")
+    assert geometry_to_dict(project.geometry) == before
+    assert mesh.shells
+    assert all(len(shell) in (6, 8) for shell in mesh.shells.values())
+
+
+def test_quad_first_background_snapshot_publishes_validated_mesh() -> None:
+    from anyfem.mesh_jobs import _cancellation_token
+
+    project = Project("quad-first job")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    snapshot = DocumentSession(project).snapshot()
+    manager = MeshTaskManager()
+    try:
+        manager._run(
+            "quad", snapshot,
+            MeshSettings.create(0.5, element_order="quadratic", strategy="quad_first"),
+            _cancellation_token(),
+        )
+        events = manager.poll()
+    finally:
+        manager.shutdown()
+    completed = [event for event in events if event.kind == "completed"]
+    assert len(completed) == 1
+    result = completed[0].payload
+    assert result.mesh.hybrid_diagnostics["high_order_geometry"]["status"] == "CERTIFIED_POSITIVE"
+
+
+def test_cancelled_quad_first_job_does_not_publish_partial_mesh() -> None:
+    from anyfem.mesh_jobs import _cancellation_token
+
+    project = Project("cancel quad-first")
+    project.geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    token = _cancellation_token()
+    token.cancel("RA1 cancellation control")
+    manager = MeshTaskManager()
+    try:
+        manager._run(
+            "cancelled-quad", DocumentSession(project).snapshot(),
+            MeshSettings.create(0.5, element_order="quadratic", strategy="quad_first"),
+            token,
+        )
+        events = manager.poll()
+    finally:
+        manager.shutdown()
+    assert any(event.kind == "cancelled" for event in events)
+    assert not any(event.kind == "completed" for event in events)
+
+
+def test_quad_first_unsupported_beam_requests_remain_typed():
+    from anymesher.hybrid import generate_hybrid_mesh_result
+    from anymesher.quad.options import QuadMeshingOptions
+    from anymesher.quad.public_integration import QuadPublicUnsupported
+    from anymesher.errors import MeshError
+    from anyfem import steel
+    from anyfem.model import BeamSection
+
+    geometry = _plate_geometry(
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    )
+    face = next(iter(geometry.faces))
+    boundary = geometry.faces[face].loop[0].edge
+    project = Project("boundary beam")
+    project.geometry = geometry
+    project.add_material(steel())
+    project.add_plate_section("plate", 0.01, "S355")
+    project.add_beam_section(BeamSection(
+        name="beam", profile="Flatbar", material="S355",
+        flange_width=0.01, flange_thickness=0.1,
+    ))
+    project.assign_plate(face, "plate")
+    project.assign_beam(boundary, "beam")
+    with pytest.raises(QuadPublicUnsupported, match="source-boundary edge"):
+        project.generate_mesh(0.5, order="quadratic", strategy="quad_first")
+    start = geometry.add_point(0.0, 0.0, 1.0)
+    middle = geometry.add_point(0.5, 0.5, 1.0)
+    end = geometry.add_point(1.0, 0.0, 1.0)
+    arc = geometry.add_arc(start, middle, end)
+    with pytest.raises(MeshError, match="curved|straight|B3"):
+        generate_hybrid_mesh_result(
+            geometry, face_ids=(face,), beam_edges=(arc,),
+            target_size=0.5, order="quadratic",
+            quad_options=QuadMeshingOptions(quality_model="shape_jacobian"),
+        )
+
+
 def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> None:
     project = Project("mapped route")
     project.geometry = _plate_geometry(
@@ -157,6 +358,7 @@ def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> No
         _size=_Value("0.2"),
         _order=_Value("linear"),
         _native_backend=_Value("Compiled native"),
+        _strict_method=_Value(False),
         _method_dirty=True,
         _preference_dirty=True,
         number=lambda variable, _label: float(variable.get()),
@@ -176,6 +378,7 @@ def test_panel_routes_mapped_selection_and_hides_irrelevant_triangulator() -> No
             "structure_preference": "balanced",
             "mesh_controls": MeshControls(),
             "structured_controls": StructuredMeshControls(),
+            "automation": MeshAutomationOptions(),
         }
     ]
     assert panel._method_dirty is False

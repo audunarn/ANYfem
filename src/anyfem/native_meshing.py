@@ -79,6 +79,7 @@ class MeshBackend(StrEnum):
     AUTO = "automatic"
     MAPPED = "mapped"
     NATIVE = "native"
+    QUAD_FIRST = "quad_first"
 
 
 class ComponentUpdateKind(StrEnum):

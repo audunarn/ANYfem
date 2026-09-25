@@ -52,6 +52,22 @@ def test_runtime_publishes_model_bound_component_mesh() -> None:
         assert publication.certified is False
 
 
+def test_component_quad_first_uses_owner_route_and_keeps_identity() -> None:
+    project, sheet_id, _vertex = _sheet_project()
+    component = project.geometry.handle("sheet", sheet_id)
+    settings = NativeMeshSettings.create(
+        0.5, element_order="quadratic", backend="quad_first",
+        certification_mode="strict",
+    )
+    with NativeProjectMeshingSession(project, settings, max_background_jobs=1) as session:
+        assert session.request_remesh(component) == (component,)
+        assert session.runtime.wait_for_idle(timeout=10.0)
+        publication = session.runtime.publication(component)
+        assert publication is not None
+        assert publication.mesh.geometry_model_id == project.geometry.model_id
+        assert publication.mesh.hybrid_diagnostics["high_order_geometry"]["status"] == "CERTIFIED_POSITIVE"
+
+
 def test_geometry_hook_coalesces_and_republishes_after_edit() -> None:
     project, sheet_id, moved_vertex = _sheet_project()
     component = project.geometry.handle("sheet", sheet_id)

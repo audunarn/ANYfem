@@ -82,8 +82,20 @@ class MeshSettings:
     quality_policy: tuple[tuple[str, float], ...] = ()
     controls: MeshControls | None = None
     structured_controls: StructuredMeshControls | None = None
+    quad_options: object | None = None
+    layout_policy: str = "existing"
+    automation: object | None = None
 
     def __post_init__(self) -> None:
+        if self.automation is not None:
+            try:
+                from anymesher import MeshAutomationOptions
+            except ImportError as error:
+                raise RuntimeError(
+                    "automatic mesh recovery requires a compatible ANYmesher installation"
+                ) from error
+            if not isinstance(self.automation, MeshAutomationOptions):
+                raise TypeError("automation must be MeshAutomationOptions")
         if self.controls is not None and not isinstance(self.controls, MeshControls):
             raise TypeError("mesh controls must be MeshControls")
         if self.structured_controls is not None and not isinstance(
@@ -92,13 +104,27 @@ class MeshSettings:
             raise TypeError(
                 "structured mesh controls must be StructuredMeshControls"
             )
+        quad_selected = str(self.strategy).strip().lower() == "quad_first"
+        if quad_selected:
+            from .quad_first import effective_quad_options
+
+            object.__setattr__(self, "quad_options", effective_quad_options(self.quad_options))
+        elif self.quad_options is not None:
+            raise ValueError("quad_options requires strategy='quad_first'")
+        if self.layout_policy not in ("existing", "adaptive"):
+            raise ValueError("layout_policy must be 'existing' or 'adaptive'")
+        if self.layout_policy == "adaptive" and not quad_selected:
+            raise ValueError("adaptive layout requires strategy='quad_first'")
         from anymesher.hybrid import MeshingStrategy
         from anymesher.structured import StructurePreference
         from anymesher.structured import MeshQualityPolicy
 
         if self.strategy is not None:
             try:
-                strategy = MeshingStrategy(str(self.strategy).strip().lower()).value
+                strategy = (
+                    "quad_first" if str(self.strategy).strip().lower() == "quad_first"
+                    else MeshingStrategy(str(self.strategy).strip().lower()).value
+                )
             except ValueError as error:
                 choices = ", ".join(item.value for item in MeshingStrategy)
                 raise ValueError(
@@ -135,6 +161,9 @@ class MeshSettings:
         quality_policy: Mapping[str, float] | None = None,
         controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
+        quad_options: object | None = None,
+        layout_policy: str = "existing",
+        automation: object | None = None,
     ) -> "MeshSettings":
         size = float(target_size)
         if size <= 0.0:
@@ -148,6 +177,9 @@ class MeshSettings:
             strategy=strategy,
             controls=controls,
             structured_controls=structured_controls,
+            quad_options=quad_options,
+            layout_policy=layout_policy,
+            automation=automation,
             structure_preference=structure_preference,
             quality_policy=tuple(
                 sorted((str(key), float(value)) for key, value in (quality_policy or {}).items())
@@ -156,12 +188,15 @@ class MeshSettings:
 
     @property
     def input_hash(self) -> str:
-        return canonical_hash(
-            {
+        payload = {
                 "target_size": self.target_size,
                 "element_order": self.element_order,
                 "overrides": dict(self.overrides),
                 "strategy": self.strategy,
+                "quad_options": (
+                    None if self.quad_options is None else self.quad_options.to_dict()
+                ),
+                "layout_policy": self.layout_policy if self.strategy == "quad_first" else None,
                 "controls": (None if self.controls is None else
                              self.controls.effective_dict(self.strategy)),
                 "structure_preference": (
@@ -181,7 +216,9 @@ class MeshSettings:
                     else self.structured_controls.effective_dict()
                 ),
             }
-        )
+        if self.automation is not None:
+            payload["automation"] = self.automation.to_dict()
+        return canonical_hash(payload)
 
 
 @dataclass(frozen=True)
@@ -440,7 +477,10 @@ class MeshTaskManager:
                     "mapped": "mapped",
                     "native": "native",
                 }.get(backend, backend)
-            resolved_strategy = MeshingStrategy(requested_strategy).value
+            resolved_strategy = (
+                "quad_first" if requested_strategy == "quad_first"
+                else MeshingStrategy(requested_strategy).value
+            )
             resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
             resolved_structured_controls = (
                 settings.structured_controls
@@ -460,6 +500,9 @@ class MeshTaskManager:
                 quality_policy=dict(settings.quality_policy),
                 mesh_controls=resolved_controls,
                 structured_controls=resolved_structured_controls,
+                quad_options=settings.quad_options,
+                layout_policy=settings.layout_policy,
+                automation=settings.automation,
                 cancellation_check=cancellation.raise_if_cancelled,
             )
             cancellation.raise_if_cancelled("mesh quality")
@@ -488,6 +531,9 @@ class MeshTaskManager:
                     quality_policy=dict(settings.quality_policy),
                     controls=resolved_controls,
                     structured_controls=resolved_structured_controls,
+                    quad_options=settings.quad_options,
+                    layout_policy=settings.layout_policy,
+                    automation=settings.automation,
                 ).input_hash
             semantic_input_hash = canonical_hash(
                 {

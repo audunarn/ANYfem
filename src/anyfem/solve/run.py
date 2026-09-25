@@ -90,6 +90,7 @@ def _resolve_built(
     target_size: Optional[float],
     overrides: Optional[Mapping[int, int]],
     progress: Progress,
+    allow_quad_first: bool = False,
     **build_options: Any,
 ) -> BuiltModel:
     """Use a model that is already built, or mesh and build one.
@@ -98,6 +99,19 @@ def _resolve_built(
     every analysis takes this path rather than assuming a Project behind it.
     """
 
+    if not allow_quad_first:
+        selected_mesh = built.mesh if built is not None else mesh
+        selected = bool(
+            selected_mesh is not None
+            and getattr(selected_mesh, "hybrid_diagnostics", {}).get("quad_first_api")
+        )
+        if project is not None and project.native_mesh_settings is not None:
+            selected = selected or project.native_mesh_settings.backend.value == "quad_first"
+        if selected:
+            raise ProjectError(
+                "quad-first application meshes are accepted for linear-static "
+                "consumption only; this analysis requires separate qualification"
+            )
     if built is not None:
         return built
     if project is None:
@@ -136,6 +150,7 @@ def solve_linear_static(
     built = _resolve_built(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
         progress=progress, load_case=load_case, combination=combination,
+        allow_quad_first=True,
     )
 
     _report(progress, "solving")
@@ -188,6 +203,7 @@ def solve_linear_static_many(
             progress=progress,
             load_case=None,
             require_loads=True,
+            allow_quad_first=True,
         )
     resolved_project = built.project
     requested = tuple(load_cases or tuple(resolved_project.load_cases))
@@ -271,7 +287,7 @@ def solve_modal(
 
     built = _resolve_built(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
-        progress=progress, load_case=None, require_loads=False,
+            progress=progress, load_case=None, require_loads=False,
         require_supports=False,
     )
 

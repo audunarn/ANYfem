@@ -58,6 +58,33 @@ def build_plate(app, width=2.0, height=1.0):
     return points, face
 
 
+def test_quad_first_mesh_controls_show_preset_deviation(app, root):
+    panel = app.panels["Mesh"]
+    panel._method.set(panel._METHOD_LABELS["quad_first"])
+    panel._method_changed()
+    root.update()
+    assert panel._quad_advanced.winfo_manager()
+    assert "SG1-compatible" in panel._quad_preset_status.cget("text")
+    panel._quad_layout.set(True)
+    panel._update_method_controls()
+    assert "differ" in panel._quad_preset_status.cget("text")
+    panel._quad_orientation.set("boundary_tangent")
+    panel._update_method_controls()
+    assert "differ" in panel._quad_preset_status.cget("text")
+    from anymesher.quad.options import QuadMeshingOptions
+
+    app._store_mesh_strategy(
+        "quad_first", target_size=0.25, element_order="linear",
+        quad_options=QuadMeshingOptions(orientation="boundary_tangent", max_front_iterations=321),
+        layout_policy="adaptive",
+    )
+    panel._quad_orientation.set("cross_4theta")
+    panel.refresh()
+    assert panel._quad_orientation.get() == "boundary_tangent"
+    assert panel._quad_front.get() == "321"
+    assert panel._quad_layout.get() is True
+
+
 def test_editable_face_sketch_ui_creates_and_reopens_feature(app, root):
     _points, face = build_plate(app, width=4.0, height=3.0)
     panel = app.panels["Geometry"]
@@ -1064,6 +1091,10 @@ def test_mesh_panel_applies_element_order_through_the_real_stack(app, root):
     build_plate(app)
     panel = app.panels["Mesh"]
     panel._order.set("quadratic")
+    panel._order_combo.event_generate("<<ComboboxSelected>>")
+    root.update()
+    panel.refresh()
+    assert panel._order.get() == "quadratic"
     panel._size.set("0.5")
 
     panel.guarded(panel._generate)()
@@ -1071,6 +1102,131 @@ def test_mesh_panel_applies_element_order_through_the_real_stack(app, root):
 
     assert app.project.element_order == "quadratic"
     assert mesh.is_quadratic
+    record = next(reversed(app.project.mesh_records.values()))
+    assert record.summary["element_order"] == "quadratic"
+    panel.refresh()
+    assert "element order requested: quadratic" in panel._stats.cget("text")
+
+
+def build_cylinder_deck(app):
+    app.run(cmd.AddCylinder(
+        kind="generator.cylinder", name="Cylinder", label="add cylinder",
+        parameters={
+            "radius": 0.5, "height": 2.0, "circumferential_segments": 12,
+            "origin": (0.0, 0.0, 0.0), "axis": (0.0, 0.0, 1.0),
+            "radial_direction": (1.0, 0.0, 0.0),
+            "longitudinal_spacing": 0.5, "ring_spacing": 1.0,
+        },
+    ))
+    app.run(cmd.AddFeature(
+        "generator.plate", name="Plate", parameters={
+            "length": 2.0, "width": 2.0, "origin": (-1.0, -1.0, 1.0),
+            "u_direction": (1.0, 0.0, 0.0),
+            "v_direction": (0.0, 1.0, 0.0),
+            "semantic_group": "shell",
+        },
+    ))
+
+
+def test_mesh_panel_submits_quadratic_quad_first_cylinder_deck(app, root):
+    build_cylinder_deck(app)
+    panel = app.panels["Mesh"]
+    panel._method.set(panel._METHOD_LABELS["quad_first"])
+    panel._method_changed()
+    panel._order.set("quadratic")
+    panel._order_combo.event_generate("<<ComboboxSelected>>")
+    root.update()
+    panel.refresh()
+    assert panel._order.get() == "quadratic"
+    panel._size.set("0.25")
+
+    panel.guarded(panel._generate)()
+    mesh = wait_for_mesh(app, root, timeout=120.0)
+
+    assert mesh.is_quadratic
+    assert app.project.element_order == "quadratic"
+    record = next(reversed(app.project.mesh_records.values()))
+    assert record.summary["element_order"] == "quadratic"
+    assert record.summary["strategy_requested"] == "quad_first"
+    assert record.status == "completed"
+
+
+def test_mesh_panel_submits_linear_automatic_cylinder_deck(app, root):
+    build_cylinder_deck(app)
+    panel = app.panels["Mesh"]
+    panel._size.set("0.25")
+    panel.refresh()
+    assert panel._order.get() == "linear"
+    assert panel._method_value() == "auto"
+
+    panel.guarded(panel._generate)()
+    mesh = wait_for_mesh(app, root, timeout=120.0)
+
+    assert mesh.order == "linear"
+    assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
+    record = next(reversed(app.project.mesh_records.values()))
+    assert record.summary["element_order"] == "linear"
+    assert record.summary["strategy_requested"] == "auto"
+    assert record.status == "completed"
+
+
+def test_mesh_panel_recovers_quad_first_linear_cylinder_deck(app, root):
+    build_cylinder_deck(app)
+    panel = app.panels["Mesh"]
+    panel._method.set(panel._METHOD_LABELS["quad_first"])
+    panel._method_changed()
+    panel._size.set("0.25")
+
+    panel.guarded(panel._generate)()
+    mesh = wait_for_mesh(app, root, timeout=120.0)
+
+    assert mesh.order == "linear"
+    assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
+    automation = mesh.hybrid_diagnostics["automation"]
+    assert automation["status"] == "ready"
+    assert automation["selected_method"] == "auto"
+    record = next(reversed(app.project.mesh_records.values()))
+    assert record.summary["strategy_requested"] == "quad_first"
+    assert record.summary["automation_requested"]["strict_method"] is False
+    assert record.status == "completed"
+
+
+def test_mesh_panel_retains_unadmitted_deck_for_inspection(app, root, monkeypatch):
+    import anymesher.recovery as recovery
+
+    build_cylinder_deck(app)
+    monkeypatch.setattr(
+        recovery, "_attempt_options",
+        lambda first, _fallback: (("quad_first", dict(first)),),
+    )
+    panel = app.panels["Mesh"]
+    panel._method.set(panel._METHOD_LABELS["quad_first"])
+    panel._method_changed()
+    panel._size.set("0.25")
+    panel.guarded(panel._generate)()
+    deadline = time.time() + 120.0
+    while app.mesh_task_manager.busy and time.time() < deadline:
+        root.update()
+        time.sleep(0.01)
+    root.update()
+
+    record = next(reversed(app.project.mesh_records.values()))
+    assert record.status == "inspection_only"
+    assert record.summary["solver_admission"] == "BLOCKED"
+    assert app._inspection_mesh is not None
+    assert app.mesh is None
+    assert app.viewport._scene.faces
+    assert any("#e67459" in face.colors for face in app.viewport._scene.faces)
+    with pytest.raises(ValueError, match="generate a mesh first"):
+        app.solve()
+    destination = Path(workspace_dir()) / "inspection-deck.anyfem"
+    app.save_project(path=str(destination))
+    app.new_project()
+    app.open_project(str(destination))
+    root.update()
+    assert app._inspection_mesh is not None
+    assert app.mesh is None
+    assert next(reversed(app.project.mesh_records.values())).status == "inspection_only"
 
 
 def test_mesh_panel_presents_and_maps_native_triangulator(app, root, monkeypatch):
