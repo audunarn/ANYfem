@@ -2,6 +2,8 @@
 
 This record stores inputs only.  Solver state, results, and qualification are
 not inferred from reopening it.  Ordinary ANYfem projects are unaffected.
+The Q4 algorithmic pullback is a separate experimental v3 opt-in; historical
+v1 and J2 v2 records retain their original schema and solver selection.
 """
 
 from __future__ import annotations
@@ -20,10 +22,12 @@ from anysolver import b3_ge, stiffened_shell
 
 SCHEMA = "anyfem.experimental-ge-point-panel-v1"
 SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
+SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_BEAMS = 16
+HISTORICAL_Q4_PULLBACK_POLICY = "historical_corotational"
 
 
 def _exact_fields(value: object, fields: set[str], label: str) -> dict:
@@ -94,6 +98,7 @@ class ExperimentalGEPointPanel:
     points: tuple[stiffened_shell.PointConnection, ...]
     fixed: tuple[stiffened_shell.FixedCoordinate, ...]
     actions: tuple[stiffened_shell.NodalAction, ...] = ()
+    q4_pullback_policy: str = HISTORICAL_Q4_PULLBACK_POLICY
 
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
@@ -101,6 +106,14 @@ class ExperimentalGEPointPanel:
         if (self.shell.j2_curve is not None and
                 type(self.shell.j2_curve) is not DNVC208MaterialCurve):
             raise ValueError("explicit isotropic shell J2 curve required")
+        if (type(self.q4_pullback_policy) is not str or
+                self.q4_pullback_policy not in (
+                    HISTORICAL_Q4_PULLBACK_POLICY,
+                    getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None))):
+            raise ValueError("unsupported experimental Q4 pullback policy")
+        if (self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY and
+                not self.shell.q4_elements):
+            raise ValueError("Q4 pullback policy requires at least one Q4 element")
         for name, expected, minimum in (
             ("beams", b3_ge.BeamDefinition, 1),
             ("points", stiffened_shell.PointConnection, 1),
@@ -118,10 +131,14 @@ class ExperimentalGEPointPanel:
         return STATUS
 
     def definition(self) -> stiffened_shell.LinearDefinition:
-        return stiffened_shell.LinearDefinition(
+        args = (
             stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
             self.shell, self.beams, self.points, self.fixed,
         )
+        if self.q4_pullback_policy == HISTORICAL_Q4_PULLBACK_POLICY:
+            return stiffened_shell.LinearDefinition(*args)
+        return stiffened_shell.LinearDefinition(
+            *args, q4_pullback_policy=self.q4_pullback_policy)
 
     def create_analysis(self):
         """Construct the fresh experimental owner through its public facade."""
@@ -129,8 +146,10 @@ class ExperimentalGEPointPanel:
 
     def to_dict(self) -> dict:
         shell_j2 = self.shell.j2_curve
+        selected_q4 = self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY
         record = {
-            "schema": SCHEMA_J2 if shell_j2 is not None else SCHEMA,
+            "schema": (SCHEMA_Q4_PULLBACK if selected_q4 else
+                       SCHEMA_J2 if shell_j2 is not None else SCHEMA),
             "status": STATUS,
             "profile": stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
             "shell": {
@@ -152,23 +171,41 @@ class ExperimentalGEPointPanel:
             "actions": [dict(domain=item.domain, node=item.node,
                              wrench=list(item.wrench)) for item in self.actions],
         }
-        if shell_j2 is not None:
+        if selected_q4:
+            record["q4_pullback_policy"] = self.q4_pullback_policy
+            record["shell"]["j2_curve"] = (
+                None if shell_j2 is None else shell_j2.as_dict())
+        elif shell_j2 is not None:
             record["shell"]["j2_curve"] = shell_j2.as_dict()
         return record
 
     @classmethod
     def from_dict(cls, value: object) -> ExperimentalGEPointPanel:
-        data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams", "points", "fixed", "actions"}, "experimental GE panel")
-        if (data["schema"] not in (SCHEMA, SCHEMA_J2) or data["status"] != STATUS or
+        if type(value) is not dict:
+            raise ValueError("strict experimental GE panel record required")
+        selected_q4 = value.get("schema") == SCHEMA_Q4_PULLBACK
+        fields = {"schema", "status", "profile", "shell", "beams",
+                  "points", "fixed", "actions"}
+        data = _exact_fields(value, fields | ({"q4_pullback_policy"} if selected_q4 else set()),
+                             "experimental GE panel")
+        if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK) or
+                data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental GE panel schema, status, and profile required")
+        q4_policy = (data["q4_pullback_policy"] if selected_q4 else
+                     HISTORICAL_Q4_PULLBACK_POLICY)
+        if (selected_q4 and
+                q4_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None)):
+            raise ValueError("unsupported experimental Q4 pullback policy")
 
         shell_fields = {"node_ids", "coordinates_m", "q4_elements", "s3_elements",
                         "thickness_m", "young_pa", "poisson", "density_kg_m3"}
-        shell_j2 = data["schema"] == SCHEMA_J2
+        shell_j2 = data["schema"] in (SCHEMA_J2, SCHEMA_Q4_PULLBACK)
         shell_data = _exact_fields(data["shell"], shell_fields | ({"j2_curve"} if shell_j2 else set()), "GE shell")
+        if data["schema"] == SCHEMA_J2 and shell_data["j2_curve"] is None:
+            raise ValueError("shell J2 curve required by v2 schema")
         curve = None
-        if shell_j2:
+        if shell_j2 and shell_data["j2_curve"] is not None:
             curve_data = _exact_fields(shell_data["j2_curve"],
                                        {"sigma_prop", "sigma_yield", "sigma_yield_2",
                                         "eps_p_y1", "eps_p_y2", "K", "n"},
@@ -220,7 +257,7 @@ class ExperimentalGEPointPanel:
             _wrench(row["wrench"]))
             for item in data["actions"]
             for row in (_exact_fields(item, {"domain", "node", "wrench"}, "nodal action"),))
-        return cls(shell, tuple(beams), points, fixed, actions)
+        return cls(shell, tuple(beams), points, fixed, actions, q4_policy)
 
 
 def save_case(case: ExperimentalGEPointPanel, path: str | Path) -> Path:
@@ -279,4 +316,5 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel:
     return ExperimentalGEPointPanel.from_dict(data)
 
 
-__all__ = ["ExperimentalGEPointPanel", "SCHEMA", "SCHEMA_J2", "STATUS", "SUFFIX", "save_case", "load_case"]
+__all__ = ["ExperimentalGEPointPanel", "SCHEMA", "SCHEMA_J2",
+           "SCHEMA_Q4_PULLBACK", "STATUS", "SUFFIX", "save_case", "load_case"]

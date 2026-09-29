@@ -11,7 +11,8 @@ from anymaterial import DNVC208MaterialCurve
 stiffened_shell = pytest.importorskip("anysolver.stiffened_shell")
 from anysolver import b3_ge
 from anyfem.solve.stiffened_shell import (
-    ExperimentalGEPointPanel, SCHEMA, SCHEMA_J2, load_case, save_case,
+    ExperimentalGEPointPanel, SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK,
+    load_case, save_case,
 )
 
 
@@ -80,11 +81,13 @@ def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
             quadrature=element.operator.order))
     original = replace(original, beams=tuple(yielding_beams))
     assert original.to_dict()["schema"] == SCHEMA
+    assert "q4_pullback_policy" not in original.to_dict()
     curve = DNVC208MaterialCurve(1e6, 1.05e6, 1.1e6,
                                  .005, .01, 4e6, .2)
     case = replace(original, shell=replace(original.shell, j2_curve=curve))
     record = case.to_dict()
     assert record["schema"] == SCHEMA_J2
+    assert "q4_pullback_policy" not in record
     reopened = load_case(save_case(case, tmp_path / "j2.anyfem-ge.json"))
     assert reopened.to_dict() == record
     assert reopened.shell.j2_curve == curve
@@ -121,6 +124,69 @@ def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
     downgraded["schema"] = SCHEMA
     with pytest.raises(ValueError, match="strict GE shell"):
         ExperimentalGEPointPanel.from_dict(downgraded)
+
+
+def test_q4_pullback_v3_round_trip_and_strict_selection(tmp_path):
+    historical = _case()
+    assert historical.to_dict()["schema"] == SCHEMA
+    assert "q4_pullback_policy" not in historical.to_dict()
+    assert historical.definition().q4_pullback_policy == "historical_corotational"
+    selected = replace(
+        historical,
+        q4_pullback_policy=stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1,
+    )
+    record = selected.to_dict()
+    assert record["schema"] == SCHEMA_Q4_PULLBACK
+    assert record["q4_pullback_policy"] == stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1
+    assert record["shell"]["j2_curve"] is None
+    reopened = load_case(save_case(selected, tmp_path / "pullback.anyfem-ge.json"))
+    assert reopened.to_dict() == record
+    assert reopened.definition().q4_pullback_policy == stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1
+    historical_owner = historical.create_analysis()
+    selected_owner = reopened.create_analysis()
+    try:
+        assert (selected_owner.preflight()["identity"] !=
+                historical_owner.preflight()["identity"])
+        result = selected_owner.solve_linear(reopened.actions)
+        assert result.status == "completed"
+        checkpoint = selected_owner.checkpoint()
+    finally:
+        selected_owner.close()
+        historical_owner.close()
+    resumed = reopened.create_analysis()
+    try:
+        restored = resumed.restore(checkpoint)
+        np.testing.assert_array_equal(restored.shell_displacement,
+                                      result.shell_displacement)
+        np.testing.assert_array_equal(restored.beam_coordinates,
+                                      result.beam_coordinates)
+        assert restored.generation == result.generation
+    finally:
+        resumed.close()
+
+    curve = DNVC208MaterialCurve(1e6, 1.05e6, 1.1e6, .005, .01, 4e6, .2)
+    with_j2 = replace(selected, shell=replace(selected.shell, j2_curve=curve))
+    assert with_j2.to_dict()["schema"] == SCHEMA_Q4_PULLBACK
+    assert ExperimentalGEPointPanel.from_dict(with_j2.to_dict()).shell.j2_curve == curve
+
+    with pytest.raises(ValueError, match="Q4 pullback policy"):
+        replace(selected, q4_pullback_policy="unknown")
+    unknown = dict(record, q4_pullback_policy="unknown")
+    with pytest.raises(ValueError, match="Q4 pullback policy"):
+        ExperimentalGEPointPanel.from_dict(unknown)
+    all_s3 = replace(historical.shell, q4_elements=(), s3_elements=((1, 2, 5), (1, 5, 4)))
+    with pytest.raises(ValueError, match="at least one Q4"):
+        replace(selected, shell=all_s3)
+
+    injected = dict(historical.to_dict(), q4_pullback_policy=record["q4_pullback_policy"])
+    with pytest.raises(ValueError, match="strict experimental GE panel"):
+        ExperimentalGEPointPanel.from_dict(injected)
+    invalid_v2 = with_j2.to_dict()
+    invalid_v2["schema"] = SCHEMA_J2
+    invalid_v2.pop("q4_pullback_policy")
+    invalid_v2["shell"]["j2_curve"] = None
+    with pytest.raises(ValueError, match="J2 curve required"):
+        ExperimentalGEPointPanel.from_dict(invalid_v2)
 
 
 def test_reopened_ge_panel_restores_and_continues_finite_accepted_state(tmp_path):
