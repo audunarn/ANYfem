@@ -258,6 +258,10 @@ class ExperimentalB2PointPanel:
     @classmethod
     def from_definition(cls, definition, cases, *, selected_dofs,
                         selected_points=(), recover_members=None):
+        if (type(definition) is stiffened_shell.B2Q4PanelDefinition and
+                any(getattr(shell, "density_kg_m3", None) is not None
+                    for shell in definition.shells)):
+            raise ValueError("shell density is unsupported by experimental B2 input persistence")
         if (type(definition) is not stiffened_shell.B2Q4PanelDefinition or
                 definition.profile != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1 or
                 any(type(member) is not stiffened_shell.PhysicalB2Member or

@@ -153,3 +153,13 @@ def test_b2_panel_consumer_preserves_generalized_section_identity(tmp_path):
     assert result.status == "completed"
     assert result.factorization_count == result.solve_count == 1
     assert len(result.cases[0].beam_resultants_local[0][1]) == 1
+
+
+def test_b2_panel_consumer_rejects_shell_density_before_persistence():
+    definition = _panel()
+    shells = (replace(definition.shells[0], density_kg_m3=7850.),
+              definition.shells[1])
+    with pytest.raises(ValueError, match="shell density is unsupported"):
+        ExperimentalB2PointPanel.from_definition(
+            replace(definition, shells=shells),
+            (("load", np.zeros(54)),), selected_dofs=(0,))
