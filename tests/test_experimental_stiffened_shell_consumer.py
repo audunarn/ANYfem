@@ -96,12 +96,20 @@ def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
     assert first.status == "completed"
     assert max(max(row) for row in first.shell_layer_alpha) > 0.
     assert max(max(row) for row in first.beam_station_accumulated) > 0.
+    assert len(first.shell_q4_material) == 2
+    assert all(np.isfinite(item.layer_stress).all()
+               for item in first.shell_q4_material)
     checkpoint = owner.checkpoint()
     owner.close()
 
     resumed = reopened.create_analysis()
     restored = resumed.restore(checkpoint)
     assert restored.shell_layer_alpha == first.shell_layer_alpha
+    for original, repeated in zip(first.shell_q4_material,
+                                  restored.shell_q4_material):
+        np.testing.assert_allclose(original.layer_stress,
+                                   repeated.layer_stress,
+                                   rtol=1e-10, atol=1e-8)
     continued = resumed.solve(reopened.actions, (1.1,),
                               max_iterations=20, max_backtracks=12)
     assert continued.status == "completed"
