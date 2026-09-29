@@ -14,10 +14,12 @@ import os
 from pathlib import Path
 import tempfile
 
+from anymaterial import DNVC208MaterialCurve
 from anysolver import b3_ge, stiffened_shell
 
 
 SCHEMA = "anyfem.experimental-ge-point-panel-v1"
+SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -96,6 +98,9 @@ class ExperimentalGEPointPanel:
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
             raise ValueError("explicit GE shell panel required")
+        if (self.shell.j2_curve is not None and
+                type(self.shell.j2_curve) is not DNVC208MaterialCurve):
+            raise ValueError("explicit isotropic shell J2 curve required")
         for name, expected, minimum in (
             ("beams", b3_ge.BeamDefinition, 1),
             ("points", stiffened_shell.PointConnection, 1),
@@ -123,8 +128,9 @@ class ExperimentalGEPointPanel:
         return stiffened_shell.create_analysis(definition=self.definition())
 
     def to_dict(self) -> dict:
-        return {
-            "schema": SCHEMA,
+        shell_j2 = self.shell.j2_curve
+        record = {
+            "schema": SCHEMA_J2 if shell_j2 is not None else SCHEMA,
             "status": STATUS,
             "profile": stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
             "shell": {
@@ -146,15 +152,30 @@ class ExperimentalGEPointPanel:
             "actions": [dict(domain=item.domain, node=item.node,
                              wrench=list(item.wrench)) for item in self.actions],
         }
+        if shell_j2 is not None:
+            record["shell"]["j2_curve"] = shell_j2.as_dict()
+        return record
 
     @classmethod
     def from_dict(cls, value: object) -> ExperimentalGEPointPanel:
         data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams", "points", "fixed", "actions"}, "experimental GE panel")
-        if (data["schema"] != SCHEMA or data["status"] != STATUS or
+        if (data["schema"] not in (SCHEMA, SCHEMA_J2) or data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental GE panel schema, status, and profile required")
 
-        shell_data = _exact_fields(data["shell"], {"node_ids", "coordinates_m", "q4_elements", "s3_elements", "thickness_m", "young_pa", "poisson", "density_kg_m3"}, "GE shell")
+        shell_fields = {"node_ids", "coordinates_m", "q4_elements", "s3_elements",
+                        "thickness_m", "young_pa", "poisson", "density_kg_m3"}
+        shell_j2 = data["schema"] == SCHEMA_J2
+        shell_data = _exact_fields(data["shell"], shell_fields | ({"j2_curve"} if shell_j2 else set()), "GE shell")
+        curve = None
+        if shell_j2:
+            curve_data = _exact_fields(shell_data["j2_curve"],
+                                       {"sigma_prop", "sigma_yield", "sigma_yield_2",
+                                        "eps_p_y1", "eps_p_y2", "K", "n"},
+                                       "shell J2 curve")
+            curve = DNVC208MaterialCurve(**{
+                name: _finite_number(value, "shell J2 curve")
+                for name, value in curve_data.items()})
         shell = stiffened_shell.ShellPanel(
             _ids(shell_data["node_ids"], "shell nodes"),
             _rows(shell_data["coordinates_m"], 3, _finite_number, "shell coordinates"),
@@ -164,6 +185,7 @@ class ExperimentalGEPointPanel:
             _finite_number(shell_data["poisson"], "shell Poisson ratio"),
             _finite_number(shell_data["density_kg_m3"], "shell density"),
             _rows(shell_data["s3_elements"], 3, _positive_int, "S3 elements"),
+            curve,
         )
 
         if type(data["beams"]) is not list or not 1 <= len(data["beams"]) <= MAX_BEAMS:
@@ -257,4 +279,4 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel:
     return ExperimentalGEPointPanel.from_dict(data)
 
 
-__all__ = ["ExperimentalGEPointPanel", "SCHEMA", "STATUS", "SUFFIX", "save_case", "load_case"]
+__all__ = ["ExperimentalGEPointPanel", "SCHEMA", "SCHEMA_J2", "STATUS", "SUFFIX", "save_case", "load_case"]

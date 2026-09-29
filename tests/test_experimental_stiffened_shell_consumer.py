@@ -5,12 +5,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from anymaterial import DNVC208MaterialCurve
 
 
 stiffened_shell = pytest.importorskip("anysolver.stiffened_shell")
 from anysolver import b3_ge
 from anyfem.solve.stiffened_shell import (
-    ExperimentalGEPointPanel, load_case, save_case,
+    ExperimentalGEPointPanel, SCHEMA, SCHEMA_J2, load_case, save_case,
 )
 
 
@@ -62,6 +63,56 @@ def test_ge_point_panel_constructs_solves_and_reopens(tmp_path):
     assert result.constraint_max < 1e-9
     assert result.beam_coordinates[6*4+2] > 0.
     owner.close()
+
+
+def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
+    original = replace(_case(), actions=(stiffened_shell.NodalAction(
+        "beam", 105, (0., 0., 1000., 0., 0., 0.)),))
+    yielding_beams = []
+    for definition in original.beams:
+        element, inertia = definition.instantiate()
+        section = b3_ge.EllipsoidalGeneralizedSection(
+            element.section.elastic, element.section.metric, 4000., 1e8)
+        yielding_beams.append(b3_ge.define_beam(
+            b3_ge.SELECTOR, element.element_id, element.node_ids,
+            element.operator.reference.coordinates,
+            element.operator.reference.nodal_triads, section, inertia,
+            quadrature=element.operator.order))
+    original = replace(original, beams=tuple(yielding_beams))
+    assert original.to_dict()["schema"] == SCHEMA
+    curve = DNVC208MaterialCurve(1e6, 1.05e6, 1.1e6,
+                                 .005, .01, 4e6, .2)
+    case = replace(original, shell=replace(original.shell, j2_curve=curve))
+    record = case.to_dict()
+    assert record["schema"] == SCHEMA_J2
+    reopened = load_case(save_case(case, tmp_path / "j2.anyfem-ge.json"))
+    assert reopened.to_dict() == record
+    assert reopened.shell.j2_curve == curve
+    owner = reopened.create_analysis()
+    assert owner.capabilities["shell"] == "experimental isotropic Q4 J2"
+    assert owner.preflight()["production_qualified"] is False
+    first = owner.solve(reopened.actions, (.5, 1.),
+                        max_iterations=20, max_backtracks=12)
+    assert first.status == "completed"
+    assert max(max(row) for row in first.shell_layer_alpha) > 0.
+    assert max(max(row) for row in first.beam_station_accumulated) > 0.
+    checkpoint = owner.checkpoint()
+    owner.close()
+
+    resumed = reopened.create_analysis()
+    restored = resumed.restore(checkpoint)
+    assert restored.shell_layer_alpha == first.shell_layer_alpha
+    continued = resumed.solve(reopened.actions, (1.1,),
+                              max_iterations=20, max_backtracks=12)
+    assert continued.status == "completed"
+    assert continued.accepted_factors == (.5, 1., 1.1)
+    assert max(max(row) for row in continued.shell_layer_alpha) > 0.
+    resumed.close()
+
+    downgraded = dict(record)
+    downgraded["schema"] = SCHEMA
+    with pytest.raises(ValueError, match="strict GE shell"):
+        ExperimentalGEPointPanel.from_dict(downgraded)
 
 
 def test_reopened_ge_panel_restores_and_continues_finite_accepted_state(tmp_path):
