@@ -1397,6 +1397,59 @@ def test_qt_failed_sketch_constraint_preserves_working_copy(window,qapp,failure)
     assert len(window.project.geometry.features.records)==before
 
 
+@pytest.mark.parametrize("editing",[False,True])
+@pytest.mark.parametrize("failure",["extrusion","constraints","command"])
+def test_qt_failed_sketch_apply_preserves_preview_and_retry(window,qapp,tmp_path,monkeypatch,editing,failure):
+    import json
+    from copy import deepcopy
+    from anygeometry import GeometryError
+    points=[window.run(cmd.AddPoint(x,y,0)) for x,y in ((0,0),(3,0),(3,3),(0,3))]
+    face=window.run(cmd.AddPlate(points))
+    window.selection.set_mode("face")
+    window.selection.select(window.project.geometry.entity_ref("face",face))
+    panel=window.panels["Construction"];panel.sketch()
+    for point in ("0.5,0.5","1.5,0.5","1.5,1.5","0.5,1.5"):
+        panel.coordinates.setText(point);panel.add_point()
+    if editing:
+        panel.apply()
+        feature=window.project.geometry.features.records[-1]
+        assert panel.edit_sketch(feature.feature_id)
+    task=window.viewport.construction_task
+    previous=(task.points,tuple(task.constraints),task.close)
+    feature_parameters=[deepcopy(record.parameters) for record in window.project.geometry.features.records]
+    revision=window.project.geometry.revision
+    panel.closed.setChecked(False)
+    constraints=[{"kind":"distance","first":task.point_keys[0],"second":task.point_keys[1],"value":2}]
+    if failure=="constraints":constraints.append(dict(constraints[0],value=1))
+    panel.constraints.setPlainText(json.dumps(constraints))
+    if failure=="extrusion":panel.extrusion.setText("invalid")
+    attempted_editor=panel.constraints.toPlainText()
+    with monkeypatch.context() as patch:
+        if failure=="command":
+            def reject(command):
+                assert isinstance(command,cmd.EditFeature if editing else cmd.AddSketch)
+                raise GeometryError("dependent feature refused the sketch update")
+            patch.setattr(window,"run",reject)
+        with pytest.raises(ValueError if failure=="extrusion" else GeometryError):panel.apply()
+    assert window.viewport.construction_task is task
+    assert (task.points,tuple(task.constraints),task.close)==previous
+    assert panel.constraints.toPlainText()==attempted_editor
+    assert window.project.geometry.revision==revision
+    assert [record.parameters for record in window.project.geometry.features.records]==feature_parameters
+    # Correct the rejected edit and retry through the actual command/session.
+    panel.extrusion.setText("0")
+    panel.constraints.setPlainText(json.dumps(constraints[:1]))
+    panel.apply();qapp.processEvents()
+    assert window.viewport.construction_task is None
+    accepted=window.project.geometry.features.records[-1]
+    assert accepted.parameters["constraints"][0]["value"]==2
+    path=tmp_path/"sketch-retry.anyfem"
+    window.save_project(path=str(path));window.flush_project_writes()
+    window.new_project();window.open_project(str(path));qapp.processEvents()
+    restored=window.project.geometry.features.get(accepted.feature_id)
+    assert restored.parameters==accepted.parameters
+
+
 def test_qt_viewport_click_shortcut_and_docking(window,qapp):
     from PySide6.QtCore import QPoint,Qt
     from PySide6.QtTest import QTest

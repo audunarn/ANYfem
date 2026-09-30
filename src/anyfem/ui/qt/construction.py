@@ -1,5 +1,6 @@
 """Working-copy construction and face sketches on the shared viewport."""
 from dataclasses import replace,asdict
+from copy import deepcopy
 import json
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
@@ -123,9 +124,12 @@ class ConstructionPanel(QWidget):
         task=self.app.viewport.construction_task
         if isinstance(task,FaceSketchTask):
             constraints=json.loads(self.constraints.toPlainText())
-            task.constraints[:]=[SketchConstraint(**item) for item in constraints]
-            task.close=self.closed.isChecked()
-            definition=task.solve_preview(float(self.extrusion.text()))
+            # Validate the proposed edit separately. A failed owner solve or
+            # project command must leave the displayed working preview intact.
+            preview=deepcopy(task)
+            preview.constraints[:]=[SketchConstraint(**item) for item in constraints]
+            preview.close=self.closed.isChecked()
+            definition=preview.solve_preview(float(self.extrusion.text()))
             if self.editing_feature_id is None:self.app.run(commands.AddSketch(self.support,definition))
             else:self.app.run(commands.EditFeature(self.editing_feature_id,parameters=definition.to_parameters()))
             self.app.viewport.end_construction()
