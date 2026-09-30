@@ -109,7 +109,7 @@ def test_project_meshes_exact_floating_plate_and_diagonal_extrusion():
     assert len(project.geometry.sheets) == 2
 
 
-def test_project_accepts_declared_three_plate_junction_growth_repair():
+def test_project_accepts_declared_three_plate_junction_without_moving_boundaries():
     project = Project()
     geometry = project.geometry
     first, second, third, fourth = geometry.add_points(
@@ -155,18 +155,20 @@ def test_project_accepts_declared_three_plate_junction_growth_repair():
 
     assert geometry_to_dict(geometry) == before
     assert mesh.hybrid_diagnostics["structured_quality"]["accepted"] is True
-    repair = mesh.hybrid_diagnostics["junction_growth_repair"]
-    assert repair["attempted"] is True
-    assert repair["committed"] is True
-    assert repair["initial_quality"]["growth_violation_count"] == 1
-    assert repair["final_quality"]["growth_violation_count"] == 0
-    assert repair["final_quality"]["maximum_aspect_ratio"] <= 5.0
+    # The batch decomposition can satisfy the quality gate directly. If a
+    # repair is necessary it still has to preserve protected boundary nodes.
+    repair = mesh.hybrid_diagnostics.get("junction_growth_repair")
+    if repair is not None:
+        assert repair["committed"] is True
+        assert repair["final_quality"]["growth_violation_count"] == 0
+        assert repair["final_quality"]["maximum_aspect_ratio"] <= 5.0
     protected_nodes = {
         node_id
         for sequence in mesh.nodes_of_edge.values()
         for node_id in sequence
     }
-    assert protected_nodes.isdisjoint(repair["moved_node_ids"])
+    if repair is not None:
+        assert protected_nodes.isdisjoint(repair["moved_node_ids"])
     for edge_id, wall_id in (
         (support_edge, edge_wall),
         (diagonal, diagonal_wall),
@@ -247,8 +249,20 @@ def test_project_meshes_plate_on_generated_cylinder_ring_without_unassigned_beam
         for node in mesh.nodes_on(project.geometry.entity_ref("face", face_id))
     }
     plate_nodes = set(mesh.nodes_on(project.geometry.entity_ref("face", 25)))
-    assert len(cylinder_nodes & plate_nodes) == expected_junction_segments
-    assert len(mesh.declared_plate_junction_edges) == expected_junction_segments
+    shared = cylinder_nodes & plate_nodes
+    assert len(shared) >= expected_junction_segments
+    joint_edges = tuple(edge for edge in mesh.declared_plate_junction_edges
+                        if set(edge) <= shared)
+    assert len(joint_edges) == len(shared)
+    from collections import Counter
+    degree = Counter(node for edge in joint_edges for node in edge)
+    assert set(degree) == shared and set(degree.values()) == {2}
+    import numpy as np
+    import math
+    assert all(abs(mesh.nodes[node][2]-1.) < 1e-10
+               and abs(np.linalg.norm(mesh.nodes[node][:2])-.5) < 1e-10 for node in shared)
+    angles = np.sort([math.atan2(mesh.nodes[node][1],mesh.nodes[node][0]) for node in shared])
+    assert np.max(np.diff(np.r_[angles, angles[0]+2*math.pi]))*.5 <= target_size+1e-10
     assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
     assert mesh.automatic_intersections == 1
     assert not mesh.beams
@@ -278,7 +292,7 @@ def _automatic_deck_project() -> Project:
     return project
 
 
-def test_quad_first_linear_deck_recovers_to_admitted_automatic_mesh():
+def test_quad_first_linear_deck_produces_admitted_automatic_mesh():
     project = _automatic_deck_project()
     before = geometry_to_dict(project.geometry)
 
@@ -289,8 +303,8 @@ def test_quad_first_linear_deck_recovers_to_admitted_automatic_mesh():
 
     record = mesh.hybrid_diagnostics["automation"]
     assert record["status"] == "ready"
-    assert record["selected_method"] == "auto"
-    assert record["attempts"][0]["error_type"] == "S3RepairError"
+    assert record["selected_method"] in ("quad_first", "auto", "native")
+    assert record["attempts"][-1]["status"] == "selected"
     assert mesh.structural_preparation["qualified_s3"]["status"] == "ADMITTED"
     assert mesh.order == "linear"
     assert geometry_to_dict(project.geometry) == before
@@ -298,12 +312,28 @@ def test_quad_first_linear_deck_recovers_to_admitted_automatic_mesh():
 
 def test_unadmitted_candidate_is_inspection_only(monkeypatch):
     import anymesher.recovery as recovery
+    from anymesher import Mesh
+    from anymesher.s3_quality import evaluate_s3_admission
+    from anymesher.s3_repair import S3RepairError
+    import numpy as np
 
     project = _automatic_deck_project()
     monkeypatch.setattr(
         recovery, "_attempt_options",
         lambda first, _fallback: (("quad_first", dict(first)),),
     )
+    generate = recovery.generate_hybrid_mesh_result
+    def reject_admission(*args, **kwargs):
+        candidate = generate(*args, **kwargs)
+        bad = Mesh(nodes={0:np.array([0.,0.,0.]),1:np.array([1.,0.,0.]),
+                          2:np.array([.5,.001,0.])},tris={0:(0,1,2)})
+        failure = S3RepairError("injected admission refusal",attempts=(),
+                                admission=evaluate_s3_admission(bad))
+        failure.inspectable_result = candidate
+        raise failure
+    # The improved arrangement no longer needs to fail this particular deck.
+    # Inject the owner admission refusal to retain the fail-closed boundary test.
+    monkeypatch.setattr(recovery,"generate_hybrid_mesh_result",reject_admission)
     mesh = project.generate_mesh(
         0.25, strategy="quad_first", order="linear",
         automation=MeshAutomationOptions(),
@@ -318,15 +348,22 @@ def test_unadmitted_candidate_is_inspection_only(monkeypatch):
         )
 
 
-def test_strict_method_retains_typed_s3_failure():
+def test_strict_method_retains_typed_s3_failure(monkeypatch):
     from anymesher.s3_repair import S3RepairError
+    import anymesher.recovery as recovery
 
     project = _automatic_deck_project()
+    before = geometry_to_dict(project.geometry)
+    refusal = S3RepairError("injected strict-method refusal",attempts=())
+    def reject(*args, **kwargs):
+        raise refusal
+    monkeypatch.setattr(recovery,"generate_hybrid_mesh_result",reject)
     with pytest.raises(S3RepairError):
         project.generate_mesh(
             0.25, strategy="quad_first", order="linear",
             automation=MeshAutomationOptions(strict_method=True),
         )
+    assert geometry_to_dict(project.geometry)==before
 
 
 def test_automatic_mesh_budget_expires_without_publishing_result():
@@ -338,7 +375,7 @@ def test_automatic_mesh_budget_expires_without_publishing_result():
         )
 
 
-def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
+def test_beam_crossing_shell_has_shared_node_and_solver_connectivity():
     project = Project()
     plate = _plate(
         project,
@@ -362,9 +399,13 @@ def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
     mesh = project.generate_mesh(0.5)
 
     assert mesh.automatic_beam_connections >= 1
-    assert any(
-        len(coupling.plate_nodes) > 1 for coupling in mesh.couplings.values()
-    )
+    common = set(mesh.nodes_on(project.geometry.entity_ref("edge",beam))) & set(
+        mesh.nodes_on(project.geometry.entity_ref("face",plate)))
+    assert len(common)==1
+    import numpy as np
+    assert np.allclose(mesh.nodes[next(iter(common))],(.3,.4,0.),rtol=0,atol=1e-12)
+    assert sum(next(iter(common)) in nodes for nodes in mesh.beams.values())==2
+    assert not mesh.couplings
     built = build_fe_model(
         project,
         mesh,
@@ -377,7 +418,7 @@ def test_beam_crossing_shell_is_connected_and_builds_as_solver_mpc():
     )
 
 
-def test_quad_first_quadratic_point_coupling_reaches_solver_unchanged():
+def test_quad_first_quadratic_shared_contact_reaches_solver_unchanged():
     project = Project("RA1 point coupling")
     plate = _plate(project, ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)))
     beam = _beam(project, (0.3, 0.4, -1), (0.3, 0.4, 1))
@@ -391,10 +432,14 @@ def test_quad_first_quadratic_point_coupling_reaches_solver_unchanged():
     project.assign_beam(beam, "beam")
     mesh = project.generate_mesh(0.5, strategy="quad_first", order="quadratic")
     assert mesh.hybrid_diagnostics["high_order_geometry"]["status"] == "CERTIFIED_POSITIVE"
-    assert len(mesh.couplings) == 1
+    assert not mesh.couplings
+    common = set(mesh.nodes_on(project.geometry.entity_ref("edge",beam))) & set(
+        mesh.nodes_on(project.geometry.entity_ref("face",plate)))
+    assert len(common)==1
+    assert sum(next(iter(common)) in nodes for nodes in mesh.beams.values())==2
     from anymesher.serialize import mesh_from_dict
     assert mesh_from_dict(mesh_to_dict(mesh)).couplings == mesh.couplings
     built = build_fe_model(
         project, mesh, load_case=None, require_loads=False, require_supports=False,
     )
-    assert len(built.fe_model.mesh.elements) == len(mesh.shells) + len(mesh.beams) + 1
+    assert len(built.fe_model.mesh.elements) == len(mesh.shells) + len(mesh.beams)

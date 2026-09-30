@@ -16,9 +16,9 @@ from anygeometry import (
     ConnectionIntent,
     IntersectionDimension,
     IntersectionKind,
-    apply_imprint,
-    plan_imprint,
-    query_intersection,
+    IntersectionBatchPolicy,
+    plan_intersections,
+    apply_intersections,
 )
 from anygeometry.closure import ModelClosure
 from anygeometry.entities import EntityRef
@@ -258,81 +258,52 @@ def prepare_structural_connectivity(
         ),
         working_model_id=str(geometry.model_id),
     )
-    max_changes = max(
-        100,
-        10 * (len(geometry.faces) + len(geometry.members) + len(geometry.sheets)),
-    )
-    changes = 0
-    while True:
-        _check(cancellation_check, "structural intersection query")
-        restarted = False
-        for first, second in _candidate_pairs(geometry, member_ids=member_ids):
-            result = query_intersection(geometry, first, second)
-            kind = result.kind
-            if kind is IntersectionKind.DISJOINT:
-                continue
-            if (
-                first.kind == "face"
-                and second.kind == "face"
-                and result.dimension is IntersectionDimension.POINT
-            ):
-                # Shells touching at only one point do not form a weld line
-                # and ANYgeometry intentionally has no face-imprint plan for
-                # that case.  Exact shared vertices already reuse their mesh
-                # node; merely coincident corners remain separate structural
-                # parts unless the user declares a stronger relationship.
-                continue
-            if kind is IntersectionKind.OVERLAP_REGION:
-                raise StructuralPreparationError(
-                    f"coplanar plate overlap between {_label(first)} and "
-                    f"{_label(second)} must be resolved with Fragment Overlaps "
-                    "before meshing"
-                )
-            if not result.classified or kind in {
-                IntersectionKind.CAPABILITY_MISSING,
-                IntersectionKind.UNCLASSIFIED,
-                IntersectionKind.UNSUPPORTED,
-            }:
-                detail = "; ".join(result.diagnostics) or kind.value
-                raise StructuralPreparationError(
-                    f"cannot qualify structural connection {_label(first)} <-> "
-                    f"{_label(second)}: {detail}"
-                )
-            _check(cancellation_check, "structural imprint planning")
-            plan = plan_imprint(
-                geometry, result, policy=ConnectionIntent.CONNECT
-            )
-            revision = geometry.revision
-            try:
-                application = apply_imprint(
-                    geometry, plan, policy=ConnectionIntent.CONNECT
-                )
-            except GeometryError as error:
-                raise StructuralPreparationError(
-                    f"failed to prepare structural connection {_label(first)} "
-                    f"<-> {_label(second)}: {error}"
-                ) from None
-            report.connections.append(
-                PreparedConnection(
-                    _label(first),
-                    _label(second),
-                    kind.value,
-                    plan.operation.value,
-                    bool(application.reused),
-                    tuple(_label(item) for item in application.relations),
-                )
-            )
-            if geometry.revision != revision:
-                changes += 1
-                if changes > max_changes:
-                    raise StructuralPreparationError(
-                        "structural preparation exceeded its deterministic "
-                        "change bound; inspect coincident/duplicate topology"
-                    )
-                restarted = True
-                break
-        if not restarted:
-            break
+    _check(cancellation_check, "structural intersection batch planning")
+    active_members = tuple(sorted(geometry.members if member_ids is None else set(member_ids)))
+    operands = (*[geometry.handle("face", face) for face in sorted(geometry.faces)],
+                *[geometry.handle("member", member) for member in active_members])
+    def cancelled():
+        _check(cancellation_check, "structural intersection batch")
+        return False
+    policy = IntersectionBatchPolicy(ConnectionIntent.CONNECT, cancellation_check=cancelled)
+    # Report physical design-owner connections rather than one event per
+    # cylindrical panel. Topology still retains every exact panel relation.
+    sheets = _face_sheet_map(geometry)
+    representatives = {}
+    for face in sorted(geometry.faces):
+        key = ("sheet", sheets[face]) if face in sheets else ("face", face)
+        representatives.setdefault(key, face)
+    def face_label(face):
+        key = ("sheet", sheets[face]) if face in sheets else ("face", face)
+        return f"face:{representatives[key]}"
+    try:
+        plan = plan_intersections(geometry, operands, policy=policy)
+        pairs = set()
+        for arrangement in plan.arrangements:
+            for path in arrangement.paths:
+                for index, first in enumerate(path.owners):
+                    for second in path.owners[index+1:]:
+                        labels = (face_label(first), face_label(second))
+                        if labels[0] != labels[1]:
+                            pairs.add(tuple(sorted(labels)))
+                for member in path.member_ids:
+                    pairs.add((face_label(arrangement.face_id), f"member:{member}"))
+        for contact in plan.contacts:
+            members = sorted({member for member, _parameter in contact.member_parameters})
+            if contact.face_id is not None:
+                pairs.update((face_label(contact.face_id), f"member:{member}") for member in members)
+            for index, first in enumerate(members):
+                pairs.update((f"member:{first}", f"member:{second}") for second in members[index+1:])
+        application = apply_intersections(geometry, plan, policy=policy)
+    except GeometryError as error:
+        if "positive-area" in str(error):
+            raise StructuralPreparationError(
+                "coplanar plate overlap must be resolved with Fragment Overlaps before meshing: "
+                + str(error)) from error
+        raise StructuralPreparationError(f"cannot prepare structural intersection batch: {error}") from error
+    relations = tuple(_label(handle) for handle in application.joint_edges)
+    report.connections.extend(PreparedConnection(first, second, "intersection_curve",
+        "batch_arrangement", application.reused, relations) for first, second in sorted(pairs))
     report.working_revision = int(geometry.revision)
     return report
 
