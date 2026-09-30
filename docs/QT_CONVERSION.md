@@ -639,6 +639,51 @@ preview inputs before mutation and discard only the attempted constraint when
 owner validation fails. Keep the valid preview, editor and project unchanged;
 verify subsequent apply/undo remains usable. This addresses dependency-failure
 presentation without changing owner sketch mathematics or scientific tolerances.
-Windows GPU and Linux XCB/WSLg checks each pass four real-window cases (sketch-constraint-windows and sketch-constraint-linux); the original three failures remain retained. Clean installed-artifact checks and independent review follow. WSLg remains software GL evidence, not physical Linux GPU acceptance.
-Sketch apply continuation (2026-10-01): inspect whether rejected Apply changes the working preview before the command succeeds. Bound the experiment to create/edit sketches, malformed extrusion, inconsistent owner constraints and injected dependency refusal, followed by corrected retry/save/reopen. Candidate fix must preserve preview/project identity on failure and the entered correction text; keep owner mathematics, persistence formats and acceptance gates unchanged.
-The six original Apply failures are retained in sketch-apply-before. Candidate Apply solves a deep copy and submits its definition before ending the displayed task. Windows source checks pass 17 cases, including prior constraint rollback and frontend boundaries. Command refusal is injected at the UI boundary; this does not qualify every owner dependency rollback. Retry/save/reopen is exercised for both create and edit. Installed/Linux checks and independent exact-candidate review follow.
+Windows GPU and Linux XCB/WSLg checks each pass four real-window cases
+(`sketch-constraint-windows` and `sketch-constraint-linux`); the original three
+failures remain retained. Clean installed checks pass eleven cases, build/twine
+and independent exact-candidate review pass. Published commit `b2a4459`.
+WSLg remains software GL evidence, not physical Linux GPU acceptance.
+
+Sketch apply continuation (2026-10-01): inspect whether rejected Apply changes
+the working preview before the command succeeds. Bound the experiment to
+create/edit sketches, malformed extrusion, inconsistent owner constraints and
+injected dependency refusal, followed by corrected retry/save/reopen. Preserve
+preview/project identity on failure and the entered correction text; keep owner
+mathematics, persistence formats and acceptance gates unchanged.
+The six original Apply failures remain in `sketch-apply-before`. Apply now solves
+a deep copy and submits its definition before ending the displayed task.
+Windows source, clean installed Windows and Linux checks each pass seventeen
+cases, including prior constraint rollback and frontend boundaries; build/twine
+and independent exact-candidate review pass. Published commit `50e0042`.
+Command refusal is injected at the UI boundary; this does not qualify every
+owner dependency rollback. Retry/save/reopen covers both create and edit.
+
+Full workbench audit (2026-10-01): distinguish remaining Qt interaction defects
+from the missing published ANYgeometry batch API using the complete existing
+real-window workbench and frontend-boundary suite on the clean installed
+candidate. Retain every failure and dependency version. Classify failures by
+actual exceptions/job diagnostics; repair consumer defects without weakening
+tests, and defer owner integration failures to coordinated published inputs.
+This audit does not confer scientific or physical Linux GPU acceptance.
+The installed Windows audit completes with 101 passes, 28 failures and one Qt
+test-API deprecation warning in 720.04 s (`full-workbench-public-windows` log/XML;
+installed commit `50e0042`, tree `06e460f6270b5967cd2eeab83908829597d24a94`,
+dependency freeze retained). Independent adjudication identifies six direct
+missing-API assertions, eighteen initial meshing-prerequisite timeouts, and four
+inspection/budget/strict-refusal/held-edit outcome checks. Timeout-only traces
+do not independently establish cause, and no solver/scientific failure follows
+from these UI counts. Capture terminal mesh diagnostics and injected-hook entry
+for the four outcome checks before attributing them. The original
+geometry-to-mesh cases remain required and unchanged.
+Bounded diagnostic follow-up retains all four failures
+(`mesh-outcome-diagnostic` log/XML, `mesh-outcome-diagnostics.jsonl`). Each final
+mesh record is failed with `ProjectError` explicitly naming the missing
+ANYgeometry batch API. The inspection and held-mesh hooks entered but failed in
+their original generation call; the injected strict-refusal hook never ran.
+The budget case installs no hook and failed at structural preparation before
+its intended budget outcome. These four scenarios did not reach their intended
+outcomes. Their assertions remain unchanged; do not claim stale/inspection/
+recovery-policy acceptance from this run. Broader timeout-only cases remain
+prerequisite-blocked evidence requiring coordinated integration rather than
+numerical adjudication.
