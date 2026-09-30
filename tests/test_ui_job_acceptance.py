@@ -223,7 +223,7 @@ def test_opening_a_mesh_only_project_finishes_in_mesh_view(
         beams={},
     )
     calls: list[str] = []
-    monkeypatch.setattr(app_module, "load_project", lambda _path: loaded)
+    monkeypatch.setattr("anyfem.application.workflow.load_project", lambda _path: loaded)
     monkeypatch.setattr(ArtifactStore, "read_mesh", lambda *_args: sentinel_mesh)
     monkeypatch.setattr(app, "show_geometry", lambda *args, **kwargs: calls.append("geometry"))
     monkeypatch.setattr(app, "show_mesh", lambda: calls.append("mesh"))
@@ -256,7 +256,7 @@ def test_stale_lock_prompt_can_open_read_only_or_take_over(
     )
     lock.path.write_text(json.dumps(stale.to_dict()), encoding="utf-8")
     prompts: list[str] = []
-    monkeypatch.setattr(app_module, "load_project", lambda _path: Project("locked"))
+    monkeypatch.setattr("anyfem.application.workflow.load_project", lambda _path: Project("locked"))
     monkeypatch.setattr(
         app_module.messagebox,
         "askyesnocancel",

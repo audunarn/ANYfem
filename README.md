@@ -136,6 +136,25 @@ that appears in place of the selected source tree.
 python -m anyfem.ui.tk
 ```
 
+The PySide6 candidate uses the shared workflow and the Qt host in the updated
+ANY3dView checkout at candidate commit
+[`64b39d5f45ca01c4dfd972af5a4acf592ffccad7`](https://github.com/audunarn/ANY3dView/commit/64b39d5f45ca01c4dfd972af5a4acf592ffccad7).
+Install this exact source candidate before the ANYfem GUI extra:
+
+```bash
+python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@3adf2241a8f0427e0a3270761010d48dae16b91e" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@7e797791727752aec21ddd98d08daf8f0916e280" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@2f1543bd3e71e19fdc9d6425ca3a677b815b2af1"
+python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@64b39d5f45ca01c4dfd972af5a4acf592ffccad7"
+python -m pip install -e ".[gui]"
+```
+
+This source candidate is unfinished; the published ANY3dView 0.5.5 wheel does
+not supply its Qt host. The committed owner snapshots above match the candidate
+CI inputs; they do not change the qualified release graph. In that environment,
+then launch with `anyfem-qt`, `python -m anyfem.ui.qt`, or
+`python run_gui.py --qt`. The Tk launcher remains the default during conversion.
+See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
+and remaining acceptance work.
+
 From a source checkout, `python run_gui.py` first checks both imported module
 origins and installed distribution versions, then launches the application.
 The version check enforces minimum API generations and accepts newer releases.
@@ -145,9 +164,8 @@ older than those floors, or resolve from a different checkout.
 The Tk window is an adapter over `anyfem.application.WorkbenchController`.
 Commands, document state, selection, jobs, meshes and retained results remain
 headless, while scheduling, dialogs, clipboard, status and viewer creation use
-small toolkit ports. A future Qt frontend can bind the same controller and
-`anyfem.presentation` scene/result models instead of duplicating engineering
-workflow logic. See [`docs/FRONTEND_ARCHITECTURE.md`](docs/FRONTEND_ARCHITECTURE.md).
+small toolkit ports. The Qt candidate binds the same controller and `anyfem.presentation`
+scene/result models, sharing engineering workflow services with the Tk adapter. See [`docs/FRONTEND_ARCHITECTURE.md`](docs/FRONTEND_ARCHITECTURE.md).
 
 The default workspace keeps the model tree on the left, the retained 3D view in
 the centre, and contextual Details/tasks on the right. Geometry/features,

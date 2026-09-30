@@ -22,6 +22,16 @@ def _step(index, factor, *, iterations=3, displacement=0.01, peeq=0.0):
     )
 
 
+def test_material_capability_does_not_claim_linear_plastic_execution():
+    from anyfem.presentation.engineering_summary import material_response, constitutive_summary
+    project=SimpleNamespace(plate_sections={"plate":SimpleNamespace(material="steel")},face_sections={1:"plate"},materials={"steel":SimpleNamespace(hardening={"kind":"test"})},supports=[],imperfections=[])
+    text,_=material_response(project,"Linear static")
+    assert "not used by selected analysis" in text and "plasticity active" not in text
+    model=SimpleNamespace(mesh=SimpleNamespace(elements={1:SimpleNamespace(thickness=0.01,material_name="steel")}),get_material=lambda name:SimpleNamespace(hardening_curve=object()))
+    text=constitutive_summary(SimpleNamespace(built=SimpleNamespace(fe_model=model)))
+    assert "no retained plastic state evidence" in text and "PLASTICITY ACTIVE" not in text
+
+
 def test_nonlinear_outcome_distinguishes_last_target_and_failed_trial():
     steps = [_step(1, 0.1), _step(2, 0.68, iterations=9, peeq=0.012)]
     raw = SimpleNamespace(
@@ -58,6 +68,13 @@ def test_nonlinear_outcome_distinguishes_last_target_and_failed_trial():
     assert summary.saved_increments == 2
     assert "Minimum load increment" in summary.stop_reason
     assert "line search" in summary.failed_iteration_reason
+    from anyfem.presentation.engineering_summary import outcome_text
+    text, color = outcome_text(solution)
+    assert "STOPPED AT LIMIT" in text
+    assert "not by itself a verified capacity point" in text
+    assert "First failed trial λ=0.69" in text
+    assert "68.0% of target" in text
+    assert color == "#b26a00"
 
 
 def test_submitted_inputs_restore_target_and_scale_prescribed_displacement():

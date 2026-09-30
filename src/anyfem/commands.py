@@ -87,6 +87,7 @@ __all__ = [
     "AddPolyline",
     "AddPressure",
     "AddRefinement",
+    "ClearRefinements",
     "AddRegion",
     "AddSupport",
     "AddSurfaceTraction",
@@ -133,6 +134,7 @@ __all__ = [
     "SplitFace",
     "StripFace",
     "SuppressFeature",
+    "RenameFeature",
     "TriangleToQuads",
 ]
 
@@ -743,6 +745,27 @@ class EditFeature(FeatureCommand):
             dependencies=self.dependencies,
         )
         return self.feature_id
+
+
+@dataclass(eq=False)
+class RenameFeature(Command):
+    """Rename feature intent without regenerating its topology."""
+
+    feature_id: int
+    name: str
+    label: str = "rename feature"
+    _previous: str | None = field(default=None, init=False, repr=False)
+
+    def do(self, project: Project) -> int:
+        if not self.name.strip():
+            raise ValueError("feature name cannot be empty")
+        if self._previous is None:
+            self._previous = project.geometry.features.get(self.feature_id).name
+        project.geometry.features.update(self.feature_id, name=self.name)
+        return self.feature_id
+
+    def undo(self, project: Project) -> None:
+        project.geometry.features.update(self.feature_id, name=self._previous)
 
 
 @dataclass(eq=False)
@@ -2402,6 +2425,21 @@ class AddRefinement(Command):
 
     def undo(self, project: Project) -> None:
         project.refinements.remove(self.refinement)
+
+
+@dataclass(eq=False)
+class ClearRefinements(Command):
+    """Clear refinement zones as one reversible engineering edit."""
+
+    label: str = "clear refinements"
+    _previous: Any = field(default=None,init=False)
+
+    def do(self,project: Project) -> None:
+        if self._previous is None:self._previous=list(project.refinements)
+        project.refinements.clear()
+
+    def undo(self,project: Project) -> None:
+        if self._previous is not None:project.refinements[:]=self._previous
 
 
 @dataclass(eq=False)

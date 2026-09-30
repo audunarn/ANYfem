@@ -98,6 +98,14 @@
     },
     {
       "bundled": false,
+      "license_expression": "LGPL-3.0-only",
+      "name": "PySide6",
+      "requirement": "PySide6>=6.10.1,<6.11",
+      "scope": "optional:gui",
+      "upstream": "https://doc.qt.io/qtforpython-6/commercial/index.html"
+    },
+    {
+      "bundled": false,
       "license_expression": "MIT",
       "name": "pytest",
       "requirement": "pytest>=8",

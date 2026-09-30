@@ -4577,46 +4577,8 @@ class SolvePanel(StagePanel):
         self._refresh_material_response()
 
     def _refresh_material_response(self) -> None:
-        project = self.app.project
-        material_names = {
-            project.plate_sections[section_name].material
-            for section_name in project.face_sections.values()
-            if section_name in project.plate_sections
-        }
-        plastic = sorted(
-            name
-            for name in material_names
-            if name in project.materials
-            and project.materials[name].hardening is not None
-        )
-        elastic = sorted(material_names - set(plastic))
-        analysis = self._analysis.get()
-        nonlinear = analysis in ("Nonlinear static", "Arc length", "Capacity")
-        if plastic:
-            text = "Shell plasticity active: " + ", ".join(plastic)
-            if elastic:
-                text += "; elastic shell materials: " + ", ".join(elastic)
-            colour = "#1b5e20"
-        elif material_names:
-            text = "Shell response is elastic"
-            if nonlinear:
-                text += " (analysis is geometrically nonlinear only)"
-            text += ": " + ", ".join(sorted(material_names))
-            colour = "#b23a00" if nonlinear else "#555555"
-        else:
-            text = "No assigned shell section/material"
-            colour = "#b00020"
-        if nonlinear and any(
-            abs(float(value)) > 0.0
-            for support in project.supports
-            for value in support.constraints.values()
-        ) and not project.imperfections:
-            text += (
-                "\nBuckling-path warning: the model is geometrically perfect. "
-                "Add an out-of-plane imperfection; a symmetric flat model can "
-                "remain on the flat equilibrium path."
-            )
-            colour = "#b23a00"
+        from ..presentation.engineering_summary import material_response
+        text, colour = material_response(self.app.project, self._analysis.get())
         self._material_response.configure(text=text, foreground=colour)
 
     def show_progress(self, text: str) -> None:
@@ -6451,33 +6413,8 @@ class ResultsPanel(StagePanel):
 
     @staticmethod
     def _constitutive_summary(shape) -> str:
-        model = shape.built.fe_model
-        shell_materials = {
-            element.material_name
-            for element in model.mesh.elements.values()
-            if hasattr(element, "thickness")
-        }
-        plastic = sorted(
-            name
-            for name in shell_materials
-            if getattr(model.get_material(name), "hardening_curve", None) is not None
-        )
-        if not plastic:
-            return "Constitutive response: ELASTIC shells (geometric nonlinearity only)"
-        raw = getattr(shape, "raw_result", None)
-        states = getattr(raw, "element_states", {}) or {}
-        maxima = [
-            float(np.max(np.asarray(state.get("alpha", (0.0,)), dtype=float)))
-            for state in states.values()
-            if isinstance(state, dict) and len(state.get("alpha", ()))
-        ]
-        yielded = sum(value > 1.0e-12 for value in maxima)
-        maximum = max(maxima, default=0.0)
-        return (
-            f"Constitutive response: NONLINEAR PLASTICITY ACTIVE "
-            f"({', '.join(plastic)}); yielded elements {yielded}/{len(maxima)}, "
-            f"max alpha {maximum:.5g}"
-        )
+        from ..presentation.engineering_summary import constitutive_summary
+        return constitutive_summary(shape)
 
     def _pick_job(self) -> None:
         job_id = self._job_ids.get(self._job.get())

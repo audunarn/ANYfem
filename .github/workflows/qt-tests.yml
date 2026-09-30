@@ -1,0 +1,94 @@
+name: Qt candidate acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      viewer_ref:
+        description: Exact ANY3dView candidate commit containing the Qt host
+        required: true
+        type: string
+        default: 64b39d5f45ca01c4dfd972af5a4acf592ffccad7
+
+jobs:
+  qt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ['3.11', '3.14']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANY3dView
+          ref: ${{ inputs.viewer_ref }}
+          path: .ecosystem/ANY3dView
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          ref: 3adf2241a8f0427e0a3270761010d48dae16b91e
+          path: .ecosystem/ANYsolver
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmaterial
+          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
+          path: .ecosystem/ANYmaterial
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYgeometry
+          ref: 7e797791727752aec21ddd98d08daf8f0916e280
+          path: .ecosystem/ANYgeometry
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmesh
+          ref: 2f1543bd3e71e19fdc9d6425ca3a677b815b2af1
+          path: .ecosystem/ANYmesh
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfileIO
+          ref: db73950018e1c87dab0ca618c25c965030ba08ce
+          path: .ecosystem/ANYfileIO
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install candidate GUI and public owners
+        run: |
+          python -m pip install -e .ecosystem/ANYmaterial -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]"
+          python -m pip install -e ".[dev]" "PySide6>=6.10.1,<6.11"
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libxcb-cursor0 libxkbcommon-x11-0
+      - name: Qt workflows (Windows)
+        if: runner.os == 'Windows'
+        env:
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANY3DVIEW_DISABLE_GPU: '1'
+        run: python -m pytest tests/test_qt_workbench.py tests/test_application_frontend_boundary.py -q --junitxml=reports/qt-workbench.xml
+      - name: Qt workflows (Linux desktop)
+        if: runner.os == 'Linux'
+        env:
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANY3DVIEW_DISABLE_GPU: '1'
+        run: xvfb-run -a python -m pytest tests/test_qt_workbench.py tests/test_application_frontend_boundary.py -q --junitxml=reports/qt-workbench.xml
+      - name: Qt engineering workflow (Linux OpenGL)
+        if: runner.os == 'Linux'
+        env:
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANYFEM_QT_TEST_BACKEND: 'gpu'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a python -m pytest tests/test_qt_workbench.py -q --junitxml=reports/qt-gpu-workbench.xml
+      - name: Shared Qt GPU host (Linux Mesa)
+        if: runner.os == 'Linux'
+        working-directory: .ecosystem/ANY3dView
+        env:
+          ANY3DVIEW_RUN_QT_TESTS: '1'
+          ANY3DVIEW_RUN_QT_GPU_TESTS: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a python -m pytest tests/test_qt_host.py -q --junitxml=../../reports/qt-viewer.xml
+      - name: Retain results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-${{ matrix.os }}-${{ matrix.python }}
+          path: reports/

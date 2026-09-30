@@ -363,6 +363,30 @@ def face_display_polygons(
     """
 
     face = geometry.faces[face_id]
+    if not face.corners and face.surface is None and face.parameterization is None and not face.holes and len(face.loop) == 4 and all(isinstance(geometry.edges[item.edge].curve, Straight) for item in face.loop):
+        from shapely.geometry import Polygon
+        from shapely.ops import triangulate
+        points = np.asarray([geometry.vertex_position(geometry.oriented_start_vertex(item)) for item in face.loop])
+        origin = points[0]
+        _, _, axes = np.linalg.svd(points - origin)
+        scale = max(float(np.linalg.norm(points - origin, axis=1).max()), 1e-12)
+        if float(np.abs((points - origin) @ axes[2]).max()) > 1e-9 * scale:
+            raise ValueError(f"neutral face {face_id} boundary is not planar")
+        projected = (points - origin) @ axes[:2].T
+        polygon = Polygon(projected)
+        boundary_vertices = {tuple(uv): point for uv, point in zip(projected, points)}
+        if not polygon.is_valid or polygon.area <= 1e-12 * scale * scale:
+            raise ValueError(f"neutral face {face_id} has an invalid display boundary")
+        polygons = []
+        normal = np.sum(np.cross(points - origin, np.roll(points - origin, -1, axis=0)), axis=0)
+        for triangle in triangulate(polygon):
+            if not polygon.covers(triangle):continue
+            # Delaunay uses input vertices. Preserve their authoritative XYZ
+            # exactly instead of introducing inverse-projection roundoff.
+            vertices = np.asarray([boundary_vertices[tuple(uv)] for uv in triangle.exterior.coords[:-1]])
+            if np.dot(np.cross(vertices[1]-vertices[0],vertices[2]-vertices[0]),normal) < 0:vertices=vertices[::-1]
+            polygons.append(vertices)
+        return polygons
     if face.holes:
         # ANYgeometry owns the trim loops; Shapely supplies a constrained
         # planar triangulation which is then mapped back to the authoritative
@@ -414,7 +438,10 @@ def _flat_four_edge_polygon(
     face = geometry.faces[face_id]
     if face.holes:
         return None
-    sides = face.sides()
+    neutral_quad = not face.corners and len(face.loop) == 4 and face.surface is None and face.parameterization is None
+    if len(face.corners) != 4 and not neutral_quad:
+        return None
+    sides = tuple((item,) for item in face.loop) if neutral_quad else face.sides()
     if any(len(side) != 1 for side in sides):
         return None
     if any(
@@ -434,8 +461,10 @@ def _flat_four_edge_polygon(
             for u in parameters
             for v in parameters
         ]
-    )
-    corners = sampled[[0, 6, 8, 2]]
+    ) if not neutral_quad else np.asarray([
+        geometry.vertex_position(geometry.oriented_start_vertex(item)) for item in face.loop
+    ])
+    corners = sampled if neutral_quad else sampled[[0, 6, 8, 2]]
     first = corners[1] - corners[0]
     second = corners[2] - corners[0]
     normal = np.cross(first, second)
@@ -449,6 +478,8 @@ def _flat_four_edge_polygon(
     if normal_length <= 1.0e-12 * scale * scale:
         return None
     distances = np.abs((sampled - corners[0]) @ normal) / normal_length
+    if neutral_quad and any(np.dot(np.cross(corners[(index+1)%4]-corners[index],corners[(index+2)%4]-corners[(index+1)%4]),normal) < -1e-12 * scale**4 for index in range(4)):
+        return None
     return corners if float(np.max(distances)) <= 1.0e-9 * scale else None
 
 
@@ -1331,6 +1362,7 @@ def entity_sample_points(
 ) -> List[np.ndarray]:
     """A few representative points on an entity, for placing symbols."""
 
+    if isinstance(geometry,_MeshOverlayGeometry):return geometry.sample_points(ref)
     if ref.kind == "vertex":
         return [geometry.vertex_position(ref.id)]
     if ref.kind == "edge":
@@ -1501,6 +1533,29 @@ def build_imperfection_overlay(
     return scene
 
 
+class _MeshOverlayGeometry:
+    """Annotation sampling from imported mesh associations, without CAD."""
+    def __init__(self,mesh):
+        self.mesh=mesh;self.vertices=mesh.nodes
+
+    def vertex_position(self,identifier):return self.mesh.nodes[identifier]
+
+    def sample_points(self,ref):
+        if ref.kind=="node":return [self.mesh.nodes[ref.id]]
+        identifiers=self.mesh.nodes_on(ref)
+        return [np.asarray(self.mesh.nodes[node]) for node in _limited(identifiers,9)]
+
+    def pressure_samples(self,ref):
+        samples=[]
+        for identifier in _limited(self.mesh.elements_on(ref),9):
+            nodes=self.mesh.quads.get(identifier,self.mesh.tris.get(identifier))
+            if nodes is None:continue
+            points=np.asarray([self.mesh.nodes[node] for node in nodes[:4]])
+            normal=_unit(np.cross(points[1]-points[0],points[2]-points[0]))
+            if normal is not None:samples.append((points.mean(axis=0),normal))
+        return samples
+
+
 def build_attribute_overlay(
     project,
     *,
@@ -1518,7 +1573,7 @@ def build_attribute_overlay(
     steals the click: picking walks past untagged items to the geometry behind.
     """
 
-    geometry = project.geometry
+    geometry = _MeshOverlayGeometry(mesh) if project.mesh_only and mesh is not None else project.geometry
     scene = Scene()
     span = (
         scale
@@ -1682,9 +1737,12 @@ def _draw_loads(scene: Scene, geometry, case, arrow_length: float) -> None:
     for load in _budgeted_assignments(pressure_loads):
         # Positive pressure pushes along the plate normal; the arrows show
         # which face it acts on, which is the thing that is easy to get wrong.
-        normal = face_normal(geometry, load.ref.id)
-        direction = normal if load.value > 0.0 else -normal
-        for point in entity_sample_points(geometry, load.ref):
+        if isinstance(geometry,_MeshOverlayGeometry):samples=geometry.pressure_samples(load.ref)
+        else:
+            normal = face_normal(geometry, load.ref.id)
+            samples = [(point, normal) for point in entity_sample_points(geometry, load.ref)]
+        for point,normal in samples:
+            direction = normal if load.value > 0.0 else -normal
             pressure_arrows.append(
                 Arrow(
                     start=point - 0.6 * arrow_length * direction,

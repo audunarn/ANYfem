@@ -793,3 +793,22 @@ def test_support_dofs_moments_and_gravity_have_directional_symbols(plate_project
     assert moment_vector[:2] == pytest.approx([0.0, 0.0])
     assert moment_vector[2] > 0.0
     assert (gravity.end - gravity.start)[2] < 0.0
+
+
+@pytest.mark.parametrize("shift", [0, 2])
+def test_concave_neutral_quad_never_fills_outside_boundary(shift):
+    from shapely.geometry import Polygon
+    from anygeometry import OrientedEdge
+    project = Project("concave neutral display")
+    xy = [(0,0),(.5,.5),(2,0),(0,2)]
+    xy = xy[shift:] + xy[:shift]
+    vertices = project.geometry.add_points([(x,y,0) for x,y in xy])
+    edges = project.geometry.add_polyline(vertices, close=True)
+    face = project.geometry.add_face_from_loop(tuple(OrientedEdge(edge, True) for edge in edges))
+    assert not project.geometry.faces[face].corners
+    scene = build_geometry_scene(project)
+    boundary = Polygon(xy)
+    polygons = [Polygon(points[:,:2]) for patch in scene.faces for points in patch.polygons]
+    assert len(polygons) == 2
+    assert all(boundary.covers(polygon) for polygon in polygons)
+    assert sum(polygon.area for polygon in polygons) == pytest.approx(boundary.area)

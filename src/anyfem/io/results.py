@@ -73,6 +73,7 @@ class ImportedResults:
     buckling_factors: Tuple[float, ...] = ()
     frequencies: Tuple[float, ...] = ()
     warnings: Tuple[str, ...] = ()
+    source_hash: str = ""
 
     @property
     def components(self) -> List[str]:
@@ -249,6 +250,19 @@ class ImportedResults:
 # ----------------------------------------------------------------------
 # CalculiX
 # ----------------------------------------------------------------------
+def _parse_snapshot(source,reader):
+    """Parse exactly the bytes authenticated by the imported provenance."""
+    import hashlib,tempfile
+    digest=hashlib.sha256()
+    with tempfile.TemporaryDirectory(prefix="anyfem-result-") as directory:
+        snapshot=Path(directory)/Path(source).name
+        with Path(source).open("rb") as incoming,snapshot.open("wb") as outgoing:
+            while chunk:=incoming.read(1024*1024):
+                digest.update(chunk);outgoing.write(chunk)
+        parsed=reader(snapshot)
+    return parsed,digest.hexdigest()
+
+
 def import_calculix_results(
     path: str | Path, *, extra: Sequence[str | Path] = ()
 ) -> ImportedResults:
@@ -271,10 +285,13 @@ def import_calculix_results(
             return parse_dat(item)
         return parse_frd(item)
 
-    parsed = read(source)
-    others = [read(Path(item)) for item in extra]
+    parsed,source_hash = _parse_snapshot(source,read)
+    snapshots = [_parse_snapshot(Path(item),read) for item in extra]
+    others = [item[0] for item in snapshots]
     if others:
         parsed = merge_results(parsed, *others)
+        import hashlib
+        source_hash=hashlib.sha256("\n".join([source_hash]+[item[1] for item in snapshots]).encode("ascii")).hexdigest()
 
     if not parsed.has_results:
         raise ResultImportError(
@@ -286,6 +303,7 @@ def import_calculix_results(
     return ImportedResults(
         source=source,
         format="CalculiX",
+        source_hash=source_hash,
         displacements={
             int(node): tuple(float(v) for v in value)
             for node, value in parsed.displacements.items()
@@ -340,7 +358,7 @@ def import_sesam_results(
     if not source.exists():
         raise ResultImportError(f"no result file at {source}")
 
-    parsed = read_sesam_sif_stress(source, load_case=load_case)
+    parsed,source_hash = _parse_snapshot(source,lambda snapshot:read_sesam_sif_stress(snapshot,load_case=load_case))
     names = tuple(str(name) for name in parsed.components)
     if not names:
         raise ResultImportError(
@@ -357,6 +375,7 @@ def import_sesam_results(
     results = ImportedResults(
         source=source,
         format="SESAM",
+        source_hash=source_hash,
         node_stresses={
             int(node): named(values)
             for node, values in parsed.nodal_stress.items()

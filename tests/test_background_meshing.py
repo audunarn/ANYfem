@@ -329,7 +329,7 @@ def test_recovery_writes_are_nonblocking_and_coalesce_to_latest_revision(
             active -= 1
         return object()
 
-    monkeypatch.setattr(app_module, "write_autosave", slow_autosave)
+    monkeypatch.setattr("anyfem.application.workflow.write_autosave", slow_autosave)
     app.run(cmd.AddPoint(0.0, 0.0))
     started = time.perf_counter()
     app._write_recovery()

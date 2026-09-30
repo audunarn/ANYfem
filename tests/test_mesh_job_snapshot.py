@@ -60,7 +60,7 @@ def test_failed_mesh_snapshot_does_not_leave_an_orphan_analysis(
     def reject_snapshot(_mesh):
         raise TypeError("unsupported mesh provenance")
 
-    monkeypatch.setattr(app_module, "clone_mesh_for_job", reject_snapshot)
+    monkeypatch.setattr("anyfem.application.workflow.clone_mesh_for_job", reject_snapshot)
 
     with pytest.raises(TypeError, match="unsupported mesh provenance"):
         app_module.AnyFemApp.solve(application, "Linear static")

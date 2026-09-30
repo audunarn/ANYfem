@@ -38,8 +38,10 @@ def root():
 
 
 @pytest.fixture
-def app(root):
+def app(root, tmp_path, monkeypatch):
     from anyfem.ui.app import AnyFemApp
+    from anyfem.io import recovery
+    monkeypatch.setattr(recovery, "default_recovery_root", lambda: tmp_path / "recovery")
 
     widget = AnyFemApp(root)
     root.update()
@@ -597,7 +599,7 @@ def test_a_geometry_change_invalidates_the_mesh_and_result(app, root):
     app.solve()
     wait_for_solution(app, root)
 
-    app.undo()
+    app.run(cmd.AddPoint(3, 0, 0))
     root.update()
     assert app.mesh is None
     assert app.solution is None
@@ -1239,7 +1241,7 @@ def test_mesh_panel_presents_and_maps_native_triangulator(app, root, monkeypatch
 
     captured = {}
 
-    def fake_generate(size, *, native_backend=None, strategy=None):
+    def fake_generate(size, *, native_backend=None, strategy=None, **controls):
         captured.update(
             size=size,
             native_backend=native_backend,

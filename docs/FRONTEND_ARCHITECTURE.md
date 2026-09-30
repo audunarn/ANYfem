@@ -16,6 +16,13 @@ toolkits are adapters, not alternate implementations of the model workflow.
   visualization policy, result units, result summaries and live charts.
 - `anyfem.ui.tk` is the current Tk adapter. `anyfem.ui.app` remains available
   as a compatibility import during migration.
+- `anyfem.application.workflow.WorkbenchWorkflow` owns the shared document,
+  mesh/solve, sidecar and recovery operations. Adapter hooks provide dialogs,
+  task views and scheduling. Tk and Qt use the same operations.
+- `anyfem.presentation.viewport.SceneViewport` shares scene translation,
+  picking and construction behavior. Each toolkit owns widget lifecycle.
+- `anyfem.ui.qt` is the optional PySide6 candidate. Launch with `anyfem-qt`
+  or `python -m anyfem.ui.qt`; Tk remains the default until parity acceptance.
 
 No module outside `anyfem.ui` may import Tk, ANYtk3D, PySide or PyQt. The
 default package and all headless verification entry points must remain usable

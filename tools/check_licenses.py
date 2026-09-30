@@ -35,6 +35,7 @@ ALLOWED_EXPRESSIONS = {
 }
 FORBIDDEN_LICENSE_TOKENS = ("AGPL", "GPL", "SSPL")
 INSTALLED_LICENSE_ALIASES = {
+    "pyside6": {"LGPL-3.0-only"},
     "any3dview": {"MPL-2.0"},
     "anyfileio": {"MPL-2.0"},
     "anygeometry": {"MPL-2.0"},
@@ -115,6 +116,10 @@ def _license_from_metadata(
     distribution: importlib_metadata.Distribution, *, name: str
 ) -> str:
     expression = distribution.metadata.get("License-Expression")
+    if name == "pyside6":
+        reported = (expression or distribution.metadata.get("License", "")).strip()
+        if reported == "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only":
+            return "LGPL-3.0-only"  # Explicit dynamic Qt route; see notices.
     if expression:
         return expression.strip()
     legacy = distribution.metadata.get("License")
@@ -159,7 +164,8 @@ def _check_installed(rows: list[dict[str, object]]) -> None:
         actual = _license_from_metadata(distribution, name=name)
         if not actual:
             _fail(f"installed dependency {name!r} has unknown license metadata")
-        if any(token in actual.upper() for token in FORBIDDEN_LICENSE_TOKENS):
+        qt_lgpl = name == "pyside6" and actual == "LGPL-3.0-only"
+        if not qt_lgpl and any(token in actual.upper() for token in FORBIDDEN_LICENSE_TOKENS):
             _fail(
                 f"installed dependency {name!r} reports review-required license "
                 f"{actual!r}"
@@ -221,12 +227,13 @@ def check(*, check_installed: bool = False) -> None:
         if row.get("bundled") is not False:
             _fail(f"dependency {name!r} must be explicitly recorded as not bundled")
         expression = str(row.get("license_expression", ""))
-        if expression not in ALLOWED_EXPRESSIONS:
+        qt_lgpl = name == "pyside6" and expression == "LGPL-3.0-only"
+        if expression not in ALLOWED_EXPRESSIONS and not qt_lgpl:
             _fail(
                 f"dependency {name!r} has unknown or review-required license "
                 f"{expression!r}"
             )
-        if any(token in expression.upper() for token in FORBIDDEN_LICENSE_TOKENS):
+        if not qt_lgpl and any(token in expression.upper() for token in FORBIDDEN_LICENSE_TOKENS):
             _fail(f"dependency {name!r} has a forbidden strong-copyleft license")
         recorded[name] = (
             str(row.get("requirement", "")),

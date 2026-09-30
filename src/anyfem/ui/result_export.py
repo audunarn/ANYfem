@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import csv
 import io
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -226,14 +228,20 @@ def save_gif(
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     frames = [image.convert("RGBA") for image in images]
-    frames[0].save(
-        destination,
-        format="GIF",
-        save_all=True,
-        append_images=frames[1:],
-        duration=int(duration_ms),
-        loop=int(loop),
-        disposal=2,
-        optimize=False,
-    )
+    descriptor,temporary=tempfile.mkstemp(prefix=".anyfem-gif-",suffix=".gif",dir=destination.parent)
+    os.close(descriptor)
+    try:
+        frames[0].save(
+            temporary,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=int(duration_ms),
+            loop=int(loop),
+            disposal=2,
+            optimize=False,
+        )
+        os.replace(temporary,destination)
+    finally:
+        if os.path.exists(temporary):os.unlink(temporary)
     return destination

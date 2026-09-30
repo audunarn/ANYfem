@@ -389,3 +389,20 @@ def test_mapping_to_canvas_inverts_for_the_vertical_axis():
     ]
     # A zero-width range must not divide by zero.
     assert map_to_canvas([3.0], 3.0, 3.0, 0.0, 10.0) == [0.0]
+
+
+def test_import_authenticates_parsed_snapshot_when_producer_updates_source(tmp_path,monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    import anyfileio
+    source=tmp_path/"changing.frd";original=b"original result bytes"
+    source.write_bytes(original)
+    def parse(snapshot):
+        source.write_bytes(b"new producer result bytes")
+        assert Path(snapshot).read_bytes()==original
+        return SimpleNamespace(has_results=True,displacements={1:(1.,2.,3.)},stresses={},reaction_forces={},buckling_factors=(),frequencies_hz=(),warnings=())
+    monkeypatch.setattr(anyfileio,"parse_frd",parse)
+    result=import_calculix_results(source)
+    assert result.displacements[1]==(1.,2.,3.)
+    assert result.source_hash==hashlib.sha256(original).hexdigest()
+    assert result.source==source

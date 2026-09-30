@@ -211,8 +211,12 @@ def evaluate_field(
 
     if name in DISPLACEMENT_FIELDS:
         from .solver_data import resolve_solution_quantity
-
-        resolve_solution_quantity(shape, "displacement")
+        from .results import ImportedSolution
+        # External files enforce their own component availability; absent
+        # rotations stay NaN and component() refuses them. They are not raw
+        # ANYsolver datasets and must not be resolved as one.
+        if not isinstance(shape, ImportedSolution):
+            resolve_solution_quantity(shape, "displacement")
         return _displacement_field(shape, name)
     if name in PLASTICITY_FIELDS:
         return _plasticity_field(shape, name)

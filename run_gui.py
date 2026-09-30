@@ -150,6 +150,7 @@ ECOSYSTEM_REQUIREMENTS = (
 
 def ecosystem_compatibility_problems(
     version_reader: Callable[[str], str] | None = None,
+    *, frontend: str = "tk",
 ) -> tuple[str, ...]:
     """Return missing or out-of-range distribution metadata."""
 
@@ -160,6 +161,8 @@ def ecosystem_compatibility_problems(
     )
     problems: list[str] = []
     for distribution, requirement, minimum in ECOSYSTEM_REQUIREMENTS:
+        if frontend == "qt" and distribution == "ANYtk3D":
+            continue
         try:
             installed = str(read_version(distribution))
         except metadata.PackageNotFoundError:
@@ -177,12 +180,15 @@ def _default_origin_reader(module: str) -> str | None:
 
 def ecosystem_origin_problems(
     origin_reader: Callable[[str], str | None] | None = None,
+    *, frontend: str = "tk",
 ) -> tuple[str, ...]:
     """Return source modules that do not resolve from their sibling checkout."""
 
     read_origin = _default_origin_reader if origin_reader is None else origin_reader
     problems: list[str] = []
     for distribution, module, source in _SOURCE_PROJECTS:
+        if frontend == "qt" and distribution == "ANYtk3D":
+            continue
         if not source.is_dir():
             problems.append(f"{distribution}: sibling source tree is missing: {source}")
             continue
@@ -222,12 +228,13 @@ def editable_repair_command() -> str:
 def require_compatible_ecosystem(
     version_reader: Callable[[str], str] | None = None,
     origin_reader: Callable[[str], str | None] | None = None,
+    *, frontend: str = "tk",
 ) -> None:
     """Fail before importing Tk when sources and metadata do not agree."""
 
     problems = (
-        *ecosystem_compatibility_problems(version_reader),
-        *ecosystem_origin_problems(origin_reader),
+        *ecosystem_compatibility_problems(version_reader, frontend=frontend),
+        *ecosystem_origin_problems(origin_reader, frontend=frontend),
     )
     if problems:
         raise RuntimeError(
@@ -241,8 +248,12 @@ def require_compatible_ecosystem(
 def main() -> None:
     """Launch the GUI only after the latest-only release graph is verified."""
 
-    require_compatible_ecosystem()
-    from anyfem.ui.tk import main as gui_main
+    if "--qt" in sys.argv:
+        require_compatible_ecosystem(frontend="qt")
+        from anyfem.ui.qt import main as gui_main
+    else:
+        require_compatible_ecosystem()
+        from anyfem.ui.tk import main as gui_main
 
     gui_main()
 
