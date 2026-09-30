@@ -13,6 +13,8 @@ import numpy as np
 
 from ..model.records import OutputRequest
 
+_BASIS_ALIASES = {"local": "element_local", "element": "element_local"}
+
 
 def _matches(key, descriptor, quantity):
     if quantity == key:
@@ -44,7 +46,9 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
     )
     if descriptor.location != request.location and not reduce_samples:
         raise ValueError(f"location {descriptor.location!r} does not match {request.location!r}")
-    if request.basis != descriptor.basis:
+    requested_basis = _BASIS_ALIASES.get(request.basis, request.basis)
+    stored_basis = _BASIS_ALIASES.get(descriptor.basis, descriptor.basis)
+    if requested_basis != stored_basis:
         raise ValueError(f"basis {request.basis!r} is unavailable (stored {descriptor.basis!r})")
     if request.recovery not in {"native", descriptor.recovery}:
         raise ValueError(f"recovery {request.recovery!r} is unavailable (stored {descriptor.recovery!r})")

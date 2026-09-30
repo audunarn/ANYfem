@@ -42,6 +42,40 @@ def repeated_coordinate_payload():
         frames=descriptor.frames, tables={descriptor.key + "_node_ids": np.array([42])})
 
 
+@pytest.mark.parametrize("basis,available", [("local", True), ("element", True), ("material", False)])
+def test_legacy_local_basis_spellings_preserve_intent_and_owner_values(tmp_path, basis, available):
+    descriptor=ResultQuantityDescriptor("stress_sxx","Local stress","element",unit="Pa",
+        components=("sxx",),basis="element_local",frames=(0.,),recovery="recovered")
+    native=ResultArtifactPayload(fields={descriptor.key:(descriptor,np.array([[[123.]]]))},
+        frames=descriptor.frames,tables={descriptor.key+"_element_ids":np.array([42])})
+    request=OutputRequest(("stress.sxx",),"region","element",basis=basis)
+    assert OutputRequest.from_dict(request.to_dict()).basis==basis
+    result=add_output_request_views(native,({"request":request.to_dict(),"element_ids":[42]},))
+    outcome=result.provenance["output_request_outcomes"][0]
+    assert outcome["status"]==("available" if available else "unavailable")
+    if not available:
+        assert not outcome["fields"]
+        return
+    key=outcome["fields"][0];view,values=result.fields[key]
+    assert view.basis=="element_local" and view.provenance["output_request"]["basis"]==basis
+    np.testing.assert_array_equal(values,native.fields[descriptor.key][1])
+    store=ArtifactStore(tmp_path/"local-basis.anyfem")
+    artifact=store.write_result(job_id="job",document_id="document",mesh_id="mesh",model_hash="model",
+        mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
+    dataset=store.open_result(artifact)
+    assert dataset.field(key).descriptor.provenance["output_request"]["basis"]==basis
+    rows=list(csv.DictReader(io.StringIO(lazy_field_to_csv(dataset,key))))
+    assert [float(row["sxx [Pa]"]) for row in rows]==[123.]
+
+
+@pytest.mark.parametrize("basis",["local","element"])
+def test_local_basis_alias_does_not_rotate_global_values(basis):
+    request=OutputRequest(("displacement.uz",),"region","node",basis=basis)
+    result=add_output_request_views(payload(),(scoped(request),))
+    outcome=result.provenance["output_request_outcomes"][0]
+    assert outcome["status"]=="unavailable" and not outcome["fields"]
+
+
 @pytest.mark.parametrize("policy,indices,expected_indices", [
     ("all", (), [0, 1]), ("first", (), [0]), ("last", (), [1]),
     ("selected", (1, 0), [1, 0]), ("envelope", (), []),

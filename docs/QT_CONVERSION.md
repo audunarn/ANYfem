@@ -21,6 +21,10 @@ offscreen tests are not GPU or cross-platform acceptance.
 
 ## Parity checklist
 
+Checked entries identify implemented, bounded-tested slices. Unchecked entries
+remain full acceptance gates; they do not mean the corresponding Qt paths are
+absent. The workflow ledger below separates measured coverage from open gates.
+
 - [x] Shared project lifecycle: open/save, sidecars, locks, recovery, undo/redo
 - [x] Qt shell, ports, explicit launcher, docked model/task/job views
 - [x] ANY3dView Qt GPU/software hosts, shared camera and selection
@@ -121,14 +125,14 @@ scientific qualification of every geometry, driver or numerical owner.
 | Geometry and generators | Typed primitive/topology forms; all eight plate/bulkhead/frame/girder/stiffener/panel/cylinder/cone generators; eleven copy/pattern/sweep/split/orientation actions and five triangle/hole/join/overlap actions exercised with undo | Broader dependent-topology editing cases |
 | Sections, materials, supports and loads | Stable-ID tree edits, undo, DNV presets, project units and explicit suffixes, active cases/combinations, imported source-group references | Broader combinations of record editing and topology replacement |
 | Feature/sketch work | Exposed feature topology, bounded search, suppression/rename undo, distance/coincidence constraints and extrusion editing | Remaining sketch constraint combinations and dependency failure presentation |
-| Definitions and workplanes | Coordinate systems including ndarray origins, selection/boolean mesh regions, output requests, custom units, snapping/construction | Boolean-region creation and typed request attachment/undo tested; native scoped views now pass real-window export/reopen and immutable-scope checks. Advanced request transformations remain open |
-| Mesh generation | Four mesh routes; typed native/structured/quad/quality/automation controls; pins/refinements; preview commit/discard/undo | Inspection-only candidate display and solve refusal tested; remaining automatic recovery-policy outcomes |
+| Definitions and workplanes | Coordinate systems including ndarray origins, selection/boolean mesh regions, output requests, custom units, snapping/construction; native scalar reduction, selected-frame identity, batch/global/guarded-patch and committed nonlinear stress views | Scoped views have bounded installed save/reopen/export evidence. Material/named-coordinate transformations remain unsupported intent in both frontends; broader dependent-region editing and final owner integration remain open |
+| Mesh generation | Four mesh routes; typed native/structured/quad/quality/automation controls; pins/refinements; preview commit/discard/undo; inspection-only refusal, automatic budget exhaustion and strict owner refusal | Recovery-policy outcomes have candidate window evidence; clean installed geometry-to-mesh acceptance awaits published owner integration |
 | Mesh lifecycle | Real-window cancellation, stale completion, replacement and injected failure on installed Windows/Linux | Independent final integration review |
 | Analyses | All nine public analyses submitted through Qt controls; load case/combination routing and detached imported snapshots | Owner scientific gates remain unchanged and unresolved failures remain visible |
 | Solve lifecycle | Cancel/edit/replace during held solve; stale retained mesh identity; project locks/recovery/pending writers | Partial outcome limits must remain explicitly distinguished from verified capacity |
 | Engineering interpretation | Nonlinear last/peak/target/failed trial, stop reason, prescribed path; saved-frame details; submitted-input provenance; material capability versus retained plastic-state evidence; imported constitutive behavior unavailable | Reviewed slice, not numerical qualification |
-| Retained results | Saved/live playback, fields/tables/histories/point/line/probe, color limits, PNG/GIF/CSV/Markdown/HTML; sidecar mesh identity independent of current mesh | Additional imported-format and legacy-artifact interactions |
-| Imports/exports | SESAM model/group solve/save/reopen; CalculiX deck and result retention/reopen; async neutral FRD/DAT/INP/FEM/SIF inspector and canonical FEM export | SESAM stress-only import/save/reopen tested; All FEM/SIF/INP/DAT/FRD inspector paths now tested; malformed/large-file coverage remains bounded |
+| Retained results | Saved/live playback, fields/tables/histories/point/line/probe, color limits, PNG/GIF/CSV/Markdown/HTML; sidecar mesh identity independent of current mesh; committed stress histories and repeated-coordinate provenance | Additional imported-format/legacy-artifact interactions and broader nonlinear/capacity model coverage |
+| Imports/exports | SESAM model/group solve/save/reopen and stress-only import/save/reopen; CalculiX deck/result retention; async neutral FEM/SIF/INP/DAT/FRD inspector; missing-file/retry, owner malformed diagnostics, replacement/close during reads and bounded-preview/full-canonical export | Broader malformed/legacy/full-size file coverage remains open; the 5001-record check establishes preview/export correctness, not scalability |
 | Scripting and navigation | Output/recording/atomic commit/cancel/replacement, diagnostics, recent files, command palette, docks/shortcuts/selection synchronization | Final visual/usability inspection |
 | Headless compatibility | No Tk/Qt in headless imports; verification/frontend boundary/result provenance checks | Recheck only for further changed shared inputs |
 
@@ -599,3 +603,29 @@ current/fallback cancellation tests include stopping before the next increment.
 Final affected Linux and clean installed checks are next. Independent early source
 review found no confirmed defect. This is adapter fidelity evidence, not new
 nonlinear/capacity scientific qualification or physical Linux GPU acceptance.
+
+Full-parity audit distinguishes supported Tk interactions from unimplemented
+request intent: Tk exposes `local` and `element` basis spellings, but scoped views
+compare only owner descriptor `element_local`, causing false refusal for native
+local stresses. Accept those two spellings as aliases at the view boundary while
+preserving request serialization and actual owner basis. No tensor rotation,
+material/named-coordinate transformation or numerical fallback is introduced.
+Bounded evidence: persisted local/element request scope, exact owner values,
+legacy request roundtrip, real Qt local stress solve/save/reopen/export and
+continued refusal of unsupported material basis. The existing broader scientific,
+owner publication and physical Linux GPU gates remain prerequisites for switching.
+Local-basis Windows source checks pass 97 affected contracts and real-window
+workflows (`local-basis-windows`), including exact retained/exported values and
+saved alias intent. Both original false refusals remain in `local-basis-before`.
+The boundary compares only equivalent spellings; material basis and local requests
+for global vectors remain explicit refusals. Independent source review found no
+actionable defect. The workflow ledger now reflects completed request/recovery and
+inspector slices while retaining clean owner, broad model/input, scientific and
+physical Linux GPU acceptance gates. Final installed and Linux checks follow.
+Evidence audit: `current-science.xml` records four module collection errors from
+the missing published batch API, not four numerical tolerance failures. The
+separate 17-case dirty-owner rehearsal records eight passes and nine topology/
+attachment integration failures (`current-science-rehearsal.xml`). Neither file
+adjudicates the earlier preserved broad scientific failures or attributes them
+to a numerical owner. Re-run the applicable clean scientific/migration gates only
+with coordinated published inputs; retain all prior failures and tolerances.

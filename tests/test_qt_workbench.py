@@ -947,7 +947,8 @@ def test_qt_imported_group_load_and_snapshot_solve(window,qapp,tmp_path,monkeypa
     assert window.solution.built.project is not window.project
 
 
-@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global"), ("global_xx_bot","global")])
+@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("von_mises","local"),
+    ("von_mises","element"), ("global_xx_top","global"), ("global_xx_bot","global")])
 def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_path,monkeypatch,component,basis):
     import csv
     import numpy as np
@@ -998,7 +999,8 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
     assert "Reduction: mean" in results.report.toPlainText()
-    assert f"Basis: {basis}" in results.report.toPlainText()
+    assert f"Basis: {'element_local' if basis in {'local','element'} else basis}" in results.report.toPlainText()
+    assert window.project.output_requests[request.id].basis==basis
     destination=tmp_path/"reduced.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
     results.export_quantity_csv()
