@@ -284,7 +284,11 @@ class AnalysisDefinition:
         )
         if any(not value for value in self.output_request_ids):
             raise ValueError("analysis output-request IDs must not be empty")
-        if self.beam_formulation == "legacy-b3":
+        if self._is_point_panel():
+            from ..solve.stiffened_shell_project import validate_analysis
+
+            self.beam_formulation_options = validate_analysis(self)
+        elif self.beam_formulation == "legacy-b3":
             if self.beam_formulation_options:
                 raise ValueError(
                     "legacy B3 must not carry B3-GE formulation options"
@@ -307,6 +311,38 @@ class AnalysisDefinition:
                 f"unknown beam formulation {self.beam_formulation!r}; "
                 "use 'legacy-b3' or explicit 'b3-ge'"
             )
+
+    def _is_point_panel(self) -> bool:
+        return (
+            self.type in ("experimental_ge_point_panel", "experimental_b2_point_panel")
+            or self.beam_formulation in (
+                "experimental-ge-point-panel", "experimental-b2-point-panel")
+            or (type(self.beam_formulation_options) is dict and
+                self.beam_formulation_options.get("schema") ==
+                "anyfem.experimental-point-panel-project-v1")
+        )
+
+    @classmethod
+    def experimental_point_panel(cls, name: str, panel: Any, **options: Any) -> "AnalysisDefinition":
+        """Persist exact experimental consumer inputs in an ordinary Project.
+
+        This mesh-native record does not select or regenerate Project geometry.
+        The consumer owns shell/beam IDs, frames, loads and selected outputs.
+        """
+        from ..solve.stiffened_shell_project import encode_point_panel
+
+        analysis_type, formulation, payload = encode_point_panel(panel)
+        return cls(
+            name=name, type=analysis_type, target_kind="none", target_id="",
+            beam_formulation=formulation, beam_formulation_options=payload,
+            **options,
+        )
+
+    def create_point_panel_analysis(self):
+        """Create the fresh public solver owner from the stored exact inputs."""
+        from ..solve.stiffened_shell_project import point_panel_from_analysis
+
+        return point_panel_from_analysis(self).create_analysis()
 
     @classmethod
     def b3_ge(cls, name: str, opt_in: Any, **options: Any) -> "AnalysisDefinition":
@@ -346,6 +382,13 @@ class AnalysisDefinition:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        formulation_options = self.beam_formulation_options
+        if self._is_point_panel():
+            from ..solve.stiffened_shell_project import validate_analysis
+
+            # Records are mutable. Reject changed selectors/payloads on save,
+            # and return deep-owned input rather than aliases into the record.
+            formulation_options = validate_analysis(self)
         return {
             "id": self.id,
             "schema_version": int(self.schema_version),
@@ -358,11 +401,17 @@ class AnalysisDefinition:
             "output_requests": dict(self.output_requests),
             "resource_policy": dict(self.resource_policy),
             "beam_formulation": self.beam_formulation,
-            "beam_formulation_options": dict(self.beam_formulation_options),
+            "beam_formulation_options": dict(formulation_options),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AnalysisDefinition":
+        if (data.get("type") in (
+                "experimental_ge_point_panel", "experimental_b2_point_panel")
+                or data.get("beam_formulation") in (
+                    "experimental-ge-point-panel", "experimental-b2-point-panel")):
+            if type(data.get("beam_formulation_options")) is not dict:
+                raise ValueError("strict experimental point-panel payload object required")
         return cls(
             id=str(data.get("id", _uuid())),
             schema_version=int(data.get("schema_version", 1)),
