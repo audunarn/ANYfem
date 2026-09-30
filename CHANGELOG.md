@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Accept both the v1 and the v2 (ANYmesher 0.5 and later) qualified S3
+  structural-preparation record when building a solver model. v2 adds the
+  `quality_policy` and `quality_target` evidence; a record whose members do not
+  match its declared schema, or an unknown schema, still stops the build with
+  "malformed preparation record". Projects saved with v1 records stay readable.
+
 ## 0.4.1 - 2026-09-17
 
 - Present multi-entity generators as lightweight feature objects: generated

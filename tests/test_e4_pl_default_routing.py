@@ -5,12 +5,14 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from anyfem import Project, steel
 from anyfem.native_meshing import NativeMeshSettings
+from anyfem.model.project import ProjectError
 from anyfem.solve.build import build_fe_model
 import anyfem.solve.build as build_module
-from anymesher import Mesh
+from anymesher import QUALIFIED_S3_PRODUCTION_CONTRACT_ID, Mesh
 from anysolver import (
     LegacyShellElement,
     NativeParityE4PLS3V2DShellElement,
@@ -21,7 +23,9 @@ from anysolver import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_anyfem_defaults_q4_and_admitted_s3_to_qualified_formulations() -> None:
+def _qualified_s3_case(schema_version: int) -> tuple[Project, Mesh, dict]:
+    """A legacy Q4, a qualified Q4 and one admitted S3 with a hand-built record."""
+
     project = Project("E4-PL routing")
     project.add_material(steel("S355", 0.01))
     project.add_plate_section("plate", thickness=0.01, material="S355")
@@ -65,58 +69,110 @@ def test_anyfem_defaults_q4_and_admitted_s3_to_qualified_formulations() -> None:
     mesh.elements_of_face = {face: [10, 11, 12]}
     mesh.geometry_model_id = project.geometry.model_id
     mesh.geometry_revision = project.geometry.revision
-    mesh.structural_preparation = {
-        "qualified_s3": {
-            "admission": {},
-            "authority_model": {
-                "prepared_revision": project.geometry.revision,
-                "scope": "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE",
-                "source_model_id": str(project.geometry.model_id),
-                "source_revision": project.geometry.revision,
-            },
-            "contract_id": "ANYMESHER_QUALIFIED_S3_PRODUCTION_PREPARATION_V1",
-            "element_ids": [12],
-            "element_owner_normals": {
-                str(element_id): [0.0, 0.0, 1.0]
-                for element_id in (10, 11, 12)
-            },
-            "element_owner_sources": {
-                str(element_id): {
-                    "face_id": face,
-                    "face_use_ids": [1],
-                    "sheet_ids": [1],
-                }
-                for element_id in (10, 11, 12)
-            },
-            "formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
-            "legacy_fallback": "FORBIDDEN",
-            "nodal_normals": {
-                str(node_id): [0.0, 0.0, 1.0]
-                for node_id in {
-                    node
-                    for connectivity in mesh.shells.values()
-                    for node in connectivity
-                }
-            },
-            "quality_contract_id": "ANYMESHER_QUALIFIED_S3_ADMISSION_V1",
-            "repair": {},
-            "repair_contract_id": "ANYMESHER_QUALIFIED_S3_REPAIR_V1",
-            "schema": "anymesher.qualified-s3-production-preparation-v1",
-            "status": "ADMITTED",
-        }
+    record = {
+        "admission": {},
+        "authority_model": {
+            "prepared_revision": project.geometry.revision,
+            "scope": "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+            "source_model_id": str(project.geometry.model_id),
+            "source_revision": project.geometry.revision,
+        },
+        "contract_id": QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
+        "element_ids": [12],
+        "element_owner_normals": {
+            str(element_id): [0.0, 0.0, 1.0]
+            for element_id in (10, 11, 12)
+        },
+        "element_owner_sources": {
+            str(element_id): {
+                "face_id": face,
+                "face_use_ids": [1],
+                "sheet_ids": [1],
+            }
+            for element_id in (10, 11, 12)
+        },
+        "formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+        "legacy_fallback": "FORBIDDEN",
+        "nodal_normals": {
+            str(node_id): [0.0, 0.0, 1.0]
+            for node_id in {
+                node
+                for connectivity in mesh.shells.values()
+                for node in connectivity
+            }
+        },
+        "quality_contract_id": "ANYMESHER_QUALIFIED_S3_ADMISSION_V1",
+        "repair": {},
+        "repair_contract_id": "ANYMESHER_QUALIFIED_S3_REPAIR_V1",
+        "schema": f"anymesher.qualified-s3-production-preparation-v{schema_version}",
+        "status": "ADMITTED",
     }
+    if schema_version == 2:
+        # v2 (ANYmesher >= 0.5) adds the admission-floor and repair-target evidence.
+        record["quality_policy"] = {}
+        record["quality_target"] = {
+            "met": True,
+            "policy": {},
+            "shortfall_element_ids": [],
+        }
+    mesh.structural_preparation = {"qualified_s3": record}
+    return project, mesh, record
 
-    built = build_fe_model(
+
+def _build(project: Project, mesh: Mesh):
+    return build_fe_model(
         project,
         mesh,
         require_loads=False,
         require_supports=False,
     )
 
+
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_anyfem_defaults_q4_and_admitted_s3_to_qualified_formulations(
+    schema_version: int,
+) -> None:
+    project, mesh, _record = _qualified_s3_case(schema_version)
+
+    built = _build(project, mesh)
+
     elements = built.fe_model.mesh.elements
     assert type(elements[10]) is QualifiedE4PLShellElement
     assert type(elements[11]) is LegacyShellElement
     assert type(elements[12]) is NativeParityE4PLS3V2DShellElement
+
+
+_MALFORMED_RECORDS = {
+    "v2-without-quality-target": (2, lambda record: record.pop("quality_target")),
+    "v2-without-quality-policy": (2, lambda record: record.pop("quality_policy")),
+    "v1-with-v2-members": (
+        1,
+        lambda record: record.update(quality_policy={}, quality_target={}),
+    ),
+    "unknown-schema": (
+        2,
+        lambda record: record.update(
+            schema="anymesher.qualified-s3-production-preparation-v3"
+        ),
+    ),
+    "missing-schema": (2, lambda record: record.pop("schema")),
+    "v2-quality-policy-not-a-mapping": (
+        2, lambda record: record.update(quality_policy=[])
+    ),
+    "v2-quality-target-not-a-mapping": (
+        2, lambda record: record.update(quality_target="met")
+    ),
+}
+
+
+@pytest.mark.parametrize("name", tuple(_MALFORMED_RECORDS))
+def test_qualified_s3_record_must_match_its_declared_schema(name: str) -> None:
+    schema_version, corrupt = _MALFORMED_RECORDS[name]
+    project, mesh, record = _qualified_s3_case(schema_version)
+    corrupt(record)
+
+    with pytest.raises(ProjectError, match="malformed preparation record"):
+        _build(project, mesh)
 
 
 def test_anyfem_retains_the_q4_only_transition_policy() -> None:

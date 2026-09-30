@@ -288,7 +288,13 @@ def _qualified_s3_owner_normals(
             "qualified S3 mesh authority is missing structural preparation"
         )
     record = preparation.get("qualified_s3")
-    expected_keys = {
+    if not isinstance(record, Mapping):
+        raise ProjectError(
+            "qualified S3 mesh authority has a malformed preparation record"
+        )
+    # v2 (ANYmesher >= 0.5) adds the admission-floor and repair-target evidence
+    # to the v1 record; v1 records persisted in older projects stay readable.
+    v1_keys = {
         "admission",
         "authority_model",
         "contract_id",
@@ -304,7 +310,13 @@ def _qualified_s3_owner_normals(
         "schema",
         "status",
     }
-    if not isinstance(record, Mapping) or set(record) != expected_keys:
+    expected_keys_by_schema = {
+        "anymesher.qualified-s3-production-preparation-v1": v1_keys,
+        "anymesher.qualified-s3-production-preparation-v2": v1_keys
+        | {"quality_policy", "quality_target"},
+    }
+    expected_keys = expected_keys_by_schema.get(record.get("schema"))
+    if expected_keys is None or set(record) != expected_keys:
         raise ProjectError(
             "qualified S3 mesh authority has a malformed preparation record"
         )
@@ -314,11 +326,17 @@ def _qualified_s3_owner_normals(
         "legacy_fallback": "FORBIDDEN",
         "quality_contract_id": S3_QUALITY_CONTRACT_ID,
         "repair_contract_id": S3_REPAIR_CONTRACT_ID,
-        "schema": "anymesher.qualified-s3-production-preparation-v1",
         "status": "ADMITTED",
     }
     if any(record[key] != value for key, value in expected_identity.items()):
         raise ProjectError("qualified S3 mesh authority identity or terminal differs")
+    if record["schema"].endswith("-v2") and (
+        not isinstance(record["quality_policy"], Mapping)
+        or not isinstance(record["quality_target"], Mapping)
+    ):
+        raise ProjectError(
+            "qualified S3 mesh authority has a malformed preparation record"
+        )
     if not isinstance(record["admission"], Mapping):
         raise ProjectError("qualified S3 mesh admission evidence is malformed")
     if not isinstance(record["repair"], Mapping):
