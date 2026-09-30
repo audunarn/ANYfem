@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 2ccef378c3efb4ba3a9957b9ab896ac8fc454b9d
+          ref: 2f1543bd3e71e19fdc9d6425ca3a677b815b2af1
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 2ccef378c3efb4ba3a9957b9ab896ac8fc454b9d
+          ref: 2f1543bd3e71e19fdc9d6425ca3a677b815b2af1
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
