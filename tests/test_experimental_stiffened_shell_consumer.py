@@ -178,6 +178,98 @@ def test_physical_fibre_finite_input_reopens_and_preserves_native_history(tmp_pa
         resumed.close()
 
 
+def _j2_fibre_case(mixed, triangles):
+    case = _case()
+    e, g = 210e9, 210e9/2.6
+    arm = np.sqrt(8.333333333333333e-6/.01)
+    section = b3_ge.PhysicalFibreSection(
+        tuple(b3_ge.Fibre(str(i), y*arm, z*arm, .0025, e,
+                           b3_ge.FlowCurve((0.,),
+                               (1e20 if triangles or i != 0 else 1e5,), 1e9))
+              for i, (y, z) in enumerate(((-1, -1), (-1, 1), (1, -1), (1, 1)))),
+        np.diag(np.sqrt((0., g*.008, g*.008, g*1.6666666666666667e-5, 0., 0.))))
+    beams = []
+    for i, definition in enumerate(case.beams):
+        element, inertia = definition.instantiate()
+        reference = element.operator.reference
+        beams.append(definition if mixed and i == 0 else b3_ge.define_beam(
+            'b3-ge', element.element_id, element.node_ids, reference.coordinates,
+            reference.nodal_triads, section, inertia, quadrature=element.operator.order))
+    shell = case.shell
+    if triangles:
+        shell = replace(shell, q4_elements=(),
+                        s3_elements=((1, 2, 5), (1, 5, 4), (2, 3, 6), (2, 6, 5)))
+    pressure = 20_000. if triangles else 1e6
+    curve = DNVC208MaterialCurve(pressure, 1.05*pressure, 1.1*pressure,
+                                .005, .01, 4.*pressure, .2)
+    return replace(case, shell=replace(shell, j2_curve=curve), beams=tuple(beams),
+                   actions=(stiffened_shell.NodalAction(
+                       'beam', 105, (0., 0., 1000., 0., 0., 0.)),))
+
+
+@pytest.mark.parametrize('mixed,triangles', ((False, False), (True, False), (True, True)))
+def test_j2_native_fibre_input_reopens_v8_and_continues(tmp_path, mixed, triangles):
+    case = _j2_fibre_case(mixed, triangles)
+    reopened = load_case(save_case(case, tmp_path / 'j2-fibre.anyfem-ge.json'))
+    assert reopened.status == 'EXPERIMENTAL_NOT_QUALIFIED'
+    assert reopened.to_dict() == case.to_dict()
+    assert reopened.to_dict()['schema'] == SCHEMA_J2
+    assert tuple(beam.raw for beam in reopened.beams) == tuple(beam.raw for beam in case.beams)
+    assert tuple(beam.sha256 for beam in reopened.beams) == tuple(
+        beam.sha256 for beam in case.beams)
+
+    owner = reopened.create_analysis()
+    resumed = reopened.create_analysis()
+    targets = (.05,) if triangles else (.5, 1.)
+    following = .055 if triangles else .5
+    try:
+        assert owner.capabilities['status'] == 'EXPERIMENTAL_NOT_QUALIFIED'
+        assert owner.capabilities['analysis'] == (
+            'reference_linear', 'experimental_native_fibre_finite_point')
+        assert ('RESULTANT_ELLIPSOID' in owner.capabilities['beam_section_families']) == mixed
+        first = owner.solve(reopened.actions, targets=targets,
+                            max_iterations=20, max_backtracks=12)
+        assert first.status == 'completed' and first.production_qualified is False
+        assert first.accepted_factors == targets
+        assert first.free_equilibrium_ratio <= 1e-8
+        assert first.constraint_max <= 1e-9
+        assert len(first.beam_fibre_energy) == (1 if mixed else 2)
+        if triangles:
+            assert max(max(row) for row in first.shell_layer_alpha) > 0.
+            assert all(sum(row.incremental_dissipation_j) == 0.
+                       for row in first.beam_fibre_energy)
+        else:
+            # Q4 J2 is defined, but this fixture yields only the beam fibre.
+            assert max(max(row) for row in first.shell_layer_alpha) == 0.
+            assert any(sum(row.incremental_dissipation_j) > 0.
+                       for row in first.beam_fibre_energy)
+        saved = owner.checkpoint()
+        assert saved.startswith(b'ANYSGECP8\0')
+        restored = resumed.restore(saved)
+        assert resumed.checkpoint() == saved
+        assert restored.shell_layer_alpha == first.shell_layer_alpha
+        assert restored.beam_fibre_energy == first.beam_fibre_energy
+        for name in ('shell_displacement', 'cell_resultants', 'support_reactions'):
+            np.testing.assert_array_equal(getattr(restored, name), getattr(first, name))
+        for original, repeated in zip(first.shell_q4_material+first.shell_s3_material,
+                                      restored.shell_q4_material+restored.shell_s3_material):
+            for name in ('layer_strain', 'layer_stress', 'plastic_strain', 'alpha'):
+                np.testing.assert_array_equal(getattr(original, name),
+                                              getattr(repeated, name))
+        continued = resumed.solve(reopened.actions, targets=(following,),
+                                  max_iterations=20, max_backtracks=12)
+        direct = owner.solve(reopened.actions, targets=(following,),
+                             max_iterations=20, max_backtracks=12)
+        assert continued.accepted_factors == direct.accepted_factors == targets+(following,)
+        assert continued.beam_fibre_energy == direct.beam_fibre_energy
+        assert continued.shell_layer_alpha == direct.shell_layer_alpha
+        np.testing.assert_array_equal(continued.cell_resultants, direct.cell_resultants)
+        assert resumed.checkpoint() == owner.checkpoint()
+    finally:
+        owner.close()
+        resumed.close()
+
+
 def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
     original = replace(_case(), actions=(stiffened_shell.NodalAction(
         "beam", 105, (0., 0., 1000., 0., 0., 0.)),))
