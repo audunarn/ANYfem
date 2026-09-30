@@ -113,9 +113,9 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
     stored = dataset.field(key)
     descriptor = stored.descriptor
     shape = tuple(int(value) for value in stored.shape)
-    frames = np.asarray(getattr(dataset, "frames", ()), dtype=float).reshape(-1)
+    frames = np.asarray(getattr(descriptor, "frames", ()), dtype=float).reshape(-1)
     if not len(frames):
-        frames = np.asarray(getattr(descriptor, "frames", ()), dtype=float).reshape(-1)
+        frames = np.asarray(getattr(dataset, "frames", ()), dtype=float).reshape(-1)
     has_frame_axis = bool(frames.size and shape and shape[0] == frames.size)
 
     if has_frame_axis:

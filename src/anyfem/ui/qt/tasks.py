@@ -291,6 +291,8 @@ class ResultsTask(QWidget):
         self.quantities=QComboBox();layout.addWidget(self.quantities)
         self.table=ResultTable();layout.addWidget(self.table)
         inspect_quantity=QPushButton("Inspect quantity / table");inspect_quantity.clicked.connect(app.guarded(self.inspect_quantity));layout.addWidget(inspect_quantity)
+        export_quantity=QPushButton("Export quantity field CSV")
+        export_quantity.clicked.connect(app.guarded(self.export_quantity_csv));layout.addWidget(export_quantity)
         self.plot=HistoryPlot();layout.addWidget(self.plot)
         self._gif_capture=None
         self._preview_owner=None
@@ -328,16 +330,19 @@ class ResultsTask(QWidget):
         self.refresh_details()
         choices=[]
         if dataset is not None:
-            choices.extend((f"Field: {key}",("field",key)) for key in dataset.field_keys)
+            choices.extend(((f"Output: {dataset.field(key).descriptor.label}" if key.startswith("request_") else f"Field: {key}"),("field",key)) for key in dataset.field_keys)
             choices.extend((f"History: {key}",("history",key)) for key in dataset.history_keys)
             choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys)
         elif solution is not None:
             from ...post.solver_data import available_solution_quantities
             choices.extend((item.descriptor.label,("live",item.descriptor.quantity_id)) for item in available_solution_quantities(solution))
-        if choices!=[(self.quantities.itemText(i),self.quantities.itemData(i)) for i in range(self.quantities.count())]:
-            prior=self.quantities.currentText();self.quantities.clear()
+        if choices!=[(self.quantities.itemText(i),tuple(self.quantities.itemData(i)) if self.quantities.itemData(i) is not None else None) for i in range(self.quantities.count())]:
+            selected=self.quantities.currentData()
+            prior=tuple(selected) if selected is not None else None
+            self.quantities.clear()
             for text,data in choices:self.quantities.addItem(text,data)
-            self.quantities.setCurrentText(prior)
+            index=next((i for i,(_text,data) in enumerate(choices) if data==prior),0 if prior is None and choices else -1)
+            self.quantities.setCurrentIndex(index)
 
     def refresh_details(self):
         from ...presentation.engineering_summary import outcome_text,constitutive_summary
@@ -374,8 +379,12 @@ class ResultsTask(QWidget):
             self.plot.show_series([Series(key,np.asarray(x),np.asarray(y))]);return
         if kind=="field":
             stored=dataset.field(key);descriptor=stored.descriptor
-            values=stored.read(self.frame.value())
-            self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}")
+            index=min(self.frame.value(),max(0,len(descriptor.frames)-1))
+            values=stored.read(index)
+            policy=descriptor.provenance.get("frame_policy","all")
+            frame_text=f"Quantity frame {index+1}; value {descriptor.frames[index]:g}" if descriptor.frames else "Quantity frame association unavailable"
+            if policy=="envelope":frame_text="Signed maximum-absolute envelope; frame coordinate 0 is synthetic"
+            self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}\n{frame_text}\nFrame policy: {policy}")
         elif kind=="table":values=dataset.table(key,rows=slice(0,2000))
         elif kind=="live":
             from ...post.solver_data import resolve_solution_quantity
@@ -387,8 +396,36 @@ class ResultsTask(QWidget):
         if values.ndim==0:values=values.reshape(1,1)
         elif values.ndim==1:values=values.reshape(-1,1)
         else:values=values.reshape(values.shape[0],-1)
-        self.table.show_rows([f"Column {i+1}" for i in range(values.shape[1])],values[:2000].tolist())
+        columns=[f"Column {i+1}" for i in range(values.shape[1])]
+        rows=values[:2000].tolist()
+        if kind=="field":
+            if len(descriptor.components)==values.shape[1]:columns=list(descriptor.components)
+            association="node_ids" if descriptor.location=="node" else "element_ids"
+            association_key=f"{key}_{association}"
+            if association_key in dataset.table_keys:
+                ids=np.asarray(dataset.table(association_key))
+                if len(ids)==len(values):
+                    if ids.ndim==1:
+                        columns.insert(0,association.removesuffix("s"))
+                        rows=[[int(identifier),*row] for identifier,row in zip(ids,rows)]
+                    elif ids.ndim==2 and ids.shape[1]==2:
+                        columns=["element_id","face_id",*columns]
+                        rows=[[*map(int,identifier),*row] for identifier,row in zip(ids,rows)]
+        self.table.show_rows(columns,rows)
         self.app.set_status(f"{key}: previewing {min(len(values),2000)} rows")
+
+    def export_quantity_csv(self):
+        """Export the selected retained view, including its own frames and IDs."""
+        kind,key=self.quantities.currentData() or (None,None)
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
+        if kind!="field" or dataset is None:
+            raise ValueError("Select a retained quantity field to export")
+        path=self.app.dialogs.save_file(filetypes=[("CSV","*.csv")],defaultextension=".csv")
+        if not path:return
+        from ..result_export import lazy_field_to_csv
+        from ...post.report import write_csv
+        write_csv(lazy_field_to_csv(dataset,key,frame=None),path)
+        self.app.set_status(f"Quantity exported to {path}")
 
     def guarded(self,callback):return self.app.guarded(callback)
 

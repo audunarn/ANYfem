@@ -392,7 +392,7 @@ def test_real_qt_mesh_solve_save_reopen(window,qapp,tmp_path):
     assert window.viewport.capture_png(tmp_path/"results.png").stat().st_size>100
 
 
-def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path):
+def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path,monkeypatch):
     import json
     from anyfem.model.records import OutputRequest
     a,b=cantilever(window)
@@ -401,7 +401,7 @@ def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path):
     window.selection.restore((window.project.geometry.entity_ref("vertex",b),))
     definitions.region_name.setText("Tip output")
     region=definitions.create_region()
-    request=OutputRequest(("displacement",),region.id,"node",label="Tip movement")
+    request=OutputRequest(("displacement.uz",),region.id,"node",label="Tip movement")
     window.run(cmd.AddOutputRequest(request))
     solve=window.panels["Solve"]
     solve.output_requests.item(0).setSelected(True)
@@ -420,10 +420,32 @@ def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path):
     submitted=json.loads(window.submitted_input_reports[job.id])
     assert submitted["output_requests"][0]["region"]==region.id
     assert submitted["output_requests"][0]["id"]==request.id
+    expected_ids=window.mesh.nodes_on(window.project.geometry.entity_ref("vertex",b))
+    assert submitted["output_request_scopes"][0]["node_ids"]==sorted(expected_ids)
     destination=tmp_path/"requested-output.anyfem"
     window.save_project(path=str(destination))
+    dataset=window.result_datasets[job.id]
+    outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+    assert outcome["status"]=="available"
+    key=outcome["fields"][0]
+    assert dataset.table(f"{key}_node_ids").tolist()==sorted(expected_ids)
+    assert dataset.field(key).descriptor.components==("uz",)
+    assert dataset.field(key).read(0).shape==(len(expected_ids),1)
     window.new_project();window.open_project(str(destination))
     assert window.project.analyses[job.analysis_id].output_request_ids==(request.id,)
+    results=window.panels["Results"];results.activate_job(job.id)
+    index=results.quantities.findText(f"Output: {dataset.field(key).descriptor.label}")
+    assert index>=0
+    results.quantities.setCurrentIndex(index)
+    results.inspect_quantity()
+    csv_path=tmp_path/"tip-output.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
+    results.export_quantity_csv()
+    import csv
+    with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert {int(row["node_id"]) for row in rows}==set(expected_ids)
+    assert "uz [m]" in rows[0] and not any("ux" in name for name in rows[0])
+    assert all(float(row["uz [m]"])<0 for row in rows)
 
 
 def test_qt_submit_rejects_unavailable_request_before_queuing(window,qapp):
@@ -442,6 +464,101 @@ def test_qt_submit_rejects_unavailable_request_before_queuing(window,qapp):
         window.solve("Linear static",output_request_ids=(request.id,))
     assert set(window.project.analyses)==before
     assert not window.project.jobs
+
+
+def test_qt_requested_scope_does_not_follow_an_edit_during_solve(window,qapp,tmp_path,monkeypatch):
+    import json
+    import threading
+    from anyfem.application.workflow import ANALYSES
+    from anyfem.model.records import OutputRequest
+    from anyfem.model.regions import ManualRegion, Region
+
+    a,b=cantilever(window)
+    root=window.run(cmd.AddRegion(Region("Root","geometry","vertex",ManualRegion((window.project.point(a),)))))
+    tip=window.run(cmd.AddRegion(Region("Tip","geometry","vertex",ManualRegion((window.project.point(b),)))))
+    request=OutputRequest(("displacement.uz",),tip.id,"node")
+    window.run(cmd.AddOutputRequest(request))
+    window.generate_mesh_async(.25,strategy="auto")
+    wait_until(qapp,lambda:window.mesh is not None)
+    expected=sorted(window.mesh.nodes_on(window.project.point(b)))
+    started=threading.Event();release=threading.Event()
+    original=ANALYSES["Linear static"]
+    def held_solve(*,cancellation_token,**kwargs):
+        started.set()
+        while not release.wait(.01):cancellation_token.raise_if_cancelled()
+        return original(cancellation_token=cancellation_token,**kwargs)
+    monkeypatch.setitem(ANALYSES,"Linear static",held_solve)
+    window.solve(output_request_ids=(request.id,))
+    job=window.project.jobs[window.active_job_id]
+    try:
+        wait_until(qapp,started.is_set)
+        window.run(cmd.EditOutputRequest(request.id,replace(request,region=root.id)))
+        release.set();wait_until(qapp,lambda:job.id in window.solutions)
+        submitted=json.loads(window.submitted_input_reports[job.id])
+        assert submitted["output_request_scopes"][0]["node_ids"]==expected
+        assert submitted["output_request_scopes"][0]["request"]["region"]==tip.id
+        window.save_project(path=str(tmp_path/"frozen-output.anyfem"))
+        dataset=window.result_datasets[job.id]
+        outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+        key=outcome["fields"][0]
+        assert dataset.table(f"{key}_node_ids").tolist()==expected
+        assert (dataset.field(key).read(0)<0).all()
+    finally:release.set()
+
+
+@pytest.mark.parametrize("policy,text",[("last","value 7"),("envelope","coordinate 0 is synthetic")])
+def test_qt_named_view_discloses_its_local_frame(window,tmp_path,policy,text):
+    from test_output_request_views import payload,scoped
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.model.records import OutputRequest
+    request=OutputRequest(("displacement.uz",),"region","node",frame_policy=policy)
+    result=add_output_request_views(payload(),(scoped(request),))
+    key=result.provenance["output_request_outcomes"][0]["fields"][0]
+    store=ArtifactStore(tmp_path/"frame-view.anyfem")
+    artifact=store.write_result(job_id="frame-job",document_id="document",mesh_id="mesh",
+        model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
+    window.active_job_id="frame-job";window.result_datasets["frame-job"]=store.open_result(artifact)
+    results=window.panels["Results"];results.refresh()
+    results.frame.setValue(0)
+    index=results.quantities.findText(f"Output: {result.fields[key][0].label}")
+    assert index>=0
+    results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    assert text in results.report.toPlainText()
+    assert f"Frame policy: {policy}" in results.report.toPlainText()
+    assert results.table.values.headers==["node_id","uz"]
+    assert results.table.values.rows[0][0]==42
+
+
+def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_path,monkeypatch):
+    from test_output_request_views import payload,scoped
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.model.records import OutputRequest
+    requests=[OutputRequest(("displacement.uz",),"region","node",label="Same name") for _ in range(2)]
+    result=add_output_request_views(payload(),(scoped(requests[0],(42,)),scoped(requests[1],(11,))))
+    selected_key=result.provenance["output_request_outcomes"][1]["fields"][0]
+    store=ArtifactStore(tmp_path/"duplicate-labels.anyfem")
+    artifact=store.write_result(job_id="view-job",document_id="document",mesh_id="mesh",
+        model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
+    window.active_job_id="view-job";window.result_datasets["view-job"]=store.open_result(artifact)
+    results=window.panels["Results"];results.refresh()
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",selected_key))
+    label=results.quantities.itemText(index)
+    assert sum(results.quantities.itemText(i)==label for i in range(results.quantities.count()))==2
+    results.quantities.setCurrentIndex(index)
+    # Force a legitimate rebuild of the available-choice inventory.
+    results.quantities.addItem("Removed quantity",("field","removed"))
+    results.refresh()
+    assert tuple(results.quantities.currentData())==("field",selected_key)
+    results.inspect_quantity()
+    assert results.table.values.rows[0][0]==11
+    csv_path=tmp_path/"selected-scope.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
+    results.export_quantity_csv()
+    import csv
+    with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert {int(row["node_id"]) for row in rows}=={11}
 
 
 def test_load_edit_preserves_mesh_and_invalidates_solution(window,qapp,tmp_path):

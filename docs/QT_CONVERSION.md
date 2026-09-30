@@ -121,7 +121,7 @@ scientific qualification of every geometry, driver or numerical owner.
 | Geometry and generators | Typed primitive/topology forms; all eight plate/bulkhead/frame/girder/stiffener/panel/cylinder/cone generators; eleven copy/pattern/sweep/split/orientation actions and five triangle/hole/join/overlap actions exercised with undo | Broader dependent-topology editing cases |
 | Sections, materials, supports and loads | Stable-ID tree edits, undo, DNV presets, project units and explicit suffixes, active cases/combinations, imported source-group references | Broader combinations of record editing and topology replacement |
 | Feature/sketch work | Exposed feature topology, bounded search, suppression/rename undo, distance/coincidence constraints and extrusion editing | Remaining sketch constraint combinations and dependency failure presentation |
-| Definitions and workplanes | Coordinate systems including ndarray origins, selection/boolean mesh regions, output requests, custom units, snapping/construction | Boolean-region creation and typed output-request attachment/undo tested; scoped result filtering still needs real-window acceptance |
+| Definitions and workplanes | Coordinate systems including ndarray origins, selection/boolean mesh regions, output requests, custom units, snapping/construction | Boolean-region creation and typed request attachment/undo tested; native scoped views now pass real-window export/reopen and immutable-scope checks. Advanced request transformations remain open |
 | Mesh generation | Four mesh routes; typed native/structured/quad/quality/automation controls; pins/refinements; preview commit/discard/undo | Inspection-only candidate display and solve refusal tested; remaining automatic recovery-policy outcomes |
 | Mesh lifecycle | Real-window cancellation, stale completion, replacement and injected failure on installed Windows/Linux | Independent final integration review |
 | Analyses | All nine public analyses submitted through Qt controls; load case/combination routing and detached imported snapshots | Owner scientific gates remain unchanged and unresolved failures remain visible |
@@ -319,3 +319,72 @@ still unspecified. Next: actual scoped-output filtering, coordinated published
 owner integration with scientific checks, physical hardware evidence, then final
 review bound to clean installed commits. Keep Tk default and all acceptance
 gates until those prerequisites pass.
+
+Scoped-output slice: determine whether submitted region intent can be resolved
+once against the submitted mesh and persisted as named quantity views without
+consulting a subsequently edited project. Retain native solver fields for the
+existing workbench; requested views must contain only matching entities and
+components, carry their own frame/association metadata, and be inspectable and
+exportable after reopening. Test an actual Qt solve/export/reopen and a changed
+region after submission. Missing quantities or unsupported recovery/basis must
+produce explicit request diagnostics, never full-field substitution or zeros.
+This slice does not change numerical kernels or owner connectivity contracts.
+
+Named native output views now freeze canonical region membership before queuing
+and persist only matching entities/components under request-specific field keys.
+Native full fields remain available to the workbench. The selected quantity can
+be inspected with exact entity IDs and exported independently after reopening.
+First/last/all frames retain actual frame values; signed maximum-absolute
+envelopes disclose their synthetic coordinate and source frames. Missing members
+produce partial status and explicit IDs, never zero-filled rows. Unsupported
+basis/recovery/reduction or selected frames without recorded indices are explicit
+unavailable outcomes; those advanced capabilities are not closed by this slice.
+
+The real Qt save/reopen check exposed synchronous Save omitting submitted-input
+provenance. Save and background persistence now use the same provenance builder.
+An in-flight edit test confirms the saved view retains its submitted tip scope
+instead of following the edited request. Independent scrutiny also found a mesh
+query mixing node and element ID namespaces; candidate filtering and Boolean
+query collision tests repair that expansion. Review follow-up confirms the scope,
+missing-member and local-frame presentation findings are repaired.
+
+Affected source checks pass 126 tests on Windows and 111 on Linux XCB/WSLg
+(`scoped-output-windows-final`, `scoped-output-linux-final` logs/XML under
+`reports/qt/acceptance/`). Both use unpublished local geometry and are functional
+candidate evidence, not scientific or physical Linux GPU acceptance. Fifteen
+published-owner headless checks, wheel/sdist build, metadata and 18-dependency
+license checks pass (`scoped-output-headless`, `scoped-build`, `scoped-metadata`,
+`scoped-license`). Earlier failed UI runs remain retained; the Linux selector
+test now selects the displayed field text instead of relying on platform-specific
+Qt tuple lookup. Scientific and owner integration failures remain open.
+
+Installed-wheel checks additionally pass 40 contracts with published owners;
+`scoped-installed-origins.json` confirms site-packages origins and neither Qt nor
+Tk loaded. A subsequent focused check passes 16 view contracts after adding
+external request-ID escaping for HDF5 keys; canonical UUID keys are unchanged.
+Do not infer full request parity from these native-view checks: selected-frame
+indices and qualified recovery/basis/reduction transformations remain unresolved.
+
+The clean staged package also passes 41 installed contracts and all 86 real
+Windows Qt workflow cases (`scoped-clean-installed`, `scoped-clean-qt-installed`).
+The latter retains the explicit unpublished geometry input. Request views are
+presented by their labels in the quantity selector; storage keys remain internal.
+
+The final label checks pass four cases on Windows. On Linux, the two isolated
+named-view cases pass, while both beam workflow cases fail in newly changing
+ANYgeometry source: `features.py` calls undefined
+`_discard_equivalent_unpublished_owners` (`scoped-label-linux.log`/XML).
+Retain this owner integration failure; it does not supersede the earlier 111
+passing Linux source checks or establish acceptance at the current owner identity.
+The final label change does not alter filtering/persistence semantics. The
+concurrent committed viewport batching parent passes 17 installed selection
+contracts (`scoped-parent-selection`). Uncommitted intersection-test owner work
+is excluded from this slice.
+
+Final scrutiny found that duplicate output labels could change the selected
+scope during a choice-list refresh. Restoration now uses the stable `(kind,
+field-key)` item data, normalizes Qt tuple/list representations, and clears an
+unavailable selection. A two-label/two-scope widget test forces a rebuild, then
+checks inspection and exported node IDs. The three affected view/selection cases
+pass on Windows and Linux with published owner packages
+(`scoped-selection-identity`, `scoped-selection-identity-linux`).

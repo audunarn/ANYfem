@@ -257,7 +257,7 @@ def result_artifact_payload(
     built_summary.update(_json_safe(dict(summary or {})))
     built_diagnostics = _collect_diagnostics(solution, raw, diagnostics)
 
-    return ResultArtifactPayload(
+    payload = ResultArtifactPayload(
         fields=dict(builder.fields),
         frames=builder.frames,
         frame_kind=builder.frame_kind,
@@ -268,6 +268,11 @@ def result_artifact_payload(
         diagnostics=built_diagnostics,
         partial=bool(partial or (outcome is not None and outcome.partial)),
     )
+    submitted = built_provenance.get("submitted_inputs", {})
+    if isinstance(submitted, Mapping) and submitted.get("output_request_scopes"):
+        from .output_views import add_output_request_views
+        payload = add_output_request_views(payload, submitted["output_request_scopes"])
+    return payload
 
 
 def build_result_artifact_inputs(

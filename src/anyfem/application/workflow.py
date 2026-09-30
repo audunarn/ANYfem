@@ -5,7 +5,7 @@ import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -1020,6 +1020,11 @@ class WorkbenchWorkflow:
             problems = request.problems_for_analysis(definition.type)
             if problems:
                 raise ValueError("; ".join(problems))
+        from .output_requests import freeze_output_requests
+        output_scopes = freeze_output_requests(
+            self.project, definition.output_request_ids, self.mesh,
+            mesh_id=str(getattr(self, "mesh_record_id", "")),
+        )
         job_options = dict(options)
         if self.imported is not None:
             # An imported model is already built and has no geometry to mesh,
@@ -1084,6 +1089,7 @@ class WorkbenchWorkflow:
             revision=self.session.revision.sequence,
             model_hash=self.session.revision.model_hash,
             mesh_hash=mesh_hash,
+            output_scopes=output_scopes,
         )
         self.submitted_input_reports[record.id] = input_report
         solve_panel = self.panels.get("Solve")
@@ -1253,6 +1259,15 @@ class WorkbenchWorkflow:
         if self.mesh is not None and (job is None or current is not None and current.mesh_hash==job.mesh_hash):return self.mesh
         raise ValueError("The submitted result mesh is unavailable; restore its mesh artifact")
 
+    def _result_artifact_provenance(self, job_id: str) -> dict[str, Any]:
+        submitted = self.submitted_input_reports.get(job_id)
+        if not submitted:
+            return {}
+        try:
+            return {"submitted_inputs": json.loads(submitted)}
+        except json.JSONDecodeError:
+            return {"submitted_inputs_text": submitted}
+
     def _schedule_result_artifact(self, job_id: str, destination: Path) -> None:
         """Write a completed result off the Tk event thread."""
 
@@ -1266,13 +1281,6 @@ class WorkbenchWorkflow:
         from ..io.artifacts import ArtifactStore
 
         store = ArtifactStore(destination)
-        submitted_inputs = self.submitted_input_reports.get(job_id)
-        artifact_provenance = {}
-        if submitted_inputs:
-            try:
-                artifact_provenance["submitted_inputs"] = json.loads(submitted_inputs)
-            except json.JSONDecodeError:
-                artifact_provenance["submitted_inputs_text"] = submitted_inputs
         future = self._artifact_executor.submit(
             write_solution_artifact,
             store,
@@ -1283,7 +1291,7 @@ class WorkbenchWorkflow:
             model_hash=record.model_hash,
             mesh_hash=record.mesh_hash,
             analysis_hash=record.analysis_hash,
-            provenance=artifact_provenance,
+            provenance=self._result_artifact_provenance(job_id),
             summary=dict(record.summary),
             diagnostics=tuple(record.diagnostics),
             partial=bool(record.partial),
@@ -2615,6 +2623,7 @@ class WorkbenchWorkflow:
                 model_hash=record.model_hash,
                 mesh_hash=record.mesh_hash,
                 analysis_hash=record.analysis_hash,
+                provenance=self._result_artifact_provenance(job_id),
                 summary=dict(record.summary),
                 diagnostics=tuple(record.diagnostics),
                 partial=bool(record.partial),
@@ -3069,6 +3078,7 @@ def _submitted_input_report(
     revision: int,
     model_hash: str,
     mesh_hash: str,
+    output_scopes: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """Readable, deterministic solver-input record without dumping mesh arrays."""
 
@@ -3130,6 +3140,7 @@ def _submitted_input_report(
             project.output_requests[identifier].to_dict()
             for identifier in definition.output_request_ids
         ],
+        "output_request_scopes": list(output_scopes),
         "submitted_options": _record_settings(options),
         "mesh": mesh_summary,
         "units": project.units.to_dict(),
