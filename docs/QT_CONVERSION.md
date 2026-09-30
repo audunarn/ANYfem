@@ -629,3 +629,14 @@ attachment integration failures (`current-science-rehearsal.xml`). Neither file
 adjudicates the earlier preserved broad scientific failures or attributes them
 to a numerical owner. Re-run the applicable clean scientific/migration gates only
 with coordinated published inputs; retain all prior failures and tolerances.
+
+Sketch validation slice (2026-10-01): a failed Qt constraint preview appends its
+constraint before owner validation, leaving hidden working-copy state behind
+while the editor and project remain unchanged. Three real-window reproductions
+(malformed extrusion, conflicting distances and distance/coincidence conflict)
+fail the working-copy preservation check (`sketch-constraint-before`). Parse
+preview inputs before mutation and discard only the attempted constraint when
+owner validation fails. Keep the valid preview, editor and project unchanged;
+verify subsequent apply/undo remains usable. This addresses dependency-failure
+presentation without changing owner sketch mathematics or scientific tolerances.
+Windows GPU and Linux XCB/WSLg checks each pass four real-window cases (sketch-constraint-windows and sketch-constraint-linux); the original three failures remain retained. Clean installed-artifact checks and independent review follow. WSLg remains software GL evidence, not physical Linux GPU acceptance.

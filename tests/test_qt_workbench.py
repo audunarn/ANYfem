@@ -1364,6 +1364,39 @@ def test_qt_optional_section_fields_and_face_sketch(window,qapp):
     assert window.project.geometry.features.get(feature.feature_id).parameters==original
 
 
+@pytest.mark.parametrize("failure",["extrusion", "distance", "coincident"])
+def test_qt_failed_sketch_constraint_preserves_working_copy(window,qapp,failure):
+    from anygeometry import GeometryError
+    points=[window.run(cmd.AddPoint(x,y,0)) for x,y in ((0,0),(3,0),(3,3),(0,3))]
+    face=window.run(cmd.AddPlate(points))
+    window.selection.set_mode("face")
+    window.selection.select(window.project.geometry.entity_ref("face",face))
+    panel=window.panels["Construction"];panel.sketch()
+    for point in ("0.5,0.5","1.5,0.5","1.5,1.5","0.5,1.5"):
+        panel.coordinates.setText(point);panel.add_point()
+    panel.pair.setText("1,2");panel.distance.setText("1")
+    panel.add_constraint("distance")
+    task=window.viewport.construction_task
+    original_points=task.points;original_constraints=tuple(task.constraints)
+    original_editor=panel.constraints.toPlainText()
+    original_revision=window.project.geometry.revision
+    if failure=="extrusion":panel.extrusion.setText("invalid")
+    else:panel.distance.setText("2")
+    with pytest.raises(ValueError if failure=="extrusion" else GeometryError):
+        panel.add_constraint("coincident" if failure=="coincident" else "distance")
+    assert task.points==original_points
+    assert tuple(task.constraints)==original_constraints
+    assert panel.constraints.toPlainText()==original_editor
+    assert window.project.geometry.revision==original_revision
+    # The valid working copy remains usable after the failed preview.
+    panel.extrusion.setText("0")
+    before=len(window.project.geometry.features.records)
+    panel.apply();qapp.processEvents()
+    assert len(window.project.geometry.features.records)==before+1
+    window.undo()
+    assert len(window.project.geometry.features.records)==before
+
+
 def test_qt_viewport_click_shortcut_and_docking(window,qapp):
     from PySide6.QtCore import QPoint,Qt
     from PySide6.QtTest import QTest

@@ -87,9 +87,17 @@ class ConstructionPanel(QWidget):
         if not isinstance(task,FaceSketchTask):raise ValueError("Start a face sketch first")
         indices=tuple(int(value.strip())-1 for value in self.pair.text().split(","))
         if len(indices)!=2 or indices[0]==indices[1] or min(indices)<0 or max(indices)>=len(task.point_keys):raise ValueError("Enter two different existing point numbers")
+        extrusion=float(self.extrusion.text()) if task.ready else None
+        previous_count=len(task.constraints)
         if kind=="distance":task.add_distance(*indices,float(self.distance.text()))
         else:task.add_coincidence(*indices)
-        if task.ready:task.solve_preview(float(self.extrusion.text()))
+        try:
+            if task.ready:task.solve_preview(extrusion)
+        except Exception:
+            # Owner validation leaves points unchanged on failure. Discard only
+            # the attempted constraint so the visible working copy stays valid.
+            del task.constraints[previous_count:]
+            raise
         self.app.viewport.refresh_construction_overlay();self.updated(task,None)
 
     def remove_constraint(self):
