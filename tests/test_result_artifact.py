@@ -147,6 +147,28 @@ def test_linear_batch_persists_only_complete_cached_stress_frames():
     assert complete.tables["batch_stress_recovery"]["status"] == "complete"
 
 
+def test_requested_global_stresses_keep_native_local_cache_and_basis():
+    built = _built()
+    local = SimpleNamespace(element_stresses={5: {"sxx": np.array([-2., 4.])}})
+    global_result = SimpleNamespace(element_stresses={5: {
+        "sxx": np.array([99., 99.]), "global_xx_top": np.array([8., -12.]),
+        "global_membrane_resultant_tensors": np.ones((2, 3, 3))}})
+    solution = LinearSolution(_vector(), built, _stress=local)
+    solution._requested_global_stress = global_result
+    payload = result_artifact_payload(solution)
+    np.testing.assert_array_equal(payload.fields["stress_sxx"][1], [[[-2., 4.]]])
+    assert payload.fields["stress_sxx"][0].basis == "element_local"
+    assert payload.fields["stress_global_xx_top"][0].basis == "global"
+    assert "stress_global_membrane_resultant_tensors" not in payload.fields
+    np.testing.assert_array_equal(payload.fields["stress_global_xx_top"][1], [[[8., -12.]]])
+    batch = LinearBatchSolution(built=built, shapes=[solution, solution], case_names=("dead", "live"))
+    payload = result_artifact_payload(batch)
+    assert payload.fields["stress_global_xx_top"][0].basis == "global"
+    assert "stress_global_membrane_resultant_tensors" not in payload.fields
+    assert payload.fields["stress_global_xx_top"][0].provenance["load_cases"] == ["dead", "live"]
+    np.testing.assert_array_equal(payload.fields["stress_sxx"][1], [[[-2., 4.]], [[-2., 4.]]])
+
+
 def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     built = _built()
     snapshots = (

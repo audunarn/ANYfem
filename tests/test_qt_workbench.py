@@ -829,15 +829,24 @@ def test_qt_imported_group_load_and_snapshot_solve(window,qapp,tmp_path,monkeypa
     assert window.solution.built.project is not window.project
 
 
-def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_path,monkeypatch):
+@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global")])
+def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_path,monkeypatch,component,basis):
     import csv
     import numpy as np
-    from test_io import write_sesam_plate
+    from test_io import write_sesam_plate, sesam_record
     from anyfem.selection import MeshEntityRef
     from anyfem.model.records import OutputRequest
     from anyfem.post.fields import _reduce
     monkeypatch.setattr(window,"_confirm_discard",lambda:True)
-    window.import_sesam_model(str(write_sesam_plate(tmp_path/"plate.FEM")))
+    source=write_sesam_plate(tmp_path/"plate.FEM")
+    if basis=="global":
+        lines=source.read_text().splitlines()
+        for index,line in enumerate(lines):
+            if line.startswith("GCOORD"):
+                node=int(line[8:24]);x=float(line[24:40]);y=float(line[40:56]);z=float(line[56:72])
+                lines[index]=sesam_record("GCOORD",node,(x-y)/np.sqrt(2),(x+y)/np.sqrt(2),z)
+        source.write_text("\n".join(lines)+"\n")
+    window.import_sesam_model(str(source))
     loads=window.panels["Loads & BC"]
     loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
     loads.fields["ref"][0].setText("group:group 1")
@@ -845,7 +854,7 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
     element_id=next(iter(window.mesh.shells))
     window.selection.set_mode("element");window.selection.select(MeshEntityRef("element",element_id))
     region=window.panels["Definitions"].create_region()
-    request=OutputRequest(("stress.von_mises",),region.id,"element",basis="element_local",reduction="mean")
+    request=OutputRequest((f"stress.{component}",),region.id,"element",basis=basis,reduction="mean")
     window.run(cmd.AddOutputRequest(request))
     solve=window.panels["Solve"];solve.output_requests.item(0).setSelected(True);solve.start()
     wait_until(qapp,lambda:window.solution is not None)
@@ -860,22 +869,28 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
     ids=dataset.table(f"{source}_element_ids").tolist()
     expected=_reduce(raw[ids.index(element_id)],"mean")
     np.testing.assert_allclose(dataset.field(key).read(0)[0,0],expected)
-    assert expected>0
+    assert abs(expected)>0
+    if basis=="global":
+        recovered=window.solution._requested_global_stress
+        assert recovered.provenance.return_global
+        assert not window.solution._stress.provenance.return_global
+        np.testing.assert_allclose(expected,_reduce(recovered.element_stresses[element_id][component],"mean"))
     window.new_project();window.open_project(str(path))
     results=window.panels["Results"];results.activate_job(job_id)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
     assert "Reduction: mean" in results.report.toPlainText()
-    assert "Basis: element_local" in results.report.toPlainText()
+    assert f"Basis: {basis}" in results.report.toPlainText()
     destination=tmp_path/"reduced.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
     results.export_quantity_csv()
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert len(rows)==1 and int(rows[0]["element_id"])==element_id
-    np.testing.assert_allclose(float(rows[0]["von_mises [Pa]"]),expected)
+    np.testing.assert_allclose(float(rows[0][f"{component} [Pa]"]),expected)
 
 
-def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_path,monkeypatch):
+@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global")])
+def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_path,monkeypatch,component,basis):
     import csv
     import numpy as np
     from test_io import write_sesam_plate
@@ -893,7 +908,7 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
     element_id=next(iter(window.mesh.shells))
     window.selection.set_mode("element");window.selection.select(MeshEntityRef("element",element_id))
     region=window.panels["Definitions"].create_region()
-    request=OutputRequest(("stress.von_mises",),region.id,"element",basis="element_local",
+    request=OutputRequest((f"stress.{component}",),region.id,"element",basis=basis,
         reduction="mean",frame_policy="selected",frame_indices=(1,0))
     window.run(cmd.AddOutputRequest(request))
     solve=window.panels["Solve"];solve.analysis.setCurrentText("Batch linear static")
@@ -908,7 +923,8 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
     assert outcome["status"]=="available",outcome
     key=outcome["fields"][0]
     values=dataset.field(key).read(None)[:,0,0]
-    assert values[1]>0
+    assert abs(values[1])>0
+    if component=="von_mises":assert values[1]>0
     np.testing.assert_allclose(values[0],2*values[1])
     assert dataset.field(key).descriptor.provenance["frame_labels"]==["live","default"]
     window.new_project();window.open_project(str(path))
@@ -922,7 +938,7 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert [row["frame_label"] for row in rows]==["live","default"]
     assert [float(row["frame_value"]) for row in rows]==[1.,0.]
-    np.testing.assert_allclose([float(row["von_mises [Pa]"]) for row in rows],values)
+    np.testing.assert_allclose([float(row[f"{component} [Pa]"]) for row in rows],values)
 
 
 def test_qt_sesam_stress_only_result_roundtrip(window,qapp,tmp_path):

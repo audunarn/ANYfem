@@ -40,6 +40,11 @@ __all__ = [
 
 _DOF_COMPONENTS = ("ux", "uy", "uz", "rx", "ry", "rz")
 _VECTOR_COMPONENTS = ("x", "y", "z")
+_GLOBAL_SURFACE_STRESSES = frozenset(
+    f"global_{component}_{surface}"
+    for component in ("xx", "yy", "zz", "xy", "xz", "yz")
+    for surface in ("top", "bottom")
+)
 _SAFE_KEY = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -230,6 +235,9 @@ def result_artifact_payload(
 
     raw = _raw_result(solution)
     _add_common_raw_quantities(builder, raw, solution)
+    global_stress = getattr(solution, "_requested_global_stress", None)
+    if global_stress is not None:
+        _add_static_stresses(builder, global_stress, prefix="stress", global_only=True)
     outcome = _solution_outcome(solution, raw)
 
     resolved_solver_quantities = (
@@ -784,6 +792,17 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
             builder.frames, prefix="stress", recovery="recovered",
             provenance={"load_cases": list(names), "shared_factorization": True,
                         "case_recovery": [_stress_provenance(value) for value in recovered]},
+        )
+    global_recovered = tuple(getattr(shape, "_requested_global_stress", None) for shape in shapes)
+    if global_recovered and all(value is not None for value in global_recovered):
+        _add_stress_history(
+            builder, tuple({element: {key: value for key, value in components.items()
+                                     if key in _GLOBAL_SURFACE_STRESSES}
+                            for element, components in result.element_stresses.items()}
+                           for result in global_recovered),
+            builder.frames, prefix="stress", recovery="recovered",
+            provenance={"load_cases": list(names),
+                        "case_recovery": [_stress_provenance(value) for value in global_recovered]},
         )
 
 
@@ -1472,7 +1491,7 @@ def _add_reactions(
         builder.add_table(f"{key}_node_ids", np.asarray(ids, dtype=np.int64))
 
 
-def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str) -> None:
+def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_only: bool = False) -> None:
     stresses = getattr(result, "element_stresses", None)
     if not isinstance(stresses, Mapping) or not stresses:
         return
@@ -1482,6 +1501,7 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str) -> None
             for values in stresses.values()
             if isinstance(values, Mapping)
             for component in values
+            if not global_only or component in _GLOBAL_SURFACE_STRESSES
         }
     )
     provenance = _stress_provenance(result)
@@ -1511,7 +1531,7 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str) -> None
             location=location,
             unit="Pa",
             components=(component,),
-            basis="element_local",
+            basis="global" if component.startswith("global_") else "element_local",
             frames=(0.0,),
             recovery="recovered",
             provenance={**provenance, **({"scalar_sample_axes": list(range(2, spatial.ndim + 1))}
@@ -1599,7 +1619,7 @@ def _add_stress_history(
             location=location,
             unit="Pa",
             components=(component,),
-            basis="element_local",
+            basis="global" if component.startswith("global_") else "element_local",
             frames=descriptor_frames,
             recovery=recovery,
             provenance={**dict(provenance or {}),

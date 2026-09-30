@@ -469,3 +469,26 @@ pass on Windows (`batch-case-labels`). Independent read-only review found no
 confirmed defect in case ordering, missing-cache diagnostics or worker lifecycle.
 These results remain functional application evidence; scientific owner gates and
 physical Linux GPU acceptance remain open, and the Tk default stays unchanged.
+
+Global-stress slice: published ANYsolver exposes authoritative surface-tensor
+recovery via `return_global=True`. Explicit global-basis stress requests currently
+cannot select those values. Retain a separate owner recovery on the worker,
+preserving the local default cache; persist only the explicit `global_` components
+with global basis, sampling and source provenance. Exercise actual scalar scope,
+reduction/save/reopen/CSV on a real Qt solve and compare to owner-returned arrays.
+This introduces no application tensor rotation or new numerical method. Other
+coordinate systems, material basis and patch/nodal recovery remain separate gaps.
+
+Global requests now retain a separate owner-backed recovery, leaving native local
+caches unchanged. Single and batch fields expose only the twelve explicit physical
+surface-stress components; global section resultants/tensors are not mislabeled
+as stresses in Pa. These fields retain global basis, native sampling and owner
+provenance. A plate rotated 45 degrees tests exact agreement with owner-returned
+global arrays, and real Qt single/batch paths exercise reduction, save/reopen and
+CSV. Windows passes 74 affected contracts (`global-stress-contract`) and four Qt
+cases (`global-stress-ui`); Linux XCB/WSLg passes all 78 (`global-stress-linux`).
+Cancellation tests cover current/fallback tokens in single/batch local/global
+recovery. Independent source review found no confirmed defect. This is application
+integration evidence using the published owner API, not a new numerical
+qualification or physical Linux GPU acceptance. Remaining recovery/material-basis
+and owner scientific gates stay open; default switching remains gated.
