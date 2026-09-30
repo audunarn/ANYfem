@@ -91,15 +91,26 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
 
+@pytest.mark.parametrize("source_version", ["0.5.0", "0.5.1", "1.0.0"])
 def test_launcher_uses_selected_source_version_when_metadata_is_stale(
-    monkeypatch,
+    monkeypatch, tmp_path, source_version,
 ):
     namespace = _namespace()
     versions = _versions()
     versions["ANYmesher"] = "0.3.2"
     monkeypatch.setattr(namespace["metadata"], "version", versions.__getitem__)
+    source = tmp_path / "ANYmesh"
+    (source / "src").mkdir(parents=True)
+    (source / "pyproject.toml").write_text(
+        f'[project]\nversion = "{source_version}"\n', encoding="utf-8"
+    )
+    reader = namespace["_active_distribution_version"]
+    monkeypatch.setitem(reader.__globals__, "_SOURCE_PROJECTS", tuple(
+        (distribution, module, source / "src" if distribution == "ANYmesher" else path)
+        for distribution, module, path in namespace["_SOURCE_PROJECTS"]
+    ))
 
-    assert namespace["_active_distribution_version"]("ANYmesher") == "0.5.0"
+    assert reader("ANYmesher") == source_version
 
     def source_aware_reader(name: str) -> str:
         if name == "ANYmesher":
