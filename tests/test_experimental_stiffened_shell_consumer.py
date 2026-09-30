@@ -451,3 +451,30 @@ def test_ge_point_panel_rejects_changed_profile_and_native_beam(tmp_path):
     path.write_text(json.dumps(data), encoding="ascii")
     with pytest.raises(ValueError, match="domain"):
         load_case(path)
+
+
+def test_elastic_s3_native_fibre_reopens_v9_and_continues(tmp_path):
+    case = _j2_fibre_case(False, True)
+    case = replace(case, shell=replace(case.shell, j2_curve=None),
+                   actions=(stiffened_shell.NodalAction(
+                       'beam',105,(0.,0.,1000.,0.,0.,0.)),))
+    reopened = load_case(save_case(case,tmp_path/'elastic-s3-fibre.anyfem-ge.json'))
+    assert reopened.to_dict() == case.to_dict()
+    owner = reopened.create_analysis()
+    resumed = reopened.create_analysis()
+    try:
+        first = owner.solve(reopened.actions,targets=(.5,1.))
+        assert first.accepted_factors == (.5,1.)
+        assert first.free_equilibrium_ratio <= 1e-8 and first.constraint_max <= 1e-9
+        saved = owner.checkpoint()
+        resumed.restore(saved)
+        assert resumed.checkpoint() == saved
+        assert owner._finite_driver._stable_s3 and resumed._finite_driver._stable_s3
+        direct = owner.solve(reopened.actions,targets=(.5,))
+        continued = resumed.solve(reopened.actions,targets=(.5,))
+        assert direct.accepted_factors == continued.accepted_factors == (.5,1.,.5)
+        assert owner.checkpoint() == resumed.checkpoint()
+        np.testing.assert_array_equal(direct.cell_resultants,continued.cell_resultants)
+    finally:
+        owner.close()
+        resumed.close()
