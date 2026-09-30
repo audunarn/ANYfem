@@ -75,7 +75,9 @@ jobs:
           # The matrix exercises the supported Tk/headless UI path. ModernGL
           # backend build coverage belongs to ANY3dView and is not required
           # for ANYfem's platform-independent GUI contract.
-          python -m pip install -e ".[dev]" "Pillow>=10,<13"
+          # The installed-license gate checks every declared GUI dependency,
+          # including the optional Qt candidate, even in the Tk/headless matrix.
+          python -m pip install -e ".[dev]" "Pillow>=10,<13" "PySide6>=6.10.1,<6.11"
 
       - name: Check source and installed dependency licensing
         run: python tools/check_licenses.py --check-installed
