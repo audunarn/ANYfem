@@ -570,3 +570,32 @@ Independent source review found no actionable defect. Duplicate-coordinate tests
 use a signed global tensor component, not negative equivalent stress. Clean
 installed/exact-tree checks follow; nonlinear increment recovery and the wider
 scientific/owner/physical-GPU/full-parity gates remain open.
+
+Committed nonlinear recovery slice: the worker currently recovers the final
+wrapper only, and increment views expose retained states without a stress method.
+Use one shared history-aware ANYsolver recovery adapter for final/increment views;
+recover actual saved snapshots on the worker, preserving their states and the
+parent recovery kinematics (snapshot objects do not necessarily carry info).
+Persist full native/global/patch frame histories with actual load factors, step
+indices and per-frame owner provenance. Missing caches remain explicit, never
+scaled final values; absent snapshots remain final-only. Bound the experiment to
+public-owner imported shell workflows with two stored increments, exact comparisons
+to public recovery, selected/reordered views, save/reopen/CSV/Qt inspection and
+cancellation between increments. Failed trials are excluded because only owner
+committed snapshots enter the adapter. Existing scientific gates stay unchanged.
+Committed recovery now uses each actual saved increment on the worker, with a
+shared history-aware adapter preserving parent kinematics and separate native/
+global/patch caches. Artifact histories retain step indices and per-frame owner
+provenance; selected views remap that metadata positionally, and envelopes retain
+source provenance separately. Native requests no longer consider unrelated patch
+fields as missing native output. Initial contract evidence retained one such
+false-partial failure (`committed-recovery-contract`); the source was repaired.
+Subsequent Windows contracts pass 88 cases (`committed-recovery-contract-final`),
+and six real imported Qt workflows pass for native/global/patch recovery under
+both von-Karman and corotational kinematics (`committed-recovery-ui`). Exact owner
+arrays persist through reordered scope/save/reopen/CSV. Added final-only and
+capacity-wrapper contracts preserve absent/missing snapshot semantics, and
+current/fallback cancellation tests include stopping before the next increment.
+Final affected Linux and clean installed checks are next. Independent early source
+review found no confirmed defect. This is adapter fidelity evidence, not new
+nonlinear/capacity scientific qualification or physical Linux GPU acceptance.

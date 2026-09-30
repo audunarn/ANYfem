@@ -3256,8 +3256,12 @@ def _execute_analysis_job(
         resolved["cancellation_token"] = cancellation_token
     solution = solver_function(**resolved)
     if requested_stress:
-        from ..post.results import LinearBatchSolution
-        recovery_solutions = solution.shapes if isinstance(solution, LinearBatchSolution) else (solution,)
+        from ..post.results import LinearBatchSolution, NonlinearSolution
+        recovery_solutions = (solution,)
+        if isinstance(solution, LinearBatchSolution):
+            recovery_solutions = solution.shapes
+        elif isinstance(solution, NonlinearSolution) and solution.shapes:
+            recovery_solutions = solution.shapes
         for case_solution in recovery_solutions:
             if not callable(getattr(case_solution, "stresses", None)):
                 continue

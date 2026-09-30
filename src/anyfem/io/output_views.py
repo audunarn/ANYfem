@@ -154,6 +154,17 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
     provenance.pop("source_frame_indices", None)
     if request.frame_policy != "envelope":
         provenance["source_frame_indices"] = list(source_frame_indices)
+    for name in ("step_indices", "frame_recovery", "owner_recovery", "case_recovery"):
+        items = descriptor.provenance.get(name)
+        if items is None:
+            continue
+        if len(items) != len(descriptor.frames):
+            raise ValueError(f"stored {name} has no unambiguous frame association")
+        if request.frame_policy == "envelope":
+            provenance.pop(name, None)
+            provenance[f"envelope_source_{name}"] = list(items)
+        else:
+            provenance[name] = [items[index] for index in source_frame_indices]
     if sample_axes is not None:
         # Requested views have an explicit component axis; the native scalar
         # layout marker must not make readers append another component axis.
@@ -207,6 +218,8 @@ def add_output_request_views(payload, scopes):
         for quantity in request.quantity_keys:
             matched = False
             for key, (descriptor, values) in payload.fields.items():
+                if descriptor.recovery == "patch" and request.recovery != "patch":
+                    continue
                 matches, component = _matches(key, descriptor, quantity)
                 if not matches:
                     continue

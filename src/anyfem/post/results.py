@@ -384,6 +384,23 @@ class BucklingSolution(MultiShapeSolution):
         )
 
 
+def _recover_committed_stresses(view, kwargs):
+    """Consume owner recovery with the retained state and its kinematics."""
+    if view._stress is not None and not kwargs:
+        return view._stress
+    from anysolver import recover_stress_result
+    caller_options = bool(kwargs)
+    if view.raw_result is not None and "nonlinear_result" not in kwargs and "element_states" not in kwargs:
+        kwargs["nonlinear_result"] = view.raw_result
+    kinematics = getattr(view, "recovery_kinematics", None)
+    if kinematics is not None and "kinematics" not in kwargs:
+        kwargs["kinematics"] = kinematics
+    result = recover_stress_result(view.built.fe_model, view.displacements, **kwargs)
+    if not caller_options:
+        view._stress = result
+    return result
+
+
 @dataclass
 class NonlinearSolution(ShapeView):
     """The converged end state of an incremental solve, plus its path."""
@@ -420,6 +437,8 @@ class NonlinearSolution(ShapeView):
             for index, step in enumerate(self.steps, start=1)
         }
         count = len(snapshots)
+        raw_info = getattr(self.raw_result, "info", None)
+        kinematics = raw_info.get("kinematics") if isinstance(raw_info, Mapping) else None
         self._increment_views = [
             NonlinearIncrementView(
                 displacements=np.asarray(snapshot.displacements, dtype=float),
@@ -431,6 +450,7 @@ class NonlinearSolution(ShapeView):
                 value=float(snapshot.load_factor),
                 step=steps.get(int(getattr(snapshot, "step_index", index))),
                 raw_result=snapshot,
+                recovery_kinematics=kinematics,
             )
             for index, snapshot in enumerate(snapshots, start=1)
         ]
@@ -456,26 +476,7 @@ class NonlinearSolution(ShapeView):
         different ``nonlinear_result`` for restart/diagnostic comparisons.
         """
 
-        if self._stress is not None and not kwargs:
-            return self._stress
-
-        from anysolver import recover_stress_result
-
-        caller_options = bool(kwargs)
-        if (
-            self.raw_result is not None
-            and "nonlinear_result" not in kwargs
-            and "element_states" not in kwargs
-        ):
-            kwargs["nonlinear_result"] = self.raw_result
-        result = recover_stress_result(
-            self.built.fe_model,
-            self.displacements,
-            **kwargs,
-        )
-        if not caller_options:
-            self._stress = result
-        return result
+        return _recover_committed_stresses(self, kwargs)
 
     def available_fields(self) -> List[str]:
         """Display fields actually carried by this committed nonlinear state."""
@@ -557,6 +558,11 @@ class NonlinearIncrementView(ShapeView):
     step: Any = None
     raw_result: Any = field(default=None, repr=False)
     _stress: Any = field(default=None, repr=False)
+    recovery_kinematics: Optional[str] = None
+
+    def stresses(self, **kwargs):
+        """Recover this committed snapshot through the shared owner adapter."""
+        return _recover_committed_stresses(self, kwargs)
 
     @property
     def element_states(self) -> Mapping[int, Any]:

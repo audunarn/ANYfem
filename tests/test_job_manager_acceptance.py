@@ -13,9 +13,9 @@ from anyfem.model.records import AnalysisDefinition, JobStatus
 
 
 @pytest.mark.parametrize("legacy_token", [False, True])
-@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize("layout", ["single", "batch", "committed"])
 @pytest.mark.parametrize("recovery_stage", ["local", "global", "patch"])
-def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token, batch, recovery_stage):
+def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token, layout, recovery_stage):
     from anyfem.application.workflow import _execute_analysis_job
     import anyfem.solve.run as solve_run
     if legacy_token:
@@ -33,11 +33,16 @@ def test_cancellation_during_requested_stress_recovery_discards_result(monkeypat
         started.set()
         assert release.wait(5.0)
     solution = SimpleNamespace(stresses=recover)
-    if batch:
+    if layout=="batch":
         from anyfem.post.results import LinearBatchSolution
         solution = LinearBatchSolution(built=SimpleNamespace(),
             shapes=[solution, SimpleNamespace(stresses=lambda: pytest.fail("cancelled batch recovered another case"))],
             case_names=("dead", "live"))
+    elif layout=="committed":
+        from anyfem.post.results import NonlinearSolution
+        first=solution
+        solution=NonlinearSolution(displacements=(),built=SimpleNamespace())
+        solution._increment_views=[first,SimpleNamespace(stresses=lambda:pytest.fail("cancelled path recovered another increment"))]
     record = manager.submit(AnalysisDefinition("Stress recovery"), DocumentSession(project).snapshot(),
         _execute_analysis_job, kwargs={"solver_function": lambda **kwargs: solution,
             "analysis_name": "Linear static", "options": {"built": SimpleNamespace()},

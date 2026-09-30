@@ -1122,6 +1122,65 @@ def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,
     if fallback:assert "fallback/unclassified nodes:" in results.report.toPlainText()
 
 
+@pytest.mark.parametrize("kind",["native","global","patch"])
+@pytest.mark.parametrize("kinematics",["von_karman","corotational"])
+def test_qt_committed_nonlinear_stress_frames_solve_reopen_export(window,qapp,tmp_path,monkeypatch,kind,kinematics):
+    import csv,numpy as np
+    from test_io import write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+    from anyfem.model.records import OutputRequest
+    from anysolver import recover_stress_result,PatchRecoveryConfig
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"increments.FEM")))
+    loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["ref"][0].setText("group:group 1");loads.fields["value"][0].setText("20000");loads.execute()
+    patch=kind=="patch";entity=6 if patch else next(iter(window.mesh.shells))
+    window.selection.set_mode("node" if patch else "element")
+    window.selection.select(MeshEntityRef("node" if patch else "element",entity))
+    region=window.panels["Definitions"].create_region()
+    component="von_mises" if kind=="native" else "global_xx_top"
+    request=OutputRequest((f"stress.{component}",),region.id,"node" if patch else "element",
+        basis="element_local" if kind=="native" else "global",recovery="patch" if patch else "native",
+        reduction="none" if patch else "max",frame_policy="selected",frame_indices=(1,0))
+    window.run(cmd.AddOutputRequest(request))
+    solve=window.panels["Solve"];solve.analysis.setCurrentText("Nonlinear static")
+    solve.controls.set_values({"num_steps":2,"max_load_factor":.01,
+        "record_increment_snapshots":True,"kinematics":kinematics})
+    solve.output_requests.item(0).setSelected(True);solve.start()
+    job_id=window.active_job_id
+    wait_until(qapp,lambda:window.solution is not None or str(getattr(window.project.jobs[job_id].status,"value",window.project.jobs[job_id].status))=="failed")
+    assert window.solution is not None,solve.transcript.toPlainText()
+    snapshots=window.solution.shapes;assert len(snapshots)>=2
+    expected=[]
+    for index in (1,0):
+        shape=snapshots[index]
+        options={"patch_config":PatchRecoveryConfig()} if patch else ({"return_global":True} if kind=="global" else {})
+        owner=recover_stress_result(shape.built.fe_model,shape.displacements,
+            nonlinear_result=shape.raw_result,kinematics=kinematics,**options)
+        assert shape._stress.provenance.analysis_context["kinematics"]==kinematics
+        expected.append(owner.nodal_stresses["nodal"][entity][component] if patch
+                        else float(np.max(owner.element_stresses[entity][component])))
+    path=tmp_path/"increments.anyfem";window.save_project(path=str(path))
+    dataset=window.result_datasets[job_id]
+    outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+    assert outcome["status"] in {"available","partial"},outcome
+    key=outcome["fields"][0];descriptor=dataset.field(key).descriptor
+    assert descriptor.frames==tuple(snapshots[index].value for index in (1,0))
+    assert descriptor.provenance["step_indices"]==[snapshots[index].raw_result.step_index for index in (1,0)]
+    assert [entry["analysis_context"]["load_factor"] for entry in descriptor.provenance["frame_recovery"]]==list(descriptor.frames)
+    np.testing.assert_array_equal(dataset.field(key).read(None)[:,0,0],expected)
+    window.new_project();window.open_project(str(path))
+    results=window.panels["Results"];results.activate_job(job_id)
+    choice=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(choice);results.frame.setValue(0);results.inspect_quantity()
+    assert "source frame index: 1" in results.report.toPlainText()
+    destination=tmp_path/"increments.csv";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(destination))
+    results.export_quantity_csv()
+    with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert [int(row["source_frame_index"]) for row in rows]==[1,0]
+    np.testing.assert_array_equal([float(row[f"{component} [Pa]"]) for row in rows],expected)
+
+
 def test_qt_patch_request_validation_blocks_submit_before_job_creation(window,qapp,tmp_path,monkeypatch):
     from test_io import write_sesam_plate
     from anyfem.selection import MeshEntityRef

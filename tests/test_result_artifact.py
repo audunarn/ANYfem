@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from anysolver import ReactionFrame, SolveOutcome
 
 from anyfem.io.artifacts import ArtifactStore
@@ -226,6 +227,72 @@ def test_patch_regions_fallbacks_frames_and_csv_remain_distinct(tmp_path):
     assert [row["recovery_status"] for row in rows]==["fallback","qualified","qualified","fallback"]
     assert [row["frame_label"] for row in rows]==["live","live","dead","dead"]
     assert {int(row["node_id"]) for row in rows}=={10,20}
+
+
+@pytest.mark.parametrize("kind", ["native", "global", "patch"])
+@pytest.mark.parametrize("solution_class", [NonlinearSolution, CapacitySolution])
+def test_nonlinear_requested_recovery_preserves_committed_frame_provenance(tmp_path, kind, solution_class):
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.model.records import OutputRequest
+    from anyfem.ui.result_export import lazy_field_to_csv
+    import csv,io
+    snapshots=[SimpleNamespace(step_index=step,load_factor=.5,displacements=_vector(index),element_states={})
+               for index,step in enumerate((7,9))]
+    raw=SimpleNamespace(snapshots=snapshots,element_states={},failed_trial=SimpleNamespace(displacements=_vector(999)))
+    solution=solution_class(displacements=_vector(),built=_built(),raw_result=raw)
+    for index,view in enumerate(solution.shapes):
+        provenance={"analysis_context":{"load_factor":.5},"marker":index}
+        view._stress=SimpleNamespace(element_stresses={5:{"von_mises":np.array([10.+index,20.+index])}},provenance=provenance)
+        view._requested_global_stress=SimpleNamespace(element_stresses={5:{"global_xx_top":np.array([30.+index,40.+index])}},provenance=provenance)
+        view._requested_patch_stress=SimpleNamespace(nodal_stresses={"nodal":{10:{"von_mises":50.+index}},
+            "node_diagnostics":{10:{"status":"qualified" if index==0 else "fallback"}}},provenance=provenance)
+    patch=kind=="patch"
+    request=OutputRequest(("stress.global_xx_top" if kind=="global" else "stress.von_mises",),"region",
+        "node" if patch else "element",basis="element_local" if kind=="native" else "global",
+        recovery="patch" if patch else "native",reduction="none" if patch else "max",
+        frame_policy="selected",frame_indices=(1,0))
+    payload=add_output_request_views(result_artifact_payload(solution),({"request":request.to_dict(),
+        "node_ids":[10],"element_ids":[5]},))
+    outcome=payload.provenance["output_request_outcomes"][0]
+    assert outcome["status"]==("partial" if patch else "available"),outcome
+    key=outcome["fields"][0];descriptor,values=payload.fields[key]
+    assert descriptor.frames==(.5,.5) and descriptor.provenance["step_indices"]==[9,7]
+    assert [item["marker"] for item in descriptor.provenance["frame_recovery"]]==[1,0]
+    expected={"native":[21.,20.],"global":[41.,40.],"patch":[51.,50.]}[kind]
+    np.testing.assert_array_equal(values[:,0,0],expected)
+    store=ArtifactStore(tmp_path/"committed.anyfem")
+    artifact=store.write_result(job_id="job",document_id="document",mesh_id="mesh",model_hash="model",
+        mesh_hash="mesh",analysis_hash="analysis",**payload.write_result_inputs())
+    rows=list(csv.DictReader(io.StringIO(lazy_field_to_csv(store.open_result(artifact),key))))
+    assert [int(row["source_frame_index"]) for row in rows]==[1,0]
+    if patch:
+        assert [row["recovery_status"] for row in rows]==["fallback","qualified"]
+
+
+def test_incomplete_committed_recovery_does_not_fabricate_missing_frames():
+    snapshots=[SimpleNamespace(step_index=index,load_factor=float(index),displacements=_vector(),element_states={}) for index in (1,2)]
+    solution=NonlinearSolution(displacements=_vector(),built=_built(),raw_result=SimpleNamespace(snapshots=snapshots,element_states={}))
+    solution.shapes[0]._stress=SimpleNamespace(element_stresses={5:{"von_mises":np.array([42.])}})
+    payload=result_artifact_payload(solution)
+    assert "stress_von_mises" not in payload.fields
+    assert payload.tables["committed_native_recovery"]["missing_frames"]==[1]
+
+
+def test_nonlinear_final_recovery_without_snapshots_stays_one_real_frame():
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.model.records import OutputRequest
+    raw=SimpleNamespace(snapshots=(),element_states={},load_factor=.8)
+    solution=NonlinearSolution(displacements=_vector(),built=_built(),raw_result=raw,value=.8)
+    solution._stress=SimpleNamespace(element_stresses={5:{"von_mises":np.array([42.])}})
+    payload=result_artifact_payload(solution)
+    descriptor,values=payload.fields["stress_von_mises"]
+    assert descriptor.frames==(.8,)
+    np.testing.assert_array_equal(values,[[[42.]]])
+    request=OutputRequest(("stress.von_mises",),"region","element",basis="element_local",
+                          reduction="max",frame_policy="selected",frame_indices=(1,))
+    payload=add_output_request_views(payload,({"request":request.to_dict(),"element_ids":[5]},))
+    outcome=payload.provenance["output_request_outcomes"][0]
+    assert outcome["status"]=="unavailable" and not outcome["fields"]
 
 
 def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):

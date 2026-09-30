@@ -903,6 +903,10 @@ def _adapt_nonlinear(
             provenance={"increment_snapshots": False},
         )
 
+    if snapshots:
+        _add_committed_recovery(builder, solution.shapes)
+    elif getattr(solution, "_stress", None) is not None:
+        _add_static_stresses(builder, solution._stress, prefix="stress", frames=builder.frames)
     _add_nonlinear_histories(builder, solution)
     element_states = getattr(raw, "element_states", None)
     if isinstance(element_states, Mapping) and element_states:
@@ -1504,7 +1508,35 @@ def _recovery_frames(result):
     return (float(factor),) if factor is not None else (0.0,)
 
 
-def _add_patch_stresses(builder: _Builder, recovered, frames, case_names=()) -> None:
+def _add_committed_recovery(builder, views):
+    """Persist recovered committed snapshots, never reconstructed path frames."""
+    steps = [int(getattr(view.raw_result, "step_index", index))
+             for index, view in enumerate(views, start=1)]
+    for attribute, kind in (("_stress", "native"), ("_requested_global_stress", "global"),
+                            ("_requested_patch_stress", "patch")):
+        recovered = tuple(getattr(view, attribute, None) for view in views)
+        if not any(value is not None for value in recovered):
+            continue
+        missing = [index for index, value in enumerate(recovered) if value is None]
+        if missing:
+            builder.add_table(f"committed_{kind}_recovery", {"missing_frames": missing,
+                "frames": builder.frames, "step_indices": steps})
+            continue
+        provenance = {"increment_snapshots": True, "step_indices": steps,
+                      "frame_recovery": [_stress_provenance(value) for value in recovered]}
+        if kind == "patch":
+            _add_patch_stresses(builder, recovered, builder.frames, provenance=provenance)
+        else:
+            history = tuple(value.element_stresses for value in recovered)
+            if kind == "global":
+                history = tuple({element: {name: values for name, values in components.items()
+                                           if name in _GLOBAL_SURFACE_STRESSES}
+                                 for element, components in frame.items()} for frame in history)
+            _add_stress_history(builder, history, builder.frames, prefix="stress",
+                                recovery="recovered", provenance=provenance)
+
+
+def _add_patch_stresses(builder: _Builder, recovered, frames, case_names=(), *, provenance=None) -> None:
     """Retain owner-continuous node values and the separate region diagnostics."""
     bundles = tuple(getattr(result, "nodal_stresses", None) for result in recovered)
     builder.add_table("patch_recovery", bundles)
@@ -1523,7 +1555,7 @@ def _add_patch_stresses(builder: _Builder, recovered, frames, case_names=()) -> 
         key = builder.add_field(f"stress_patch_{component}", values,
             label=f"Patch {component.replace('_', ' ')}", location="node", unit="Pa",
             components=(component,), basis="global", recovery="patch", frames=frames,
-            provenance={"node_recovery_status": statuses,
+            provenance={**dict(provenance or {}), "node_recovery_status": statuses,
                         "unqualified_node_ids": sorted({int(node) for item in statuses
                             for node, status in item.items() if status != "qualified"}),
                         "owner_recovery": [_stress_provenance(result) for result in recovered],
