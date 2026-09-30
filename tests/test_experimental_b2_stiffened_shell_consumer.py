@@ -10,7 +10,7 @@ from scipy import sparse
 from anysolver import stiffened_shell
 from anysolver.control import CancellationToken
 from anyfem.solve.stiffened_shell_b2 import (
-    ExperimentalB2PointPanel, STATUS, load_case, save_case,
+    ExperimentalB2PointPanel, SCHEMA, SCHEMA_MASS, STATUS, load_case, save_case,
 )
 
 
@@ -163,3 +163,164 @@ def test_b2_panel_consumer_rejects_shell_density_before_persistence():
         ExperimentalB2PointPanel.from_definition(
             replace(definition, shells=shells),
             (("load", np.zeros(54)),), selected_dofs=(0,))
+
+
+def _mass_panel():
+    definition = _panel()
+    mass = stiffened_shell.MassMetadata(
+        "physical-section-mass", (0., .04, -.02),
+        np.diag((.3, .3, .3, .003, .001, .002)))
+    return replace(definition,
+                   shells=tuple(replace(s, density_kg_m3=2.)
+                                for s in definition.shells),
+                   members=tuple(replace(m, mass=mass)
+                                 for m in definition.members))
+
+
+def _mass_case(definition=None):
+    definition = _mass_panel() if definition is None else definition
+    load = np.zeros(54)
+    load[49] = .08
+    return ExperimentalB2PointPanel.from_definition(
+        definition, (("load", load),), selected_dofs=(49,),
+        selected_points=("joint-right",),
+        recover_members={"beam-right": (.25, .75)}, schema=SCHEMA_MASS)
+
+
+def test_b2_mass_save_reopen_preserves_static_and_reference_modes(tmp_path):
+    definition = _mass_panel()
+    case = _mass_case(definition)
+    assert case.schema == SCHEMA_MASS and case.status == STATUS
+    record = json.loads(case.payload)
+    assert record["shells"][0]["density_kg_m3"] == 2.
+    assert record["members"][0]["mass"] == {
+        "source_id": "physical-section-mass", "origin_local_m": [0., .04, -.02],
+        "matrix_per_m": [list(r) for r in definition.members[0].mass.matrix_per_m],
+    }
+    reopened = load_case(save_case(case, tmp_path / "mass.anyfem-b2.json"))
+    assert reopened.payload == case.payload
+    request = stiffened_shell.B2ReferenceModesRequest(count=3)
+    owner = stiffened_shell.create_analysis(definition=definition)
+    try:
+        expected = owner.modes(request)
+    finally:
+        owner.close()
+    definition.transformation.data[:] = 0.
+    definition.prescribed_offset[:] = 1.
+    actual = reopened.modes(request)
+    assert actual.status == expected.status == "ok"
+    assert not actual.production_qualified
+    np.testing.assert_allclose(actual.frequencies_hz, expected.frequencies_hz,
+                               rtol=2e-8)
+    # Eigenvector signs are arbitrary; compare each physical mode up to sign.
+    for a, b in zip(actual.physical_modes, expected.physical_modes):
+        sign = 1. if np.dot(a, b) >= 0. else -1.
+        np.testing.assert_allclose(a, sign*np.asarray(b), rtol=2e-7, atol=1e-8)
+    assert max(actual.equation_residuals) <= 1e-8
+    assert max(actual.constraint_residuals) <= 1e-8
+    assert actual.factorization_count == 1
+    static = reopened.solve_linear_many()
+    legacy = ExperimentalB2PointPanel.from_definition(
+        _panel(), (("load", np.eye(54)[49]*.08),), selected_dofs=(49,),
+        selected_points=("joint-right",), recover_members={"beam-right": (.25, .75)})
+    assert static == legacy.solve_linear_many()
+    assert legacy.schema == SCHEMA
+    assert "mass" not in json.loads(legacy.payload)["members"][0]
+    assert "density_kg_m3" not in json.loads(legacy.payload)["shells"][0]
+
+
+@pytest.mark.parametrize("missing", ("beam", "shell"))
+def test_b2_partial_mass_preserves_static_but_rejects_modes(missing):
+    definition = _mass_panel()
+    if missing == "beam":
+        definition = replace(definition, members=(
+            replace(definition.members[0], mass=None), definition.members[1]))
+    else:
+        definition = replace(definition, shells=(
+            replace(definition.shells[0], density_kg_m3=None), definition.shells[1]))
+    case = _mass_case(definition)
+    assert case.solve_linear_many().status == "completed"
+    with pytest.raises(ValueError, match="explicit shell density and beam physical mass"):
+        case.modes(stiffened_shell.B2ReferenceModesRequest())
+
+
+def test_b2_mass_affine_model_is_preserved_without_claiming_modal_support(tmp_path):
+    definition = _mass_panel()
+    transformation = definition.transformation.tolil()
+    # One existing free row also depends on a second free coordinate.
+    transformation[6, 1] = .1
+    offset = np.zeros(54)
+    offset[0] = .001
+    definition = replace(definition, transformation=transformation.tocsr(),
+                         prescribed_offset=offset)
+    case = _mass_case(definition)
+    reopened = load_case(save_case(case, tmp_path / "affine.anyfem-b2.json"))
+    assert reopened.payload == case.payload
+    assert reopened.solve_linear_many().status == "completed"
+    with pytest.raises(ValueError, match="coordinate supports without MPCs"):
+        reopened.modes(stiffened_shell.B2ReferenceModesRequest())
+
+
+@pytest.mark.parametrize("corrupt", (
+    "downgrade", "missing-density", "missing-mass", "unknown-mass",
+    "bool-density", "nonfinite-density", "bad-mass", "short-matrix",
+))
+def test_b2_mass_schema_rejects_lossy_or_invalid_records(corrupt):
+    record = json.loads(_mass_case().payload)
+    if corrupt == "downgrade":
+        record["schema"] = SCHEMA
+    elif corrupt == "missing-density":
+        del record["shells"][0]["density_kg_m3"]
+    elif corrupt == "missing-mass":
+        del record["members"][0]["mass"]
+    elif corrupt == "unknown-mass":
+        record["members"][0]["mass"]["density"] = 1.
+    elif corrupt == "bool-density":
+        record["shells"][0]["density_kg_m3"] = True
+    elif corrupt == "nonfinite-density":
+        record["shells"][0]["density_kg_m3"] = float("inf")
+    elif corrupt == "bad-mass":
+        record["members"][0]["mass"]["matrix_per_m"][0][0] = -1.
+    else:
+        record["members"][0]["mass"]["matrix_per_m"].pop()
+    with pytest.raises(ValueError):
+        ExperimentalB2PointPanel(json.dumps(record).encode("ascii"))
+
+
+def test_b2_mass_modes_preserves_cancellation_and_closes_owner(monkeypatch):
+    case = _mass_case()
+    token = CancellationToken()
+    token.cancel("consumer modal cancellation")
+    result = case.modes(stiffened_shell.B2ReferenceModesRequest(), cancellation=token)
+    assert result.status == "cancelled" and not result.frequencies_hz
+    assert result.factorization_count == 0
+    owners = []
+    failure = stiffened_shell.B2ReferenceModesResult(
+        "failed", (), (), (), (), (), 1, 0, "backend detail")
+
+    class Owner:
+        closed = False
+
+        def modes(self, request, *, cancellation):
+            assert request is control and cancellation is token
+            if raises:
+                raise RuntimeError("programming failure")
+            return failure
+
+        def close(self):
+            self.closed = True
+
+    def factory(*, definition):
+        owner = Owner()
+        owners.append(owner)
+        return owner
+
+    monkeypatch.setattr(stiffened_shell, "create_analysis", factory)
+    control = stiffened_shell.B2ReferenceModesRequest()
+    raises = False
+    assert case.modes(control, cancellation=token) is failure
+    assert owners[-1].closed
+    raises = True
+    with pytest.raises(RuntimeError, match="programming failure"):
+        case.modes(control, cancellation=token)
+    assert owners[-1].closed

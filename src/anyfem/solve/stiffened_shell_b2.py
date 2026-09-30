@@ -21,6 +21,7 @@ from anysolver import stiffened_shell
 
 
 SCHEMA = "anyfem.experimental-b2-q4-point-panel-v1"
+SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-b2.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -88,9 +89,10 @@ def _decode(record):
     record = _exact(record, ("schema", "status", "profile", "shell_nodes",
                              "shells", "members", "points", "affine",
                              "cases", "selection"), "experimental B2 panel")
-    if (record["schema"] != SCHEMA or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MASS) or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
+    with_mass = record["schema"] == SCHEMA_MASS
     node_rows = record["shell_nodes"]
     if type(node_rows) is not list or not node_rows:
         raise ValueError("experimental B2 shell nodes required")
@@ -108,24 +110,43 @@ def _decode(record):
         raise ValueError("experimental B2 Q4 shells required")
     shells = []
     for item in record["shells"]:
-        row = _exact(item, ("shell_id", "node_ids", "E", "nu",
-                            "thickness_m", "reference_normal"), "Q4 shell")
+        fields = ("shell_id", "node_ids", "E", "nu", "thickness_m",
+                  "reference_normal")
+        row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()),
+                     "Q4 shell")
+        density = row.get("density_kg_m3")
         shells.append(stiffened_shell.Q4PanelShell(
             _identifier(row["shell_id"], "shell ID"),
             _vector(row["node_ids"], 4, "Q4 node IDs", integer=True),
             _number(row["E"], "Q4 modulus"),
             _number(row["nu"], "Q4 Poisson ratio"),
             _number(row["thickness_m"], "Q4 thickness"),
-            _vector(row["reference_normal"], 3, "Q4 normal")))
+            _vector(row["reference_normal"], 3, "Q4 normal"),
+            density_kg_m3=(None if density is None else
+                          _number(density, "Q4 density"))))
 
     if type(record["members"]) is not list or not record["members"]:
         raise ValueError("experimental physical B2 members required")
     members = []
     for item in record["members"]:
-        row = _exact(item, ("member_id", "source_id", "node_ids",
+        fields = ("member_id", "source_id", "node_ids",
                             "reference_points_m", "local_y_global",
                             "section_id", "section", "profile_id",
-                            "schema_id", "unit_system"), "physical B2 member")
+                            "schema_id", "unit_system")
+        row = _exact(item, fields + (("mass",) if with_mass else ()),
+                     "physical B2 member")
+        mass = None
+        if with_mass and row["mass"] is not None:
+            mass_row = _exact(row["mass"],
+                              ("source_id", "origin_local_m", "matrix_per_m"),
+                              "physical B2 mass")
+            matrix = mass_row["matrix_per_m"]
+            if type(matrix) is not list or len(matrix) != 6:
+                raise ValueError("six-row physical B2 mass required")
+            mass = stiffened_shell.MassMetadata(
+                _identifier(mass_row["source_id"], "mass source ID"),
+                _vector(mass_row["origin_local_m"], 3, "mass origin"),
+                tuple(_vector(line, 6, "mass row") for line in matrix))
         section_row = _exact(row["section"],
                              ("operator_id", "kind", "stiffness",
                               "scalar_parameters"), "physical B2 section")
@@ -150,7 +171,7 @@ def _decode(record):
             tuple(_vector(point, 3, "beam reference position")
                   for point in points),
             _vector(row["local_y_global"], 3, "beam local y"),
-            _identifier(row["section_id"], "section ID"), section,
+            _identifier(row["section_id"], "section ID"), section, mass=mass,
             profile_id=_identifier(row["profile_id"], "member profile"),
             schema_id=_identifier(row["schema_id"], "member schema"),
             unit_system=_identifier(row["unit_system"], "unit system")))
@@ -255,24 +276,32 @@ class ExperimentalB2PointPanel:
     def status(self):
         return STATUS
 
+    @property
+    def schema(self):
+        return _json_load(self.payload)["schema"]
+
     @classmethod
     def from_definition(cls, definition, cases, *, selected_dofs,
-                        selected_points=(), recover_members=None):
-        if (type(definition) is stiffened_shell.B2Q4PanelDefinition and
+                        selected_points=(), recover_members=None, schema=SCHEMA):
+        if schema not in (SCHEMA, SCHEMA_MASS):
+            raise ValueError("experimental B2 panel schema required")
+        if (schema == SCHEMA and
+                type(definition) is stiffened_shell.B2Q4PanelDefinition and
                 any(getattr(shell, "density_kg_m3", None) is not None
                     for shell in definition.shells)):
             raise ValueError("shell density is unsupported by experimental B2 input persistence")
         if (type(definition) is not stiffened_shell.B2Q4PanelDefinition or
                 definition.profile != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1 or
                 any(type(member) is not stiffened_shell.PhysicalB2Member or
-                    member.mass is not None or member.geometric is not None
+                    (schema == SCHEMA and member.mass is not None) or
+                    member.geometric is not None
                     for member in definition.members)):
             raise ValueError("elastic physical B2/Q4 point-panel inputs required")
         T = definition.transformation.tocsr(copy=True)
         T.sum_duplicates()
         T.sort_indices()
         record = {
-            "schema": SCHEMA, "status": STATUS, "profile": definition.profile,
+            "schema": schema, "status": STATUS, "profile": definition.profile,
             "shell_nodes": [[int(key), list(value)] for key, value in
                             sorted(definition.shell_nodes_m.items())],
             "shells": [{"shell_id": shell.shell_id,
@@ -318,6 +347,15 @@ class ExperimentalB2PointPanel:
                           {name: list(values) for name, values in
                            recover_members.items()}},
         }
+        if schema == SCHEMA_MASS:
+            for row, shell in zip(record["shells"], definition.shells):
+                row["density_kg_m3"] = shell.density_kg_m3
+            for row, member in zip(record["members"], definition.members):
+                row["mass"] = (None if member.mass is None else {
+                    "source_id": member.mass.source_id,
+                    "origin_local_m": list(member.mass.origin_local_m),
+                    "matrix_per_m": [list(v) for v in member.mass.matrix_per_m],
+                })
         return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
                               allow_nan=False).encode("ascii"))
 
@@ -334,6 +372,15 @@ class ExperimentalB2PointPanel:
                 cases, selected_dofs=dofs, selected_points=points,
                 recover_members=recovery,
                 cancellation_token=cancellation_token, on_case=on_case)
+        finally:
+            owner.close()
+
+    def modes(self, request: stiffened_shell.B2ReferenceModesRequest, *,
+              cancellation=None):
+        """Delegate reference modes; preserve admission and numerical status."""
+        owner = self.create_analysis()
+        try:
+            return owner.modes(request, cancellation=cancellation)
         finally:
             owner.close()
 
@@ -370,5 +417,5 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
     return ExperimentalB2PointPanel(payload)
 
 
-__all__ = ["ExperimentalB2PointPanel", "SCHEMA", "STATUS", "SUFFIX",
+__all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFIX",
            "save_case", "load_case"]

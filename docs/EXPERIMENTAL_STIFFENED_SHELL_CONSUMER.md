@@ -66,3 +66,51 @@ run passed all three consumer tests, including finite restore and continuation;
 the wheel identity and imports are recorded in the solver's living note. The
 runs used `NUMBA_DISABLE_JIT=1` after an ordinary import stalled; they do not
 establish qualified or accelerated-runtime behavior.
+
+## Separate B2 inputs and reference modes
+
+`anyfem.solve.stiffened_shell_b2.ExperimentalB2PointPanel` persists physical
+B2/Q4 point-panel inputs in `.anyfem-b2.json`. Its default
+`anyfem.experimental-b2-q4-point-panel-v1` remains static and rejects density,
+beam mass and prestress metadata. It preserves ordered load cases, affine
+supports and selected recovery; `solve_linear_many()` delegates bounded batches
+and complete-case cancellation to the public solver owner.
+
+Select `schema=SCHEMA_MASS` explicitly in `from_definition(...)` for
+`anyfem.experimental-b2-q4-point-panel-mass-v2`. Each shell then records its
+nullable `density_kg_m3`; each beam records nullable physical mass metadata:
+source ID, local origin in metres and the complete 6-by-6 per-length matrix.
+The velocity order is `[vx, vy, vz, wx, wy, wz]` at that declared origin.
+ANYsolver validates physical section mass and applies the reference-axis
+transformation. The consumer infers no density or inertia from stiffness.
+Missing mass stays missing; it is never replaced by zero or discarded on reopen.
+
+```python
+from anyfem.solve.stiffened_shell_b2 import (
+    ExperimentalB2PointPanel, SCHEMA_MASS, save_case, load_case,
+)
+from anysolver import stiffened_shell
+
+case = ExperimentalB2PointPanel.from_definition(
+    definition, cases, selected_dofs=selected_dofs, schema=SCHEMA_MASS,
+)
+save_case(case, "panel.anyfem-b2.json")
+reopened = load_case("panel.anyfem-b2.json")
+batch = reopened.solve_linear_many()
+modes = reopened.modes(stiffened_shell.B2ReferenceModesRequest(count=3))
+```
+
+Complete explicit shell and beam mass is required for reference modes. The
+current solver admits coordinate supports, including rescaled selectors; it
+rejects general MPC modal requests. Partial-mass and affine models remain valid
+static inputs. Physical model admission happens through `create_analysis()`;
+construction validates the bounded input format, not every solve prerequisite.
+Modal cancellation and numerical failure retain the solver's status and details;
+delegated operations close their owner even when an exception propagates.
+`create_analysis()` returns an owner the caller must close.
+
+Both formats are **experimental and not qualified**, input-only, separate from
+ordinary native projects and solver checkpoints. They admit no new prestress,
+buckling, finite B2 response or GE spectral operation. Save/reopen starts a fresh
+owner and does not resume an accepted state. Unsupported versions or fields fail
+explicitly, including an attempted mass-v2 downgrade to static v1.
