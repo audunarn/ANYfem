@@ -1892,6 +1892,32 @@ def test_importing_results_needs_a_mesh(app, root):
         app._attach_results(results)
 
 
+@pytest.mark.parametrize("stress_only",[True,False])
+def test_imported_mesh_result_uses_built_project_context(app,root,tmp_path,stress_only):
+    from test_interop_results import SHELL_SIF,write_frd
+    from test_io import write_sesam_plate
+    source=tmp_path/"source.FEM"
+    if stress_only:
+        source.write_text("\n".join(line for line in SHELL_SIF.splitlines() if not line.startswith("RVSTRESS"))+"\n")
+        app.import_sesam_model(str(source))
+        result=tmp_path/"external.SIF";result.write_text(SHELL_SIF)
+        app.import_sesam_result(str(result))
+    else:
+        app.import_sesam_model(str(write_sesam_plate(source)))
+        built=app.built()
+        values=np.zeros(6*len(app.mesh.nodes))
+        manager=built.fe_model.mesh.dof_manager
+        for node in sorted(app.mesh.nodes):values[manager.get_node_dofs(node)[2]]=-node*1e-3
+        result=write_frd(tmp_path/"external.frd",app.mesh,built,values)
+        app.import_calculix_result(str(result))
+    root.update()
+    assert app.solution.built.project is app.project
+    fields=app.panels["Results"]._field_box.cget("values")
+    assert fields and "rx" not in fields
+    assert ("magnitude" not in fields)==stress_only
+    app.show_results();root.update()
+
+
 def test_importing_a_result_shows_it(app, root):
     from anyfem.io.results import ImportedResults
 

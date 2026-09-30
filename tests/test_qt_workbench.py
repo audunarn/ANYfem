@@ -1239,6 +1239,81 @@ def test_qt_deck_and_calculix_result_import(window,qapp,tmp_path):
     window.panels["Results"].activate_job(imported_job);qapp.processEvents()
 
 
+@pytest.mark.parametrize("format",["sesam-stress","calculix-displacement"])
+def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_path,monkeypatch,format):
+    import csv
+    import numpy as np
+    from test_interop_results import SHELL_SIF,write_frd
+    source=tmp_path/"source.FEM"
+    if format=="sesam-stress":
+        source.write_text("\n".join(line for line in SHELL_SIF.splitlines() if not line.startswith("RVSTRESS"))+"\n")
+        window.import_sesam_model(str(source))
+        result_path=tmp_path/"external.SIF";result_path.write_text(SHELL_SIF)
+        window.import_sesam_result(str(result_path))
+        assert "magnitude" not in window.solution.available_fields()
+        assert not window.solution.components
+        assert window.solution.results.element_stresses
+    else:
+        from test_io import write_sesam_plate
+        window.import_sesam_model(str(write_sesam_plate(source)))
+        loads=window.panels["Loads & BC"]
+        loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+        loads.fields["ref"][0].setText("group:group 1")
+        loads.fields["value"][0].setText("20000");loads.execute()
+        window.solve();wait_until(qapp,lambda:window.solution is not None)
+        shape=window.current_shape()
+        deck=tmp_path/"external.inp";window.export_deck(str(deck))
+        assert "*NODE" in deck.read_text().upper()
+        assert "*ELEMENT" in deck.read_text().upper()
+        result_path=write_frd(tmp_path/"external.frd",window.mesh,shape.built,shape.displacements)
+        window.import_calculix_result(str(result_path))
+        assert window.solution.components==frozenset(("ux","uy","uz"))
+        with pytest.raises(KeyError,match="does not store"):window.solution.component("rx")
+        assert window.solution.max_translation()[1]>0
+    qapp.processEvents()
+    job_id=window.active_job_id
+    assert window.project.jobs[job_id].name.startswith("Imported")
+    assert window.solution.built.project is window.project
+    path=tmp_path/"portable-external.anyfem"
+    window.save_project(path=str(path));window.flush_project_writes()
+    dataset=window.result_datasets[job_id]
+    if format=="sesam-stress":
+        for name,field in window.solution.fields.items():
+            values=[field.values[identifier] for identifier in sorted(field.values)]
+            np.testing.assert_array_equal(dataset.field(f"stress_{name}").read(0)[:,0],values)
+    else:
+        values=[window.solution.results.displacements[identifier] for identifier in sorted(window.solution.results.displacements)]
+        np.testing.assert_array_equal(dataset.field("displacement").read(0),values)
+    expected={key:dataset.field(key).read(0).copy() for key in dataset.field_keys}
+    assert expected and any(np.any(values!=0) for values in expected.values())
+    if format=="sesam-stress":assert "displacement" not in expected
+    else:assert dataset.field("displacement").descriptor.components==("ux","uy","uz")
+    window.panels["Results"].show_results();qapp.processEvents()
+    window.new_project()
+    # Retained answers and embedded model must survive missing source files.
+    source.unlink();result_path.unlink()
+    window.open_project(str(path));qapp.processEvents()
+    panel=window.panels["Results"];panel.activate_job(job_id);qapp.processEvents()
+    retained=window.result_datasets[job_id]
+    assert set(retained.field_keys)==set(expected)
+    for key,values in expected.items():np.testing.assert_array_equal(retained.field(key).read(0),values)
+    if format=="sesam-stress":assert panel.field_name()!="magnitude"
+    else:assert retained.field("displacement").descriptor.components==("ux","uy","uz")
+    key=next(iter(expected));panel.field.setCurrentText(key);panel.show_results();qapp.processEvents()
+    csv_path=tmp_path/"external.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(csv_path))
+    panel.export_csv()
+    rows=list(csv.DictReader(csv_path.read_text().splitlines()))
+    assert rows
+    descriptor=retained.field(key).descriptor
+    headers=[f"{component} [{descriptor.unit}]" if descriptor.unit else component for component in descriptor.components]
+    np.testing.assert_array_equal([[float(row[header]) for header in headers] for row in rows],expected[key])
+    kind="node" if descriptor.location=="node" else "element"
+    assert [int(row[f"{kind}_id"]) for row in rows]==retained.table(f"{key}_{kind}_ids").tolist()
+    window.viewport.capture_png(tmp_path/"external.png")
+    assert (tmp_path/"external.png").stat().st_size>100
+
+
 def test_qt_combination_target_and_appearance_reset(window,qapp):
     window.run(cmd.AddLoadCase("default"))
     window.run(cmd.AddCombination("ULS",{"default":1.5}))

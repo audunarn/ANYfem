@@ -2904,7 +2904,7 @@ class WorkbenchWorkflow:
         """The built model behind the current mesh, if there is one."""
 
         if self.imported is not None:
-            return self.imported
+            return self.imported.built(project=self.project)
         if self.mesh is None:
             return None
         from ..solve.build import build_fe_model
