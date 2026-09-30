@@ -392,6 +392,58 @@ def test_real_qt_mesh_solve_save_reopen(window,qapp,tmp_path):
     assert window.viewport.capture_png(tmp_path/"results.png").stat().st_size>100
 
 
+def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path):
+    import json
+    from anyfem.model.records import OutputRequest
+    a,b=cantilever(window)
+    definitions=window.panels["Definitions"]
+    window.selection.set_mode("vertex")
+    window.selection.restore((window.project.geometry.entity_ref("vertex",b),))
+    definitions.region_name.setText("Tip output")
+    region=definitions.create_region()
+    request=OutputRequest(("displacement",),region.id,"node",label="Tip movement")
+    window.run(cmd.AddOutputRequest(request))
+    solve=window.panels["Solve"]
+    solve.output_requests.item(0).setSelected(True)
+    window.run(cmd.EditOutputRequest(request.id,replace(request,label="Renamed tip movement")))
+    assert solve.output_requests.selectedItems()[0].data(Qt.UserRole)==request.id
+    window.panels["Mesh"].strategy.setCurrentText("auto")
+    window.panels["Mesh"].start()
+    wait_until(qapp,lambda:window.mesh is not None or not window.mesh_job_running)
+    assert window.mesh is not None,window._status.get()
+    solve.submit.click()
+    wait_until(qapp,lambda:window.solution is not None)
+    job=window.project.jobs[window.active_job_id]
+    definition=window.project.analyses[job.analysis_id]
+    assert definition.output_request_ids==(request.id,)
+    assert "output_request_ids" not in definition.settings
+    submitted=json.loads(window.submitted_input_reports[job.id])
+    assert submitted["output_requests"][0]["region"]==region.id
+    assert submitted["output_requests"][0]["id"]==request.id
+    destination=tmp_path/"requested-output.anyfem"
+    window.save_project(path=str(destination))
+    window.new_project();window.open_project(str(destination))
+    assert window.project.analyses[job.analysis_id].output_request_ids==(request.id,)
+
+
+def test_qt_submit_rejects_unavailable_request_before_queuing(window,qapp):
+    from anyfem.model.records import OutputRequest
+    a,b=cantilever(window)
+    definitions=window.panels["Definitions"]
+    window.selection.set_mode("vertex")
+    window.selection.restore((window.project.geometry.entity_ref("vertex",b),))
+    region=definitions.create_region()
+    request=OutputRequest(("frequency",),region.id,"global")
+    window.run(cmd.AddOutputRequest(request))
+    # Admission must happen before adding an analysis or entering the manager.
+    window.mesh=object()
+    before=set(window.project.analyses)
+    with pytest.raises(ValueError,match="unavailable for analysis"):
+        window.solve("Linear static",output_request_ids=(request.id,))
+    assert set(window.project.analyses)==before
+    assert not window.project.jobs
+
+
 def test_load_edit_preserves_mesh_and_invalidates_solution(window,qapp,tmp_path):
     cantilever(window)
     window.generate_mesh_async(0.5,strategy="auto")
@@ -505,6 +557,41 @@ def test_qt_inspection_only_mesh_stays_unadmitted(window,qapp,monkeypatch):
     with pytest.raises(ValueError,match="inspection-only"):window.solve()
     assert record.summary["solver_admission"]=="BLOCKED"
     window.show_geometry();window.show_mesh();assert window._view_mode=="inspection_mesh"
+
+
+def test_qt_automatic_mesh_budget_retains_incomplete_outcome(window,qapp):
+    cantilever(window)
+    panel=window.panels["Mesh"]
+    panel.strategy.setCurrentText("quad_first")
+    panel.automation_controls.fields["max_seconds"][0].setText("1e-12")
+    revision=window.project.geometry.revision
+    panel.generate.click()
+    record=next(reversed(window.project.mesh_records.values()))
+    wait_until(qapp,lambda:record.status=="incomplete")
+    assert window.mesh is None and window._inspection_mesh is None
+    assert window.project.geometry.revision==revision
+    assert record.diagnostics[-1]["type"]=="MeshRecoveryIncomplete"
+    assert "time budget expired" in window._status.get()
+    assert not window.panels["Solve"].submit.isEnabled()
+
+
+def test_qt_strict_mesh_policy_retains_owner_refusal(window,qapp,monkeypatch):
+    import anymesher.recovery as recovery
+    from anymesher.s3_repair import S3RepairError
+    def refuse(*args,**kwargs):
+        raise S3RepairError("strict method admission refused",attempts=())
+    monkeypatch.setattr(recovery,"generate_hybrid_mesh_result",refuse)
+    cantilever(window)
+    panel=window.panels["Mesh"]
+    panel.strategy.setCurrentText("quad_first")
+    panel.automation_controls.fields["strict_method"][0].setChecked(True)
+    panel.generate.click()
+    record=next(reversed(window.project.mesh_records.values()))
+    wait_until(qapp,lambda:record.status=="failed")
+    assert window.mesh is None
+    assert record.diagnostics[-1]["type"]=="S3RepairError"
+    assert "strict method admission refused" in window._status.get()
+    assert not window.panels["Solve"].submit.isEnabled()
 
 
 def test_qt_structured_preview_commit_and_undo(window,qapp):

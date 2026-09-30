@@ -257,3 +257,65 @@ failures are not waived or repaired by this candidate delivery. No test assertio
 was weakened. Source-equality evidence confirms all 118 installed ANYfem and 32
 installed viewer Python files match the clean candidate sources, normalizing
 Windows line endings (`installed-source-equality.json`).
+
+### Acceptance and main cleanup continuation, 2026-09-30
+
+The user authorized completing remaining parity/scientific/hardware/review gates
+and housekeeping on main. Recent main commits have changed S3 preparation
+admission and nonlinear quad-first routing; recheck their affected failures
+against clean committed owners before interpreting acceptance. Keep numerical
+criteria, retained failures and unrelated compatibility work intact.
+
+First bounded question: why candidate CI passes Windows but fails Linux.
+Run 36735205661 passes Windows 3.11/3.14; Linux 3.14 fails building glcontext
+because X11 headers are absent before installation. Linux 3.11 aborts in
+QApplication initialization under Xvfb; inspect the XCB plugin requirements.
+Move Linux build/runtime libraries before pip, explicitly select XCB and run a
+visible platform startup check before pytest so startup diagnostics survive.
+Then rerun the affected CI with the exact pinned candidate inputs.
+
+Next slices close scoped-output and automatic-recovery real-window outcomes,
+assess current scientific failures against their existing gates, and resolve
+independent review findings. Only mark supported features accepted when their
+evidence is complete. A physical Linux GPU host has been requested; WSLg/Mesa
+cannot close that requirement. Do not switch defaults or retire Tk until all
+acceptance prerequisites hold. Housekeeping keeps the living ledger current,
+fixes reproducibility and removes obsolete owned code only after coverage;
+it does not stage unrelated work or delete historical failure evidence.
+
+The user explicitly leaves ANYgeometry publication to its owner. Current
+ANYfem main `e0f7ac70a9b34966f7bf411e9ae3739988abf55f` requires batch
+intersection exports absent from public geometry `7e797791727752aec21ddd98d08daf8f0916e280`.
+Lazy capability imports restore headless loading with that public artifact;
+preparation fails explicitly before mutation instead of substituting different
+numerical semantics. Published-owner headless/boundary checks pass 15 tests
+(`reports/qt/acceptance/public-headless.log`). Clean mesh acceptance remains open.
+
+Qt Submit now carries selected output-request IDs into its fresh analysis and
+immutable submitted-input report. Validation rejects missing or incompatible
+requests before queuing. ID-backed selection survives request renaming; a real
+solve and save/reopen retain the requests. This repairs submission/provenance,
+not actual scoped result filtering. Candidate window checks pass 81 tests on
+Windows and 81 on Linux XCB/WSLg, plus two new recovery-policy tests on each:
+automatic budget exhaustion retains an incomplete diagnostic, and strict policy
+retains an owner refusal without activating a mesh. Evidence is under
+`reports/qt/acceptance/` (`qt-current`, `linux-qt-current`,
+`recovery-policy-ui`, `linux-recovery-policy-ui` logs/XML). These functional
+rehearsals use local unpublished geometry; its observed source hashes are in
+`local-geometry-inputs.json`. They are not clean installed scientific acceptance.
+
+The affected intersection/sketch rehearsal records 8 passed and 9 failed
+(`current-science-rehearsal.log`/XML). Failures include geometry/mesher attachment
+integration errors. This mixed owner candidate does not establish a scientific
+regression attribution or close the earlier failures; retain both evidence sets.
+No owner fixes or publications are included in this slice.
+
+Independent review (`reports/qt/acceptance/independent-review.md`) confirms the
+request-submission repair, finds no additional defect in the bounded lifecycle
+and viewer inspection, and keeps public owner integration open. Linux CI setup
+now installs build headers before pip and checks explicit XCB startup; local XCB
+startup passes, but final remote CI is pending. The physical Linux GPU host is
+still unspecified. Next: actual scoped-output filtering, coordinated published
+owner integration with scientific checks, physical hardware evidence, then final
+review bound to clean installed commits. Keep Tk default and all acceptance
+gates until those prerequisites pass.

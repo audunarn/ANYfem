@@ -6,7 +6,8 @@ from dataclasses import replace, fields,asdict
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
-    QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog)
+    QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
+    QListWidget, QListWidgetItem, QAbstractItemView)
 
 from ...application.workflow import ANALYSES, _solution_report
 from ...post.fields import available_fields
@@ -147,6 +148,10 @@ class SolveTask(QWidget):
         form=QFormLayout();layout.addLayout(form)
         self.analysis=QComboBox();self.analysis.addItems(list(ANALYSES));form.addRow("Analysis",self.analysis)
         self.case=QComboBox();form.addRow("Load case or combination",self.case)
+        self.output_requests=QListWidget()
+        self.output_requests.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        form.addRow("Output requests",self.output_requests)
+        self._output_request_signature=None
         self.options=QPlainTextEdit("{}");form.addRow("Advanced analysis options",self.options)
         self.controls_layout=QVBoxLayout();layout.addLayout(self.controls_layout)
         self.controls=None;self.record_controls={}
@@ -212,12 +217,26 @@ class SolveTask(QWidget):
         if self.use_resources.isChecked():
             from anysolver import ResourceConfig
             options["resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"]=ResourceConfig(**self.resources.values())
+        options["output_request_ids"] = tuple(
+            item.data(Qt.UserRole) for item in self.output_requests.selectedItems()
+        )
         return options
 
     def refresh(self):
         from ...presentation.engineering_summary import material_response
         text,color=material_response(self.app.project,self.analysis.currentText())
         self.material_response.setText(text);self.material_response.setStyleSheet(f"color: {color}")
+        requests=sorted(self.app.project.output_requests.values(),key=lambda item:(item.label,item.id))
+        signature=tuple((item.id,item.label,item.quantity_keys,item.location) for item in requests)
+        if signature!=self._output_request_signature:
+            selected={item.data(Qt.UserRole) for item in self.output_requests.selectedItems()}
+            self.output_requests.clear()
+            for request in requests:
+                item=QListWidgetItem(f"{request.label} · {', '.join(request.quantity_keys)} · {request.location}")
+                item.setData(Qt.UserRole,request.id)
+                self.output_requests.addItem(item)
+                item.setSelected(request.id in selected)
+            self._output_request_signature=signature
         current=self.case.currentText();choices=list(self.app.project.load_cases)+["combination: "+name for name in self.app.project.combinations]
         if [self.case.itemText(i) for i in range(self.case.count())]!=choices:
             self.case.clear();self.case.addItems(choices)

@@ -979,7 +979,10 @@ class WorkbenchWorkflow:
             self.refresh_all()
 
 
-    def solve(self, analysis: str = "Linear static", **options: Any) -> None:
+    def solve(
+        self, analysis: str = "Linear static", *,
+        output_request_ids: Iterable[str] = (), **options: Any,
+    ) -> None:
         """Queue an analysis against an immutable document/mesh snapshot."""
 
         if self.mesh is None:
@@ -994,6 +997,8 @@ class WorkbenchWorkflow:
             raise ValueError(f"unknown analysis {analysis!r}") from None
 
         self.analysis = analysis
+        if isinstance(output_request_ids, str):
+            raise ValueError("output request IDs must be a sequence, not a string")
         submitted_options = dict(options)
         target_kind = "none" if analysis == "Modal" else "load_case"
         target_id = str(options.get("load_case", "default"))
@@ -1006,7 +1011,15 @@ class WorkbenchWorkflow:
             target_kind=target_kind,
             target_id=target_id,
             settings=_record_settings(options),
+            output_request_ids=tuple(output_request_ids),
         )
+        for request_id in definition.output_request_ids:
+            request = self.project.output_requests.get(request_id)
+            if request is None:
+                raise ValueError(f"output request {request_id!r} is unavailable")
+            problems = request.problems_for_analysis(definition.type)
+            if problems:
+                raise ValueError("; ".join(problems))
         job_options = dict(options)
         if self.imported is not None:
             # An imported model is already built and has no geometry to mesh,
@@ -3113,6 +3126,10 @@ def _submitted_input_report(
             ),
         },
         "analysis": definition.to_dict(),
+        "output_requests": [
+            project.output_requests[identifier].to_dict()
+            for identifier in definition.output_request_ids
+        ],
         "submitted_options": _record_settings(options),
         "mesh": mesh_summary,
         "units": project.units.to_dict(),

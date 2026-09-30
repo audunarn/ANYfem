@@ -16,9 +16,6 @@ from anygeometry import (
     ConnectionIntent,
     IntersectionDimension,
     IntersectionKind,
-    IntersectionBatchPolicy,
-    plan_intersections,
-    apply_intersections,
 )
 from anygeometry.closure import ModelClosure
 from anygeometry.entities import EntityRef
@@ -250,6 +247,19 @@ def prepare_structural_connectivity(
     active FE members; generated but unassigned construction members remain
     available in the editable model without entering this mesh job.
     """
+
+    # Keep headless project imports available with published owner versions.
+    # The new batch capability is required only when preparing a mesh job;
+    # it must fail explicitly rather than substitute different weld semantics.
+    try:
+        from anygeometry import (
+            IntersectionBatchPolicy, plan_intersections, apply_intersections,
+        )
+    except ImportError as error:
+        raise StructuralPreparationError(
+            "ANYgeometry lacks the batch-intersection API required for structural "
+            "preparation; install the coordinated ANYgeometry owner candidate"
+        ) from error
 
     report = StructuralPreparationReport(
         source_model_id=str(source_model_id or geometry.model_id),

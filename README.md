@@ -150,8 +150,13 @@ python -m pip install -e ".[gui]"
 This source candidate is unfinished; the published ANY3dView 0.5.5 wheel does
 not supply its Qt host. The committed owner snapshots above match the candidate
 CI inputs; they do not change the qualified release graph. In that environment,
-then launch with `anyfem-qt`, `python -m anyfem.ui.qt`, or
+launch with `anyfem-qt`, `python -m anyfem.ui.qt`, or
 `python run_gui.py --qt`. The Tk launcher remains the default during conversion.
+Current main requires ANYgeometry's batch-intersection API for mesh preparation.
+The public geometry pin above does not yet provide it: headless imports work,
+but mesh preparation reports the missing capability. Publication remains with
+the ANYgeometry owner; update the coordinated dependency pin and repeat clean
+installed workflow checks once that owner artifact is available.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
 
