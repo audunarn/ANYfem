@@ -329,8 +329,10 @@ def test_qt_file_inspector_formats(window,qapp,tmp_path,suffix):
         path.write_text(SHELL_SIF)
     else:
         from test_interop_results import write_frd
-        cantilever(window);window.generate_mesh_async(.5,strategy="auto")
-        wait_until(qapp,lambda:window.mesh is not None)
+        from test_io import write_sesam_plate
+        # Format inspection consumes a retained mesh and does not require the
+        # independently owned geometry-to-mesh candidate to be published.
+        window.import_sesam_model(str(write_sesam_plate(tmp_path/"source.FEM")))
         window.solve();wait_until(qapp,lambda:window.solution is not None)
         write_frd(path,window.mesh,window.solution.built,window.solution.displacements)
     inspector=window.open_file_inspector(str(path))
@@ -341,6 +343,96 @@ def test_qt_file_inspector_formats(window,qapp,tmp_path,suffix):
     elif suffix=="SIF":assert summary["results"]["element_stress"]==1
     else:assert summary["node_count"]==2 and summary["element_count"]==1
     assert inspector.summary.toPlainText()
+    inspector.close();qapp.processEvents()
+
+
+def test_qt_file_inspector_failed_replacement_clears_old_data(window,qapp,tmp_path):
+    from test_io import sesam_record
+    source=tmp_path/"valid.FEM"
+    source.write_text(sesam_record("GCOORD",1,0,0,0)+"\n")
+    inspector=window.open_file_inspector(str(source))
+    wait_until(qapp,lambda:inspector.result is not None)
+    assert inspector.records.values.rowCount()==1
+    original_diagnostics=list(inspector.diagnostics.values.rows)
+    missing=tmp_path/"missing.FEM"
+    inspector.load(str(missing))
+    assert inspector.records.values.rowCount()==0
+    assert inspector.summary.toPlainText()==""
+    assert all(not button.isEnabled() for button in inspector.export_buttons)
+    wait_until(qapp,lambda:"Could not read" in inspector.status.text())
+    assert inspector.result is None
+    assert inspector.diagnostics.values.rowCount()==1
+    assert "missing.FEM" in window.statusBar().currentMessage()
+    inspector.load(str(source))
+    wait_until(qapp,lambda:inspector.result is not None)
+    assert inspector.records.values.rowCount()==1
+    assert inspector.diagnostics.values.rows==original_diagnostics
+    assert all(button.isEnabled() for button in inspector.export_buttons)
+    inspector.close();qapp.processEvents()
+
+
+@pytest.mark.parametrize("action",["replace","close"])
+def test_qt_file_inspector_late_read_cannot_update_replaced_or_closed_dialog(window,qapp,tmp_path,monkeypatch,action):
+    from threading import Event
+    from anyfem.presentation.file_inspection import FileInspection
+    import anyfem.ui.qt.inspector as module
+    started,release,finished=Event(),Event(),Event()
+    old=tmp_path/"old.FEM";new=tmp_path/"new.FEM"
+    def held_read(path):
+        if Path(path)==old:
+            started.set()
+            try:
+                assert release.wait(10)
+                return FileInspection(old,"old",summary={"old":True})
+            finally:finished.set()
+        return FileInspection(new,"new",summary={"new":True})
+    from pathlib import Path
+    monkeypatch.setattr(module,"inspect_file",held_read)
+    inspector=window.open_file_inspector(str(old))
+    try:
+        wait_until(qapp,started.is_set)
+        if action=="replace":inspector.load(str(new))
+        else:inspector.close();qapp.processEvents()
+    finally:release.set()
+    wait_until(qapp,finished.is_set)
+    if action=="replace":
+        wait_until(qapp,lambda:inspector.result is not None)
+        assert inspector.result.path==new and inspector.result.summary=={"new":True}
+        inspector.close();qapp.processEvents()
+    else:
+        from shiboken6 import isValid
+        wait_until(qapp,lambda:not isValid(inspector))
+        assert inspector.result is None
+
+
+def test_qt_file_inspector_record_preview_preserves_full_canonical_document(window,qapp,tmp_path,monkeypatch):
+    from test_io import sesam_record
+    source=tmp_path/"bounded.FEM"
+    source.write_text("\n".join(sesam_record("UNKNOWN",index) for index in range(5001))+"\n")
+    inspector=window.open_file_inspector(str(source))
+    wait_until(qapp,lambda:inspector.result is not None)
+    assert inspector.result.summary["records"]==5001
+    assert inspector.records.values.rowCount()==5000
+    assert "5000 of 5001" in inspector.status.text()
+    canonical=tmp_path/"canonical.FEM"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(canonical))
+    inspector.canonicalize()
+    from anyfileio import read_sesam_fem_document
+    records=read_sesam_fem_document(canonical,strict=False).raw_records
+    assert [record.numeric_fields for record in records if record.name=="UNKNOWN"]==[(float(index),) for index in range(5001)]
+    inspector.close();qapp.processEvents()
+
+
+def test_qt_file_inspector_malformed_document_retains_owner_diagnostics(window,qapp,tmp_path):
+    from anyfem.presentation.file_inspection import inspect_file
+    source=tmp_path/"malformed.FEM"
+    source.write_text("GCOORD  broken numeric fields\n")
+    expected=inspect_file(source)
+    assert expected.diagnostics
+    inspector=window.open_file_inspector(str(source))
+    wait_until(qapp,lambda:inspector.result is not None)
+    assert inspector.result.report()==expected.report()
+    assert inspector.diagnostics.values.rows==[(item.severity,item.code,item.line_start or "",item.message) for item in expected.diagnostics]
     inspector.close();qapp.processEvents()
 
 

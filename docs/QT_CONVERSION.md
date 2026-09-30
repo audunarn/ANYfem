@@ -524,3 +524,26 @@ source-path injection (`patch-recovery-installed`). Wheel/sdist build, Twine
 metadata checks and MPL-2.0 inventory checks for 18 direct dependencies pass.
 Independent source review found no actionable defect, including legacy request
 admission; final exact-tree review is being performed before main publication.
+
+Inspector failure/lifecycle slice: current Qt load clears the result object but
+keeps the prior file's tables visible. A failed worker read leaves the inspector
+status at Reading while only the main-window log reports the error. Distinguish
+stale presentation from a reader/owner failure with bounded real-window tests:
+valid-to-missing/malformed replacement must clear old data and disclose failure;
+a held old read must not overwrite a newer file; close must suppress late widget
+updates. A 5001-record disposable FEM checks the existing 5000-row preview bound
+and full owner document/report retention, not a scalability claim. Preserve
+owner parsing/canonical semantics and use the current artifact worker/UI scheduler.
+Inspector source checks now pass ten real Qt cases on Windows
+(`inspector-formats-final`) and Linux XCB/WSLg (`inspector-linux`). The original
+stale-row failure is retained (`inspector-stale-before`); two initial test
+assumptions were corrected to preserve actual owner diagnostics and the canonical
+terminator rather than altering owner behavior (`inspector-lifecycle`). Failure
+and retry clear stale tables, exports are disabled without a loaded result, and
+running owner reads may finish without late presentation after replacement/close.
+The preview reports 5000 of 5001 records while canonical export retains all owner
+records. FRD inspector regression uses a real imported SESAM mesh/solve, keeping
+format inspection independent of unpublished geometry-to-mesh preparation.
+Independent source review found no actionable defect. Clean installed validation
+and exact-tree review follow; broad malformed/legacy/full-size input acceptance,
+scientific gates, published owner integration and physical Linux GPU remain open.
