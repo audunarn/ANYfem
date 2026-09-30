@@ -366,6 +366,7 @@ def test_full_transient_retains_vectors_impulses_energies_stress_and_reactions()
     assert payload.fields["kinetic_energy"][1].shape == (2, 1)
     assert "kinetic_energy" in payload.histories
     assert payload.fields["stress_history_von_mises"][1].shape == (2, 1, 2)
+    assert payload.fields["stress_history_von_mises"][0].provenance["scalar_sample_axes"] == [2]
     assert payload.fields["reaction"][1].shape == (1, 1, 6)
     assert payload.fields["reaction_history"][1].shape == (2, 1, 6)
     assert payload.fields["support_reaction_history"][1].shape == (2, 1, 6)

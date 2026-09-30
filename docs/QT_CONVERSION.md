@@ -411,3 +411,37 @@ test failures (JSON input syntax and an assumed metres unit for normalized modal
 shapes) remain in the evidence directory. Qualified recovery, basis and reduction
 semantics, owner integration/scientific acceptance, physical Linux GPU evidence
 and final full-parity review remain open; Tk remains the default.
+
+Integration-point reduction slice: the principal uncertainty is whether retained
+stress samples have sufficient axis metadata to apply the existing per-element
+postprocessing reductions without mixing components, entities or frames. Preserve
+native arrays and add explicit scalar-sample layout provenance at production.
+Support mean/average, min, max and signed maximum-absolute over only those sample
+axes, with native recovery/basis retained. Validate against existing post.fields
+reduction behavior, persistence/CSV and real Qt inspection. Ambiguous legacy or
+unsupported fields must remain explicitly unavailable rather than guessed.
+
+Explicit stress requests now trigger the existing cached owner-backed recovery
+inside the numerical worker, using the submitted snapshot. Cancellation is checked
+before and after recovery; the owner call itself remains synchronous. This fixes
+the real Qt failure where retained linear results depended on prior display
+interaction to populate stress. Native arrays retain their established shapes;
+scalar sample axes are additive metadata. Reduced views preserve entity scope,
+frame order, units, basis and recovery and remove the native layout marker.
+Windows affected contracts, job cancellation and import boundaries pass 62 tests
+(`sample-reduction-contract-final`); the real imported-shell pressure/solve/save/
+reopen/inspection/CSV path passes one (`sample-reduction-ui`). Linux XCB/WSLg
+passes 50 contracts plus that workflow (51 total, `sample-reduction-linux`).
+Independent read-only review found no confirmed defect in axes, signed/tie
+semantics, metadata or worker lifecycle. Initial missing recovery and descriptor
+stub failures remain retained. This establishes application behavior with public
+owners, not additional solver qualification, physical Linux GPU acceptance or
+full parity. Basis transformations and unsupported recovery/reductions stay open.
+
+Final review found a legacy cancellation-token signature mismatch: the fallback
+did not accept the recovery stage argument. It now accepts the optional stage;
+both current and fallback recovery-cancellation tests pass
+(`sample-reduction-legacy-token`). The preceding 62/51/64 results describe the
+pre-repair tree, not the final package. Viewer owner local main meanwhile advances
+to `d05093a2920b4329379f7efceeff570f9251c4e9` while public main remains
+`9d27c1a6ca1b52691bd36791de1131cc8b1d9c0b`; preserve that separate owner work.

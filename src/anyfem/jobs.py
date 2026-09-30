@@ -39,7 +39,7 @@ def _cancellation_token():
             def cancelled(self) -> bool:
                 return self._event.is_set()
 
-            def raise_if_cancelled(self) -> None:
+            def raise_if_cancelled(self, stage: str = "") -> None:
                 if self.cancelled:
                     raise RuntimeError("solve cancelled")
 

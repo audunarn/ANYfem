@@ -1077,6 +1077,10 @@ class WorkbenchWorkflow:
                 "solver_function": function,
                 "analysis_name": analysis,
                 "options": job_options,
+                "requested_stress": any(
+                    key.startswith("stress")
+                    for scope in output_scopes for key in scope["request"]["quantity_keys"]
+                ),
             },
             name=definition.name,
         )
@@ -3184,6 +3188,7 @@ def _execute_analysis_job(
     options: Dict[str, Any],
     progress,
     cancellation_token=None,
+    requested_stress=False,
 ):
     """Build, preflight and solve one immutable JobManager request."""
 
@@ -3237,7 +3242,15 @@ def _execute_analysis_job(
 
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
-    return solver_function(**resolved)
+    solution = solver_function(**resolved)
+    if requested_stress and callable(getattr(solution, "stresses", None)):
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled("requested stress recovery")
+        progress("recovering requested stresses")
+        solution.stresses()
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled("requested stress recovery")
+    return solution
 
 
 def _format_preflight_errors(errors) -> str:

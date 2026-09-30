@@ -32,18 +32,32 @@ def _matches(key, descriptor, quantity):
 
 
 def _view(descriptor, values, source_key, scope, request, component, tables):
-    if descriptor.location != request.location:
+    aliases = {"average": "mean", "abs_max": "max_abs"}
+    reduction = aliases.get(request.reduction, request.reduction)
+    stored_reduction = aliases.get(descriptor.reduction, descriptor.reduction)
+    reduce_samples = (
+        descriptor.location == "integration_point" and request.location == "element"
+        and reduction in {"mean", "min", "max", "max_abs"}
+        and stored_reduction == "none"
+    )
+    if descriptor.location != request.location and not reduce_samples:
         raise ValueError(f"location {descriptor.location!r} does not match {request.location!r}")
     if request.basis != descriptor.basis:
         raise ValueError(f"basis {request.basis!r} is unavailable (stored {descriptor.basis!r})")
     if request.recovery not in {"native", descriptor.recovery}:
         raise ValueError(f"recovery {request.recovery!r} is unavailable (stored {descriptor.recovery!r})")
-    if request.reduction != "none":
+    if reduction != "none" and reduction != stored_reduction and not reduce_samples:
         raise ValueError(f"reduction {request.reduction!r} requires an explicit qualified quantity")
     if request.frame_policy == "selected" and not request.frame_indices:
         raise ValueError("selected-frame requests require explicit frame indices; none are recorded")
 
     data = np.asarray(values)
+    sample_axes = descriptor.provenance.get("scalar_sample_axes")
+    if sample_axes is not None:
+        if (descriptor.location != "integration_point" or len(descriptor.components) != 1
+                or list(sample_axes) != list(range(2, data.ndim)) or data.ndim < 3):
+            raise ValueError("stored scalar sample layout is invalid")
+        data = data[..., np.newaxis]
     frames = tuple(descriptor.frames)
     if not frames or data.shape[0] != len(frames):
         raise ValueError("stored quantity has no unambiguous frame association")
@@ -93,6 +107,21 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
             elif len(units) == 2:
                 unit = units[1 if component in {"rx", "ry", "rz", "mx", "my", "mz"} else 0]
         components = (component,)
+    if reduce_samples:
+        if sample_axes is None or not all(data.shape[axis] for axis in sample_axes):
+            raise ValueError("integration-point reduction requires explicit nonempty sample axes")
+        # Keep frames, entities and components separate. Match post.fields._reduce,
+        # including the sign of the first maximum-absolute sample on a tie.
+        samples = data.reshape(data.shape[:2] + (-1, data.shape[-1]))
+        if reduction == "mean":
+            data = samples.mean(axis=2)
+        elif reduction == "min":
+            data = samples.min(axis=2)
+        elif reduction == "max":
+            data = samples.max(axis=2)
+        else:
+            indices = np.argmax(np.abs(samples), axis=2, keepdims=True)
+            data = np.take_along_axis(samples, indices, axis=2).squeeze(axis=2)
     if request.frame_policy in {"first", "last"}:
         index = 0 if request.frame_policy == "first" else len(frames) - 1
         data = data[index:index + 1]
@@ -116,11 +145,19 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         "frame_policy": request.frame_policy,
         "missing_requested_entities": missing,
     }
+    if sample_axes is not None:
+        # Requested views have an explicit component axis; the native scalar
+        # layout marker must not make readers append another component axis.
+        provenance.pop("scalar_sample_axes", None)
+        provenance["source_scalar_sample_axes"] = list(sample_axes)
+    if reduce_samples:
+        provenance["sample_reduction"] = reduction
     if request.frame_policy == "envelope":
         provenance["envelope_source_frames"] = list(descriptor.frames)
         provenance["envelope_convention"] = "signed maximum absolute value per entry"
     return replace(
         descriptor, label=f"{request.label}: {descriptor.label}", components=components,
+        location=request.location, reduction=reduction if reduce_samples else descriptor.reduction,
         unit=unit, frames=frames, deformation_required=False, provenance=provenance,
     ), data, association, identifiers
 

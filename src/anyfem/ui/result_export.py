@@ -140,6 +140,13 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
         values = np.asarray(
             stored.read(frame_index) if has_frame_axis else stored.read(None)
         )
+        sample_axes = getattr(descriptor, "provenance", {}).get("scalar_sample_axes")
+        if sample_axes is not None:
+            expected = list(range(2, len(shape)))
+            if (descriptor.location != "integration_point" or len(descriptor.components) != 1
+                    or list(sample_axes) != expected or len(shape) < 3):
+                raise ValueError("persisted scalar sample layout is invalid")
+            values = values[..., np.newaxis]
         values, row_count, components, subshape = _value_layout(
             values, descriptor.components
         )

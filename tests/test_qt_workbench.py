@@ -829,6 +829,52 @@ def test_qt_imported_group_load_and_snapshot_solve(window,qapp,tmp_path,monkeypa
     assert window.solution.built.project is not window.project
 
 
+def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_path,monkeypatch):
+    import csv
+    import numpy as np
+    from test_io import write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+    from anyfem.model.records import OutputRequest
+    from anyfem.post.fields import _reduce
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"plate.FEM")))
+    loads=window.panels["Loads & BC"]
+    loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["ref"][0].setText("group:group 1")
+    loads.fields["value"][0].setText("20000");loads.execute()
+    element_id=next(iter(window.mesh.shells))
+    window.selection.set_mode("element");window.selection.select(MeshEntityRef("element",element_id))
+    region=window.panels["Definitions"].create_region()
+    request=OutputRequest(("stress.von_mises",),region.id,"element",basis="element_local",reduction="mean")
+    window.run(cmd.AddOutputRequest(request))
+    solve=window.panels["Solve"];solve.output_requests.item(0).setSelected(True);solve.start()
+    wait_until(qapp,lambda:window.solution is not None)
+    job_id=window.active_job_id
+    path=tmp_path/"reduced-stress.anyfem";window.save_project(path=str(path))
+    dataset=window.result_datasets[job_id]
+    outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+    assert outcome["status"]=="available",outcome
+    key=outcome["fields"][0]
+    source=dataset.field(key).descriptor.provenance["source_quantity"]
+    raw=dataset.field(source).read(0)
+    ids=dataset.table(f"{source}_element_ids").tolist()
+    expected=_reduce(raw[ids.index(element_id)],"mean")
+    np.testing.assert_allclose(dataset.field(key).read(0)[0,0],expected)
+    assert expected>0
+    window.new_project();window.open_project(str(path))
+    results=window.panels["Results"];results.activate_job(job_id)
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    assert "Reduction: mean" in results.report.toPlainText()
+    assert "Basis: element_local" in results.report.toPlainText()
+    destination=tmp_path/"reduced.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
+    results.export_quantity_csv()
+    with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert len(rows)==1 and int(rows[0]["element_id"])==element_id
+    np.testing.assert_allclose(float(rows[0]["von_mises [Pa]"]),expected)
+
+
 def test_qt_sesam_stress_only_result_roundtrip(window,qapp,tmp_path):
     from test_interop_results import plate as imported_plate,SHELL_SIF
     window._set_project(imported_plate())

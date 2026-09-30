@@ -33,6 +33,58 @@ def scoped(request, nodes=(42,)):
             "node_ids": list(nodes), "element_ids": []}
 
 
+@pytest.mark.parametrize("reduction,canonical", [
+    ("mean", "mean"), ("average", "mean"), ("min", "min"), ("max", "max"),
+    ("max_abs", "max_abs"), ("abs_max", "max_abs"),
+])
+def test_sample_reduction_matches_existing_postprocessor_and_csv(tmp_path, reduction, canonical):
+    from anyfem.post.fields import _reduce
+    raw = np.array([[[[-9., 9.], [2., 6.]], [[40., 50.], [60., 70.]]],
+                    [[[3., -12.], [8., 1.]], [[10., 20.], [30., 40.]]]])
+    descriptor = ResultQuantityDescriptor(
+        "stress_sxx", "Stress XX", "integration_point", unit="Pa", components=("sxx",),
+        basis="element_local", frames=(2., 7.), recovery="recovered",
+        provenance={"scalar_sample_axes": [2, 3]},
+    )
+    native = ResultArtifactPayload(fields={"stress_sxx": (descriptor, raw)},
+        frames=descriptor.frames, tables={"stress_sxx_element_ids": np.array([11, 42])})
+    request = OutputRequest(("stress.sxx",), "region", "element", basis="element_local",
+                            reduction=reduction, frame_policy="selected", frame_indices=(1, 0))
+    scope = {"request": request.to_dict(), "node_ids": [], "element_ids": [11]}
+    result = add_output_request_views(native, (scope,))
+    outcome = result.provenance["output_request_outcomes"][0]
+    assert outcome["status"] == "available"
+    key = outcome["fields"][0]
+    view, values = result.fields[key]
+    expected = [_reduce(raw[index, 0], canonical) for index in (1, 0)]
+    np.testing.assert_array_equal(values[:, 0, 0], expected)
+    assert view.location == "element" and view.reduction == canonical
+    assert view.frames == (7., 2.) and "scalar_sample_axes" not in view.provenance
+    assert result.fields["stress_sxx"] is native.fields["stress_sxx"]
+    store = ArtifactStore(tmp_path / "reduced.anyfem")
+    artifact = store.write_result(job_id="job", document_id="document", mesh_id="mesh",
+        model_hash="model", mesh_hash="mesh", analysis_hash="analysis", **result.write_result_inputs())
+    dataset = store.open_result(artifact)
+    rows = list(csv.DictReader(io.StringIO(lazy_field_to_csv(dataset, key))))
+    assert [float(row["sxx [Pa]"]) for row in rows] == expected
+    assert {int(row["element_id"]) for row in rows} == {11}
+    native_rows = list(csv.DictReader(io.StringIO(lazy_field_to_csv(dataset, "stress_sxx"))))
+    assert len(native_rows) == raw.size
+    assert [float(row["sxx [Pa]"]) for row in native_rows] == raw.reshape(-1).tolist()
+
+
+def test_sample_reduction_refuses_ambiguous_legacy_layout():
+    descriptor = ResultQuantityDescriptor("stress_sxx", "XX", "integration_point",
+        components=("sxx",), basis="element_local", frames=(0.,))
+    native = ResultArtifactPayload(fields={"stress_sxx": (descriptor, np.ones((1, 1, 4)))},
+                                   tables={"stress_sxx_element_ids": np.array([11])})
+    request = OutputRequest(("stress.sxx",), "region", "element", basis="element_local", reduction="mean")
+    result = add_output_request_views(native, ({"request": request.to_dict(), "element_ids": [11]},))
+    outcome = result.provenance["output_request_outcomes"][0]
+    assert outcome["status"] == "unavailable" and not outcome["fields"]
+    assert tuple(result.fields) == ("stress_sxx",)
+
+
 @pytest.mark.parametrize("policy,expected,frames", [
     ("all", [-4., 2.], (2., 7.)),
     ("first", [-4.], (2.,)),

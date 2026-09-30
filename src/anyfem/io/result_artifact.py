@@ -1500,7 +1500,8 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str) -> None
             basis="element_local",
             frames=(0.0,),
             recovery="recovered",
-            provenance=provenance,
+            provenance={**provenance, **({"scalar_sample_axes": list(range(2, spatial.ndim + 1))}
+                                        if not scalar_per_element else {})},
         )
         if key is not None:
             builder.add_table(f"{key}_element_ids", np.asarray(ids, dtype=np.int64))
@@ -1586,6 +1587,8 @@ def _add_stress_history(
             basis="element_local",
             frames=descriptor_frames,
             recovery=recovery,
+            provenance={"scalar_sample_axes": list(range(2, values.ndim))}
+            if location == "integration_point" else {},
         )
         if key is not None:
             builder.add_table(f"{key}_element_ids", np.asarray(ids, dtype=np.int64))

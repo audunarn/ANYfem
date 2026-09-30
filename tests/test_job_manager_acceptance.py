@@ -3,11 +3,42 @@
 from __future__ import annotations
 
 from threading import Event
+from types import SimpleNamespace
+import pytest
 
 from anyfem.document import DocumentSession
 from anyfem.jobs import JobManager
 from anyfem.model.project import Project
 from anyfem.model.records import AnalysisDefinition, JobStatus
+
+
+@pytest.mark.parametrize("legacy_token", [False, True])
+def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token):
+    from anyfem.application.workflow import _execute_analysis_job
+    import anyfem.solve.run as solve_run
+    if legacy_token:
+        import anysolver
+        monkeypatch.delattr(anysolver, "CancellationToken")
+    monkeypatch.setattr(solve_run, "preflight", lambda *args, **kwargs: SimpleNamespace(errors=(), warnings=()))
+    project = Project("cancel requested recovery")
+    manager = JobManager(project)
+    started, release = Event(), Event()
+    def recover():
+        started.set()
+        assert release.wait(5.0)
+    solution = SimpleNamespace(stresses=recover)
+    record = manager.submit(AnalysisDefinition("Stress recovery"), DocumentSession(project).snapshot(),
+        _execute_analysis_job, kwargs={"solver_function": lambda **kwargs: solution,
+            "analysis_name": "Linear static", "options": {"built": SimpleNamespace()},
+            "requested_stress": True})
+    assert started.wait(5.0)
+    try:
+        assert manager.cancel(record.id)
+        assert record.status == JobStatus.CANCELLING
+    finally:
+        release.set()
+    assert manager.wait(record.id, timeout=5.0).status == JobStatus.CANCELLED
+    assert not any(event.kind == "completed" for event in manager.poll())
 
 
 def test_jobs_queue_fifo_keep_both_results_and_stale_only_the_old_revision():

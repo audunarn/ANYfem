@@ -384,7 +384,7 @@ class ResultsTask(QWidget):
             policy=descriptor.provenance.get("frame_policy","all")
             frame_text=f"Quantity frame {index+1}; value {descriptor.frames[index]:g}" if descriptor.frames else "Quantity frame association unavailable"
             if policy=="envelope":frame_text="Signed maximum-absolute envelope; frame coordinate 0 is synthetic"
-            self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}\n{frame_text}\nFrame policy: {policy}")
+            self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}\nBasis: {descriptor.basis}\nRecovery: {descriptor.recovery}\nReduction: {descriptor.reduction}\n{frame_text}\nFrame policy: {policy}")
         elif kind=="table":values=dataset.table(key,rows=slice(0,2000))
         elif kind=="live":
             from ...post.solver_data import resolve_solution_quantity
