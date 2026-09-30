@@ -547,3 +547,26 @@ format inspection independent of unpublished geometry-to-mesh preparation.
 Independent source review found no actionable defect. Clean installed validation
 and exact-tree review follow; broad malformed/legacy/full-size input acceptance,
 scientific gates, published owner integration and physical Linux GPU remain open.
+
+Nonlinear retained-frame inspection: requested stress recovery currently acts on
+the final solution, not each saved committed increment. Full committed-history
+recovery remains required. Its frame-identity prerequisite is now concrete:
+output views select data by index but remap labels and node qualification through
+`frames.index(value)`, which confuses repeated coordinates (possible on traced
+nonlinear paths). Before extending recovery, replace value-based remapping with
+actual selected frame indices; test all/first/last/reordered-selected/envelope
+views with repeated coordinates and different node qualification/case labels.
+Retain exact values and signed-envelope semantics, verify persisted CSV, then
+continue owner-backed committed-increment recovery without failed-trial frames.
+Repeated-frame source checks pass 70 affected contracts and real Qt inspection/
+patch workflows on Windows (`repeated-frame-windows`) and Linux XCB/WSLg
+(`repeated-frame-linux`). Five original failures remain in
+`repeated-frame-before`; positional data selections were unchanged. Requested
+views now retain source indices; CSV keeps its local frame index and adds the
+source index when available, leaving legacy exports unchanged when absent. Qt
+inspection displays both coordinate and source identity. Envelopes retain all
+contributor indices and conservative qualification with no single-case label.
+Independent source review found no actionable defect. Duplicate-coordinate tests
+use a signed global tensor component, not negative equivalent stress. Clean
+installed/exact-tree checks follow; nonlinear increment recovery and the wider
+scientific/owner/physical-GPU/full-parity gates remain open.

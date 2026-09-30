@@ -622,6 +622,32 @@ def test_qt_named_view_discloses_its_local_frame(window,tmp_path,policy,text):
     assert results.table.values.rows[0][0]==42
 
 
+def test_qt_repeated_frame_coordinates_keep_source_identity_and_qualification(window,tmp_path):
+    from test_output_request_views import repeated_coordinate_payload,scoped
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.model.records import OutputRequest
+    request=OutputRequest(("stress.global_xx_top",),"region","node",recovery="patch",
+                          frame_policy="selected",frame_indices=(1,0))
+    result=add_output_request_views(repeated_coordinate_payload(),(scoped(request),))
+    key=result.provenance["output_request_outcomes"][0]["fields"][0]
+    store=ArtifactStore(tmp_path/"repeated-frames.anyfem")
+    artifact=store.write_result(job_id="frame-job",document_id="document",mesh_id="mesh",
+        model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
+    window.active_job_id="frame-job";window.result_datasets["frame-job"]=store.open_result(artifact)
+    results=window.panels["Results"];results.refresh()
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(index)
+    for local_index,source_index,label,status,value in [(0,1,"descending","fallback",-3.),(1,0,"ascending","qualified",1.)]:
+        results.frame.setValue(local_index);results.inspect_quantity()
+        text=results.report.toPlainText()
+        assert "value 0.5" in text and f"source frame index: {source_index}" in text
+        assert f"load case: {label}" in text
+        assert ("fallback/unclassified nodes" in text)==(status=="fallback")
+        assert results.table.values.headers==["node_id","recovery_status","global_xx_top"]
+        assert results.table.values.rows==[[42,status,value]]
+
+
 def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_path,monkeypatch):
     from test_output_request_views import payload,scoped
     from anyfem.io.artifacts import ArtifactStore

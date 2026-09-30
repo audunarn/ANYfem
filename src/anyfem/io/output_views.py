@@ -124,20 +124,24 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         else:
             indices = np.argmax(np.abs(samples), axis=2, keepdims=True)
             data = np.take_along_axis(samples, indices, axis=2).squeeze(axis=2)
+    source_frame_indices = tuple(range(len(frames)))
     if request.frame_policy in {"first", "last"}:
         index = 0 if request.frame_policy == "first" else len(frames) - 1
+        source_frame_indices = (index,)
         data = data[index:index + 1]
         frames = (frames[index],)
     elif request.frame_policy == "selected":
         if any(index >= len(frames) for index in request.frame_indices):
             raise ValueError(f"requested frame indices {request.frame_indices} exceed stored range 0..{len(frames)-1}")
         data = np.take(data, request.frame_indices, axis=0)
+        source_frame_indices = request.frame_indices
         frames = tuple(frames[index] for index in request.frame_indices)
     elif request.frame_policy == "envelope":
         # Match ANYfem's existing signed maximum-absolute envelope convention.
         indices = np.argmax(np.abs(data), axis=0)
         data = np.take_along_axis(data, indices[np.newaxis, ...], axis=0)
         frames = (0.0,)
+        source_frame_indices = ()
 
     provenance = {
         **descriptor.provenance,
@@ -147,6 +151,9 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         "frame_policy": request.frame_policy,
         "missing_requested_entities": missing,
     }
+    provenance.pop("source_frame_indices", None)
+    if request.frame_policy != "envelope":
+        provenance["source_frame_indices"] = list(source_frame_indices)
     if sample_axes is not None:
         # Requested views have an explicit component axis; the native scalar
         # layout marker must not make readers append another component axis.
@@ -156,7 +163,7 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
     if len(case_labels) == len(descriptor.frames):
         provenance["frame_labels"] = (
             [] if request.frame_policy == "envelope" else
-            [case_labels[descriptor.frames.index(value)] for value in frames]
+            [case_labels[index] for index in source_frame_indices]
         )
     statuses = descriptor.provenance.get("node_recovery_status")
     if statuses is not None:
@@ -167,7 +174,7 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
                 item.get(str(node)) == "qualified" for item in statuses) else "fallback"
                 for node in identifiers}]
         else:
-            selected_statuses = [statuses[descriptor.frames.index(value)] for value in frames]
+            selected_statuses = [statuses[index] for index in source_frame_indices]
         provenance["node_recovery_status"] = [
             {str(node): item.get(str(node), "unclassified") for node in identifiers}
             for item in selected_statuses]
@@ -179,6 +186,7 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         provenance["sample_reduction"] = reduction
     if request.frame_policy == "envelope":
         provenance["envelope_source_frames"] = list(descriptor.frames)
+        provenance["envelope_source_frame_indices"] = list(range(len(descriptor.frames)))
         provenance["envelope_convention"] = "signed maximum absolute value per entry"
     return replace(
         descriptor, label=f"{request.label}: {descriptor.label}", components=components,

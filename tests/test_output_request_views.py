@@ -33,6 +33,49 @@ def scoped(request, nodes=(42,)):
             "node_ids": list(nodes), "element_ids": []}
 
 
+def repeated_coordinate_payload():
+    descriptor = ResultQuantityDescriptor("stress_patch_global_xx_top", "Patch stress", "node",
+        unit="Pa", components=("global_xx_top",), recovery="patch", frames=(0.5, 0.5),
+        provenance={"load_cases": ["ascending", "descending"],
+                    "node_recovery_status": [{"42": "qualified"}, {"42": "fallback"}]})
+    return ResultArtifactPayload(fields={descriptor.key: (descriptor, np.array([[[1.]], [[-3.]]]))},
+        frames=descriptor.frames, tables={descriptor.key + "_node_ids": np.array([42])})
+
+
+@pytest.mark.parametrize("policy,indices,expected_indices", [
+    ("all", (), [0, 1]), ("first", (), [0]), ("last", (), [1]),
+    ("selected", (1, 0), [1, 0]), ("envelope", (), []),
+])
+def test_repeated_frame_coordinates_preserve_metadata_identity(tmp_path, policy, indices, expected_indices):
+    native = repeated_coordinate_payload()
+    request = OutputRequest(("stress.global_xx_top",), "region", "node", recovery="patch",
+                            frame_policy=policy, frame_indices=indices)
+    result = add_output_request_views(native, (scoped(request),))
+    outcome = result.provenance["output_request_outcomes"][0]
+    key = outcome["fields"][0]
+    view, values = result.fields[key]
+    expected_values = [-3.] if policy == "envelope" else [1. if index == 0 else -3. for index in expected_indices]
+    expected_statuses = ["fallback"] if policy == "envelope" else ["qualified" if index == 0 else "fallback" for index in expected_indices]
+    assert view.provenance["node_recovery_status"] == [{"42": status} for status in expected_statuses]
+    assert view.provenance["frame_labels"] == [["ascending", "descending"][index] for index in expected_indices]
+    np.testing.assert_array_equal(values[:, 0, 0], expected_values)
+    assert outcome["status"] == ("available" if expected_statuses == ["qualified"] else "partial")
+    if policy == "envelope":
+        assert "source_frame_indices" not in view.provenance
+        assert view.provenance["envelope_source_frame_indices"] == [0, 1]
+    else:
+        assert view.provenance["source_frame_indices"] == expected_indices
+    store = ArtifactStore(tmp_path / "repeated.anyfem")
+    artifact = store.write_result(job_id="job", document_id="document", mesh_id="mesh",
+        model_hash="model", mesh_hash="mesh", analysis_hash="analysis", **result.write_result_inputs())
+    rows = list(csv.DictReader(io.StringIO(lazy_field_to_csv(store.open_result(artifact), key))))
+    assert [row["recovery_status"] for row in rows] == expected_statuses
+    assert [float(row["global_xx_top [Pa]"]) for row in rows] == expected_values
+    if policy != "envelope":
+        assert [int(row["source_frame_index"]) for row in rows] == expected_indices
+        assert [row["frame_label"] for row in rows] == view.provenance["frame_labels"]
+
+
 @pytest.mark.parametrize("reduction,canonical", [
     ("mean", "mean"), ("average", "mean"), ("min", "min"), ("max", "max"),
     ("max_abs", "max_abs"), ("abs_max", "max_abs"),
