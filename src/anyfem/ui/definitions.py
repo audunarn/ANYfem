@@ -318,6 +318,13 @@ class DefinitionsPanel(StagePanel):
             ttk.Combobox(
                 row, textvariable=variable, values=values, state="readonly"
             ).pack(side="left", fill="x", expand=True)
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Frame indices (0+)", width=17).pack(side="left")
+        self._output_frame_indices = tk.StringVar(value="")
+        ttk.Entry(row, textvariable=self._output_frame_indices).pack(
+            side="left", fill="x", expand=True
+        )
         ttk.Label(
             frame,
             text=(
@@ -584,6 +591,7 @@ class DefinitionsPanel(StagePanel):
             reduction=self._output_reduction.get(),
             basis=self._output_basis.get(),
             frame_policy=self._output_frames.get(),
+            frame_indices=self._output_frame_indices.get(),
         )
         analysis_id = self._output_analysis_ids.get(self._output_analysis.get())
         self.app.run(

@@ -239,3 +239,68 @@ def test_details_parser_and_add_command_fail_closed_for_wrong_family():
     with pytest.raises(ProjectError, match="cannot be attached"):
         cmd.AddOutputRequest(request, (modal.id,)).do(project)
     assert request.id not in project.output_requests
+
+
+def test_selected_frame_indices_persist_and_change_only_request_hash(tmp_path):
+    project, region = scoped_project("selected frames")
+    request = project.add_output_request(displacement_request(
+        region.id, frame_policy="selected", frame_indices=(3, 1),
+    ))
+    analysis = project.add_analysis(AnalysisDefinition("Selected frames", output_request_ids=(request.id,)))
+    before = analysis_hash(analysis, project.output_requests, document=project_to_dict(project))
+    path = tmp_path / "selected.anyfem"
+    save_project(project, path)
+    restored = load_project(path)
+    assert restored.output_requests[request.id] == request
+    assert restored.output_requests[request.id].frame_indices == (3, 1)
+    assert analysis_hash(restored.analyses[analysis.id], restored.output_requests,
+                         document=project_to_dict(restored)) == before
+    session = DocumentSession(restored)
+    model_hash = session.revision.model_hash
+    session.execute(cmd.EditOutputRequest(request.id, replace(request, frame_indices=(1, 3))))
+    assert session.revision.model_hash == model_hash
+    assert analysis_hash(restored.analyses[analysis.id], restored.output_requests,
+                         document=project_to_dict(restored)) != before
+    session.undo()
+    assert restored.output_requests[request.id] == request
+
+
+@pytest.mark.parametrize("indices", [(True,), (1.5,), (-1,), (1, 1), "1", None])
+def test_frame_indices_reject_ambiguous_or_invalid_input(indices):
+    with pytest.raises(ValueError, match="frame indices"):
+        displacement_request("region", frame_policy="selected", frame_indices=indices)
+
+
+def test_frame_indices_cannot_be_silently_ignored_by_another_policy():
+    with pytest.raises(ValueError, match="selected frame policy"):
+        displacement_request("region", frame_indices=(1,))
+
+
+def test_legacy_selected_request_without_indices_remains_readable():
+    legacy = displacement_request("region", frame_policy="selected").to_dict()
+    assert "frame_indices" not in legacy
+    restored = OutputRequest.from_dict(legacy)
+    assert restored.to_dict() == legacy
+    assert "explicit frame indices" in " ".join(restored.problems_for_analysis("linear_static"))
+    normal = displacement_request("region")
+    assert "frame_indices" not in normal.semantic_dict()
+
+
+def test_legacy_selected_project_loads_but_blocks_analysis_until_resolved():
+    project, region = scoped_project("legacy selected project")
+    request = project.add_output_request(displacement_request(region.id))
+    project.add_analysis(AnalysisDefinition("Legacy frames", output_request_ids=(request.id,)))
+    data = project_to_dict(project)
+    data["output_requests"][0]["frame_policy"] = "selected"
+    restored = project_from_dict(data)
+    assert restored.output_requests[request.id].frame_indices == ()
+    with pytest.raises(ProjectError, match="explicit frame indices"):
+        restored.validate(require_loads=False, require_supports=False)
+
+
+def test_details_parser_preserves_selected_frame_order():
+    request = output_request_from_values(
+        "Chosen modes", "displacement.uz", "region", "node",
+        frame_policy="selected", frame_indices="3, 1",
+    )
+    assert request.frame_indices == (3, 1)

@@ -216,6 +216,7 @@ def output_request_from_values(
     reduction: str = "none",
     basis: str = "global",
     frame_policy: str = "all",
+    frame_indices: str | Iterable[int] = (),
 ) -> OutputRequest:
     """Build a typed request from compact Details-form values."""
 
@@ -225,6 +226,10 @@ def output_request_from_values(
         )
     else:
         keys = tuple(str(value).strip() for value in quantities if str(value).strip())
+    indices = (
+        tuple(int(value) for value in frame_indices.replace(",", " ").split())
+        if isinstance(frame_indices, str) else tuple(frame_indices)
+    )
     return OutputRequest(
         label=str(label).strip(),
         quantity_keys=keys,
@@ -234,6 +239,7 @@ def output_request_from_values(
         reduction=str(reduction).strip(),
         basis=str(basis).strip(),
         frame_policy=str(frame_policy).strip().lower(),
+        frame_indices=indices,
     )
 
 

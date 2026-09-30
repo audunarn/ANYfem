@@ -561,6 +561,61 @@ def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_pa
     assert {int(row["node_id"]) for row in rows}=={11}
 
 
+def test_qt_selected_mode_request_form_solve_reopen_and_export(window,qapp,tmp_path,monkeypatch):
+    import csv
+    import numpy as np
+    from test_imported_persistence import _write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    window.import_sesam_model(str(_write_sesam_plate(tmp_path/"modal.FEM")))
+    window.selection.set_mode("node");window.selection.select(MeshEntityRef("node",3))
+    definitions=window.panels["Definitions"]
+    definitions.region_name.setText("Modal observation node")
+    region=definitions.create_region()
+    definitions.choice.setCurrentIndex(definitions.choice.findData("AddOutputRequest"))
+    fields=definitions.record_fields["request"][1]
+    for name,value in {"quantity_keys":"displacement.uz","region":region.id,"location":"node",
+                       "label":"Selected modes","frame_policy":"selected","frame_indices":"[1, 0]"}.items():
+        fields[name][0].setText(value)
+    request=definitions.execute()
+    assert request.frame_indices==(1,0)
+    solve=window.panels["Solve"]
+    solve.analysis.setCurrentText("Modal");solve.controls.fields["num_modes"][0].setText("2")
+    solve.output_requests.item(0).setSelected(True);solve.submit.click()
+    wait_until(qapp,lambda:window.solution is not None)
+    job_id=window.active_job_id
+    frequencies=tuple(shape.value for shape in window.solution.shapes)
+    assert len(frequencies)==2 and all(value>0 for value in frequencies)
+    destination=tmp_path/"selected-modes.anyfem"
+    window.save_project(path=str(destination))
+    dataset=window.result_datasets[job_id]
+    key=dataset.metadata("provenance")["output_request_outcomes"][0]["fields"][0]
+    native_ids=dataset.table("displacement_node_ids").tolist()
+    native=dataset.field("displacement").read(None)
+    component=dataset.field("displacement").descriptor.components.index("uz")
+    expected=native[[1,0],native_ids.index(3),component]
+    np.testing.assert_array_equal(dataset.field(key).read(None)[:,0,0],expected)
+    assert dataset.field(key).descriptor.frames==(frequencies[1],frequencies[0])
+    window.new_project();window.open_project(str(destination))
+    assert window.project.output_requests[request.id].frame_indices==(1,0)
+    results=window.panels["Results"];results.activate_job(job_id)
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    assert "Frame policy: selected" in results.report.toPlainText()
+    csv_path=tmp_path/"selected-modes.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
+    results.export_quantity_csv()
+    with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert {int(row["node_id"]) for row in rows}=={3}
+    np.testing.assert_allclose([float(row["frame_value"]) for row in rows],[frequencies[1],frequencies[0]])
+    # Modal eigenvectors are normalized shapes, with the persisted field's
+    # unit metadata rather than an assumed physical displacement unit.
+    descriptor=dataset.field(key).descriptor
+    column=f"uz [{descriptor.unit}]" if descriptor.unit else "uz"
+    np.testing.assert_allclose([float(row[column]) for row in rows],expected)
+
+
 def test_load_edit_preserves_mesh_and_invalidates_solution(window,qapp,tmp_path):
     cantilever(window)
     window.generate_mesh_async(0.5,strategy="auto")

@@ -388,3 +388,26 @@ unavailable selection. A two-label/two-scope widget test forces a rebuild, then
 checks inspection and exported node IDs. The three affected view/selection cases
 pass on Windows and Linux with published owner packages
 (`scoped-selection-identity`, `scoped-selection-identity-linux`).
+
+Selected-frame slice: add optional explicit zero-based frame indices to the
+typed request without changing positional arguments or default serialization.
+Resolve indices against each stored quantity's actual frame metadata, preserving
+declared order and refusing unavailable indices. Prove request/hash/save/reopen
+round trips and a Qt form-to-retained-view-to-CSV path with nontrivial frame
+values. Legacy selected requests remain readable but cannot queue without an
+explicit selection. No numerical owner, tolerance or execution gate changes.
+
+The selected-frame implementation passes 46 Windows contracts and the real Qt
+modal request/solve/save/reopen/CSV workflow against published owner packages
+(`selected-frames-contract-final`, `selected-frames-ui-final`). Linux XCB/WSLg
+passes the initial 44 contracts plus the same Qt workflow (`selected-frames-linux`);
+this is functional evidence, not physical Linux GPU acceptance. Requests retain
+the exact declared order and actual modal frequencies. Out-of-range indices
+refuse the whole view. Legacy projects with missing indices load but validation
+blocks their analysis until resolved. The temporary Tk form also exposes indices.
+Independent read-only review found no actionable defect in validation,
+serialization, frame ordering or the Qt persistence/export path. The initial Qt
+test failures (JSON input syntax and an assumed metres unit for normalized modal
+shapes) remain in the evidence directory. Qualified recovery, basis and reduction
+semantics, owner integration/scientific acceptance, physical Linux GPU evidence
+and final full-parity review remain open; Tk remains the default.

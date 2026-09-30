@@ -23,6 +23,7 @@ from anygeometry import SketchDefinition
 
 
 def title(name):
+    if name == "frame_indices":return "Frame indices (zero based)"
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).replace("_", " ").capitalize()
 
 

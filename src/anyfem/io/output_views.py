@@ -40,7 +40,7 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         raise ValueError(f"recovery {request.recovery!r} is unavailable (stored {descriptor.recovery!r})")
     if request.reduction != "none":
         raise ValueError(f"reduction {request.reduction!r} requires an explicit qualified quantity")
-    if request.frame_policy == "selected":
+    if request.frame_policy == "selected" and not request.frame_indices:
         raise ValueError("selected-frame requests require explicit frame indices; none are recorded")
 
     data = np.asarray(values)
@@ -97,6 +97,11 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         index = 0 if request.frame_policy == "first" else len(frames) - 1
         data = data[index:index + 1]
         frames = (frames[index],)
+    elif request.frame_policy == "selected":
+        if any(index >= len(frames) for index in request.frame_indices):
+            raise ValueError(f"requested frame indices {request.frame_indices} exceed stored range 0..{len(frames)-1}")
+        data = np.take(data, request.frame_indices, axis=0)
+        frames = tuple(frames[index] for index in request.frame_indices)
     elif request.frame_policy == "envelope":
         # Match ANYfem's existing signed maximum-absolute envelope convention.
         indices = np.argmax(np.abs(data), axis=0)

@@ -114,6 +114,36 @@ def test_external_request_identity_does_not_create_nested_hdf_groups(tmp_path):
     assert dataset.field(key).descriptor.provenance["output_request"]["id"] == request.id
 
 
+def test_selected_frames_keep_declared_order_and_real_csv_coordinates(tmp_path):
+    request = OutputRequest(("displacement.uz",), "region", "node",
+                            frame_policy="selected", frame_indices=(1, 0))
+    result = add_output_request_views(payload(), (scoped(request),))
+    outcome = result.provenance["output_request_outcomes"][0]
+    assert outcome["status"] == "available"
+    key = outcome["fields"][0]
+    descriptor, values = result.fields[key]
+    assert descriptor.frames == (7., 2.)
+    np.testing.assert_array_equal(values[:, 0, 0], [2., -4.])
+    store = ArtifactStore(tmp_path / "selected-frames.anyfem")
+    artifact = store.write_result(
+        job_id="job", document_id="document", mesh_id="mesh", model_hash="model",
+        mesh_hash="mesh", analysis_hash="analysis", **result.write_result_inputs(),
+    )
+    dataset = store.open_result(artifact)
+    rows = list(csv.DictReader(io.StringIO(lazy_field_to_csv(dataset, key))))
+    assert [float(row["frame_value"]) for row in rows] == [7., 2.]
+    assert [float(row["uz [m]"]) for row in rows] == [2., -4.]
+
+
+def test_unavailable_selected_frame_refuses_the_whole_selection():
+    request = OutputRequest(("displacement",), "region", "node",
+                            frame_policy="selected", frame_indices=(0, 2))
+    result = add_output_request_views(payload(), (scoped(request),))
+    outcome = result.provenance["output_request_outcomes"][0]
+    assert outcome["status"] == "unavailable" and not outcome["fields"]
+    assert "exceed stored range 0..1" in outcome["diagnostics"][0]
+
+
 def test_mesh_scope_is_frozen_and_rejects_another_mesh():
     from anyfem import Project
     from anyfem.application.output_requests import freeze_output_requests

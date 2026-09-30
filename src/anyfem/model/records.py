@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from numbers import Integral
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
@@ -141,6 +142,7 @@ class OutputRequest:
     label: str = "Output request"
     id: str = field(default_factory=_uuid)
     schema_version: int = 1
+    frame_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         keys = tuple(dict.fromkeys(str(value).strip() for value in self.quantity_keys))
@@ -165,6 +167,22 @@ class OutputRequest:
                 f"{', '.join(sorted(_FRAME_POLICIES))}"
             )
         object.__setattr__(self, "frame_policy", frame_policy)
+        try:
+            indices = tuple(self.frame_indices)
+        except TypeError:
+            raise ValueError("frame indices must be a sequence of integers") from None
+        if isinstance(self.frame_indices, (str, bytes)) or any(
+            isinstance(value, bool) or not isinstance(value, Integral) for value in indices
+        ):
+            raise ValueError("frame indices must be a sequence of integers")
+        indices = tuple(int(value) for value in indices)
+        if any(value < 0 for value in indices):
+            raise ValueError("frame indices must be zero based and non-negative")
+        if len(set(indices)) != len(indices):
+            raise ValueError("frame indices must be unique")
+        if indices and frame_policy != "selected":
+            raise ValueError("frame indices require the selected frame policy")
+        object.__setattr__(self, "frame_indices", indices)
         if not str(self.label).strip():
             raise ValueError("output request needs a label")
         object.__setattr__(self, "label", str(self.label).strip())
@@ -177,6 +195,8 @@ class OutputRequest:
 
         analysis = _analysis_family(analysis_type)
         problems: list[str] = []
+        if self.frame_policy == "selected" and not self.frame_indices:
+            problems.append("selected-frame output request requires explicit frame indices")
         for key in self.quantity_keys:
             family = _quantity_family(key)
             if family is None:
@@ -201,6 +221,7 @@ class OutputRequest:
             "reduction": self.reduction,
             "basis": self.basis,
             "frame_policy": self.frame_policy,
+            **({"frame_indices": list(self.frame_indices)} if self.frame_indices else {}),
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -229,6 +250,7 @@ class OutputRequest:
             reduction=str(data.get("reduction", "none")),
             basis=str(data.get("basis", "global")),
             frame_policy=str(data.get("frame_policy", "all")),
+            frame_indices=data.get("frame_indices", ()),
         )
 
 
