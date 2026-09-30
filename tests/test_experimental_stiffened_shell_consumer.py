@@ -478,3 +478,53 @@ def test_elastic_s3_native_fibre_reopens_v9_and_continues(tmp_path):
     finally:
         owner.close()
         resumed.close()
+
+
+def test_yielded_s3_adaptive_history_cancels_restores_and_completes(tmp_path,monkeypatch):
+    import anysolver._stiffened_shell_ge_finite_experimental as finite
+    from anysolver.control import CancellationToken,SolveCancelled
+    case = _j2_fibre_case(False,True)
+    beams=[]
+    for native in case.beams:
+        element,inertia=native.instantiate()
+        section=b3_ge.PhysicalFibreSection(tuple(replace(fibre,
+            curve=b3_ge.FlowCurve((0.,),(1e5,),1e9)) if i==0 else fibre
+            for i,fibre in enumerate(element.section.fibres)),element.section.background_factor)
+        reference=element.operator.reference
+        beams.append(b3_ge.define_beam('b3-ge',element.element_id,element.node_ids,
+            reference.coordinates,reference.nodal_triads,section,inertia,
+            quadrature=element.operator.order))
+    case=replace(case,shell=replace(case.shell,j2_curve=None),beams=tuple(beams),
+        actions=(stiffened_shell.NodalAction('beam',105,(0.,0.,1000.,0.,0.,0.)),))
+    reopened=load_case(save_case(case,tmp_path/'adaptive-s3.anyfem-ge.json'))
+    assert reopened.to_dict()==case.to_dict()
+    owner=reopened.create_analysis();resumed=reopened.create_analysis()
+    control=stiffened_shell.AdaptiveIncrementControl(4,24)
+    targets=(.5,1.,.5);token=CancellationToken()
+    original=finite.cancellation_safe_point
+    def cancel(token_value,stage):
+        if owner._generation==1 and stage=='stiffened-shell.finite.increment':
+            token.cancel('yielded adaptive prefix')
+        return original(token_value,stage)
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(finite,'cancellation_safe_point',cancel)
+            with pytest.raises(SolveCancelled,match='yielded adaptive prefix'):
+                owner.solve(reopened.actions,targets=targets,increment_control=control,
+                            cancellation_token=token)
+        prefix=owner.recover()
+        assert prefix.status=='accepted_prefix' and prefix.accepted_factors==(.5,)
+        assert max(v for row in prefix.beam_station_accumulated for v in row)>0.
+        saved=owner.checkpoint();restored=resumed.restore(saved)
+        assert resumed.checkpoint()==saved
+        assert restored.increment_attempts==prefix.increment_attempts
+        direct=owner.solve(reopened.actions,targets=targets,increment_control=control)
+        continued=resumed.solve(reopened.actions,targets=targets,increment_control=control)
+        assert direct.status==continued.status=='completed'
+        assert direct.accepted_factors==continued.accepted_factors==(.5,1.,.75,.5)
+        assert any(row.status=='rejected' for row in direct.increment_attempts)
+        assert direct.increment_attempts==continued.increment_attempts
+        assert direct.beam_fibre_energy==continued.beam_fibre_energy
+        assert owner.checkpoint()==resumed.checkpoint()
+    finally:
+        owner.close();resumed.close()
