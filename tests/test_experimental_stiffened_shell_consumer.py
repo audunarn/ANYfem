@@ -66,6 +66,56 @@ def test_ge_point_panel_constructs_solves_and_reopens(tmp_path):
     owner.close()
 
 
+@pytest.mark.parametrize('mixed', (False, True))
+def test_physical_fibre_reference_linear_inputs_reopen_and_restart(tmp_path,mixed):
+    case = _case()
+    e, g = 210e9, 210e9/2.6
+    arm = np.sqrt(8.333333333333333e-6/.01)
+    section = b3_ge.PhysicalFibreSection(
+        tuple(b3_ge.Fibre(str(i),y*arm,z*arm,.0025,e,
+                         b3_ge.FlowCurve((0.,),(1e20,),1e9))
+              for i,(y,z) in enumerate(((-1,-1),(-1,1),(1,-1),(1,1)))),
+        np.diag(np.sqrt((0.,g*.008,g*.008,g*1.6666666666666667e-5,0.,0.))))
+    beams = []
+    for i,definition in enumerate(case.beams):
+        element,inertia = definition.instantiate()
+        reference = element.operator.reference
+        beams.append(definition if mixed and i == 0 else b3_ge.define_beam(
+            'b3-ge',element.element_id,element.node_ids,reference.coordinates,
+            reference.nodal_triads,section,inertia,quadrature=element.operator.order))
+    case = replace(case,beams=tuple(beams))
+    reopened = load_case(save_case(case,tmp_path/'fibre.anyfem-ge.json'))
+    assert reopened.to_dict() == case.to_dict()
+    assert tuple(beam.raw for beam in reopened.beams) == tuple(beam.raw for beam in case.beams)
+    assert reopened.to_dict()['schema'] == SCHEMA
+    owner = reopened.create_analysis()
+    assert owner.capabilities['analysis'] == ('reference_linear',)
+    result = owner.solve_linear(reopened.actions)
+    assert result.status == 'completed'
+    assert result.free_equilibrium_ratio <= 1e-8 and result.constraint_max <= 1e-9
+    saved = owner.checkpoint()
+    continued = reopened.create_analysis()
+    restored = continued.restore(saved)
+    np.testing.assert_array_equal(restored.beam_coordinates,result.beam_coordinates)
+    actions = tuple(replace(a,wrench=tuple(2*v for v in a.wrench)) for a in reopened.actions)
+    second = continued.solve_linear(actions)
+    np.testing.assert_allclose(second.beam_coordinates,2*result.beam_coordinates,
+                               rtol=1e-8,atol=1e-10)
+    assert continued.preflight()['reference_linear_factorizations'] == 1
+    (tmp_path/'consumer-result.json').write_text(json.dumps({
+        'mixed':mixed,'schema':SCHEMA,
+        'beam_sha256':[beam.sha256 for beam in reopened.beams],
+        'families':owner.capabilities['beam_section_families'],
+        'free_equilibrium_ratio':result.free_equilibrium_ratio,
+        'constraint_max':result.constraint_max,
+        'tip_z_m':float(result.beam_coordinates[6*4+2]),
+        'continued_tip_z_m':float(second.beam_coordinates[6*4+2]),
+        'reference_linear_factorizations':continued.preflight()['reference_linear_factorizations'],
+    },indent=2))
+    owner.close()
+    continued.close()
+
+
 def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
     original = replace(_case(), actions=(stiffened_shell.NodalAction(
         "beam", 105, (0., 0., 1000., 0., 0., 0.)),))
