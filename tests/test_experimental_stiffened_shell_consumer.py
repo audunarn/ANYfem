@@ -89,7 +89,8 @@ def test_physical_fibre_reference_linear_inputs_reopen_and_restart(tmp_path,mixe
     assert tuple(beam.raw for beam in reopened.beams) == tuple(beam.raw for beam in case.beams)
     assert reopened.to_dict()['schema'] == SCHEMA
     owner = reopened.create_analysis()
-    assert owner.capabilities['analysis'] == ('reference_linear',)
+    assert owner.capabilities['analysis'] == (
+        'reference_linear', 'experimental_native_fibre_finite_point')
     result = owner.solve_linear(reopened.actions)
     assert result.status == 'completed'
     assert result.free_equilibrium_ratio <= 1e-8 and result.constraint_max <= 1e-9
@@ -114,6 +115,67 @@ def test_physical_fibre_reference_linear_inputs_reopen_and_restart(tmp_path,mixe
     },indent=2))
     owner.close()
     continued.close()
+
+
+@pytest.mark.parametrize('mixed', (False, True))
+def test_physical_fibre_finite_input_reopens_and_preserves_native_history(tmp_path, mixed):
+    case = _case()
+    e, g = 210e9, 210e9/2.6
+    arm = np.sqrt(8.333333333333333e-6/.01)
+    section = b3_ge.PhysicalFibreSection(
+        tuple(b3_ge.Fibre(str(i), y*arm, z*arm, .0025, e,
+                           b3_ge.FlowCurve((0.,), (1e5 if i == 0 else 1e20,), 1e9))
+              for i, (y, z) in enumerate(((-1, -1), (-1, 1), (1, -1), (1, 1)))),
+        np.diag(np.sqrt((0., g*.008, g*.008, g*1.6666666666666667e-5, 0., 0.))))
+    beams = []
+    for i, definition in enumerate(case.beams):
+        element, inertia = definition.instantiate()
+        reference = element.operator.reference
+        beams.append(definition if mixed and i == 0 else b3_ge.define_beam(
+            'b3-ge', element.element_id, element.node_ids, reference.coordinates,
+            reference.nodal_triads, section, inertia, quadrature=element.operator.order))
+    actions = (stiffened_shell.NodalAction('beam', 105,
+                                          (0., 0., 1000., 0., 0., 0.)),)
+    case = replace(case, beams=tuple(beams), actions=actions)
+    reopened = load_case(save_case(case, tmp_path / 'finite-fibre.anyfem-ge.json'))
+    assert reopened.status == 'EXPERIMENTAL_NOT_QUALIFIED'
+    assert reopened.to_dict() == case.to_dict()
+    assert reopened.to_dict()['schema'] == SCHEMA
+    assert tuple(beam.raw for beam in reopened.beams) == tuple(beam.raw for beam in case.beams)
+    assert tuple(beam.sha256 for beam in reopened.beams) == tuple(
+        beam.sha256 for beam in case.beams)
+
+    owner = reopened.create_analysis()
+    resumed = reopened.create_analysis()
+    try:
+        assert owner.capabilities['analysis'] == (
+            'reference_linear', 'experimental_native_fibre_finite_point')
+        first = owner.solve(reopened.actions, targets=(.5, 1.), max_iterations=18)
+        assert first.status == 'completed' and first.production_qualified is False
+        assert first.accepted_factors == (.5, 1.)
+        assert first.free_equilibrium_ratio <= 1e-8
+        assert first.constraint_max <= 1e-9
+        assert max(value for row in first.beam_station_accumulated for value in row) > 0.
+        assert first.beam_fibre_material
+        assert any(sum(f.plastic_increment) != 0.
+                   for station in first.beam_fibre_material for f in station.fibres)
+        saved = owner.checkpoint()
+        restored = resumed.restore(saved)
+        assert resumed.checkpoint() == saved
+        assert restored.beam_station_accumulated == first.beam_station_accumulated
+        for actual, expected in zip(restored.beam_fibre_material, first.beam_fibre_material):
+            assert actual.fibres == expected.fibres
+            np.testing.assert_array_equal(actual.strain, expected.strain)
+            np.testing.assert_array_equal(actual.resultants, expected.resultants)
+        unloaded = resumed.solve(reopened.actions, targets=(.5,), max_iterations=18)
+        direct = owner.solve(reopened.actions, targets=(.5,), max_iterations=18)
+        assert unloaded.accepted_factors == direct.accepted_factors == (.5, 1., .5)
+        assert unloaded.beam_station_accumulated == direct.beam_station_accumulated
+        np.testing.assert_array_equal(unloaded.cell_resultants, direct.cell_resultants)
+        assert resumed.checkpoint() == owner.checkpoint()
+    finally:
+        owner.close()
+        resumed.close()
 
 
 def test_q4_j2_panel_round_trip_uses_distinct_experimental_schema(tmp_path):
