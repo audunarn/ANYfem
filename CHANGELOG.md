@@ -7,6 +7,10 @@
   `quality_policy` and `quality_target` evidence; a record whose members do not
   match its declared schema, or an unknown schema, still stops the build with
   "malformed preparation record". Projects saved with v1 records stay readable.
+- Allow quad-first (automatically recovered) application meshes in nonlinear
+  static analyses. Linear static already accepted them; every other analysis
+  still stops with "requires separate qualification", and that message now names
+  both accepted analyses.
 
 ## 0.4.1 - 2026-09-17
 

@@ -110,7 +110,8 @@ def _resolve_built(
         if selected:
             raise ProjectError(
                 "quad-first application meshes are accepted for linear-static "
-                "consumption only; this analysis requires separate qualification"
+                "and nonlinear-static consumption only; this analysis requires "
+                "separate qualification"
             )
     if built is not None:
         return built
@@ -636,7 +637,8 @@ def solve_nonlinear_static(
 
     built = _resolve_built(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
-        progress=progress, load_case=load_case, combination=combination,
+        progress=progress, allow_quad_first=True,
+        load_case=load_case, combination=combination,
     )
 
     _report(
