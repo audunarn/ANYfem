@@ -28,6 +28,8 @@ def _matches(key, descriptor, quantity):
         return key.startswith(family + "_"), None
     if key == family and component in descriptor.components:
         return True, component
+    if descriptor.recovery == "patch" and key == family + "_patch_" + component:
+        return True, None
     return key == family + "_" + component, None
 
 
@@ -156,6 +158,23 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
             [] if request.frame_policy == "envelope" else
             [case_labels[descriptor.frames.index(value)] for value in frames]
         )
+    statuses = descriptor.provenance.get("node_recovery_status")
+    if statuses is not None:
+        if len(statuses) != len(descriptor.frames) or request.location != "node":
+            raise ValueError("stored node recovery status has no unambiguous frame association")
+        if request.frame_policy == "envelope":
+            selected_statuses = [{str(node): "qualified" if all(
+                item.get(str(node)) == "qualified" for item in statuses) else "fallback"
+                for node in identifiers}]
+        else:
+            selected_statuses = [statuses[descriptor.frames.index(value)] for value in frames]
+        provenance["node_recovery_status"] = [
+            {str(node): item.get(str(node), "unclassified") for node in identifiers}
+            for item in selected_statuses]
+        provenance["unqualified_requested_nodes"] = sorted({int(node)
+            for item in provenance["node_recovery_status"] for node, status in item.items()
+            if status != "qualified"})
+        provenance["unqualified_node_ids"] = provenance["unqualified_requested_nodes"]
     if reduce_samples:
         provenance["sample_reduction"] = reduction
     if request.frame_policy == "envelope":
@@ -183,6 +202,8 @@ def add_output_request_views(payload, scopes):
                 matches, component = _matches(key, descriptor, quantity)
                 if not matches:
                     continue
+                if request.recovery == "patch" and descriptor.recovery != "patch":
+                    continue
                 matched = True
                 try:
                     view, data, association, identifiers = _view(
@@ -201,8 +222,12 @@ def add_output_request_views(payload, scopes):
                         f"{quantity} ({key}): missing requested entities "
                         f"{view.provenance['missing_requested_entities']}"
                     )
+                if view.provenance.get("unqualified_requested_nodes"):
+                    outcome["diagnostics"].append(
+                        f"{quantity} ({key}): owner patch recovery has fallback/unclassified values at nodes "
+                        f"{view.provenance['unqualified_requested_nodes']}")
             if not matched:
-                outcome["diagnostics"].append(f"{quantity}: unavailable in the retained solver output")
+                outcome["diagnostics"].append(f"{quantity}: unavailable in the retained solver output (recovery {request.recovery})")
         outcome["status"] = (
             "partial" if outcome["fields"] and outcome["diagnostics"] else
             "available" if outcome["fields"] else "unavailable"

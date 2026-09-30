@@ -121,6 +121,10 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
     frame_labels = provenance.get("frame_labels", provenance.get("load_cases", ()))
     if frame_labels and len(frame_labels) != len(frames):
         raise ValueError("persisted frame labels do not match frame coordinates")
+    recovery_status = provenance.get("node_recovery_status")
+    if recovery_status is not None and (not has_frame_axis or len(recovery_status) != len(frames)
+                                        or descriptor.location != "node"):
+        raise ValueError("persisted node recovery status does not match field frames/location")
 
     if has_frame_axis:
         if frame is None:
@@ -173,7 +177,10 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
             value_columns = (
                 f"{label} [{descriptor.unit}]" if descriptor.unit else label,
             )
-        header = frame_columns + association_names + sub_columns + value_columns
+        status_columns = ("recovery_status",) if recovery_status is not None else ()
+        if status_columns and association_names != ("node_id",):
+            raise ValueError("node recovery status requires explicit node associations")
+        header = frame_columns + association_names + status_columns + sub_columns + value_columns
         if expected_header is None:
             expected_header = header
         elif expected_header != header:
@@ -187,6 +194,7 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
             association = tuple(
                 _format_number(value) for value in identifiers[row_index]
             )
+            status_values = (str(recovery_status[frame_index].get(association[0], "unclassified")),) if status_columns else ()
             frame_values = (
                 (str(frame_index), _format_number(frames[frame_index]))
                 if has_frame_axis
@@ -206,6 +214,7 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
                 writer.writerow(
                     frame_values
                     + association
+                    + status_values
                     + tuple(str(value) for value in subindex)
                     + tuple(_format_number(value) for value in selected_values)
                 )

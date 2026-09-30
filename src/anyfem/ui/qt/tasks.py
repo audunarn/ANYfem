@@ -387,6 +387,10 @@ class ResultsTask(QWidget):
             if len(labels)==len(descriptor.frames) and labels:frame_text+=f"; load case: {labels[index]}"
             if policy=="envelope":frame_text="Signed maximum-absolute envelope; frame coordinate 0 is synthetic"
             self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}\nBasis: {descriptor.basis}\nRecovery: {descriptor.recovery}\nReduction: {descriptor.reduction}\n{frame_text}\nFrame policy: {policy}")
+            node_status=descriptor.provenance.get("node_recovery_status",())
+            if node_status:
+                unqualified=sorted(int(node) for node,status in node_status[index].items() if status!="qualified")
+                if unqualified:self.report.appendPlainText(f"Owner patch fallback/unclassified nodes: {unqualified}")
         elif kind=="table":values=dataset.table(key,rows=slice(0,2000))
         elif kind=="live":
             from ...post.solver_data import resolve_solution_quantity
@@ -410,6 +414,10 @@ class ResultsTask(QWidget):
                     if ids.ndim==1:
                         columns.insert(0,association.removesuffix("s"))
                         rows=[[int(identifier),*row] for identifier,row in zip(ids,rows)]
+                        if descriptor.provenance.get("node_recovery_status"):
+                            statuses=descriptor.provenance["node_recovery_status"][index]
+                            columns.insert(1,"recovery_status")
+                            rows=[[row[0],statuses.get(str(row[0]),"unclassified"),*row[1:]] for row in rows]
                     elif ids.ndim==2 and ids.shape[1]==2:
                         columns=["element_id","face_id",*columns]
                         rows=[[*map(int,identifier),*row] for identifier,row in zip(ids,rows)]

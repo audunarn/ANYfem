@@ -304,3 +304,12 @@ def test_details_parser_preserves_selected_frame_order():
         frame_policy="selected", frame_indices="3, 1",
     )
     assert request.frame_indices == (3, 1)
+
+
+@pytest.mark.parametrize("changes", [{"location":"element"}, {"basis":"element_local"},
+                                    {"quantity_keys":("displacement",)}])
+def test_legacy_patch_intent_remains_readable_but_invalid_owner_semantics_block_analysis(changes):
+    request=replace(OutputRequest(("stress.von_mises",),"region","node",recovery="patch"),**changes)
+    restored=OutputRequest.from_dict(request.to_dict())
+    assert restored==request
+    assert "patch" in " ".join(restored.problems_for_analysis("linear_static"))

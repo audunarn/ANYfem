@@ -1082,7 +1082,12 @@ class WorkbenchWorkflow:
                     for scope in output_scopes for key in scope["request"]["quantity_keys"]
                 ),
                 "requested_global_stress": any(
-                    scope["request"]["basis"] == "global" and
+                    scope["request"]["basis"] == "global" and scope["request"]["recovery"] != "patch" and
+                    any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
+                    for scope in output_scopes
+                ),
+                "requested_patch_stress": any(
+                    scope["request"]["recovery"] == "patch" and
                     any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
                     for scope in output_scopes
                 ),
@@ -3195,6 +3200,7 @@ def _execute_analysis_job(
     cancellation_token=None,
     requested_stress=False,
     requested_global_stress=False,
+    requested_patch_stress=False,
 ):
     """Build, preflight and solve one immutable JobManager request."""
 
@@ -3267,6 +3273,14 @@ def _execute_analysis_job(
                 case_solution._requested_global_stress = case_solution.stresses(return_global=True)
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested global stress recovery")
+            if requested_patch_stress:
+                from anysolver import PatchRecoveryConfig
+                if cancellation_token is not None:
+                    cancellation_token.raise_if_cancelled("requested patch stress recovery")
+                progress("recovering requested patch stresses")
+                case_solution._requested_patch_stress = case_solution.stresses(patch_config=PatchRecoveryConfig())
+                if cancellation_token is not None:
+                    cancellation_token.raise_if_cancelled("requested patch stress recovery")
     return solution
 
 

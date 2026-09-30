@@ -829,7 +829,7 @@ def test_qt_imported_group_load_and_snapshot_solve(window,qapp,tmp_path,monkeypa
     assert window.solution.built.project is not window.project
 
 
-@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global")])
+@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global"), ("global_xx_bot","global")])
 def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_path,monkeypatch,component,basis):
     import csv
     import numpy as np
@@ -889,7 +889,7 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
     np.testing.assert_allclose(float(rows[0][f"{component} [Pa]"]),expected)
 
 
-@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global")])
+@pytest.mark.parametrize("component,basis", [("von_mises","element_local"), ("global_xx_top","global"), ("global_xx_bot","global")])
 def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_path,monkeypatch,component,basis):
     import csv
     import numpy as np
@@ -939,6 +939,84 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
     assert [row["frame_label"] for row in rows]==["live","default"]
     assert [float(row["frame_value"]) for row in rows]==[1.,0.]
     np.testing.assert_allclose([float(row[f"{component} [Pa]"]) for row in rows],values)
+
+
+@pytest.mark.parametrize("batch", [False,True])
+@pytest.mark.parametrize("fallback", [False,True])
+def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,tmp_path,monkeypatch,batch,fallback):
+    import csv
+    import numpy as np
+    import anysolver
+    from test_io import write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+    from anyfem.model.records import OutputRequest
+    if fallback:
+        config=anysolver.PatchRecoveryConfig
+        # Tighten the owner guard to exercise its real continuity-preserving
+        # fallback; do not weaken qualification or substitute application values.
+        monkeypatch.setattr(anysolver,"PatchRecoveryConfig",lambda:config(condition_limit=1.01))
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"patch.FEM")))
+    loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["ref"][0].setText("group:group 1");loads.fields["value"][0].setText("20000");loads.execute()
+    if batch:
+        window.run(cmd.AddLoadCase("live"));loads.fields["case"][0].setText("live")
+        loads.fields["value"][0].setText("40000");loads.execute()
+    window.selection.set_mode("node");window.selection.select(MeshEntityRef("node",6))
+    region=window.panels["Definitions"].create_region()
+    request=OutputRequest(("stress.von_mises",),region.id,"node",recovery="patch",
+        frame_policy="selected" if batch else "all",frame_indices=(1,0) if batch else ())
+    window.run(cmd.AddOutputRequest(request))
+    solve=window.panels["Solve"]
+    if batch:solve.analysis.setCurrentText("Batch linear static")
+    solve.output_requests.item(0).setSelected(True);solve.start()
+    wait_until(qapp,lambda:window.solution is not None)
+    solutions=window.solution.shapes if batch else [window.solution]
+    expected=[solution._requested_patch_stress.nodal_stresses["nodal"][6]["von_mises"] for solution in solutions]
+    if batch:expected=expected[::-1]
+    status="fallback" if fallback else "qualified"
+    for solution in solutions:
+        assert solution._requested_patch_stress.nodal_stresses["node_diagnostics"][6]["status"]==status
+        assert not solution._stress.provenance.return_global
+    job_id=window.active_job_id;path=tmp_path/"patch.anyfem";window.save_project(path=str(path))
+    dataset=window.result_datasets[job_id]
+    outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+    assert outcome["status"]==("partial" if fallback else "available"),outcome
+    key=outcome["fields"][0]
+    np.testing.assert_array_equal(dataset.field(key).read(None)[:,0,0],expected)
+    window.new_project();window.open_project(str(path))
+    results=window.panels["Results"];results.activate_job(job_id)
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    assert "Recovery: patch" in results.report.toPlainText()
+    if fallback:assert "fallback/unclassified nodes: [6]" in results.report.toPlainText()
+    destination=tmp_path/"patch.csv";monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
+    results.export_quantity_csv()
+    with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert [row["recovery_status"] for row in rows]==[status]*len(expected)
+    np.testing.assert_array_equal([float(row["von_mises [Pa]"]) for row in rows],expected)
+    assert {int(row["node_id"]) for row in rows}=={6}
+    native_index=next(i for i in range(results.quantities.count())
+                      if tuple(results.quantities.itemData(i))==("field","stress_patch_von_mises"))
+    results.quantities.setCurrentIndex(native_index);results.inspect_quantity()
+    assert "recovery_status" in results.table.values.headers
+    assert next(row for row in results.table.values.rows if row[0]==6)[1]==status
+    if fallback:assert "fallback/unclassified nodes:" in results.report.toPlainText()
+
+
+def test_qt_patch_request_validation_blocks_submit_before_job_creation(window,qapp,tmp_path,monkeypatch):
+    from test_io import write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+    from anyfem.model.records import OutputRequest
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"invalid-patch.FEM")))
+    window.selection.set_mode("node");window.selection.select(MeshEntityRef("node",6))
+    region=window.panels["Definitions"].create_region()
+    window.run(cmd.AddOutputRequest(OutputRequest(("stress.von_mises",),region.id,"node",
+                                                 recovery="patch",basis="element_local")))
+    solve=window.panels["Solve"];solve.output_requests.item(0).setSelected(True)
+    before=set(window.project.analyses);solve.submit.click();qapp.processEvents()
+    assert "global basis" in window.statusBar().currentMessage()
+    assert set(window.project.analyses)==before and not window.project.jobs
 
 
 def test_qt_sesam_stress_only_result_roundtrip(window,qapp,tmp_path):

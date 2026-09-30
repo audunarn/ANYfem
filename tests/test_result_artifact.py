@@ -169,6 +169,65 @@ def test_requested_global_stresses_keep_native_local_cache_and_basis():
     np.testing.assert_array_equal(payload.fields["stress_sxx"][1], [[[-2., 4.]], [[-2., 4.]]])
 
 
+def test_all_twelve_owner_global_surface_components_are_retained():
+    components = {f"global_{axis}_{surface}": np.array([index + 1., -(index + 2.)])
+                  for index, (axis, surface) in enumerate(
+                      (axis, surface) for axis in ("xx", "yy", "zz", "xy", "xz", "yz")
+                      for surface in ("top", "bot"))}
+    components["global_membrane_resultant_tensors"] = np.ones((2, 3, 3))
+    solution = LinearSolution(_vector(), _built())
+    solution._requested_global_stress = SimpleNamespace(element_stresses={5: components})
+    for result in (solution, LinearBatchSolution(built=solution.built,
+                    shapes=[solution, solution], case_names=("dead", "live"))):
+        payload = result_artifact_payload(result)
+        keys = [key for key in payload.fields if key.startswith("stress_global_")]
+        assert len(keys) == 12
+        assert "stress_global_membrane_resultant_tensors" not in payload.fields
+        for name, values in components.items():
+            if name == "global_membrane_resultant_tensors":continue
+            descriptor, stored = payload.fields[f"stress_{name}"]
+            assert descriptor.basis == "global" and descriptor.unit == "Pa"
+            np.testing.assert_array_equal(stored[0, 0], values)
+
+
+def test_patch_regions_fallbacks_frames_and_csv_remain_distinct(tmp_path):
+    import csv
+    import io
+    from anyfem.model.records import OutputRequest
+    from anyfem.io.output_views import add_output_request_views
+    from anyfem.ui.result_export import lazy_field_to_csv
+    shapes = [LinearSolution(_vector(), _built()), LinearSolution(_vector(), _built())]
+    for index, shape in enumerate(shapes):
+        shape._requested_patch_stress = SimpleNamespace(nodal_stresses={
+            "nodal": {10: {"von_mises": 12. + index}, 20: {"von_mises": 25. + index}},
+            "node_diagnostics": {10: {"status": "qualified" if index==0 else "fallback"},
+                                 20: {"status": "fallback" if index==0 else "qualified"}},
+            "nodal_regions": {30: [{"values": {"von_mises": 999.}}, {"values": {"von_mises": 888.}}]},
+            "discontinuous_node_ids": [30],
+        })
+    payload = result_artifact_payload(LinearBatchSolution(built=shapes[0].built,
+                                     shapes=shapes,case_names=("dead","live")))
+    request = OutputRequest(("stress.von_mises",), "region", "node", recovery="patch",
+                            frame_policy="selected",frame_indices=(1,0))
+    payload = add_output_request_views(payload, ({"request":request.to_dict(),"node_ids":[10,20,30]},))
+    outcome = payload.provenance["output_request_outcomes"][0]
+    assert outcome["status"]=="partial"
+    assert "30" in " ".join(outcome["diagnostics"])
+    key=outcome["fields"][0]
+    descriptor,values=payload.fields[key]
+    np.testing.assert_array_equal(values[:,:,0],[[13.,26.],[12.,25.]])
+    assert descriptor.provenance["node_recovery_status"]==[
+        {"10":"fallback","20":"qualified"},{"10":"qualified","20":"fallback"}]
+    assert payload.tables["patch_recovery"][0]["nodal_regions"]["30"][0]["values"]["von_mises"]==999.
+    store=ArtifactStore(tmp_path/"patch.anyfem")
+    artifact=store.write_result(job_id="job",document_id="document",mesh_id="mesh",
+        model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**payload.write_result_inputs())
+    rows=list(csv.DictReader(io.StringIO(lazy_field_to_csv(store.open_result(artifact),key))))
+    assert [row["recovery_status"] for row in rows]==["fallback","qualified","qualified","fallback"]
+    assert [row["frame_label"] for row in rows]==["live","live","dead","dead"]
+    assert {int(row["node_id"]) for row in rows}=={10,20}
+
+
 def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     built = _built()
     snapshots = (

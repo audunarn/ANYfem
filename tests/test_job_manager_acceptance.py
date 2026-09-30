@@ -14,8 +14,8 @@ from anyfem.model.records import AnalysisDefinition, JobStatus
 
 @pytest.mark.parametrize("legacy_token", [False, True])
 @pytest.mark.parametrize("batch", [False, True])
-@pytest.mark.parametrize("global_recovery", [False, True])
-def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token, batch, global_recovery):
+@pytest.mark.parametrize("recovery_stage", ["local", "global", "patch"])
+def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token, batch, recovery_stage):
     from anyfem.application.workflow import _execute_analysis_job
     import anyfem.solve.run as solve_run
     if legacy_token:
@@ -26,7 +26,9 @@ def test_cancellation_during_requested_stress_recovery_discards_result(monkeypat
     manager = JobManager(project)
     started, release = Event(), Event()
     def recover(**kwargs):
-        if global_recovery and not kwargs.get("return_global"):
+        if recovery_stage=="global" and not kwargs.get("return_global"):
+            return SimpleNamespace()
+        if recovery_stage=="patch" and not kwargs.get("patch_config"):
             return SimpleNamespace()
         started.set()
         assert release.wait(5.0)
@@ -39,7 +41,8 @@ def test_cancellation_during_requested_stress_recovery_discards_result(monkeypat
     record = manager.submit(AnalysisDefinition("Stress recovery"), DocumentSession(project).snapshot(),
         _execute_analysis_job, kwargs={"solver_function": lambda **kwargs: solution,
             "analysis_name": "Linear static", "options": {"built": SimpleNamespace()},
-            "requested_stress": True, "requested_global_stress": global_recovery})
+            "requested_stress": True, "requested_global_stress": recovery_stage=="global",
+            "requested_patch_stress": recovery_stage=="patch"})
     assert started.wait(5.0)
     try:
         assert manager.cancel(record.id)

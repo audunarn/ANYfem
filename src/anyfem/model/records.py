@@ -197,6 +197,11 @@ class OutputRequest:
         problems: list[str] = []
         if self.frame_policy == "selected" and not self.frame_indices:
             problems.append("selected-frame output request requires explicit frame indices")
+        if self.recovery == "patch":
+            if self.location != "node" or self.basis != "global":
+                problems.append("patch stress recovery requires node location and global basis")
+            if any(_quantity_family(key) != "stress" for key in self.quantity_keys):
+                problems.append("patch recovery is available only for stress quantities")
         for key in self.quantity_keys:
             family = _quantity_family(key)
             if family is None:

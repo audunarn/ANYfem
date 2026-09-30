@@ -492,3 +492,35 @@ recovery. Independent source review found no confirmed defect. This is applicati
 integration evidence using the published owner API, not a new numerical
 qualification or physical Linux GPU acceptance. Remaining recovery/material-basis
 and owner scientific gates stay open; default switching remains gated.
+
+Patch-contract inspection found a retained global-surface gap: the published
+owner names lower components `bot`, while the filter used `bottom`. Correct the
+filter to owner spelling and prove all twelve fields plus real lower-surface
+single/batch save/reopen/export. Patch recovery itself returns continuous `nodal`
+values, separate `nodal_regions`, and qualified/fallback/discontinuous diagnostics.
+Next integrate the existing guarded owner method with exact node/frame/status
+provenance; never cross-average regions or advertise fallback values as qualified.
+
+Guarded patch recovery now runs on the existing analysis worker through published
+ANYsolver `PatchRecoveryConfig`, retaining its continuous nodal values without
+averaging separate regions. Artifact tables retain region diagnostics; fields,
+requested views, Qt inspection and CSV preserve per-node/per-frame owner status.
+Fallback/unclassified requested nodes produce a partial outcome. Patch requests
+require node location, global basis and stress quantities before submission;
+legacy intent remains readable. Single/batch recovery preserves the local cache
+and cancellation checks before/after owner calls, including fallback tokens.
+The lower-surface filter now uses the actual owner `bot` names; all twelve
+physical global components are tested, alongside real lower-surface workflows.
+Windows contracts and real Qt workflows passed 113 cases across
+`patch-recovery-combined`, `patch-request-admission` and
+`patch-request-ui-validation-final`; Linux XCB/WSLg passed all 113 together
+(`patch-recovery-linux`). Earlier UI failures remain recorded and were repaired.
+These are functional owner-integration checks using published dependencies, not
+scientific qualification or physical Linux GPU acceptance. Clean installed
+artifact validation and exact-tree independent review are the next checks.
+ANYgeometry publication remains with its owner; Tk remains the default.
+The clean staged-tree wheel also passes all 113 selected Windows tests without
+source-path injection (`patch-recovery-installed`). Wheel/sdist build, Twine
+metadata checks and MPL-2.0 inventory checks for 18 direct dependencies pass.
+Independent source review found no actionable defect, including legacy request
+admission; final exact-tree review is being performed before main publication.
