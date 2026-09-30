@@ -1619,8 +1619,9 @@ def test_qt_autosave_recovery_round_trip(window,monkeypatch):
     assert window.session.dirty and window.path is None
 
 
-@pytest.mark.parametrize("action",["cancel","edit","replace"])
-def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypatch,tmp_path,action):
+@pytest.mark.parametrize("mesh_source,action",[("geometry","cancel"),("geometry","edit"),("geometry","replace"),
+    ("imported","cancel"),("imported","edit"),("imported","replace"),("imported","close")])
+def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypatch,tmp_path,mesh_source,action):
     import threading
     from anyfem.application.workflow import ANALYSES
     from anyfem.model.records import JobStatus
@@ -1631,8 +1632,16 @@ def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypa
         while not release.wait(.01):cancellation_token.raise_if_cancelled()
         return original(cancellation_token=cancellation_token,**kwargs)
     monkeypatch.setitem(ANALYSES,"Linear static",held_solve)
-    cantilever(window);window.generate_mesh_async(.25,strategy="auto")
-    wait_until(qapp,lambda:window.mesh is not None)
+    if mesh_source=="geometry":
+        cantilever(window);window.generate_mesh_async(.25,strategy="auto")
+        wait_until(qapp,lambda:window.mesh is not None)
+    else:
+        from test_io import write_sesam_plate
+        window.import_sesam_model(str(write_sesam_plate(tmp_path/"held.FEM")))
+        loads=window.panels["Loads & BC"]
+        loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+        loads.fields["ref"][0].setText("group:group 1")
+        loads.fields["value"][0].setText("20000");loads.execute()
     submitted_mesh_id=window.mesh_record_id
     window.solve();wait_until(qapp,started.is_set)
     manager=window.job_manager;job=next(reversed(window.project.jobs.values()))
@@ -1641,13 +1650,28 @@ def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypa
             window.cancel_solve();wait_until(qapp,lambda:job.status==JobStatus.CANCELLED)
             assert window.solution is None
         elif action=="edit":
-            window.run(cmd.AddPoint(5,0,0));release.set()
+            if mesh_source=="geometry":window.run(cmd.AddPoint(5,0,0))
+            else:
+                loads.fields["value"][0].setText("10000");loads.execute()
+            release.set()
             wait_until(qapp,lambda:job.id in window.solutions)
             assert window._job_is_stale(job)
-            assert window.solution is None and window._view_mode=="geometry"
+            assert window.solution is None and window._view_mode==("geometry" if mesh_source=="geometry" else "mesh")
             window.save_project(path=str(tmp_path/"stale.anyfem"))
             assert window.result_datasets[job.id].identity["mesh_id"]==submitted_mesh_id
-        else:
+            if mesh_source=="imported":
+                import numpy as np
+                solution=window.solutions[job.id]
+                assert solution.built.project is not window.project
+                assert len(solution.built.project.load_cases["default"].pressures)==1
+                assert len(window.project.load_cases["default"].pressures)==2
+                expected=window.result_datasets[job.id].field("displacement").read(0).copy()
+                window.new_project();window.open_project(str(tmp_path/"stale.anyfem"));qapp.processEvents()
+                assert window._job_is_stale(window.project.jobs[job.id])
+                np.testing.assert_array_equal(window.result_datasets[job.id].field("displacement").read(0),expected)
+                window.panels["Results"].activate_job(job.id);qapp.processEvents()
+                assert window.retained_result_mesh(job.id) is not None
+        elif action=="replace":
             window.new_project();release.set()
             manager.wait(job.id,timeout=5)
             qapp.processEvents()
@@ -1655,6 +1679,11 @@ def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypa
             assert window.solution is None
             assert not window.panels["Solve"].transcript.toPlainText()
             assert not window.panels["Results"].report.toPlainText()
+        else:
+            window.session.mark_saved();window.close();release.set()
+            manager.wait(job.id,timeout=5);qapp.processEvents()
+            assert window._closing and job.status==JobStatus.CANCELLED
+            assert not window.solutions and window.solution is None
     finally:release.set()
 
 
