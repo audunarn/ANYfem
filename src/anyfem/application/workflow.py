@@ -2726,8 +2726,21 @@ class WorkbenchWorkflow:
         project.imported_format = "sesam_fem"
         self._set_project(project, imported=model)
         self.mesh = model.mesh
-        # Imported meshes receive their persistent record on save; retaining
-        # the object here lets that path treat them like generated meshes.
+        # Jobs submitted before the first save still need a stable mesh
+        # identity, so their retained answers can resolve that mesh on reopen.
+        from anymesher.serialize import mesh_to_dict
+        record = MeshRecord(
+            name="Imported mesh", kind="imported",
+            source_model_hash=self.session.revision.model_hash,
+            mesh_input_hash="",
+            mesh_hash=canonical_hash(mesh_to_dict(model.mesh)),
+            summary={"nodes": model.mesh.num_nodes,
+                     "elements": model.mesh.num_elements, "active_mesh": True},
+        )
+        with self.session.transaction("record imported mesh", solver_affecting=False):
+            self.project.mesh_records[record.id] = record
+        self.mesh_record_id = record.id
+        self._meshes[record.id] = model.mesh
         note = (
             ""
             if not model.diagnostics

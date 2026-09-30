@@ -1314,6 +1314,59 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     assert (tmp_path/"external.png").stat().st_size>100
 
 
+def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp_path,monkeypatch):
+    import numpy as np
+    from PIL import Image
+    from test_io import write_sesam_plate
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"transient.FEM")))
+    mesh_id=window.mesh_record_id
+    mesh_record=window.project.mesh_records[mesh_id]
+    assert mesh_record.kind=="imported" and mesh_record.mesh_hash
+    assert not mesh_record.artifact_id
+    loads=window.panels["Loads & BC"]
+    loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["ref"][0].setText("group:group 1")
+    loads.fields["value"][0].setText("20000");loads.execute()
+    solve=window.panels["Solve"];solve.analysis.setCurrentText("Transient")
+    solve.controls.set_values({"dt":0.001,"t_end":0.003});solve.start()
+    wait_until(qapp,lambda:window.solution is not None)
+    solution=window.solution;job_id=window.active_job_id
+    assert window.project.jobs[job_id].mesh_hash==mesh_record.mesh_hash
+    assert len(solution.shapes)>1
+    expected=np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes])
+    panel=window.panels["Results"];panel.history()
+    assert panel.plot.series
+    panel.play();qapp.processEvents()
+    assert window.viewport.canvas.animation_frames==len(solution.shapes)
+    window.viewport.canvas.stop_animation()
+    path=tmp_path/"transient.anyfem"
+    window.save_project(path=str(path));window.flush_project_writes()
+    window.new_project();window.open_project(str(path));qapp.processEvents()
+    panel.activate_job(job_id);qapp.processEvents()
+    dataset=window.result_datasets[job_id]
+    assert dataset.identity["mesh_id"]==mesh_id
+    assert dataset.identity["mesh_hash"]==mesh_record.mesh_hash
+    assert dataset.field("displacement").descriptor.frames==tuple(shape.value for shape in solution.shapes)
+    for index in range(len(solution.shapes)):
+        np.testing.assert_array_equal(dataset.field("displacement").read(index),expected[index])
+    retained=window.retained_result_mesh(job_id)
+    window.mesh=None
+    panel.play();qapp.processEvents()
+    assert window.viewport.canvas.animation_frames==len(solution.shapes)
+    window.viewport.canvas.stop_animation()
+    assert window.mesh is None and window.retained_result_mesh(job_id) is retained
+    for suffix in ("md","html"):
+        report=tmp_path/f"transient.{suffix}"
+        monkeypatch.setattr(window.dialogs,"save_file",lambda report=report,**_:str(report))
+        panel.export_report()
+        assert "displacement" in report.read_text().lower()
+    gif=tmp_path/"transient.gif"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(gif))
+    panel.export_gif();wait_until(qapp,lambda:gif.exists())
+    with Image.open(gif) as image:
+        assert image.format=="GIF" and min(image.size)>0
+
+
 def test_qt_combination_target_and_appearance_reset(window,qapp):
     window.run(cmd.AddLoadCase("default"))
     window.run(cmd.AddCombination("ULS",{"default":1.5}))
