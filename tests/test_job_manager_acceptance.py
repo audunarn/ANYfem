@@ -13,7 +13,8 @@ from anyfem.model.records import AnalysisDefinition, JobStatus
 
 
 @pytest.mark.parametrize("legacy_token", [False, True])
-def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token):
+@pytest.mark.parametrize("batch", [False, True])
+def test_cancellation_during_requested_stress_recovery_discards_result(monkeypatch, legacy_token, batch):
     from anyfem.application.workflow import _execute_analysis_job
     import anyfem.solve.run as solve_run
     if legacy_token:
@@ -27,6 +28,11 @@ def test_cancellation_during_requested_stress_recovery_discards_result(monkeypat
         started.set()
         assert release.wait(5.0)
     solution = SimpleNamespace(stresses=recover)
+    if batch:
+        from anyfem.post.results import LinearBatchSolution
+        solution = LinearBatchSolution(built=SimpleNamespace(),
+            shapes=[solution, SimpleNamespace(stresses=lambda: pytest.fail("cancelled batch recovered another case"))],
+            case_names=("dead", "live"))
     record = manager.submit(AnalysisDefinition("Stress recovery"), DocumentSession(project).snapshot(),
         _execute_analysis_job, kwargs={"solver_function": lambda **kwargs: solution,
             "analysis_name": "Linear static", "options": {"built": SimpleNamespace()},

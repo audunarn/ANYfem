@@ -383,6 +383,8 @@ class ResultsTask(QWidget):
             values=stored.read(index)
             policy=descriptor.provenance.get("frame_policy","all")
             frame_text=f"Quantity frame {index+1}; value {descriptor.frames[index]:g}" if descriptor.frames else "Quantity frame association unavailable"
+            labels=descriptor.provenance.get("frame_labels",descriptor.provenance.get("load_cases",()))
+            if len(labels)==len(descriptor.frames) and labels:frame_text+=f"; load case: {labels[index]}"
             if policy=="envelope":frame_text="Signed maximum-absolute envelope; frame coordinate 0 is synthetic"
             self.report.setPlainText(f"{descriptor.label}\nLocation: {descriptor.location}\nUnits: {descriptor.unit}\nComponents: {', '.join(descriptor.components)}\nBasis: {descriptor.basis}\nRecovery: {descriptor.recovery}\nReduction: {descriptor.reduction}\n{frame_text}\nFrame policy: {policy}")
         elif kind=="table":values=dataset.table(key,rows=slice(0,2000))

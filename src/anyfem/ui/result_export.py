@@ -117,6 +117,10 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
     if not len(frames):
         frames = np.asarray(getattr(dataset, "frames", ()), dtype=float).reshape(-1)
     has_frame_axis = bool(frames.size and shape and shape[0] == frames.size)
+    provenance = getattr(descriptor, "provenance", {})
+    frame_labels = provenance.get("frame_labels", provenance.get("load_cases", ()))
+    if frame_labels and len(frame_labels) != len(frames):
+        raise ValueError("persisted frame labels do not match frame coordinates")
 
     if has_frame_axis:
         if frame is None:
@@ -154,6 +158,8 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
             dataset, key, descriptor.location, row_count
         )
         frame_columns = ("frame_index", "frame_value") if has_frame_axis else ()
+        if has_frame_axis and frame_labels:
+            frame_columns += ("frame_label",)
         sub_columns = tuple(
             f"subindex_{index + 1}" for index in range(len(subshape))
         )
@@ -186,6 +192,8 @@ def lazy_field_to_csv(dataset, key: str, *, frame: int | None = None) -> str:
                 if has_frame_axis
                 else ()
             )
+            if has_frame_axis and frame_labels:
+                frame_values += (str(frame_labels[frame_index]),)
             for subindex in subindices:
                 if components:
                     selected_values = np.asarray(

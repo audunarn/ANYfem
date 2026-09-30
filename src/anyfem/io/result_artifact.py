@@ -771,6 +771,20 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
         provenance={"load_cases": list(names), "shared_factorization": True},
     )
     builder.add_table("load_case_names", np.asarray(names, dtype=object))
+    recovered = tuple(getattr(shape, "_stress", None) for shape in shapes)
+    if any(value is not None for value in recovered):
+        builder.add_table("batch_stress_recovery", {
+            "status": "complete" if all(value is not None for value in recovered) else "incomplete",
+            "available_cases": [name for name, value in zip(names, recovered) if value is not None],
+            "missing_cases": [name for name, value in zip(names, recovered) if value is None],
+        })
+    if recovered and all(value is not None for value in recovered):
+        _add_stress_history(
+            builder, tuple(value.element_stresses for value in recovered),
+            builder.frames, prefix="stress", recovery="recovered",
+            provenance={"load_cases": list(names), "shared_factorization": True,
+                        "case_recovery": [_stress_provenance(value) for value in recovered]},
+        )
 
 
 def _adapt_modes(builder: _Builder, solution: Any, *, modal: bool) -> None:
@@ -1515,6 +1529,7 @@ def _add_stress_history(
     prefix: str,
     recovery: str,
     scalar_component: Optional[str] = None,
+    provenance: Optional[Mapping[str, Any]] = None,
 ) -> None:
     if not isinstance(history, Sequence) or isinstance(history, (str, bytes)) or not history:
         return
@@ -1587,8 +1602,9 @@ def _add_stress_history(
             basis="element_local",
             frames=descriptor_frames,
             recovery=recovery,
-            provenance={"scalar_sample_axes": list(range(2, values.ndim))}
-            if location == "integration_point" else {},
+            provenance={**dict(provenance or {}),
+                        **({"scalar_sample_axes": list(range(2, values.ndim))}
+                           if location == "integration_point" else {})},
         )
         if key is not None:
             builder.add_table(f"{key}_element_ids", np.asarray(ids, dtype=np.int64))

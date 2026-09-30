@@ -150,6 +150,12 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         # layout marker must not make readers append another component axis.
         provenance.pop("scalar_sample_axes", None)
         provenance["source_scalar_sample_axes"] = list(sample_axes)
+    case_labels = descriptor.provenance.get("load_cases", ())
+    if len(case_labels) == len(descriptor.frames):
+        provenance["frame_labels"] = (
+            [] if request.frame_policy == "envelope" else
+            [case_labels[descriptor.frames.index(value)] for value in frames]
+        )
     if reduce_samples:
         provenance["sample_reduction"] = reduction
     if request.frame_policy == "envelope":

@@ -129,6 +129,24 @@ def test_linear_batch_persists_each_named_case_as_one_frame():
     assert payload.fields["displacement"][0].provenance["shared_factorization"]
 
 
+def test_linear_batch_persists_only_complete_cached_stress_frames():
+    built = _built()
+    shapes = [LinearSolution(_vector(), built), LinearSolution(_vector(20.), built)]
+    shapes[0]._stress = SimpleNamespace(element_stresses={5: {"sxx": np.array([-9., 4.])}})
+    batch = LinearBatchSolution(built=built, shapes=shapes, case_names=("dead", "live"))
+    partial = result_artifact_payload(batch)
+    assert not any(key.startswith("stress_") for key in partial.fields)
+    assert partial.tables["batch_stress_recovery"]["missing_cases"] == ["live"]
+    shapes[1]._stress = SimpleNamespace(element_stresses={5: {"sxx": np.array([8., -18.])}})
+    complete = result_artifact_payload(batch)
+    descriptor, values = complete.fields["stress_sxx"]
+    np.testing.assert_array_equal(values, [[[-9., 4.]], [[8., -18.]]])
+    assert descriptor.frames == (0., 1.)
+    assert descriptor.provenance["load_cases"] == ["dead", "live"]
+    assert descriptor.provenance["scalar_sample_axes"] == [2]
+    assert complete.tables["batch_stress_recovery"]["status"] == "complete"
+
+
 def test_nonlinear_uses_real_committed_snapshots_and_states_only(tmp_path):
     built = _built()
     snapshots = (

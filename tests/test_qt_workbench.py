@@ -875,6 +875,56 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
     np.testing.assert_allclose(float(rows[0]["von_mises [Pa]"]),expected)
 
 
+def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_path,monkeypatch):
+    import csv
+    import numpy as np
+    from test_io import write_sesam_plate
+    from anyfem.selection import MeshEntityRef
+    from anyfem.model.records import OutputRequest
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    window.import_sesam_model(str(write_sesam_plate(tmp_path/"batch.FEM")))
+    loads=window.panels["Loads & BC"]
+    loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["ref"][0].setText("group:group 1")
+    loads.fields["value"][0].setText("20000");loads.execute()
+    window.run(cmd.AddLoadCase("live"))
+    loads.fields["case"][0].setText("live")
+    loads.fields["value"][0].setText("40000");loads.execute()
+    element_id=next(iter(window.mesh.shells))
+    window.selection.set_mode("element");window.selection.select(MeshEntityRef("element",element_id))
+    region=window.panels["Definitions"].create_region()
+    request=OutputRequest(("stress.von_mises",),region.id,"element",basis="element_local",
+        reduction="mean",frame_policy="selected",frame_indices=(1,0))
+    window.run(cmd.AddOutputRequest(request))
+    solve=window.panels["Solve"];solve.analysis.setCurrentText("Batch linear static")
+    solve.output_requests.item(0).setSelected(True);solve.start()
+    wait_until(qapp,lambda:window.solution is not None)
+    assert window.solution.case_names==("default","live")
+    assert all(shape._stress is not None for shape in window.solution.shapes)
+    job_id=window.active_job_id
+    path=tmp_path/"batch-stress.anyfem";window.save_project(path=str(path))
+    dataset=window.result_datasets[job_id]
+    outcome=dataset.metadata("provenance")["output_request_outcomes"][0]
+    assert outcome["status"]=="available",outcome
+    key=outcome["fields"][0]
+    values=dataset.field(key).read(None)[:,0,0]
+    assert values[1]>0
+    np.testing.assert_allclose(values[0],2*values[1])
+    assert dataset.field(key).descriptor.provenance["frame_labels"]==["live","default"]
+    window.new_project();window.open_project(str(path))
+    results=window.panels["Results"];results.activate_job(job_id)
+    index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
+    results.quantities.setCurrentIndex(index);results.frame.setValue(0);results.inspect_quantity()
+    assert "load case: live" in results.report.toPlainText()
+    destination=tmp_path/"batch.csv"
+    monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
+    results.export_quantity_csv()
+    with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
+    assert [row["frame_label"] for row in rows]==["live","default"]
+    assert [float(row["frame_value"]) for row in rows]==[1.,0.]
+    np.testing.assert_allclose([float(row["von_mises [Pa]"]) for row in rows],values)
+
+
 def test_qt_sesam_stress_only_result_roundtrip(window,qapp,tmp_path):
     from test_interop_results import plate as imported_plate,SHELL_SIF
     window._set_project(imported_plate())

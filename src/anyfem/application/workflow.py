@@ -3243,13 +3243,19 @@ def _execute_analysis_job(
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
     solution = solver_function(**resolved)
-    if requested_stress and callable(getattr(solution, "stresses", None)):
-        if cancellation_token is not None:
-            cancellation_token.raise_if_cancelled("requested stress recovery")
-        progress("recovering requested stresses")
-        solution.stresses()
-        if cancellation_token is not None:
-            cancellation_token.raise_if_cancelled("requested stress recovery")
+    if requested_stress:
+        from ..post.results import LinearBatchSolution
+        recovery_solutions = solution.shapes if isinstance(solution, LinearBatchSolution) else (solution,)
+        for case_solution in recovery_solutions:
+            if not callable(getattr(case_solution, "stresses", None)):
+                continue
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled("requested stress recovery")
+            progress(f"recovering requested stresses: {case_solution.label}" if hasattr(case_solution,"label")
+                     else "recovering requested stresses")
+            case_solution.stresses()
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled("requested stress recovery")
     return solution
 
 

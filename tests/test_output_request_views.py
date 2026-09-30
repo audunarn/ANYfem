@@ -85,6 +85,27 @@ def test_sample_reduction_refuses_ambiguous_legacy_layout():
     assert tuple(result.fields) == ("stress_sxx",)
 
 
+@pytest.mark.parametrize("policy,labels", [("first", ["dead"]), ("last", ["live"]),
+                                        ("envelope", [])])
+def test_case_labels_follow_quantity_frames_and_do_not_label_envelopes_as_cases(tmp_path, policy, labels):
+    native = payload()
+    descriptor, values = native.fields["displacement"]
+    native = replace(native, fields={"displacement": (
+        replace(descriptor, provenance={"load_cases": ["dead", "live"]}), values)})
+    request = OutputRequest(("displacement.uz",), "region", "node", frame_policy=policy)
+    result = add_output_request_views(native, (scoped(request),))
+    key = result.provenance["output_request_outcomes"][0]["fields"][0]
+    assert result.fields[key][0].provenance["frame_labels"] == labels
+    store = ArtifactStore(tmp_path / "cases.anyfem")
+    artifact = store.write_result(job_id="job", document_id="document", mesh_id="mesh",
+        model_hash="model", mesh_hash="mesh", analysis_hash="analysis", **result.write_result_inputs())
+    rows = list(csv.DictReader(io.StringIO(lazy_field_to_csv(store.open_result(artifact), key))))
+    if labels:
+        assert [row["frame_label"] for row in rows] == labels
+    else:
+        assert "frame_label" not in rows[0]
+
+
 @pytest.mark.parametrize("policy,expected,frames", [
     ("all", [-4., 2.], (2., 7.)),
     ("first", [-4.], (2.,)),

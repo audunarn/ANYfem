@@ -445,3 +445,27 @@ both current and fallback recovery-cancellation tests pass
 pre-repair tree, not the final package. Viewer owner local main meanwhile advances
 to `d05093a2920b4329379f7efceeff570f9251c4e9` while public main remains
 `9d27c1a6ca1b52691bd36791de1131cc8b1d9c0b`; preserve that separate owner work.
+
+Batch-stress slice: explicit stress requests are admitted for batch linear
+analysis, but the worker recovers only a single solution and the artifact adapter
+retains only batch displacement. Recover each existing LinearSolution on the
+worker, preserving cancellation boundaries and case order. Persist only actual
+cached recovered fields with case/frame provenance, then exercise selected-case
+scope/reduction/save/reopen/export through a real Qt batch solve. Incomplete
+fields must retain diagnostics rather than invent values. Existing numerical
+methods, factorization, owner contracts and acceptance tolerances are unchanged.
+
+The batch worker now recovers requested stresses through each existing
+LinearSolution cache. Per-case stress fields retain case provenance and explicit
+sample axes; partial caches disclose missing cases instead of emitting fabricated
+frames. Scoped views carry local frame labels, Qt inspection names the case, and
+CSV exports include `frame_label` for named cases. Synthetic envelopes carry no
+single-case label. Windows source contracts and real batch workflow pass 52
+tests (`batch-stress-source`); lifecycle/import boundaries pass 15 including
+current/fallback cancellation during both single and batch recovery
+(`batch-stress-lifecycle`). Linux XCB/WSLg passes those 67 cases
+(`batch-stress-linux`). Three additional first/last/envelope case-label contracts
+pass on Windows (`batch-case-labels`). Independent read-only review found no
+confirmed defect in case ordering, missing-cache diagnostics or worker lifecycle.
+These results remain functional application evidence; scientific owner gates and
+physical Linux GPU acceptance remain open, and the Tk default stays unchanged.
