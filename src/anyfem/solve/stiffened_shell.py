@@ -9,7 +9,7 @@ v1 and J2 v2 records retain their original schema and solver selection.
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 import math
 import os
@@ -23,6 +23,7 @@ from anysolver import b3_ge, stiffened_shell
 SCHEMA = "anyfem.experimental-ge-point-panel-v1"
 SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
+SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
@@ -100,6 +101,7 @@ class ExperimentalGEPointPanel:
     fixed: tuple[stiffened_shell.FixedCoordinate, ...]
     actions: tuple[stiffened_shell.NodalAction, ...] = ()
     q4_pullback_policy: str = HISTORICAL_Q4_PULLBACK_POLICY
+    load_programme: stiffened_shell.StagedDeadLoadProgramme | None = None
 
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
@@ -126,6 +128,15 @@ class ExperimentalGEPointPanel:
                 raise ValueError(f"explicit experimental GE {name} required")
         if len(self.beams) > MAX_BEAMS:
             raise ValueError("experimental GE beam count exceeds file limit")
+        if self.load_programme is not None:
+            programme_type = getattr(stiffened_shell, "StagedDeadLoadProgramme", None)
+            if programme_type is None or type(self.load_programme) is not programme_type:
+                raise ValueError("public experimental GE staged load programme required")
+            if self.actions:
+                raise ValueError("staged GE programme requires empty legacy actions")
+            # Public owner framing owns policy, bounds and all future endpoints.
+            object.__setattr__(self, "load_programme",
+                               programme_type.deserialize(self.load_programme.serialize()))
 
     @property
     def status(self) -> str:
@@ -143,9 +154,27 @@ class ExperimentalGEPointPanel:
 
     def create_analysis(self):
         """Construct the fresh experimental owner through its public facade."""
-        return stiffened_shell.create_analysis(definition=self.definition())
+        owner = stiffened_shell.create_analysis(definition=self.definition())
+        if self.load_programme is not None:
+            try:
+                if owner.preflight()["identity"] != self.load_programme.model_identity:
+                    raise ValueError("staged GE programme belongs to a different panel model")
+            except BaseException:
+                owner.close()
+                raise
+        return owner
+
+    @property
+    def load_input(self):
+        """Explicit selected public solve input; legacy actions retain their meaning."""
+        return self.actions if self.load_programme is None else self.load_programme
 
     def to_dict(self) -> dict:
+        if self.load_programme is not None:
+            return dict(schema=SCHEMA_STAGED, status=STATUS,
+                        profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
+                        panel=replace(self, load_programme=None).to_dict(),
+                        load_programme=self.load_programme.to_payload())
         shell_j2 = self.shell.j2_curve
         selected_q4 = self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY
         record = {
@@ -184,6 +213,20 @@ class ExperimentalGEPointPanel:
     def from_dict(cls, value: object) -> ExperimentalGEPointPanel:
         if type(value) is not dict:
             raise ValueError("strict experimental GE panel record required")
+        if value.get("schema") == SCHEMA_STAGED:
+            data = _exact_fields(value, {"schema", "status", "profile", "panel", "load_programme"},
+                                 "staged GE point panel")
+            if (data["status"] != STATUS or
+                    data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                    type(data["panel"]) is not dict or data["panel"].get("schema") not in
+                    (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK)):
+                raise ValueError("staged GE point panel requires an explicit legacy point input schema")
+            programme_type = getattr(stiffened_shell, "StagedDeadLoadProgramme", None)
+            if programme_type is None:
+                raise ValueError("installed solver lacks the public staged GE load programme")
+            panel = cls.from_dict(data["panel"])
+            programme = programme_type.from_payload(data["load_programme"])
+            return replace(panel, load_programme=programme)
         selected_q4 = value.get("schema") == SCHEMA_Q4_PULLBACK
         fields = {"schema", "status", "profile", "shell", "beams",
                   "points", "fixed", "actions"}

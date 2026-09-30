@@ -85,22 +85,36 @@ def point_panel_from_analysis(analysis):
     return _decode_point_panel(analysis.type, analysis.beam_formulation, canonical)
 
 
-def solve_point_panel(analysis, *, cancellation_token=None, on_case=None):
-    """Run the stored reference-linear inputs with the existing owner semantics.
+def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
+                      targets=None, increment_control=None, on_accepted=None,
+                      max_iterations=12, max_backtracks=8):
+    """Run the explicit stored load route with the existing owner semantics.
 
     B2 retains its ordered case IDs, selected recovery and cancelled prefix. GE
     has one stored action set and returns its own LinearResult; it has no batch
     case IDs or on_case callback. Use create_point_panel_analysis for the owner's
-    other explicitly admitted operations and checkpoint lifecycle.
+    other explicitly admitted operations and checkpoint lifecycle. A staged GE
+    programme requires explicit positions in targets and delegates finite solve;
+    its returned result is not a durable accepted-state checkpoint.
     """
     panel = point_panel_from_analysis(analysis)
+    staged = type(panel) is ExperimentalGEPointPanel and panel.load_programme is not None
+    if not staged and (targets is not None or increment_control is not None or
+                       on_accepted is not None or max_iterations != 12 or max_backtracks != 8):
+        raise ValueError("finite solve controls require an explicit staged GE programme")
     if type(panel) is ExperimentalB2PointPanel:
         return panel.solve_linear_many(
             cancellation_token=cancellation_token, on_case=on_case)
     if on_case is not None:
         raise ValueError("GE point-panel reference-linear solve has no case callback")
+    if staged and targets is None:
+        raise ValueError("staged GE solve requires explicit programme-position targets")
     owner = panel.create_analysis()
     try:
+        if staged:
+            return owner.solve(panel.load_input, targets, cancellation_token=cancellation_token,
+                               increment_control=increment_control, on_accepted=on_accepted,
+                               max_iterations=max_iterations, max_backtracks=max_backtracks)
         return owner.solve_linear(panel.actions, cancellation_token=cancellation_token)
     finally:
         owner.close()

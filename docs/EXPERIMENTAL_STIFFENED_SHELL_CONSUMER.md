@@ -190,3 +190,65 @@ ordinary native projects and solver checkpoints. They admit no new prestress,
 buckling, finite B2 response or GE spectral operation. Save/reopen starts a fresh
 owner and does not resume an accepted state. Unsupported versions or fields fail
 explicitly, including an attempted mass-v2 downgrade to static v1.
+
+## GE staged translation dead loads in input records and native Projects
+
+`ExperimentalGEPointPanel(..., actions=(), load_programme=programme)` opts into
+`anyfem.experimental-ge-point-panel-staged-v4`. Its envelope nests the complete
+unchanged v1/v2/v3 point input and the public solver's immutable
+`stiffened_shell.StagedDeadLoadProgramme` descriptor, including all future
+absolute endpoints and the physical model identity. Legacy actions must be
+empty in this mode. Point inputs without a programme retain their original
+schemas, defaults and reference-linear dispatch. BL5/B2 do not acquire this
+staged policy.
+
+Construct the programme using a public point owner's `preflight()["identity"]`
+and translation-force endpoint tuples. Positions describe stage progress,
+not force amplitudes. The solver owns policy/bounds/interpolation/admission;
+ANYfem copies none of those mechanics. `panel.load_input` explicitly selects
+the programme or the unchanged legacy action tuple.
+
+```python
+from anyfem.model.records import AnalysisDefinition
+from anyfem.solve.stiffened_shell_project import (
+    point_panel_from_analysis, solve_point_panel,
+)
+
+# staged_panel is an ExperimentalGEPointPanel with empty actions and the
+# public model-bound programme. Store the record in project.analyses and use
+# the ordinary save_project/load_project .anyfem APIs.
+record = AnalysisDefinition.experimental_point_panel("staged GE", staged_panel)
+result = solve_point_panel(record, targets=(.5, 1., 1.5, 2.))
+
+reopened_panel = point_panel_from_analysis(record)
+owner = reopened_panel.create_analysis()
+try:
+    owner.solve(reopened_panel.load_input, (.5, 1.))
+    accepted_checkpoint = owner.checkpoint()
+finally:
+    owner.close()
+```
+
+The Project adapter requires explicit staged targets and forwards existing
+finite controls, cancellation and `on_accepted`; it propagates the public
+owner's original status/errors and closes its temporary owner. Finite controls
+on legacy reference-linear records fail explicitly. To restore and continue,
+create a fresh owner, pass the separately retained opaque checkpoint directly
+to `restore`, then use the reopened panel's `load_input`. Save/reopen stores
+inputs only and never converts, decodes or embeds accepted-state checkpoints.
+
+Save/reopen validates and deep-owns the public descriptor without assembling a
+mechanical owner. Actual panel/model identity is checked when `create_analysis`
+constructs and preflights the public owner. The owner checks every endpoint's
+node/scope admission before trials when it solves. Thus structural persistence
+is not a promise a particular model or requested path is mechanically admitted.
+Mutated nested Project payloads are revalidated on save; corrupt future identity,
+unknown envelope versions, moments and ambiguous legacy/staged combinations
+fail closed. Native `.anyfem` format/version/default selectors remain unchanged.
+The distinct standalone `.anyfem-ge.json` input file keeps its existing meaning.
+
+This is experimental consumer persistence/dispatch. It does not qualify F06,
+yielding/staged history transport, complete unloading, line loading or the
+broader programme. A zero-force endpoint retains the solver's existing strict
+equilibrium behavior. Runtime provenance is the actual imported consumer/solver
+source and installed-artifact evidence, not the schema or input filename.
