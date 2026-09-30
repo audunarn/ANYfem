@@ -11,7 +11,8 @@ from anymaterial import DNVC208MaterialCurve
 stiffened_shell = pytest.importorskip("anysolver.stiffened_shell")
 from anysolver import b3_ge
 from anyfem.solve.stiffened_shell import (
-    ExperimentalGEPointPanel, SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK,
+    ExperimentalGEPointPanel, ExperimentalGEBL5Panel,
+    SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK, SCHEMA_BL5,
     load_case, save_case,
 )
 
@@ -528,3 +529,125 @@ def test_yielded_s3_adaptive_history_cancels_restores_and_completes(tmp_path,mon
         assert owner.checkpoint()==resumed.checkpoint()
     finally:
         owner.close();resumed.close()
+
+
+def _bl5_case(basis="p0", multiplier_span=1):
+    """Same bounded nonmatching geometry as the public solver history example."""
+    e, nu = 210e9, .3
+    g = e / (2 * (1 + nu))
+    section = b3_ge.EllipsoidalGeneralizedSection(
+        np.diag((e*.01, g*.008, g*.008, g*1.6666666666666667e-5,
+                 e*8.333333333333333e-6, e*8.333333333333333e-6)),
+        np.eye(6), 1e20, 1e9)
+    beam_points = np.array([(x, 0., .0675) for x in (0., .25, .5, .75, 1.)])
+    beams = tuple(b3_ge.define_beam(
+        b3_ge.SELECTOR, i+1, (101+2*i, 102+2*i, 103+2*i),
+        beam_points[2*i:2*i+3], np.tile(np.eye(3), (3, 1, 1)),
+        section, np.eye(6)) for i in range(2))
+    # Native continuous-P1 requires a shell trace at least as fine as the beam.
+    xs = (0., .25, .5, .75, 1.) if basis == "continuous_p1" else (0., 1/3, 2/3, 1.)
+    n = len(xs)
+    shell = stiffened_shell.ShellPanel(
+        tuple(range(1, 2*n+1)), tuple((x, y, 0.) for y in (0., .2) for x in xs),
+        tuple((i, i+1, n+i+1, n+i) for i in range(1, n)), .035, e, nu, 7850.)
+    line = stiffened_shell.ExperimentalBL5Line(
+        tuple(range(1, n+1)), ((0, 0), (0, 1), (1, 0), (1, 1)),
+        multiplier_span=multiplier_span, basis=basis)
+    fixed = tuple(stiffened_shell.FixedCoordinate("shell", node, component)
+                  for node in (1, n+1) for component in range(6))
+    return ExperimentalGEBL5Panel(shell, beams, (line,), fixed,
+        (stiffened_shell.NodalAction("beam", 105, (0., 0., 100., 0., 0., 0.)),))
+
+
+@pytest.mark.parametrize("basis,span", (
+    ("p0", 1), ("p0", 2), ("continuous_p1", 1), ("continuous_p1_coarse", 1)))
+def test_bl5_input_round_trip_preserves_explicit_public_controls(tmp_path, basis, span):
+    case = _bl5_case(basis, span)
+    record = case.to_dict()
+    assert record["schema"] == SCHEMA_BL5
+    assert record["lines"][0]["basis"] == basis
+    assert record["lines"][0]["multiplier_span"] == span
+    assert "points" not in record and "q4_pullback_policy" not in record
+    reopened = load_case(save_case(case, tmp_path / "bl5.anyfem-ge.json"))
+    assert type(reopened) is ExperimentalGEBL5Panel
+    assert reopened.to_dict() == record
+    assert reopened.status == "EXPERIMENTAL_NOT_QUALIFIED"
+    assert tuple(beam.raw for beam in reopened.beams) == tuple(beam.raw for beam in case.beams)
+    definition = reopened.definition()
+    assert definition.points == () and definition.lines == case.lines
+    assert definition.q4_pullback_policy == "historical_corotational"
+    historical = _case()
+    assert historical.to_dict()["schema"] == SCHEMA
+    assert "lines" not in historical.to_dict()
+
+
+@pytest.mark.parametrize("basis", ("p0", "continuous_p1_coarse"))
+def test_bl5_reopened_input_loads_unloads_restores_and_continues(tmp_path, basis):
+    case = _bl5_case(basis)
+    path = save_case(case, tmp_path / "bl5-history.anyfem-ge.json")
+    reopened = load_case(path)
+    owner = reopened.create_analysis()
+    resumed = load_case(path).create_analysis()
+    try:
+        first = owner.solve(reopened.actions, targets=(.5, 1., .75))
+        assert first.status == "completed" and first.accepted_factors == (.5, 1., .75)
+        assert not first.production_qualified
+        assert owner.capabilities["status"] == "EXPERIMENTAL_NOT_QUALIFIED"
+        assert first.free_equilibrium_ratio <= 1e-8 and first.constraint_max <= 1e-9
+        assert first.beam_shell_line_work
+        checkpoint = owner.checkpoint()
+        restored = resumed.restore(checkpoint)
+        assert resumed.checkpoint() == checkpoint
+        assert restored.accepted_factors == first.accepted_factors
+        direct = owner.solve(reopened.actions, targets=(.9,))
+        continued = resumed.solve(reopened.actions, targets=(.9,))
+        assert direct.status == continued.status == "completed"
+        assert direct.accepted_factors == continued.accepted_factors == (.5, 1., .75, .9)
+        assert direct.free_equilibrium_ratio <= 1e-8 and direct.constraint_max <= 1e-9
+        assert owner.checkpoint() == resumed.checkpoint()
+        for name in ("shell_displacement", "beam_positions", "beam_frames", "cell_frames",
+                     "cell_resultants", "multipliers", "support_reactions"):
+            np.testing.assert_array_equal(getattr(direct, name), getattr(continued, name))
+        assert load_case(path).to_dict() == case.to_dict()
+    finally:
+        owner.close()
+        resumed.close()
+
+
+def test_bl5_input_rejects_unsupported_combinations_and_schema_injection(tmp_path):
+    case = _bl5_case()
+    with pytest.raises(ValueError, match="pure Q4 elastic"):
+        replace(case, shell=replace(case.shell, s3_elements=((1, 2, 6),)))
+    curve = DNVC208MaterialCurve(1e6, 1.05e6, 1.1e6, .005, .01, 4e6, .2)
+    with pytest.raises(ValueError, match="pure Q4 elastic"):
+        replace(case, shell=replace(case.shell, j2_curve=curve))
+    with pytest.raises(ValueError, match="generalized B3 sections"):
+        replace(case, beams=_j2_fibre_case(False, False).beams)
+    with pytest.raises(ValueError, match="BL5 lines"):
+        replace(case, lines=())
+    with pytest.raises(ValueError, match="strict experimental GE panel"):
+        ExperimentalGEPointPanel.from_dict(case.to_dict())
+    with pytest.raises(ValueError, match="strict experimental BL5 panel"):
+        ExperimentalGEBL5Panel.from_dict(_case().to_dict())
+
+    mutations = (
+        (lambda record: record.update(points=[]), "strict experimental BL5 panel"),
+        (lambda record: record.update(q4_pullback_policy="historical_corotational"),
+         "strict experimental BL5 panel"),
+        (lambda record: record.update(schema=SCHEMA), "strict experimental GE panel"),
+        (lambda record: record.update(profile="changed-profile"), "profile"),
+        (lambda record: record["beams"][0].update(sha256="0" * 64), "hash"),
+        (lambda record: record["lines"][0].update(multiplier_span=True), "positive integer"),
+        (lambda record: record["lines"][0].update(beam_halfcells=[[True, 0], [0, 1]]),
+         "half-cell pairs"),
+        (lambda record: record["lines"][0].update(expected_beam_arm=[0., 0., False]),
+         "finite numeric"),
+        (lambda record: record["lines"][0].update(basis="unselected"), "BL5 line"),
+    )
+    path = tmp_path / "invalid-bl5.anyfem-ge.json"
+    for mutate, message in mutations:
+        record = case.to_dict()
+        mutate(record)
+        path.write_text(json.dumps(record), encoding="ascii")
+        with pytest.raises(ValueError, match=message):
+            load_case(path)

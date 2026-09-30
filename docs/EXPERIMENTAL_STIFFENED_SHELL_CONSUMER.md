@@ -45,7 +45,8 @@ record, not a solver checkpoint or an ordinary `.anyfem` project. It stores no
 mesh, accepted state, results, jobs, or UI selections. Reopening constructs a
 fresh owner; it does not resume an analysis. The consumer currently exposes
 construction, input persistence, preflight, reference-linear solving and bounded
-elastic finite stepping through the returned owner. Line/footprint attachment,
+elastic finite stepping through the returned owner. Line/footprint attachment in
+the point record,
 plastic finite response, modal
 and buckling workflows, and GUI project commands are outside this slice. The
 solver's capability report is authoritative for its current experimental
@@ -66,6 +67,81 @@ run passed all three consumer tests, including finite restore and continuation;
 the wheel identity and imports are recorded in the solver's living note. The
 runs used `NUMBA_DISABLE_JIT=1` after an ordinary import stalled; they do not
 establish qualified or accelerated-runtime behavior.
+
+## Separate BL5 inputs and elastic finite continuation
+
+`ExperimentalGEBL5Panel` is a separate Level A input record for the current
+elastic generalized-B3/Q4 BL5 owner. Its schema is
+`anyfem.experimental-ge-bl5-panel-v1`; it uses the same `.anyfem-ge.json`
+suffix and atomic bounded save/load functions. The point-panel v1, J2 v2 and
+Q4-pullback v3 records keep their original fields and meaning. A point record
+cannot acquire lines by adding a field or changing its schema label.
+
+The BL5 record requires pure Q4 elastic shell inputs, native generalized B3
+beam definitions, one or more public `ExperimentalBL5Line` definitions and
+fixed coordinates. It stores the native beam bytes and their SHA-256 bindings,
+the complete declared line controls, and nodal actions. Physical-fibre beams,
+shell J2, S3, point attachments and the algorithmic Q4 point pullback are outside
+this record. Those combinations fail explicitly rather than selecting a different
+solver route. Construction checks the input family without assembling an
+analysis. The solver owns trace geometry, supports, constraint admission and
+elastic-response checks.
+
+Every line explicitly preserves `shell_nodes`, ordered `beam_halfcells`,
+`multiplier_span`, `expected_beam_arm` in metres and `basis`. All valid public
+controls remain available: `p0` with span 1 or 2, `continuous_p1`, and
+`continuous_p1_coarse` with span 1. Public line validation remains authoritative;
+in particular, native continuous-P1 requires the shell trace to be at least as
+fine as the beam half-cells. No basis is scientifically selected by this adapter.
+The current owner handles its admitted straight, oriented material trace,
+including nonmatching partitions. It bonds position and the top-surface
+director while releasing normal spin. Curved or reversed mappings remain
+excluded. Finite actions currently admit translation forces only, and the owner
+rejects a finite trial entering generalized beam plastic response.
+
+```python
+import anyfem
+import anysolver
+from anysolver import stiffened_shell
+from anyfem.solve.stiffened_shell import ExperimentalGEBL5Panel, save_case, load_case
+
+# shell, beams and fixed are explicit public solver definitions in SI units.
+# These node/half-cell IDs describe the nonmatching public solver example;
+# use the declared topology of the actual model.
+line = stiffened_shell.ExperimentalBL5Line(
+    (1, 2, 3, 4), ((0, 0), (0, 1), (1, 0), (1, 1)), basis="p0")
+actions = (stiffened_shell.NodalAction("beam", 105, (0., 0., 100., 0., 0., 0.)),)
+case = ExperimentalGEBL5Panel(shell, beams, (line,), fixed, actions)
+save_case(case, "bl5.anyfem-ge.json")
+reopened = load_case("bl5.anyfem-ge.json")
+owner = reopened.create_analysis()
+resumed = reopened.create_analysis()
+try:
+    accepted = owner.solve(reopened.actions, targets=(.5, 1., .75))
+    checkpoint = owner.checkpoint()
+    resumed.restore(checkpoint)
+    assert resumed.checkpoint() == checkpoint
+    direct = owner.solve(reopened.actions, targets=(.9,))
+    continued = resumed.solve(reopened.actions, targets=(.9,))
+    assert owner.checkpoint() == resumed.checkpoint()
+    print({"consumer_source": anyfem.__file__, "solver_source": anysolver.__file__,
+           "status": continued.status, "qualification": owner.capabilities["status"],
+           "accepted_factors": continued.accepted_factors})
+finally:
+    owner.close()
+    resumed.close()
+```
+
+Reopening restores inputs and creates a fresh owner. Continued accepted state
+requires the solver's separately obtained checkpoint; the consumer never decodes
+or converts checkpoint bytes. The current finite BL5 identity is the solver's
+V11 checkpoint route, distinct from historical point and line identities.
+These files are neither ordinary native `.anyfem` projects nor result or job
+artifacts. They do not establish BL5 qualification, production release, native
+project support or a selected multiplier law. Actual runtime provenance comes
+from the imported consumer and solver paths and the installed-artifact evidence,
+not from the input schema label. Installed identities, verification outcomes and
+remaining programme gates are recorded by the solver's living R8 task record.
 
 ## Separate B2 inputs and reference modes
 
