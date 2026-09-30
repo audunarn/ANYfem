@@ -932,11 +932,22 @@ class SceneViewport:
             colors = []
             bindings = []
             for patch in group:
+                # Without per-polygon owners every polygon has the same owner
+                # set, so build that binding once.  A collapsed generator
+                # carries all of its face owners on each polygon; rebuilding
+                # the binding per polygon made a cylinder quadratic in faces.
+                shared_binding = (
+                    self._pick_binding(patch.owners_for_polygon(0), patch.tag)
+                    if patch.polygon_owners is None and patch.polygons
+                    else None
+                )
                 for index, polygon in enumerate(patch.polygons):
                     polygons.append(polygon.tolist())
                     colors.append(patch.colors[index])
                     bindings.append(
-                        self._pick_binding(
+                        shared_binding
+                        if patch.polygon_owners is None
+                        else self._pick_binding(
                             patch.owners_for_polygon(index), patch.tag
                         )
                     )

@@ -360,6 +360,71 @@ def test_geometry_face_patches_are_batched_without_losing_pick_owners(
     ]
 
 
+def test_batched_patches_share_one_binding_per_patch_without_per_polygon_owners(
+    monkeypatch,
+) -> None:
+    """A collapsed generator must not rebuild its owner set for every polygon."""
+
+    viewport = _viewport(monkeypatch, Selection("face"))
+    square = np.asarray([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
+    first_owners = tuple(EntityRef("face", identifier) for identifier in range(10, 16))
+    second_owners = (EntityRef("face", 99),)
+    scene = Scene(
+        faces=[
+            FacePatch(first_owners[0], [square] * 5, ["#7799bb"] * 5, owners=first_owners),
+            FacePatch(second_owners[0], [square] * 3, ["#7799bb"] * 3, owners=second_owners),
+        ]
+    )
+    calls = []
+    original = viewport._pick_binding
+
+    def counting(refs, tag=""):
+        calls.append(refs)
+        return original(refs, tag)
+
+    monkeypatch.setattr(viewport, "_pick_binding", counting)
+
+    viewport.show(scene)
+
+    assert len(viewport.canvas.face_calls) == 1
+    bindings = viewport.canvas.face_calls[0][1]["bindings"]
+    assert len(bindings) == 8
+    assert len(calls) == 2  # one per patch, not one per polygon
+    assert all(binding is bindings[0] for binding in bindings[:5])
+    assert all(binding is bindings[5] for binding in bindings[5:])
+    assert [owner.key for owner in bindings[0].owners] == [
+        f"ent_face{identifier}" for identifier in range(10, 16)
+    ]
+    assert [owner.key for owner in bindings[5].owners] == ["ent_face99"]
+
+
+def test_batched_mesh_patches_keep_their_distinct_per_polygon_owners(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+    square = np.asarray([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
+    patches = [
+        FacePatch(
+            None,
+            [square, square],
+            ["#7799bb"] * 2,
+            polygon_owners=[
+                (MeshEntityRef("element", base + 1),),
+                (MeshEntityRef("element", base + 2),),
+            ],
+        )
+        for base in (0, 10)
+    ]
+
+    viewport.show(Scene(faces=patches))
+
+    bindings = viewport.canvas.face_calls[0][1]["bindings"]
+    assert len({id(binding) for binding in bindings}) == 4
+    assert [binding.owners[0].key for binding in bindings] == [
+        "ent_element1", "ent_element2", "ent_element11", "ent_element12",
+    ]
+
+
 def test_geometry_lines_are_one_retained_batch_with_segment_owners(monkeypatch) -> None:
     viewport = _viewport(monkeypatch, Selection("edge"))
     scene = Scene(
