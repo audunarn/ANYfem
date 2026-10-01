@@ -317,6 +317,12 @@ class Project:
             if len(current) == 1 and current[0] in anchors:
                 self.geometry_attachment_regions[reference] = self.singleton_region(current[0], _output_anchors=anchors)
 
+    def raw_geometry_attachment_region(self, item) -> RegionRef | None:
+        """Raw-record bindings never override another record sharing its cache."""
+        if isinstance(item, (Imperfection, Refinement)):
+            return self.geometry_attachment_regions.get(item.ref)
+        return None
+
     def resolve_geometry_attachment(self, reference: EntityRef) -> tuple[EntityRef, ...]:
         """Resolve a raw authored cache through its durable scope or lineage."""
         if self.mesh_only:
@@ -2068,7 +2074,7 @@ class Project:
             return store is None or ref.id not in store
 
         def scope_problem(item) -> str | None:
-            region_ref = getattr(item, "region", None) or self.geometry_attachment_regions.get(item.ref)
+            region_ref = getattr(item, "region", None) or self.raw_geometry_attachment_region(item)
             if region_ref is None:
                 return (
                     f"references missing {item.ref}" if missing(item.ref) and not self.geometry.resolve_ref(item.ref) else None

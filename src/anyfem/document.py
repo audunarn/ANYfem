@@ -151,6 +151,14 @@ class DocumentSession:
         self._transaction_depth += 1
         try:
             yield transaction
+            if outermost:
+                # Serialization is validation: a refused revision must roll back
+                # the command just like a refusal raised by its body.
+                next_revision = self._make_revision(
+                    sequence=self.revision.sequence + 1,
+                    label=label,
+                    model_hash=None if solver_affecting else self.revision.model_hash,
+                )
         except BaseException:
             if outermost and before is not None:
                 from .io.project_file import project_from_dict
@@ -182,7 +190,7 @@ class DocumentSession:
             raise
         else:
             if outermost:
-                self._commit(label, solver_affecting=solver_affecting)
+                self._commit(next_revision, solver_affecting=solver_affecting)
                 transaction.committed = True
         finally:
             self._transaction_depth -= 1
@@ -245,13 +253,8 @@ class DocumentSession:
             self._listeners.remove(callback)
 
     # ------------------------------------------------------------------
-    def _commit(self, label: str, *, solver_affecting: bool) -> None:
+    def _commit(self, next_revision: DocumentRevision, *, solver_affecting: bool) -> None:
         previous_model_hash = self.revision.model_hash
-        next_revision = self._make_revision(
-            sequence=self.revision.sequence + 1,
-            label=label,
-            model_hash=None if solver_affecting else previous_model_hash,
-        )
         self.revision = next_revision
         self.dirty = next_revision.document_hash != self._last_saved_hash
         if solver_affecting and next_revision.model_hash != previous_model_hash:
@@ -344,6 +347,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         "supports",
         "masses",
         "imperfections",
+        "geometry_attachment_regions",
         "meshing",
         "regions",
         "coordinate_systems",

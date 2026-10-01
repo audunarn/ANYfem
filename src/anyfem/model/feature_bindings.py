@@ -140,7 +140,7 @@ def _rebind_feature_attachments(project: Project, log, *, previous_geometry=None
         reference = getattr(item, "ref", None)
         if not isinstance(reference, EntityRef):
             return item
-        raw_region = project.geometry_attachment_regions.get(reference) if getattr(item, "region", None) is None else None
+        raw_region = project.raw_geometry_attachment_region(item) if getattr(item, "region", None) is None else None
         region = getattr(item, "region", None) or raw_region
         if region is not None:
             try:

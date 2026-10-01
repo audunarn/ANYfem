@@ -363,7 +363,88 @@ def test_deleted_raw_attachment_does_not_persist_an_orphan_binding(raw):
     project_to_dict(project);assert face in project.geometry_attachment_regions
     container.clear()
     stack.run(cmd.DeleteFeature(feature.feature_id))
+    # An unused binding must not block another delete before writer pruning.
+    points=project.geometry.add_points(((5,0,0),(6,0,0),(6,1,0),(5,1,0)))
+    unrelated=project.geometry.entity_ref("face",project.geometry.add_plate(points))
+    stack.run(cmd.DeleteEntity(unrelated))
     data=project_to_dict(project)
     assert "geometry_attachment_regions" not in data
     reopened=project_from_dict(data)
     assert not reopened.geometry_attachment_regions
+
+
+def test_delete_resumed_output_detaches_raw_bindings_and_undo_restores_saved_identity():
+    project=Project();stack=cmd.CommandStack(project)
+    feature=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    face=next(ref for ref in feature.outputs.values() if ref.kind=="face")
+    imperfection=Imperfection(face,amplitude=.002);refinement=Refinement(size=.1,ref=face)
+    stack.run(cmd.AddImperfection(imperfection));stack.run(cmd.AddRefinement(refinement))
+    stack.run(cmd.SuppressFeature(feature.feature_id));stack.run(cmd.SuppressFeature(feature.feature_id,False))
+    live,=project.resolve_geometry_attachment(face)
+    binding=project.geometry_attachment_regions[face]
+    assert live!=face and project.geometry.resolve_ref(face)==()
+    stack.run(cmd.DeleteEntity(live))
+    assert not project.imperfections and not project.refinements
+    # The owner currently refuses persistence of deleted active feature outputs.
+    # Even this refused writer must not lose the bindings needed by undo.
+    with pytest.raises(GeometryError,match="references missing entity"):
+        project_to_dict(project)
+    assert not project.geometry_attachment_regions
+    stack.undo()
+    assert project.imperfections==[imperfection] and project.refinements==[refinement]
+    assert project.geometry_attachment_regions[face]==binding
+    assert project.resolve_geometry_attachment(face)==(live,)
+    from anyfem.io.project_file import project_from_dict
+    reopened=project_from_dict(project_to_dict(project))
+    assert reopened.geometry_attachment_regions[face]==binding
+    stack.redo();assert not project.imperfections and not project.refinements
+
+
+def test_unrelated_delete_preserves_a_suppressed_raw_attachment():
+    project=Project();stack=cmd.CommandStack(project)
+    feature=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    face=next(ref for ref in feature.outputs.values() if ref.kind=="face")
+    imperfection=Imperfection(face,amplitude=.002)
+    stack.run(cmd.AddImperfection(imperfection));stack.run(cmd.SuppressFeature(feature.feature_id))
+    points=project.geometry.add_points(((5,0,0),(6,0,0),(6,1,0),(5,1,0)))
+    unrelated=project.geometry.entity_ref("face",project.geometry.add_plate(points))
+    stack.run(cmd.DeleteEntity(unrelated))
+    assert project.imperfections==[imperfection] and face in project.geometry_attachment_regions
+
+
+@pytest.mark.parametrize("raw",["imperfection","refinement"])
+def test_raw_canonical_rebinding_overrides_authored_cache_during_delete(raw):
+    project=Project();stack=cmd.CommandStack(project)
+    first=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    second=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1,"origin":(5,0,0)}))
+    authored=next(ref for ref in first.outputs.values() if ref.kind=="face")
+    target=next(ref for ref in second.outputs.values() if ref.kind=="face")
+    region=project.singleton_region(target)
+    record=Imperfection(authored,amplitude=.002) if raw=="imperfection" else Refinement(size=.1,ref=authored)
+    container=project.imperfections if raw=="imperfection" else project.refinements
+    container.append(record);project.geometry_attachment_regions[authored]=region
+    from anyfem.model.attributes import Pressure
+    pressure=Pressure(authored,123)
+    project.load_case().pressures.append(pressure)
+    from anyfem.ui.scene import _display_attributes
+    from anyfem.solve.build import _attribute_targets
+    assert _display_attributes(project,[pressure])==[pressure]
+    assert _attribute_targets(project,None,authored)==(authored,)
+    assert project.raw_geometry_attachment_region(pressure) is None
+    from anyfem.io.project_file import project_from_dict
+    reopened=project_from_dict(project_to_dict(project))
+    loaded_pressure,=reopened.load_case().pressures
+    assert _attribute_targets(reopened,loaded_pressure.region,loaded_pressure.ref)==(authored,)
+    assert reopened.resolve_geometry_attachment(authored)==(target,)
+    stack.run(cmd.DeleteEntity(authored))
+    assert container==[record] and project.geometry_attachment_regions[authored]==region
+    assert not project.load_case().pressures
+    assert project.resolve_geometry_attachment(authored)==(target,)
+    stack.undo()
+    assert project.load_case().pressures==[pressure]
+    stack.run(cmd.DeleteEntity(target))
+    assert not container and authored not in project.geometry_attachment_regions
+    assert project.load_case().pressures==[pressure]
+    stack.undo()
+    assert container==[record] and project.geometry_attachment_regions[authored]==region
+    assert project.resolve_geometry_attachment(authored)==(target,)

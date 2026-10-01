@@ -60,6 +60,7 @@ from .model.records import MeshRecord, OutputRequest
 from .model.regions import Region
 from .model.feature_bindings import (
     _attribute_snapshot, _restore_attributes, _rebind_feature_attachments, _stage_feature_project,
+    _resolve_attachment_scope,
 )
 from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
@@ -1842,6 +1843,17 @@ class DeleteEntity(Command):
                 reference = getattr(item, "ref", None)
                 if isinstance(reference, EntityRef) and geometry.resolve_ref(reference) == (self.ref,):
                     aliases.add(reference)
+        raw_references = {item.ref for item in (*project.imperfections, *project.refinements)
+                          if isinstance(getattr(item, "ref", None), EntityRef)}
+        # Canonical raw scope overrides its authored convenience cache. Other
+        # record types can legitimately share that cache with a different scope.
+        raw_aliases = aliases.difference(project.geometry_attachment_regions)
+        for reference, region in project.geometry_attachment_regions.items():
+            if reference not in raw_references:
+                continue
+            targets, inactive = _resolve_attachment_scope(project, region.id)
+            if not inactive and targets == (self.ref,):
+                raw_aliases.add(reference)
         # Public removals update semantic groups, tags and persistent
         # replacement history in addition to deleting the entity.  Capture the
         # complete owner topology so undo restores those annotations and the
@@ -1856,7 +1868,7 @@ class DeleteEntity(Command):
             # must not clear the caller's current transaction log.
             geometry.restore_topology(self._snapshot)
             raise
-        self._attributes = _detach_attributes(project, self.ref, aliases=aliases)
+        self._attributes = _detach_attributes(project, self.ref, aliases=aliases, raw_aliases=raw_aliases)
 
     def undo(self, project: Project) -> None:
         project.geometry.restore_topology(self._snapshot)
@@ -1972,10 +1984,11 @@ def _detach_structural_owner(geometry, ref: EntityRef) -> None:
                 geometry.remove_part(part_id)
 
 
-def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dict[str, Any]:
+def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_aliases=None) -> Dict[str, Any]:
     """Remove and record everything that referenced a deleted entity."""
 
     aliases = {ref} if aliases is None else aliases
+    raw_aliases = aliases if raw_aliases is None else raw_aliases
     removed: Dict[str, Any] = {
         "face_section": None,
         "edge_section": None,
@@ -1984,6 +1997,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dic
         "imperfections": [],
         "refinements": [],
         "loads": [],
+        "geometry_attachment_regions": {},
     }
 
     if ref.kind == "face":
@@ -2003,7 +2017,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dic
         container = getattr(project, attribute)
         survivors = []
         for item in container:
-            if item.ref in aliases:
+            if item.ref in (raw_aliases if attribute == "imperfections" else aliases):
                 removed[attribute].append(item)
             else:
                 survivors.append(item)
@@ -2011,7 +2025,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dic
 
     refinements = []
     for item in project.refinements:
-        if item.ref in aliases:
+        if item.ref in raw_aliases:
             removed["refinements"].append(item)
         else:
             refinements.append(item)
@@ -2032,6 +2046,10 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dic
                 else:
                     survivors.append(load)
             container[:] = survivors
+    for reference in raw_aliases:
+        region = project.geometry_attachment_regions.pop(reference, None)
+        if region is not None:
+            removed["geometry_attachment_regions"][reference] = region
     return removed
 
 
@@ -2055,6 +2073,7 @@ def _reattach_attributes(
     project.masses.extend(removed.get("masses", ()))
     project.imperfections.extend(removed.get("imperfections", ()))
     project.refinements.extend(removed.get("refinements", ()))
+    project.geometry_attachment_regions.update(removed.get("geometry_attachment_regions", {}))
 
 
 # ----------------------------------------------------------------------

@@ -1863,6 +1863,19 @@ def test_qt_raw_feature_attachments_suppression_reopen_resume(window,qapp,tmp_pa
     assert live in window.project.geometry.features.get(parent.feature_id).outputs.values()
     window.undo();assert window.project.geometry.features.get(parent.feature_id).state=="suppressed"
     window.redo();assert window.project.resolve_geometry_attachment(target)==(live,)
+    binding=window.project.geometry_attachment_regions[target]
+    from anygeometry import GeometryError
+    before_revision=window.session.revision;before_history=window.commands.history()
+    window.selection.set_mode("face");window.selection.restore((live,))
+    with pytest.raises(GeometryError,match="references missing entity"):
+        window.run(cmd.DeleteEntity(live))
+    qapp.processEvents()
+    assert window.session.revision==before_revision and window.commands.history()==before_history
+    assert window.selection.items==[live]
+    assert window.project.imperfections==[imperfection] and window.project.refinements==[refinement]
+    assert window.project.geometry_attachment_regions[target]==binding
+    assert window.project.resolve_geometry_attachment(target)==(live,)
+    window.save_project(path=str(path));window.flush_project_writes()
 
 
 def test_qt_optional_section_fields_and_face_sketch(window,qapp):

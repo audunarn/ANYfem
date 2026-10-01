@@ -839,7 +839,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
     for index, entry in enumerate(data.get("imperfections", ())):
         imperfection = Imperfection(
             ref=_existing_ref(
-                project, entry["ref"], "imperfection.ref"
+                project, entry["ref"], "imperfection.ref", raw_attachment=True
             ),
             kind=entry.get("kind", "auto"),
             amplitude=entry.get("amplitude"),
@@ -932,7 +932,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 ref=(
                     None
                     if reference is None
-                    else _existing_ref(project, reference, "refinement.ref")
+                    else _existing_ref(project, reference, "refinement.ref", raw_attachment=True)
                 ),
                 center=None if center is None else tuple(center),
                 name=entry.get("name", "refinement"),
@@ -1294,7 +1294,7 @@ def _ref_from(data: Mapping[str, Any]) -> EntityRef:
 
 
 def _existing_ref(
-    project: Project, data: Mapping[str, Any], context: str, *, region=None
+    project: Project, data: Mapping[str, Any], context: str, *, region=None, raw_attachment=False
 ) -> EntityRef:
     """Decode a legacy scalar cache through exact topology lineage.
 
@@ -1313,7 +1313,7 @@ def _existing_ref(
             # have no ANYgeometry entity behind them.  Their existence is
             # proved against the restored mesh association later.
             return ref
-        binding = project.geometry_attachment_regions.get(ref) if region is None else None
+        binding = project.geometry_attachment_regions.get(ref) if raw_attachment and region is None else None
         if binding is not None:
             from ..model.feature_bindings import _resolve_attachment_scope
             targets, inactive = _resolve_attachment_scope(project, binding.id)
