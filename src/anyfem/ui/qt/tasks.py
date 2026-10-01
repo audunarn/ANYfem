@@ -273,6 +273,8 @@ class ResultsTask(QWidget):
         self.field=QComboBox();self.field.addItems(available_fields());self.field.setCurrentText("magnitude");form.addRow("Field",self.field)
         self.scale=QLineEdit("1");form.addRow("Deformation scale",self.scale)
         self.frame=QSpinBox();form.addRow("Frame",self.frame)
+        self.playback_speed=QComboBox();self.playback_speed.addItems(["0.5","1","2","4","8","12","20","30"])
+        self.playback_speed.setCurrentText("4");form.addRow("Playback speed (fps)",self.playback_speed)
         self.units=QComboBox();self.units.addItems(["SI (m / Pa)","Engineering (mm / MPa)"]);form.addRow("Display units",self.units)
         self.colors=QComboBox();self.colors.addItems(list(RESULT_COLORMAPS));form.addRow("Color map",self.colors)
         self.minimum=QLineEdit();self.maximum=QLineEdit()
@@ -579,7 +581,15 @@ class ResultsTask(QWidget):
             self.app.show_persisted_result(self.field_name(),frame=self.frame.value(),scale=float(self.scale.text()),component=self.component.text().strip() or None,limits=self.colour_limits())
         else:self.app.show_results()
 
+    def playback_fps(self):
+        import math
+        value=float(self.playback_speed.currentText())
+        if not math.isfinite(value) or value<=0:
+            raise ValueError("playback speed must be a positive number of frames/s")
+        return value
+
     def play(self):
+        fps=self.playback_fps()
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         count=len(getattr(self.app.solution,"shapes",()) or (self.app.solution,)) if self.app.solution is not None else len(dataset.frames) if dataset is not None else 0
         if not count:raise ValueError("Select a result before playback")
@@ -593,7 +603,8 @@ class ResultsTask(QWidget):
                 canvas.capture_animation_frame()
         finally:
             self.app.shape_index=original;self.frame.setValue(original);self.show_results()
-        canvas.play_animation()
+        canvas.play_animation(fps=fps)
+        self.app.set_status(f"playback started at {fps:g} fps")
 
 
 class VisualizationTask(QWidget):

@@ -494,6 +494,44 @@ def test_real_qt_mesh_solve_save_reopen(window,qapp,tmp_path):
     assert window.viewport.capture_png(tmp_path/"results.png").stat().st_size>100
 
 
+@pytest.mark.parametrize("damage",["missing","corrupt"])
+def test_qt_damaged_result_keeps_editable_project_and_valid_mesh(window,qapp,tmp_path,damage):
+    from anyfem.io.artifacts import ArtifactStore
+    cantilever(window)
+    mesh_panel=window.panels["Mesh"];mesh_panel.size.setText("0.25")
+    mesh_panel.strategy.setCurrentText("auto");mesh_panel.start()
+    wait_until(qapp,lambda:window.mesh is not None or not window.mesh_job_running)
+    assert window.mesh is not None,window._status.get()
+    window.solve();wait_until(qapp,lambda:window.solution is not None)
+    job_id=window.active_job_id
+    path=tmp_path/"damaged-result.anyfem";window.save_project(path=str(path))
+    entities=window.project.geometry.entity_keys()
+    node_count=window.mesh.num_nodes
+    artifact=window.project.artifacts[window.project.jobs[job_id].result_artifact_id]
+    sidecar=ArtifactStore(path).resolve(artifact.uri)
+    original=sidecar.read_bytes()
+    window.new_project()
+    if damage=="missing":sidecar.unlink()
+    else:sidecar.write_bytes(original[:32])
+    window.open_project(str(path));qapp.processEvents()
+    assert window.project.geometry.entity_keys()==entities
+    assert window.mesh.num_nodes==node_count
+    assert not window.result_datasets and window.solution is None
+    assert any("result artifact unavailable" in item.get("message","")
+        for item in window.project.jobs[job_id].diagnostics)
+    with pytest.raises(ValueError,match="no available retained result"):
+        window.panels["Results"].activate_job(job_id)
+    point=window.run(cmd.AddPoint(2,0,0));window.undo()
+    assert window.project.geometry.entity_keys()==entities
+    window.redo();assert point in window.project.geometry.vertices
+    window.session.mark_saved();window.new_project()
+    sidecar.write_bytes(original)
+    window.open_project(str(path));qapp.processEvents()
+    assert job_id in window.result_datasets
+    window.panels["Results"].activate_job(job_id)
+    assert window.viewport.capture_png(tmp_path/f"recovered-{damage}.png").stat().st_size>100
+
+
 def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path,monkeypatch):
     import json
     from anyfem.model.records import OutputRequest
@@ -1368,9 +1406,13 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     expected=np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes])
     panel=window.panels["Results"];panel.history()
     assert panel.plot.series
-    panel.play();qapp.processEvents()
-    assert window.viewport.canvas.animation_frames==len(solution.shapes)
-    window.viewport.canvas.stop_animation()
+    assert panel.playback_fps()==4
+    for fps,interval in (("0.5",2000),("2",500),("8",125)):
+        panel.playback_speed.setCurrentText(fps);panel.play()
+        assert window.viewport.canvas._animation_after_id.interval()==interval
+        assert window.viewport.canvas.animation_frames==len(solution.shapes)
+        window.viewport.canvas.stop_animation()
+    np.testing.assert_array_equal(np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes]),expected)
     path=tmp_path/"transient.anyfem"
     window.save_project(path=str(path));window.flush_project_writes()
     window.new_project();window.open_project(str(path));qapp.processEvents()
@@ -1383,9 +1425,13 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
         np.testing.assert_array_equal(dataset.field("displacement").read(index),expected[index])
     retained=window.retained_result_mesh(job_id)
     window.mesh=None
-    panel.play();qapp.processEvents()
-    assert window.viewport.canvas.animation_frames==len(solution.shapes)
-    window.viewport.canvas.stop_animation()
+    for fps,interval in (("0.5",2000),("2",500),("8",125)):
+        panel.playback_speed.setCurrentText(fps);panel.play()
+        assert window.viewport.canvas._animation_after_id.interval()==interval
+        assert window.viewport.canvas.animation_frames==len(solution.shapes)
+        window.viewport.canvas.stop_animation()
+    for index in range(len(solution.shapes)):
+        np.testing.assert_array_equal(dataset.field("displacement").read(index),expected[index])
     assert window.mesh is None and window.retained_result_mesh(job_id) is retained
     for suffix in ("md","html"):
         report=tmp_path/f"transient.{suffix}"

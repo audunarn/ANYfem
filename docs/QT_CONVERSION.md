@@ -39,6 +39,42 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Playback-speed slice (2026-10-01): independent supported-feature comparison
+finds Tk's 0.5/1/2/4/8/12/20/30 fps control absent in Qt. Add the same choices
+and 4 fps default; visual rate must not alter result times or frame values.
+The frozen shared viewer casts fps to int and clamps below 1, so its public
+animation contract also needs positive finite fractional rates. Isolate that
+repair from ANY3dView owner's dirty adapter work, measure actual scheduled
+intervals on both backends, and check live/reopened frames at multiple rates.
+GIF export keeps the existing shared encoder policy used by both frontends.
+
+Result: shared viewer commit `11b609c325fc0ad07aa8a63573d1ba60b6df04a8`
+is published on `codex/qt-playback-parity`, isolated from owner changes on
+main. Candidate CI and installation guidance pin it. Source review identified
+tiny positive FPS overflow after playback mutation; validate the finite,
+signed-32-bit host interval before stopping/changing animation. Invalid and
+unrepresentable rates preserve the existing active timer. Paired clean wheels
+pass twelve real Qt viewer cases, nine affected Qt workflows and seven
+headless boundary cases on each Windows and WSL Linux. Live and reopened
+transient data are exactly unchanged at 0.5/2/8 fps and timers measure
+2000/500/125 ms. Missing/corrupt result sidecars preserve editable geometry,
+valid mesh and undo/redo, refuse unavailable display, and recover after the
+original bytes are restored. Evidence: `playback-installed-{viewer,fem}` and
+`playback-headless` Windows/Linux logs/XML under the integration report root.
+Viewer wheel SHA256 `acdb9f8ae7bb02b40299aff7cb0756c6a13ba931a4fd556afa49f6c0aec6c474`;
+ANYfem wheel SHA256 `d25cb29bc5d9322a0050bf2f6911c9d0e596cfef59e615ab851dcc0d79662922`.
+Independent source recheck finds the timer issue addressed. New candidate
+integration remains separate from pending main scientific acceptance; no
+default switch, Tk removal, owner release or physical Linux GPU claim follows.
+
+Damaged-sidecar slice (2026-10-01): verify the promised editable-project
+behavior when a retained result is missing or has a checksum/size mismatch.
+Use an actual Qt-generated beam mesh/solve/save, damage only its disposable
+result sidecar, reopen, and require the unchanged model and intact mesh,
+unavailable-result diagnostics, explicit display refusal and usable undo/redo.
+Keep the original saved artifact bytes for recovery in the test. No numerical
+predicate or owner implementation changes are authorized by this experiment.
+
 Legacy/open-failure slice (2026-10-01): owner-codec format-2 coverage alone
 does not prove Qt replacement, tree/selection or lock behavior. Exercise a
 real format-2 project through open, edit/undo, save and reopen; invoke the
