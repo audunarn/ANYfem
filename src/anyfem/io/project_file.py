@@ -151,6 +151,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
     # Fold any direct edits through the historical assignment dictionaries
     # into canonical region-backed records before taking the persisted view.
     project.resolve_section_assignments(strict=False)
+    project.adopt_geometry_attachment_regions()
     geometry = project.geometry
     native_backend = project.set_native_triangulation_backend(
         project.native_triangulation_backend
@@ -168,6 +169,10 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             f"{nested_backend} is non-canonical; use meshing.native_backend"
         )
     return {
+        **({"geometry_attachment_regions": [
+            {"ref": _ref(reference), "region": binding.id}
+            for reference, binding in sorted(project.geometry_attachment_regions.items(), key=lambda item: (item[0].kind, item[0].id))
+        ]} if project.geometry_attachment_regions else {}),
         "anyfem": {
             "schema": "anyfem.project",
             "format": FORMAT_VERSION,
@@ -628,6 +633,28 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         project.regions = RegionRegistry(region_from_dict(entry) for entry in regions_data)
 
     output_request_data = data.get("output_requests", ())
+    attachment_data = data.get("geometry_attachment_regions", [])
+    if not isinstance(attachment_data, list):
+        raise ProjectFileError("geometry_attachment_regions must be a list")
+    for index, entry in enumerate(attachment_data):
+        context = f"geometry_attachment_regions[{index}]"
+        try:
+            from anygeometry.features import FeatureOutputRef
+            from ..model.regions import ManualRegion, RegionDomain
+            reference = _ref_from(entry["ref"])
+            binding = _region_ref_from(project, entry["region"], context + ".region")
+            if binding is None or reference in project.geometry_attachment_regions:
+                raise ValueError("missing or duplicate binding")
+            region = project.regions[binding.id]
+            anchors = region.definition.anchors if isinstance(region.definition, ManualRegion) else ()
+            if (region.domain is not RegionDomain.GEOMETRY or region.entity_kind != reference.kind
+                    or len(anchors) != 1 or not isinstance(anchors[0], FeatureOutputRef)
+                    or anchors[0].kind != reference.kind):
+                raise ValueError("binding must name one same-kind feature output")
+            project.geometry.features.get(anchors[0].feature_id)
+            project.geometry_attachment_regions[reference] = binding
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProjectFileError(f"{context}: {error}") from None
     if output_request_data:
         if not isinstance(output_request_data, list):
             raise ProjectFileError("output_requests must be a list")
@@ -828,7 +855,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 )
             ),
         )
-        if project.mesh_only:
+        if project.mesh_only or imperfection.ref in project.geometry_attachment_regions:
             project.imperfections.append(imperfection)
         else:
             project.add_imperfection(imperfection)
@@ -910,7 +937,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 center=None if center is None else tuple(center),
                 name=entry.get("name", "refinement"),
             )
-            if project.mesh_only:
+            if project.mesh_only or refinement.ref in project.geometry_attachment_regions:
                 project.refinements.append(refinement)
             else:
                 project.add_refinement(refinement)
@@ -1285,6 +1312,13 @@ def _existing_ref(
             # Imported groups use the EntityRef vocabulary but intentionally
             # have no ANYgeometry entity behind them.  Their existence is
             # proved against the restored mesh association later.
+            return ref
+        binding = project.geometry_attachment_regions.get(ref) if region is None else None
+        if binding is not None:
+            from ..model.feature_bindings import _resolve_attachment_scope
+            targets, inactive = _resolve_attachment_scope(project, binding.id)
+            if not inactive and (not targets or any(target.kind != ref.kind for target in targets)):
+                raise ValueError("raw attachment scope is missing or incompatible")
             return ref
         try:
             return project.geometry.entity_ref(ref.kind, ref.id)

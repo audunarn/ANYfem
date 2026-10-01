@@ -138,6 +138,9 @@ class Project:
     shell_formulation_policy: ShellFormulationPolicy = field(
         default_factory=ShellFormulationPolicy.current_default
     )
+    # Appended application binding for raw owner records without a region field.
+    # Established positional arguments and owner record types stay unchanged.
+    geometry_attachment_regions: Dict[EntityRef, RegionRef] = field(default_factory=dict)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -294,6 +297,35 @@ class Project:
         self._singleton_region_cache[anchor] = region.id
         self._singleton_region_cache_size = len(self.regions)
         return RegionRef(region.id)
+
+    def adopt_geometry_attachment_regions(self) -> None:
+        """Bind legacy raw records only through exact owner output provenance."""
+        if self.mesh_only:
+            return
+        records = (*self.imperfections, *self.refinements)
+        references = {item.ref for item in records if isinstance(getattr(item, "ref", None), EntityRef)}
+        self.geometry_attachment_regions = {
+            reference: region for reference, region in self.geometry_attachment_regions.items()
+            if reference in references
+        }
+        anchors = self._feature_output_anchors()
+        for item in records:
+            reference = getattr(item, "ref", None)
+            if not isinstance(reference, EntityRef) or reference in self.geometry_attachment_regions:
+                continue
+            current = self.geometry.resolve_ref(reference)
+            if len(current) == 1 and current[0] in anchors:
+                self.geometry_attachment_regions[reference] = self.singleton_region(current[0], _output_anchors=anchors)
+
+    def resolve_geometry_attachment(self, reference: EntityRef) -> tuple[EntityRef, ...]:
+        """Resolve a raw authored cache through its durable scope or lineage."""
+        if self.mesh_only:
+            return (reference,)
+        region = self.geometry_attachment_regions.get(reference)
+        if region is None:
+            return tuple(self.geometry.resolve_ref(reference))
+        return tuple(self.regions.resolve(region.id, geometry=self.geometry,
+            feature_resolver=lambda anchor: self.geometry.features.resolve(anchor, self.geometry)))
 
     def _feature_output_anchors(self) -> dict[EntityRef, object]:
         """Current topology-to-design map, built once by bulk assignments."""
@@ -1770,7 +1802,8 @@ class Project:
             if refinement.ref is None:
                 working_refinements.append(refinement)
                 continue
-            made = descendants(refinement.ref.kind, refinement.ref.id)
+            made = tuple(dict.fromkeys(target for source in self.resolve_geometry_attachment(refinement.ref)
+                                       for target in descendants(source.kind, source.id)))
             working_refinements.extend(
                 replace(refinement, ref=item) for item in made
             )
@@ -2035,7 +2068,7 @@ class Project:
             return store is None or ref.id not in store
 
         def scope_problem(item) -> str | None:
-            region_ref = getattr(item, "region", None)
+            region_ref = getattr(item, "region", None) or self.geometry_attachment_regions.get(item.ref)
             if region_ref is None:
                 return (
                     f"references missing {item.ref}" if missing(item.ref) and not self.geometry.resolve_ref(item.ref) else None
@@ -2119,11 +2152,10 @@ class Project:
                 if coordinates is not None:
                     problems.append(f"{label} {item.name!r} {coordinates}")
         for refinement in self.refinements:
-            if refinement.ref is not None and missing(refinement.ref) and not self.geometry.resolve_ref(refinement.ref):
-                problems.append(
-                    f"refinement {refinement.name!r} references missing "
-                    f"{refinement.ref}"
-                )
+            if refinement.ref is not None:
+                scoped = scope_problem(refinement)
+                if scoped is not None:
+                    problems.append(f"refinement {refinement.name!r} {scoped}")
         for case_name, case in self.load_cases.items():
             for label, loads in (
                 ("point load", case.point_loads),

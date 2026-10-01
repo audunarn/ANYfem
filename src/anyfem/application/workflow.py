@@ -2363,7 +2363,10 @@ class WorkbenchWorkflow:
             if not path:
                 return
         source = Path(path)
-        lock = ProjectLock(source)
+        current_lock = self._project_lock
+        lock = (current_lock if current_lock is not None
+                and current_lock.project_path == source.resolve(False)
+                else ProjectLock(source))
         decision = lock.acquire()
         if decision.can_take_over:
             answer = self.dialogs.confirm_save(
@@ -2381,7 +2384,7 @@ class WorkbenchWorkflow:
         try:
             loaded = load_project(source)
         except BaseException:
-            if held_lock is not None:
+            if held_lock is not None and held_lock is not current_lock:
                 held_lock.release()
             raise
         self._set_project(

@@ -220,6 +220,17 @@ def test_historical_imperfection_ref_builds_same_physical_geometry_as_live_ref()
     mesh=project.generate_mesh(.25)
     original_coordinates={node:position.copy() for node,position in mesh.nodes.items()}
     historical=build_fe_model(project,mesh,require_loads=False,require_supports=False)
+    stack.run(cmd.SuppressFeature(feature.feature_id))
+    from anyfem.io.project_file import project_from_dict
+    reopened=project_from_dict(project_to_dict(project))
+    reopened.geometry.features.set_suppressed(feature.feature_id,False)
+    report=reopened.regenerate_geometry_features();assert report.success,report.diagnostic
+    resumed_mesh=reopened.generate_mesh(.25)
+    resumed=build_fe_model(reopened,resumed_mesh,require_loads=False,require_supports=False)
+    resumed_coordinates=np.array([[node.x,node.y,node.z] for node in resumed.fe_model.mesh.nodes.values()])
+    expected_coordinates=np.array([[node.x,node.y,node.z] for node in historical.fe_model.mesh.nodes.values()])
+    np.testing.assert_array_equal(resumed_coordinates,expected_coordinates)
+    stack.undo()
     project.imperfections[:]=[replace(imperfection,ref=live)]
     current=build_fe_model(project,mesh,require_loads=False,require_supports=False)
     historical_coordinates=np.array([[node.x,node.y,node.z] for node in historical.fe_model.mesh.nodes.values()])
@@ -266,7 +277,9 @@ def test_suppressed_anchor_does_not_mask_an_independent_missing_anchor(direct):
 
 @pytest.mark.parametrize("direct",[False,True])
 @pytest.mark.parametrize("raw",["imperfection","refinement"])
-def test_suppression_refuses_to_expire_raw_attachment_identity(direct,raw):
+def test_suppression_refuses_to_expire_raw_attachment_identity(direct,raw,monkeypatch):
+    # Missing provenance must still fail atomically; durable adoption is tested below.
+    monkeypatch.setattr(Project,"adopt_geometry_attachment_regions",lambda self:None)
     project,stack,parent,child,fixed,pressure=attached_sketch()
     if raw=="imperfection":project.imperfections.append(Imperfection(pressure.ref,amplitude=.002))
     else:project.refinements.append(Refinement(size=.1,ref=pressure.ref))
@@ -279,3 +292,78 @@ def test_suppression_refuses_to_expire_raw_attachment_identity(direct,raw):
         with pytest.raises(GeometryError,match="persisted output anchor"):
             stack.run(cmd.SuppressFeature(parent.feature_id))
     assert project_to_dict(project)==before and stack.history()==history
+
+
+@pytest.mark.parametrize("direct",[False,True])
+@pytest.mark.parametrize("raw",["imperfection","refinement"])
+def test_raw_attachment_survives_suppression_reopen_and_resume(direct,raw,tmp_path):
+    from anyfem import ProjectError
+    from anyfem.io.project_file import save_project,load_project
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    for face_id in project.geometry.faces:project.assign_plate(face_id,"plate")
+    record=Imperfection(pressure.ref,amplitude=.002) if raw=="imperfection" else Refinement(size=.1,ref=pressure.ref)
+    container="imperfections" if raw=="imperfection" else "refinements"
+    getattr(project,container).append(record)
+    assert not project.geometry_attachment_regions
+    if direct:
+        project.geometry.features.set_suppressed(parent.feature_id,True)
+        report=project.regenerate_geometry_features();assert report.success,report.diagnostic
+    else:stack.run(cmd.SuppressFeature(parent.feature_id))
+    binding=project.geometry_attachment_regions[record.ref]
+    assert getattr(project,container)==[record]
+    with pytest.raises(ProjectError,match="unresolved"):
+        project.validate(require_loads=False,require_supports=False)
+    report=project.regenerate_geometry_features();assert report.success,report.diagnostic
+    reopened=load_project(save_project(project,tmp_path/"raw-suppressed.anyfem"))
+    assert getattr(reopened,container)==[record]
+    assert reopened.geometry_attachment_regions[record.ref]==binding
+    reopened.geometry.features.set_suppressed(parent.feature_id,False)
+    reopened.geometry.features.update(parent.feature_id,parameters={**parent.parameters,"origin":(1,0,0)})
+    report=reopened.regenerate_geometry_features();assert report.success,report.diagnostic
+    reopened.validate(require_loads=False,require_supports=False)
+    live,=reopened.resolve_geometry_attachment(record.ref)
+    assert live!=record.ref
+    assert live in reopened.geometry.features.get(child.feature_id).outputs.values()
+    assert getattr(reopened,container)==[record]
+    twice=load_project(save_project(reopened,tmp_path/"raw-resumed.anyfem"))
+    assert getattr(twice,container)==[record]
+    assert twice.resolve_geometry_attachment(record.ref)==(live,)
+    if not direct:
+        stack.undo();assert getattr(project,container)==[record]
+        stack.redo();assert project.geometry_attachment_regions[record.ref]==binding
+
+
+@pytest.mark.parametrize("damage",["container","entry","missing-region","duplicate","wrong-kind","missing-feature","raw-anchor"])
+def test_malformed_raw_attachment_binding_is_rejected(damage):
+    from anyfem.io.project_file import project_from_dict,ProjectFileError
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    project.imperfections.append(Imperfection(pressure.ref,amplitude=.002))
+    data=project_to_dict(project)
+    entry=data["geometry_attachment_regions"][0]
+    region=next(item for item in data["regions"] if item["id"]==entry["region"])
+    if damage=="container":data["geometry_attachment_regions"]={}
+    elif damage=="entry":data["geometry_attachment_regions"]=[None]
+    elif damage=="missing-region":entry["region"]="missing"
+    elif damage=="duplicate":data["geometry_attachment_regions"].append(deepcopy(entry))
+    elif damage=="wrong-kind":entry["ref"]["kind"]="vertex"
+    elif damage=="missing-feature":region["definition"]["anchors"][0]["feature_id"]=999999
+    else:region["definition"]["anchors"][0]={"kind":"face","id":pressure.ref.id}
+    with pytest.raises(ProjectFileError,match="geometry_attachment_regions"):
+        project_from_dict(data)
+
+
+@pytest.mark.parametrize("raw",["imperfection","refinement"])
+def test_deleted_raw_attachment_does_not_persist_an_orphan_binding(raw):
+    from anyfem.io.project_file import project_from_dict
+    project=Project();stack=cmd.CommandStack(project)
+    feature=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    face=next(ref for ref in feature.outputs.values() if ref.kind=="face")
+    container=project.imperfections if raw=="imperfection" else project.refinements
+    container.append(Imperfection(face,amplitude=.002) if raw=="imperfection" else Refinement(size=.1,ref=face))
+    project_to_dict(project);assert face in project.geometry_attachment_regions
+    container.clear()
+    stack.run(cmd.DeleteFeature(feature.feature_id))
+    data=project_to_dict(project)
+    assert "geometry_attachment_regions" not in data
+    reopened=project_from_dict(data)
+    assert not reopened.geometry_attachment_regions

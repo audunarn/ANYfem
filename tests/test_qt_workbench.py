@@ -1567,7 +1567,8 @@ def test_qt_legacy_project_upgrade_keeps_entity_identity(window,qapp,tmp_path):
     ('{"name":"missing header"}',"format header"),
     ('{"anyfem":{"format":99}}',"upgrade ANYfem"),
 ])
-def test_qt_failed_open_preserves_dirty_document_and_owned_lock(window,qapp,tmp_path,monkeypatch,payload,diagnostic):
+@pytest.mark.parametrize("same_path",[False,True])
+def test_qt_failed_open_preserves_dirty_document_and_owned_lock(window,qapp,tmp_path,monkeypatch,payload,diagnostic,same_path):
     from anyfem.io.recovery import ProjectLock
     path=tmp_path/"current.anyfem";window.save_project(path=str(path))
     point=window.run(cmd.AddPoint(2,3,4))
@@ -1575,7 +1576,9 @@ def test_qt_failed_open_preserves_dirty_document_and_owned_lock(window,qapp,tmp_
     window.selection.select(ref);qapp.processEvents()
     project=window.project;stack=window.commands;revision=window.session.revision
     held_lock=window._project_lock
-    malformed=tmp_path/"rejected.anyfem";malformed.write_text(payload,encoding="utf-8")
+    window.flush_project_writes()
+    malformed=path if same_path else tmp_path/"rejected.anyfem"
+    malformed.write_text(payload,encoding="utf-8")
     monkeypatch.setattr(window,"_confirm_discard",lambda:True)
     monkeypatch.setattr(window.dialogs,"open_file",lambda **_:str(malformed))
     window._actions["Open"].trigger();qapp.processEvents()
@@ -1586,7 +1589,7 @@ def test_qt_failed_open_preserves_dirty_document_and_owned_lock(window,qapp,tmp_
     assert window.session.revision==revision and window.session.dirty
     assert window.selection.items==[ref]
     assert window.path==path and window._project_lock is held_lock
-    assert not ProjectLock(malformed).path.exists()
+    if not same_path:assert not ProjectLock(malformed).path.exists()
     contender=ProjectLock(path);assert not contender.acquire().acquired
     window.commands.undo();assert point not in window.project.geometry.vertices
     window.commands.redo();assert point in window.project.geometry.vertices
@@ -1800,6 +1803,11 @@ def test_qt_dependent_feature_edit_preserves_engineering_attachments(window,qapp
     boundary=child.outputs["point/p1"]
     fixed=Support("sketch anchor",boundary,{"ux":0,"uy":0,"uz":0})
     window.run(cmd.AddSupport(fixed))
+    from anyfem.model.imperfections import Imperfection
+    from anyfem.mesh.refinement import Refinement
+    imperfection=Imperfection(target,amplitude=.002)
+    refinement=Refinement(size=.1,ref=target)
+    window.run(cmd.AddImperfection(imperfection));window.run(cmd.AddRefinement(refinement))
     parameters=dict(parent.parameters);parameters["length"]=4;parameters["origin"]=(1,0,0)
     editor=window.panels["Geometry"];editor.choice.setCurrentIndex(editor.choice.findData("EditFeature"))
     editor.fields["feature_id"][0].setText(str(parent.feature_id))
@@ -1830,6 +1838,31 @@ def test_qt_dependent_feature_edit_preserves_engineering_attachments(window,qapp
     path=tmp_path/"dependent-feature.anyfem";window.save_project(path=str(path));window.flush_project_writes()
     window.open_project(str(path));assert_attachments(4,1)
     assert window.project.geometry.features.get(parent.feature_id).parameters["length"]==4
+
+
+def test_qt_raw_feature_attachments_suppression_reopen_resume(window,qapp,tmp_path):
+    from anyfem.model.imperfections import Imperfection
+    from anyfem.mesh.refinement import Refinement
+    parent=window.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    target=next(ref for ref in parent.outputs.values() if ref.kind=="face")
+    imperfection=Imperfection(target,amplitude=.002)
+    refinement=Refinement(size=.1,ref=target)
+    window.run(cmd.AddImperfection(imperfection));window.run(cmd.AddRefinement(refinement))
+    path=tmp_path/"raw-feature.anyfem"
+    window.save_project(path=str(path));window.flush_project_writes();window.open_project(str(path))
+    assert not window.session.read_only
+    window.run(cmd.SuppressFeature(parent.feature_id));qapp.processEvents()
+    assert window.project.imperfections==[imperfection] and window.project.refinements==[refinement]
+    from anyfem import ProjectError
+    with pytest.raises(ProjectError,match="unresolved"):
+        window.project.validate(require_loads=False,require_supports=False)
+    window.save_project(path=str(path));window.flush_project_writes();window.open_project(str(path))
+    window.run(cmd.SuppressFeature(parent.feature_id,False));qapp.processEvents()
+    assert window.project.imperfections==[imperfection] and window.project.refinements==[refinement]
+    live,=window.project.resolve_geometry_attachment(target)
+    assert live in window.project.geometry.features.get(parent.feature_id).outputs.values()
+    window.undo();assert window.project.geometry.features.get(parent.feature_id).state=="suppressed"
+    window.redo();assert window.project.resolve_geometry_attachment(target)==(live,)
 
 
 def test_qt_optional_section_fields_and_face_sketch(window,qapp):

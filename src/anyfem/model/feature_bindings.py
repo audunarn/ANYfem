@@ -14,7 +14,7 @@ def _stage_feature_project(project: Project) -> Project:
     # Projection rebuilding and canonical legacy adoption must remain on
     # independent containers until the complete edit is known valid.
     for name in ("face_sections", "edge_sections", "face_assignment_ids", "edge_assignment_ids",
-                 "section_assignments", "sheet_join_intents"):
+                 "section_assignments", "sheet_join_intents", "geometry_attachment_regions"):
         setattr(working_project, name, dict(getattr(project, name)))
     working_project.regions = deepcopy(project.regions)
     working_project._singleton_region_cache = {}
@@ -26,6 +26,7 @@ def _stage_feature_project(project: Project) -> Project:
         for name in ("point_loads", "pressures", "line_loads", "surface_tractions"):
             setattr(case, name, list(getattr(case, name)))
         case._region_factory = working_project.singleton_region
+    working_project.adopt_geometry_attachment_regions()
     return working_project
 
 
@@ -39,6 +40,7 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
         "edge_assignment_ids": dict(project.edge_assignment_ids),
         "section_assignments": dict(project.section_assignments),
         "regions": deepcopy(project.regions),
+        "geometry_attachment_regions": dict(project.geometry_attachment_regions),
         "sheet_join_intents": dict(project.sheet_join_intents),
         "supports": list(project.supports),
         "masses": list(project.masses),
@@ -72,6 +74,7 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
         project.regions = deepcopy(snapshot["regions"])
         project._singleton_region_cache = {}
         project._singleton_region_cache_size = -1
+    project.geometry_attachment_regions = dict(snapshot.get("geometry_attachment_regions", {}))
     project.sheet_join_intents.clear()
     project.sheet_join_intents.update(snapshot.get("sheet_join_intents", {}))
     project.supports[:] = list(snapshot["supports"])
@@ -137,7 +140,8 @@ def _rebind_feature_attachments(project: Project, log, *, previous_geometry=None
         reference = getattr(item, "ref", None)
         if not isinstance(reference, EntityRef):
             return item
-        region = getattr(item, "region", None)
+        raw_region = project.geometry_attachment_regions.get(reference) if getattr(item, "region", None) is None else None
+        region = getattr(item, "region", None) or raw_region
         if region is not None:
             try:
                 targets, has_inactive = _resolve_attachment_scope(project, region.id, inactive=inactive)
@@ -150,6 +154,8 @@ def _rebind_feature_attachments(project: Project, log, *, previous_geometry=None
             if not targets and reference in inactive_refs:
                 raise GeometryError(f"suppression would expire {type(item).__name__} attachment {reference}; a persisted output anchor is required")
         targets = tuple(dict.fromkeys(targets))
+        if raw_region is not None and len(targets) == 1 and targets[0].kind == reference.kind:
+            return item
         lineage = tuple(project.geometry.resolve_ref(reference))
         if len(lineage) == 1 and lineage[0].kind == reference.kind and lineage[0] in targets:
             # The authored scalar cache may name a predecessor. Canonical

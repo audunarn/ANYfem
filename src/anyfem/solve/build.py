@@ -848,6 +848,7 @@ def _attribute_targets(
     diagnostic here; it is never silently retargeted to nearby geometry.
     """
 
+    region_ref = region_ref or project.geometry_attachment_regions.get(fallback)
     if region_ref is None:
         targets: tuple[Any, ...] = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
     else:
@@ -1107,7 +1108,7 @@ def _apply_imperfections(
 
     fields = []
     for imperfection in project.imperfections:
-        references = (imperfection.ref,) if project.mesh_only else project.geometry.resolve_ref(imperfection.ref)
+        references = project.resolve_geometry_attachment(imperfection.ref)
         node_ids = list(dict.fromkeys(node for reference in references for node in mesh.nodes_on(reference)))
         if not node_ids:
             raise ProjectError(

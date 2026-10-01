@@ -3,6 +3,42 @@
 Outcome: replace Tk after supported-workflow parity, installed-artifact checks,
 Windows/Linux acceptance and independent review. Publication is separate.
 
+Current bounded slice (2026-10-01): Project-owned raw attachment bindings now
+retain imperfection/refinement authored references through exact feature-output
+regions, suppression, save/reopen and resume. The additive optional project field
+does not change owner records or numerical values. Detached staging and undo
+snapshots include bindings; unused bindings are pruned before replay/persistence.
+Independent review found and resolved the orphan-binding roundtrip failure.
+Same-window project reopen also now reuses its owned lock; failed reopen retains
+the active document and lock. Review found no further concrete defect in this slice.
+
+Final installed wheel SHA256:
+`38e4b92a3457c20c49435a347f49fbd979ca9917463d694f162384d3d6a71185`.
+Windows and WSL each pass 41 focused headless/persistence contracts and 11 real
+Qt lifecycle cases, with installed origins checked under Python `-I`. Windows
+explicit GPU activation passes; WSL uses XCB/llvmpipe OpenGL. Earlier bounded Qt
+runs used the software backend because the environment variable name was wrong;
+only `raw-binding-final-*-qt` evidence checks the requested GPU backend explicitly.
+Wheel/sdist safety checks pass. Failed runs remain in the primary checkout's
+ignored `reports/qt/integration-pr10/`, alongside final logs and JUnit reports.
+
+Remaining concrete integration failure: suppressing a dependent sketch after
+parent editing plus undo/redo and save/reopen is refused by ANYgeometry because
+replacement history contains unresolved edge/vertex descendants. Retained
+`raw-binding-win-qt-source.log` records the failure before publication. Separate
+dependent-edit and simple raw suppression passes do not establish this combined
+workflow. Owner correction/coordination remains needed; no owner package changes
+were published by ANYfem.
+
+Completed full main run `36880776026`: all eight cells run 1212 tests with 130
+skips. Seven cells have the two feature attachment failures already repaired by
+candidate `8abf590`; Linux Python 3.13 additionally fails the unchanged free-modal
+case. All eight verification reports have 21/21 passes. This does not close
+scientific acceptance. Candidate `36898757214` on `8abf590` completes successfully.
+Physical Linux GPU acceptance is explicitly deferred by the user until hardware
+is available. Full parity and final independent acceptance remain open; Tk stays
+the default and there is no release or Tk removal.
+
 Policy: `ANY_ECOSYSTEM_RISK_PROPORTIONATE_ENGINEERING_V1`, revision
 `2026-09-24.2`, canonical ANYopenSoft governance philosophy. Existing numerical
 criteria and execution authorities remain unchanged. Use integrated slices and
@@ -38,6 +74,17 @@ absent. The workflow ledger below separates measured coverage from open gates.
 - [ ] Default switch and Tk retirement
 
 ## Evidence and next action
+
+Raw attachment binding slice (2026-10-01): keep a Project-owned map from authored
+EntityRef caches to canonical region UUIDs. Adopt only exact owner feature-output
+anchors before replay or persistence; no refinement IDs, copied owner records,
+index matching or proximity inference. Persist the map as optional project data,
+snapshot it with feature undo/redo, and resolve it consistently for validation,
+mesh refinements, imperfection FE construction and display. Exercise both APIs,
+legacy unbound adoption, suppression/repeated replay/save/reopen/resume, unchanged
+engineering values, and physical historical/live-reference equivalence. Missing
+or ambiguous provenance must continue to refuse atomically. This closes an
+identified implementation gap, not a new numerical qualification scope.
 
 Canonical attachment repair (2026-10-01): preserve authored predecessor scalar
 refs when exact owner lineage belongs to their canonical region. Independent

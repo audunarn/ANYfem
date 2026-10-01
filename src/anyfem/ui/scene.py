@@ -1509,7 +1509,7 @@ def _display_attributes(project, items):
     result = []
     stores = {"vertex": geometry.vertices, "edge": geometry.edges, "face": geometry.faces}
     for item in items:
-        region_ref = getattr(item, "region", None)
+        region_ref = getattr(item, "region", None) or project.geometry_attachment_regions.get(item.ref)
         try:
             if region_ref is None:
                 targets = geometry.resolve_ref(item.ref)
