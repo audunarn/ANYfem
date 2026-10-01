@@ -21,6 +21,7 @@ from anysolver import stiffened_shell
 
 
 SCHEMA = "anyfem.experimental-b2-q4-point-panel-v1"
+SCHEMA_MIXED = "anyfem.experimental-b2-mixed-point-panel-v1"
 SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-b2-nodal-rigid-footprint-panel-v1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal-panel-v1"
@@ -88,6 +89,7 @@ def _json_load(payload):
 
 
 def _decode(record):
+    mixed = type(record) is dict and record.get("schema") == SCHEMA_MIXED
     modal = type(record) is dict and record.get("schema") == SCHEMA_REFERENCE_MODAL
     nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL)
     record = _exact(record, ("schema", "status", "profile", "shell_nodes",
@@ -95,10 +97,11 @@ def _decode(record):
                                   (("request", "modal_boundary_policy") if modal else
                                   ("cases", "selection")) + (("footprints",) if nodal else ()),
                     "experimental B2 panel")
-    if (record["schema"] not in (SCHEMA, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
     with_mass = record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
+    mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
     node_rows = record["shell_nodes"]
     if type(node_rows) is not list or not node_rows:
         raise ValueError("experimental B2 shell nodes required")
@@ -118,16 +121,26 @@ def _decode(record):
     for item in record["shells"]:
         fields = ("shell_id", "node_ids", "E", "nu", "thickness_m",
                   "reference_normal")
-        row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()),
-                     "Q4 shell")
+        row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()) +
+                     (("formulation",) if mixed else ()), "mixed shell" if mixed else "Q4 shell")
+        formulation = row["formulation"] if mixed else "e4-pl"
+        if formulation not in ("e4-pl", "e4-pl-s3-v2d"):
+            raise ValueError("explicit mixed shell formulation e4-pl or e4-pl-s3-v2d required")
+        count = 3 if formulation == "e4-pl-s3-v2d" else 4
+        node_ids = _vector(row["node_ids"], count, "mixed node IDs" if mixed else "Q4 node IDs", integer=True)
+        normal = _vector(row["reference_normal"], 3, "mixed normal" if mixed else "Q4 normal")
+        if mixed and (len(set(node_ids)) != count or any(node not in shell_nodes for node in node_ids)
+                      or not any(value != 0. for value in normal)):
+            raise ValueError("distinct known mixed shell nodes and nonzero authoritative normal required")
         density = row.get("density_kg_m3")
-        shells.append(stiffened_shell.Q4PanelShell(
+        shell_type = s3_type if count == 3 else stiffened_shell.Q4PanelShell
+        shells.append(shell_type(
             _identifier(row["shell_id"], "shell ID"),
-            _vector(row["node_ids"], 4, "Q4 node IDs", integer=True),
+            node_ids,
             _number(row["E"], "Q4 modulus"),
             _number(row["nu"], "Q4 Poisson ratio"),
             _number(row["thickness_m"], "Q4 thickness"),
-            _vector(row["reference_normal"], 3, "Q4 normal"),
+            normal,
             density_kg_m3=(None if density is None else
                           _number(density, "Q4 density"))))
 
@@ -223,7 +236,8 @@ def _decode(record):
         raise ValueError("valid B2 affine CSR map required")
     T = sparse.csr_matrix((data, indices, indptr), shape=(rows, columns))
     offset = np.asarray(_vector(affine["offset"], rows, "affine offset"))
-    definition = stiffened_shell.B2Q4PanelDefinition(
+    definition_type = mixed_definition if mixed else stiffened_shell.B2Q4PanelDefinition
+    definition = definition_type(
         record["profile"], shell_nodes, tuple(shells), tuple(members),
         tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}))
 
@@ -276,6 +290,14 @@ def _decode(record):
             raise ValueError("normalized B2 recovery stations required")
         stations[member_id] = parsed
     return definition, tuple(cases), tuple(dofs), tuple(point_ids), stations
+
+
+def _mixed_api():
+    definition = getattr(stiffened_shell, "B2MixedPanelDefinition", None)
+    shell = getattr(stiffened_shell, "S3V2DPanelShell", None)
+    if definition is None or shell is None:
+        raise ValueError("installed solver lacks explicit public B2 mixed-panel inputs")
+    return definition, shell
 
 
 def _footprint_api():
@@ -383,21 +405,35 @@ class ExperimentalB2PointPanel:
                          selected_points=(), recover_members=None, schema=SCHEMA,
                          nodal=False, selected_footprints=None, request=None):
         modal = schema == SCHEMA_REFERENCE_MODAL
+        mixed = schema == SCHEMA_MIXED
         with_mass = schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
-        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS)):
+        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED)):
             raise ValueError("experimental B2 panel schema required")
+        definition_type, s3_type = (_mixed_api() if mixed else
+                                    (stiffened_shell.B2Q4PanelDefinition, None))
+        if mixed and (cls is not ExperimentalB2MixedPointPanel or
+                      type(definition) is not definition_type or
+                      getattr(definition, "footprints", ()) or
+                      any(type(shell) not in (stiffened_shell.Q4PanelShell, s3_type)
+                          or type(shell.node_ids) is not tuple
+                          or any(type(node) is not int for node in shell.node_ids)
+                          for shell in definition.shells) or
+                      any(type(point) is not stiffened_shell.Q4B2Point for point in definition.points) or
+                      any(type(node) is not int or node <= 0 for node in definition.shell_nodes_m)):
+            raise ValueError("explicit typed mixed B2 point-panel inputs without footprints required")
         if (not with_mass and
-                type(definition) is stiffened_shell.B2Q4PanelDefinition and
+                type(definition) is definition_type and
                 any(getattr(shell, "density_kg_m3", None) is not None
                     for shell in definition.shells)):
             raise ValueError("shell density is unsupported by experimental B2 input persistence")
-        if (type(definition) is not stiffened_shell.B2Q4PanelDefinition or
+        if (type(definition) is not definition_type or
                 definition.profile != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1 or
                 any(type(member) is not stiffened_shell.PhysicalB2Member or
                     (not with_mass and member.mass is not None) or
                     member.geometric is not None
                     for member in definition.members)):
-            raise ValueError("elastic physical B2/Q4 point-panel inputs required")
+            raise ValueError("elastic physical B2 mixed-point-panel inputs required" if mixed
+                             else "elastic physical B2/Q4 point-panel inputs required")
         T = definition.transformation.tocsr(copy=True)
         T.sum_duplicates()
         T.sort_indices()
@@ -448,6 +484,9 @@ class ExperimentalB2PointPanel:
                           {name: list(values) for name, values in
                            recover_members.items()}},
         }
+        if mixed:
+            for row, shell in zip(record["shells"], definition.shells):
+                row["formulation"] = "e4-pl-s3-v2d" if type(shell) is s3_type else "e4-pl"
         if with_mass:
             for row, shell in zip(record["shells"], definition.shells):
                 row["density_kg_m3"] = shell.density_kg_m3
@@ -501,6 +540,43 @@ class ExperimentalB2PointPanel:
             return owner.modes(request, cancellation=cancellation)
         finally:
             owner.close()
+
+
+@dataclass(frozen=True)
+class ExperimentalB2MixedPointPanel(ExperimentalB2PointPanel):
+    """Explicit static Q4/native S3 V2D inputs; no inertia or solver-state persistence."""
+
+    def __post_init__(self):
+        if type(self) is not ExperimentalB2MixedPointPanel or type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES:
+            raise ValueError("exact bounded experimental B2 mixed-panel bytes required")
+        record = _json_load(self.payload)
+        if type(record) is not dict or record.get("schema") != SCHEMA_MIXED:
+            raise ValueError("explicit B2 mixed-point-panel schema required")
+        _decode(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii")+b"\n")
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs,
+                        selected_points=(), recover_members=None, schema=SCHEMA_MIXED):
+        if schema != SCHEMA_MIXED:
+            raise ValueError("explicit B2 mixed-point-panel schema required")
+        return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+            selected_points=selected_points, recover_members=recover_members, schema=schema)
+
+    def to_dict(self):
+        return _json_load(self.payload)
+
+    @classmethod
+    def from_dict(cls, record):
+        return cls(json.dumps(record, allow_nan=False).encode("ascii"))
+
+    def to_definition(self):
+        """Reconstruct detached public solver inputs without assembling an owner."""
+        return _decode(_json_load(self.payload))[0]
+
+    def modes(self, request=None, *, cancellation=None):
+        raise ValueError("mixed-panel consumer supports static batches only; mass and modes deferred")
 
 
 @dataclass(frozen=True)
@@ -631,7 +707,7 @@ class ExperimentalB2ReferenceModalPanel(ExperimentalB2PointPanel):
 
 
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -662,11 +738,13 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
     record = _json_load(payload)
     schema = record.get("schema") if type(record) is dict else None
     consumer = (ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
+                ExperimentalB2MixedPointPanel if schema == SCHEMA_MIXED else
                 ExperimentalB2NodalRigidFootprintPanel if schema == SCHEMA_NODAL_FOOTPRINT else ExperimentalB2PointPanel)
     return consumer(payload)
 
 
 __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFIX",
+           "ExperimentalB2MixedPointPanel", "SCHEMA_MIXED",
            "ExperimentalB2NodalRigidFootprintPanel", "SCHEMA_NODAL_FOOTPRINT",
            "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "save_case", "load_case"]
