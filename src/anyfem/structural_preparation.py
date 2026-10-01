@@ -270,7 +270,43 @@ def prepare_structural_connectivity(
     )
     _check(cancellation_check, "structural intersection batch planning")
     active_members = tuple(sorted(geometry.members if member_ids is None else set(member_ids)))
-    operands = (*[geometry.handle("face", face) for face in sorted(geometry.faces)],
+    if not active_members and geometry.faces:
+        from anygeometry import query_trimmed_surface_charts
+        from anygeometry.surfaces import CoonsSurface, Cone, RuledSurface
+        if all(isinstance(face.surface, (CoonsSurface, Cone, RuledSurface))
+               for face in geometry.faces.values()):
+            unavailable = set()
+            for face in geometry.faces:
+                try:
+                    query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
+                except GeometryError as error:
+                    if str(error) not in (
+                            f"face {face} has curved Coons boundaries",
+                            f"face {face} is not planar",
+                            f"face {face} has an unsupported intersection surface"):
+                        raise StructuralPreparationError(str(error)) from error
+                    unavailable.add(face)
+            if unavailable == set(geometry.faces):
+                # Preserve established curved authoring/discretization. The
+                # mesher performs its qualified ownership audit on a detached
+                # candidate; general interior Coons joints are not inferred.
+                from anymesher.preparation import prepare_structural_closure
+                from anymesher.errors import MeshError
+                try:
+                    candidate, _ = prepare_structural_closure(
+                        geometry, face_ids=tuple(geometry.faces),
+                        options={"declare_missing_owners": False},
+                        cancellation_check=cancellation_check,
+                        reuse_working_copy=True)
+                except (MeshError, GeometryError) as error:
+                    raise StructuralPreparationError(str(error)) from error
+                geometry.restore_topology(candidate.topology_snapshot())
+                report.working_revision = int(geometry.revision)
+                return report
+    owned_faces = {geometry.face_uses[use].face_id for sheet in geometry.sheets.values()
+                   for use in sheet.face_use_ids}
+    operands = (*[geometry.handle("sheet", sheet) for sheet in sorted(geometry.sheets)],
+                *[geometry.handle("face", face) for face in sorted(set(geometry.faces) - owned_faces)],
                 *[geometry.handle("member", member) for member in active_members])
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
