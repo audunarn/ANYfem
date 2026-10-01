@@ -313,6 +313,46 @@ def test_qt_boolean_region_and_typed_output_request(window,qapp):
     window.undo();assert request.id not in window.project.output_requests
 
 
+def test_qt_boolean_operands_track_labels_visibility_and_stable_selection(window,qapp):
+    from anyfem.model.regions import Region,ManualRegion
+    panel=window.panels["Definitions"]
+    points=[window.run(cmd.AddPoint(x,0,0)) for x in (0,1,2)]
+    regions=[]
+    for index,point in enumerate(points[:2]):
+        window.selection.set_mode("vertex")
+        window.selection.restore((window.project.point(point),))
+        panel.region_name.setText(f"Scope-{index}");regions.append(panel.create_region())
+    def selected():
+        return {panel._region_ids[panel.operands.row(item)] for item in panel.operands.selectedItems()}
+    wanted={region.id for region in regions}
+    for row,identifier in enumerate(panel._region_ids):panel.operands.item(row).setSelected(identifier in wanted)
+    row=panel._region_ids.index(regions[0].id);item=panel.operands.item(row)
+    with window.session.transaction("rename scope"):
+        regions[0].name="Renamed scope"
+    panel.refresh();qapp.processEvents()
+    assert panel.operands.item(row) is item
+    assert item.text()=="Renamed scope  [geometry/vertex]" and selected()==wanted
+    internal=window.project.singleton_region(window.project.point(points[2]))
+    panel.refresh()
+    assert internal.id not in panel._region_ids and selected()==wanted
+    third=window.run(cmd.AddRegion(Region("Third scope","geometry","vertex",ManualRegion((window.project.point(points[2]),)))))
+    panel.refresh();assert third.id in panel._region_ids and selected()==wanted
+    window.undo();panel.refresh();assert third.id not in panel._region_ids and selected()==wanted
+    with window.session.transaction("hide selected scope"):
+        regions[0].hidden=True
+    panel.refresh()
+    assert regions[0].id not in panel._region_ids and selected()=={regions[1].id}
+    with window.session.transaction("show scope"):
+        regions[0].hidden=False
+    panel.refresh();assert selected()=={regions[1].id}
+    panel.operands.item(panel._region_ids.index(regions[0].id)).setSelected(True)
+    panel.region_name.setText("Union after refresh")
+    combined=panel.create_boolean()
+    members=window.project.regions.resolve(combined.id,geometry=window.project.geometry,
+        feature_resolver=lambda anchor:window.project.geometry.features.resolve(anchor,window.project.geometry))
+    assert set(members)=={window.project.point(point) for point in points[:2]}
+
+
 def test_qt_file_inspector_reports_and_canonical_records(window,qapp,tmp_path,monkeypatch):
     source=tmp_path/"sample.FEM"
     def record(name,*values):return f"{name:<8}"+"".join(f"{value:16.8E}" for value in values)
@@ -1054,6 +1094,9 @@ def test_qt_mesh_native_import_region_and_roundtrip(window,qapp,tmp_path,monkeyp
     window.selection.set_mode("node");window.selection.select(MeshEntityRef("node",1))
     region=window.panels["Definitions"].create_region()
     assert region.mesh_id in window.project.mesh_records
+    definitions=window.panels["Definitions"];definitions.refresh()
+    operand=definitions.operands.item(definitions._region_ids.index(region.id))
+    assert operand.text()==f"{region.name}  [mesh/node / {region.mesh_id[:8]}]"
     window.save_project(path=str(tmp_path/"imported.anyfem"))
     from anyfem.io.artifacts import ArtifactStore
     from anyfem.io.sesam import import_sesam_artifact

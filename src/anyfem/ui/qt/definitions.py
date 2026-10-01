@@ -23,6 +23,7 @@ class DefinitionsTask(CommandEditor):
             choice=QComboBox();choice.addItems(values);self.unit_fields[dimension]=choice;form.addRow(dimension.capitalize(),choice)
         button=QPushButton("Apply unit profile");button.clicked.connect(app.guarded(self.apply_units));layout.addWidget(button)
         self._region_ids=()
+        self._operand_signature=()
         self._profile_signature=None
 
     def create_region(self):
@@ -64,6 +65,20 @@ class DefinitionsTask(CommandEditor):
             self.profile.setCurrentText(profile.name if builtin is not None and dict(builtin.units)==dict(profile.units) else "Custom")
             self.unit_name.setText(profile.name)
             for dimension,field in self.unit_fields.items():field.setCurrentText(profile.symbol(dimension))
-        regions=list(self.app.project.regions);identifiers=tuple(region.id for region in regions)
-        if identifiers!=self._region_ids:
-            self._region_ids=identifiers;self.operands.clear();self.operands.addItems([region.name for region in regions])
+        regions=[region for region in self.app.project.regions if not region.hidden]
+        identifiers=tuple(region.id for region in regions)
+        signature=tuple((region.id,region.name,region.domain.value,region.entity_kind,region.mesh_id)
+                        for region in regions)
+        if signature!=self._operand_signature:
+            selected={self._region_ids[self.operands.row(item)] for item in self.operands.selectedItems()
+                      if self.operands.row(item)<len(self._region_ids)}
+            if identifiers!=self._region_ids:
+                self.operands.clear()
+                self.operands.addItems([""]*len(regions))
+            self._region_ids=identifiers
+            for index,region in enumerate(regions):
+                mesh_suffix=f" / {region.mesh_id[:8]}" if region.mesh_id else ""
+                item=self.operands.item(index)
+                item.setText(f"{region.name}  [{region.domain.value}/{region.entity_kind}{mesh_suffix}]")
+                item.setSelected(region.id in selected)
+            self._operand_signature=signature

@@ -22,30 +22,34 @@ PySide6 remains optional for headless use. Temporary launchers are `anyfem-qt`,
 
 Published ANYfem main is `892507a3bcca98b73cbfdbd28f5906c2687774b3`.
 The isolated integration branch is `codex/qt-coordinated-integration`; this
-delivery is based on `d47d42a602021bf4bd5649222e172182bb9b949c`. Subsequent raw-scope,
-delete/undo and revision-refusal repairs are the current delivery slice.
+delivery is based on `ba3e5f4a2de998decc6e823ec28292a2801e21a3`. The current
+slice brings the Boolean-region picker into parity with Tk.
 Candidate viewer input is exactly `d65f47b264f3e28348a6309eea996db51d8bb901`.
 ANYgeometry input is `26e7e3c98ac1a5573e19643d6658d00094bff0bc` (0.4.5).
 Published owner main `db2947e02cb4fe243c52b13d6bec262b4f897378` has no runtime
 `src/anygeometry` delta from that tested input. Owner publication stays with its
 owner; unrelated dirty work is preserved.
 
-Current final installed wheel SHA256:
-`60487baf3be1ebd8aaea3617dc91bc23c1b1b881638ae844551f32711f0b5a07`.
+Current picker candidate installed wheel SHA256:
+`a7d2a03993803509fa50da60868a293bf30709480b39a6d75e596f3f3fee1481`.
 Both packages' installed origins are asserted under Python `-I`, with pytest
 source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linux
 3.12.3/6.10.3. WSL uses XCB/llvmpipe OpenGL and is not physical GPU evidence.
 
 | Current evidence | Windows | WSL Linux | Scope |
 | --- | --- | --- | --- |
-| Complete installed Qt workbench suite | 152 passed | 152 passed | Explicit requested GPU backend activation, real windows, no skips/errors/failures |
-| Installed headless/command/document contracts | 96 passed | 96 passed | Persistence, binding identity, rollback, hash/cache invalidation, original two repaired CI cases, frontend import boundaries |
+| Previous ba3e5f4 complete installed Qt suite | 152 passed | 152 passed | Explicit requested GPU backend activation, real windows, no skips/errors/failures |
+| Previous ba3e5f4 installed headless contracts | 96 passed | 96 passed | Persistence, binding identity, rollback, hash/cache invalidation, original two repaired CI cases, frontend import boundaries |
+| Current installed picker checks | 4 passed | 4 passed | Boolean creation, renamed/hidden scopes, stable selection, imported mesh labels, requested backend activation |
 | Wheel/sdist checks | Passed | Same wheel | Safe artifacts, licensing/notice contents; no release |
 | Independent changed-slice source review | Findings repaired | Portable code | No remaining concrete defect found; no final full-parity acceptance claim |
 
 Complete logs/JUnit, input snapshots, wheel/sdist and failed attempts are retained
 in the primary checkout's ignored `reports/qt/integration-pr10/`. Final evidence
 is `raw-scope-final-{win,linux}-{headless,qt}` and `raw-scope-final-summary.json`.
+The current focused evidence is `operand-installed-{win,linux}`; wheel/sdist are
+in `operand-dist`. The initial no-isolation build lacked setuptools; the declared
+isolated build succeeded. No scientific matrix was repeated for this widget edit.
 Older `raw-delete-*` builds/runs are intermediate evidence. The failed Qt delete
 run exposed revision serialization outside rollback; it is not superseded by
 pretending that deletion-save is supported.
@@ -121,7 +125,19 @@ ignored evidence directory. Nothing has been messaged to an owner task.
 
 ## Next actions and delivery constraints
 
-The previous candidate `36902601042` on `d47d42a` completed successfully in all four
+Current bounded surface audit asks whether any explicitly invoked Tk command
+lacks a usable Qt or shared-workflow route, loses a required field, or has only
+syntactic exposure. Compare the source inventories, trace differences to actual
+controls and validate any concrete gap through a real window. Invocation presence
+alone cannot establish interaction or scientific parity. The source audit found
+shared/Qt routes for all 54 commands explicitly referenced by Tk; its apparent
+CompositeCommand difference uses the shared batch wrapper. A concrete picker gap
+is repaired: hidden regions are excluded, names/domain/kind/mesh labels refresh,
+and selection follows stable IDs through list changes. Same-ID label changes
+update existing Qt items. Real-window checks include hiding a selected operand
+and creating the resulting union after restoring explicit selection.
+
+The previous candidate `36907655926` on `ba3e5f4` completed successfully in all four
 Windows/Linux Python 3.11/3.14 Qt cells. Publish the coalesced reviewed current
 slice on the isolated branch and run its candidate matrix once. Exact delivery
 commit and latest run handle are recorded in the retained
