@@ -290,6 +290,58 @@ def test_qt_special_geometry_actions(window,qapp,operation):
     assert len(window.project.geometry.features.records)==before
 
 
+@pytest.mark.parametrize("kind",["cartesian","cylindrical"])
+def test_qt_custom_units_coordinate_validation_and_roundtrip(window,qapp,tmp_path,kind):
+    import numpy as np
+    panel=window.panels["Definitions"]
+    before_units=window.project.units
+    from anyfem.model.units import UNIT_PROFILES
+    panel.profile.setCurrentText("SI-mm-N-MPa");qapp.processEvents()
+    assert window.project.units==before_units
+    assert not panel.unit_name.isEnabled()
+    for dimension,field in panel.unit_fields.items():
+        assert field.currentText()==UNIT_PROFILES["SI-mm-N-MPa"].symbol(dimension)
+        assert not field.isEnabled()
+    panel.profile.setCurrentText("Custom");panel.unit_name.setText("Workshop units")
+    assert panel.unit_name.isEnabled() and all(field.isEnabled() for field in panel.unit_fields.values())
+    panel.unit_fields["length"].setCurrentText("mm")
+    panel.unit_fields["pressure"].setCurrentText("kPa")
+    panel.refresh()
+    assert panel.unit_name.text()=="Workshop units" and panel.unit_fields["pressure"].currentText()=="kPa"
+    panel.apply_units();qapp.processEvents()
+    applied_units=dict(window.project.units.units)
+    assert window.project.units.name=="Workshop units" and window.project.units.symbol("length")=="mm"
+    window.undo();assert window.project.units==before_units
+    window.redo();assert window.project.units.symbol("length")=="mm"
+    panel.choice.setCurrentIndex(panel.choice.findData("AddCoordinateSystem"))
+    fields=panel.record_fields["system"][1]
+    for name,value in {"name":"Workshop frame","kind":kind,"origin":"1000, 2 m, -500",
+                       "axis":"0,0,2","reference":"0,0,1"}.items():fields[name][0].setText(value)
+    revision=window.session.revision
+    with pytest.raises(ValueError,match="parallel"):
+        panel.execute()
+    assert window.session.revision is revision
+    assert all(system.name!="Workshop frame" for system in window.project.coordinate_systems.values())
+    fields["reference"][0].setText("0,3,0")
+    panel.apply.click();qapp.processEvents()
+    system=next(system for system in window.project.coordinate_systems.values() if system.name=="Workshop frame")
+    assert system.kind==kind
+    assert system.origin==pytest.approx((1,2,-0.5))
+    assert system.axis==pytest.approx((0,0,1))
+    assert system.reference==pytest.approx((0,1,0))
+    basis=system.basis_at((2,2,-0.5))
+    assert basis.T@basis==pytest.approx(np.eye(3)) and np.linalg.det(basis)==pytest.approx(1)
+    window.undo();assert system.id not in window.project.coordinate_systems
+    window.redo();assert window.project.coordinate_systems[system.id].id==system.id
+    path=tmp_path/f"coordinates-{kind}.anyfem"
+    window.save_project(path=str(path));window.new_project();window.open_project(str(path));qapp.processEvents()
+    restored=window.project.coordinate_systems[system.id]
+    assert restored.origin==pytest.approx(system.origin)
+    assert restored.basis_at((2,2,-0.5))==pytest.approx(basis)
+    assert window.project.units.name=="Workshop units" and window.project.units.symbol("length")=="mm"
+    assert dict(window.project.units.units)==applied_units
+
+
 def test_qt_boolean_region_and_typed_output_request(window,qapp):
     from anyfem.model.records import AnalysisDefinition
     a,b=cantilever(window)

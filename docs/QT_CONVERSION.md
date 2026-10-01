@@ -22,16 +22,17 @@ PySide6 remains optional for headless use. Temporary launchers are `anyfem-qt`,
 
 Published ANYfem main is `892507a3bcca98b73cbfdbd28f5906c2687774b3`.
 The isolated integration branch is `codex/qt-coordinated-integration`; this
-delivery is based on `ba3e5f4a2de998decc6e823ec28292a2801e21a3`. The current
-slice brings the Boolean-region picker into parity with Tk.
+delivery is based on `1f4d71aa03c5a3005ee30cbc8f193537062a4fc5`. The current
+slice brings built-in/custom unit controls into parity with Tk and checks both
+coordinate-system kinds through validation, history and persistence.
 Candidate viewer input is exactly `d65f47b264f3e28348a6309eea996db51d8bb901`.
 ANYgeometry input is `26e7e3c98ac1a5573e19643d6658d00094bff0bc` (0.4.5).
 Published owner main `db2947e02cb4fe243c52b13d6bec262b4f897378` has no runtime
 `src/anygeometry` delta from that tested input. Owner publication stays with its
 owner; unrelated dirty work is preserved.
 
-Current picker candidate installed wheel SHA256:
-`a7d2a03993803509fa50da60868a293bf30709480b39a6d75e596f3f3fee1481`.
+Current Definitions candidate installed wheel SHA256:
+`e69988ba14234199f3f582f2151574317ba05afab7298da1c1aaf2d612906545`.
 Both packages' installed origins are asserted under Python `-I`, with pytest
 source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linux
 3.12.3/6.10.3. WSL uses XCB/llvmpipe OpenGL and is not physical GPU evidence.
@@ -40,7 +41,7 @@ source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linu
 | --- | --- | --- | --- |
 | Previous ba3e5f4 complete installed Qt suite | 152 passed | 152 passed | Explicit requested GPU backend activation, real windows, no skips/errors/failures |
 | Previous ba3e5f4 installed headless contracts | 96 passed | 96 passed | Persistence, binding identity, rollback, hash/cache invalidation, original two repaired CI cases, frontend import boundaries |
-| Current installed picker checks | 4 passed | 4 passed | Boolean creation, renamed/hidden scopes, stable selection, imported mesh labels, requested backend activation |
+| Current installed Definitions checks | 6 passed | 6 passed | Picker controls/backend; built-in/custom units; Cartesian/cylindrical coordinates, invalid basis refusal, undo/redo and save/reopen |
 | Wheel/sdist checks | Passed | Same wheel | Safe artifacts, licensing/notice contents; no release |
 | Independent changed-slice source review | Findings repaired | Portable code | No remaining concrete defect found; no final full-parity acceptance claim |
 
@@ -50,6 +51,11 @@ is `raw-scope-final-{win,linux}-{headless,qt}` and `raw-scope-final-summary.json
 The current focused evidence is `operand-installed-{win,linux}`; wheel/sdist are
 in `operand-dist`. The initial no-isolation build lacked setuptools; the declared
 isolated build succeeded. No scientific matrix was repeated for this widget edit.
+Latest Definitions evidence is `definitions-final-win` and
+`definitions-final-linux-retry`, using `definitions-dist`. The first Linux run
+aborted at QApplication initialization before tests; a separate XCB probe
+succeeded and the one retry passed. The abort remains in
+`definitions-final-linux.log`; its root cause is not established.
 Older `raw-delete-*` builds/runs are intermediate evidence. The failed Qt delete
 run exposed revision serialization outside rollback; it is not superseded by
 pretending that deletion-save is supported.
@@ -137,7 +143,19 @@ and selection follows stable IDs through list changes. Same-ID label changes
 update existing Qt items. Real-window checks include hiding a selected operand
 and creating the resulting union after restoring explicit selection.
 
-The previous candidate `36907655926` on `ba3e5f4` completed successfully in all four
+The next bounded Definitions audit compares coordinate/unit/output fields and
+their validation with Tk. Exercise actual custom-unit and coordinate forms,
+undo/redo and save/reopen; owner basis validation and SI storage must be preserved.
+This is frontend evidence, not new scientific qualification authority.
+Independent review found built-in unit fields editable with values silently
+ignored by Apply. The repaired controls synchronize displayed built-in symbols
+and disable custom fields until Custom is selected, as Tk does. Unrelated refresh
+preserves unapplied Custom edits. The regression first failed twice on the old
+installed wheel (`definitions-before-win`), then passed for both coordinate kinds.
+Exact custom units and right-handed bases survive save/reopen; invalid parallel
+directions leave the revision unchanged. Delta source review found no new defect.
+
+The previous candidate `36910091247` on `1f4d71a` completed successfully in all four
 Windows/Linux Python 3.11/3.14 Qt cells. Publish the coalesced reviewed current
 slice on the isolated branch and run its candidate matrix once. Exact delivery
 commit and latest run handle are recorded in the retained

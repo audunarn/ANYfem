@@ -21,6 +21,8 @@ class DefinitionsTask(CommandEditor):
         self.unit_fields={};self.unit_name=QLineEdit("Project units");form.addRow("Custom profile name",self.unit_name)
         for dimension,values in _UNIT_CHOICES.items():
             choice=QComboBox();choice.addItems(values);self.unit_fields[dimension]=choice;form.addRow(dimension.capitalize(),choice)
+        self.profile.currentTextChanged.connect(self.profile_selected)
+        self.profile_selected()
         button=QPushButton("Apply unit profile");button.clicked.connect(app.guarded(self.apply_units));layout.addWidget(button)
         self._region_ids=()
         self._operand_signature=()
@@ -56,6 +58,13 @@ class DefinitionsTask(CommandEditor):
         profile=UNIT_PROFILES[name] if name!="Custom" else UnitProfile(self.unit_name.text(),{dimension:choice.currentText() for dimension,choice in self.unit_fields.items()})
         self.app.run(commands.SetUnitProfile(profile))
 
+    def profile_selected(self):
+        builtin=UNIT_PROFILES.get(self.profile.currentText())
+        self.unit_name.setEnabled(builtin is None)
+        for dimension,field in self.unit_fields.items():
+            if builtin is not None:field.setCurrentText(builtin.symbol(dimension))
+            field.setEnabled(builtin is None)
+
     def refresh(self):
         super().refresh()
         profile=self.app.project.units;signature=(profile.name,tuple(sorted(profile.units.items())))
@@ -65,6 +74,7 @@ class DefinitionsTask(CommandEditor):
             self.profile.setCurrentText(profile.name if builtin is not None and dict(builtin.units)==dict(profile.units) else "Custom")
             self.unit_name.setText(profile.name)
             for dimension,field in self.unit_fields.items():field.setCurrentText(profile.symbol(dimension))
+            self.profile_selected()
         regions=[region for region in self.app.project.regions if not region.hidden]
         identifiers=tuple(region.id for region in regions)
         signature=tuple((region.id,region.name,region.domain.value,region.entity_kind,region.mesh_id)
