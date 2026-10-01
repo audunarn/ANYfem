@@ -194,6 +194,18 @@ checks remain retained. Final frozen-artifact binding follows the small public
 API adjustment that captures the staged snapshot before publishing geometry;
 successful command/Qt inputs are unchanged. Scientific and physical Linux GPU
 acceptance and final complete-parity review remain open.
+Frozen wheel from source `e75de5599e09fc8e4b21f32ecc85ee30bda58237` has SHA256
+`1bec0c3d18e4982344d249592c723e918f21f512829134a3df2e00ad3e4502f2`.
+Its final installed checks pass nine attachment/headless contracts and three
+real Qt/backend checks per OS (`feature-frozen-*`). The tiny public-API snapshot
+ordering is covered by these final contracts; command/Qt production inputs are
+unchanged from the complete143-case source runs. Superseded own main CI run
+`36871722907` is cancelled to release runner capacity; it establishes no
+scientific pass. PR10/main owner run `36863904261` remains untouched. Two push
+runs for the same2b4514e SHA/event/workflow are observed (`36873947386` and
+`36873948341`); do not infer independent qualification or elapsed savings from
+those queued/partial runs. The current scientific and hosted Qt outcomes still
+require their terminal reports.
 
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
