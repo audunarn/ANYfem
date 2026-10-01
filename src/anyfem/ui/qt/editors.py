@@ -224,9 +224,12 @@ class CommandEditor(QWidget):
         missing=value is inspect.Parameter.empty or value is dataclasses.MISSING or repr(value)=="<factory>"
         if not missing and value is not None:field.setText(self.format_quantity(value,dimension,self.app.project.units))
 
-    def execute(self):
+    def command_options(self,overrides=None):
+        overrides=overrides or {}
         options={}
         for name,(field,annotation,default) in self.fields.items():
+            if name in overrides:
+                options[name]=overrides[name];continue
             if not field.text().strip() and repr(default)=="<factory>":
                 continue
             options[name]=self.value(field,annotation,default)
@@ -247,6 +250,10 @@ class CommandEditor(QWidget):
             values={key:self.value(field,annotation,default) for key,(field,annotation,default) in fields.items()}
             if name in self.loaded_ids:values["id"]=self.loaded_ids[name]
             options[name]=record(**values)
+        return options
+
+    def execute(self):
+        options=self.command_options()
         command=self.operation(**options)
         result=self.app.commands.query(command) if self.operation is commands.MeasureGeometry else self.app.run(command)
         self.feedback.setText(f"Applied {title(self.operation.__name__)}"+(f": {result}" if isinstance(result,(int,str)) else ""))

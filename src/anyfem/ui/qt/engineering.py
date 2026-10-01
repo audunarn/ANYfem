@@ -28,6 +28,8 @@ class SectionTask(CommandEditor):
 
 
 class LoadTask(CommandEditor):
+    SELECTION_KINDS={commands.AddPointLoad:"vertex",commands.AddPressure:"face",
+        commands.AddLineLoad:"edge",commands.AddSurfaceTraction:"face",commands.AddMass:None}
     def __init__(self,app):
         super().__init__(app,["AddPointLoad","AddPressure","AddSupport","AddLineLoad","AddSurfaceTraction","AddMass","SetAcceleration","SetFollowerPressure","AddLoadCase","DeleteLoadCase","AddCombination","EditAttribute","DeleteAttribute"])
         form=QFormLayout();self.layout().addLayout(form)
@@ -45,6 +47,23 @@ class LoadTask(CommandEditor):
         if kind in {"symmetry","antisymmetry"}:options["normal"]=self.normal.text()
         elif kind=="simply_supported":options["normal"]=self.dof.currentText()
         self.app.run_many(commands.AddSupport(getattr(attributes,kind)(ref,**options)) for ref in refs)
+
+    def execute(self):
+        refs=tuple(self.app.selection.ordered_items)
+        if (self.operation not in self.SELECTION_KINDS or len(refs)<2
+                or self.fields["ref"][0].text().strip()):
+            return super().execute()
+        kind=self.SELECTION_KINDS[self.operation]
+        if self.app.selection.domain.value!="geometry" or (kind is not None and any(ref.kind!=kind for ref in refs)):
+            raise ValueError(f"Select {kind or 'geometry'} entities for this load")
+        options=self.command_options({"ref":refs[0]})
+        if options.get("distribution_policy")=="total_distributed":
+            if self.operation is commands.AddPointLoad:
+                for key in ("force","moment"):options[key]=tuple(value/len(refs) for value in options[key])
+            elif self.operation is commands.AddMass:options["value"]/=len(refs)
+        result=self.app.run_many(self.operation(**dict(options,ref=ref)) for ref in refs)
+        self.feedback.setText(f"Applied to {len(refs)} selected entities")
+        return result
 
     def refresh(self):
         super().refresh()

@@ -1,9 +1,11 @@
 # PySide6 conversion — living task record
 
-Replace Tk while preserving supported engineering workflows, project/result
-formats, numerical behavior and headless entry points on Windows and Linux.
-**Full parity is not accepted.** Tk remains the default. No release, Qt default
-switch or Tk removal has occurred.
+The user superseded the exhaustive replacement goal with **reasonable Qt parity
+to Tk**, explicitly accepting alternative solutions and asking to stop once
+achieved. Reasonable frontend parity is accepted from the evidence below. Project/
+result compatibility, numerical behavior and headless boundaries remain intact.
+This does not establish full scientific or hardware qualification. Tk remains the
+default; no release, Qt default switch or Tk removal has occurred.
 
 Policy: `ANY_ECOSYSTEM_RISK_PROPORTIONATE_ENGINEERING_V1`, revision
 `2026-09-24.2`, canonical ANYopenSoft philosophy. Preserve owner scientific
@@ -22,17 +24,16 @@ PySide6 remains optional for headless use. Temporary launchers are `anyfem-qt`,
 
 Published ANYfem main is `892507a3bcca98b73cbfdbd28f5906c2687774b3`.
 The isolated integration branch is `codex/qt-coordinated-integration`; this
-delivery is based on `1f4d71aa03c5a3005ee30cbc8f193537062a4fc5`. The current
-slice brings built-in/custom unit controls into parity with Tk and checks both
-coordinate-system kinds through validation, history and persistence.
+delivery is based on `b403d413f4f951063ce540fcfa1dc613440cac2d`. The final
+slice supports multi-selection loads in one atomic undoable command batch.
 Candidate viewer input is exactly `d65f47b264f3e28348a6309eea996db51d8bb901`.
 ANYgeometry input is `26e7e3c98ac1a5573e19643d6658d00094bff0bc` (0.4.5).
 Published owner main `db2947e02cb4fe243c52b13d6bec262b4f897378` has no runtime
 `src/anygeometry` delta from that tested input. Owner publication stays with its
 owner; unrelated dirty work is preserved.
 
-Current Definitions candidate installed wheel SHA256:
-`e69988ba14234199f3f582f2151574317ba05afab7298da1c1aaf2d612906545`.
+Final reasonable-parity candidate installed wheel SHA256:
+`31f2112b5b3ffdf9b942cc50bcc658712057160f36ba24351f2db20d1452e30e`.
 Both packages' installed origins are asserted under Python `-I`, with pytest
 source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linux
 3.12.3/6.10.3. WSL uses XCB/llvmpipe OpenGL and is not physical GPU evidence.
@@ -42,6 +43,7 @@ source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linu
 | Previous ba3e5f4 complete installed Qt suite | 152 passed | 152 passed | Explicit requested GPU backend activation, real windows, no skips/errors/failures |
 | Previous ba3e5f4 installed headless contracts | 96 passed | 96 passed | Persistence, binding identity, rollback, hash/cache invalidation, original two repaired CI cases, frontend import boundaries |
 | Current installed Definitions checks | 6 passed | 6 passed | Picker controls/backend; built-in/custom units; Cartesian/cylindrical coordinates, invalid basis refusal, undo/redo and save/reopen |
+| Final installed changed-slice acceptance | 12 passed | 12 passed | Seven multi-selection load/mass variants, active case and total/per-target policies, UUID-preserving undo/redo, explicit reference precedence; coordinate/forms/backend regressions |
 | Wheel/sdist checks | Passed | Same wheel | Safe artifacts, licensing/notice contents; no release |
 | Independent changed-slice source review | Findings repaired | Portable code | No remaining concrete defect found; no final full-parity acceptance claim |
 
@@ -56,6 +58,12 @@ Latest Definitions evidence is `definitions-final-win` and
 aborted at QApplication initialization before tests; a separate XCB probe
 succeeded and the one retry passed. The abort remains in
 `definitions-final-linux.log`; its root cause is not established.
+Final acceptance logs/JUnit are `reasonable-parity-final-{win,linux}`, with
+`reasonable-parity-dist` wheel/sdist. Initial load tests assumed a default case
+existed; that fixture assumption failed five cases and was corrected without
+changing production behavior (`load-batch-source-win`). Source nine-case regression
+and final installed twelve-case runs pass. The central editor change extracts
+option parsing without changing its existing command/query path.
 Older `raw-delete-*` builds/runs are intermediate evidence. The failed Qt delete
 run exposed revision serialization outside rollback; it is not superseded by
 pretending that deletion-save is supported.
@@ -129,7 +137,18 @@ Owner-only reproduction and inputs:
 `ANYgeometry-owner-request.md` and `ANYsolver-modal-owner-request.md` in the same
 ignored evidence directory. Nothing has been messaged to an owner task.
 
-## Next actions and delivery constraints
+## Acceptance and delivery constraints
+
+Reasonable parity means the Qt workbench offers usable routes for the core create/
+open/edit/assign/mesh/solve/inspect/save workflow and the principal existing tools,
+with compatible persistence, validated command entry, undo/redo and job lifecycle.
+The prior complete installed suites, current focused window checks, source audits
+and independent reviews establish that standard. The last review found no concrete
+load-batch defect and accepted this conclusion conditional on both installed runs,
+which now pass. Alternative Qt forms and reusable regions are acceptable; exact Tk
+layout/default replication and every owner edge case are not completion criteria.
+Stop this parity task here. The original exhaustive gates above remain recorded
+for future qualification/default-switch decisions, not as blockers to this goal.
 
 Current bounded surface audit asks whether any explicitly invoked Tk command
 lacks a usable Qt or shared-workflow route, loses a required field, or has only
@@ -147,6 +166,11 @@ The next bounded Definitions audit compares coordinate/unit/output fields and
 their validation with Tk. Exercise actual custom-unit and coordinate forms,
 undo/redo and save/reopen; owner basis validation and SI storage must be preserved.
 This is frontend evidence, not new scientific qualification authority.
+The next engineering slice compares multi-selection loads with Tk: point forces/
+moments, pressure, line load, traction and mass must use one atomic batch, retain
+active case/coordinates, and divide total-distributed point force/mass across
+targets exactly as Tk does. Explicit references and single-target paths remain
+under their existing command contracts; no solver formulation changes are needed.
 Independent review found built-in unit fields editable with values silently
 ignored by Apply. The repaired controls synchronize displayed built-in symbols
 and disable custom fields until Custom is selected, as Tk does. Unrelated refresh
@@ -156,14 +180,15 @@ Exact custom units and right-handed bases survive save/reopen; invalid parallel
 directions leave the revision unchanged. Delta source review found no new defect.
 
 The previous candidate `36910091247` on `1f4d71a` completed successfully in all four
-Windows/Linux Python 3.11/3.14 Qt cells. Publish the coalesced reviewed current
-slice on the isolated branch and run its candidate matrix once. Exact delivery
+Windows/Linux Python 3.11/3.14 Qt cells. The already dispatched `36911363248` on
+`b403d41` remains live at handoff; it does not include the final load-batch slice.
+Final load-batch acceptance uses the paired installed checks above. Exact delivery
 commit and latest run handle are recorded in the retained
 `reports/qt/integration-pr10/shared-feature-checkpoint.json`. Inspect that
 same handle; never restart a live job because an observation timed out. Do not
 repeat the unchanged expensive scientific matrix for each small frontend edit.
 
-Obtain owner corrections/public API guidance for the two geometry cases and
+For future full qualification, obtain owner corrections/public API guidance for the two geometry cases and
 adjudicate the modal failure under existing owner authorities. Retest exact
 published inputs with the retained reproducers, installed workflows and applicable
 scientific gates. Independently review complete lifecycle/persistence/viewer

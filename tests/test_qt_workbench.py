@@ -342,6 +342,48 @@ def test_qt_custom_units_coordinate_validation_and_roundtrip(window,qapp,tmp_pat
     assert dict(window.project.units.units)==applied_units
 
 
+@pytest.mark.parametrize("operation,kind,collection,values,total",[
+    ("AddPointLoad","vertex","point_loads",{"force":"1000,0,0","moment":"0,20,0","distribution_policy":"per_target"},False),
+    ("AddPointLoad","vertex","point_loads",{"force":"1000,0,0","moment":"0,20,0","distribution_policy":"total_distributed"},True),
+    ("AddPressure","face","pressures",{"value":"200"},False),
+    ("AddLineLoad","edge","line_loads",{"force_per_length":"0,0,50"},False),
+    ("AddSurfaceTraction","face","surface_tractions",{"traction":"0,0,100"},False),
+    ("AddMass","vertex","masses",{"value":"100","distribution_policy":"per_target"},False),
+    ("AddMass","vertex","masses",{"value":"100","distribution_policy":"total_distributed"},True),
+])
+def test_qt_loads_apply_to_selection_in_one_undoable_batch(window,qapp,operation,kind,collection,values,total):
+    identifiers=[]
+    for x in (0,3):
+        points=[window.run(cmd.AddPoint(x+dx,dy,0)) for dx,dy in ((0,0),(1,0),(0,1))]
+        identifiers.append(points[0] if kind=="vertex" else window.run(cmd.AddLine(*points[:2])) if kind=="edge" else window.run(cmd.AddPlate(points)))
+    refs=tuple(window.project.geometry.entity_ref(kind,identifier) for identifier in identifiers)
+    window.selection.set_mode(kind);window.selection.restore(refs)
+    window.run(cmd.AddLoadCase("Service"))
+    panel=window.panels["Loads & BC"];panel.case.setCurrentText("Service")
+    panel.choice.setCurrentIndex(panel.choice.findData(operation))
+    for name,value in values.items():panel.fields[name][0].setText(value)
+    panel.apply.click();qapp.processEvents()
+    def records():return window.project.masses if collection=="masses" else getattr(window.project.load_cases["Service"],collection)
+    added=tuple(records());assert len(added)==2
+    assert {item.ref for item in added}==set(refs)
+    scale=0.5 if total else 1
+    for item in added:
+        if operation=="AddPointLoad":
+            assert item.force==pytest.approx((1000*scale,0,0))
+            assert item.moment==pytest.approx((0,20*scale,0))
+        elif operation=="AddMass":assert item.value==pytest.approx(100*scale)
+        elif operation=="AddPressure":assert item.value==pytest.approx(200)
+        elif operation=="AddLineLoad":assert item.force_per_length==pytest.approx((0,0,50))
+        else:assert item.traction==pytest.approx((0,0,100))
+    window.undo();assert not records()
+    window.redo();assert {item.id for item in records()}=={item.id for item in added}
+    if collection!="masses":
+        assert all(not getattr(case,collection) for name,case in window.project.load_cases.items() if name!="Service")
+    window.undo()
+    panel.fields["ref"][0].setText(f"{kind}:{identifiers[0]}");panel.execute()
+    assert len(records())==1 and records()[0].ref==refs[0]
+
+
 def test_qt_boolean_region_and_typed_output_request(window,qapp):
     from anyfem.model.records import AnalysisDefinition
     a,b=cantilever(window)
