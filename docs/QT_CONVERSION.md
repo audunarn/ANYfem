@@ -76,6 +76,23 @@ no blocker and prompted the concrete backend assertion; it does not close the
 final full-parity review. Hosted Qt coverage is the next check; the original
 scientific/modal gate remains open.
 
+First hosted Qt run `36867521739` passes Linux Python3.11/3.14 and Windows
+Python3.14. Windows Python3.11 passes 136 cases and fails the automatic-budget
+test while waiting for `incomplete`. The test combined an unsupported beam-only
+quad-first input with a one-picosecond wall budget. A controlled coarse-clock
+probe reaches the real owner refusal, `quad-first requires at least one selected
+face`, rather than budget expiry. The repaired consumer test uses a valid plate
+and a controlled clock crossing the unchanged owner deadline; it asserts the
+same incomplete/error/admission semantics. A companion plate case retains an
+admitted outcome while clock observations remain within budget. These are
+application-policy wiring checks, not wall-clock/performance qualification;
+no owner code, budget policy or scientific tolerance changes. Windows and Linux
+affected tests each pass two cases; independent source review finds no blocker.
+The counterexample proves the test premise was timing-sensitive; the exact
+hosted terminal diagnostic was not recorded, so its cause is not fully measured.
+Hosted rerun follows. Keep the original hosted
+failure and local probe/temp-path failures in `reports/qt/integration-pr10/`.
+
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
 model/view tree and job table, docks, forms, selection policies, shortcuts,

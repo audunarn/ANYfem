@@ -859,20 +859,42 @@ def test_qt_inspection_only_mesh_stays_unadmitted(window,qapp,monkeypatch):
     window.show_geometry();window.show_mesh();assert window._view_mode=="inspection_mesh"
 
 
-def test_qt_automatic_mesh_budget_retains_incomplete_outcome(window,qapp):
-    cantilever(window)
+def test_qt_automatic_mesh_budget_retains_incomplete_outcome(window,qapp,monkeypatch):
+    from itertools import count
+    import anymesher.recovery as recovery
+    ticks=count(1000)
+    # Exercise an expired owner deadline independently of platform clock resolution.
+    monkeypatch.setattr(recovery,"monotonic",lambda:float(next(ticks)))
+    plate(window)
     panel=window.panels["Mesh"]
     panel.strategy.setCurrentText("quad_first")
     panel.automation_controls.fields["max_seconds"][0].setText("1e-12")
     revision=window.project.geometry.revision
     panel.generate.click()
     record=next(reversed(window.project.mesh_records.values()))
-    wait_until(qapp,lambda:record.status=="incomplete")
+    wait_until(qapp,lambda:not window.mesh_job_running)
+    assert record.status=="incomplete", record.diagnostics
     assert window.mesh is None and window._inspection_mesh is None
     assert window.project.geometry.revision==revision
     assert record.diagnostics[-1]["type"]=="MeshRecoveryIncomplete"
     assert "time budget expired" in window._status.get()
     assert not window.panels["Solve"].submit.isEnabled()
+
+
+def test_qt_automatic_mesh_with_remaining_budget_is_admitted(window,qapp,monkeypatch):
+    import anymesher.recovery as recovery
+    # Several budget checks may observe one tick on a coarse monotonic clock.
+    monkeypatch.setattr(recovery,"monotonic",lambda:1000.0)
+    plate(window)
+    panel=window.panels["Mesh"]
+    panel.strategy.setCurrentText("quad_first")
+    panel.automation_controls.fields["max_seconds"][0].setText("1")
+    panel.generate.click()
+    record=next(reversed(window.project.mesh_records.values()))
+    wait_until(qapp,lambda:not window.mesh_job_running)
+    assert window.mesh is not None,record.diagnostics
+    assert record.summary["solver_admission"]=="ADMITTED"
+    assert window._inspection_mesh is None
 
 
 def test_qt_strict_mesh_policy_retains_owner_refusal(window,qapp,monkeypatch):
