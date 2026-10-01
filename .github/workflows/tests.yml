@@ -24,8 +24,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Frozen G7 B3-GE production opt-in implementation.
-          ref: d04199ac851c0d0f61430c2bc40136582aa8d659
+          # Frozen G7 base plus returned-tensor stopping consistency repair.
+          ref: 5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -116,8 +116,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Frozen G7 B3-GE production opt-in implementation.
-          ref: d04199ac851c0d0f61430c2bc40136582aa8d659
+          # Frozen G7 base plus returned-tensor stopping consistency repair.
+          ref: 5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
