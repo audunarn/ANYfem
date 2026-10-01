@@ -93,6 +93,17 @@ hosted terminal diagnostic was not recorded, so its cause is not fully measured.
 Hosted rerun follows. Keep the original hosted
 failure and local probe/temp-path failures in `reports/qt/integration-pr10/`.
 
+Hosted rerun `36870078531` on candidate `398d49a` passes all four Windows/Linux
+Python3.11/3.14 jobs. Each software scope passes 138 tests with no skips; each
+Linux OpenGL scope also passes 138 tests with no skips. Shared Qt host checks,
+installed licensing and headless boundaries pass in the same jobs. Downloaded
+artifacts are retained under `reports/qt/integration-pr10/hosted-passed/`.
+No unchanged matrix rerun is needed for this evidence-only record update.
+The user has only WSL available and explicitly defers physical Linux GPU
+acceptance to a future suitable machine; the gate remains open. Scientific
+acceptance, complete published-artifact parity and final independent acceptance
+review remain open. Keep Tk as the default and publish no package release.
+
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
 model/view tree and job table, docks, forms, selection policies, shortcuts,
