@@ -261,7 +261,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Commands",self.show_command_palette,"Ctrl+P")
         view=self.menuBar().addMenu("View")
         for name,callback in [("Geometry",self.show_geometry),("Mesh",self.show_mesh),("Results",self.panels["Results"].show_results),("Fit",self.viewport.fit)]:
-            self._action(view,name,callback,"F" if name=="Fit" else None)
+            self._action(view,name,callback)
+        self._action(view,"Frame selection",self.viewport.frame_selection,"F")
+        attributes=self._action(view,"Attributes / imperfections",lambda:self._set_show_attributes(attributes.isChecked()))
+        attributes.setCheckable(True);attributes.setChecked(self._show_attributes.get())
         for name in ["iso","top","front","side"]:
             self._action(view,name.capitalize(),lambda name=name:self.viewport.set_view(name))
         view.addSeparator()
@@ -281,6 +284,16 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def _selection_policy(self,*_):
         self.viewport.configure_selection(tool=self.selection_tool.currentText(),
             depth=self.selection_depth.currentText(),operation=self.selection_operation.currentText())
+
+    def _set_show_attributes(self,visible):
+        self._show_attributes.set(bool(visible))
+        self.refresh_views()
+
+    def refresh_views(self):
+        if self._closing:return
+        if self._view_mode=="results" and self.solution is None and self.active_job_id in self.result_datasets:
+            self.panels["Results"].show_results()
+        else:super().refresh_views()
 
     def refresh_all(self):
         if self._closing or self._refresh_suspended or self._refreshing:return

@@ -39,6 +39,56 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Viewport-controls slice (2026-10-01): Tk exposes the global Attributes /
+imperfections visibility toggle, viewport Escape clears selection, and F
+dispatches the shared frame-selection contract. Qt has a constant true
+attribute flag, Escape only handles construction/renderer interaction, and F
+always calls whole-scene fit. Add a checkable View action and viewport key
+behavior; measure overlay changes and selection synchronization without
+document/revision mutation, including construction cancellation and backend
+replacement. Keep scientific and hardware acceptance unchanged.
+
+Result: the new View action restores attribute visibility, F routes the shared
+frame-selection handler, and Escape clears selection/tree outside construction
+while cancelling an active draft. Backend replacement retains these behaviors.
+The first overlay equality assertion used ndarray dataclass equality; correct
+it to exact start/end arrays and colors, retaining the failed setup log. A real
+reopened-result toggle then exposed fallback to geometry when no active mesh
+exists; Qt now redraws the selected retained result in that situation. Source
+checks pass on both platforms. Six affected installed Qt cases pass per OS
+(`viewport-installed-windows/linux`), with document/revision/dirty preservation,
+retained-mesh identity, controls, playback, shortcuts and construction lifecycle.
+Source review finds no concrete defect; this is routing/state evidence, not
+unmeasured camera-framing or complete visual qualification.
+
+Reconciled viewer `d65f47b264f3e28348a6309eea996db51d8bb901` is published on
+`codex/qt-playback-main`. Production source and packaging declarations exactly
+match reviewed `11b609c`; upstream `9d27c1a` adds tessellation tests only.
+Combined Linux viewer suite: 181 passed, 14 skipped. Windows aggregate:
+153 passed, 14 skipped, 28 fixture errors due to inaccessible user temp path;
+retain that failed run. A fresh workspace temp location passes all 31 cases
+in the affected release-test file; no release was performed. The owner's local
+`d05093a` and dirty adapters remain unchanged. Exact installed wheel SHA256:
+viewer `14f27f641de0eb4d7c826c545219ce046ce5c08abf6f7503ead27e82139a37c3`,
+ANYfem `624ae5c0927a68eeebc01a96ca298e3cea3cabbdedecc63556dd63c8e2b2fcc5`.
+
+Hosted prior candidate run 36885912041 is completed success on `9912331`
+with viewer `11b609c`: Windows/Linux × Python3.11/3.14, each software scope
+150 passed and both Linux OpenGL scopes 150 passed, zero skips/errors/failures.
+Artifacts are retained under `hosted-playback-passed`. Main's previous Qt run
+36880882726 also completed success; main scientific run 36880776026 still
+executes its original eight test cells. These prior results do not cover the
+new viewport controls or establish physical Linux GPU/scientific acceptance.
+
+Viewer main reconciliation (2026-10-01): GitHub main is `9d27c1a`, while the
+owner's primary local main includes unpublished performance commit `d05093a`
+and dirty adapter work. Preserve both. Compose the playback patch on published
+main in `ANY3dView/.worktrees/qt-playback-main`, validate the combined viewer
+and affected Qt workflow, and advance the candidate pin only after that
+evidence passes. Do not silently publish the owner's local commit. Current
+candidate/main CI handles stay live and must not be restarted on observation
+timeouts; physical Linux GPU remains explicitly deferred.
+
 Playback-speed slice (2026-10-01): independent supported-feature comparison
 finds Tk's 0.5/1/2/4/8/12/20/30 fps control absent in Qt. Add the same choices
 and 4 fps default; visual rate must not alter result times or frame values.

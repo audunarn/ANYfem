@@ -461,6 +461,12 @@ def test_saved_result_playback_tables_reports_gif_and_mesh_identity(window,qapp,
     window.mesh=None
     panel.show_results()
     assert window.mesh is None and window.retained_result_mesh(window.active_job_id) is retained
+    revision=window.session.revision
+    for _ in range(2):
+        window._actions["Attributes / imperfections"].trigger();qapp.processEvents()
+        assert window._view_mode=="results"
+        assert window.mesh is None and window.retained_result_mesh(window.active_job_id) is retained
+        assert window.session.revision==revision
     report=tmp_path/"report.html";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(report))
     panel.export_report();assert report.stat().st_size>100
     gif=tmp_path/"retained.gif";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(gif))
@@ -1852,6 +1858,46 @@ def test_qt_failed_sketch_apply_preserves_preview_and_retry(window,qapp,tmp_path
     window.new_project();window.open_project(str(path));qapp.processEvents()
     restored=window.project.geometry.features.get(accepted.feature_id)
     assert restored.parameters==accepted.parameters
+
+
+def test_qt_attribute_visibility_and_viewport_keys_preserve_document(window,qapp):
+    import numpy as np
+    from PySide6.QtTest import QTest
+    a,b=cantilever(window);qapp.processEvents()
+    revision=window.session.revision;dirty=window.session.dirty
+    entities=window.project.geometry.entity_keys()
+    arrows=list(window.viewport._scene.arrows)
+    assert arrows
+    attributes=window._actions["Attributes / imperfections"]
+    assert attributes.isChecked()
+    attributes.trigger();qapp.processEvents()
+    assert not attributes.isChecked() and not window._show_attributes.get()
+    assert not window.viewport._scene.arrows
+    attributes.trigger();qapp.processEvents()
+    assert len(window.viewport._scene.arrows)==len(arrows)
+    for restored,original in zip(window.viewport._scene.arrows,arrows):
+        np.testing.assert_array_equal(restored.start,original.start)
+        np.testing.assert_array_equal(restored.end,original.end)
+        assert restored.color==original.color
+    framed=[]
+    window.viewport.set_frame_selection_handler(lambda items:framed.append(tuple(items)) or True)
+    for backend in (window.viewport.active_backend,"software"):
+        window.switch_viewer_backend(backend);qapp.processEvents()
+        ref=window.project.geometry.entity_ref("vertex",b)
+        window.selection.set_mode("vertex");window.selection.select(ref)
+        surface=window.viewport.canvas.event_widget
+        QApplication.setActiveWindow(window);surface.setFocus();qapp.processEvents()
+        QTest.keyClick(surface,Qt.Key_F);qapp.processEvents()
+        assert framed[-1]==(ref,)
+        QTest.keyClick(surface,Qt.Key_Escape);qapp.processEvents()
+        assert not window.selection.items and not window.tree.selectionModel().selectedRows()
+        panel=window.panels["Construction"];panel.start()
+        panel.coordinates.setText("2,3");panel.add_point()
+        assert window.viewport.construction_active
+        surface.setFocus();QTest.keyClick(surface,Qt.Key_Escape);qapp.processEvents()
+        assert not window.viewport.construction_active
+        assert window.project.geometry.entity_keys()==entities
+    assert window.session.revision==revision and window.session.dirty==dirty
 
 
 def test_qt_initial_docks_leave_viewport_space_and_restore_layout(qapp,tmp_path,monkeypatch):

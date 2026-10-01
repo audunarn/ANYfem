@@ -7,7 +7,7 @@ on:
         description: Exact ANY3dView candidate commit containing the Qt host
         required: true
         type: string
-        default: 11b609c325fc0ad07aa8a63573d1ba60b6df04a8
+        default: d65f47b264f3e28348a6309eea996db51d8bb901
 
 jobs:
   qt:

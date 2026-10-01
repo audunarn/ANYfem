@@ -13,6 +13,8 @@ class _ConstructionKeys(QObject):
         self.viewport = viewport
 
     def eventFilter(self, target, event):
+        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape and not self.viewport.construction_active:
+            self.viewport.selection.clear()
         if event.type() == QEvent.KeyPress and self.viewport.construction_active:
             if event.key() == Qt.Key_Escape:
                 self.viewport.cancel_construction()

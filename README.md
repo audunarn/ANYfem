@@ -138,12 +138,12 @@ python -m anyfem.ui.tk
 
 The PySide6 candidate uses the shared workflow and the Qt host in the updated
 ANY3dView checkout at candidate commit
-[`11b609c325fc0ad07aa8a63573d1ba60b6df04a8`](https://github.com/audunarn/ANY3dView/commit/11b609c325fc0ad07aa8a63573d1ba60b6df04a8).
+[`d65f47b264f3e28348a6309eea996db51d8bb901`](https://github.com/audunarn/ANY3dView/commit/d65f47b264f3e28348a6309eea996db51d8bb901).
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
 python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@26e7e3c98ac1a5573e19643d6658d00094bff0bc" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8"
-python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@11b609c325fc0ad07aa8a63573d1ba60b6df04a8"
+python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d65f47b264f3e28348a6309eea996db51d8bb901"
 python -m pip install -e ".[gui]"
 ```
 
