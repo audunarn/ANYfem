@@ -26,6 +26,8 @@ SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
+SCHEMA_NODAL_FOOTPRINT_CHART_V2 = "anyfem.experimental-ge-nodal-rigid-footprint-chart-panel-v2"
+LEGACY_FOOTPRINT_CHART_POLICY = "GE_NODAL_RIGID_FOOTPRINT_UNREBASED_ADMISSION_V1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-ge-reference-modal-panel-v1"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
@@ -458,20 +460,35 @@ class ExperimentalGENodalRigidFootprintPanel:
     The public owner admits geometry/rank and elastic candidate response. This
     consumer persists exact mesh-native inputs without assembling them. Its
     initial route excludes staged programmes, plastic/fibre sections and lines;
-    public chart rebase and rebased checkpoint restoration remain unsupported.
+    V1 retains unrebased admission. V2 explicitly selects the public elastic
+    increment-origin chart policy; all mechanics remain with the solver owner.
     """
 
     panel: ExperimentalGEPointPanel
     footprints: tuple[stiffened_shell.NodalRigidFootprint, ...]
+    footprint_chart_policy: str = field(default=LEGACY_FOOTPRINT_CHART_POLICY, kw_only=True)
 
     def __post_init__(self) -> None:
         footprint_type = getattr(stiffened_shell, "NodalRigidFootprint", None)
         if footprint_type is None:
             raise ValueError("installed solver lacks public experimental nodal rigid footprints")
+        chart_policy = getattr(stiffened_shell, "GE_NODAL_FOOTPRINT_INCREMENT_ORIGIN_CHART_V2", None)
+        if (type(self.footprint_chart_policy) is not str or
+                self.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY and
+                (chart_policy is None or self.footprint_chart_policy != chart_policy)):
+            raise ValueError("explicit installed public nodal footprint chart policy required")
         if type(self.panel) is not ExperimentalGEPointPanel or self.panel.load_programme is not None:
             raise ValueError("nodal footprint requires an explicit unstaged GE point panel")
         # Own nested inputs using their existing strict public input framing.
         panel = ExperimentalGEPointPanel.from_dict(self.panel.to_dict())
+        if self.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY:
+            # Structural input admission only; physical chart operations and
+            # their independent support guard belong to the public owner.
+            for node in panel.shell.node_ids:
+                rotations = {item.component for item in panel.fixed
+                             if item.domain == "shell" and item.node == node and item.component >= 3}
+                if rotations and rotations != {3, 4, 5}:
+                    raise ValueError("nodal footprint charts require full or free shell rotational triples")
         if panel.shell.j2_curve is not None:
             raise ValueError("nodal footprint requires an elastic shell")
         if (panel.shell.q4_elements and
@@ -506,38 +523,68 @@ class ExperimentalGENodalRigidFootprintPanel:
 
     def definition(self):
         owned = type(self).from_dict(self.to_dict())
+        if owned.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY:
+            return replace(owned.panel.definition(), footprints=owned.footprints,
+                           footprint_chart_policy=owned.footprint_chart_policy)
         return replace(owned.panel.definition(), footprints=owned.footprints)
 
     def create_analysis(self):
         owner = stiffened_shell.create_analysis(definition=self.definition())
         try:
             policy = owner.preflight().get("footprint_chart_admission_policy")
-            if (type(policy) is not dict or policy.get("rebase") != "unsupported" or
-                    policy.get("chart_checkpoint_restore") != "unsupported"):
-                raise ValueError("nodal footprint consumer requires the public unrebased admission policy")
+            if self.footprint_chart_policy == LEGACY_FOOTPRINT_CHART_POLICY:
+                if (type(policy) is not dict or policy.get("rebase") != "unsupported" or
+                        policy.get("chart_checkpoint_restore") != "unsupported"):
+                    raise ValueError("nodal footprint consumer requires the public unrebased admission policy")
+            else:
+                expected = dict(policy=self.footprint_chart_policy, rebase="experimental_elastic",
+                    chart_checkpoint_restore="experimental_elastic",
+                    increment_origin="zero_rotation_coordinates_at_accepted_physical_frames",
+                    newton_anchor="fixed_for_all_iterations_and_backtracks",
+                    rotational_supports="fully_fixed_or_fully_free_triples",
+                    production_qualified=False)
+                if type(policy) is not dict or policy != expected or policy.get("production_qualified") is not False:
+                    raise ValueError("nodal footprint consumer requires the declared public increment-origin chart admission policy")
         except BaseException:
             owner.close()
             raise
         return owner
 
     def to_dict(self) -> dict:
-        return dict(schema=SCHEMA_NODAL_FOOTPRINT, status=STATUS,
+        record = dict(schema=SCHEMA_NODAL_FOOTPRINT, status=STATUS,
                     profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
                     admission="experimental_elastic_unrebased_point_owner",
                     panel=self.panel.to_dict(), footprints=[
                         json.loads(json.dumps(group.descriptor(), allow_nan=False))
                         for group in self.footprints])
+        if self.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY:
+            record.update(schema=SCHEMA_NODAL_FOOTPRINT_CHART_V2,
+                          admission="experimental_elastic_increment_origin_chart_point_owner",
+                          footprint_chart_policy=self.footprint_chart_policy)
+        return record
 
     @classmethod
     def from_dict(cls, value):
-        data = _exact_fields(value, {"schema", "status", "profile", "admission", "panel", "footprints"},
+        charted = type(value) is dict and value.get("schema") == SCHEMA_NODAL_FOOTPRINT_CHART_V2
+        fields = {"schema", "status", "profile", "admission", "panel", "footprints"}
+        if charted:
+            fields.add("footprint_chart_policy")
+        data = _exact_fields(value, fields,
                              "experimental nodal footprint panel")
-        if (data["schema"] != SCHEMA_NODAL_FOOTPRINT or data["status"] != STATUS or
+        schema = SCHEMA_NODAL_FOOTPRINT_CHART_V2 if charted else SCHEMA_NODAL_FOOTPRINT
+        admission = ("experimental_elastic_increment_origin_chart_point_owner" if charted
+                     else "experimental_elastic_unrebased_point_owner")
+        policy = LEGACY_FOOTPRINT_CHART_POLICY
+        if charted:
+            policy = getattr(stiffened_shell, "GE_NODAL_FOOTPRINT_INCREMENT_ORIGIN_CHART_V2", None)
+            if policy is None or type(data["footprint_chart_policy"]) is not str or data["footprint_chart_policy"] != policy:
+                raise ValueError("explicit installed public nodal footprint chart policy required")
+        if (data["schema"] != schema or data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
-                data["admission"] != "experimental_elastic_unrebased_point_owner" or
+                data["admission"] != admission or
                 type(data["panel"]) is not dict or data["panel"].get("schema") not in
                 (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK)):
-            raise ValueError("explicit experimental elastic unrebased nodal footprint schema required")
+            raise ValueError("explicit experimental elastic nodal footprint schema and admission required")
         footprint_type = getattr(stiffened_shell, "NodalRigidFootprint", None)
         if footprint_type is None:
             raise ValueError("installed solver lacks public experimental nodal rigid footprints")
@@ -558,7 +605,8 @@ class ExperimentalGENodalRigidFootprintPanel:
             if json.loads(json.dumps(group.descriptor())) != row:
                 raise ValueError("matching public nodal footprint law and selected-node semantics required")
             groups.append(group)
-        return cls(ExperimentalGEPointPanel.from_dict(data["panel"]), tuple(groups))
+        return cls(ExperimentalGEPointPanel.from_dict(data["panel"]), tuple(groups),
+                   footprint_chart_policy=policy)
 
 
 @dataclass(frozen=True)
@@ -763,7 +811,7 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         raise ValueError("invalid experimental GE panel JSON") from error
     if type(data) is dict and data.get("schema") == SCHEMA_BL5:
         return ExperimentalGEBL5Panel.from_dict(data)
-    if type(data) is dict and data.get("schema") == SCHEMA_NODAL_FOOTPRINT:
+    if type(data) is dict and data.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
         return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_MODAL:
         return ExperimentalGEReferenceModalPanel.from_dict(data)
@@ -772,5 +820,5 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
 
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
-           "SCHEMA_NODAL_FOOTPRINT", "SCHEMA", "SCHEMA_J2",
+           "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
            "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "STATUS", "SUFFIX", "save_case", "load_case"]

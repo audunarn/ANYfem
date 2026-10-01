@@ -14,7 +14,8 @@ import json
 
 from .stiffened_shell import (
     ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel,
-    SCHEMA_NODAL_FOOTPRINT, ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
+    SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2,
+    ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
 )
 from .stiffened_shell_b2 import (
     ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel,
@@ -67,7 +68,7 @@ def _decode_point_panel(analysis_type, formulation, record):
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
         if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_MODAL:
             return ExperimentalGEReferenceModalPanel.from_dict(payload)
-        if type(payload) is dict and payload.get("schema") == SCHEMA_NODAL_FOOTPRINT:
+        if type(payload) is dict and payload.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
@@ -110,7 +111,8 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     other explicitly admitted operations and checkpoint lifecycle. A staged GE
     programme requires explicit positions in targets and delegates finite solve;
     its returned result is not a durable accepted-state checkpoint. An explicit
-    nodal footprint may select its unrebased finite route by supplying targets;
+    nodal footprint selects its declared V1 or V2 finite chart policy through
+    its persisted input and requests finite stepping by supplying targets;
     selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
