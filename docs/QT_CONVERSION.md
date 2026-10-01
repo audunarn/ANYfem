@@ -141,6 +141,60 @@ they are not new application failures. Evidence is under
 and dependent-topology combinations remain coverage questions; scientific,
 physical Linux GPU and final complete-parity acceptance remain open.
 
+Next bounded parity evidence: exercise a successful open sketch with automatic
+boundary vertex/edge anchors plus distance and coincident closing-endpoint
+constraints through actual Qt controls, then persist/edit/undo/reopen its owner
+definition and exact topology identity. Separately edit a generated support
+through the Qt feature form with a dependent sketch, section, pressure and
+support attached; verify owner output lineage, records, undo/redo and portable
+reopen. These checks resolve specific ledger questions, not unrestricted owner
+geometry/scientific qualification. Preserve refusal evidence and do not repair
+an owner failure by dropping an attachment or constraint.
+The initial compatible-combination/length-only dependency cases pass two
+installed checks per OS. Independent review identifies under-discrimination:
+already-satisfied constraints do not prove adjustment; parent growth alone does
+not prove replay of an interior descendant; attachment refs do not prove exact
+engineering values. Strengthen the fixture by translating the parent and
+checking descendant coordinates plus exact values. This reveals the same
+installed Windows/Linux failure: a legacy support reference still names deleted
+vertex5 during post-commit viewport refresh (`dependent-translated-*`). Before
+repair, inspect the actual owner replacement/region resolution for this input;
+valid owner lineage with stale consumer refs warrants atomic shared attachment
+rebinding, while missing lineage remains an owner refusal. Preserve UUIDs,
+canonical regions, quantities and coordinate systems; undo/redo must restore
+geometry and attachments together.
+The headless lineage discriminator confirms valid unique owner outputs:
+support5 resolves to17 and pressure2 to7 (`dependent-lineage.json`), while
+consumer compatibility refs remain old. Shared staging/binding helpers now live
+in `model/feature_bindings.py`; both feature commands and public project
+regeneration use them. Detached containers preserve canonical regions, section
+bindings, record UUIDs, values, constraints and coordinate systems. Empty or
+ambiguous missing representatives refuse before publication; an unchanged valid
+representative in a wider canonical region remains one record without duplication.
+Section suppression preserves inactive intent and its existing mesh/solve gate.
+Commands snapshot geometry and attachment state together for undo/redo. Public
+regeneration protects entry state; prior caller edits to feature intent occur
+outside that call. No owner code or scientific tolerance changes.
+
+Source contracts pass64 cases on Windows before final record-kind additions,
+and68 on Linux; all nine final attachment contracts subsequently pass in the
+installed wheel on each OS, including every supported attachment record type,
+non-global coordinates, both APIs, exact logical undo with validated checksums,
+and empty/ambiguous refusal. Owner revisions and allocator high-water marks
+remain monotonic; tests validate the actual checksum and compare all other
+persisted design data. The complete real-window Qt scope passes143 cases on
+Windows GPU and Linux XCB OpenGL, with no skips/failures. Independent final
+source review finds no consequential defect. Built-wheel backend capture,
+combined-constraint persistence and translated-dependent edit/load/support/
+section/undo/reopen pass three cases on each OS under `-I`, no source injection,
+and verified installed origins; headless imports load neither Tk nor Qt.
+Evidence is `integration-pr10/feature-*` and `dependent-*`. Initial selector,
+test setup/monotonic-state assertions and repaired section-suppression/refusal
+checks remain retained. Final frozen-artifact binding follows the small public
+API adjustment that captures the staged snapshot before publishing geometry;
+successful command/Qt inputs are unchanged. Scientific and physical Linux GPU
+acceptance and final complete-parity review remain open.
+
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
 model/view tree and job table, docks, forms, selection policies, shortcuts,

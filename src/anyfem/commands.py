@@ -58,6 +58,9 @@ from .model.project import Project, ProjectError
 from .model.coordinates import CoordinateSystem
 from .model.records import MeshRecord, OutputRequest
 from .model.regions import Region
+from .model.feature_bindings import (
+    _attribute_snapshot, _restore_attributes, _rebind_feature_attachments, _stage_feature_project,
+)
 from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import BeamSection, PlateSection
@@ -383,6 +386,8 @@ class FeatureCommand(Command):
     def __init__(self) -> None:
         self._before: Mapping[str, object] | None = None
         self._after: Mapping[str, object] | None = None
+        self._before_attributes: Dict[str, Any] | None = None
+        self._after_attributes: Dict[str, Any] | None = None
         self._feature_id: int | None = None
         self._replacements: tuple[
             tuple[EntityRef, tuple[EntityRef, ...]], ...
@@ -400,8 +405,8 @@ class FeatureCommand(Command):
     def do(self, project: Project) -> Any:
         geometry = project.geometry
         self._before = geometry.design_snapshot()
-        working_project = copy(project)
-        working_project.geometry = geometry.clone(include_features=True)
+        self._before_attributes = _attribute_snapshot(project)
+        working_project = _stage_feature_project(project)
         feature_id = int(self.change(working_project))
         report = working_project._regenerate_geometry_features_detached()
         if not report.success:
@@ -418,25 +423,34 @@ class FeatureCommand(Command):
                 or f"feature {feature_id} did not produce a valid materialization"
             )
 
+        _rebind_feature_attachments(working_project, report.replacements)
+        after_attributes = _attribute_snapshot(working_project)
+
         # The entire feature + structural-owner result is now known valid.
         # Publish the detached design once; validation failures above have not
         # touched the live feature history, revision, or allocator state.
         geometry.restore_design(working_project.geometry.design_snapshot())
+        _restore_attributes(project, after_attributes)
         committed = geometry.features.get(feature_id)
         self._feature_id = feature_id
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
+        self._after_attributes = after_attributes
         return committed
 
     def undo(self, project: Project) -> None:
         if self._before is None:
             raise RuntimeError("feature command has not been applied")
         project.geometry.restore_design(self._before)
+        if self._before_attributes is not None:
+            _restore_attributes(project, self._before_attributes)
 
     def redo(self, project: Project) -> Any:
         if self._after is None or self._feature_id is None:
             return self.do(project)
         project.geometry.restore_design(self._after)
+        if self._after_attributes is not None:
+            _restore_attributes(project, self._after_attributes)
         return project.geometry.features.get(self._feature_id)
 
 
@@ -957,53 +971,6 @@ class CommitStructuredLayout(Command):
         project.geometry.restore_design(self._after)
         _restore_attributes(project, self._after_attributes)
         return self._report
-
-
-def _attribute_snapshot(project: Project) -> Dict[str, Any]:
-    """Cheap snapshot of everything attached to geometry."""
-
-    return {
-        "face_sections": dict(project.face_sections),
-        "edge_sections": dict(project.edge_sections),
-        "sheet_join_intents": dict(project.sheet_join_intents),
-        "supports": list(project.supports),
-        "masses": list(project.masses),
-        "imperfections": list(project.imperfections),
-        "refinements": list(project.refinements),
-        "element_order": project.element_order,
-        "loads": {
-            name: (
-                list(case.point_loads),
-                list(case.pressures),
-                list(case.line_loads),
-                list(case.surface_tractions),
-            )
-            for name, case in project.load_cases.items()
-        },
-    }
-
-
-def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
-    if not snapshot:
-        return
-    project.face_sections.clear()
-    project.face_sections.update(snapshot["face_sections"])
-    project.edge_sections.clear()
-    project.edge_sections.update(snapshot["edge_sections"])
-    project.sheet_join_intents.clear()
-    project.sheet_join_intents.update(snapshot.get("sheet_join_intents", {}))
-    project.supports[:] = list(snapshot["supports"])
-    project.masses[:] = list(snapshot.get("masses", ()))
-    project.imperfections[:] = list(snapshot.get("imperfections", ()))
-    project.refinements[:] = list(snapshot.get("refinements", ()))
-    project.element_order = snapshot.get("element_order", project.element_order)
-    for name, loads in snapshot["loads"].items():
-        points, pressures, lines, *optional = loads
-        case = project.load_case(name)
-        case.point_loads[:] = list(points)
-        case.pressures[:] = list(pressures)
-        case.line_loads[:] = list(lines)
-        case.surface_tractions[:] = list(optional[0] if optional else ())
 
 
 def _apply_replacements(

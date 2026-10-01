@@ -205,12 +205,21 @@ class Project:
 
     def regenerate_geometry_features(self, registry=None):
         """Regenerate features and Sheet ownership as one atomic project edit."""
-
-        working_project = copy(self)
-        working_project.geometry = self.geometry.clone(include_features=True)
+        from anygeometry.features import RegenerationReport
+        from .feature_bindings import (
+            _stage_feature_project, _rebind_feature_attachments,
+            _attribute_snapshot, _restore_attributes,
+        )
+        working_project = _stage_feature_project(self)
         report = working_project._regenerate_geometry_features_detached(registry)
         if report.success:
+            try:
+                _rebind_feature_attachments(working_project, report.replacements)
+                after_attributes = _attribute_snapshot(working_project)
+            except (GeometryError, ValueError, KeyError) as error:
+                return RegenerationReport(False, report.features, (), diagnostic=str(error))
             self.geometry.restore_design(working_project.geometry.design_snapshot())
+            _restore_attributes(self, after_attributes)
         return report
 
     def _regenerate_geometry_features_detached(self, registry=None):

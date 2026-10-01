@@ -1555,6 +1555,84 @@ def test_qt_sketch_extrusion_selects_outputs_for_follow_on_load(window,qapp):
     assert window.project.geometry.features.get(feature.feature_id).parameters["extrusion"]==pytest.approx(.3)
 
 
+def test_qt_combined_sketch_constraints_keep_boundary_and_identity(window,qapp,tmp_path):
+    points=[window.run(cmd.AddPoint(x,y,0)) for x,y in ((0,0),(3,0),(3,3),(0,3))]
+    face=window.run(cmd.AddPlate(points))
+    window.selection.set_mode("face");window.selection.select(window.project.geometry.entity_ref("face",face))
+    panel=window.panels["Construction"];panel.sketch();panel.closed.setChecked(False)
+    for point in ("0,0","1,0","1,1","0,0"):
+        panel.coordinates.setText(point);panel.add_point()
+    panel.pair.setText("1,2");panel.distance.setText("1");panel.add_constraint("distance")
+    panel.pair.setText("1,4");panel.add_constraint("coincident")
+    panel.extrusion.setText("0.2");panel.apply();qapp.processEvents()
+    feature=window.project.geometry.features.records[-1]
+    definition=feature.parameters.copy()
+    assert {item["kind"] for item in definition["constraints"]}=={"on_vertex","on_edge","distance","coincident"}
+    assert not definition["closed"]
+    assert feature.outputs["point/p1"]==feature.outputs["point/p4"]
+    made={key:ref for key,ref in feature.outputs.items() if key.startswith("extrusion/face/")}
+    assert len(made)==3
+    assert panel.edit_sketch(feature.feature_id)
+    panel.extrusion.setText("0.3");panel.apply()
+    window.undo();assert window.project.geometry.features.get(feature.feature_id).parameters==definition
+    window.redo();updated=window.project.geometry.features.get(feature.feature_id)
+    assert updated.parameters["constraints"]==definition["constraints"]
+    assert updated.outputs["point/p1"]==updated.outputs["point/p4"]
+    path=tmp_path/"combined-sketch.anyfem";window.save_project(path=str(path));window.flush_project_writes()
+    window.open_project(str(path))
+    reopened=window.project.geometry.features.get(feature.feature_id)
+    assert reopened.parameters==updated.parameters
+    assert reopened.outputs==updated.outputs
+
+
+def test_qt_dependent_feature_edit_preserves_engineering_attachments(window,qapp,tmp_path):
+    import json
+    generators=window.panels["Generators"];generators.kind.setCurrentText("Plate")
+    generators.form.fields["length"][0].setText("3");generators.form.fields["width"][0].setText("3")
+    parent=generators.execute()
+    support=next(ref for ref in parent.outputs.values() if ref.kind=="face")
+    window.selection.set_mode("face");window.selection.restore((support,))
+    construction=window.panels["Construction"];construction.sketch()
+    for point in ("0.5,0.5","1.5,0.5","1.5,1.5","0.5,1.5"):
+        construction.coordinates.setText(point);construction.add_point()
+    construction.extrusion.setText("0.2");construction.apply()
+    child=window.project.geometry.features.records[-1]
+    target=next(ref for key,ref in child.outputs.items() if key.startswith("extrusion/face/"))
+    section=next(iter(window.project.plate_sections))
+    window.run(cmd.AssignPlate(target.id,section))
+    window.selection.restore((target,))
+    loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["value"][0].setText("1000");pressure=loads.execute()
+    boundary=child.outputs["point/p1"]
+    fixed=Support("sketch anchor",boundary,{"ux":0,"uy":0,"uz":0})
+    window.run(cmd.AddSupport(fixed))
+    parameters=dict(parent.parameters);parameters["length"]=4;parameters["origin"]=(1,0,0)
+    editor=window.panels["Geometry"];editor.choice.setCurrentIndex(editor.choice.findData("EditFeature"))
+    editor.fields["feature_id"][0].setText(str(parent.feature_id))
+    editor.fields["parameters"][0].setText(json.dumps(parameters));editor.execute();qapp.processEvents()
+    def assert_attachments(expected_length,origin):
+        assert max(window.project.geometry.vertex_position(identifier)[0] for identifier in window.project.geometry.vertices)==pytest.approx(expected_length+origin)
+        current=window.project.geometry.features.get(child.feature_id)
+        assert window.project.geometry.vertex_position(current.outputs["point/p1"].id)==pytest.approx((origin+.5,.5,0))
+        face_refs={ref for key,ref in current.outputs.items() if key.startswith("extrusion/face/")}
+        active_pressure=next(item for item in window.project.load_case().pressures if item.id==pressure.id)
+        active_support=next(item for item in window.project.supports if item.id==fixed.id)
+        assert active_pressure.ref in face_refs
+        assert active_support.ref==current.outputs["point/p1"]
+        assert active_pressure.value==1000
+        assert dict(active_support.constraints)=={"ux":0,"uy":0,"uz":0}
+        assert active_support.coordinate_system_id==fixed.coordinate_system_id
+        assert window.project.face_sections[active_pressure.ref.id]==section
+        assert current.state=="ok"
+    assert window.project.geometry.features.get(parent.feature_id).parameters["length"]==4
+    assert_attachments(4,1);window.undo();assert_attachments(3,0)
+    assert window.project.geometry.features.get(parent.feature_id).parameters["length"]==3
+    window.redo();assert_attachments(4,1)
+    path=tmp_path/"dependent-feature.anyfem";window.save_project(path=str(path));window.flush_project_writes()
+    window.open_project(str(path));assert_attachments(4,1)
+    assert window.project.geometry.features.get(parent.feature_id).parameters["length"]==4
+
+
 def test_qt_optional_section_fields_and_face_sketch(window,qapp):
     panel=window.panels["Sections"]
     panel.choice.setCurrentIndex(panel.choice.findData("AddBeamSection"))
