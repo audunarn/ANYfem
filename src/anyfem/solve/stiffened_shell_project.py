@@ -14,7 +14,7 @@ import json
 
 from .stiffened_shell import (
     ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel,
-    SCHEMA_NODAL_FOOTPRINT,
+    SCHEMA_NODAL_FOOTPRINT, ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
 )
 from .stiffened_shell_b2 import (
     ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel,
@@ -40,7 +40,7 @@ def _owned_json(value):
 
 def encode_point_panel(panel):
     """Return the explicit selector pair and a detached native analysis payload."""
-    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel):
+    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
     elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel):
@@ -65,6 +65,8 @@ def _decode_point_panel(analysis_type, formulation, record):
         raise ValueError("strict experimental mesh-native point-panel payload required")
     payload = _owned_json(record["panel"])
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_MODAL:
+            return ExperimentalGEReferenceModalPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == SCHEMA_NODAL_FOOTPRINT:
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
@@ -112,6 +114,11 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
+    if type(panel) is ExperimentalGEReferenceModalPanel:
+        if (targets is not None or increment_control is not None or on_accepted is not None or
+                on_case is not None or max_iterations != 12 or max_backtracks != 8):
+            raise ValueError("reference-modal Project input supports modes only, without finite or batch controls")
+        return panel.modes(cancellation_token=cancellation_token)
     staged = type(panel) is ExperimentalGEPointPanel and panel.load_programme is not None
     footprint_finite = type(panel) is ExperimentalGENodalRigidFootprintPanel and targets is not None
     if not staged and not footprint_finite and (targets is not None or increment_control is not None or
