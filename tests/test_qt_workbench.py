@@ -1750,6 +1750,37 @@ def test_qt_failed_sketch_apply_preserves_preview_and_retry(window,qapp,tmp_path
     assert restored.parameters==accepted.parameters
 
 
+def test_qt_initial_docks_leave_viewport_space_and_restore_layout(qapp,tmp_path,monkeypatch):
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QDockWidget
+    # Isolate this first-run layout from both user settings and other tests.
+    from anyfem.ui.qt import app as qt_app
+    settings=QSettings(str(tmp_path/"layout.ini"),QSettings.IniFormat)
+    monkeypatch.setattr(qt_app,"QSettings",lambda *_:settings)
+    window=QtFemWindow(viewer_backend="software")
+    restored=None
+    try:
+        window.show();window.resize(1024,768);qapp.processEvents()
+        assert window.viewport.widget.width()>=350
+        assert window.viewport.widget.height()>=450
+        docks={dock.objectName():dock for dock in window.findChildren(QDockWidget)}
+        docks["Messages"].hide()
+        window.resizeDocks([docks["Tasks"]],[300],Qt.Horizontal)
+        qapp.processEvents()
+        expected_width=docks["Tasks"].width()
+        window.session.mark_saved();window.close();qapp.processEvents()
+        restored=QtFemWindow(viewer_backend="software")
+        restored.show();qapp.processEvents()
+        restored_docks={dock.objectName():dock for dock in restored.findChildren(QDockWidget)}
+        assert restored_docks["Messages"].isHidden()
+        assert abs(restored_docks["Tasks"].width()-expected_width)<=2
+    finally:
+        for candidate in (window,restored):
+            if candidate is not None:
+                candidate.session.mark_saved();candidate.close()
+        qapp.processEvents()
+
+
 def test_qt_viewport_click_shortcut_and_docking(window,qapp):
     from PySide6.QtCore import QPoint,Qt
     from PySide6.QtTest import QTest

@@ -188,7 +188,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.setCentralWidget(self.viewport.widget)
         self.viewport.set_pick_handler(self._on_pick)
         self.tree=QtModelTree(self)
-        self._dock("Model",self.tree.panel(),Qt.LeftDockWidgetArea)
+        model_dock=self._dock("Model",self.tree.panel(),Qt.LeftDockWidgetArea)
         self.details=self.notebook=_Workspace()
         from .construction import ConstructionPanel
         from .definitions import DefinitionsTask
@@ -206,11 +206,13 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         }
         self.details.panels=self.panels
         for name,panel in self.panels.items():self.details.addTab(panel,name)
-        self._dock("Tasks",self.details,Qt.RightDockWidgetArea)
+        tasks_dock=self._dock("Tasks",self.details,Qt.RightDockWidgetArea)
         self.job_status=_JobView(self)
-        self._dock("Jobs",self.job_status,Qt.BottomDockWidgetArea)
+        jobs_dock=self._dock("Jobs",self.job_status,Qt.BottomDockWidgetArea)
         self.log=QPlainTextEdit();self.log.setReadOnly(True)
-        self._dock("Messages",self.log,Qt.BottomDockWidgetArea)
+        messages_dock=self._dock("Messages",self.log,Qt.BottomDockWidgetArea)
+        self.resizeDocks([model_dock,tasks_dock],[220,360],Qt.Horizontal)
+        self.resizeDocks([jobs_dock,messages_dock],[140,140],Qt.Vertical)
         self._actions={}
         self._menus()
         self.worker=JobWorkerFacade(self.job_manager)

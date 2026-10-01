@@ -39,6 +39,28 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Visual audit slice (2026-10-01): installed Windows GPU captures at 1400×900
+and 1024×768 showed a restored layout leaving only a 160-pixel viewport at
+the smaller size. The initial capture's default-format settings redirection
+was ineffective; replace it with an explicit isolated settings file. Check
+whether explicit initial dock
+sizes preserve a useful viewport while retaining user-restored layouts. Run
+focused docking/layout checks and repeat the installed captures; this does
+not change numerical or physical Linux GPU acceptance. The user explicitly
+defers physical Linux GPU testing because only WSL is available.
+
+Result: Model/Tasks start at 220/360 pixels and Jobs/Messages at 140 pixels
+high, before restoring user settings. The isolated installed Windows capture
+has a 436×561 viewport at 1024×768 (812×693 at 1400×900), active GPU and no
+backend diagnostics. Two focused installed widget tests pass on Windows GPU
+and WSL XCB OpenGL: useful initial viewport space, saved dock width/visibility,
+selection, shortcut and floating/redocking behavior. Numerical inputs are
+unchanged. Evidence: `reports/qt/integration-pr10/layout-installed-{windows,linux}`
+logs/XML and `layout-isolated-{windows,linux}` captures. Preserve earlier audit
+and packaging setup failures; neither was a production test failure. Current
+scientific and hosted Qt run handles remain 36880776026 and 36880882726;
+neither pending run establishes acceptance.
+
 Coordinated Qt integration resumed (2026-10-01): user authorizes continuation
 after PR10 merge `e4fa3b4149ae96a9a29f9a3579bb20a70d5d5732`. ANYgeometry
 0.4.5 is published; the missing-owner API gate is superseded. Use the exact
