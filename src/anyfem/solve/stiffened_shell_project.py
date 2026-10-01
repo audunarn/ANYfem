@@ -3,14 +3,18 @@
 These analyses own a mesh-native definition; Project geometry, load cases and
 meshing defaults do not regenerate it. Saving inputs does not save an accepted
 solver state or qualify an experimental model. Standalone consumer files retain
-their existing meanings. BL5 and other consumers are deliberately unsupported.
+their existing meanings. Explicit selected-node footprints use the same GE
+factory with their own strict schema; BL5 remains unsupported here.
 """
 
 from __future__ import annotations
 
 import json
 
-from .stiffened_shell import ExperimentalGEPointPanel
+from .stiffened_shell import (
+    ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel,
+    SCHEMA_NODAL_FOOTPRINT,
+)
 from .stiffened_shell_b2 import ExperimentalB2PointPanel
 
 
@@ -32,7 +36,7 @@ def _owned_json(value):
 
 def encode_point_panel(panel):
     """Return the explicit selector pair and a detached native analysis payload."""
-    if type(panel) is ExperimentalGEPointPanel:
+    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
     elif type(panel) is ExperimentalB2PointPanel:
@@ -57,6 +61,8 @@ def _decode_point_panel(analysis_type, formulation, record):
         raise ValueError("strict experimental mesh-native point-panel payload required")
     payload = _owned_json(record["panel"])
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == SCHEMA_NODAL_FOOTPRINT:
+            return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
         return ExperimentalB2PointPanel(
@@ -95,11 +101,14 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     case IDs or on_case callback. Use create_point_panel_analysis for the owner's
     other explicitly admitted operations and checkpoint lifecycle. A staged GE
     programme requires explicit positions in targets and delegates finite solve;
-    its returned result is not a durable accepted-state checkpoint.
+    its returned result is not a durable accepted-state checkpoint. An explicit
+    nodal footprint may select its unrebased finite route by supplying targets;
+    selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
     staged = type(panel) is ExperimentalGEPointPanel and panel.load_programme is not None
-    if not staged and (targets is not None or increment_control is not None or
+    footprint_finite = type(panel) is ExperimentalGENodalRigidFootprintPanel and targets is not None
+    if not staged and not footprint_finite and (targets is not None or increment_control is not None or
                        on_accepted is not None or max_iterations != 12 or max_backtracks != 8):
         raise ValueError("finite solve controls require an explicit staged GE programme")
     if type(panel) is ExperimentalB2PointPanel:
@@ -111,8 +120,9 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
         raise ValueError("staged GE solve requires explicit programme-position targets")
     owner = panel.create_analysis()
     try:
-        if staged:
-            return owner.solve(panel.load_input, targets, cancellation_token=cancellation_token,
+        if staged or footprint_finite:
+            load = panel.load_input if staged else panel.actions
+            return owner.solve(load, targets, cancellation_token=cancellation_token,
                                increment_control=increment_control, on_accepted=on_accepted,
                                max_iterations=max_iterations, max_backtracks=max_backtracks)
         return owner.solve_linear(panel.actions, cancellation_token=cancellation_token)

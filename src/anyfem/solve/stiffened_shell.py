@@ -25,6 +25,7 @@ SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
+SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -305,6 +306,116 @@ class ExperimentalGEPointPanel:
 
 
 @dataclass(frozen=True)
+class ExperimentalGENodalRigidFootprintPanel:
+    """Explicit selected-node input, not an area weld or accepted solver state.
+
+    The public owner admits geometry/rank and elastic candidate response. This
+    consumer persists exact mesh-native inputs without assembling them. Its
+    initial route excludes staged programmes, plastic/fibre sections and lines;
+    public chart rebase and rebased checkpoint restoration remain unsupported.
+    """
+
+    panel: ExperimentalGEPointPanel
+    footprints: tuple[stiffened_shell.NodalRigidFootprint, ...]
+
+    def __post_init__(self) -> None:
+        footprint_type = getattr(stiffened_shell, "NodalRigidFootprint", None)
+        if footprint_type is None:
+            raise ValueError("installed solver lacks public experimental nodal rigid footprints")
+        if type(self.panel) is not ExperimentalGEPointPanel or self.panel.load_programme is not None:
+            raise ValueError("nodal footprint requires an explicit unstaged GE point panel")
+        # Own nested inputs using their existing strict public input framing.
+        panel = ExperimentalGEPointPanel.from_dict(self.panel.to_dict())
+        if panel.shell.j2_curve is not None:
+            raise ValueError("nodal footprint requires an elastic shell")
+        if (panel.shell.q4_elements and
+                panel.q4_pullback_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None)):
+            raise ValueError("nodal footprint requires explicitly selected full-map Q4")
+        for beam in panel.beams:
+            element, _ = beam.instantiate()
+            if type(element.section) is not b3_ge.EllipsoidalGeneralizedSection:
+                raise ValueError("nodal footprint requires native generalized sections with elastic response only")
+        if (type(self.footprints) is not tuple or not self.footprints or
+                any(type(group) is not footprint_type for group in self.footprints)):
+            raise ValueError("explicit nonempty public nodal footprint tuple required")
+        groups = tuple(footprint_type(group.footprint_id, group.shell_nodes,
+                                    group.beam_node, group.patch_cells) for group in self.footprints)
+        if len({group.footprint_id for group in groups}) != len(groups):
+            raise ValueError("distinct nodal footprint IDs required")
+        object.__setattr__(self, "panel", panel)
+        object.__setattr__(self, "footprints", groups)
+
+    @property
+    def status(self) -> str:
+        return STATUS
+
+    @property
+    def actions(self):
+        return self.panel.actions
+
+    @property
+    def recovery_selection(self):
+        return stiffened_shell.NodalRigidFootprintSelection(
+            tuple(group.footprint_id for group in self.footprints))
+
+    def definition(self):
+        owned = type(self).from_dict(self.to_dict())
+        return replace(owned.panel.definition(), footprints=owned.footprints)
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.definition())
+        try:
+            policy = owner.preflight().get("footprint_chart_admission_policy")
+            if (type(policy) is not dict or policy.get("rebase") != "unsupported" or
+                    policy.get("chart_checkpoint_restore") != "unsupported"):
+                raise ValueError("nodal footprint consumer requires the public unrebased admission policy")
+        except BaseException:
+            owner.close()
+            raise
+        return owner
+
+    def to_dict(self) -> dict:
+        return dict(schema=SCHEMA_NODAL_FOOTPRINT, status=STATUS,
+                    profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
+                    admission="experimental_elastic_unrebased_point_owner",
+                    panel=self.panel.to_dict(), footprints=[
+                        json.loads(json.dumps(group.descriptor(), allow_nan=False))
+                        for group in self.footprints])
+
+    @classmethod
+    def from_dict(cls, value):
+        data = _exact_fields(value, {"schema", "status", "profile", "admission", "panel", "footprints"},
+                             "experimental nodal footprint panel")
+        if (data["schema"] != SCHEMA_NODAL_FOOTPRINT or data["status"] != STATUS or
+                data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                data["admission"] != "experimental_elastic_unrebased_point_owner" or
+                type(data["panel"]) is not dict or data["panel"].get("schema") not in
+                (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK)):
+            raise ValueError("explicit experimental elastic unrebased nodal footprint schema required")
+        footprint_type = getattr(stiffened_shell, "NodalRigidFootprint", None)
+        if footprint_type is None:
+            raise ValueError("installed solver lacks public experimental nodal rigid footprints")
+        if type(data["footprints"]) is not list or not data["footprints"]:
+            raise ValueError("explicit nonempty nodal footprint list required")
+        groups = []
+        for item in data["footprints"]:
+            row = _exact_fields(item, {"law", "footprint_id", "shell_nodes", "beam_node", "patch_cells", "semantics"}, "nodal footprint")
+            if type(row["patch_cells"]) is not list:
+                raise ValueError("explicit nodal footprint patch cell list required")
+            cells = []
+            for cell in row["patch_cells"]:
+                if type(cell) is not list or len(cell) not in (3, 4):
+                    raise ValueError("explicit Q4/S3 footprint patch cells required")
+                cells.append(tuple(_positive_int(node, "footprint cell node") for node in cell))
+            group = footprint_type(row["footprint_id"], _ids(row["shell_nodes"], "footprint nodes"),
+                                   _positive_int(row["beam_node"], "footprint beam node"), tuple(cells))
+            if json.loads(json.dumps(group.descriptor())) != row:
+                raise ValueError("matching public nodal footprint law and selected-node semantics required")
+            groups.append(group)
+        return cls(ExperimentalGEPointPanel.from_dict(data["panel"]), tuple(groups))
+
+
+@dataclass(frozen=True)
 class ExperimentalGEBL5Panel:
     """Separate elastic Q4/generalized-B3 BL5 input record, never accepted state.
 
@@ -451,9 +562,9 @@ class ExperimentalGEBL5Panel:
         return cls(shell, tuple(beams), tuple(lines), fixed, actions)
 
 
-def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel, path: str | Path) -> Path:
+def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel, path: str | Path) -> Path:
     """Atomically save a bounded input record, never solver state or results."""
-    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel):
+    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel):
         raise ValueError("experimental GE panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -479,7 +590,7 @@ def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel, path: str
     return destination
 
 
-def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel:
+def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel:
     source = Path(path)
     if not source.name.endswith(SUFFIX):
         raise ValueError(f"experimental GE panel filename must end with {SUFFIX}")
@@ -506,8 +617,11 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         raise ValueError("invalid experimental GE panel JSON") from error
     if type(data) is dict and data.get("schema") == SCHEMA_BL5:
         return ExperimentalGEBL5Panel.from_dict(data)
+    if type(data) is dict and data.get("schema") == SCHEMA_NODAL_FOOTPRINT:
+        return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
     return ExperimentalGEPointPanel.from_dict(data)
 
 
-__all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "SCHEMA", "SCHEMA_J2",
+__all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
+           "SCHEMA_NODAL_FOOTPRINT", "SCHEMA", "SCHEMA_J2",
            "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "STATUS", "SUFFIX", "save_case", "load_case"]
