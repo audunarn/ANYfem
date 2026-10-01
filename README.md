@@ -116,12 +116,14 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu,qt]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[qt,tk]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
 so the application can switch between their coordinated GPU and software
 implementations without mixing installed generations.
+Use the `qt` extra for editable source development: it accepts the sibling viewer.
+The `gui` extra instead pins its published viewer source for installed use.
 
 The ANYmesher source is selected the same way. The shared `ANYmesh` checkout
 is used whenever it declares version 0.5.0 or newer; newer compatible releases
@@ -133,10 +135,10 @@ on `sys.path`; the independent origin gate still rejects an installed package
 that appears in place of the selected source tree.
 
 ```powershell
-python -m anyfem.ui.tk
+python -m anyfem.ui.qt
 ```
 
-The PySide6 candidate uses the shared workflow and the Qt host in the updated
+The default PySide6 workbench uses the shared workflow and the Qt host in the updated
 ANY3dView checkout at candidate commit
 [`d65f47b264f3e28348a6309eea996db51d8bb901`](https://github.com/audunarn/ANY3dView/commit/d65f47b264f3e28348a6309eea996db51d8bb901).
 Install this exact source candidate before the ANYfem GUI extra:
@@ -147,11 +149,18 @@ python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3d
 python -m pip install -e ".[gui]"
 ```
 
-This source candidate is unfinished; the published ANY3dView 0.5.5 wheel does
-not supply its Qt host. The committed owner snapshots above match the candidate
+The published ANY3dView 0.5.5 wheel does not supply its Qt host; the `gui` extra
+therefore pins the published viewer source commit above until an owner release
+provides it. The GUI extra also pins the coordinated ANYmesher source because
+the published 0.5.0 wheel lacks the workbench's meshing-control APIs.
+The committed owner snapshots above match the candidate
 CI inputs; they do not change the qualified release graph. In that environment,
-launch with `anyfem-qt`, `python -m anyfem.ui.qt`, or
-`python run_gui.py --qt`. The Tk launcher remains the default during conversion.
+launch with `anyfem`, `anyfem-qt`, `python -m anyfem.ui.qt`, or
+`python run_gui.py` (also accepts `--qt`). Qt is the default frontend.
+For the retained legacy frontend, install `.[tk]` and use `anyfem-tk`,
+`python -m anyfem.ui.tk`, or `python run_gui.py --tk`. Conflicting frontend flags
+are rejected. The View menu provides **Reset workspace layout**; saved custom
+dock arrangements remain supported.
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
 ANYgeometry 0.4.5 now publishes that API. The coordinated pins above match merged
 PR10 and its paired mesher/solver inputs; package version numbers alone do not

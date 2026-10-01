@@ -4,11 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QSize
 from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QMainWindow,
     QPlainTextEdit, QPushButton, QTabWidget, QTableView, QVBoxLayout, QWidget,
-    QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu)
+    QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle)
 
 from ...application.controller import WorkbenchController, default_project
 from ...application.workflow import WorkbenchWorkflow
@@ -183,6 +183,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._status=_Value("")
         self._refreshing=False
         self._refresh_pending=False
+        from .theme import apply_theme
+        apply_theme(self)
         self.resize(1400,900)
         self.viewport=QtViewport(self,self.selection,backend=viewer_backend)
         self.setCentralWidget(self.viewport.widget)
@@ -206,15 +208,25 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         }
         self.details.panels=self.panels
         for name,panel in self.panels.items():self.details.addTab(panel,name)
-        tasks_dock=self._dock("Tasks",self.details,Qt.RightDockWidgetArea)
+        task_workspace=QWidget();task_workspace.setObjectName("TaskWorkspace")
+        task_layout=QVBoxLayout(task_workspace);task_layout.setContentsMargins(10,10,10,10);task_layout.setSpacing(8)
+        heading=QLabel("WORKSPACE");heading.setObjectName("WorkspaceHeading");task_layout.addWidget(heading)
+        self.task_selector=QComboBox();self.task_selector.addItems(list(self.panels));task_layout.addWidget(self.task_selector)
+        self.details.tabBar().hide();task_layout.addWidget(self.details)
+        self.task_selector.currentIndexChanged.connect(self.details.setCurrentIndex)
+        self.details.currentChanged.connect(self.task_selector.setCurrentIndex)
+        tasks_dock=self._dock("Tasks",task_workspace,Qt.RightDockWidgetArea)
         self.job_status=_JobView(self)
         jobs_dock=self._dock("Jobs",self.job_status,Qt.BottomDockWidgetArea)
         self.log=QPlainTextEdit();self.log.setReadOnly(True)
         messages_dock=self._dock("Messages",self.log,Qt.BottomDockWidgetArea)
-        self.resizeDocks([model_dock,tasks_dock],[220,360],Qt.Horizontal)
+        self.tabifyDockWidget(jobs_dock,messages_dock);jobs_dock.raise_()
+        self._workspace_docks=(model_dock,tasks_dock,jobs_dock,messages_dock)
+        self.resizeDocks([model_dock,tasks_dock],[260,360],Qt.Horizontal)
         self.resizeDocks([jobs_dock,messages_dock],[140,140],Qt.Vertical)
         self._actions={}
         self._menus()
+        self._default_workspace_state=self.saveState()
         self.worker=JobWorkerFacade(self.job_manager)
         self.commands.add_listener(self.refresh_all)
         self.session.add_listener(self._on_revision_changed)
@@ -231,6 +243,13 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         dock=QDockWidget(title,self);dock.setObjectName(title)
         dock.setWidget(widget);self.addDockWidget(area,dock)
         return dock
+
+    def reset_workspace_layout(self):
+        self.restoreState(self._default_workspace_state)
+        model,tasks,jobs,messages=self._workspace_docks
+        self.resizeDocks([model,tasks],[260,390],Qt.Horizontal)
+        self.resizeDocks([jobs],[150],Qt.Vertical)
+        jobs.raise_()
 
     def _action(self,menu,name,callback,shortcut=None):
         action=QAction(name,self)
@@ -269,8 +288,21 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             self._action(view,name.capitalize(),lambda name=name:self.viewport.set_view(name))
         view.addSeparator()
         for dock in self.findChildren(QDockWidget):view.addAction(dock.toggleViewAction())
+        self._action(view,"Reset workspace layout",self.reset_workspace_layout)
+        analysis=self.menuBar().addMenu("Analysis")
+        self._action(analysis,"Generate mesh",self.panels["Mesh"].start)
+        self._action(analysis,"Solve",self.panels["Solve"].start)
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
-        for name in ["New","Open","Save","Undo","Redo","Fit"]:toolbar.addAction(self._actions[name])
+        toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        icons={"New":QStyle.SP_FileIcon,"Open":QStyle.SP_DirOpenIcon,"Save":QStyle.SP_DialogSaveButton,
+            "Undo":QStyle.SP_ArrowBack,"Redo":QStyle.SP_ArrowForward,"Fit":QStyle.SP_TitleBarMaxButton,
+            "Generate mesh":QStyle.SP_FileDialogDetailedView,"Solve":QStyle.SP_MediaPlay}
+        for name in ["New","Open","Save","Undo","Redo","Fit","Generate mesh","Solve"]:
+            if name in {"Undo","Fit","Generate mesh"}:toolbar.addSeparator()
+            action=self._actions[name];action.setIcon(self.style().standardIcon(icons[name]));action.setToolTip(name)
+            toolbar.addAction(action)
+        self.addToolBarBreak()
+        toolbar=self.addToolBar("Selection and renderer");toolbar.setObjectName("Selection and renderer")
         self.selection_mode=QComboBox();self.selection_mode.addItems(["vertex","edge","face","node","element"])
         self.selection_mode.currentTextChanged.connect(self.selection.set_mode);toolbar.addWidget(self.selection_mode)
         self.selection_tool=QComboBox();self.selection_tool.addItems(["box","single","lasso"])
@@ -278,8 +310,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.selection_operation=QComboBox();self.selection_operation.addItems(["replace","add","remove","toggle"])
         for control in (self.selection_tool,self.selection_depth,self.selection_operation):
             control.currentTextChanged.connect(self._selection_policy);toolbar.addWidget(control)
+        for control,label in ((self.selection_mode,"Entity type"),(self.selection_tool,"Selection tool"),
+                              (self.selection_depth,"Selection depth"),(self.selection_operation,"Selection operation")):
+            control.setToolTip(label);control.setAccessibleName(label)
         self.renderer=QComboBox();self.renderer.addItems(["auto","gpu","software"]);self.renderer.setCurrentText(self._viewer_backend)
         self.renderer.currentTextChanged.connect(lambda backend:self.guarded(lambda:self.switch_viewer_backend(backend))());toolbar.addWidget(self.renderer)
+        self.renderer.setToolTip("Viewport renderer");self.renderer.setAccessibleName("Viewport renderer")
 
     def _selection_policy(self,*_):
         self.viewport.configure_selection(tool=self.selection_tool.currentText(),

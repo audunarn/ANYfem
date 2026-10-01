@@ -290,7 +290,7 @@ def test_the_ledger_writes_json_and_markdown():
 def test_the_package_declares_its_entry_points():
     root = Path(__file__).resolve().parents[1]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'anyfem = "anyfem.ui.tk:main"' in text
+    assert 'anyfem = "anyfem.ui.qt:main"' in text
     assert 'anyfem-verify = "anyfem.verification:main"' in text
     assert 'anyfem-parity = "anyfem.parity:main"' in text
 

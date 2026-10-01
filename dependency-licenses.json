@@ -4,8 +4,24 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANY3dView",
-      "requirement": "ANY3dView[gpu]>=0.5.5,<0.6",
+      "requirement": "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d65f47b264f3e28348a6309eea996db51d8bb901",
       "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANY3dView"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANY3dView",
+      "requirement": "ANY3dView[gpu,qt]>=0.5.5,<0.6",
+      "scope": "optional:qt",
+      "upstream": "https://github.com/audunarn/ANY3dView"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANY3dView",
+      "requirement": "ANY3dView[gpu]>=0.5.5,<0.6",
+      "scope": "optional:tk",
       "upstream": "https://github.com/audunarn/ANY3dView"
     },
     {
@@ -36,6 +52,14 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYmesher",
+      "requirement": "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8",
+      "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANYmesh"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYmesher",
       "requirement": "ANYmesher>=0.5,<0.6",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYmesh"
@@ -53,7 +77,7 @@
       "license_expression": "MPL-2.0",
       "name": "ANYtk3D",
       "requirement": "ANYtk3D>=0.5.5,<0.6",
-      "scope": "optional:gui",
+      "scope": "optional:tk",
       "upstream": "https://github.com/audunarn/ANYtk3D"
     },
     {
@@ -90,6 +114,22 @@
     },
     {
       "bundled": false,
+      "license_expression": "HPND",
+      "name": "Pillow",
+      "requirement": "Pillow>=10,<13",
+      "scope": "optional:qt",
+      "upstream": "https://python-pillow.github.io/"
+    },
+    {
+      "bundled": false,
+      "license_expression": "HPND",
+      "name": "Pillow",
+      "requirement": "Pillow>=10,<13",
+      "scope": "optional:tk",
+      "upstream": "https://python-pillow.github.io/"
+    },
+    {
+      "bundled": false,
       "license_expression": "MIT",
       "name": "platformdirs",
       "requirement": "platformdirs>=4.5,<5",
@@ -102,6 +142,14 @@
       "name": "PySide6",
       "requirement": "PySide6>=6.10.1,<6.11",
       "scope": "optional:gui",
+      "upstream": "https://doc.qt.io/qtforpython-6/commercial/index.html"
+    },
+    {
+      "bundled": false,
+      "license_expression": "LGPL-3.0-only",
+      "name": "PySide6",
+      "requirement": "PySide6>=6.10.1,<6.11",
+      "scope": "optional:qt",
       "upstream": "https://doc.qt.io/qtforpython-6/commercial/index.html"
     },
     {

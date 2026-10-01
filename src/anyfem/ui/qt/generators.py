@@ -1,5 +1,6 @@
 """Structural feature generators with typed forms and persistent intent."""
 import inspect
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QComboBox,QPushButton,QLabel
 from ... import commands
 from .forms import OptionForm
@@ -8,12 +9,14 @@ from .forms import OptionForm
 class GeneratorTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app;self.form=None
-        self.layout_=QVBoxLayout(self);self.kind=QComboBox()
+        self.layout_=QVBoxLayout(self);self.layout_.setAlignment(Qt.AlignTop);self.kind=QComboBox()
         self.kind.addItems(["Plate","Bulkhead","Frame","Girder","Stiffener","Stiffened panel","Cylinder","Cone"])
         self.layout_.addWidget(self.kind)
-        self.layout_.addWidget(QLabel("Dimensions are in metres; directions define the local generator frame."))
+        guidance=QLabel("Dimensions are in metres; directions define the local generator frame.")
+        guidance.setWordWrap(True);self.layout_.addWidget(guidance)
         self.kind.currentTextChanged.connect(self.rebuild);self.rebuild()
-        button=QPushButton("Create editable feature");button.clicked.connect(app.guarded(self.execute));self.layout_.addWidget(button)
+        button=QPushButton("Create editable feature");button.setProperty("primary",True)
+        button.clicked.connect(app.guarded(self.execute));self.layout_.addWidget(button)
 
     def rebuild(self,*_):
         if self.form is not None:self.layout_.removeWidget(self.form);self.form.deleteLater()

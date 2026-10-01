@@ -76,14 +76,15 @@ def _normalized_name(requirement: str) -> str:
     return re.sub(r"[-_.]+", "-", match.group(1)).lower()
 
 
-def _declared_requirements(metadata: dict[str, object]) -> dict[str, tuple[str, str]]:
-    declared: dict[str, tuple[str, str]] = {}
+def _declared_requirements(metadata: dict[str, object]) -> dict[tuple[str,str], str]:
+    declared: dict[tuple[str,str], str] = {}
 
     def add(requirement: str, scope: str) -> None:
         name = _normalized_name(requirement)
-        if name in declared:
-            _fail(f"duplicate direct dependency {name!r}")
-        declared[name] = (requirement, scope)
+        key=(name,scope)
+        if key in declared:
+            _fail(f"duplicate direct dependency {name!r} in {scope!r}")
+        declared[key] = requirement
 
     for requirement in metadata["build-system"]["requires"]:
         add(requirement, "build")
@@ -217,12 +218,13 @@ def check(*, check_installed: bool = False) -> None:
     if not isinstance(rows, list):
         _fail("dependency inventory rows are missing")
     declared = _declared_requirements(metadata)
-    recorded: dict[str, tuple[str, str]] = {}
+    recorded: dict[tuple[str,str], str] = {}
     for row in rows:
         if not isinstance(row, dict):
             _fail("dependency inventory contains a malformed row")
         name = _normalized_name(str(row.get("name", "")))
-        if name in recorded:
+        key=(name,str(row.get("scope","")))
+        if key in recorded:
             _fail(f"dependency inventory repeats {name!r}")
         if row.get("bundled") is not False:
             _fail(f"dependency {name!r} must be explicitly recorded as not bundled")
@@ -235,10 +237,7 @@ def check(*, check_installed: bool = False) -> None:
             )
         if not qt_lgpl and any(token in expression.upper() for token in FORBIDDEN_LICENSE_TOKENS):
             _fail(f"dependency {name!r} has a forbidden strong-copyleft license")
-        recorded[name] = (
-            str(row.get("requirement", "")),
-            str(row.get("scope", "")),
-        )
+        recorded[key] = str(row.get("requirement", ""))
     if recorded != declared:
         _fail(
             f"dependency inventory mismatch: recorded={recorded!r}, "
@@ -246,12 +245,12 @@ def check(*, check_installed: bool = False) -> None:
         )
 
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8").lower()
-    for name in recorded:
+    for name,_scope in recorded:
         if name not in notices:
             _fail(f"third-party notice is missing {name!r}")
     if check_installed:
         _check_installed(rows)
-    print(f"license check passed: {EXPECTED_LICENSE}; {len(rows)} direct dependencies")
+    print(f"license check passed: {EXPECTED_LICENSE}; {len({name for name,_scope in recorded})} direct dependencies")
 
 
 def main(argv: list[str] | None = None) -> int:

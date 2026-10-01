@@ -76,7 +76,7 @@ def test_launcher_selects_the_coordinated_viewer_source_trees():
     assert namespace["_version_at_least"](
         namespace["_declared_project_version"](software), "0.5.1"
     )
-    assert f'-e "{core}[gpu]"' in command
+    assert f'-e "{core}[gpu,qt]"' in command
     assert f'-e "{software}"' in command
     assert command.index(str(core)) < command.index(str(software))
 
@@ -160,7 +160,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
     assert command.index(f'-e "{solver_project}"') < command.index(
-        f'-e "{ROOT}[gui]"'
+        f'-e "{ROOT}[qt,tk]"'
     )
 
 

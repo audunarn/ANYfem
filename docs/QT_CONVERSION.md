@@ -4,8 +4,10 @@ The user superseded the exhaustive replacement goal with **reasonable Qt parity
 to Tk**, explicitly accepting alternative solutions and asking to stop once
 achieved. Reasonable frontend parity is accepted from the evidence below. Project/
 result compatibility, numerical behavior and headless boundaries remain intact.
-This does not establish full scientific or hardware qualification. Tk remains the
-default; no release, Qt default switch or Tk removal has occurred.
+This does not establish full scientific or hardware qualification. The user then
+authorized a polished light workbench and Qt as the default. Qt supplies the
+`anyfem` entry point and unqualified development launcher. Tk remains available
+explicitly; no package release or Tk removal has occurred.
 
 Policy: `ANY_ECOSYSTEM_RISK_PROPORTIONATE_ENGINEERING_V1`, revision
 `2026-09-24.2`, canonical ANYopenSoft philosophy. Preserve owner scientific
@@ -19,21 +21,50 @@ retained viewer. Widgets invoke existing commands/services. Each window has one
 WorkbenchController. Qt Widgets provide the central viewport, project/task docks,
 job/log panel, menus, shortcuts and status. GPU presentation uses QOpenGLWidget;
 the shared viewer supplies a software fallback with explicit failure diagnostics.
-PySide6 remains optional for headless use. Temporary launchers are `anyfem-qt`,
-`anyfem-tk` and `python run_gui.py --qt`; `anyfem` remains Tk.
+PySide6 remains optional for headless use. Launchers are `anyfem`, `anyfem-qt`
+and `python run_gui.py` for Qt; `anyfem-tk` and `python run_gui.py --tk` retain Tk.
+The user-selected light theme adds task navigation, grouped action/selection
+toolbars, blue primary actions, readable form spacing, wrapped guidance and
+tabbed Jobs/Messages. Existing layouts restore; View → Reset workspace layout
+restores the improved arrangement. Scientific behavior is unchanged.
 
-Published ANYfem main is `892507a3bcca98b73cbfdbd28f5906c2687774b3`.
+Default-switch evidence: both complete installed Qt suites pass **163/163** with
+zero failures/errors/skips and three existing deprecated Qt test-API warnings.
+`polish-default-{win,linux}-qt` retains the evidence; Windows uses physical GPU,
+WSL uses XCB/llvmpipe. The focused launcher/licensing/headless set passes 29/29.
+Real installed `anyfem` entry-point captures include overview, engineering forms,
+results and laptop size. Paired Windows/WSL mesh/solve/save-reopen succeed; a fresh
+Windows environment also completes that workflow at device-pixel ratio 1.5.
+Images and acceptance records are under `polish-final-visual-{win,linux}` and
+`polish-clean-verified-hidpi`. The first capture's automatic-offset beam setup
+timed out; the established centerline fixture succeeds. Failure evidence remains.
+
+A fresh GUI installation exposed published ANYmesher 0.5.0 missing Qt meshing
+control APIs. Installed `gui` pins tested mesher e21c0fc and viewer d65f47b.
+Source `qt`/`tk` extras accept editable siblings, preventing installed-source pins
+from replacing them. Actual editable bootstrap dry-run resolves successfully.
+Licensing records every extra's exact requirement separately, rejects duplicate
+declarations within a scope and retains all 18 unique dependencies. Source and
+installed license checks pass. Independent review cleared the bootstrap conflict
+and found no new concrete navigation, dependency or scoped-inventory defect.
+
+Starting ANYfem main is `892507a3bcca98b73cbfdbd28f5906c2687774b3`.
 The isolated integration branch is `codex/qt-coordinated-integration`; this
-delivery is based on `b403d413f4f951063ce540fcfa1dc613440cac2d`. The final
-slice supports multi-selection loads in one atomic undoable command batch.
+delivery is based on `7169b34a129c5de34731a2fa94d5dcb2dba6b411`. The current
+slice polishes Qt and makes it the explicit user-authorized default.
 Candidate viewer input is exactly `d65f47b264f3e28348a6309eea996db51d8bb901`.
 ANYgeometry input is `26e7e3c98ac1a5573e19643d6658d00094bff0bc` (0.4.5).
 Published owner main `db2947e02cb4fe243c52b13d6bec262b4f897378` has no runtime
 `src/anygeometry` delta from that tested input. Owner publication stays with its
 owner; unrelated dirty work is preserved.
 
-Final reasonable-parity candidate installed wheel SHA256:
-`31f2112b5b3ffdf9b942cc50bcc658712057160f36ba24351f2db20d1452e30e`.
+Current polished default-Qt installed wheel SHA256:
+`baaacbbd831b35746f810446e1b1068c79b286bdc67cf693a5c7788edc4a9def`.
+The final disabled-button contrast adjustment was checked through that installed
+default launcher at DPR 1.5 (`polish-delivery-hidpi`); the preceding complete
+suites cover the same behavioral implementation. `polish-delivery-dist` holds
+the delivery wheel/sdist. Earlier reasonable-parity and polish builds remain
+historical evidence, not the current artifact.
 Both packages' installed origins are asserted under Python `-I`, with pytest
 source-path injection disabled. Python/PySide6: Windows 3.14/6.10.3 and WSL Linux
 3.12.3/6.10.3. WSL uses XCB/llvmpipe OpenGL and is not physical GPU evidence.
@@ -192,12 +223,13 @@ For future full qualification, obtain owner corrections/public API guidance for 
 adjudicate the modal failure under existing owner authorities. Retest exact
 published inputs with the retained reproducers, installed workflows and applicable
 scientific gates. Independently review complete lifecycle/persistence/viewer
-integration and the supported Tk surface before default switching.
+integration and the supported surface for any future full qualification claim.
 
 The user explicitly deferred physical Linux GPU acceptance because only WSL is
-available. Preserve it as an open gate; WSL cannot close it. No Qt default switch,
-Tk removal, package release, force push or branch-protection bypass is allowed by
-passing candidate checks. Main and owner working-tree changes remain preserved.
+available. Preserve it as an open gate; WSL cannot close it. The later explicit
+request authorizes the Qt default switch based on reasonable parity and installed
+UI evidence. Tk removal, package release, force push and branch-protection bypass
+remain outside this delivery. Owner working-tree changes remain preserved.
 
 ## Preserved history
 

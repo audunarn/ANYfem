@@ -66,7 +66,9 @@ jobs:
       - name: Install candidate GUI and public owners
         run: |
           python -m pip install -e .ecosystem/ANYmaterial -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D
-          python -m pip install -e ".[dev,gui]" "PySide6>=6.10.1,<6.11"
+          python -m pip install -e ".[dev,qt,tk]"
+      - name: Default and explicit frontend launcher contracts
+        run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q
       - name: Check source and installed dependency licensing
         run: python tools/check_licenses.py --check-installed
       - name: Linux Qt platform startup

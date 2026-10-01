@@ -216,10 +216,10 @@ def editable_repair_command() -> str:
         str(_ECOSYSTEM_WORKSPACE / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
         str(_ECOSYSTEM_WORKSPACE / "ANYfileIO"),
-        str(_ANY3DVIEW_PROJECT) + "[gpu]",
+        str(_ANY3DVIEW_PROJECT) + "[gpu,qt]",
         str(_ANYTK3D_PROJECT),
         str(_ANYSOLVER_PROJECT),
-        str(_ROOT) + "[gui]",
+        str(_ROOT) + "[qt,tk]",
     )
     editables = " ".join(f'-e "{project}"' for project in projects)
     return f'"{sys.executable}" -m pip install --upgrade {editables}'
@@ -248,12 +248,14 @@ def require_compatible_ecosystem(
 def main() -> None:
     """Launch the GUI only after the latest-only release graph is verified."""
 
-    if "--qt" in sys.argv:
-        require_compatible_ecosystem(frontend="qt")
-        from anyfem.ui.qt import main as gui_main
-    else:
-        require_compatible_ecosystem()
+    if "--qt" in sys.argv and "--tk" in sys.argv:
+        raise SystemExit("Choose only one frontend: --qt or --tk")
+    frontend="tk" if "--tk" in sys.argv else "qt"
+    require_compatible_ecosystem(frontend=frontend)
+    if frontend=="tk":
         from anyfem.ui.tk import main as gui_main
+    else:
+        from anyfem.ui.qt import main as gui_main
 
     gui_main()
 

@@ -8,6 +8,8 @@ from .editors import CommandEditor,title
 class OptionForm(QWidget):
     def __init__(self,parameters,parent=None):
         super().__init__(parent);layout=QFormLayout(self);self.fields={}
+        layout.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         for name,annotation,default in parameters:
             if str(annotation).startswith("bool") or isinstance(default,bool):
                 widget=QCheckBox();widget.setChecked(bool(default))

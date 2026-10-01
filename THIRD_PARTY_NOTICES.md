@@ -13,7 +13,7 @@ remain governed by the notices shipped by their distributors.
 | ANYmaterial | runtime | MPL-2.0 | https://github.com/audunarn/ANYmaterial |
 | ANYmesher | runtime | MPL-2.0 | https://github.com/audunarn/ANYmesh |
 | ANYsolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYsolver |
-| ANYtk3D | optional GUI | MPL-2.0 | https://github.com/audunarn/ANYtk3D |
+| ANYtk3D | optional legacy Tk extra | MPL-2.0 | https://github.com/audunarn/ANYtk3D |
 | build | development | MIT | https://github.com/pypa/build |
 | h5py | runtime | BSD-3-Clause | https://www.h5py.org/ |
 | NumPy | runtime | BSD-3-Clause and bundled-component licenses | https://numpy.org/ |

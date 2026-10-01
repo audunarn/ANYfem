@@ -2203,6 +2203,20 @@ def test_qt_initial_docks_leave_viewport_space_and_restore_layout(qapp,tmp_path,
         qapp.processEvents()
 
 
+def test_qt_task_selector_and_workspace_reset(window,qapp):
+    from PySide6.QtWidgets import QDockWidget
+    window.task_selector.setCurrentText("Solve");qapp.processEvents()
+    assert window.details.currentIndex()==list(window.panels).index("Solve")
+    window.notebook.select("Results");assert window.task_selector.currentText()=="Results"
+    docks={dock.objectName():dock for dock in window.findChildren(QDockWidget)}
+    docks["Tasks"].setFloating(True);docks["Model"].hide();qapp.processEvents()
+    window._actions["Reset workspace layout"].trigger();qapp.processEvents()
+    assert not docks["Tasks"].isFloating() and not docks["Model"].isHidden()
+    assert docks["Messages"] in window.tabifiedDockWidgets(docks["Jobs"])
+    assert not window._actions["Solve"].icon().isNull()
+    assert window.panels["Geometry"].apply.property("primary") is True
+
+
 def test_qt_viewport_click_shortcut_and_docking(window,qapp):
     from PySide6.QtCore import QPoint,Qt
     from PySide6.QtTest import QTest

@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tools.check_licenses import _license_from_metadata
+from tools.check_licenses import _license_from_metadata,_declared_requirements
+import pytest
 
 
 @dataclass
 class _Distribution:
     metadata: dict[str, str]
+
+
+def test_separate_extras_record_each_requirement_without_losing_source_pins():
+    metadata={"build-system":{"requires":[]},"project":{"optional-dependencies":{
+        "gui":["Viewer @ git+https://example.com/viewer@abc"],"qt":["Viewer>=1"]}}}
+    assert _declared_requirements(metadata)=={("viewer","optional:gui"):"Viewer @ git+https://example.com/viewer@abc",
+        ("viewer","optional:qt"):"Viewer>=1"}
+    metadata["project"]["optional-dependencies"]["qt"].append("Viewer>=2")
+    with pytest.raises(SystemExit,match="duplicate"):_declared_requirements(metadata)
 
 
 def test_numpy_spdx_expression_is_preserved() -> None:

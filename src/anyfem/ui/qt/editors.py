@@ -60,7 +60,8 @@ class CommandEditor(QWidget):
             if hasattr(commands,name):
                 self.choice.addItem(title(name), name)
         layout.addWidget(self.choice)
-        layout.addWidget(QLabel("Engineering quantities use the project unit profile; explicit unit suffixes are accepted. Entity IDs follow the model tree."))
+        guidance=QLabel("Engineering quantities use the project unit profile; explicit unit suffixes are accepted. Entity IDs follow the model tree.")
+        guidance.setWordWrap(True);layout.addWidget(guidance)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         layout.addWidget(self.scroll)
@@ -68,6 +69,7 @@ class CommandEditor(QWidget):
         self.feedback.setWordWrap(True)
         layout.addWidget(self.feedback)
         self.apply = QPushButton("Apply")
+        self.apply.setProperty("primary",True)
         self.apply.clicked.connect(app.guarded(self.execute))
         layout.addWidget(self.apply)
         self.choice.currentIndexChanged.connect(self.rebuild)
@@ -81,6 +83,8 @@ class CommandEditor(QWidget):
         self.operation = getattr(commands, self.choice.currentData())
         container = QWidget()
         form = QFormLayout(container)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.signature = inspect.signature(self.operation)
         for name, parameter in self.signature.parameters.items():
             if name in {"label","id"} or parameter.kind in {parameter.VAR_POSITIONAL,parameter.VAR_KEYWORD}:
