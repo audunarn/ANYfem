@@ -263,18 +263,17 @@ def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_projec
     from anymesher.errors import MeshError
 
     before = to_dict(project.geometry)
-    if not automatic:
-        # The conforming beam imposes a 26.565-degree corner in this 2x1
-        # plate. The strict API's 30-degree gate must reject it atomically.
-        with pytest.raises(MeshError, match="quality"):
-            project.generate_mesh(0.25)
-        assert to_dict(project.geometry) == before
-        return
-    # The application's existing automatic S3 admission floor permits this
-    # corner. Keep all admission thresholds and the strict API unchanged.
-    mesh = project.generate_mesh(0.25, automation=MeshAutomationOptions())
+    # A 26.565-degree corner is admissible at the qualified 15-degree floor.
+    # Recovery remains an explicit choice; direct calls do not enable it.
+    mesh = project.generate_mesh(0.25, automation=MeshAutomationOptions() if automatic else None)
     assert to_dict(project.geometry) == before
-    assert mesh.hybrid_diagnostics["automation"]["solver_admission"] == "ADMITTED"
+    if automatic:
+        assert mesh.hybrid_diagnostics["automation"]["solver_admission"] == "ADMITTED"
+    else:
+        assert "automation" not in mesh.hybrid_diagnostics
+        with pytest.raises(MeshError, match="quality"):
+            project.generate_mesh(0.25,quality_policy={"minimum_angle":30.})
+        assert to_dict(project.geometry) == before
     scene = build_mesh_scene(project, mesh)
     beam_elements = tuple(mesh.elements_of_edge[diagonal])
     beam_lines = [
