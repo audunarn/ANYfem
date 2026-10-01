@@ -85,7 +85,7 @@ jobs:
 
       - name: Run the test suite (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a python reports/pr10/capture_capacity.py
+        run: xvfb-run -a python tools/pr10_capture_capacity.py
 
       - name: Run the test suite (Windows)
         if: runner.os == 'Windows'
