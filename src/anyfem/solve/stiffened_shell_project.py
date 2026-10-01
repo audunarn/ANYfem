@@ -1,10 +1,11 @@
-"""Native Project records for two explicit experimental point-panel inputs.
+"""Native Project records for explicit experimental GE/B2 panel inputs.
 
 These analyses own a mesh-native definition; Project geometry, load cases and
 meshing defaults do not regenerate it. Saving inputs does not save an accepted
 solver state or qualify an experimental model. Standalone consumer files retain
 their existing meanings. Explicit selected-node footprints use the same GE
-factory with their own strict schema; BL5 remains unsupported here.
+factory with their own strict schema. B2 footprints use their distinct static
+nodal law and selected batches; BL5 remains unsupported here.
 """
 
 from __future__ import annotations
@@ -15,7 +16,10 @@ from .stiffened_shell import (
     ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel,
     SCHEMA_NODAL_FOOTPRINT,
 )
-from .stiffened_shell_b2 import ExperimentalB2PointPanel
+from .stiffened_shell_b2 import (
+    ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel,
+    SCHEMA_NODAL_FOOTPRINT as B2_FOOTPRINT_SCHEMA,
+)
 
 
 SCHEMA = "anyfem.experimental-point-panel-project-v1"
@@ -39,7 +43,7 @@ def encode_point_panel(panel):
     if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
-    elif type(panel) is ExperimentalB2PointPanel:
+    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel):
         analysis_type, formulation = B2_TYPE, B2_FORMULATION
         payload = json.loads(panel.payload)
     else:
@@ -65,7 +69,9 @@ def _decode_point_panel(analysis_type, formulation, record):
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
-        return ExperimentalB2PointPanel(
+        consumer = (ExperimentalB2NodalRigidFootprintPanel if type(payload) is dict and
+                    payload.get("schema") == B2_FOOTPRINT_SCHEMA else ExperimentalB2PointPanel)
+        return consumer(
             json.dumps(payload, allow_nan=False).encode("ascii"))
     raise ValueError("matching explicit experimental point-panel type/formulation required")
 
@@ -111,7 +117,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     if not staged and not footprint_finite and (targets is not None or increment_control is not None or
                        on_accepted is not None or max_iterations != 12 or max_backtracks != 8):
         raise ValueError("finite solve controls require an explicit staged GE programme")
-    if type(panel) is ExperimentalB2PointPanel:
+    if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel):
         return panel.solve_linear_many(
             cancellation_token=cancellation_token, on_case=on_case)
     if on_case is not None:
