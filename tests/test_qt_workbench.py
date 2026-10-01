@@ -1420,6 +1420,64 @@ def test_qt_edit_undo_redo_and_selection(window,qapp):
     window.redo();assert identifier in window.project.geometry.vertices
 
 
+def test_qt_legacy_project_upgrade_keeps_entity_identity(window,qapp,tmp_path):
+    import json
+    from anyfem.io.project_file import FORMAT_VERSION
+    path=tmp_path/"legacy.anyfem"
+    path.write_text(json.dumps({"anyfem":{"format":2},"name":"legacy geometry",
+        "geometry":{"vertices":[{"id":1,"position":[0.,0.,0.]},
+            {"id":2,"position":[1.,0.,0.]}],
+            "edges":[{"id":1,"start":1,"end":2,"curve":{"kind":"line"}}],
+            "faces":[],"next_id":{"vertex":3,"edge":2,"face":1}}}),encoding="utf-8")
+    window.open_project(str(path));qapp.processEvents()
+    expected={("vertex",1),("vertex",2),("edge",1)}
+    assert window.project.geometry.entity_keys()==expected
+    edge=window.project.geometry.entity_ref("edge",1)
+    window.selection.set_mode("edge");window.selection.select(edge);qapp.processEvents()
+    assert window.tree.selectionModel().selectedRows()
+    point=window.run(cmd.AddPoint(2,0,0))
+    assert point==3
+    window.commands.undo();assert window.project.geometry.entity_keys()==expected
+    window.commands.redo();assert ("vertex",3) in window.project.geometry.entity_keys()
+    upgraded=tmp_path/"upgraded.anyfem";window.save_project(path=str(upgraded))
+    assert json.loads(upgraded.read_text(encoding="utf-8"))["anyfem"]["format"]==FORMAT_VERSION
+    window.new_project();window.open_project(str(upgraded));qapp.processEvents()
+    assert window.project.geometry.entity_keys()==expected|{("vertex",3)}
+    assert window.project.geometry.entity_ref("edge",1)==edge
+    assert window.project.geometry.id_state()["vertex"]>=4
+    window.viewport.capture_png(tmp_path/"upgraded.png")
+
+
+@pytest.mark.parametrize("payload,diagnostic",[
+    ("{not json","not valid JSON"),
+    ('{"name":"missing header"}',"format header"),
+    ('{"anyfem":{"format":99}}',"upgrade ANYfem"),
+])
+def test_qt_failed_open_preserves_dirty_document_and_owned_lock(window,qapp,tmp_path,monkeypatch,payload,diagnostic):
+    from anyfem.io.recovery import ProjectLock
+    path=tmp_path/"current.anyfem";window.save_project(path=str(path))
+    point=window.run(cmd.AddPoint(2,3,4))
+    ref=window.project.geometry.entity_ref("vertex",point)
+    window.selection.select(ref);qapp.processEvents()
+    project=window.project;stack=window.commands;revision=window.session.revision
+    held_lock=window._project_lock
+    malformed=tmp_path/"rejected.anyfem";malformed.write_text(payload,encoding="utf-8")
+    monkeypatch.setattr(window,"_confirm_discard",lambda:True)
+    monkeypatch.setattr(window.dialogs,"open_file",lambda **_:str(malformed))
+    window._actions["Open"].trigger();qapp.processEvents()
+    assert diagnostic in window.statusBar().currentMessage()
+    assert diagnostic in window.log.toPlainText()
+    assert window._error_diagnostics
+    assert window.project is project and window.commands is stack
+    assert window.session.revision==revision and window.session.dirty
+    assert window.selection.items==[ref]
+    assert window.path==path and window._project_lock is held_lock
+    assert not ProjectLock(malformed).path.exists()
+    contender=ProjectLock(path);assert not contender.acquire().acquired
+    window.commands.undo();assert point not in window.project.geometry.vertices
+    window.commands.redo();assert point in window.project.geometry.vertices
+
+
 def test_qt_locked_project_save_as(window,qapp,tmp_path):
     from anyfem.io.recovery import ProjectLock
     from anyfem.io.project_file import save_project

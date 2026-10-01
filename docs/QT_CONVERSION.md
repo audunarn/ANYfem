@@ -39,6 +39,27 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Legacy/open-failure slice (2026-10-01): owner-codec format-2 coverage alone
+does not prove Qt replacement, tree/selection or lock behavior. Exercise a
+real format-2 project through open, edit/undo, save and reopen; invoke the
+actual Open action for malformed JSON, missing headers and future formats
+while a dirty document owns a lock. Require unchanged document/history/
+selection and current lock, explicit diagnostics and released attempted-file
+locks. These are compatibility/lifecycle checks, not numerical qualification.
+
+Result: four installed Qt cases pass on Windows GPU and WSL XCB OpenGL
+(`legacy-installed-windows-final` and `legacy-installed-linux`, logs/XML).
+Format-2 identity, next-ID allocation, tree selection, edit/undo/redo and
+current-format save/reopen pass. All three rejected file types preserve the
+dirty current document, revision, stack, selection and held lock; attempted
+locks are released and status/log diagnostics are visible. The first test
+incorrectly expected a modal dialog instead of the existing status/log error
+contract; retain `legacy-installed-windows` as test-setup failure evidence.
+No production changes or numerical acceptance follow. Duplicate predecessor
+push run 36873948341 was cancellation-requested after confirming all eight
+jobs active on the identical 2b4514e head; original 36873947386 and newer
+36880776026 remain active. Cancelled work is not a pass or measured saving.
+
 Visual audit slice (2026-10-01): installed Windows GPU captures at 1400×900
 and 1024×768 showed a restored layout leaving only a 160-pixel viewport at
 the smaller size. The initial capture's default-format settings redirection
