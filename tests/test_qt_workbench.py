@@ -1493,6 +1493,68 @@ def test_qt_workplane_construction_commits_once_and_cancels(window,qapp):
     window.viewport.cancel_construction();assert not window.project.geometry.vertices
 
 
+@pytest.mark.parametrize("explicit", [False, True])
+def test_qt_construction_lengths_follow_project_units(window,qapp,tmp_path,explicit):
+    from anyfem.model.units import UNIT_PROFILES
+    window.run(cmd.SetUnitProfile(UNIT_PROFILES["SI-mm-N-MPa"]))
+    panel=window.panels["Construction"]
+    def length(value):return f"{value} mm" if explicit else str(value)
+    panel.offset.setText(length(250));panel.spacing.setText(length(100))
+    panel.tolerance.setText(length(5))
+    plane=panel.workplane()
+    assert (plane.offset,plane.grid_spacing,plane.snap_tolerance)==pytest.approx((.25,.1,.005))
+    panel.offset.setText("0");panel.tolerance.setText("0.1 mm")
+    points=[window.run(cmd.AddPoint(x,y,0)) for x,y in ((0,0),(3,0),(3,3),(0,3))]
+    face=window.run(cmd.AddPlate(points))
+    window.selection.set_mode("face");window.selection.select(window.project.geometry.entity_ref("face",face))
+    panel.sketch()
+    for u,v in ((500,500),(1500,500),(1500,1500),(500,1500)):
+        panel.coordinates.setText(f"{length(u)}, {length(v)}");panel.add_point()
+    task=window.viewport.construction_task
+    assert task.points[0]==pytest.approx((.5,.5,0))
+    panel.pair.setText("1,2");panel.distance.setText(length(1000))
+    panel.extrusion.setText(length(250));panel.add_constraint("distance")
+    panel.apply();qapp.processEvents()
+    feature=window.project.geometry.features.records[-1]
+    assert feature.parameters["extrusion"]==pytest.approx(.25)
+    assert feature.parameters["constraints"][0]["value"]==pytest.approx(1)
+    assert panel.edit_sketch(feature.feature_id)
+    assert window.project.units.parse(panel.extrusion.text(),"length")==pytest.approx(.25)
+    panel.apply()
+    assert window.project.geometry.features.get(feature.feature_id).parameters["extrusion"]==pytest.approx(.25)
+    path=tmp_path/"millimetre-sketch.anyfem";window.save_project(path=str(path))
+    window.flush_project_writes();window.open_project(str(path))
+    reopened=window.project.geometry.features.get(feature.feature_id)
+    assert window.project.units.symbol("length")=="mm"
+    assert reopened.parameters["extrusion"]==pytest.approx(.25)
+    assert reopened.parameters["constraints"][0]["value"]==pytest.approx(1)
+
+
+def test_qt_sketch_extrusion_selects_outputs_for_follow_on_load(window,qapp):
+    points=[window.run(cmd.AddPoint(x,y,0)) for x,y in ((0,0),(3,0),(3,3),(0,3))]
+    face=window.run(cmd.AddPlate(points))
+    window.selection.set_mode("face");window.selection.select(window.project.geometry.entity_ref("face",face))
+    panel=window.panels["Construction"];panel.sketch()
+    for point in ("0.5,0.5","1.5,0.5","1.5,1.5","0.5,1.5"):
+        panel.coordinates.setText(point);panel.add_point()
+    panel.extrusion.setText("0.2");panel.apply();qapp.processEvents()
+    feature=window.project.geometry.features.records[-1]
+    made=tuple(ref for key,ref in feature.outputs.items() if key.startswith("extrusion/face/"))
+    assert made and set(window.selection.ordered_items)==set(made)
+    assert panel.edit_sketch(feature.feature_id)
+    panel.extrusion.setText("0.3");panel.apply();qapp.processEvents()
+    updated=window.project.geometry.features.get(feature.feature_id)
+    made=tuple(ref for key,ref in updated.outputs.items() if key.startswith("extrusion/face/"))
+    assert set(window.selection.ordered_items)==set(made)
+    window.selection.restore((made[0],))
+    loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
+    loads.fields["value"][0].setText("1000")
+    load=loads.execute()
+    assert load.ref==made[0]
+    window.undo();window.undo();window.redo()
+    assert window.project.geometry.features.get(feature.feature_id).parameters["extrusion"]==pytest.approx(.3)
+
+
 def test_qt_optional_section_fields_and_face_sketch(window,qapp):
     panel=window.panels["Sections"]
     panel.choice.setCurrentIndex(panel.choice.findData("AddBeamSection"))

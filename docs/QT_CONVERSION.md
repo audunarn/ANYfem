@@ -104,6 +104,43 @@ acceptance to a future suitable machine; the gate remains open. Scientific
 acceptance, complete published-artifact parity and final independent acceptance
 review remain open. Keep Tk as the default and publish no package release.
 
+Parity closure audit (2026-10-01): compare supported Tk controls with current Qt
+controls and measured tests to identify concrete omissions behind broader ledger
+entries. Independently inspect source without rerunning unchanged suites.
+For the open free-modal case, discriminate frontend counting from owner result
+classification: run its unchanged plate/mesh/modal input once per existing
+isolated Windows3.14/Linux3.12 installation, retaining raw mode frequencies,
+rigid flags/correlations and original physical predicates. This bounded
+diagnostic does not repair owner mathematics, consume a frozen capacity gate,
+relax scientific tolerances or qualify either implementation. A mismatch between
+wrapper count and owner flags warrants a consumer fix; matching flags with a
+failed invariant warrants exact owner evidence, not a consumer override.
+The unchanged diagnostic passes all four original predicates on Windows3.14
+and Linux3.12; wrapper and owner each report six rigid modes. Raw frequencies,
+correlations, flags, residuals and runtime versions are retained in
+`integration-pr10/modal-windows.json` and `modal-linux.json`. This does not
+reproduce or close the hosted Python3.11 failure.
+
+Independent Tk/Qt surface audit identifies two concrete construction omissions:
+length inputs bypass project units, and created/edited sketch extrusions do not
+select generated faces. Three new real-window cases reproduce the original
+failures (`construction-before`). All dimensional construction fields now use
+the shared unit parser; explicit SI defaults preserve their physical size, labels
+show the active unit, and editing formats existing extrusion in that profile.
+Raw constraint records remain owner SI. Successful create/edit selects the exact
+extrusion output faces, enabling selection-based downstream loading. Failed
+preview/command publication remains atomic. Source review finds no additional
+defect. The built wheel passes all fourteen affected construction/sketch cases
+on installed Windows GPU and Linux XCB OpenGL, with module origins under the
+isolated environments and pytest source injection disabled. New cases include
+bare/explicit millimetres, exact SI persistence/save/reopen, output selection,
+follow-on pressure and undo/redo. Intermediate test setup failures (multiple
+selection, missing pressure value, wrong save helper) are retained separately;
+they are not new application failures. Evidence is under
+`reports/qt/integration-pr10/construction-*`. Broader combined sketch constraints
+and dependent-topology combinations remain coverage questions; scientific,
+physical Linux GPU and final complete-parity acceptance remain open.
+
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
 model/view tree and job table, docks, forms, selection policies, shortcuts,
