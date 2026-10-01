@@ -5,7 +5,8 @@ meshing defaults do not regenerate it. Saving inputs does not save an accepted
 solver state or qualify an experimental model. Standalone consumer files retain
 their existing meanings. Explicit selected-node footprints use the same GE
 factory with their own strict schema. B2 footprints use their distinct static
-nodal law and selected batches; BL5 remains unsupported here.
+nodal law and selected batches. Their distinct virgin reference-modal record
+owns physical mass and a modes-only route; BL5 remains unsupported here.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from .stiffened_shell import (
 )
 from .stiffened_shell_b2 import (
     ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel,
+    ExperimentalB2ReferenceModalPanel, SCHEMA_REFERENCE_MODAL as B2_MODAL_SCHEMA,
     SCHEMA_NODAL_FOOTPRINT as B2_FOOTPRINT_SCHEMA,
 )
 
@@ -44,7 +46,7 @@ def encode_point_panel(panel):
     if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
-    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel):
+    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel):
         analysis_type, formulation = B2_TYPE, B2_FORMULATION
         payload = json.loads(panel.payload)
     else:
@@ -72,6 +74,8 @@ def _decode_point_panel(analysis_type, formulation, record):
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == B2_MODAL_SCHEMA:
+            return ExperimentalB2ReferenceModalPanel.from_dict(payload)
         consumer = (ExperimentalB2NodalRigidFootprintPanel if type(payload) is dict and
                     payload.get("schema") == B2_FOOTPRINT_SCHEMA else ExperimentalB2PointPanel)
         return consumer(
@@ -116,7 +120,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
-    if type(panel) is ExperimentalGEReferenceModalPanel:
+    if type(panel) in (ExperimentalGEReferenceModalPanel, ExperimentalB2ReferenceModalPanel):
         if (targets is not None or increment_control is not None or on_accepted is not None or
                 on_case is not None or max_iterations != 12 or max_backtracks != 8):
             raise ValueError("reference-modal Project input supports modes only, without finite or batch controls")

@@ -7,7 +7,7 @@ qualified ANYfem project.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import json
 import math
 import os
@@ -23,6 +23,7 @@ from anysolver import stiffened_shell
 SCHEMA = "anyfem.experimental-b2-q4-point-panel-v1"
 SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-b2-nodal-rigid-footprint-panel-v1"
+SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal-panel-v1"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-b2.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -87,15 +88,17 @@ def _json_load(payload):
 
 
 def _decode(record):
-    nodal = type(record) is dict and record.get("schema") == SCHEMA_NODAL_FOOTPRINT
+    modal = type(record) is dict and record.get("schema") == SCHEMA_REFERENCE_MODAL
+    nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL)
     record = _exact(record, ("schema", "status", "profile", "shell_nodes",
-                             "shells", "members", "points", "affine",
-                             "cases", "selection") + (("footprints",) if nodal else ()),
+                             "shells", "members", "points", "affine") +
+                                  (("request", "modal_boundary_policy") if modal else
+                                  ("cases", "selection")) + (("footprints",) if nodal else ()),
                     "experimental B2 panel")
-    if (record["schema"] not in (SCHEMA, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT) or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
-    with_mass = record["schema"] == SCHEMA_MASS
+    with_mass = record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
     node_rows = record["shell_nodes"]
     if type(node_rows) is not list or not node_rows:
         raise ValueError("experimental B2 shell nodes required")
@@ -224,6 +227,16 @@ def _decode(record):
         record["profile"], shell_nodes, tuple(shells), tuple(members),
         tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}))
 
+    if modal:
+        if record["modal_boundary_policy"] != "supported":
+            raise ValueError("B2 footprint reference modes require supported boundaries; free-free unsupported")
+        _validate_modal_definition(definition)
+        request_type = getattr(stiffened_shell, "B2ReferenceModesRequest", None)
+        if request_type is None:
+            raise ValueError("installed solver lacks public typed B2 reference-mode controls")
+        controls = _exact(record["request"], ("count", "shift_hz", "max_iterations"), "B2 modal request")
+        return definition, request_type(**controls)
+
     if type(record["cases"]) is not list or not record["cases"]:
         raise ValueError("ordered B2 panel cases required")
     cases = []
@@ -315,6 +328,23 @@ def _decode_footprint_selection(values, groups):
     return made
 
 
+def _validate_modal_definition(definition):
+    """Validate input restrictions; physical and constraint admission stays owned by the solver."""
+    if (any(shell.density_kg_m3 is None or shell.density_kg_m3 <= 0.
+            for shell in definition.shells) or
+            any(member.mass is None for member in definition.members)):
+        raise ValueError("B2 footprint reference modes require explicit positive shell density and beam physical mass")
+    if np.any(np.asarray(definition.prescribed_offset) != 0.):
+        raise ValueError("virgin B2 footprint reference modes require zero prescribed offset")
+    selector = definition.transformation.tocsr(copy=True)
+    selector.sum_duplicates()
+    selector.eliminate_zeros()
+    if (selector.shape[1] >= selector.shape[0] or
+            np.any(np.diff(selector.tocsc().indptr) != 1) or
+            np.any(np.diff(selector.indptr) > 1)):
+        raise ValueError("supported B2 footprint reference modes require coordinate supports without MPCs")
+
+
 @dataclass(frozen=True)
 class ExperimentalB2PointPanel:
     """Immutable canonical input record; construction never solves the model."""
@@ -351,10 +381,12 @@ class ExperimentalB2PointPanel:
     @classmethod
     def _from_definition(cls, definition, cases, *, selected_dofs,
                          selected_points=(), recover_members=None, schema=SCHEMA,
-                         nodal=False, selected_footprints=None):
-        if schema not in ((SCHEMA_NODAL_FOOTPRINT,) if nodal else (SCHEMA, SCHEMA_MASS)):
+                         nodal=False, selected_footprints=None, request=None):
+        modal = schema == SCHEMA_REFERENCE_MODAL
+        with_mass = schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
+        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS)):
             raise ValueError("experimental B2 panel schema required")
-        if (schema != SCHEMA_MASS and
+        if (not with_mass and
                 type(definition) is stiffened_shell.B2Q4PanelDefinition and
                 any(getattr(shell, "density_kg_m3", None) is not None
                     for shell in definition.shells)):
@@ -362,7 +394,7 @@ class ExperimentalB2PointPanel:
         if (type(definition) is not stiffened_shell.B2Q4PanelDefinition or
                 definition.profile != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1 or
                 any(type(member) is not stiffened_shell.PhysicalB2Member or
-                    (schema != SCHEMA_MASS and member.mass is not None) or
+                    (not with_mass and member.mass is not None) or
                     member.geometric is not None
                     for member in definition.members)):
             raise ValueError("elastic physical B2/Q4 point-panel inputs required")
@@ -416,7 +448,7 @@ class ExperimentalB2PointPanel:
                           {name: list(values) for name, values in
                            recover_members.items()}},
         }
-        if schema == SCHEMA_MASS:
+        if with_mass:
             for row, shell in zip(record["shells"], definition.shells):
                 row["density_kg_m3"] = shell.density_kg_m3
             for row, member in zip(record["members"], definition.members):
@@ -435,6 +467,13 @@ class ExperimentalB2PointPanel:
             record["footprints"] = [group.descriptor() for group in groups]
             record["selection"]["footprints"] = (list(selected_footprints.footprint_ids)
                 if selected_footprints is not None else [])
+        if modal:
+            request_type = getattr(stiffened_shell, "B2ReferenceModesRequest", None)
+            if request_type is None or type(request) is not request_type:
+                raise ValueError("public typed B2 reference-mode controls required")
+            record.pop("cases")
+            record.pop("selection")
+            record.update(request=asdict(request), modal_boundary_policy="supported")
         return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
                               allow_nan=False).encode("ascii"))
 
@@ -525,8 +564,74 @@ class ExperimentalB2NodalRigidFootprintPanel(ExperimentalB2PointPanel):
         raise ValueError("B2 nodal-footprint consumer is static only; modes and prestress unsupported")
 
 
+@dataclass(frozen=True)
+class ExperimentalB2ReferenceModalPanel(ExperimentalB2PointPanel):
+    """Virgin supported footprint mode inputs with explicit physical inertia.
+
+    The reference-linear footprint locks normal spin and remains mechanically
+    unqualified. Persistence never assembles or factors an owner. Free-free,
+    prestress, MPC and nonzero prescribed offsets are unsupported.
+    """
+
+    def __post_init__(self):
+        if type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES:
+            raise ValueError("bounded experimental B2 reference-modal bytes required")
+        record = _json_load(self.payload)
+        if type(record) is not dict or record.get("schema") != SCHEMA_REFERENCE_MODAL:
+            raise ValueError("explicit B2 footprint reference-modal schema required")
+        _decode(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii") + b"\n")
+
+    @classmethod
+    def from_definition(cls, definition, request):
+        return cls._from_definition(definition, (), selected_dofs=(),
+            schema=SCHEMA_REFERENCE_MODAL, nodal=True, request=request)
+
+    @classmethod
+    def from_dict(cls, record):
+        return cls(json.dumps(record, allow_nan=False).encode("ascii"))
+
+    def to_dict(self):
+        return _json_load(self.payload)
+
+    def definition(self):
+        return _decode(_json_load(self.payload))[0]
+
+    @property
+    def request(self):
+        return _decode(_json_load(self.payload))[1]
+
+    def create_analysis(self):
+        definition = self.definition()
+        _, _, capability_type, _ = _footprint_api()
+        owner = stiffened_shell.create_analysis(definition=definition)
+        try:
+            cap = getattr(owner, "capabilities", None)
+            if (type(cap) is not capability_type or cap.profile_id != definition.profile or
+                    cap.status != "experimental" or cap.production_qualified is not False or
+                    cap.footprint_law_id != definition.footprints[0].descriptor()["law"] or
+                    cap.footprints != definition.footprints or "modes" not in cap.operations or
+                    not callable(getattr(owner, "modes", None))):
+                raise ValueError("installed solver does not admit supported B2 footprint reference modes")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def modes(self, *, cancellation_token=None):
+        owner = self.create_analysis()
+        try:
+            return owner.modes(self.request, cancellation=cancellation_token)
+        finally:
+            owner.close()
+
+    def solve_linear_many(self, *, cancellation_token=None, on_case=None):
+        raise ValueError("B2 reference-modal consumer supports modes only")
+
+
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -555,11 +660,13 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
     with source.open("rb") as stream:
         payload = stream.read(MAX_FILE_BYTES + 1)
     record = _json_load(payload)
-    consumer = (ExperimentalB2NodalRigidFootprintPanel if type(record) is dict and
-                record.get("schema") == SCHEMA_NODAL_FOOTPRINT else ExperimentalB2PointPanel)
+    schema = record.get("schema") if type(record) is dict else None
+    consumer = (ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
+                ExperimentalB2NodalRigidFootprintPanel if schema == SCHEMA_NODAL_FOOTPRINT else ExperimentalB2PointPanel)
     return consumer(payload)
 
 
 __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFIX",
            "ExperimentalB2NodalRigidFootprintPanel", "SCHEMA_NODAL_FOOTPRINT",
+           "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "save_case", "load_case"]
