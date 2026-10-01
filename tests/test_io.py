@@ -334,7 +334,7 @@ def test_the_file_holds_the_model_not_its_consequences(workspace):
     assert "mesh" not in data
     assert "results" not in data
     assert data["geometry"]["schema"] == "anygeometry"
-    assert data["geometry"]["version"] == 4
+    assert data["geometry"]["version"] == 5
     assert "id_state" in data["geometry"]
     assert "groups" in data["geometry"]
     assert "replacement_history" in data["geometry"]

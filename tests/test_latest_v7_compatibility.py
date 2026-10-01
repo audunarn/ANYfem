@@ -238,7 +238,8 @@ def test_crossing_plates_prepare_only_on_detached_closure() -> None:
 
     assert geometry_to_dict(source) == before
     assert report.created_count >= 1
-    assert any(item.intersection == "cross" for item in report.connections)
+    assert any(item.intersection == "intersection_curve" and item.operation == "batch_arrangement"
+               for item in report.connections)
     assert len(mapping[f"face:{first_face}"]) == 2
     assert len(mapping[f"face:{second_face}"]) == 2
     work = closure.working_model

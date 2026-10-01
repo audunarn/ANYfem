@@ -244,7 +244,8 @@ def test_back_side_axial_rotation_offsets_from_plate_intersection(plate_project)
     assert offset[2] == pytest.approx(0.0, abs=1.0e-12)
 
 
-def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_project):
+@pytest.mark.parametrize("automatic", (False, True))
+def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_project, automatic):
     project, _face, _edges, points = plate_project
     from anyfem.model.sections import BeamSection
 
@@ -257,7 +258,22 @@ def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_projec
     )
     project.assign_beam(diagonal, "diagonal")
 
-    mesh = project.generate_mesh(0.25)
+    from anygeometry import to_dict
+    from anymesher import MeshAutomationOptions
+    from anymesher.errors import MeshError
+
+    before = to_dict(project.geometry)
+    # A 26.565-degree corner is admissible at the qualified 15-degree floor.
+    # Recovery remains an explicit choice; direct calls do not enable it.
+    mesh = project.generate_mesh(0.25, automation=MeshAutomationOptions() if automatic else None)
+    assert to_dict(project.geometry) == before
+    if automatic:
+        assert mesh.hybrid_diagnostics["automation"]["solver_admission"] == "ADMITTED"
+    else:
+        assert "automation" not in mesh.hybrid_diagnostics
+        with pytest.raises(MeshError, match="quality"):
+            project.generate_mesh(0.25,quality_policy={"minimum_angle":30.})
+        assert to_dict(project.geometry) == before
     scene = build_mesh_scene(project, mesh)
     beam_elements = tuple(mesh.elements_of_edge[diagonal])
     beam_lines = [
