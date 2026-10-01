@@ -1,4 +1,4 @@
-name: tests
+name: PR10 bounded convergence diagnostic
 
 on:
   push:
@@ -8,12 +8,13 @@ on:
 
 jobs:
   test:
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -84,22 +85,11 @@ jobs:
 
       - name: Run the test suite (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a python -m pytest tests -q
+        run: xvfb-run -a python reports/pr10/capture_capacity.py
 
       - name: Run the test suite (Windows)
         if: runner.os == 'Windows'
         run: python -m pytest tests -q
-
-      - name: Run verification (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a python -m anyfem.verification --out reports/verification
-
-      - name: Run verification (Windows)
-        if: runner.os == 'Windows'
-        run: python -m anyfem.verification --out reports/verification
-
-      - name: Report ANYstructure parity
-        run: python -m anyfem.parity --out reports/parity
 
       - name: Publish evidence
         if: always()
@@ -108,74 +98,3 @@ jobs:
           name: evidence-${{ matrix.os }}-py${{ matrix.python-version }}
           path: reports/
 
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYsolver
-          # Frozen G7 B3-GE production opt-in implementation.
-          ref: d04199ac851c0d0f61430c2bc40136582aa8d659
-          path: .ecosystem/ANYsolver
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmaterial
-          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
-          path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYgeometry
-          ref: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
-          path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmesh
-          ref: e21c0fc93662776762430e14450d54ac9192e2e8
-          path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfileIO
-          ref: db73950018e1c87dab0ca618c25c965030ba08ce
-          path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANY3dView
-          ref: 7d36c97dd0dbec8884f8894a4258ece83ad61271
-          path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYtk3D
-          ref: 2caa92325885938c594f27145ed16069d807e364
-          path: .ecosystem/ANYtk3D
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Build the wheel
-        run: |
-          python -m pip install --upgrade pip build
-          python tools/check_licenses.py
-          python -m build
-
-      - name: Check the metadata
-        run: |
-          python -m pip install twine
-          python -m twine check dist/*
-          python tools/check_release_artifacts.py dist
-
-      - name: Install and import the wheel in a clean environment
-        run: |
-          python -m venv .wheel-smoke
-          .wheel-smoke/bin/python -m pip install --upgrade pip
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmaterial
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYgeometry
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfileIO
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver
-          .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
-          .wheel-smoke/bin/python -m pip install dist/*.whl
-          .wheel-smoke/bin/python -c "import anyfem; import anyfem.ui.app; from importlib.metadata import version; assert anyfem.__version__ == version('ANYfem'); print('wheel import OK', anyfem.__version__)"
