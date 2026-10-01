@@ -8,6 +8,7 @@ case fails the build.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -20,7 +21,12 @@ from anyfem import parity, verification
 def report():
     """One full run, shared: the cases are the slow part."""
 
-    return verification.run_verification()
+    result = verification.run_verification()
+    # CI reuses this complete measured report instead of solving every case twice.
+    directory = os.environ.get("ANYFEM_VERIFICATION_OUT")
+    if directory:
+        verification.write_verification_report(result, directory)
+    return result
 
 
 # ----------------------------------------------------------------------

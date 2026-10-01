@@ -4,6 +4,44 @@ How to check ANYfem, and what the evidence does and does not claim.
 
 ## Commands
 
+For routine development, choose the smallest relevant scope:
+
+```bash
+python tools/test_anyfem.py --profile quick
+python tools/test_anyfem.py --profile focused tests/test_io.py
+python tools/test_anyfem.py --profile qt --backend software
+python tools/test_anyfem.py --profile full
+```
+
+`quick` checks a small explicit set of frontend, command, document, selection,
+output-request and licensing contracts. It does not measure engineering parity.
+`focused` accepts explicit repository test paths or pytest node IDs; choose them
+from the behavior affected by your change. `qt` enables the existing workbench
+tests and requires a display; use `--backend gpu` when testing that path.
+`--dry-run` shows the selected command without running tests.
+
+Each real run creates a fresh directory under `reports/tests/` containing its
+command, interpreter, elapsed time, counts, full pytest log and JUnit report.
+Use `--out NEW_DIRECTORY` for a specific location. Existing evidence is refused.
+The runner clears inherited `PYTEST_ADDOPTS` and records its original value,
+so an ambient filter cannot silently narrow a profile. Use focused node IDs
+for selection or ordinary pytest when custom pytest arguments are needed.
+Missing required geometry/mesher APIs stop `full` and `qt` before collection,
+with a nonzero exit and a retained blocked report; this is not a test pass.
+
+`full` runs the complete ordinary pytest suite and checks the complete scientific
+report written by its verification fixture. CI keeps all eight OS/Python lanes,
+licensing, packaging and parity checks, but reuses that measured report instead
+of solving the same verification cases again. Reports are under
+`reports/full-suite/verification/`. Only conversion-record/report-only changes
+skip this workflow; code, tests, dependency and other documentation changes
+still trigger it. Manual dispatch always remains available.
+
+These profiles do not establish scientific, installed-artifact, physical GPU,
+scale, migration or release acceptance. Run the applicable gates independently;
+their tolerances, opt-ins and evidence requirements remain unchanged. Standalone
+verification remains available for formal evidence or verification-only work:
+
 ```bash
 python -m pytest tests -q
 ```

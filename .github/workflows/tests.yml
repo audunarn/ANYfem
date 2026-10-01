@@ -3,7 +3,9 @@ name: tests
 on:
   push:
     branches: [main, master]
+    paths-ignore: ['docs/QT_CONVERSION.md', 'reports/**']
   pull_request:
+    paths-ignore: ['docs/QT_CONVERSION.md', 'reports/**']
   workflow_dispatch:
 
 jobs:
@@ -84,19 +86,14 @@ jobs:
 
       - name: Run the test suite (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a python -m pytest tests -q
+        run: xvfb-run -a python tools/test_anyfem.py --profile full --out reports/full-suite
 
       - name: Run the test suite (Windows)
         if: runner.os == 'Windows'
-        run: python -m pytest tests -q
+        run: python tools/test_anyfem.py --profile full --out reports/full-suite
 
-      - name: Run verification (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a python -m anyfem.verification --out reports/verification
-
-      - name: Run verification (Windows)
-        if: runner.os == 'Windows'
-        run: python -m anyfem.verification --out reports/verification
+      # The full pytest fixture writes the same complete scientific report.
+      # The runner checks its case inventory and status; do not solve it twice.
 
       - name: Report ANYstructure parity
         run: python -m anyfem.parity --out reports/parity
