@@ -39,6 +39,42 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Current reconciliation (2026-10-01): candidate 5a43604 is published, with Qt run
+36892011771 bound to viewer d65f47b. Main scientific run 36880776026 has one
+completed Linux/Python 3.14 cell: 1212 tests, 1080 passes, two failures, no errors
+and 130 skips. Complete job 110431692655 log and artifact are retained under
+`integration-pr10/science-linux314-*`. The failures are unchanged feature
+suppression/region identity and cylinder convenience-reference preservation
+contracts, not numerical solver failures. Other matrix cells remain pending;
+do not rerun the full matrix or infer their results from this cell.
+
+Next bounded experiment: preserve explicit suppressed attachment intent with an
+unresolved diagnostic that continues to block mesh/solve, while edits that
+remove or ambiguously replace active targets still fail atomically. Examine
+historical convenience-ref preservation against owner lineage and canonical
+regions before choosing a repair; do not weaken the authored identity contract.
+Run the two existing failed contracts against the candidate and the affected
+attachment tests, not a fresh numerical qualification batch.
+
+Read-only parity reconciliation also identifies ordinary Qt line/point
+construction discarding its command result, whereas Tk selects the new edges
+or vertices. Add the equivalent output selection and verify exact mode/IDs,
+tree synchronization and a following operation. Existing combined-sketch and
+dependent-feature cases support the measured ledger coverage; broader models
+remain coverage limits, not a newly invented implementation requirement.
+
+Construction result: Qt now selects created edges, or vertices for point-only
+construction, using the same selection policy as Tk. Three real-window source
+cases pass on Windows GPU and WSL XCB: exact mode/IDs, synchronized tree,
+follow-on canonical region creation and undo. Logs/XML are
+`integration-pr10/construction-output-{windows,linux}`. Initial test-API,
+feature-resolver and point-count setup errors are retained separately; they are
+not production or scientific failures. Installed checks for this new slice
+remain due. The two completed main failures also reproduce in the installed
+candidate (`feature-contract-installed-before` log/XML); full-suite collection
+with Python `-I` lacked the repository-only licensing tool, so the focused
+runner selects only the two exact contracts and verifies package origins.
+
 Result-display parity slice (2026-10-01): Tk accepts blank/auto deformation
 scale (default auto) and displays retained solver summary/status and explicit
 deformation availability. Qt accepts only float scale and replaces the saved

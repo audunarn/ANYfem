@@ -148,7 +148,12 @@ class ConstructionPanel(QWidget):
             if made:
                 self.app.selection.set_mode("face")
                 self.app.selection.restore(made)
-        else:self.app.viewport.finish_construction(self.app.run)
+        else:
+            result=self.app.viewport.finish_construction(self.app.run)
+            made=result.edges or result.vertices
+            if made:
+                self.app.selection.set_mode("edge" if result.edges else "vertex")
+                self.app.selection.restore(made)
         self.app.set_status("Construction applied")
 
     def updated(self,task,snap):

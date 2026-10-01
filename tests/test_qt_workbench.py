@@ -1665,6 +1665,28 @@ def test_qt_workplane_construction_commits_once_and_cancels(window,qapp):
     window.viewport.cancel_construction();assert not window.project.geometry.vertices
 
 
+@pytest.mark.parametrize("mode,kind,count",[("point","vertex",1),("line","edge",1),("polyline","edge",2)])
+def test_qt_construction_selects_outputs_for_follow_on_region(window,qapp,mode,kind,count):
+    panel=window.panels["Construction"];panel.mode.setCurrentText(mode);panel.start()
+    points=("0,0",) if mode=="point" else ("0,0","2,0","2,2") if mode=="polyline" else ("0,0","2,0")
+    for point in points:
+        panel.coordinates.setText(point);panel.add_point()
+    panel.apply();qapp.processEvents()
+    expected={window.project.geometry.entity_ref(kind,identifier) for identifier in
+        (window.project.geometry.edges if kind=="edge" else window.project.geometry.vertices)}
+    assert len(expected)==count
+    assert set(window.selection.ordered_items)==expected
+    assert window.selection.mode==kind
+    selected={index.data(Qt.UserRole) for index in window.tree.selectionModel().selectedRows()
+        if hasattr(index.data(Qt.UserRole),"kind")}
+    assert selected==expected
+    region=window.panels["Definitions"].create_region()
+    assert set(window.project.regions.resolve(region.id,geometry=window.project.geometry,
+        feature_resolver=lambda anchor:window.project.geometry.features.resolve(anchor,window.project.geometry)))==expected
+    window.undo();assert region.id not in window.project.regions
+    window.undo();assert not window.project.geometry.vertices
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_qt_construction_lengths_follow_project_units(window,qapp,tmp_path,explicit):
     from anyfem.model.units import UNIT_PROFILES
