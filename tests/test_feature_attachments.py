@@ -1,5 +1,5 @@
 """Feature replay preserves engineering records or refuses before publication."""
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import fields, replace
 import numpy as np
 import pytest
@@ -43,11 +43,12 @@ def test_feature_edit_preserves_exact_record_identity_and_scope():
     assert project.supports[0].region==fixed.region
     assert project.supports[0].constraints==fixed.constraints
     assert project.supports[0].coordinate_system_id==fixed.coordinate_system_id
-    assert project.supports[0].ref==current.outputs["point/p1"]
-    assert project.geometry.vertex_position(project.supports[0].ref.id)==pytest.approx((1.5,.5,0))
+    assert project.supports[0].ref==fixed.ref
+    assert project.geometry.resolve_ref(fixed.ref)==(current.outputs["point/p1"],)
+    assert project.geometry.vertex_position(current.outputs["point/p1"].id)==pytest.approx((1.5,.5,0))
     actual=project.load_case().pressures[0]
     assert (actual.id,actual.region,actual.value)==(pressure.id,pressure.region,1234)
-    assert project.face_sections[actual.ref.id]=="plate"
+    assert all(project.face_sections[ref.id]=="plate" for ref in project.geometry.resolve_ref(actual.ref))
     def persisted_design(value):
         result=deepcopy(value)
         from_dict(result["geometry"])  # Validate the actual persisted checksum.
@@ -68,10 +69,11 @@ def test_public_feature_regeneration_rebinds_existing_records():
     assert report.success,report.diagnostic
     current=project.geometry.features.get(child.feature_id)
     assert project.supports[0].id==fixed.id
-    assert project.supports[0].ref==current.outputs["point/p1"]
-    assert project.geometry.vertex_position(project.supports[0].ref.id)==pytest.approx((1.5,.5,0))
+    assert project.supports[0].ref==fixed.ref
+    assert project.geometry.resolve_ref(fixed.ref)==(current.outputs["point/p1"],)
+    assert project.geometry.vertex_position(current.outputs["point/p1"].id)==pytest.approx((1.5,.5,0))
     assert project.load_case().pressures[0].id==pressure.id
-    assert project.face_sections[project.load_case().pressures[0].ref.id]=="plate"
+    assert all(project.face_sections[ref.id]=="plate" for ref in project.geometry.resolve_ref(project.load_case().pressures[0].ref))
 
 
 @pytest.mark.parametrize("direct",[False,True])
@@ -102,12 +104,65 @@ def test_all_feature_attachment_records_keep_exact_values(direct):
     current=project.geometry.features.get(child.feature_id)
     assert len(records())==len(before)
     for old,new in zip(before,records()):
-        assert new.ref==current.outputs[roles[old.ref]]
+        assert new.ref==old.ref
+        assert project.geometry.resolve_ref(new.ref)==(current.outputs[roles[old.ref]],)
         for attribute in fields(old):
             if attribute.name=="ref":continue
             old_value=getattr(old,attribute.name);new_value=getattr(new,attribute.name)
             if isinstance(old_value,np.ndarray):np.testing.assert_array_equal(new_value,old_value)
             else:assert new_value==old_value
+    from anyfem.presentation.scene import build_attribute_overlay
+    actual_overlay=build_attribute_overlay(project)
+    display_project=copy(project)
+    for name in ("supports","masses","imperfections"):
+        setattr(display_project,name,[replace(item,ref=current.outputs[roles[item.ref]]) for item in getattr(project,name)])
+    display_case=copy(project.load_case())
+    for name in ("point_loads","pressures","line_loads","surface_tractions"):
+        setattr(display_case,name,[replace(item,ref=current.outputs[roles[item.ref]],region=None) for item in getattr(project.load_case(),name)])
+    display_project.load_cases={display_case.name:display_case}
+    expected_overlay=build_attribute_overlay(display_project)
+    for name,attributes in (("points",("position",)),("lines",("points",)),("arrows",("start","end"))):
+        actual_items=getattr(actual_overlay,name);expected_items=getattr(expected_overlay,name)
+        assert len(actual_items)==len(expected_items)>0
+        for actual_item,expected_item in zip(actual_items,expected_items):
+            assert actual_item.color==expected_item.color
+            for attribute in attributes:
+                np.testing.assert_allclose(getattr(actual_item,attribute),getattr(expected_item,attribute))
+
+
+@pytest.mark.parametrize("direct",[False,True])
+def test_explicit_parent_suppression_retains_unresolved_attachments(direct,tmp_path):
+    from anyfem import ProjectError
+    from anyfem.presentation.scene import build_attribute_overlay
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    for face_id in project.geometry.faces:
+        project.assign_plate(face_id,"plate")
+    before=(list(project.supports),list(project.load_case().pressures),
+            list(project.imperfections),list(project.refinements))
+    if direct:
+        project.geometry.features.set_suppressed(parent.feature_id,True)
+        report=project.regenerate_geometry_features();assert report.success,report.diagnostic
+    else:stack.run(cmd.SuppressFeature(parent.feature_id))
+    assert project.geometry.features.get(child.feature_id).state=="blocked"
+    assert before==(project.supports,project.load_case().pressures,project.imperfections,project.refinements)
+    with pytest.raises(ProjectError,match="unresolved"):
+        project.validate(require_loads=False,require_supports=False)
+    overlay=build_attribute_overlay(project)
+    assert not overlay.points and not overlay.lines and not overlay.arrows
+    report=project.regenerate_geometry_features();assert report.success,report.diagnostic
+    from anyfem.io.project_file import save_project,load_project
+    reopened=load_project(save_project(project,tmp_path/"suppressed.anyfem"))
+    report=reopened.regenerate_geometry_features();assert report.success,report.diagnostic
+    reopened.geometry.features.set_suppressed(parent.feature_id,False)
+    report=reopened.regenerate_geometry_features();assert report.success,report.diagnostic
+    reopened.validate(require_loads=False,require_supports=False)
+    assert build_attribute_overlay(reopened).arrows
+    if direct:
+        project.geometry.features.set_suppressed(parent.feature_id,False)
+        report=project.regenerate_geometry_features();assert report.success,report.diagnostic
+    else:stack.undo()
+    project.validate(require_loads=False,require_supports=False)
+    assert build_attribute_overlay(project).arrows
 
 
 @pytest.mark.parametrize("outcome",["empty","ambiguous"])
@@ -148,3 +203,79 @@ def test_valid_representative_keeps_multi_target_scope_without_cloning():
     refs=project.regions.resolve(region.id,geometry=project.geometry,
         feature_resolver=lambda anchor:project.geometry.features.resolve(anchor,project.geometry))
     assert len(refs)==2 and before.ref in refs
+
+
+def test_historical_imperfection_ref_builds_same_physical_geometry_as_live_ref():
+    from anyfem.solve.build import build_fe_model
+    project=Project();project.add_material(steel("S355",.01))
+    project.add_plate_section("plate",thickness=.01,material="S355")
+    stack=cmd.CommandStack(project)
+    feature=stack.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    face=next(ref for ref in feature.outputs.values() if ref.kind=="face")
+    project.assign_plate(face.id,"plate")
+    imperfection=project.add_imperfection(Imperfection(face,kind="plate_mode",amplitude=.004))
+    stack.run(cmd.EditFeature(feature.feature_id,parameters={**feature.parameters,"origin":(1,0,0)}))
+    assert project.imperfections==[imperfection]
+    live,=project.geometry.resolve_ref(face)
+    mesh=project.generate_mesh(.25)
+    original_coordinates={node:position.copy() for node,position in mesh.nodes.items()}
+    historical=build_fe_model(project,mesh,require_loads=False,require_supports=False)
+    project.imperfections[:]=[replace(imperfection,ref=live)]
+    current=build_fe_model(project,mesh,require_loads=False,require_supports=False)
+    historical_coordinates=np.array([[node.x,node.y,node.z] for node in historical.fe_model.mesh.nodes.values()])
+    current_coordinates=np.array([[node.x,node.y,node.z] for node in current.fe_model.mesh.nodes.values()])
+    np.testing.assert_array_equal(historical_coordinates,current_coordinates)
+    assert max(historical_coordinates[:,2])==pytest.approx(.004)
+    for node,position in mesh.nodes.items():np.testing.assert_array_equal(position,original_coordinates[node])
+
+
+def test_deleting_live_descendant_detaches_historical_attributes_and_undo_restores_them():
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    imperfection=Imperfection(pressure.ref,amplitude=.002)
+    refinement=Refinement(size=.1,ref=pressure.ref)
+    project.imperfections.append(imperfection);project.refinements.append(refinement)
+    stack.run(cmd.EditFeature(parent.feature_id,parameters={**parent.parameters,"origin":(1,0,0)}))
+    live,=project.geometry.resolve_ref(pressure.ref)
+    assert live!=pressure.ref
+    stack.run(cmd.DeleteEntity(live))
+    assert not project.load_case().pressures and not project.imperfections and not project.refinements
+    assert project.supports==[fixed]
+    stack.undo()
+    assert project.load_case().pressures==[pressure]
+    assert project.imperfections==[imperfection] and project.refinements==[refinement]
+    assert project.geometry.resolve_ref(pressure.ref)==(live,)
+
+
+@pytest.mark.parametrize("direct",[False,True])
+def test_suppressed_anchor_does_not_mask_an_independent_missing_anchor(direct):
+    from anygeometry import EntityRef
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    region=project.regions.add(Region("Mixed invalid intent","geometry","vertex",ManualRegion((
+        FeatureOutputRef(child.feature_id,"point/p1","vertex"),EntityRef("vertex",999999)))))
+    project.supports[0]=replace(fixed,region=RegionRef(region.id))
+    if direct:project.geometry.features.set_suppressed(parent.feature_id,True)
+    before=deepcopy(project_to_dict(project));history=stack.history()
+    if direct:
+        report=project.regenerate_geometry_features()
+        assert not report.success and "uniquely rebind" in report.diagnostic
+    else:
+        with pytest.raises(GeometryError,match="uniquely rebind"):
+            stack.run(cmd.SuppressFeature(parent.feature_id))
+    assert project_to_dict(project)==before and stack.history()==history
+
+
+@pytest.mark.parametrize("direct",[False,True])
+@pytest.mark.parametrize("raw",["imperfection","refinement"])
+def test_suppression_refuses_to_expire_raw_attachment_identity(direct,raw):
+    project,stack,parent,child,fixed,pressure=attached_sketch()
+    if raw=="imperfection":project.imperfections.append(Imperfection(pressure.ref,amplitude=.002))
+    else:project.refinements.append(Refinement(size=.1,ref=pressure.ref))
+    if direct:project.geometry.features.set_suppressed(parent.feature_id,True)
+    before=deepcopy(project_to_dict(project));history=stack.history()
+    if direct:
+        report=project.regenerate_geometry_features()
+        assert not report.success and "persisted output anchor" in report.diagnostic
+    else:
+        with pytest.raises(GeometryError,match="persisted output anchor"):
+            stack.run(cmd.SuppressFeature(parent.feature_id))
+    assert project_to_dict(project)==before and stack.history()==history

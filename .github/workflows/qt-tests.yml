@@ -74,6 +74,12 @@ jobs:
         env:
           QT_QPA_PLATFORM: xcb
         run: xvfb-run -a python -c "from PySide6.QtWidgets import QApplication; app = QApplication([]); print('Qt platform:', app.platformName())"
+      - name: Feature attachment and persistence contracts
+        run: >-
+          python tools/test_anyfem.py --profile focused --out reports/feature-contracts
+          tests/test_feature_attachments.py
+          tests/test_commercial_workflow_acceptance.py::test_feature_edit_suppress_undo_redo_preserves_scope_identity
+          tests/test_intersection_meshing.py::test_changed_cylinder_feature_retains_project_references_and_undo
       - name: Qt workflows (Windows)
         if: runner.os == 'Windows'
         env:

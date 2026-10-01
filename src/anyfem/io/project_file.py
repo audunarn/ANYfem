@@ -772,7 +772,7 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         support = Support(
             id=str(entry.get("id")) if entry.get("id") else str(uuid4()),
             name=entry["name"],
-            ref=_existing_ref(project, entry["ref"], "support.ref"),
+            ref=_existing_ref(project, entry["ref"], "support.ref", region=entry.get("region")),
             constraints={
                 key: float(value)
                 for key, value in entry["constraints"].items()
@@ -780,20 +780,20 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             region=_region_ref_from(project, entry.get("region"), "support.region"),
             coordinate_system_id=str(entry.get("coordinate_system_id", "global")),
         )
-        if project.mesh_only:
+        if project.mesh_only or not project.geometry.resolve_ref(support.ref):
             project.supports.append(support)
         else:
             project.add_support(support)
     for entry in data.get("masses", ()):
         mass = Mass(
             id=str(entry.get("id")) if entry.get("id") else str(uuid4()),
-            ref=_existing_ref(project, entry["ref"], "mass.ref"),
+            ref=_existing_ref(project, entry["ref"], "mass.ref", region=entry.get("region")),
             value=float(entry["value"]),
             name=entry.get("name", "mass"),
             region=_region_ref_from(project, entry.get("region"), "mass.region"),
             distribution_policy=str(entry.get("distribution_policy", "total_distributed")),
         )
-        if project.mesh_only:
+        if project.mesh_only or not project.geometry.resolve_ref(mass.ref):
             project.masses.append(mass)
         else:
             project.add_mass(mass)
@@ -1267,7 +1267,7 @@ def _ref_from(data: Mapping[str, Any]) -> EntityRef:
 
 
 def _existing_ref(
-    project: Project, data: Mapping[str, Any], context: str
+    project: Project, data: Mapping[str, Any], context: str, *, region=None
 ) -> EntityRef:
     """Decode a legacy scalar cache through exact topology lineage.
 
@@ -1292,6 +1292,12 @@ def _existing_ref(
             resolved = project.geometry.resolve_ref(ref)
             if resolved:
                 return sorted(resolved, key=lambda item: (item.kind, item.id))[0]
+            if region is not None:
+                from ..model.feature_bindings import _resolve_attachment_scope
+                region_ref = _region_ref_from(project, region, context + ".region")
+                _targets, inactive = _resolve_attachment_scope(project, region_ref.id)
+                if inactive and project.regions[region_ref.id].entity_kind == ref.kind:
+                    return ref
             raise
     except (KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"{context}: {error}") from None
@@ -1609,6 +1615,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 project,
                 entry["ref"],
                 f"load_cases[{case.name!r}].point_loads[{index}].ref",
+                region=entry.get("region"),
             ),
             force=entry["force"],
             moment=entry["moment"],
@@ -1627,6 +1634,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 project,
                 entry["ref"],
                 f"load_cases[{case.name!r}].pressures[{index}].ref",
+                region=entry.get("region"),
             ),
             value=entry["value"],
             region=_region_ref_from(
@@ -1642,6 +1650,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 project,
                 entry["ref"],
                 f"load_cases[{case.name!r}].line_loads[{index}].ref",
+                region=entry.get("region"),
             ),
             force_per_length=entry["force_per_length"],
             region=_region_ref_from(
@@ -1658,6 +1667,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 project,
                 entry["ref"],
                 f"load_cases[{case.name!r}].surface_tractions[{index}].ref",
+                region=entry.get("region"),
             ),
             traction=entry["traction"],
             region=_region_ref_from(

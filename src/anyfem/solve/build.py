@@ -849,7 +849,7 @@ def _attribute_targets(
     """
 
     if region_ref is None:
-        targets: tuple[Any, ...] = (fallback,)
+        targets: tuple[Any, ...] = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
     else:
         try:
             geometry = None if project.mesh_only else project.geometry
@@ -1107,7 +1107,8 @@ def _apply_imperfections(
 
     fields = []
     for imperfection in project.imperfections:
-        node_ids = mesh.nodes_on(imperfection.ref)
+        references = (imperfection.ref,) if project.mesh_only else project.geometry.resolve_ref(imperfection.ref)
+        node_ids = list(dict.fromkeys(node for reference in references for node in mesh.nodes_on(reference)))
         if not node_ids:
             raise ProjectError(
                 f"imperfection {imperfection.name!r} references "

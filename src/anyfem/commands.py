@@ -423,7 +423,7 @@ class FeatureCommand(Command):
                 or f"feature {feature_id} did not produce a valid materialization"
             )
 
-        _rebind_feature_attachments(working_project, report.replacements)
+        _rebind_feature_attachments(working_project, report.replacements, previous_geometry=geometry)
         after_attributes = _attribute_snapshot(working_project)
 
         # The entire feature + structural-owner result is now known valid.
@@ -1833,6 +1833,15 @@ class DeleteEntity(Command):
         # caller-owned log (and never needs a private-store repair).
         working = geometry.clone(include_features=False)
         _delete_exact_geometry_ref(working, self.ref)
+        aliases = {self.ref}
+        containers = [project.supports, project.masses, project.imperfections, project.refinements]
+        containers.extend(getattr(case, name) for case in project.load_cases.values()
+                          for name in ("point_loads", "pressures", "line_loads", "surface_tractions"))
+        for container in containers:
+            for item in container:
+                reference = getattr(item, "ref", None)
+                if isinstance(reference, EntityRef) and geometry.resolve_ref(reference) == (self.ref,):
+                    aliases.add(reference)
         # Public removals update semantic groups, tags and persistent
         # replacement history in addition to deleting the entity.  Capture the
         # complete owner topology so undo restores those annotations and the
@@ -1847,7 +1856,7 @@ class DeleteEntity(Command):
             # must not clear the caller's current transaction log.
             geometry.restore_topology(self._snapshot)
             raise
-        self._attributes = _detach_attributes(project, self.ref)
+        self._attributes = _detach_attributes(project, self.ref, aliases=aliases)
 
     def undo(self, project: Project) -> None:
         project.geometry.restore_topology(self._snapshot)
@@ -1963,9 +1972,10 @@ def _detach_structural_owner(geometry, ref: EntityRef) -> None:
                 geometry.remove_part(part_id)
 
 
-def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
+def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None) -> Dict[str, Any]:
     """Remove and record everything that referenced a deleted entity."""
 
+    aliases = {ref} if aliases is None else aliases
     removed: Dict[str, Any] = {
         "face_section": None,
         "edge_section": None,
@@ -1983,7 +1993,7 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
 
     kept: List[Support] = []
     for item in project.supports:
-        if item.ref == ref:
+        if item.ref in aliases:
             removed["supports"].append(item)
         else:
             kept.append(item)
@@ -1993,7 +2003,7 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
         container = getattr(project, attribute)
         survivors = []
         for item in container:
-            if item.ref == ref:
+            if item.ref in aliases:
                 removed[attribute].append(item)
             else:
                 survivors.append(item)
@@ -2001,7 +2011,7 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
 
     refinements = []
     for item in project.refinements:
-        if item.ref == ref:
+        if item.ref in aliases:
             removed["refinements"].append(item)
         else:
             refinements.append(item)
@@ -2017,7 +2027,7 @@ def _detach_attributes(project: Project, ref: EntityRef) -> Dict[str, Any]:
             container = getattr(case, attribute)
             survivors = []
             for load in container:
-                if load.ref == ref:
+                if load.ref in aliases:
                     removed["loads"].append((case.name, attribute, load))
                 else:
                     survivors.append(load)

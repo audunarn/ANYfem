@@ -88,14 +88,51 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
         case.surface_tractions[:] = list(optional[0] if optional else ())
 
 
-def _rebind_feature_attachments(project: Project, log) -> None:
-    """Refresh compatibility refs from authoritative regions/owner lineage.
+def _inactive_feature_ids(project):
+    """Explicit suppression and owner-blocked descendants only."""
+    records = project.geometry.features.records
+    inactive = {record.feature_id for record in records if record.suppressed}
+    # Only explicit suppression and its owner-reported blocked descendants
+    # allow latent intent. An unrelated failed/unknown output remains an error.
+    while True:
+        descendants = {record.feature_id for record in records
+                       if record.state == "blocked" and (
+                           any(dependency in inactive for dependency in record.dependencies)
+                           or any(getattr(anchor, "feature_id", None) in inactive
+                                  for anchors in record.inputs.values() for anchor in anchors))}
+        if descendants.issubset(inactive):
+            break
+        inactive.update(descendants)
+    return inactive
 
-    A representative may follow one exact output, but may not be guessed when
-    an edit removes it or makes its replacement ambiguous. Canonical region
-    scope, UUIDs and all engineering quantities remain unchanged.
-    """
+
+def _resolve_attachment_scope(project, region_id, *, inactive=None):
+    """Validate all active anchors; retain inactive anchors as design markers."""
+    inactive = _inactive_feature_ids(project) if inactive is None else inactive
+    inactive_targets = set()
+    def resolve_feature(anchor):
+        if getattr(anchor, "feature_id", None) in inactive:
+            # Exact persisted intent, never a fabricated geometry entity.
+            inactive_targets.add(anchor)
+            return (anchor,)
+        return project.geometry.features.resolve(anchor, project.geometry)
+    targets = project.regions.resolve(region_id, geometry=project.geometry,
+                                     feature_resolver=resolve_feature)
+    return targets, bool(inactive_targets)
+
+
+def _rebind_feature_attachments(project: Project, log, *, previous_geometry=None) -> None:
+    """Preserve authored compatibility refs and validate canonical live scope."""
     replacements = dict(log)
+    inactive = _inactive_feature_ids(project)
+    inactive_refs = set()
+    if previous_geometry is not None:
+        for record in previous_geometry.features.records:
+            if record.feature_id in inactive:
+                for reference in record.outputs.values():
+                    inactive_refs.add(reference)
+                    inactive_refs.update(previous_geometry.resolve_ref(reference))
+
     def rebind(item):
         reference = getattr(item, "ref", None)
         if not isinstance(reference, EntityRef):
@@ -103,15 +140,21 @@ def _rebind_feature_attachments(project: Project, log) -> None:
         region = getattr(item, "region", None)
         if region is not None:
             try:
-                targets = project.regions.resolve(
-                    region.id, geometry=project.geometry,
-                    feature_resolver=lambda anchor: project.geometry.features.resolve(anchor, project.geometry),
-                )
+                targets, has_inactive = _resolve_attachment_scope(project, region.id, inactive=inactive)
             except (KeyError, ValueError) as error:
                 raise GeometryError(f"feature edit cannot uniquely rebind {reference} for {type(item).__name__}: {error}") from error
+            if has_inactive:
+                return item
         else:
             targets = replacements.get(reference, project.geometry.resolve_ref(reference))
+            if not targets and reference in inactive_refs:
+                raise GeometryError(f"suppression would expire {type(item).__name__} attachment {reference}; a persisted output anchor is required")
         targets = tuple(dict.fromkeys(targets))
+        lineage = tuple(project.geometry.resolve_ref(reference))
+        if len(lineage) == 1 and lineage[0].kind == reference.kind and lineage[0] in targets:
+            # The authored scalar cache may name a predecessor. Canonical
+            # regions own scope; consumers materialize their live targets.
+            return item
         if reference in targets:
             target = reference
         elif len(targets) == 1 and targets[0].kind == reference.kind:

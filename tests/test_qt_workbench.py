@@ -1811,12 +1811,17 @@ def test_qt_dependent_feature_edit_preserves_engineering_attachments(window,qapp
         face_refs={ref for key,ref in current.outputs.items() if key.startswith("extrusion/face/")}
         active_pressure=next(item for item in window.project.load_case().pressures if item.id==pressure.id)
         active_support=next(item for item in window.project.supports if item.id==fixed.id)
-        assert active_pressure.ref in face_refs
-        assert active_support.ref==current.outputs["point/p1"]
+        assert set(window.project.geometry.resolve_ref(active_pressure.ref)).issubset(face_refs)
+        assert window.project.geometry.resolve_ref(active_support.ref)==(current.outputs["point/p1"],)
         assert active_pressure.value==1000
         assert dict(active_support.constraints)=={"ux":0,"uy":0,"uz":0}
         assert active_support.coordinate_system_id==fixed.coordinate_system_id
-        assert window.project.face_sections[active_pressure.ref.id]==section
+        assert all(window.project.face_sections[ref.id]==section for ref in window.project.geometry.resolve_ref(active_pressure.ref))
+        from anyfem.ui.scene import COLOR_SUPPORT
+        import numpy as np
+        position=window.project.geometry.vertex_position(current.outputs["point/p1"].id)
+        assert any(point.color==COLOR_SUPPORT and np.allclose(point.position,position)
+                   for point in window.viewport._scene.points)
         assert current.state=="ok"
     assert window.project.geometry.features.get(parent.feature_id).parameters["length"]==4
     assert_attachments(4,1);window.undo();assert_attachments(3,0)

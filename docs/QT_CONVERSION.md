@@ -39,6 +39,59 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Canonical attachment repair (2026-10-01): preserve authored predecessor scalar
+refs when exact owner lineage belongs to their canonical region. Independent
+contract review confirms the existing cylinder identity test is correct; keep
+it unchanged. Resolve transient display records for supports, masses, loads
+and imperfections, including full multi-target scopes. Validation, legacy solve
+fallback and imperfection mesh association follow exact owner lineage. Capture
+unique historical aliases before deletion so detach/undo preserves authored
+records. No proximity matching or owner numerical change is introduced.
+
+Explicit suppression and owner-blocked descendants retain canonical anchors as
+unresolved intent. All active anchors are validated, so an inactive anchor cannot
+mask an unrelated missing target. Design markers never enter geometry, display
+or physical arrays. Actual repeated replay/save/reopen/resume exposed the reader
+rejecting inactive convenience refs; admit them only with an existing same-kind
+canonical region and proven inactive intent. Mesh/solve validation still blocks
+unresolved scope. Raw Imperfection/ANYmesher Refinement records have no persisted
+output anchor: refuse suppression atomically rather than expire their only
+identity. Portable suppression/resume for these raw records is a concrete open
+parity item requiring a Project-owned binding design, not owner model copying.
+
+Bounded review found and resolved mixed-scope masking and unsafe raw suppression;
+the final source review found no new consequential defect. Failed evidence is
+retained under `reports/qt/integration-pr10/`, including original installed
+`feature-contract-installed-before`, `feature-lineage`, inactive reader failure
+`feature-portable-read-before`, and numerical ordering failure
+`feature-node-order-before`. Sorted node IDs changed the original member-bow
+peak from 0.006 to 0.0058496; stable deduplication preserves mesher order and the
+unchanged physical assertion passes. The actual historical/live-reference FE
+geometry comparison is exact and the input mesh stays unchanged. Other setup
+failures concern a mappingproxy copy and a non-exported test constant; they are
+not numerical failures. Raw direct-resume diagnostics motivated atomic refusal.
+
+Final installed artifact SHA256:
+`b4dadce85e23b7b8ca05a703906e9ae7dfa4e307ed568aa0b5b825b9f61c36ee`.
+Each OS passes 36 installed feature/persistence/malformed-input/headless cases
+and eight real Qt cases, with Python `-I` and both installed package origins
+asserted (`feature-installed-{headless,qt}-{windows,linux}` logs/XML). Source
+Windows scene/attachment checks pass 54 cases before the reader extension;
+the final portable contracts pass 21 on Linux, and the installed 36 cover those
+changed paths on both OSs. Deletion/command checks pass 23; ordering repair
+passes the two discriminating physical cases. Wheel+sdist contents and installed
+licensing pass. Add these 21 feature contracts once per candidate CI cell rather
+than repeating the full numerical suite locally. Latest result-display Qt run
+36892011771 passed all four cells; its inputs predate this canonical repair.
+
+Scientific evidence from main run 36880776026: completed Linux 3.11 and 3.14
+cells each record 1080 passed, the same two feature-contract failures, 130
+skips and no errors. Linux 3.11's retained verification report contains all 21
+cases passed, including the unchanged modal test passing in the full suite.
+This changed-input evidence supersedes the earlier modal failure for that
+exact cell; it does not establish all-version/all-platform acceptance. Other
+cells remain under observation; retain rather than restart the live run.
+
 Current reconciliation (2026-10-01): candidate 5a43604 is published, with Qt run
 36892011771 bound to viewer d65f47b. Main scientific run 36880776026 has one
 completed Linux/Python 3.14 cell: 1212 tests, 1080 passes, two failures, no errors
@@ -495,9 +548,9 @@ scientific qualification of every geometry, driver or numerical owner.
 | --- | --- | --- |
 | Geometry and generators | Typed primitive/topology forms; all eight plate/bulkhead/frame/girder/stiffener/panel/cylinder/cone generators; eleven copy/pattern/sweep/split/orientation actions and five triangle/hole/join/overlap actions exercised with undo | Broader dependent-topology editing cases |
 | Sections, materials, supports and loads | Stable-ID tree edits, undo, DNV presets, project units and explicit suffixes, active cases/combinations, imported source-group references | Broader combinations of record editing and topology replacement |
-| Feature/sketch work | Exposed feature topology, bounded search, suppression/rename undo, distance/coincidence constraints and extrusion editing | Remaining sketch constraint combinations and dependency failure presentation |
+| Feature/sketch work | Exposed topology, suppression/rename undo, combined boundary/distance/coincidence persistence, atomic dependency failures, translated engineering attachments and canonical suppressed save/reopen/resume | Raw imperfection/refinement portable suppression requires durable Project-owned bindings; broader constraint models remain bounded coverage limits |
 | Definitions and workplanes | Coordinate systems including ndarray origins, selection/boolean mesh regions, output requests, custom units, snapping/construction; native scalar reduction, selected-frame identity, batch/global/guarded-patch and committed nonlinear stress views | Scoped views have bounded installed save/reopen/export evidence. Material/named-coordinate transformations remain unsupported intent in both frontends; broader dependent-region editing and final owner integration remain open |
-| Mesh generation | Four mesh routes; typed native/structured/quad/quality/automation controls; pins/refinements; preview commit/discard/undo; inspection-only refusal, automatic budget exhaustion and strict owner refusal | Recovery-policy outcomes have candidate window evidence; clean installed geometry-to-mesh acceptance awaits published owner integration |
+| Mesh generation | Four routes, typed controls, pins/refinements, preview commit/discard/undo, inspection-only/budget/strict-refusal outcomes; published geometry batch API integrated and installed end-to-end cases pass | Final integrated acceptance and owner scientific limits remain; the earlier unpublished-geometry blocker is superseded |
 | Mesh lifecycle | Real-window cancellation, stale completion, replacement and injected failure on installed Windows/Linux | Independent final integration review |
 | Analyses | All nine public analyses submitted through Qt controls; load case/combination routing and detached imported snapshots | Owner scientific gates remain unchanged and unresolved failures remain visible |
 | Solve lifecycle | Cancel/edit/replace during held solve; stale retained mesh identity; project locks/recovery/pending writers | Partial outcome limits must remain explicitly distinguished from verified capacity |

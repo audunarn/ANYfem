@@ -214,7 +214,7 @@ class Project:
         report = working_project._regenerate_geometry_features_detached(registry)
         if report.success:
             try:
-                _rebind_feature_attachments(working_project, report.replacements)
+                _rebind_feature_attachments(working_project, report.replacements, previous_geometry=self.geometry)
                 after_attributes = _attribute_snapshot(working_project)
             except (GeometryError, ValueError, KeyError) as error:
                 return RegenerationReport(False, report.features, (), diagnostic=str(error))
@@ -2038,7 +2038,7 @@ class Project:
             region_ref = getattr(item, "region", None)
             if region_ref is None:
                 return (
-                    f"references missing {item.ref}" if missing(item.ref) else None
+                    f"references missing {item.ref}" if missing(item.ref) and not self.geometry.resolve_ref(item.ref) else None
                 )
             try:
                 region = self.regions[region_ref.id]
@@ -2119,7 +2119,7 @@ class Project:
                 if coordinates is not None:
                     problems.append(f"{label} {item.name!r} {coordinates}")
         for refinement in self.refinements:
-            if refinement.ref is not None and missing(refinement.ref):
+            if refinement.ref is not None and missing(refinement.ref) and not self.geometry.resolve_ref(refinement.ref):
                 problems.append(
                     f"refinement {refinement.name!r} references missing "
                     f"{refinement.ref}"

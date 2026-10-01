@@ -9,7 +9,7 @@ geometry entity.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, TypeVar
 
@@ -1496,6 +1496,39 @@ def _member_imperfection_preview(
     return coordinates + offsets, arrow
 
 
+def _display_attributes(project, items):
+    """Materialize canonical live scopes without rewriting authored records.
+
+    Unresolved intent keeps its project validation diagnostic and contributes
+    no geometry symbols. Imported mesh references use their existing adapter.
+    """
+    if project.mesh_only:
+        return list(items)
+    from ..model.regions import RegionDomain
+    geometry = project.geometry
+    result = []
+    stores = {"vertex": geometry.vertices, "edge": geometry.edges, "face": geometry.faces}
+    for item in items:
+        region_ref = getattr(item, "region", None)
+        try:
+            if region_ref is None:
+                targets = geometry.resolve_ref(item.ref)
+            else:
+                region = project.regions[region_ref.id]
+                if region.domain is not RegionDomain.GEOMETRY:
+                    continue
+                targets = project.regions.resolve(region.id, geometry=geometry,
+                    candidates=tuple(EntityRef(region.entity_kind, identifier)
+                                     for identifier in stores.get(region.entity_kind, {})),
+                    feature_resolver=lambda anchor: geometry.features.resolve(anchor, geometry))
+        except (KeyError, ValueError):
+            continue
+        for target in dict.fromkeys(targets):
+            if isinstance(target, EntityRef) and target.kind == item.ref.kind:
+                result.append(item if target == item.ref else replace(item, ref=target))
+    return result
+
+
 def build_imperfection_overlay(
     project, *, mesh: Optional[Mesh] = None, scale: Optional[float] = None
 ) -> Scene:
@@ -1504,7 +1537,7 @@ def build_imperfection_overlay(
     scene = Scene()
     geometry = project.geometry
     span = float(scale or geometry_characteristic_size(geometry))
-    for item in project.imperfections:
+    for item in _display_attributes(project, project.imperfections):
         if item.ref.kind == "face" and item.ref.id in geometry.faces:
             lines, arrow = _plate_imperfection_preview(geometry, item, mesh, span)
             scene.lines.extend(
@@ -1588,7 +1621,7 @@ def build_attribute_overlay(
 
     if show_supports:
         supports = Scene()
-        for support in _budgeted_assignments(project.supports):
+        for support in _budgeted_assignments(_display_attributes(project, project.supports)):
             _draw_support(supports, geometry, support, symbol)
         scene.points.extend(_limited(supports.points))
         scene.lines.extend(_limited(supports.lines))
@@ -1596,7 +1629,7 @@ def build_attribute_overlay(
 
     if show_masses:
         markers: List[PointMarker] = []
-        for mass in _budgeted_assignments(project.masses):
+        for mass in _budgeted_assignments(_display_attributes(project, project.masses)):
             for point in entity_sample_points(geometry, mass.ref):
                 markers.append(
                     PointMarker(
@@ -1609,7 +1642,9 @@ def build_attribute_overlay(
     if show_loads and case_name is not None:
         case = project.load_cases.get(case_name)
         if case is not None:
-            _draw_loads(scene, geometry, case, arrow_length)
+            display_case = SimpleNamespace(**{name: _display_attributes(project, getattr(case, name))
+                for name in ("point_loads", "pressures", "line_loads", "surface_tractions")}, gravity=case.gravity)
+            _draw_loads(scene, geometry, display_case, arrow_length)
 
     return scene
 
