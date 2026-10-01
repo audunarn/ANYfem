@@ -39,6 +39,44 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Result-display parity slice (2026-10-01): Tk accepts blank/auto deformation
+scale (default auto) and displays retained solver summary/status and explicit
+deformation availability. Qt accepts only float scale and replaces the saved
+summary/status with a generic label. Extract the existing 8%-of-mesh-span
+visual scale calculation for both frontends, preserving missing/zero and
+persisted auto behavior. Surface stored metadata verbatim, distinguishing
+missing legacy metadata from success. Check actual live/reopened results,
+manual/auto values, absent imported deformation and unchanged stored arrays;
+do not infer scientific acceptance from artifact existence.
+
+Result: the shared helper restores blank/auto values, Qt defaults to auto, and
+retained results display their stored summary/status and deformation availability.
+Independent review found that edited section bounds could change the automatic
+scale of a stale result. The real-window test reproduced 514.293 versus the
+original 52.472; the helper now uses the submitted project snapshot. Keep the
+failure in `integration-pr10/display-stale-before.log`/XML. Review of the repair
+found no further concrete concern; this is a bounded source review, not final
+acceptance. Actual stale reactivation, displayed nodes, manual/invalid values,
+save/reopen and unchanged SI arrays pass on Windows and WSL XCB. Missing legacy
+status is checked at the reader boundary, not qualified as a complete legacy
+artifact. Stress-only imports explicitly report unavailable deformation.
+
+Evidence under `reports/qt/integration-pr10/`: source result-display checks pass
+3 cases per OS, headless display/import-boundary checks pass 10 cases, and the
+final installed wheel passes the strengthened auto/stale/retained-summary case
+on each OS (`display-frozen-windows` and `display-frozen-linux` logs/XML).
+The final wheel SHA256 is
+`86a3d76f98e19fbb45e20e7fc44bd150ae1261fe8ca0b4ef0b8f320ae4b46d32`;
+both package origins resolve inside the isolated installed environments under
+Python `-I`. Earlier six-case Windows installed checks predate the stale repair
+and remain bounded evidence for unaffected result interactions. The prior
+viewport candidate CI run 36888455126 completed all four cells successfully:
+151 software cases per cell and 151 GPU cases per Linux cell, with no failures
+or skips; artifacts are retained in `hosted-viewport-passed/`. Those CI inputs
+predate this result-display change. Full scientific run 36880776026 is pending.
+WSL uses llvmpipe; physical Linux GPU acceptance is deferred by the user and
+remains an open gate. Tk remains default.
+
 Viewport-controls slice (2026-10-01): Tk exposes the global Attributes /
 imperfections visibility toggle, viewport Escape clears selection, and F
 dispatches the shared frame-selection contract. Qt has a constant true

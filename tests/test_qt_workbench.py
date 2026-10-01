@@ -538,6 +538,65 @@ def test_qt_damaged_result_keeps_editable_project_and_valid_mesh(window,qapp,tmp
     assert window.viewport.capture_png(tmp_path/f"recovered-{damage}.png").stat().st_size>100
 
 
+def test_qt_auto_deformation_and_retained_summary_preserve_solver_data(window,qapp,tmp_path,monkeypatch):
+    import json
+    import numpy as np
+    from anyfem.presentation.scene import build_mesh_scene
+    cantilever(window);window.generate_mesh_async(0.25,strategy="auto")
+    wait_until(qapp,lambda:window.mesh is not None or not window.mesh_job_running)
+    assert window.mesh is not None,window._status.get()
+    window.solve();wait_until(qapp,lambda:window.solution is not None)
+    panel=window.panels["Results"];shape=window.current_shape()
+    assert panel.scale.text()=="auto"
+    _node,magnitude=shape.max_translation()
+    expected_scale=.08*build_mesh_scene(window.project,shape.built.mesh).characteristic_size()/magnitude
+    original=shape.deformed_positions(1).copy()
+    window.viewport.set_visualization(replace(window.viewport.visualization,show_result_nodes=True))
+    for text in ("auto","", " AUTO "):
+        panel.scale.setText(text);assert panel.scale_value(shape)==pytest.approx(expected_scale)
+        panel.show_results()
+        nodes={point.ref.id:point.position for point in window.viewport._scene.points if point.ref is not None and point.ref.kind=="node"}
+        np.testing.assert_allclose(np.stack([nodes[node] for node in sorted(shape.built.mesh.nodes)]),shape.deformed_positions(expected_scale))
+    for text,expected in (("0",0),("-1",-1),("2.5",2.5)):
+        panel.scale.setText(text);assert panel.scale_value(shape)==expected
+    for text in ("nan","inf","-inf"):
+        panel.scale.setText(text)
+        with pytest.raises(ValueError,match="finite"):panel.scale_value(shape)
+    np.testing.assert_array_equal(shape.deformed_positions(1),original)
+    panel.scale.setText("auto")
+    job_id=window.active_job_id
+    section=window.project.beam_sections["centerline"]
+    window.run(cmd.AddBeamSection(replace(section,web_height=section.web_height*40,
+        flange_width=section.flange_width*40,rotation_deg=45)))
+    assert window.solution is None and window._job_is_stale(window.project.jobs[job_id])
+    panel.activate_job(job_id)
+    assert window.solution is not None
+    assert panel.scale_value(shape)==pytest.approx(expected_scale)
+    panel.show_results()
+    nodes={point.ref.id:point.position for point in window.viewport._scene.points if point.ref is not None and point.ref.kind=="node"}
+    np.testing.assert_allclose(np.stack([nodes[node] for node in sorted(shape.built.mesh.nodes)]),shape.deformed_positions(expected_scale))
+    window.undo();panel.activate_job(job_id)
+    path=tmp_path/"auto-display.anyfem";job_id=window.active_job_id
+    window.save_project(path=str(path));window.flush_project_writes()
+    saved=window.result_datasets[job_id].field("displacement").read(0).copy()
+    window.new_project();window.open_project(str(path));panel.activate_job(job_id)
+    dataset=window.result_datasets[job_id];summary=dataset.metadata("summary")
+    assert json.dumps(summary,indent=2,sort_keys=True) in panel.report.toPlainText()
+    assert str(summary["status"]) in panel.outcome.text()
+    assert "Deformation available" in panel.report.toPlainText()
+    for text in ("auto",""):
+        panel.scale.setText(text);assert panel.scale_value(None)==1
+        panel.show_results();assert window._view_mode=="results"
+    np.testing.assert_array_equal(dataset.field("displacement").read(0),saved)
+    metadata=dataset.metadata
+    def legacy_metadata(name):
+        value=metadata(name)
+        if name=="summary":value={key:item for key,item in value.items() if key!="status"}
+        return value
+    monkeypatch.setattr(dataset,"metadata",legacy_metadata)
+    panel.refresh();assert "stored status unavailable" in panel.outcome.text()
+
+
 def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path,monkeypatch):
     import json
     from anyfem.model.records import OutputRequest
@@ -1372,6 +1431,9 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     panel=window.panels["Results"];panel.activate_job(job_id);qapp.processEvents()
     retained=window.result_datasets[job_id]
     assert set(retained.field_keys)==set(expected)
+    if format=="sesam-stress":
+        assert "Deformation unavailable (undeformed display)" in panel.report.toPlainText()
+        assert panel.scale_value(window.solution)==1
     for key,values in expected.items():np.testing.assert_array_equal(retained.field(key).read(0),values)
     if format=="sesam-stress":assert panel.field_name()!="magnitude"
     else:assert retained.field("displacement").descriptor.components==("ux","uy","uz")

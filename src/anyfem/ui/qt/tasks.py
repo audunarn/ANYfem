@@ -271,7 +271,7 @@ class ResultsTask(QWidget):
         super().__init__();self.app=app
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
         self.field=QComboBox();self.field.addItems(available_fields());self.field.setCurrentText("magnitude");form.addRow("Field",self.field)
-        self.scale=QLineEdit("1");form.addRow("Deformation scale",self.scale)
+        self.scale=QLineEdit("auto");form.addRow("Deformation scale (auto or number)",self.scale)
         self.frame=QSpinBox();form.addRow("Frame",self.frame)
         self.playback_speed=QComboBox();self.playback_speed.addItems(["0.5","1","2","4","8","12","20","30"])
         self.playback_speed.setCurrentText("4");form.addRow("Playback speed (fps)",self.playback_speed)
@@ -326,7 +326,9 @@ class ResultsTask(QWidget):
         elif dataset is not None:
             job=self.app.project.jobs.get(self.app.active_job_id)
             state="stale" if job is not None and self.app._job_is_stale(job) else "current"
-            self.report.setPlainText(f"Retained result ({state})\n{len(dataset.frames)} frame(s)\nSelect a quantity to inspect its saved fields, histories or tables.")
+            summary=dataset.metadata("summary")
+            deformation="Deformation available" if "displacement" in dataset.field_keys else "Deformation unavailable (undeformed display)"
+            self.report.setPlainText(f"Retained result ({state})\n{len(dataset.frames)} frame(s)\n{deformation}\nStored solver summary:\n"+json.dumps(summary,indent=2,sort_keys=True)+"\nSelect a quantity to inspect its saved fields, histories or tables.")
         elif dataset is None:
             self.report.clear();self.table.show_rows([],[]);self.plot.show_series([])
         self.refresh_details()
@@ -357,7 +359,10 @@ class ResultsTask(QWidget):
                 submitted=json.dumps(provenance["submitted_inputs"],indent=2,sort_keys=True)
         self.submitted_inputs.setPlainText(submitted or "Submitted input text is unavailable; retained artifact hashes identify its provenance.")
         if solution is None:
-            self.outcome.setText("Persisted result" if dataset is not None else "Run an analysis to see its outcome.")
+            summary=dataset.metadata("summary") if dataset is not None else {}
+            status=summary.get("status")
+            self.outcome.setText(f"Retained result · stored status: {status}" if status is not None else "Retained result · stored status unavailable" if dataset is not None else "Run an analysis to see its outcome.")
+            self.outcome.setStyleSheet("color: #555555")
             self.frame_details.setText(f"Persisted frame {self.app.shape_index+1} of {len(dataset.frames)}" if dataset is not None else "")
             return
         text,color=outcome_text(solution,submitted);self.outcome.setText(text);self.outcome.setStyleSheet(f"color: {color}")
@@ -555,7 +560,9 @@ class ResultsTask(QWidget):
         return self.field.currentText()
 
     def field_name(self):return self.field.currentText()
-    def scale_value(self,shape):return float(self.scale.text())
+    def scale_value(self,shape):
+        from ...presentation.result_display import deformation_scale
+        return deformation_scale(self.scale.text(),self.app.project,shape)
     def colour_limits(self):
         if not self.minimum.text().strip() and not self.maximum.text().strip():return None
         low,high=float(self.minimum.text()),float(self.maximum.text())
@@ -578,7 +585,7 @@ class ResultsTask(QWidget):
 
     def show_results(self):
         if self.app.solution is None:
-            self.app.show_persisted_result(self.field_name(),frame=self.frame.value(),scale=float(self.scale.text()),component=self.component.text().strip() or None,limits=self.colour_limits())
+            self.app.show_persisted_result(self.field_name(),frame=self.frame.value(),scale=self.scale_value(None),component=self.component.text().strip() or None,limits=self.colour_limits())
         else:self.app.show_results()
 
     def playback_fps(self):

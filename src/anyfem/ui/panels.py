@@ -6604,20 +6604,9 @@ class ResultsPanel(StagePanel):
         )
 
     def scale_value(self, solution) -> float:
-        text = self._scale.get().strip().lower()
-        if text in ("", "auto"):
-            try:
-                _node, magnitude = solution.max_translation()
-            except KeyError:
-                return 0.0
-            if magnitude <= 0.0:
-                return 1.0
-            from .scene import build_mesh_scene
-
-            span = build_mesh_scene(
-                self.app.project, solution.built.mesh
-            ).characteristic_size()
-            return 0.08 * span / magnitude
+        if self._scale.get().strip().lower() in ("", "auto"):
+            from ..presentation.result_display import deformation_scale
+            return deformation_scale(self._scale.get(),self.app.project,solution)
         return self.number(self._scale, "deform scale")
 
     def component(self) -> str:

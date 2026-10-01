@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from types import SimpleNamespace
 
 from anyfem.post.history import Series
 from anyfem.ui.result_display import (
@@ -33,3 +34,14 @@ def test_history_conversion_does_not_mutate_stored_si_series():
     assert converted.y_unit == "MPa"
     assert source.x.tolist() == [0.0, 0.012]
     assert source.y.tolist() == [0.0, 400.0e6]
+
+
+def test_auto_deformation_policy_handles_missing_zero_and_retained_displacement():
+    from anyfem.presentation.result_display import deformation_scale
+    def missing_translation():raise KeyError("translations unavailable")
+    missing=SimpleNamespace(max_translation=missing_translation)
+    zero=SimpleNamespace(max_translation=lambda:(1,0.0))
+    for text in ("auto","", " AUTO "):
+        assert deformation_scale(text,None,missing)==0.0
+        assert deformation_scale(text,None,zero)==1.0
+        assert deformation_scale(text,None,None)==1.0
