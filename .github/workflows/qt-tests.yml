@@ -27,7 +27,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          ref: 3adf2241a8f0427e0a3270761010d48dae16b91e
+          # Same coordinated solver input as merged PR10/main.
+          ref: 5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -37,18 +38,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 7e797791727752aec21ddd98d08daf8f0916e280
+          ref: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 2f1543bd3e71e19fdc9d6425ca3a677b815b2af1
+          ref: e21c0fc93662776762430e14450d54ac9192e2e8
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
           ref: db73950018e1c87dab0ca618c25c965030ba08ce
           path: .ecosystem/ANYfileIO
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYtk3D
+          ref: 2caa92325885938c594f27145ed16069d807e364
+          path: .ecosystem/ANYtk3D
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -59,8 +65,10 @@ jobs:
           sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libgl1-mesa-dev libx11-dev libx11-xcb1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxkbcommon-x11-0
       - name: Install candidate GUI and public owners
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]"
-          python -m pip install -e ".[dev]" "PySide6>=6.10.1,<6.11"
+          python -m pip install -e .ecosystem/ANYmaterial -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D
+          python -m pip install -e ".[dev,gui]" "PySide6>=6.10.1,<6.11"
+      - name: Check source and installed dependency licensing
+        run: python tools/check_licenses.py --check-installed
       - name: Linux Qt platform startup
         if: runner.os == 'Linux'
         env:
@@ -71,14 +79,14 @@ jobs:
         env:
           ANYFEM_RUN_QT_TESTS: '1'
           ANY3DVIEW_DISABLE_GPU: '1'
-        run: python -m pytest tests/test_qt_workbench.py tests/test_application_frontend_boundary.py -q --junitxml=reports/qt-workbench.xml
+        run: python tools/test_anyfem.py --profile qt --backend software --out reports/qt-software
       - name: Qt workflows (Linux desktop)
         if: runner.os == 'Linux'
         env:
           QT_QPA_PLATFORM: xcb
           ANYFEM_RUN_QT_TESTS: '1'
           ANY3DVIEW_DISABLE_GPU: '1'
-        run: xvfb-run -a python -m pytest tests/test_qt_workbench.py tests/test_application_frontend_boundary.py -q --junitxml=reports/qt-workbench.xml
+        run: xvfb-run -a python tools/test_anyfem.py --profile qt --backend software --out reports/qt-software
       - name: Qt engineering workflow (Linux OpenGL)
         if: runner.os == 'Linux'
         env:
@@ -86,7 +94,7 @@ jobs:
           ANYFEM_RUN_QT_TESTS: '1'
           ANYFEM_QT_TEST_BACKEND: 'gpu'
           LIBGL_ALWAYS_SOFTWARE: '1'
-        run: xvfb-run -a python -m pytest tests/test_qt_workbench.py -q --junitxml=reports/qt-gpu-workbench.xml
+        run: xvfb-run -a python tools/test_anyfem.py --profile qt --backend gpu --out reports/qt-gpu
       - name: Shared Qt GPU host (Linux Mesa)
         if: runner.os == 'Linux'
         working-directory: .ecosystem/ANY3dView

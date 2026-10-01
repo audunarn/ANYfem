@@ -52,6 +52,16 @@ def cantilever(window):
     return a,b
 
 
+def test_requested_viewer_backend_is_active(window,qapp,tmp_path):
+    requested=os.environ.get("ANYFEM_QT_TEST_BACKEND","software")
+    # An explicit GPU suite must not pass merely because automatic fallback works.
+    image=tmp_path/"requested-backend.png"
+    window.viewport.capture_png(image)
+    qapp.processEvents()
+    assert window.viewport.active_backend==requested, window.viewport.backend_diagnostics
+    assert image.exists() and image.stat().st_size>0
+
+
 def test_property_edits_preserve_identity_and_undo(window,qapp):
     a,b=cantilever(window);qapp.processEvents()
     section=window.project.beam_sections["centerline"]

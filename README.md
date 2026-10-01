@@ -142,7 +142,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@3adf2241a8f0427e0a3270761010d48dae16b91e" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@7e797791727752aec21ddd98d08daf8f0916e280" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@2f1543bd3e71e19fdc9d6425ca3a677b815b2af1"
+python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@26e7e3c98ac1a5573e19643d6658d00094bff0bc" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@64b39d5f45ca01c4dfd972af5a4acf592ffccad7"
 python -m pip install -e ".[gui]"
 ```
@@ -153,10 +153,10 @@ CI inputs; they do not change the qualified release graph. In that environment,
 launch with `anyfem-qt`, `python -m anyfem.ui.qt`, or
 `python run_gui.py --qt`. The Tk launcher remains the default during conversion.
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
-The public geometry pin above does not yet provide it: headless imports work,
-but mesh preparation reports the missing capability. Publication remains with
-the ANYgeometry owner; update the coordinated dependency pin and repeat clean
-installed workflow checks once that owner artifact is available.
+ANYgeometry 0.4.5 now publishes that API. The coordinated pins above match merged
+PR10 and its paired mesher/solver inputs; package version numbers alone do not
+identify this candidate. The scientific matrix and full Qt acceptance remain
+separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
 

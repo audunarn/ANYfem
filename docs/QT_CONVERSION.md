@@ -39,6 +39,43 @@ absent. The workflow ledger below separates measured coverage from open gates.
 
 ## Evidence and next action
 
+Coordinated Qt integration resumed (2026-10-01): user authorizes continuation
+after PR10 merge `e4fa3b4149ae96a9a29f9a3579bb20a70d5d5732`. ANYgeometry
+0.4.5 is published; the missing-owner API gate is superseded. Use the exact
+merged inputs: geometry `26e7e3c98ac1a5573e19643d6658d00094bff0bc`, mesher
+`e21c0fc93662776762430e14450d54ac9192e2e8`, solver
+`5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b`, and reviewed Qt viewer
+`64b39d5f45ca01c4dfd972af5a4acf592ffccad7`. Align candidate CI with main's
+owner inputs and reuse the efficient Qt runner. Run the complete Qt workbench
+scope once per relevant Windows/Linux backend, retaining actual failures;
+repair application integration failures within this slice. Preserve the
+Python3.11 free-modal test failure (5 versus 6 modes) in PR10's Windows and
+Linux cells as scientific acceptance evidence; do not relax it. Other cells
+are still pending. Use an isolated checkout/environment to preserve concurrent
+owner work and the running WSL app. No default switch, Tk removal, package
+release or physical Linux GPU acceptance is inferred.
+
+Coordinated local integration evidence (2026-10-01): Windows Python3.14 real Qt
+software and GPU workbench scopes each pass 136 cases. The newly added
+requested/active-backend capture assertion passes separately on both Windows
+backends. Linux Python3.12 real XCB scopes pass 137 cases on each backend,
+including that assertion. Exact installed-package GPU mesh/solve/save/reopen
+and backend tests pass two cases per OS with `-I`, empty pytest `pythonpath`,
+and module origins under the isolated environment. Shared viewer host/neutral
+contracts pass 32 cases per OS. Installed licensing passes on each OS; Windows
+installed headless imports load neither Qt nor Tk. Evidence and exact owner
+snapshots are under `reports/qt/integration-pr10/`; the installed Linux runtime
+is `reports/qt/wsl/20261001T131220950719Z/` in the integration checkout.
+It reports XCB, active GPU backend, successful capture/shutdown, and llvmpipe
+with acceleration disabled. This is Linux OpenGL integration, not physical GPU
+acceptance. Retain initial environment/selector/harness failures; an in-flight
+edit of the disposable Linux harness caused a post-test shell parse error,
+while the runner's complete GPU report records 137 passed with exit0. The
+repaired harness passes syntax/startup checks. Independent source review found
+no blocker and prompted the concrete backend assertion; it does not close the
+final full-parity review. Hosted Qt coverage is the next check; the original
+scientific/modal gate remains open.
+
 Implemented candidate: shared `WorkbenchWorkflow`, `SceneViewport` and job-worker
 facade; Tk consumes the extracted layer. Qt owns one controller per window,
 model/view tree and job table, docks, forms, selection policies, shortcuts,
