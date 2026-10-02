@@ -1,0 +1,21 @@
+{
+  "reason": "reviewed wording correction; no product or fixture changes",
+  "archive_sha256": "e2feddedff1d8e8211698710cda4b99dc9b5f9ae4c3fa5676191d012ee8157e2",
+  "members": {
+    "example.py": "0f10814e42d57b3e9d8339dc2a650d80be41b2e69bfecceeaf0677b1bbdad59f",
+    "verify.py": "8f82db95d5a52e09bd816c9e584972b2aa9563d4f2923d8ac6976d7ffd575586",
+    "verify-installed-v1.py": "82c230abdf8556ac9a60e2d15b99d2d06457aac35229235ce0a44c177e2930be",
+    "example-mixed-v2-identity.json": "643ede10c35d84f4462805a7ce6c76cd06a987a42bfb7d2664dd846ac69c8c40",
+    "example-mixed-v2-imports.json": "a9d69fb3e11be5a09e9751fe75fec52c2f8dca247ad199af052a0d581188427c",
+    "example-mixed-v2.anyfem": "7374c5b4d98f95d33224bdc49cd7c7af927d7c273d30c163d50de3c66b7ffc45",
+    "example-s3-v2-identity.json": "6ac642d68f84363abb4d5ec18608fc99cbd72a34c9fcde92afe1ccd4d3b33aa9",
+    "example-s3-v2-imports.json": "a9d69fb3e11be5a09e9751fe75fec52c2f8dca247ad199af052a0d581188427c",
+    "example-s3-v2.anyfem": "d7d101de215a5edc6eec98cf29c241d7a5fe73489bf85fcca96a4d04ca9c9030",
+    "example-mixed-v2-run/execution.json": "fb23bd115b73277a40ae17dd3827cad1476669ae30ee5481388af7a455264ba9",
+    "example-mixed-v2-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "example-mixed-v2-run/stdout.log": "6a00ba53a8f4ff8b5addbf35f8ed5f41b8616e43ae0481eaa6d9600e844957e4",
+    "example-s3-v2-run/execution.json": "ef14a27fac0fdc0e5b5b4920a11442ad1ab1cc651a19520597241f8303a90fa6",
+    "example-s3-v2-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "example-s3-v2-run/stdout.log": "2b63870145cc3c255f5a93a648861f4b444dbba7ca4fb4b34b01ba8838797427"
+  }
+}

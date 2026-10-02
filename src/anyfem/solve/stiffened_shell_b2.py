@@ -22,6 +22,7 @@ from anysolver import stiffened_shell
 
 SCHEMA = "anyfem.experimental-b2-q4-point-panel-v1"
 SCHEMA_MIXED = "anyfem.experimental-b2-mixed-point-panel-v1"
+SCHEMA_MIXED_REFERENCE_MODAL = "anyfem.experimental-b2-mixed-reference-modal-panel-v1"
 SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-b2-nodal-rigid-footprint-panel-v1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal-panel-v1"
@@ -89,19 +90,25 @@ def _json_load(payload):
 
 
 def _decode(record):
-    mixed = type(record) is dict and record.get("schema") == SCHEMA_MIXED
-    modal = type(record) is dict and record.get("schema") == SCHEMA_REFERENCE_MODAL
+    mixed_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_REFERENCE_MODAL
+    mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)
+    modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
     nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL)
     record = _exact(record, ("schema", "status", "profile", "shell_nodes",
                              "shells", "members", "points", "affine") +
                                   (("request", "modal_boundary_policy") if modal else
-                                  ("cases", "selection")) + (("footprints",) if nodal else ()),
+                                  ("cases", "selection")) + (("footprints",) if nodal else ()) +
+                                  (("inertia_policy",) if mixed_modal else ()),
                     "experimental B2 panel")
-    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL) or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
-    with_mass = record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
+    with_mass = record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
     mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
+    if mixed_modal:
+        mixed_definition, _, _, policy = _mixed_modal_api()
+        if type(record["inertia_policy"]) is not str or record["inertia_policy"] != policy:
+            raise ValueError("explicit native S3 mixed reference inertia policy required")
     node_rows = record["shell_nodes"]
     if type(node_rows) is not list or not node_rows:
         raise ValueError("experimental B2 shell nodes required")
@@ -239,12 +246,22 @@ def _decode(record):
     definition_type = mixed_definition if mixed else stiffened_shell.B2Q4PanelDefinition
     definition = definition_type(
         record["profile"], shell_nodes, tuple(shells), tuple(members),
-        tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}))
+        tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}),
+        **({"inertia_policy": record["inertia_policy"]} if mixed_modal else {}))
 
     if modal:
         if record["modal_boundary_policy"] != "supported":
-            raise ValueError("B2 footprint reference modes require supported boundaries; free-free unsupported")
-        _validate_modal_definition(definition)
+            raise ValueError("B2 mixed reference modes require supported boundaries; free-free unsupported" if mixed_modal else
+                             "B2 footprint reference modes require supported boundaries; free-free unsupported")
+        _validate_modal_definition(definition, mixed=mixed_modal)
+        if mixed_modal:
+            for entries, name in ((shells, "shell_id"), (members, "member_id"), (attachments, "point_id")):
+                ids = [getattr(entry, name) for entry in entries]
+                if len(set(ids)) != len(ids):
+                    raise ValueError(f"unique mixed reference-modal {name} values required")
+            hosts = {shell.shell_id for shell in shells}, {member.member_id for member in members}
+            if any(point.shell_id not in hosts[0] or point.member_id not in hosts[1] for point in attachments):
+                raise ValueError("known mixed reference-modal point host IDs required")
         request_type = getattr(stiffened_shell, "B2ReferenceModesRequest", None)
         if request_type is None:
             raise ValueError("installed solver lacks public typed B2 reference-mode controls")
@@ -300,6 +317,16 @@ def _mixed_api():
     return definition, shell
 
 
+def _mixed_modal_api():
+    names = ("B2MixedReferenceModalDefinition", "B2ReferenceModesRequest",
+             "ExperimentalB2MixedReferenceModalCapabilities",
+             "S3_V2D_TRANSLATIONAL_LUMPED_SECTION_AREAL_MASS_V1")
+    exports = tuple(getattr(stiffened_shell, name, None) for name in names)
+    if any(value is None for value in exports):
+        raise ValueError("installed solver lacks public experimental B2 mixed reference-modal exports")
+    return exports
+
+
 def _footprint_api():
     names = ("B2NodalRigidFootprint", "B2NodalRigidFootprintSelection",
              "ExperimentalB2Q4FootprintCapabilities", "ExperimentalB2Q4FootprintBatchResult",
@@ -350,21 +377,24 @@ def _decode_footprint_selection(values, groups):
     return made
 
 
-def _validate_modal_definition(definition):
+def _validate_modal_definition(definition, *, mixed=False):
     """Validate input restrictions; physical and constraint admission stays owned by the solver."""
     if (any(shell.density_kg_m3 is None or shell.density_kg_m3 <= 0.
             for shell in definition.shells) or
             any(member.mass is None for member in definition.members)):
-        raise ValueError("B2 footprint reference modes require explicit positive shell density and beam physical mass")
+        raise ValueError("B2 mixed reference modes require explicit positive shell density and beam physical mass" if mixed else
+                         "B2 footprint reference modes require explicit positive shell density and beam physical mass")
     if np.any(np.asarray(definition.prescribed_offset) != 0.):
-        raise ValueError("virgin B2 footprint reference modes require zero prescribed offset")
+        raise ValueError("virgin B2 mixed reference modes require zero prescribed offset" if mixed else
+                         "virgin B2 footprint reference modes require zero prescribed offset")
     selector = definition.transformation.tocsr(copy=True)
     selector.sum_duplicates()
     selector.eliminate_zeros()
     if (selector.shape[1] >= selector.shape[0] or
             np.any(np.diff(selector.tocsc().indptr) != 1) or
             np.any(np.diff(selector.indptr) > 1)):
-        raise ValueError("supported B2 footprint reference modes require coordinate supports without MPCs")
+        raise ValueError("supported B2 mixed reference modes require coordinate supports without MPCs" if mixed else
+                         "supported B2 footprint reference modes require coordinate supports without MPCs")
 
 
 @dataclass(frozen=True)
@@ -404,14 +434,21 @@ class ExperimentalB2PointPanel:
     def _from_definition(cls, definition, cases, *, selected_dofs,
                          selected_points=(), recover_members=None, schema=SCHEMA,
                          nodal=False, selected_footprints=None, request=None):
-        modal = schema == SCHEMA_REFERENCE_MODAL
-        mixed = schema == SCHEMA_MIXED
-        with_mass = schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL)
-        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED)):
+        mixed_modal = schema == SCHEMA_MIXED_REFERENCE_MODAL
+        modal = schema in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+        mixed = schema in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)
+        with_mass = schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)):
             raise ValueError("experimental B2 panel schema required")
         definition_type, s3_type = (_mixed_api() if mixed else
                                     (stiffened_shell.B2Q4PanelDefinition, None))
-        if mixed and (cls is not ExperimentalB2MixedPointPanel or
+        if mixed_modal:
+            definition_type, _, _, policy = _mixed_modal_api()
+            if (type(definition) is not definition_type or
+                    type(definition.inertia_policy) is not str or definition.inertia_policy != policy):
+                raise ValueError("explicit typed native S3 mixed reference-modal definition required")
+        consumer_type = ExperimentalB2MixedReferenceModalPanel if mixed_modal else ExperimentalB2MixedPointPanel
+        if mixed and (cls is not consumer_type or
                       type(definition) is not definition_type or
                       getattr(definition, "footprints", ()) or
                       any(type(shell) not in (stiffened_shell.Q4PanelShell, s3_type)
@@ -487,6 +524,8 @@ class ExperimentalB2PointPanel:
         if mixed:
             for row, shell in zip(record["shells"], definition.shells):
                 row["formulation"] = "e4-pl-s3-v2d" if type(shell) is s3_type else "e4-pl"
+        if mixed_modal:
+            record["inertia_policy"] = definition.inertia_policy
         if with_mass:
             for row, shell in zip(record["shells"], definition.shells):
                 row["density_kg_m3"] = shell.density_kg_m3
@@ -706,8 +745,80 @@ class ExperimentalB2ReferenceModalPanel(ExperimentalB2PointPanel):
         raise ValueError("B2 reference-modal consumer supports modes only")
 
 
+@dataclass(frozen=True)
+class ExperimentalB2MixedReferenceModalPanel(ExperimentalB2PointPanel):
+    """Virgin supported mixed reference-mode inputs; persistence is not a checkpoint.
+
+    Native S3 facets omit all rotary inertia. Shared assembled nodes may also
+    receive Q4 director inertia; omission is a facet policy, not a node claim.
+    """
+
+    def __post_init__(self):
+        if type(self) is not ExperimentalB2MixedReferenceModalPanel or type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES:
+            raise ValueError("exact bounded experimental B2 mixed reference-modal bytes required")
+        record = _json_load(self.payload)
+        if type(record) is not dict or record.get("schema") != SCHEMA_MIXED_REFERENCE_MODAL:
+            raise ValueError("explicit B2 mixed reference-modal schema required")
+        _decode(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii")+b"\n")
+
+    @classmethod
+    def from_definition(cls, definition, request):
+        return cls._from_definition(definition, (), selected_dofs=(),
+            schema=SCHEMA_MIXED_REFERENCE_MODAL, request=request)
+
+    @classmethod
+    def from_dict(cls, record):
+        return cls(json.dumps(record, allow_nan=False).encode("ascii"))
+
+    def to_dict(self):
+        return _json_load(self.payload)
+
+    def definition(self):
+        return _decode(_json_load(self.payload))[0]
+
+    @property
+    def request(self):
+        return _decode(_json_load(self.payload))[1]
+
+    def create_analysis(self):
+        definition = self.definition()
+        _, _, capability_type, policy = _mixed_modal_api()
+        owner = stiffened_shell.create_analysis(definition=definition)
+        try:
+            cap = getattr(owner, "capabilities", None)
+            q4_policy = getattr(stiffened_shell, "Q4_DIRECTOR_MASS_POLICY", None)
+            if q4_policy is None and any(type(shell) is stiffened_shell.Q4PanelShell for shell in definition.shells):
+                raise ValueError("installed solver lacks public Q4 director mass-policy identity")
+            expected_policies = tuple((shell.shell_id, policy if type(shell) is stiffened_shell.S3V2DPanelShell else q4_policy)
+                                      for shell in definition.shells)
+            if (type(cap) is not capability_type or cap.profile_id != definition.profile or
+                    cap.status != "experimental" or cap.production_qualified is not False or
+                    cap.inertia_policy != definition.inertia_policy or cap.shell_mass_policies != expected_policies or
+                    cap.s3_rotary_inertia != capability_type().s3_rotary_inertia or
+                    cap.beam_mass_policy != capability_type().beam_mass_policy or
+                    cap.footprints != () or cap.footprint_law_id is not None or
+                    "modes" not in cap.operations or not callable(getattr(owner, "modes", None))):
+                raise ValueError("installed solver does not admit the declared mixed reference modes/inertia policies")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def modes(self, *, cancellation_token=None):
+        owner = self.create_analysis()
+        try:
+            return owner.modes(self.request, cancellation=cancellation_token)
+        finally:
+            owner.close()
+
+    def solve_linear_many(self, *, cancellation_token=None, on_case=None):
+        raise ValueError("B2 mixed reference-modal consumer supports modes only")
+
+
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -738,6 +849,7 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
     record = _json_load(payload)
     schema = record.get("schema") if type(record) is dict else None
     consumer = (ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
+                ExperimentalB2MixedReferenceModalPanel if schema == SCHEMA_MIXED_REFERENCE_MODAL else
                 ExperimentalB2MixedPointPanel if schema == SCHEMA_MIXED else
                 ExperimentalB2NodalRigidFootprintPanel if schema == SCHEMA_NODAL_FOOTPRINT else ExperimentalB2PointPanel)
     return consumer(payload)
@@ -745,6 +857,7 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
 
 __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFIX",
            "ExperimentalB2MixedPointPanel", "SCHEMA_MIXED",
+           "ExperimentalB2MixedReferenceModalPanel", "SCHEMA_MIXED_REFERENCE_MODAL",
            "ExperimentalB2NodalRigidFootprintPanel", "SCHEMA_NODAL_FOOTPRINT",
            "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "save_case", "load_case"]

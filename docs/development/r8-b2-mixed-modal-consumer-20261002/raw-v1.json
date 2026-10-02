@@ -1,0 +1,343 @@
+{
+  "classification": "development installed consumer verification; not scientific qualification",
+  "root": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1",
+  "source_solver_commit": "b9e35eed",
+  "source_consumer_commit": "26cc56eb3760530c457a18a8faec1cf93ae79ecd",
+  "uncommitted_product": [
+    "ANYsolver/src/anysolver/stiffened_shell.py",
+    "ANYfem/src/anyfem/solve/stiffened_shell_b2.py",
+    "ANYfem/src/anyfem/solve/stiffened_shell_project.py"
+  ],
+  "archive_sha256": "8a172acc8712fe7920b771821d9b28c808869ecf4a3f066a0765789f5a5b560c",
+  "archive_bytes": 2736127,
+  "members": {
+    "build-solver.py": "7cc4945787fbf718e0cdb84f450f5cbc92a29325f0983e2bf2f955704a9a68d8",
+    "consumer-build-run/execution.json": "748a7078aec88c4cd88c0d6a9b356bddea231459dc919d873e283987c9f94cdc",
+    "consumer-build-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "consumer-build-run/stdout.log": "4428667aa1b12d9d561544cbc7352d022ff0e4450430fe4c54e3e1c04d0a0599",
+    "example-initial-unexecuted.py": "b941064c4181908b0369573a99e98b7abe64163c4b6a841b94a58fccdbbd90da",
+    "example-mixed-identity.json": "56e023dac2de4265d8d6e3e017effa4b6f6cefe39ae5e138f156f90e27f6219c",
+    "example-mixed-imports.json": "a9d69fb3e11be5a09e9751fe75fec52c2f8dca247ad199af052a0d581188427c",
+    "example-mixed-run/execution.json": "ded4654e254ef3658b592f3684a5eb49e38ed3103f9afd3b0b71f9e281617af4",
+    "example-mixed-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "example-mixed-run/stdout.log": "5d9e9d71af957e82414fcb587db7f2f63a0c995a75332e90bef8aaf22817d7f5",
+    "example-mixed.anyfem": "5561857c070c35df658f61cbeb5a2bac1bfa69c79f2917e70d79bbd9317cf946",
+    "example-s3-identity.json": "b0904b7e61c75ac6ebfdcb7c113819f22d5136b0e223626690000727daa718b6",
+    "example-s3-imports.json": "a9d69fb3e11be5a09e9751fe75fec52c2f8dca247ad199af052a0d581188427c",
+    "example-s3-run/execution.json": "9f42e4e366127ad722c0a44cafb1bef42e059abb61c8e5608a7364fb7277fc80",
+    "example-s3-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "example-s3-run/stdout.log": "a1c16293038e1754369624b708d56c305da90d0193a5d929de841d982e7608dc",
+    "example-s3.anyfem": "99606960b38f67d73f1da9033c643cde56c8d24d09ead96fcf904ab38ce2ef5e",
+    "example.py": "3508a938efd41e32261e4e3e3cc2ce9e1fcacce62bb515211202834693c11d64",
+    "fixtures/test_experimental_b2_mixed_panel_consumer.py": "9fa7a79a62d98ad01f0b1f971e65ea640dd7bfa1d09162ee0718630c3521488d",
+    "fixtures/test_experimental_b2_mixed_reference_modal_consumer.py": "5eb72b14fd817ba4a4dbada9fbdbd24bbc89cff29ab7c8942009ac2f85503584",
+    "fixtures/test_experimental_b2_stiffened_shell_consumer.py": "fe0ed68ed06fc814526e95ac9bb53268c0e6dd88522522418f309b87beb9e451",
+    "fixtures/test_stiffened_shell_b2_nodal_footprint_consumer.py": "2bbfeca1cbc186523f706109924057da4c3e6752a2099d9531672a27a402c707",
+    "fixtures/test_stiffened_shell_b2_reference_modal_consumer.py": "573bab65ba2a819d95bef86d14468b617e37f41551436d6dfdfa4ae1c808c482",
+    "fixtures/test_stiffened_shell_project.py": "f1c93790d910f2fabd43da5769441c5a7b0ae2846db41ef70fab7d65ce9fe523",
+    "fixtures-v2/test_experimental_b2_mixed_panel_consumer.py": "9fa7a79a62d98ad01f0b1f971e65ea640dd7bfa1d09162ee0718630c3521488d",
+    "fixtures-v2/test_experimental_b2_mixed_reference_modal_consumer.py": "18bbb1e789bbbcc484173ad21268660176f525a0834970ab37bdd069e6b425c9",
+    "fixtures-v2/test_experimental_b2_stiffened_shell_consumer.py": "fe0ed68ed06fc814526e95ac9bb53268c0e6dd88522522418f309b87beb9e451",
+    "fixtures-v2/test_stiffened_shell_b2_nodal_footprint_consumer.py": "2bbfeca1cbc186523f706109924057da4c3e6752a2099d9531672a27a402c707",
+    "fixtures-v2/test_stiffened_shell_b2_reference_modal_consumer.py": "573bab65ba2a819d95bef86d14468b617e37f41551436d6dfdfa4ae1c808c482",
+    "fixtures-v2/test_stiffened_shell_project.py": "f1c93790d910f2fabd43da5769441c5a7b0ae2846db41ef70fab7d65ce9fe523",
+    "installed-identity.json": "500837bead53b9043331dc269bbcb43ca39b0eba4fa975b64d7d93829ff7da2e",
+    "installed-imports.json": "eca1cc3a9ac656de18133e14e9bcab1602acaab34ad6d907444fa985451aa221",
+    "installed-run/execution.json": "532319bb1bbb94ef30ad577b840888d74386f48c05683931c4ade98929c586ff",
+    "installed-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "installed-run/stdout.log": "597c13419f6b5bbbab112ab9da7c93f391c8c64d7b2ccbde7bb5896fce267f4f",
+    "installed.xml": "e0389cd22a9d33ac4c71e8be313978e691e46dc9b7d41c78235f68fea26e2bb7",
+    "prior-consumer-verifier.py": "2627a76c1b211452fb2f53b4ccb352679c1347ad496d1db8aa223bf785d3a142",
+    "pytest.ini": "578fc1cd12d8d642df8eff41d71d5119626e9f88f21fafadba6b1092ac840a93",
+    "repair-one-identity.json": "acfaa9d81725598d32d76929486e5e4c873b2e36fa87a0d7f719ccc7498ba225",
+    "repair-one-imports.json": "b8bc8a7df21e79e182caf9a999b2ad9401da7965a64c3f191ddaaf2d861fc337",
+    "repair-one-run/execution.json": "bc3482e6e8b1581055e3d44338025b3127918deff449ec9b80d7da4df19a85c0",
+    "repair-one-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "repair-one-run/stdout.log": "ffdaea94a2807c3faa9951ca2caddcb1551dee5e19405ad97a42598b6458b59d",
+    "repair-one.xml": "3708261765b823590426cbba4c2b18670c31e9193a68b9d3e6fc56fc53826cfb",
+    "solver-artifact/wheels/anysolver-0.4.7-py3-none-any.whl": "80ca5f5e882b6aba16a25e373b78b0928f1964724351ea4fd641a5ad55a578d5",
+    "solver-build-run/execution.json": "423367aa065be977f596903b71ed73db3b0379048335bbd72e3db87ccba86149",
+    "solver-build-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "solver-build-run/stdout.log": "347b2265558b6841035bfd964326d2079e1ad9141a18924380c62398e8cdc8cd",
+    "solver-source-manifest.json": "32cbed2ff912094fb0774493252d146d289298567b893802d42b10a92652440f",
+    "solver-wheel-identity.json": "ed82629055a192b7952cd37ff8d15fea94ea53514f5d7e0219628fbf0684df5a",
+    "source-identity.json": "8abb760d71f5abfb6b41ae42e3ebcc9fdbd7bb27b81d731475d6ff62abba46d8",
+    "source-imports.json": "5dc5d1ca2c858e97413f27c222d66ea5750915e8827e791098d44552bfdeb123",
+    "source-manifest.json": "f4e203e35578832b8472b78943f1e5d4dcbc06860819e731fe8892cd0a71810f",
+    "source-run/execution.json": "9059467d7ae25f785f04de5d1217e50af22baf95eb5a2d3441a8a1b6bcfe6e21",
+    "source-run/stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "source-run/stdout.log": "9779198acf131f2169fbc8eea6d1e2ead35d5ebdda77059614bf741cd620ead1",
+    "source.xml": "502fe2d804b30bc439b9cd688ef36ce98e77f36a2a0829be04edff53c3a57cc1",
+    "supervisor.py": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+    "verify-source-v1.py": "827861ad111ce40fea94f76c5356a5e19359032fd58c2f5e3a67cc59dd12b48e",
+    "verify.py": "82c230abdf8556ac9a60e2d15b99d2d06457aac35229235ce0a44c177e2930be",
+    "wheels/anyfem-0.4.1-py3-none-any.whl": "93b21a205dd587740b60261f68de119355f33ce074e6929f9ea4b0d46eefbbd0"
+  },
+  "installed_identity": {
+    "label": "installed",
+    "python": "3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]",
+    "anyfem": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\site\\anyfem\\__init__.py",
+    "anysolver": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\site\\anysolver\\__init__.py",
+    "pools": [
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 1,
+        "prefix": "libscipy_openblas",
+        "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\numpy.libs\\libscipy_openblas64_-63c857e738469261263c764a36be9436.dll",
+        "version": "0.3.31.188.0",
+        "threading_layer": "pthreads",
+        "architecture": "SkylakeX"
+      },
+      {
+        "user_api": "blas",
+        "internal_api": "openblas",
+        "num_threads": 1,
+        "prefix": "libscipy_openblas",
+        "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\scipy.libs\\libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll",
+        "version": "0.3.30",
+        "threading_layer": "pthreads",
+        "architecture": "SkylakeX"
+      },
+      {
+        "user_api": "openmp",
+        "internal_api": "openmp",
+        "num_threads": 1,
+        "prefix": "vcomp",
+        "filepath": "C:\\Windows\\System32\\vcomp140.dll",
+        "version": null
+      }
+    ],
+    "numba_threads": 1,
+    "jit_disabled": true,
+    "source_modules": 98,
+    "solver_modules": 391,
+    "solver_wheel_sha256": "80ca5f5e882b6aba16a25e373b78b0928f1964724351ea4fd641a5ad55a578d5",
+    "consumer_wheel_sha256": "93b21a205dd587740b60261f68de119355f33ce074e6929f9ea4b0d46eefbbd0",
+    "dependencies": {
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "numba": "0.65.1",
+      "pytest": "9.0.3",
+      "threadpoolctl": "3.6.0",
+      "ANYsolver": "0.4.7",
+      "ANYfem": "0.4.1",
+      "ANYmaterial": "0.2.0",
+      "ANYmesher": "0.5.0",
+      "ANYfileio": "0.3.2"
+    },
+    "example_sha256": "3508a938efd41e32261e4e3e3cc2ce9e1fcacce62bb515211202834693c11d64",
+    "fixtures": {
+      "test_experimental_b2_mixed_reference_modal_consumer.py": "18bbb1e789bbbcc484173ad21268660176f525a0834970ab37bdd069e6b425c9",
+      "test_experimental_b2_mixed_panel_consumer.py": "9fa7a79a62d98ad01f0b1f971e65ea640dd7bfa1d09162ee0718630c3521488d",
+      "test_experimental_b2_stiffened_shell_consumer.py": "fe0ed68ed06fc814526e95ac9bb53268c0e6dd88522522418f309b87beb9e451",
+      "test_stiffened_shell_b2_nodal_footprint_consumer.py": "2bbfeca1cbc186523f706109924057da4c3e6752a2099d9531672a27a402c707",
+      "test_stiffened_shell_b2_reference_modal_consumer.py": "573bab65ba2a819d95bef86d14468b617e37f41551436d6dfdfa4ae1c808c482",
+      "test_stiffened_shell_project.py": "f1c93790d910f2fabd43da5769441c5a7b0ae2846db41ef70fab7d65ce9fe523"
+    }
+  },
+  "runs": {
+    "source-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "child",
+        "source"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 11.89607800001977,
+      "sampled_peak_tree_bytes": 185245696,
+      "sampled_max_process_tree_threads": 7,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "repair-one-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "child",
+        "repair-one"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.253109899989795,
+      "sampled_peak_tree_bytes": 166232064,
+      "sampled_max_process_tree_threads": 7,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "installed-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "child",
+        "installed"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 12.023928000009619,
+      "sampled_peak_tree_bytes": 203513856,
+      "sampled_max_process_tree_threads": 7,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "example-mixed-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "child",
+        "example-mixed"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.8727934999624267,
+      "sampled_peak_tree_bytes": 150085632,
+      "sampled_max_process_tree_threads": 7,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "example-s3-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "child",
+        "example-s3"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.9206567999790423,
+      "sampled_peak_tree_bytes": 150355968,
+      "sampled_max_process_tree_threads": 7,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "consumer-build-run": {
+      "command": [
+        "C:/Python/Python314/python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\verify.py",
+        "build"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.0469477999722585,
+      "sampled_peak_tree_bytes": 124993536,
+      "sampled_max_process_tree_threads": 18,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    },
+    "solver-build-run": {
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-u",
+        "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-anyfem-b2-mixed-modal-installed-v1\\build-solver.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 6.712015700002667,
+      "sampled_peak_tree_bytes": 125693952,
+      "sampled_max_process_tree_threads": 18,
+      "resource_observed": true,
+      "resource_limit": null,
+      "timeout_seconds": 600,
+      "memory_limit_bytes": 1073741824,
+      "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "environment": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "CCX_NPROC_RESULTS": "1",
+        "CCX_NPROC_EQUATION_SOLVER": "1"
+      }
+    }
+  },
+  "source_result": {
+    "passed": 223,
+    "failed": 1,
+    "repair_passed": 1
+  },
+  "installed_result": {
+    "passed": 224,
+    "failed": 0
+  },
+  "not_claimed": [
+    "physical frequency accuracy",
+    "different-model-family acceptance",
+    "speedup",
+    "aggregate G0-G6 acceptance",
+    "release"
+  ]
+}
