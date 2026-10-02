@@ -1,5 +1,8 @@
 # Experimental GE point-panel consumer
 
+Historical flat records retain the behavior below. The explicit curved-Q4
+extension is documented in the final section; it has its own input identity.
+
 This Level A headless slice constructs a fresh stiffened-shell analysis through
 `anysolver.stiffened_shell.create_analysis`. It accepts the exact
 `B3_GE_E4_PL_STIFFENED_SHELL_V1` definition: a connected flat Q4/S3 shell panel,
@@ -319,3 +322,33 @@ continued state. This adapter does not add line plasticity, S3, footprints,
 pressure, gravity or a new physical connection qualification. Zero-load relative
 assessment remains a solver limitation; the consumer does not replace failure
 status or alter equilibrium criteria.
+
+## Explicit curved elastic Q4 point references
+
+`ExperimentalGEPointPanel` accepts the keyword-only
+`shell_reference_policy=anysolver.stiffened_shell.CURVED_Q4_POINT_REFERENCE_V1`
+with `q4_pullback_policy=Q4_ALGORITHMIC_PULLBACK_V1`. Its input schema is
+`anyfem.experimental-ge-curved-q4-point-panel-v1`. Unused options leave old flat
+schemas unchanged. Reopening on an installed solver without the named public
+policy fails explicitly.
+
+This route admits elastic Q4, native generalized elastic beams, full-pose nodal
+connections and fixed translational nodal actions. The solver owns reference
+geometry, beam admission, tangent/state mechanics and capability checks. S3,
+shell J2, staged/body/distributed/pressure inputs, moment actions, footprint
+conversion and modal conversion are rejected for this consumer route. Curved
+spectra and additional materials/loads remain unadmitted.
+
+The existing `save_case`/`load_case` and
+`AnalysisDefinition.experimental_point_panel` with ordinary Project save/reopen
+preserve the explicit reference policy. Create the persistent solver owner with
+`record.create_point_panel_analysis()`. Its admitted finite stepping and arc
+continuation use the same public controls and separate checkpoints as direct
+solver use. Supply a physical metric and use the solver's metric-node ordering.
+Input persistence alone never restores an accepted state.
+
+Installed checks cover a curved two-Q4 consumer and the actual coarse E04 roof
+through standalone/native persistence, solve, restore and identical continuation.
+These remain experimental development evidence, not connection, capacity,
+refinement, external-reference or production qualification. No legacy default
+or release version changes.

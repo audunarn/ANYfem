@@ -23,6 +23,7 @@ from anysolver import b3_ge, stiffened_shell
 SCHEMA = "anyfem.experimental-ge-point-panel-v1"
 SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
+SCHEMA_CURVED_Q4 = "anyfem.experimental-ge-curved-q4-point-panel-v1"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BODY_LOAD = "anyfem.experimental-ge-point-panel-body-load-v1"
 SCHEMA_PRESSURE_LOAD = "anyfem.experimental-ge-point-panel-pressure-load-v1"
@@ -220,6 +221,7 @@ class ExperimentalGEPointPanel:
     distributed_load: stiffened_shell.GEBeamDistributedLoad | None = field(default=None, kw_only=True)
     pressure_load: stiffened_shell.GEShellPressureLoad | None = field(default=None, kw_only=True)
     distributed_programme: stiffened_shell.GEBeamDistributedProgramme | None = field(default=None, kw_only=True)
+    shell_reference_policy: str = field(default="flat", kw_only=True)
 
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
@@ -235,6 +237,18 @@ class ExperimentalGEPointPanel:
         if (self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY and
                 not self.shell.q4_elements):
             raise ValueError("Q4 pullback policy requires at least one Q4 element")
+        curved_policy = getattr(stiffened_shell, "CURVED_Q4_POINT_REFERENCE_V1", None)
+        if (type(self.shell_reference_policy) is not str or
+                self.shell_reference_policy != "flat" and
+                (curved_policy is None or self.shell_reference_policy != curved_policy)):
+            raise ValueError("unsupported installed GE shell reference policy")
+        if self.shell_reference_policy != "flat":
+            if (self.q4_pullback_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None) or
+                    self.shell.s3_elements or self.shell.j2_curve is not None):
+                raise ValueError("curved point consumer requires elastic algorithmic Q4 only")
+            if any(value is not None for value in (self.load_programme, self.body_load,
+                    self.distributed_load, self.pressure_load, self.distributed_programme)):
+                raise ValueError("curved point consumer admits fixed nodal actions only")
         for name, expected, minimum in (
             ("beams", b3_ge.BeamDefinition, 1),
             ("points", stiffened_shell.PointConnection, 1),
@@ -244,6 +258,9 @@ class ExperimentalGEPointPanel:
             rows = getattr(self, name)
             if type(rows) is not tuple or len(rows) < minimum or any(type(v) is not expected for v in rows):
                 raise ValueError(f"explicit experimental GE {name} required")
+        if self.shell_reference_policy != "flat" and any(
+                any(value != 0. for value in action.wrench[3:]) for action in self.actions):
+            raise ValueError("curved point consumer admits translational nodal actions only")
         if len(self.beams) > MAX_BEAMS:
             raise ValueError("experimental GE beam count exceeds file limit")
         if self.distributed_programme is not None:
@@ -301,6 +318,10 @@ class ExperimentalGEPointPanel:
         )
         if self.q4_pullback_policy == HISTORICAL_Q4_PULLBACK_POLICY:
             return stiffened_shell.LinearDefinition(*args)
+        if self.shell_reference_policy != "flat":
+            return stiffened_shell.LinearDefinition(*args,
+                q4_pullback_policy=self.q4_pullback_policy,
+                shell_reference_policy=self.shell_reference_policy)
         return stiffened_shell.LinearDefinition(
             *args, q4_pullback_policy=self.q4_pullback_policy)
 
@@ -399,8 +420,12 @@ class ExperimentalGEPointPanel:
                         profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
                         panel=replace(self, load_programme=None).to_dict(),
                         load_programme=self.load_programme.to_payload())
-        return _point_components_payload(self.shell, self.beams, self.points,
-                                         self.fixed, self.actions, self.q4_pullback_policy)
+        record = _point_components_payload(self.shell, self.beams, self.points,
+                                          self.fixed, self.actions, self.q4_pullback_policy)
+        if self.shell_reference_policy != "flat":
+            record.update(schema=SCHEMA_CURVED_Q4,
+                          shell_reference_policy=self.shell_reference_policy)
+        return record
 
     @classmethod
     def from_dict(cls, value: object) -> ExperimentalGEPointPanel:
@@ -472,12 +497,14 @@ class ExperimentalGEPointPanel:
             panel = cls.from_dict(data["panel"])
             programme = programme_type.from_payload(data["load_programme"])
             return replace(panel, load_programme=programme)
-        selected_q4 = value.get("schema") == SCHEMA_Q4_PULLBACK
+        curved = value.get("schema") == SCHEMA_CURVED_Q4
+        selected_q4 = value.get("schema") in (SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4)
         fields = {"schema", "status", "profile", "shell", "beams",
                   "points", "fixed", "actions"}
-        data = _exact_fields(value, fields | ({"q4_pullback_policy"} if selected_q4 else set()),
+        data = _exact_fields(value, fields | ({"q4_pullback_policy"} if selected_q4 else set()) |
+                             ({"shell_reference_policy"} if curved else set()),
                              "experimental GE panel")
-        if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK) or
+        if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4) or
                 data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental GE panel schema, status, and profile required")
@@ -487,6 +514,14 @@ class ExperimentalGEPointPanel:
                 q4_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None)):
             raise ValueError("unsupported experimental Q4 pullback policy")
 
+        if curved:
+            policy = getattr(stiffened_shell, "CURVED_Q4_POINT_REFERENCE_V1", None)
+            if policy is None or data["shell_reference_policy"] != policy:
+                raise ValueError("curved schema requires installed explicit curved reference policy")
+            # Reuse strict Q4 component framing; the new outer schema carries
+            # reference identity, and cannot reinterpret an old flat record.
+            return cls(*_parse_point_components(dict(data, schema=SCHEMA_Q4_PULLBACK), q4_policy),
+                       shell_reference_policy=policy)
         return cls(*_parse_point_components(data, q4_policy))
 
 
@@ -565,8 +600,9 @@ class ExperimentalGEReferenceModalPanel:
     def from_definition(cls, definition, request, *, model_identity=None):
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
-                definition.lines or definition.footprints):
-            raise ValueError("exact GE six-pose point modal definition required; lines and footprints unsupported")
+                definition.lines or definition.footprints or
+                getattr(definition, "shell_reference_policy", "flat") != "flat"):
+            raise ValueError("exact flat GE six-pose point modal definition required; curved references, lines and footprints unsupported")
         return cls(definition.shell, tuple(definition.beams), tuple(definition.points),
             tuple(definition.fixed), request,
             modal_boundary_policy=getattr(definition, "modal_boundary_policy", "supported"),
@@ -649,10 +685,11 @@ class ExperimentalGENodalRigidFootprintPanel:
                 (chart_policy is None or self.footprint_chart_policy != chart_policy)):
             raise ValueError("explicit installed public nodal footprint chart policy required")
         if (type(self.panel) is not ExperimentalGEPointPanel or
+                self.panel.shell_reference_policy != "flat" or
                 self.panel.load_programme is not None or self.panel.body_load is not None or
                 self.panel.distributed_load is not None or self.panel.pressure_load is not None or
                 self.panel.distributed_programme is not None):
-            raise ValueError("nodal footprint requires an explicit unstaged GE point panel without body load or distributed load or pressure load")
+            raise ValueError("nodal footprint requires an explicit flat unstaged GE point panel without body load or distributed load or pressure load")
         # Own nested inputs using their existing strict public input framing.
         panel = ExperimentalGEPointPanel.from_dict(self.panel.to_dict())
         if self.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY:
@@ -1141,7 +1178,7 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
-           "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
+           "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
            "SCHEMA_BL5_MATERIAL_V3", "SCHEMA_BL5_COUPLED_MATERIAL_V4",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
            "STATUS", "SUFFIX", "save_case", "load_case"]
