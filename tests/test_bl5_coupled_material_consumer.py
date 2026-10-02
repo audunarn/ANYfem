@@ -105,7 +105,8 @@ def test_bl5_coupled_v4_distributed_envelope_has_one_base():
         ExperimentalGEBL5Panel.from_dict(nested)
 
 
-def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request):
+@pytest.mark.parametrize("event_policy",(False,True))
+def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request,event_policy):
     panel = _coupled_panel()
     panel = replace(panel, load_programme=_programme(panel))
     standalone = load_case(save_case(panel, tmp_path / "coupled.anyfem-ge.json"))
@@ -162,7 +163,8 @@ def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request):
     initial = float(final.beam_positions[-1, 2] - .0675)
     displacement_targets = (initial * 1.01, initial * 1.02)
     direction = (ss.NodalAction("beam", 105, (0., 0., 50., 0., 0., 0.)),)
-    options = dict(displacement_control=ss.DisplacementControl("beam", 105, 2),
+    options = dict(displacement_control=ss.DisplacementControl("beam", 105, 2,
+        trial_policy=ss.GENERALIZED_BRANCH_EVENT_TRIAL if event_policy else None),
                    increment_control=ss.AdaptiveIncrementControl(2, 8),
                    max_iterations=20, max_backtracks=12)
     token = CancellationToken()
@@ -172,6 +174,8 @@ def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request):
                      on_accepted=lambda result: token.cancel("displacement prefix"))
     prefix = direct.recover()
     rebased = direct.rebase_rotations(prefix.generation)
+    assert rebased.trial_policy == prefix.trial_policy == (ss.GENERALIZED_BRANCH_EVENT_TRIAL if event_policy else None)
+    assert rebased.event_cell_evaluations == prefix.event_cell_evaluations
     assert rebased.history == prefix.history
     assert rebased.increment_attempts == prefix.increment_attempts
     checkpoint = direct.checkpoint()
