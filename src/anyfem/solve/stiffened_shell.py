@@ -24,6 +24,7 @@ SCHEMA = "anyfem.experimental-ge-point-panel-v1"
 SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 SCHEMA_CURVED_Q4 = "anyfem.experimental-ge-curved-q4-point-panel-v1"
+SCHEMA_CURVED_Q4_MATERIAL = "anyfem.experimental-ge-curved-q4-point-panel-material-v2"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BODY_LOAD = "anyfem.experimental-ge-point-panel-body-load-v1"
 SCHEMA_PRESSURE_LOAD = "anyfem.experimental-ge-point-panel-pressure-load-v1"
@@ -238,14 +239,18 @@ class ExperimentalGEPointPanel:
                 not self.shell.q4_elements):
             raise ValueError("Q4 pullback policy requires at least one Q4 element")
         curved_policy = getattr(stiffened_shell, "CURVED_Q4_POINT_REFERENCE_V1", None)
+        curved_material_policy = getattr(stiffened_shell,
+                                         "CURVED_Q4_POINT_MATERIAL_REFERENCE_V1", None)
         if (type(self.shell_reference_policy) is not str or
                 self.shell_reference_policy != "flat" and
-                (curved_policy is None or self.shell_reference_policy != curved_policy)):
+                self.shell_reference_policy not in (curved_policy, curved_material_policy)):
             raise ValueError("unsupported installed GE shell reference policy")
         if self.shell_reference_policy != "flat":
             if (self.q4_pullback_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None) or
-                    self.shell.s3_elements or self.shell.j2_curve is not None):
-                raise ValueError("curved point consumer requires elastic algorithmic Q4 only")
+                    not self.shell.q4_elements or self.shell.s3_elements or
+                    (self.shell_reference_policy == curved_policy and
+                     self.shell.j2_curve is not None)):
+                raise ValueError("curved point consumer requires admitted algorithmic Q4 material policy")
             if any(value is not None for value in (self.load_programme, self.body_load,
                     self.distributed_load, self.pressure_load, self.distributed_programme)):
                 raise ValueError("curved point consumer admits fixed nodal actions only")
@@ -263,6 +268,11 @@ class ExperimentalGEPointPanel:
             raise ValueError("curved point consumer admits translational nodal actions only")
         if len(self.beams) > MAX_BEAMS:
             raise ValueError("experimental GE beam count exceeds file limit")
+        if self.shell_reference_policy == curved_material_policy:
+            for beam in self.beams:
+                element, _ = beam.instantiate()
+                if type(element.section) is not b3_ge.EllipsoidalGeneralizedSection:
+                    raise ValueError("curved material point consumer requires generalized B3 sections")
         if self.distributed_programme is not None:
             programme_type = getattr(stiffened_shell, "GEBeamDistributedProgramme", None)
             if programme_type is None or type(self.distributed_programme) is not programme_type:
@@ -423,8 +433,11 @@ class ExperimentalGEPointPanel:
         record = _point_components_payload(self.shell, self.beams, self.points,
                                           self.fixed, self.actions, self.q4_pullback_policy)
         if self.shell_reference_policy != "flat":
-            record.update(schema=SCHEMA_CURVED_Q4,
-                          shell_reference_policy=self.shell_reference_policy)
+            record.update(schema=(SCHEMA_CURVED_Q4_MATERIAL
+                                  if self.shell_reference_policy == getattr(
+                                      stiffened_shell, "CURVED_Q4_POINT_MATERIAL_REFERENCE_V1", None)
+                                  else SCHEMA_CURVED_Q4),
+                           shell_reference_policy=self.shell_reference_policy)
         return record
 
     @classmethod
@@ -497,14 +510,16 @@ class ExperimentalGEPointPanel:
             panel = cls.from_dict(data["panel"])
             programme = programme_type.from_payload(data["load_programme"])
             return replace(panel, load_programme=programme)
-        curved = value.get("schema") == SCHEMA_CURVED_Q4
-        selected_q4 = value.get("schema") in (SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4)
+        curved = value.get("schema") in (SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL)
+        selected_q4 = value.get("schema") in (
+            SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL)
         fields = {"schema", "status", "profile", "shell", "beams",
                   "points", "fixed", "actions"}
         data = _exact_fields(value, fields | ({"q4_pullback_policy"} if selected_q4 else set()) |
                              ({"shell_reference_policy"} if curved else set()),
                              "experimental GE panel")
-        if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4) or
+        if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK,
+                                   SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL) or
                 data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental GE panel schema, status, and profile required")
@@ -515,7 +530,10 @@ class ExperimentalGEPointPanel:
             raise ValueError("unsupported experimental Q4 pullback policy")
 
         if curved:
-            policy = getattr(stiffened_shell, "CURVED_Q4_POINT_REFERENCE_V1", None)
+            policy_name = ("CURVED_Q4_POINT_MATERIAL_REFERENCE_V1"
+                           if data["schema"] == SCHEMA_CURVED_Q4_MATERIAL else
+                           "CURVED_Q4_POINT_REFERENCE_V1")
+            policy = getattr(stiffened_shell, policy_name, None)
             if policy is None or data["shell_reference_policy"] != policy:
                 raise ValueError("curved schema requires installed explicit curved reference policy")
             # Reuse strict Q4 component framing; the new outer schema carries
@@ -1178,7 +1196,8 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
-           "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
+            "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_CURVED_Q4_MATERIAL",
+            "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
            "SCHEMA_BL5_MATERIAL_V3", "SCHEMA_BL5_COUPLED_MATERIAL_V4",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
            "STATUS", "SUFFIX", "save_case", "load_case"]

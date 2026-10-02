@@ -352,3 +352,31 @@ through standalone/native persistence, solve, restore and identical continuation
 These remain experimental development evidence, not connection, capacity,
 refinement, external-reference or production qualification. No legacy default
 or release version changes.
+
+## Explicit curved Q4 point material input
+
+`ExperimentalGEPointPanel` also accepts the separate public
+`CURVED_Q4_POINT_MATERIAL_REFERENCE_V1` shell-reference policy with the
+algorithmic Q4 pullback. Its strict
+`anyfem.experimental-ge-curved-q4-point-panel-material-v2` record retains the
+policy, opaque native generalized B3 beam definitions and an explicit shell J2
+curve (which may be `null`). The older curved elastic policy and schema remain
+unchanged; they continue to reject shell J2. Standalone and native Project
+save/reopen preserve this input record, while the solver owns accepted material
+history and its checkpoint.
+
+This route is limited to planar curved Q4 facets, full-pose points and nodal
+dead translational force-control histories. S3, staged or external load wrappers,
+footprints, curved arc continuation, spectra and stress-free-reference
+construction are unsupported. The record remains
+`EXPERIMENTAL_NOT_QUALIFIED`; persistence does not qualify material response or
+release the curved connection mechanics.
+
+The fixed-step solver defaults to eight backtracks. The material policy alone
+admits an explicit maximum of sixteen; adaptive stepping remains bounded at
+twelve. A nonsmooth reload check required the larger fixed-step budget, with its
+earlier failures preserved. Material checkpoints reproduce the accepted state
+and continued path. They do not reconstruct the preceding return-map tangent or
+last-increment dissipation, and detailed generalized-beam last-increment recovery
+remains unavailable. Installed development checks exercise native save/reopen,
+simultaneous shell/beam yielding, unloading, reloading and exact continuation.
