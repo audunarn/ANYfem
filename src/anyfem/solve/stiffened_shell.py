@@ -30,6 +30,8 @@ SCHEMA_DISTRIBUTED_LOAD = "anyfem.experimental-ge-point-panel-distributed-load-v
 SCHEMA_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-point-panel-distributed-programme-v1"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 SCHEMA_BL5_STAGED_V2 = "anyfem.experimental-ge-bl5-panel-staged-v2"
+SCHEMA_BL5_DISTRIBUTED = "anyfem.experimental-ge-bl5-panel-distributed-load-v1"
+SCHEMA_BL5_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-bl5-panel-distributed-programme-v1"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
 SCHEMA_NODAL_FOOTPRINT_CHART_V2 = "anyfem.experimental-ge-nodal-rigid-footprint-chart-panel-v2"
 LEGACY_FOOTPRINT_CHART_POLICY = "GE_NODAL_RIGID_FOOTPRINT_UNREBASED_ADMISSION_V1"
@@ -796,6 +798,9 @@ class ExperimentalGEBL5Panel:
     q4_pullback_policy: str = field(default=HISTORICAL_Q4_PULLBACK_POLICY, kw_only=True)
     load_programme: stiffened_shell.StagedDeadLoadProgramme | None = field(default=None, kw_only=True)
 
+    distributed_load: stiffened_shell.GEBeamDistributedLoad | None = field(default=None, kw_only=True)
+    distributed_programme: stiffened_shell.GEBeamDistributedProgramme | None = field(default=None, kw_only=True)
+
     def __post_init__(self) -> None:
         if (type(self.shell) is not stiffened_shell.ShellPanel or
                 not self.shell.q4_elements or self.shell.s3_elements or
@@ -825,6 +830,19 @@ class ExperimentalGEBL5Panel:
                 raise ValueError("staged BL5 programme requires selected Q4 pullback and empty actions")
             object.__setattr__(self, "load_programme",
                            programme_type.deserialize(self.load_programme.serialize()))
+        for name, typename in (("distributed_load", "GEBeamDistributedLoad"),
+                               ("distributed_programme", "GEBeamDistributedProgramme")):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            descriptor_type = getattr(stiffened_shell, typename, None)
+            if descriptor_type is None or type(value) is not descriptor_type:
+                raise ValueError("public BL5 distributed load descriptor required")
+            if (self.q4_pullback_policy != selected or self.actions or
+                    self.load_programme is not None or
+                    (self.distributed_load is not None and self.distributed_programme is not None)):
+                raise ValueError("BL5 distributed loading requires objective Q4 and exactly one load input")
+            object.__setattr__(self, name, descriptor_type.deserialize(value.serialize()))
         for beam in self.beams:
             element, _ = beam.instantiate()
             if type(element.section) is not b3_ge.EllipsoidalGeneralizedSection:
@@ -846,10 +864,12 @@ class ExperimentalGEBL5Panel:
     def create_analysis(self):
         """Construct a fresh experimental owner through its public facade."""
         owner = stiffened_shell.create_analysis(definition=self.definition())
-        if self.load_programme is not None:
+        descriptor = next((v for v in (self.load_programme, self.distributed_load,
+                                       self.distributed_programme) if v is not None), None)
+        if descriptor is not None:
             try:
-                if owner.preflight()["identity"] != self.load_programme.model_identity:
-                    raise ValueError("staged BL5 programme belongs to a different panel model")
+                if owner.preflight()["identity"] != descriptor.model_identity:
+                    raise ValueError("BL5 load belongs to a different panel model")
             except BaseException:
                 owner.close()
                 raise
@@ -858,9 +878,17 @@ class ExperimentalGEBL5Panel:
     @property
     def load_input(self):
         """Public finite solve input selected by this experimental record."""
-        return self.load_programme if self.load_programme is not None else self.actions
+        return next((v for v in (self.distributed_programme, self.distributed_load,
+                                self.load_programme) if v is not None), self.actions)
 
     def to_dict(self) -> dict:
+        for name, schema in (("distributed_load", SCHEMA_BL5_DISTRIBUTED),
+                             ("distributed_programme", SCHEMA_BL5_DISTRIBUTED_PROGRAMME)):
+            value = getattr(self, name)
+            if value is not None:
+                return dict(schema=schema, status=STATUS,
+                            panel=replace(self, **{name: None}).to_dict(),
+                            **{name: value.to_payload()})
         record = {
             "schema": SCHEMA_BL5,
             "status": STATUS,
@@ -897,6 +925,21 @@ class ExperimentalGEBL5Panel:
 
     @classmethod
     def from_dict(cls, value: object) -> ExperimentalGEBL5Panel:
+        if type(value) is dict and value.get("schema") in (
+                SCHEMA_BL5_DISTRIBUTED, SCHEMA_BL5_DISTRIBUTED_PROGRAMME):
+            name, typename = (("distributed_load", "GEBeamDistributedLoad")
+                if value["schema"] == SCHEMA_BL5_DISTRIBUTED else
+                ("distributed_programme", "GEBeamDistributedProgramme"))
+            data = _exact_fields(value, {"schema", "status", "panel", name},
+                                 "distributed BL5 input")
+            if (data["status"] != STATUS or type(data["panel"]) is not dict or
+                    data["panel"].get("schema") != SCHEMA_BL5_STAGED_V2):
+                raise ValueError("distributed BL5 requires an objective Q4 base record")
+            descriptor_type = getattr(stiffened_shell, typename, None)
+            if descriptor_type is None:
+                raise ValueError("installed solver lacks BL5 distributed load descriptor")
+            return replace(cls.from_dict(data["panel"]),
+                           **{name: descriptor_type.from_payload(data[name])})
         staged = type(value) is dict and value.get("schema") == SCHEMA_BL5_STAGED_V2
         data = _exact_fields(value, {"schema", "status", "profile", "shell",
                                      "beams", "lines", "fixed", "actions"} |
@@ -1031,7 +1074,8 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
                           parse_constant=reject_nonfinite)
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("invalid experimental GE panel JSON") from error
-    if type(data) is dict and data.get("schema") in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2):
+    if type(data) is dict and data.get("schema") in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2,
+                                                       SCHEMA_BL5_DISTRIBUTED, SCHEMA_BL5_DISTRIBUTED_PROGRAMME):
         return ExperimentalGEBL5Panel.from_dict(data)
     if type(data) is dict and data.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
         return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
@@ -1044,4 +1088,5 @@ __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGE
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
            "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
+           "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
            "STATUS", "SUFFIX", "save_case", "load_case"]

@@ -289,3 +289,33 @@ Installed checks exercise signed stages, accepted-prefix cancellation, chart
 rebasing, checkpoint restoration and continued completion, along with historical
 BL5 and point-project regressions. This establishes the tested consumer workflow,
 not physical connection qualification or programme completion.
+
+
+## Distributed BL5 force/couple inputs
+
+Objective-Q4 `ExperimentalGEBL5Panel` also accepts exactly one of
+`distributed_load=GEBeamDistributedLoad(...)` or
+`distributed_programme=GEBeamDistributedProgramme(...)`, with empty `actions`
+and no nodal `load_programme`. The descriptors are public solver types with
+native element IDs, fixed spatial force/couple densities per reference arclength,
+and an exact model binding. The consumer owns a canonical copy.
+
+These use separate `anyfem.experimental-ge-bl5-panel-distributed-load-v1` and
+`anyfem.experimental-ge-bl5-panel-distributed-programme-v1` envelopes around the
+unchanged objective-Q4 v2 record. Historical BL5 and point formats are unchanged;
+a load-bearing or recursively nested envelope cannot masquerade as the base.
+
+The existing `AnalysisDefinition.experimental_bl5_panel` factory and ordinary
+Project save/reopen preserve these inputs. `solve_bl5_panel(record)` performs a
+reference-linear solve for a fixed distributed descriptor; explicit `targets`
+select finite stepping. Distributed programmes require explicit positive forward
+programme positions, with signed physical endpoints. For persistent cancellation,
+checkpoint and continuation, use the owner factory and `panel.load_input` as for
+nodal stages. Wrong-model descriptors close the newly created owner before error.
+
+Installed tests cover fixed-load reference results and a signed force/couple
+programme through save/reopen, cancellation, rebase, restore and identical
+continued state. This adapter does not add line plasticity, S3, footprints,
+pressure, gravity or a new physical connection qualification. Zero-load relative
+assessment remains a solver limitation; the consumer does not replace failure
+status or alter equilibrium criteria.

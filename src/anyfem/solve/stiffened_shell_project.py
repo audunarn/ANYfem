@@ -91,11 +91,11 @@ def solve_bl5_panel(analysis, *, targets=None, cancellation_token=None,
                     max_iterations=12, max_backtracks=8):
     """Execute the stored BL5 inputs; checkpoint ownership stays with the solver.
 
-Staged loads require explicit positions. Fixed nodal actions default to the
+Staged loads require explicit positions. Fixed nodal or distributed actions default to the
 reference-linear route; explicit targets select admitted finite stepping.
 """
     panel = bl5_panel_from_analysis(analysis)
-    if panel.load_programme is not None and targets is None:
+    if (panel.load_programme is not None or panel.distributed_programme is not None) and targets is None:
         raise ValueError("staged BL5 solve requires explicit programme-position targets")
     if targets is None and (increment_control is not None or on_accepted is not None or
                             max_iterations != 12 or max_backtracks != 8):
@@ -103,7 +103,7 @@ reference-linear route; explicit targets select admitted finite stepping.
     owner = panel.create_analysis()
     try:
         if targets is None:
-            return owner.solve_linear(panel.actions, cancellation_token=cancellation_token)
+            return owner.solve_linear(panel.load_input, cancellation_token=cancellation_token)
         return owner.solve(panel.load_input, targets, cancellation_token=cancellation_token,
                            increment_control=increment_control, on_accepted=on_accepted,
                            max_iterations=max_iterations, max_backtracks=max_backtracks)
