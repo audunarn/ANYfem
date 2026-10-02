@@ -391,3 +391,13 @@ separate provenance. It does not transport a loaded history or persist the
 construction recipe in the experimental input schema. Installed checks cover an
 explicit nonrigid reference, simultaneous yielding and exact unload/reload restart.
 Material arc capacity and full imperfection qualification remain unfinished.
+
+The existing solver owner also admits experimental material point arc continuation
+through `continue_arc_length`. No new consumer schema or factory is required.
+Its material arc checkpoint has a separate identity and preserves the beam and
+optional shell J2 predecessors. Paired installed development checks cover a
+nonrigid reference saved and reopened through native Project persistence,
+simultaneous yielding, two arc increments and exact detailed fresh restart.
+The physical metric and twelve-backtrack arc budget are unchanged. Bounded
+continuation is not accepted material capacity, mesh/unit invariance or independent
+external qualification; retain the solver's precise capability exclusions.
