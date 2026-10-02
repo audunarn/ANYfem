@@ -367,8 +367,7 @@ history and its checkpoint.
 
 This route is limited to planar curved Q4 facets, full-pose points and nodal
 dead translational force-control histories. S3, staged or external load wrappers,
-footprints, curved arc continuation, spectra and stress-free-reference
-construction are unsupported. The record remains
+footprints, curved arc continuation and spectra are unsupported. The record remains
 `EXPERIMENTAL_NOT_QUALIFIED`; persistence does not qualify material response or
 release the curved connection mechanics.
 
@@ -382,3 +381,13 @@ supplies its predecessor. The solver validates endpoint updates before restorati
 checkpoint bytes do not authenticate the entire loading history. Installed
 development checks exercise native save/reopen, simultaneous shell/beam yielding,
 unloading, reloading and exact detailed recovery after continuation.
+
+Construct a new virgin material reference with the solver's existing
+`create_stress_free_point_reference`, then create an `ExperimentalGEPointPanel`
+from the returned definition through the same public consumer route. Native
+persistence retains the new geometry, material/section definitions and reference
+policy; keep the operation's source/target identity and perturbation record as
+separate provenance. It does not transport a loaded history or persist the
+construction recipe in the experimental input schema. Installed checks cover an
+explicit nonrigid reference, simultaneous yielding and exact unload/reload restart.
+Material arc capacity and full imperfection qualification remain unfinished.
