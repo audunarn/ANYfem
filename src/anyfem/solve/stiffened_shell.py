@@ -25,6 +25,7 @@ SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BODY_LOAD = "anyfem.experimental-ge-point-panel-body-load-v1"
+SCHEMA_PRESSURE_LOAD = "anyfem.experimental-ge-point-panel-pressure-load-v1"
 SCHEMA_DISTRIBUTED_LOAD = "anyfem.experimental-ge-point-panel-distributed-load-v1"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
@@ -211,6 +212,7 @@ class ExperimentalGEPointPanel:
     load_programme: stiffened_shell.StagedDeadLoadProgramme | None = None
     body_load: stiffened_shell.GEBodyLoad | None = field(default=None, kw_only=True)
     distributed_load: stiffened_shell.GEBeamDistributedLoad | None = field(default=None, kw_only=True)
+    pressure_load: stiffened_shell.GEShellPressureLoad | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
@@ -237,6 +239,15 @@ class ExperimentalGEPointPanel:
                 raise ValueError(f"explicit experimental GE {name} required")
         if len(self.beams) > MAX_BEAMS:
             raise ValueError("experimental GE beam count exceeds file limit")
+        if self.pressure_load is not None:
+            pressure_type = getattr(stiffened_shell, "GEShellPressureLoad", None)
+            if pressure_type is None or type(self.pressure_load) is not pressure_type:
+                raise ValueError("installed solver requires public experimental GE pressure load")
+            if (self.actions or self.load_programme is not None or
+                    self.body_load is not None or self.distributed_load is not None):
+                raise ValueError("GE pressure load requires empty legacy actions and no staged programme or body/distributed load")
+            object.__setattr__(self, "pressure_load",
+                               pressure_type.deserialize(self.pressure_load.serialize()))
         if self.distributed_load is not None:
             distributed_type = getattr(stiffened_shell, "GEBeamDistributedLoad", None)
             if distributed_type is None or type(self.distributed_load) is not distributed_type:
@@ -279,6 +290,10 @@ class ExperimentalGEPointPanel:
 
     def create_analysis(self):
         """Construct the fresh experimental owner through its public facade."""
+        if self.pressure_load is not None:
+            pressure_type = getattr(stiffened_shell, "GEShellPressureLoad", None)
+            if pressure_type is None or type(self.pressure_load) is not pressure_type:
+                raise ValueError("installed solver requires public experimental GE pressure load")
         if self.distributed_load is not None:
             distributed_type = getattr(stiffened_shell, "GEBeamDistributedLoad", None)
             if distributed_type is None or type(self.distributed_load) is not distributed_type:
@@ -288,6 +303,13 @@ class ExperimentalGEPointPanel:
             if body_type is None or type(self.body_load) is not body_type:
                 raise ValueError("installed solver requires public experimental GE body load")
         owner = stiffened_shell.create_analysis(definition=self.definition())
+        if self.pressure_load is not None:
+            try:
+                if owner.preflight()["identity"] != self.pressure_load.model_identity:
+                    raise ValueError("GE pressure load belongs to a different panel model")
+            except BaseException:
+                owner.close()
+                raise
         if self.distributed_load is not None:
             try:
                 if owner.preflight()["identity"] != self.distributed_load.model_identity:
@@ -314,6 +336,8 @@ class ExperimentalGEPointPanel:
     @property
     def load_input(self):
         """Explicit selected public solve input; legacy actions retain their meaning."""
+        if self.pressure_load is not None:
+            return self.pressure_load
         if self.distributed_load is not None:
             return self.distributed_load
         if self.body_load is not None:
@@ -321,6 +345,11 @@ class ExperimentalGEPointPanel:
         return self.actions if self.load_programme is None else self.load_programme
 
     def to_dict(self) -> dict:
+        if self.pressure_load is not None:
+            return dict(schema=SCHEMA_PRESSURE_LOAD, status=STATUS,
+                        profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
+                        panel=replace(self, pressure_load=None).to_dict(),
+                        pressure_load=self.pressure_load.to_payload())
         if self.distributed_load is not None:
             return dict(schema=SCHEMA_DISTRIBUTED_LOAD, status=STATUS,
                         profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
@@ -343,6 +372,19 @@ class ExperimentalGEPointPanel:
     def from_dict(cls, value: object) -> ExperimentalGEPointPanel:
         if type(value) is not dict:
             raise ValueError("strict experimental GE panel record required")
+        if value.get("schema") == SCHEMA_PRESSURE_LOAD:
+            data = _exact_fields(value, {"schema", "status", "profile", "panel", "pressure_load"},
+                                 "pressure-load GE point panel")
+            if (data["status"] != STATUS or
+                    data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                    type(data["panel"]) is not dict or data["panel"].get("schema") not in
+                    (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK)):
+                raise ValueError("pressure-load GE point panel requires an explicit legacy point input schema")
+            pressure_type = getattr(stiffened_shell, "GEShellPressureLoad", None)
+            if pressure_type is None:
+                raise ValueError("installed solver lacks the public experimental GE pressure load")
+            panel = cls.from_dict(data["panel"])
+            return replace(panel, pressure_load=pressure_type.from_payload(data["pressure_load"]))
         if value.get("schema") == SCHEMA_DISTRIBUTED_LOAD:
             data = _exact_fields(value, {"schema", "status", "profile", "panel", "distributed_load"},
                                  "distributed-load GE point panel")
@@ -561,8 +603,8 @@ class ExperimentalGENodalRigidFootprintPanel:
             raise ValueError("explicit installed public nodal footprint chart policy required")
         if (type(self.panel) is not ExperimentalGEPointPanel or
                 self.panel.load_programme is not None or self.panel.body_load is not None or
-                self.panel.distributed_load is not None):
-            raise ValueError("nodal footprint requires an explicit unstaged GE point panel without body load or distributed load")
+                self.panel.distributed_load is not None or self.panel.pressure_load is not None):
+            raise ValueError("nodal footprint requires an explicit unstaged GE point panel without body load or distributed load or pressure load")
         # Own nested inputs using their existing strict public input framing.
         panel = ExperimentalGEPointPanel.from_dict(self.panel.to_dict())
         if self.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY:
