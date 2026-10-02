@@ -1,0 +1,37 @@
+{
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "-m",
+    "pytest",
+    "-q",
+    "-c",
+    "C:\\Users\\AUDUNA~1\\AppData\\Local\\Temp\\r8-anyfem-ge-pressure-installed-v1\\fixtures\\pytest.ini",
+    "-p",
+    "no:cacheprovider",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_distributed_programme_consumer.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_distributed_programme_workflow.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_distributed_consumer.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_pressure_consumer.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_gravity_consumer.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_project.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_staged_load_consumer.py"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 18.691169300000183,
+  "sampled_peak_tree_bytes": 196907008,
+  "sampled_max_process_tree_threads": 7,
+  "resource_observed": true,
+  "resource_limit": null,
+  "timeout_seconds": 600,
+  "memory_limit_bytes": 1073741824,
+  "supervisor_sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+  "environment": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "CCX_NPROC_RESULTS": "1",
+    "CCX_NPROC_EQUATION_SOLVER": "1"
+  }
+}

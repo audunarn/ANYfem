@@ -126,9 +126,11 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     has one stored action set and returns its own LinearResult; it has no batch
     case IDs or on_case callback. Use create_point_panel_analysis for the owner's
     other explicitly admitted operations and checkpoint lifecycle. A staged GE
-    programme requires explicit positions in targets and delegates finite solve;
-    its returned result is not a durable accepted-state checkpoint. A body, distributed, or pressure load
-    uses reference-linear solve by default and finite solve with explicit targets.
+    programme (nodal or distributed) requires explicit positions in targets and
+    delegates finite solve and position validation to the solver. Its returned
+    result is not a durable accepted-state checkpoint. A body, fixed distributed,
+    or pressure load uses reference-linear solve by default and finite solve
+    with explicit targets.
     An explicit
     nodal footprint selects its declared V1 or V2 finite chart policy through
     its persisted input and requests finite stepping by supplying targets;
@@ -140,7 +142,8 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
                 on_case is not None or max_iterations != 12 or max_backtracks != 8):
             raise ValueError("reference-modal Project input supports modes only, without finite or batch controls")
         return panel.modes(cancellation_token=cancellation_token)
-    staged = type(panel) is ExperimentalGEPointPanel and panel.load_programme is not None
+    staged = type(panel) is ExperimentalGEPointPanel and (
+        panel.load_programme is not None or panel.distributed_programme is not None)
     body_finite = (type(panel) is ExperimentalGEPointPanel and
                    panel.body_load is not None and targets is not None)
     distributed_finite = (type(panel) is ExperimentalGEPointPanel and
