@@ -26,6 +26,11 @@ SCHEMA_MIXED_REFERENCE_MODAL = "anyfem.experimental-b2-mixed-reference-modal-pan
 SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-b2-nodal-rigid-footprint-panel-v1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal-panel-v1"
+SCHEMA_BODY_ACCELERATION = "anyfem.experimental-b2-q4-body-acceleration-panel-v1"
+SCHEMA_MIXED_BODY_ACCELERATION = "anyfem.experimental-b2-mixed-body-acceleration-panel-v1"
+SCHEMA_FOOTPRINT_BODY_ACCELERATION = "anyfem.experimental-b2-nodal-footprint-body-acceleration-panel-v1"
+_BODY_SCHEMAS = (SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION,
+                 SCHEMA_FOOTPRINT_BODY_ACCELERATION)
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-b2.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -90,20 +95,21 @@ def _json_load(payload):
 
 
 def _decode(record):
+    body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS
     mixed_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_REFERENCE_MODAL
-    mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)
+    mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_MIXED_BODY_ACCELERATION)
     modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
-    nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL)
+    nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION)
     record = _exact(record, ("schema", "status", "profile", "shell_nodes",
                              "shells", "members", "points", "affine") +
                                   (("request", "modal_boundary_policy") if modal else
                                   ("cases", "selection")) + (("footprints",) if nodal else ()) +
                                   (("inertia_policy",) if mixed_modal else ()),
                     "experimental B2 panel")
-    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL) or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL) + _BODY_SCHEMAS or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
-    with_mass = record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+    with_mass = body or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
     mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
     if mixed_modal:
         mixed_definition, _, _, policy = _mixed_modal_api()
@@ -249,6 +255,18 @@ def _decode(record):
         tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}),
         **({"inertia_policy": record["inertia_policy"]} if mixed_modal else {}))
 
+    if body:
+        if any(shell.density_kg_m3 is None or shell.density_kg_m3 <= 0.
+               for shell in shells) or any(member.mass is None for member in members):
+            raise ValueError("body acceleration requires positive shell density and explicit physical member mass")
+        for entries, name in ((shells, "shell_id"), (members, "member_id"), (attachments, "point_id")):
+            ids = [getattr(entry, name) for entry in entries]
+            if len(set(ids)) != len(ids):
+                raise ValueError(f"unique body-acceleration {name} values required")
+        hosts = {shell.shell_id for shell in shells}, {member.member_id for member in members}
+        if any(point.shell_id not in hosts[0] or point.member_id not in hosts[1] for point in attachments):
+            raise ValueError("known body-acceleration point host IDs required")
+
     if modal:
         if record["modal_boundary_policy"] != "supported":
             raise ValueError("B2 mixed reference modes require supported boundaries; free-free unsupported" if mixed_modal else
@@ -272,9 +290,11 @@ def _decode(record):
         raise ValueError("ordered B2 panel cases required")
     cases = []
     for item in record["cases"]:
-        row = _exact(item, ("id", "load"), "B2 panel case")
+        field = "acceleration_m_s2" if body else "load"
+        row = _exact(item, ("id", field), "B2 panel case")
         cases.append((_identifier(row["id"], "case ID"),
-                      np.asarray(_vector(row["load"], rows, "panel load"))))
+                      (_vector(row[field], 3, "body acceleration") if body else
+                       np.asarray(_vector(row[field], rows, "panel load")))))
     if len({name for name, _ in cases}) != len(cases):
         raise ValueError("unique B2 panel case IDs required")
     selection = _exact(record["selection"],
@@ -434,11 +454,12 @@ class ExperimentalB2PointPanel:
     def _from_definition(cls, definition, cases, *, selected_dofs,
                          selected_points=(), recover_members=None, schema=SCHEMA,
                          nodal=False, selected_footprints=None, request=None):
+        body = schema in _BODY_SCHEMAS
         mixed_modal = schema == SCHEMA_MIXED_REFERENCE_MODAL
         modal = schema in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
-        mixed = schema in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)
-        with_mass = schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
-        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL)):
+        mixed = schema in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_MIXED_BODY_ACCELERATION)
+        with_mass = body or schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION)):
             raise ValueError("experimental B2 panel schema required")
         definition_type, s3_type = (_mixed_api() if mixed else
                                     (stiffened_shell.B2Q4PanelDefinition, None))
@@ -447,7 +468,8 @@ class ExperimentalB2PointPanel:
             if (type(definition) is not definition_type or
                     type(definition.inertia_policy) is not str or definition.inertia_policy != policy):
                 raise ValueError("explicit typed native S3 mixed reference-modal definition required")
-        consumer_type = ExperimentalB2MixedReferenceModalPanel if mixed_modal else ExperimentalB2MixedPointPanel
+        consumer_type = (ExperimentalB2BodyAccelerationPanel if body else
+                         ExperimentalB2MixedReferenceModalPanel if mixed_modal else ExperimentalB2MixedPointPanel)
         if mixed and (cls is not consumer_type or
                       type(definition) is not definition_type or
                       getattr(definition, "footprints", ()) or
@@ -513,7 +535,8 @@ class ExperimentalB2PointPanel:
                        "data": T.data.tolist(),
                        "offset": np.asarray(
                            definition.prescribed_offset).tolist()},
-            "cases": [{"id": name, "load": np.asarray(load).tolist()}
+            "cases": [{"id": name, "acceleration_m_s2" if body else "load":
+                       np.asarray(load, dtype=object if body else None).tolist()}
                       for name, load in cases],
             "selection": {"dofs": list(selected_dofs),
                           "points": list(selected_points),
@@ -817,8 +840,107 @@ class ExperimentalB2MixedReferenceModalPanel(ExperimentalB2PointPanel):
         raise ValueError("B2 mixed reference-modal consumer supports modes only")
 
 
+@dataclass(frozen=True)
+class ExperimentalB2BodyAccelerationPanel(ExperimentalB2PointPanel):
+    """Reference-linear uniform global acceleration inputs in m/s2.
+
+    Physical shell density and member mass are explicit inputs. Expansion and
+    model binding belong to the fresh public solver owner. Typed body loads keep
+    equilibrated sided section fields separate from nodal constitutive recovery
+    and energy. Loaded interior pose, finite gravity and qualification are not
+    provided by this experimental consumer.
+    """
+
+    def __post_init__(self):
+        if (type(self) is not ExperimentalB2BodyAccelerationPanel or
+                type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES):
+            raise ValueError("exact bounded experimental B2 body-acceleration bytes required")
+        record = _json_load(self.payload)
+        if type(record) is not dict or record.get("schema") not in _BODY_SCHEMAS:
+            raise ValueError("explicit B2 body-acceleration schema required")
+        _decode(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii")+b"\n")
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs,
+                        selected_points=(), recover_members=None,
+                        selected_footprints=None):
+        mixed_type = getattr(stiffened_shell, "B2MixedPanelDefinition", None)
+        nodal = bool(getattr(definition, "footprints", ()))
+        mixed = mixed_type is not None and type(definition) is mixed_type
+        if type(definition) is not stiffened_shell.B2Q4PanelDefinition and not mixed:
+            raise ValueError("explicit public static B2 point or Q4 footprint definition required")
+        if any(type(node) is not int or node <= 0 for node in definition.shell_nodes_m):
+            raise ValueError("positive integer body-acceleration shell node IDs required")
+        if selected_footprints is not None and not nodal:
+            raise ValueError("selected footprints require a Q4 nodal-footprint definition")
+        schema = (SCHEMA_FOOTPRINT_BODY_ACCELERATION if nodal else
+                  SCHEMA_MIXED_BODY_ACCELERATION if mixed else SCHEMA_BODY_ACCELERATION)
+        return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+            selected_points=selected_points, recover_members=recover_members,
+            schema=schema, nodal=nodal, selected_footprints=selected_footprints)
+
+    @classmethod
+    def from_dict(cls, record):
+        return cls(json.dumps(record, allow_nan=False).encode("ascii"))
+
+    def to_dict(self):
+        return _json_load(self.payload)
+
+    def to_definition(self):
+        """Reconstruct detached public inputs without assembly or solve."""
+        return _decode(self.to_dict())[0]
+
+    @property
+    def acceleration_cases(self):
+        return _decode(self.to_dict())[1]
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.to_definition())
+        try:
+            required_exports = ("B2ReferenceBodyLoad", "B2LoadedMemberSections",
+                "B2BodyLoadedPanelResult", "B2BodyLoadedFootprintResult",
+                "B2BodyLoadedPanelSelectedCase", "B2BodyLoadedFootprintSelectedCase")
+            missing = tuple(name for name in required_exports
+                            if not isinstance(getattr(stiffened_shell, name, None), type))
+            if missing:
+                raise ValueError("installed solver lacks public typed B2 body-load recovery exports: "
+                                 + ", ".join(missing))
+            cap = getattr(owner, "capabilities", None)
+            if (not callable(getattr(owner, "body_acceleration_load", None)) or
+                    cap is None or cap.status != "experimental" or
+                    cap.production_qualified is not False or
+                    "body_acceleration_load" not in cap.operations):
+                raise ValueError("installed solver lacks public reference-linear B2 body-load capability")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def solve_linear_many(self, *, cancellation_token=None, on_case=None):
+        record = self.to_dict()
+        definition, cases, dofs, points, recovery = _decode(record)
+        owner = self.create_analysis()
+        try:
+            loads = tuple((name, owner.body_acceleration_load(acceleration))
+                          for name, acceleration in cases)
+            options = {}
+            if definition.footprints:
+                options["selected_footprints"] = _decode_footprint_selection(
+                    record["selection"]["footprints"], definition.footprints)
+            return owner.solve_linear_many(loads, selected_dofs=dofs,
+                selected_points=points, recover_members=recovery,
+                cancellation_token=cancellation_token, on_case=on_case, **options)
+        finally:
+            owner.close()
+
+    def modes(self, request=None, *, cancellation=None, cancellation_token=None):
+        raise ValueError("body-acceleration consumer supports reference-linear batches only; modes and finite gravity unsupported")
+
+
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -848,7 +970,8 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
         payload = stream.read(MAX_FILE_BYTES + 1)
     record = _json_load(payload)
     schema = record.get("schema") if type(record) is dict else None
-    consumer = (ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
+    consumer = (ExperimentalB2BodyAccelerationPanel if schema in _BODY_SCHEMAS else
+                ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
                 ExperimentalB2MixedReferenceModalPanel if schema == SCHEMA_MIXED_REFERENCE_MODAL else
                 ExperimentalB2MixedPointPanel if schema == SCHEMA_MIXED else
                 ExperimentalB2NodalRigidFootprintPanel if schema == SCHEMA_NODAL_FOOTPRINT else ExperimentalB2PointPanel)
@@ -860,4 +983,6 @@ __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFI
            "ExperimentalB2MixedReferenceModalPanel", "SCHEMA_MIXED_REFERENCE_MODAL",
            "ExperimentalB2NodalRigidFootprintPanel", "SCHEMA_NODAL_FOOTPRINT",
            "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
+           "ExperimentalB2BodyAccelerationPanel", "SCHEMA_BODY_ACCELERATION",
+           "SCHEMA_MIXED_BODY_ACCELERATION", "SCHEMA_FOOTPRINT_BODY_ACCELERATION",
            "save_case", "load_case"]

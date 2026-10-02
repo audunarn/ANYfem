@@ -25,6 +25,8 @@ from .stiffened_shell_b2 import (
     ExperimentalB2MixedPointPanel, SCHEMA_MIXED as B2_MIXED_SCHEMA,
     ExperimentalB2MixedReferenceModalPanel,
     SCHEMA_MIXED_REFERENCE_MODAL as B2_MIXED_MODAL_SCHEMA,
+    ExperimentalB2BodyAccelerationPanel, SCHEMA_BODY_ACCELERATION,
+    SCHEMA_MIXED_BODY_ACCELERATION, SCHEMA_FOOTPRINT_BODY_ACCELERATION,
 )
 
 
@@ -49,7 +51,7 @@ def encode_point_panel(panel):
     if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
-    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel):
+    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel):
         analysis_type, formulation = B2_TYPE, B2_FORMULATION
         payload = json.loads(panel.payload)
     else:
@@ -77,6 +79,10 @@ def _decode_point_panel(analysis_type, formulation, record):
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
+        if type(payload) is dict and payload.get("schema") in (
+                SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION,
+                SCHEMA_FOOTPRINT_BODY_ACCELERATION):
+            return ExperimentalB2BodyAccelerationPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == B2_MIXED_MODAL_SCHEMA:
             return ExperimentalB2MixedReferenceModalPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == B2_MIXED_SCHEMA:
@@ -137,7 +143,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     if not staged and not footprint_finite and (targets is not None or increment_control is not None or
                        on_accepted is not None or max_iterations != 12 or max_backtracks != 8):
         raise ValueError("finite solve controls require an explicit staged GE programme")
-    if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel):
+    if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2BodyAccelerationPanel):
         return panel.solve_linear_many(
             cancellation_token=cancellation_token, on_case=on_case)
     if on_case is not None:
