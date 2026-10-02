@@ -375,8 +375,10 @@ release the curved connection mechanics.
 The fixed-step solver defaults to eight backtracks. The material policy alone
 admits an explicit maximum of sixteen; adaptive stepping remains bounded at
 twelve. A nonsmooth reload check required the larger fixed-step budget, with its
-earlier failures preserved. Material checkpoints reproduce the accepted state
-and continued path. They do not reconstruct the preceding return-map tangent or
-last-increment dissipation, and detailed generalized-beam last-increment recovery
-remains unavailable. Installed development checks exercise native save/reopen,
-simultaneous shell/beam yielding, unloading, reloading and exact continuation.
+earlier failures preserved. V2 predecessor-aware material checkpoints reproduce the accepted state,
+last-increment generalized station recovery and continued path. Older snapshots
+remain decodable and omit unknown last-increment records until a new increment
+supplies its predecessor. The solver validates endpoint updates before restoration;
+checkpoint bytes do not authenticate the entire loading history. Installed
+development checks exercise native save/reopen, simultaneous shell/beam yielding,
+unloading, reloading and exact detailed recovery after continuation.
