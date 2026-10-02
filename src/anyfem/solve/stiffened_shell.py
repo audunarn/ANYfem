@@ -30,6 +30,7 @@ SCHEMA_DISTRIBUTED_LOAD = "anyfem.experimental-ge-point-panel-distributed-load-v
 SCHEMA_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-point-panel-distributed-programme-v1"
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 SCHEMA_BL5_STAGED_V2 = "anyfem.experimental-ge-bl5-panel-staged-v2"
+SCHEMA_BL5_MATERIAL_V3 = "anyfem.experimental-ge-bl5-panel-material-v3"
 SCHEMA_BL5_DISTRIBUTED = "anyfem.experimental-ge-bl5-panel-distributed-load-v1"
 SCHEMA_BL5_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-bl5-panel-distributed-programme-v1"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
@@ -783,10 +784,10 @@ class ExperimentalGENodalRigidFootprintPanel:
 
 @dataclass(frozen=True)
 class ExperimentalGEBL5Panel:
-    """Separate elastic Q4/generalized-B3 BL5 input record, never accepted state.
+    """Separate experimental Q4/generalized-B3 BL5 input, never accepted state.
 
     Public solver definitions validate the line controls and native sections.
-    Geometry, constraint admission and elastic finite-response limits remain
+    Geometry, constraint admission and finite-response limits remain
     with the solver owner when constructing or running an analysis.
     """
 
@@ -797,6 +798,7 @@ class ExperimentalGEBL5Panel:
     actions: tuple[stiffened_shell.NodalAction, ...] = ()
     q4_pullback_policy: str = field(default=HISTORICAL_Q4_PULLBACK_POLICY, kw_only=True)
     load_programme: stiffened_shell.StagedDeadLoadProgramme | None = field(default=None, kw_only=True)
+    bl5_material_policy: str = field(default="elastic", kw_only=True)
 
     distributed_load: stiffened_shell.GEBeamDistributedLoad | None = field(default=None, kw_only=True)
     distributed_programme: stiffened_shell.GEBeamDistributedProgramme | None = field(default=None, kw_only=True)
@@ -822,6 +824,12 @@ class ExperimentalGEBL5Panel:
         if (type(self.q4_pullback_policy) is not str or
                 self.q4_pullback_policy not in (HISTORICAL_Q4_PULLBACK_POLICY, selected)):
             raise ValueError("unsupported experimental BL5 Q4 pullback policy")
+        material = getattr(stiffened_shell, "BL5_GENERALIZED_MATERIAL_V1", None)
+        if (type(self.bl5_material_policy) is not str or
+                self.bl5_material_policy not in ("elastic", material)):
+            raise ValueError("unsupported experimental BL5 material policy")
+        if self.bl5_material_policy != "elastic" and self.q4_pullback_policy != selected:
+            raise ValueError("BL5 material policy requires selected Q4 pullback")
         if self.load_programme is not None:
             programme_type = getattr(stiffened_shell, "StagedDeadLoadProgramme", None)
             if programme_type is None or type(self.load_programme) is not programme_type:
@@ -859,7 +867,9 @@ class ExperimentalGEBL5Panel:
         if self.q4_pullback_policy == HISTORICAL_Q4_PULLBACK_POLICY:
             return stiffened_shell.LinearDefinition(*args)
         return stiffened_shell.LinearDefinition(*args,
-            q4_pullback_policy=self.q4_pullback_policy)
+            q4_pullback_policy=self.q4_pullback_policy,
+            **({} if self.bl5_material_policy == "elastic" else
+               {"bl5_material_policy": self.bl5_material_policy}))
 
     def create_analysis(self):
         """Construct a fresh experimental owner through its public facade."""
@@ -916,7 +926,13 @@ class ExperimentalGEBL5Panel:
             "actions": [dict(domain=item.domain, node=item.node,
                              wrench=list(item.wrench)) for item in self.actions],
         }
-        if self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY:
+        if self.bl5_material_policy != "elastic":
+            record.update(schema=SCHEMA_BL5_MATERIAL_V3,
+                          q4_pullback_policy=self.q4_pullback_policy,
+                          load_programme=(None if self.load_programme is None else
+                                          self.load_programme.to_payload()),
+                          bl5_material_policy=self.bl5_material_policy)
+        elif self.q4_pullback_policy != HISTORICAL_Q4_PULLBACK_POLICY:
             record.update(schema=SCHEMA_BL5_STAGED_V2,
                           q4_pullback_policy=self.q4_pullback_policy,
                           load_programme=(None if self.load_programme is None else
@@ -933,24 +949,30 @@ class ExperimentalGEBL5Panel:
             data = _exact_fields(value, {"schema", "status", "panel", name},
                                  "distributed BL5 input")
             if (data["status"] != STATUS or type(data["panel"]) is not dict or
-                    data["panel"].get("schema") != SCHEMA_BL5_STAGED_V2):
+                    data["panel"].get("schema") not in
+                    (SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3)):
                 raise ValueError("distributed BL5 requires an objective Q4 base record")
             descriptor_type = getattr(stiffened_shell, typename, None)
             if descriptor_type is None:
                 raise ValueError("installed solver lacks BL5 distributed load descriptor")
             return replace(cls.from_dict(data["panel"]),
                            **{name: descriptor_type.from_payload(data[name])})
-        staged = type(value) is dict and value.get("schema") == SCHEMA_BL5_STAGED_V2
+        staged = type(value) is dict and value.get("schema") in (
+            SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3)
+        material = type(value) is dict and value.get("schema") == SCHEMA_BL5_MATERIAL_V3
         data = _exact_fields(value, {"schema", "status", "profile", "shell",
                                      "beams", "lines", "fixed", "actions"} |
-                             ({"q4_pullback_policy", "load_programme"} if staged else set()),
+                              ({"q4_pullback_policy", "load_programme"} if staged else set()) |
+                              ({"bl5_material_policy"} if material else set()),
                              "experimental BL5 panel")
-        if (data["schema"] not in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2) or
+        if (data["schema"] not in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2,
+                                  SCHEMA_BL5_MATERIAL_V3) or
                 data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental BL5 panel schema, status, and profile required")
         q4_policy = HISTORICAL_Q4_PULLBACK_POLICY
         programme = None
+        material_policy = "elastic"
         if staged:
             q4_policy = data["q4_pullback_policy"]
             if q4_policy != getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None):
@@ -960,6 +982,10 @@ class ExperimentalGEBL5Panel:
                 if programme_type is None:
                     raise ValueError("installed solver lacks public BL5 staged load programme")
                 programme = programme_type.from_payload(data["load_programme"])
+        if material:
+            material_policy = data["bl5_material_policy"]
+            if material_policy != getattr(stiffened_shell, "BL5_GENERALIZED_MATERIAL_V1", None):
+                raise ValueError("material BL5 schema requires selected public material policy")
         shell_data = _exact_fields(data["shell"],
             {"node_ids", "coordinates_m", "q4_elements", "s3_elements",
              "thickness_m", "young_pa", "poisson", "density_kg_m3"}, "BL5 shell")
@@ -1018,7 +1044,8 @@ class ExperimentalGEBL5Panel:
             for item in data["actions"]
             for row in (_exact_fields(item, {"domain", "node", "wrench"}, "nodal action"),))
         return cls(shell, tuple(beams), tuple(lines), fixed, actions,
-                   q4_pullback_policy=q4_policy, load_programme=programme)
+                   q4_pullback_policy=q4_policy, load_programme=programme,
+                   bl5_material_policy=material_policy)
 
 
 def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel, path: str | Path) -> Path:
@@ -1075,6 +1102,7 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("invalid experimental GE panel JSON") from error
     if type(data) is dict and data.get("schema") in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2,
+                                                       SCHEMA_BL5_MATERIAL_V3,
                                                        SCHEMA_BL5_DISTRIBUTED, SCHEMA_BL5_DISTRIBUTED_PROGRAMME):
         return ExperimentalGEBL5Panel.from_dict(data)
     if type(data) is dict and data.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
@@ -1088,5 +1116,6 @@ __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGE
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
            "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
+           "SCHEMA_BL5_MATERIAL_V3",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
            "STATUS", "SUFFIX", "save_case", "load_case"]
