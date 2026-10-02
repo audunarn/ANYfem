@@ -127,7 +127,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     case IDs or on_case callback. Use create_point_panel_analysis for the owner's
     other explicitly admitted operations and checkpoint lifecycle. A staged GE
     programme requires explicit positions in targets and delegates finite solve;
-    its returned result is not a durable accepted-state checkpoint. A body load
+    its returned result is not a durable accepted-state checkpoint. A body or distributed load
     uses reference-linear solve by default and finite solve with explicit targets.
     An explicit
     nodal footprint selects its declared V1 or V2 finite chart policy through
@@ -143,10 +143,12 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     staged = type(panel) is ExperimentalGEPointPanel and panel.load_programme is not None
     body_finite = (type(panel) is ExperimentalGEPointPanel and
                    panel.body_load is not None and targets is not None)
+    distributed_finite = (type(panel) is ExperimentalGEPointPanel and
+                          panel.distributed_load is not None and targets is not None)
     footprint_finite = type(panel) is ExperimentalGENodalRigidFootprintPanel and targets is not None
-    if not staged and not footprint_finite and not body_finite and (targets is not None or increment_control is not None or
+    if not staged and not footprint_finite and not body_finite and not distributed_finite and (targets is not None or increment_control is not None or
                        on_accepted is not None or max_iterations != 12 or max_backtracks != 8):
-        raise ValueError("finite solve controls require an explicit staged GE programme, footprint, or body load with targets")
+        raise ValueError("finite solve controls require an explicit staged GE programme, footprint, or body/distributed load with targets")
     if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2BodyAccelerationPanel):
         return panel.solve_linear_many(
             cancellation_token=cancellation_token, on_case=on_case)
@@ -156,7 +158,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
         raise ValueError("staged GE solve requires explicit programme-position targets")
     owner = panel.create_analysis()
     try:
-        if staged or footprint_finite or body_finite:
+        if staged or footprint_finite or body_finite or distributed_finite:
             load = panel.actions if footprint_finite else panel.load_input
             return owner.solve(load, targets, cancellation_token=cancellation_token,
                                increment_control=increment_control, on_accepted=on_accepted,
