@@ -170,6 +170,10 @@ def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request):
         direct.solve(direction, displacement_targets, **options,
                      cancellation_token=token,
                      on_accepted=lambda result: token.cancel("displacement prefix"))
+    prefix = direct.recover()
+    rebased = direct.rebase_rotations(prefix.generation)
+    assert rebased.history == prefix.history
+    assert rebased.increment_attempts == prefix.increment_attempts
     checkpoint = direct.checkpoint()
     resumed_owner = record.create_bl5_panel_analysis()
     request.addfinalizer(resumed_owner.close)
