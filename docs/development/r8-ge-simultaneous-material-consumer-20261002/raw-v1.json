@@ -1,0 +1,174 @@
+{
+  "archive": "raw-v1.zip",
+  "sha256": "7d8e218f08e5d651c7edb7f9aca52b4097683e593236486a5759f090297ce009",
+  "files": {
+    "runtime/supervisor.py": {
+      "sha256": "5837645ddf40e591451cbd58f8975ce8f026cb908e750044b848c8c04dcae5d4",
+      "bytes": 6640
+    },
+    "v1/anyfem-source-manifest.json": {
+      "sha256": "2f26505e4d542c5e285a66a59887908fdce6d29d89e49fdbf987075b4c0aad5d",
+      "bytes": 10144
+    },
+    "v1/anysolver-source-manifest.json": {
+      "sha256": "cdab8fed65673ddc00ee180957bc3863c3ea4f70130fb8d655a000158705ceff",
+      "bytes": 45986
+    },
+    "v1/artifact-identities.json": {
+      "sha256": "5fd4d6e84c59274d706d80ee4b103e619459d79f234d2d38eb80419113f018a7",
+      "bytes": 776
+    },
+    "v1/fixture-manifest.json": {
+      "sha256": "028fd8e42feae47b75dac391cdc48bb13be4ca5576857954b714fd7c4d9fe726",
+      "bytes": 274
+    },
+    "v1/fixtures/examples/stiffened_shell_coupled_plastic_history_consumer.py": {
+      "sha256": "0793a3d8155c32929aa1b8ea054b876086423df4ad723c170af421b64f7a56ff",
+      "bytes": 12283
+    },
+    "v1/fixtures/pytest.ini": {
+      "sha256": "e75b916e87df6cc617267032a2e6b29b274d2c4e83adbc6bcec233612895d01b",
+      "bytes": 33
+    },
+    "v1/fixtures/tests/test_stiffened_shell_simultaneous_history_consumer.py": {
+      "sha256": "a885c5f18ce50b96b549507458cef694589482c7f0e1cd41229f7bf6e5007f94",
+      "bytes": 2739
+    },
+    "v1/run.py": {
+      "sha256": "b9b5dac49348858af3853ac46db1927148853fc5adef0efb580e7746e9e91117",
+      "bytes": 4776
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/accepted-observations.jsonl": {
+      "sha256": "9053b01e926538b97ccf109bbb9b862a4411fabf6b62d9fd63d5b89a8bb1eb7d",
+      "bytes": 56708
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/direct-final.checkpoint": {
+      "sha256": "98e58430d4c0328f6656eb76d437af8d49add526db07c2960e6463a98dc309d3",
+      "bytes": 18029
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/mixed-history.anyfem": {
+      "sha256": "8dc4082d33e3aeda07cb635d5acdb42ee31016b12eb25f08f236e716c68a0ab3",
+      "bytes": 23064
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/prefix.checkpoint": {
+      "sha256": "1bc4d0bd1fb2a1ea1908ad6187b68a3941bb09cf0e60635b46f3d0b41cc8e393",
+      "bytes": 17765
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/restored-prefix.checkpoint": {
+      "sha256": "1bc4d0bd1fb2a1ea1908ad6187b68a3941bb09cf0e60635b46f3d0b41cc8e393",
+      "bytes": 17765
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/resumed-final.checkpoint": {
+      "sha256": "98e58430d4c0328f6656eb76d437af8d49add526db07c2960e6463a98dc309d3",
+      "bytes": 18029
+    },
+    "v1/test/basetemp/test_native_project_simultaneo0/summary.json": {
+      "sha256": "5a50eeef40a61bd13c2aae83514fe3956ae8c9088eb05351324e20b33fe03bf5",
+      "bytes": 16304
+    },
+    "v1/test/execution.json": {
+      "sha256": "e6a52d401e9abb77bdc37ae63e971bcc190d661f587e7125738735bb6959f0be",
+      "bytes": 813
+    },
+    "v1/test/import-identity.json": {
+      "sha256": "14df991ef5e53489650da456f8e0cbca751f6100656ea9b5dc111de6bee8efdd",
+      "bytes": 47648
+    },
+    "v1/test/junit.xml": {
+      "sha256": "6051f0b3a894982eeeab2da3e84fae132abde43d1bcb6da1835833c6898e6f68",
+      "bytes": 494
+    },
+    "v1/test/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "v1/test/stdout.log": {
+      "sha256": "bb0b2a2023ebaaca1db8f7134f888a9c83e1da2015bc4a4cab1efefe6f0d46f8",
+      "bytes": 111
+    },
+    "v2/anyfem-source-manifest.json": {
+      "sha256": "2f26505e4d542c5e285a66a59887908fdce6d29d89e49fdbf987075b4c0aad5d",
+      "bytes": 10144
+    },
+    "v2/anysolver-source-manifest.json": {
+      "sha256": "cdab8fed65673ddc00ee180957bc3863c3ea4f70130fb8d655a000158705ceff",
+      "bytes": 45986
+    },
+    "v2/artifact-identities.json": {
+      "sha256": "5fd4d6e84c59274d706d80ee4b103e619459d79f234d2d38eb80419113f018a7",
+      "bytes": 776
+    },
+    "v2/fixture-manifest.json": {
+      "sha256": "bdfb3396a7b6ec21562d7f1ab1765633ee4899548d4c310750f9c90527059692",
+      "bytes": 274
+    },
+    "v2/fixtures/examples/stiffened_shell_coupled_plastic_history_consumer.py": {
+      "sha256": "9d663cceefaf3fa7208c02200db0ddd6a74997790b59c208c1888c169efbc4b7",
+      "bytes": 12958
+    },
+    "v2/fixtures/pytest.ini": {
+      "sha256": "e75b916e87df6cc617267032a2e6b29b274d2c4e83adbc6bcec233612895d01b",
+      "bytes": 33
+    },
+    "v2/fixtures/tests/test_stiffened_shell_simultaneous_history_consumer.py": {
+      "sha256": "14016c4e37f36481b339ae1420406513c89fb3ba1ec0ff46155be5025d9f47d9",
+      "bytes": 3060
+    },
+    "v2/run.py": {
+      "sha256": "b9b5dac49348858af3853ac46db1927148853fc5adef0efb580e7746e9e91117",
+      "bytes": 4776
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/accepted-observations.jsonl": {
+      "sha256": "9053b01e926538b97ccf109bbb9b862a4411fabf6b62d9fd63d5b89a8bb1eb7d",
+      "bytes": 56708
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/direct-final.checkpoint": {
+      "sha256": "98e58430d4c0328f6656eb76d437af8d49add526db07c2960e6463a98dc309d3",
+      "bytes": 18029
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/mixed-history.anyfem": {
+      "sha256": "e0580ab6d2a7f2055ee45f9ea95f9b2b40236098aa8a7c315b1e5073cf0ba931",
+      "bytes": 23064
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/prefix.checkpoint": {
+      "sha256": "1bc4d0bd1fb2a1ea1908ad6187b68a3941bb09cf0e60635b46f3d0b41cc8e393",
+      "bytes": 17765
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/restored-prefix.checkpoint": {
+      "sha256": "1bc4d0bd1fb2a1ea1908ad6187b68a3941bb09cf0e60635b46f3d0b41cc8e393",
+      "bytes": 17765
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/resumed-final.checkpoint": {
+      "sha256": "98e58430d4c0328f6656eb76d437af8d49add526db07c2960e6463a98dc309d3",
+      "bytes": 18029
+    },
+    "v2/test/basetemp/test_native_project_simultaneo0/summary.json": {
+      "sha256": "c5b4e82a01698bfcf8c03b306efaaa2fb0abf4654769cd38c70c47dc845bc5bc",
+      "bytes": 16533
+    },
+    "v2/test/execution.json": {
+      "sha256": "ca01c55b99d1785e91c5b7d2ee06e1a2a95d5ec19567388a403c0645fe3e63a8",
+      "bytes": 813
+    },
+    "v2/test/import-identity.json": {
+      "sha256": "14df991ef5e53489650da456f8e0cbca751f6100656ea9b5dc111de6bee8efdd",
+      "bytes": 47648
+    },
+    "v2/test/junit.xml": {
+      "sha256": "866a4a4d1f16ffaf2eff931b482a7f662675b985557862b62ad7fb96396150ef",
+      "bytes": 494
+    },
+    "v2/test/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "v2/test/stdout.log": {
+      "sha256": "cb41ddcaeb75b9c17f781627ab2a1ff8157cf9d8dc544bc4eb9851083ffa5178",
+      "bytes": 111
+    }
+  },
+  "credential_scan": {
+    "known_current_values_checked": 3,
+    "matched_files": []
+  }
+}
