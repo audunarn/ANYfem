@@ -1,0 +1,227 @@
+{
+  "archive_sha256": "056a86227214d66a76677e63a6a640def3c86512d8d6235f20bcfa226c9d55c7",
+  "members": {
+    "installed/artifact-identities.json": {
+      "sha256": "215c1884357c9ecfc22a9ae8d12080f3188a1b4b5fa2d84e922ca4d52cc10274",
+      "bytes": 715
+    },
+    "installed/build.log": {
+      "sha256": "1e09efff107f1cef40ba2bfe746746c1ecc68d5b96370b797864aae46fed2817",
+      "bytes": 712
+    },
+    "installed/fixture-manifest.json": {
+      "sha256": "8876d5a2cd4dd1ce7c0fd9b746150c3593ef2182e50399cd87f38dee060f6472",
+      "bytes": 612
+    },
+    "installed/install.log": {
+      "sha256": "d698ac71093b1bfe2f5649510eedd8a216a11647d1ef6d2b8062660e479f92de",
+      "bytes": 341
+    },
+    "installed/run.py": {
+      "sha256": "581b243ac1c23d03035ae9e8ac8727e7baee6cabc4027d9868808af060bd6770",
+      "bytes": 3648
+    },
+    "installed/solver-source-manifest.json": {
+      "sha256": "7cfa01ee59e89d8a31b58919d745916b2e5916f273a9730d1f6c8aafe1430e4b",
+      "bytes": 46232
+    },
+    "installed/source-manifest.json": {
+      "sha256": "36971f2ddfbf158ab06aab4ccc6c0e0d4f56c3082ac4d4804501d0f9d397ba52",
+      "bytes": 10146
+    },
+    "installed/fixtures/pytest.ini": {
+      "sha256": "578fc1cd12d8d642df8eff41d71d5119626e9f88f21fafadba6b1092ac840a93",
+      "bytes": 10
+    },
+    "installed/test-v1/execution.json": {
+      "sha256": "9cd6de499a1c3d473a32413854406545f7817cd04e8d87c943ed4684361acfde",
+      "bytes": 781
+    },
+    "installed/test-v1/junit.xml": {
+      "sha256": "dc5187c35d846c2bfa44d3e5aa0012926f86b3b2e07093b3fa73231d751952f1",
+      "bytes": 10509
+    },
+    "installed/test-v1/runtime.json": {
+      "sha256": "7bd35bd30546a9518ca7688a4fd1c7c5c0285a7f8461d904fccaea0bbe3a691d",
+      "bytes": 49314
+    },
+    "installed/test-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "installed/test-v1/stdout.log": {
+      "sha256": "07d0ef22750bacccca5476537d9b0815ead2ce8fc2bcb9cc9e13275bf259bc61",
+      "bytes": 102
+    },
+    "installed/wheels/anyfem-0.4.1-py3-none-any.whl": {
+      "sha256": "9d96881dbdd7dacc10577db82873d3acb48e7d5765afa04855090e7cfc8a2586",
+      "bytes": 534004
+    },
+    "installed/test-v1/basetemp/test_gravity_actual_public_mod0/bound.anyfem": {
+      "sha256": "683a82947c22b16514ec5ce4ee38d0552b28d35a16b93ccc2239536782eac673",
+      "bytes": 10616
+    },
+    "installed/test-v1/basetemp/test_gravity_save_reopen_proje0/gravity.anyfem": {
+      "sha256": "2a3e9c30b94c64426e0cae379c793ce7580eee343fb3e5deeba94eae16e05806",
+      "bytes": 10612
+    },
+    "installed/test-v1/basetemp/test_gravity_save_reopen_proje0/gravity.anyfem-ge.json": {
+      "sha256": "964b91f46501d5cc9f5e22c6b440423a4dd32f1776944dc9530ac587ed951b54",
+      "bytes": 4063
+    },
+    "installed/test-v1/basetemp/test_native_b2_cancelled_prefi0/cancel.anyfem": {
+      "sha256": "31ac5e9abdd65f7f3412f2776afcb4d28625155600a103085883113ba5686770",
+      "bytes": 19049
+    },
+    "installed/test-v1/basetemp/test_native_point_panel_roundt0/ge.anyfem": {
+      "sha256": "105830b449928c5974f60d35eda34dc17e9d95e4cc5df8324766c381bb7f50d2",
+      "bytes": 10008
+    },
+    "installed/test-v1/basetemp/test_native_point_panel_roundt1/b2.anyfem": {
+      "sha256": "dd04424407228d8ea214a552d8661b8cea989750125f30ab4990051f41f3a13b",
+      "bytes": 19045
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/direct-final.checkpoint": {
+      "sha256": "98e16b97fd2a6fab78547f7e47092eb2689898bde264adceb7da7b52ae66e0d1",
+      "bytes": 6206
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/gravity.anyfem": {
+      "sha256": "690eb9c20f1703353962325597c6e7e9801b265bb3ea88942ec73e4e0ecd1e0d",
+      "bytes": 13784
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/observations.json": {
+      "sha256": "39852915ddde0b3d9f9833ee675fe1d360b8d22863f912fafaa27f64e5864fb3",
+      "bytes": 1760
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/prefix.checkpoint": {
+      "sha256": "39b33f2f44f81ac26da07c17128b04d2c6977505e7dc892b722ba30af57bfc01",
+      "bytes": 5748
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/restored-prefix.checkpoint": {
+      "sha256": "39b33f2f44f81ac26da07c17128b04d2c6977505e7dc892b722ba30af57bfc01",
+      "bytes": 5748
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/resumed-final.checkpoint": {
+      "sha256": "98e16b97fd2a6fab78547f7e47092eb2689898bde264adceb7da7b52ae66e0d1",
+      "bytes": 6206
+    },
+    "installed/test-v1/basetemp/test_public_gravity_project_ro0/summary.json": {
+      "sha256": "78e8aac68c1af310bd06dfefe1af98adf941804619672cde47700039dc0563e7",
+      "bytes": 814
+    },
+    "installed/test-v1/basetemp/test_staged_save_reopen_native0/staged.anyfem": {
+      "sha256": "3e6e8f8173d087e5a4f02c240285e5831966e47eb94914e416de6aa188206b99",
+      "bytes": 11217
+    },
+    "installed/test-v1/basetemp/test_staged_save_reopen_native0/staged.anyfem-ge.json": {
+      "sha256": "11f623e42f98919df53b3158ede44a59d519db2f3f1714d5116967baa631b33b",
+      "bytes": 4171
+    },
+    "installed/fixtures/examples/stiffened_shell_ge_gravity_consumer.py": {
+      "sha256": "96909d92c605f6fde67abafb9f3067a1326c3d5005f2a28d466dea7b69014a5d",
+      "bytes": 6658
+    },
+    "installed/fixtures/tests/test_stiffened_shell_ge_gravity_consumer.py": {
+      "sha256": "242b156204e9619e6b853b794d7b779ff37ac351e811724c2d48e4d5db1aca7b",
+      "bytes": 8369
+    },
+    "installed/fixtures/tests/test_stiffened_shell_ge_gravity_workflow.py": {
+      "sha256": "52d6422109bae6ee2f445627a5dbe2e8cce0158dcf79dbfd2640000edf0af97f",
+      "bytes": 2102
+    },
+    "installed/fixtures/tests/test_stiffened_shell_project.py": {
+      "sha256": "f1c93790d910f2fabd43da5769441c5a7b0ae2846db41ef70fab7d65ce9fe523",
+      "bytes": 10649
+    },
+    "installed/fixtures/tests/test_stiffened_shell_staged_load_consumer.py": {
+      "sha256": "adf89954a0843771722b572bfbcd682c34c782f23b4bca53a6babe9857eb97b4",
+      "bytes": 7843
+    },
+    "source-checks/run.py": {
+      "sha256": "c2172014290f724aace00a1d6761cc528f6e43cf98ce4603e572f01b8c576054",
+      "bytes": 792
+    },
+    "source-checks/focused-v1/execution.json": {
+      "sha256": "2416204a502d8e11ee976aa48d62acabe56f4a22e4a801b4b13eaf35a86c9495",
+      "bytes": 1366
+    },
+    "source-checks/focused-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "source-checks/focused-v1/stdout.log": {
+      "sha256": "10fe78d15a7f29241a20d9ae4c40157eb6d11c6c9c039bc95218a3aadf5392bb",
+      "bytes": 102
+    },
+    "source-checks/focused-v1-data/test_gravity_actual_public_mod0/bound.anyfem": {
+      "sha256": "7d26bf7a4cc6c485b66bdbf16649cf9e8c4a9e952bf102d068de9bd0a6cb17c8",
+      "bytes": 10616
+    },
+    "source-checks/focused-v1-data/test_gravity_save_reopen_proje0/gravity.anyfem": {
+      "sha256": "833c5c4d1741f4a0d8381c0b97c41e6adda43e54d76296f39de38e1758754d64",
+      "bytes": 10612
+    },
+    "source-checks/focused-v1-data/test_gravity_save_reopen_proje0/gravity.anyfem-ge.json": {
+      "sha256": "964b91f46501d5cc9f5e22c6b440423a4dd32f1776944dc9530ac587ed951b54",
+      "bytes": 4063
+    },
+    "source-checks/focused-v1-data/test_native_b2_cancelled_prefi0/cancel.anyfem": {
+      "sha256": "b1abac26e24615567fa675b573cdd29aa65cea2ece27889114bf4576b8f33f31",
+      "bytes": 19049
+    },
+    "source-checks/focused-v1-data/test_native_point_panel_roundt0/ge.anyfem": {
+      "sha256": "d70ac4fe4ee44011d9f569eab3c0b947f21522fbecc17bf2ff68b3de9953a560",
+      "bytes": 10008
+    },
+    "source-checks/focused-v1-data/test_native_point_panel_roundt1/b2.anyfem": {
+      "sha256": "7369df70fafccc1f9a6ea63f12a44ab2fe79aa550c3105d3cd8a0dae2ac5b801",
+      "bytes": 19045
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/direct-final.checkpoint": {
+      "sha256": "98e16b97fd2a6fab78547f7e47092eb2689898bde264adceb7da7b52ae66e0d1",
+      "bytes": 6206
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/gravity.anyfem": {
+      "sha256": "5a8a4d4639437df7c9c3e8c5be2a9c97f48a51668d5583c6d1a3144309a2cf6e",
+      "bytes": 13784
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/observations.json": {
+      "sha256": "39852915ddde0b3d9f9833ee675fe1d360b8d22863f912fafaa27f64e5864fb3",
+      "bytes": 1760
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/prefix.checkpoint": {
+      "sha256": "39b33f2f44f81ac26da07c17128b04d2c6977505e7dc892b722ba30af57bfc01",
+      "bytes": 5748
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/restored-prefix.checkpoint": {
+      "sha256": "39b33f2f44f81ac26da07c17128b04d2c6977505e7dc892b722ba30af57bfc01",
+      "bytes": 5748
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/resumed-final.checkpoint": {
+      "sha256": "98e16b97fd2a6fab78547f7e47092eb2689898bde264adceb7da7b52ae66e0d1",
+      "bytes": 6206
+    },
+    "source-checks/focused-v1-data/test_public_gravity_project_ro0/summary.json": {
+      "sha256": "78e8aac68c1af310bd06dfefe1af98adf941804619672cde47700039dc0563e7",
+      "bytes": 814
+    },
+    "source-checks/focused-v1-data/test_staged_save_reopen_native0/staged.anyfem": {
+      "sha256": "0b34658783ccc74c921aa0e6b3f5d5f78d9ebd61c5ad71f8d13b0f19d7f7332c",
+      "bytes": 11217
+    },
+    "source-checks/focused-v1-data/test_staged_save_reopen_native0/staged.anyfem-ge.json": {
+      "sha256": "11f623e42f98919df53b3158ede44a59d519db2f3f1714d5116967baa631b33b",
+      "bytes": 4171
+    },
+    "source/src/anyfem/solve/stiffened_shell.py": {
+      "sha256": "2337960ffcb3460b683db59843d736da365f9530ccbc544aaa65a073c8f20acd",
+      "bytes": 48661
+    },
+    "source/src/anyfem/solve/stiffened_shell_project.py": {
+      "sha256": "3227f3eb4233e8a1e3f0f733e8bda10eca6aa4d6b603b92ebd47ae511d436557",
+      "bytes": 9904
+    }
+  },
+  "credential_values_checked": 3,
+  "matches": 0
+}
