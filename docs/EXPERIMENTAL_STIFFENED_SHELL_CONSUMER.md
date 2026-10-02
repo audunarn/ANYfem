@@ -81,8 +81,8 @@ The BL5 record requires pure Q4 elastic shell inputs, native generalized B3
 beam definitions, one or more public `ExperimentalBL5Line` definitions and
 fixed coordinates. It stores the native beam bytes and their SHA-256 bindings,
 the complete declared line controls, and nodal actions. Physical-fibre beams,
-shell J2, S3, point attachments and the algorithmic Q4 point pullback are outside
-this record. Those combinations fail explicitly rather than selecting a different
+shell J2, S3 and point attachments are outside this record. The separately
+selected objective Q4 pullback uses the v2 record described below. Those combinations fail explicitly rather than selecting a different
 solver route. Construction checks the input family without assembling an
 analysis. The solver owns trace geometry, supports, constraint admission and
 elastic-response checks.
@@ -137,8 +137,9 @@ requires the solver's separately obtained checkpoint; the consumer never decodes
 or converts checkpoint bytes. The current finite BL5 identity is the solver's
 V11 checkpoint route, distinct from historical point and line identities.
 These files are neither ordinary native `.anyfem` projects nor result or job
-artifacts. They do not establish BL5 qualification, production release, native
-project support or a selected multiplier law. Actual runtime provenance comes
+artifacts. They do not establish BL5 qualification, production release or
+a selected multiplier law. The separate Project adapter below preserves these
+explicit inputs without converting a standalone file into a project. Actual runtime provenance comes
 from the imported consumer and solver paths and the installed-artifact evidence,
 not from the input schema label. Installed identities, verification outcomes and
 remaining programme gates are recorded by the solver's living R8 task record.
@@ -199,8 +200,8 @@ unchanged v1/v2/v3 point input and the public solver's immutable
 `stiffened_shell.StagedDeadLoadProgramme` descriptor, including all future
 absolute endpoints and the physical model identity. Legacy actions must be
 empty in this mode. Point inputs without a programme retain their original
-schemas, defaults and reference-linear dispatch. BL5/B2 do not acquire this
-staged policy.
+schemas, defaults and reference-linear dispatch. B2 does not acquire this
+staged policy; BL5 uses its own explicit v2 schema below.
 
 Construct the programme using a public point owner's `preflight()["identity"]`
 and translation-force endpoint tuples. Positions describe stage progress,
@@ -252,3 +253,39 @@ yielding/staged history transport, complete unloading, line loading or the
 broader programme. A zero-force endpoint retains the solver's existing strict
 equilibrium behavior. Runtime provenance is the actual imported consumer/solver
 source and installed-artifact evidence, not the schema or input filename.
+
+
+## Objective BL5 staged inputs in native Projects
+
+`ExperimentalGEBL5Panel(..., q4_pullback_policy=
+stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1)` selects
+`anyfem.experimental-ge-bl5-panel-staged-v2`. Historical BL5 v1 encoding and
+behavior remain unchanged. An optional `load_programme` must be a public
+`StagedDeadLoadProgramme` bound to this exact model, with legacy `actions=()`.
+Obtain the model identity from a public owner before constructing the programme.
+The consumer owns its serialized descriptor and checks its model binding before
+returning a new owner. This remains experimental, elastic Q4/generalized-B3
+behavior; no line plasticity, S3 or distributed-load admission is implied.
+
+Use `AnalysisDefinition.experimental_bl5_panel(name, panel)` to add these explicit
+inputs to a mesh-only `Project`, then use ordinary `save_project`/`load_project`.
+The outer identity is `anyfem.experimental-bl5-panel-project-v1`, with type
+`experimental_ge_bl5_panel` and formulation `experimental-ge-bl5-panel`.
+It is distinct from the point-panel route. Project targets, generic settings,
+resource options and output requests are rejected rather than silently ignored.
+Stored payloads are detached and revalidated before save or owner creation.
+
+`anyfem.solve.stiffened_shell_project.solve_bl5_panel(record)` executes the
+reference-linear route for fixed actions. Supply `targets=(...)` for finite
+stepping; staged programmes require explicit programme positions. The helper
+forwards cancellation and adaptive controls and always closes its owner.
+For checkpoint/restore and continued ownership, use
+`record.create_bl5_panel_analysis()`, then the public solver operations with
+`bl5_panel_from_analysis(record).load_input`. Close that owner when finished.
+Project save/reopen preserves inputs; accepted solver state still requires a
+separate model-compatible checkpoint. No checkpoint conversion occurs.
+
+Installed checks exercise signed stages, accepted-prefix cancellation, chart
+rebasing, checkpoint restoration and continued completion, along with historical
+BL5 and point-project regressions. This establishes the tested consumer workflow,
+not physical connection qualification or programme completion.

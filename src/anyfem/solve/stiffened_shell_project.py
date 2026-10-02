@@ -36,6 +36,9 @@ GE_TYPE = "experimental_ge_point_panel"
 B2_TYPE = "experimental_b2_point_panel"
 GE_FORMULATION = "experimental-ge-point-panel"
 B2_FORMULATION = "experimental-b2-point-panel"
+BL5_SCHEMA = "anyfem.experimental-bl5-panel-project-v1"
+BL5_TYPE = "experimental_ge_bl5_panel"
+BL5_FORMULATION = "experimental-ge-bl5-panel"
 
 
 def _owned_json(value):
@@ -44,6 +47,68 @@ def _owned_json(value):
         return json.loads(json.dumps(value, allow_nan=False, sort_keys=True))
     except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         raise ValueError("finite JSON point-panel inputs required") from exc
+
+
+def encode_bl5_panel(panel):
+    """A distinct native Project route; never relabel a point-panel record."""
+    from .stiffened_shell import ExperimentalGEBL5Panel
+    if type(panel) is not ExperimentalGEBL5Panel:
+        raise ValueError("exact ExperimentalGEBL5Panel required")
+    record = _owned_json(dict(schema=BL5_SCHEMA, status=STATUS,
+        definition_source="explicit-mesh-native", panel=panel.to_dict()))
+    _decode_bl5_panel(BL5_TYPE, BL5_FORMULATION, record)
+    return BL5_TYPE, BL5_FORMULATION, record
+
+
+def _decode_bl5_panel(analysis_type, formulation, record):
+    from .stiffened_shell import ExperimentalGEBL5Panel
+    if ((analysis_type, formulation) != (BL5_TYPE, BL5_FORMULATION) or
+            type(record) is not dict or set(record) != {
+                "schema", "status", "definition_source", "panel"} or
+            record["schema"] != BL5_SCHEMA or record["status"] != STATUS or
+            record["definition_source"] != "explicit-mesh-native"):
+        raise ValueError("strict experimental mesh-native BL5 route required")
+    return ExperimentalGEBL5Panel.from_dict(_owned_json(record["panel"]))
+
+
+def validate_bl5_analysis(analysis):
+    if (analysis.target_kind != "none" or analysis.target_id != "" or
+            analysis.settings or analysis.resource_policy or
+            analysis.output_request_ids or analysis.output_requests):
+        raise ValueError("mesh-native BL5 requires no Project target/settings/resources/output requests")
+    panel = _decode_bl5_panel(analysis.type, analysis.beam_formulation,
+                              analysis.beam_formulation_options)
+    return encode_bl5_panel(panel)[2]
+
+
+def bl5_panel_from_analysis(analysis):
+    canonical = validate_bl5_analysis(analysis)
+    return _decode_bl5_panel(analysis.type, analysis.beam_formulation, canonical)
+
+
+def solve_bl5_panel(analysis, *, targets=None, cancellation_token=None,
+                    increment_control=None, on_accepted=None,
+                    max_iterations=12, max_backtracks=8):
+    """Execute the stored BL5 inputs; checkpoint ownership stays with the solver.
+
+Staged loads require explicit positions. Fixed nodal actions default to the
+reference-linear route; explicit targets select admitted finite stepping.
+"""
+    panel = bl5_panel_from_analysis(analysis)
+    if panel.load_programme is not None and targets is None:
+        raise ValueError("staged BL5 solve requires explicit programme-position targets")
+    if targets is None and (increment_control is not None or on_accepted is not None or
+                            max_iterations != 12 or max_backtracks != 8):
+        raise ValueError("finite BL5 controls require explicit targets")
+    owner = panel.create_analysis()
+    try:
+        if targets is None:
+            return owner.solve_linear(panel.actions, cancellation_token=cancellation_token)
+        return owner.solve(panel.load_input, targets, cancellation_token=cancellation_token,
+                           increment_control=increment_control, on_accepted=on_accepted,
+                           max_iterations=max_iterations, max_backtracks=max_backtracks)
+    finally:
+        owner.close()
 
 
 def encode_point_panel(panel):

@@ -284,7 +284,10 @@ class AnalysisDefinition:
         )
         if any(not value for value in self.output_request_ids):
             raise ValueError("analysis output-request IDs must not be empty")
-        if self._is_point_panel():
+        if self._is_bl5_panel():
+            from ..solve.stiffened_shell_project import validate_bl5_analysis
+            self.beam_formulation_options = validate_bl5_analysis(self)
+        elif self._is_point_panel():
             from ..solve.stiffened_shell_project import validate_analysis
 
             self.beam_formulation_options = validate_analysis(self)
@@ -321,6 +324,26 @@ class AnalysisDefinition:
                 self.beam_formulation_options.get("schema") ==
                 "anyfem.experimental-point-panel-project-v1")
         )
+
+    def _is_bl5_panel(self) -> bool:
+        return (self.type == "experimental_ge_bl5_panel" or
+                self.beam_formulation == "experimental-ge-bl5-panel" or
+                (type(self.beam_formulation_options) is dict and
+                 self.beam_formulation_options.get("schema") ==
+                 "anyfem.experimental-bl5-panel-project-v1"))
+
+    @classmethod
+    def experimental_bl5_panel(cls, name: str, panel: Any, **options: Any) -> "AnalysisDefinition":
+        """Store explicit experimental line inputs without changing point schemas."""
+        from ..solve.stiffened_shell_project import encode_bl5_panel
+        analysis_type, formulation, payload = encode_bl5_panel(panel)
+        return cls(name=name, type=analysis_type, target_kind="none", target_id="",
+                   beam_formulation=formulation, beam_formulation_options=payload,
+                   **options)
+
+    def create_bl5_panel_analysis(self):
+        from ..solve.stiffened_shell_project import bl5_panel_from_analysis
+        return bl5_panel_from_analysis(self).create_analysis()
 
     @classmethod
     def experimental_point_panel(cls, name: str, panel: Any, **options: Any) -> "AnalysisDefinition":
@@ -383,7 +406,10 @@ class AnalysisDefinition:
 
     def to_dict(self) -> dict[str, Any]:
         formulation_options = self.beam_formulation_options
-        if self._is_point_panel():
+        if self._is_bl5_panel():
+            from ..solve.stiffened_shell_project import validate_bl5_analysis
+            formulation_options = validate_bl5_analysis(self)
+        elif self._is_point_panel():
             from ..solve.stiffened_shell_project import validate_analysis
 
             # Records are mutable. Reject changed selectors/payloads on save,
@@ -407,9 +433,9 @@ class AnalysisDefinition:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AnalysisDefinition":
         if (data.get("type") in (
-                "experimental_ge_point_panel", "experimental_b2_point_panel")
+                "experimental_ge_point_panel", "experimental_b2_point_panel", "experimental_ge_bl5_panel")
                 or data.get("beam_formulation") in (
-                    "experimental-ge-point-panel", "experimental-b2-point-panel")):
+                    "experimental-ge-point-panel", "experimental-b2-point-panel", "experimental-ge-bl5-panel")):
             if type(data.get("beam_formulation_options")) is not dict:
                 raise ValueError("strict experimental point-panel payload object required")
         return cls(
