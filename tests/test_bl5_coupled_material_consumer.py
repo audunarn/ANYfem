@@ -181,3 +181,12 @@ def test_bl5_coupled_v4_project_yields_rebases_and_restores(tmp_path, request):
     assert len(a.increment_attempts) == 2
     np.testing.assert_array_equal(a.beam_positions, b.beam_positions)
     assert direct.checkpoint() == resumed_owner.checkpoint()
+
+    selection = ss.GERecoverySelection(beam_nodes=(105,), shell_nodes=(1,),
+        shell_material_elements=(a.shell_q4_material[0].element_id,))
+    picked = resumed_owner.recover(selection=selection)
+    assert picked.generation == b.generation and picked.amplitude == b.amplitude
+    np.testing.assert_array_equal(picked.beam_positions[0], b.beam_positions[-1])
+    np.testing.assert_array_equal(picked.shell_material[0].layer_stress,
+                                  b.shell_q4_material[0].layer_stress)
+    assert resumed_owner.checkpoint() == direct.checkpoint()
