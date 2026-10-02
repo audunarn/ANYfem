@@ -45,7 +45,7 @@ dependencies = [
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [
-  "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d65f47b264f3e28348a6309eea996db51d8bb901",
+  "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@c69aa8311e61b16f54895802fe8935cc2fe980ad",
   "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8",
   "Pillow>=10,<13",
   "PySide6>=6.10.1,<6.11",

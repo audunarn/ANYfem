@@ -1,16 +1,40 @@
 name: Qt candidate acceptance
 
 on:
+  pull_request:
+    paths:
+      - 'src/anyfem/**'
+      - 'tests/**'
+      - 'tools/test_anyfem.py'
+      - 'pyproject.toml'
+      - 'dependency-licenses.json'
+      - '.github/workflows/qt-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/anyfem/**'
+      - 'tests/**'
+      - 'tools/test_anyfem.py'
+      - 'pyproject.toml'
+      - 'dependency-licenses.json'
+      - '.github/workflows/qt-tests.yml'
   workflow_dispatch:
     inputs:
       viewer_ref:
         description: Exact ANY3dView candidate commit containing the Qt host
         required: true
         type: string
-        default: d65f47b264f3e28348a6309eea996db51d8bb901
+        default: c69aa8311e61b16f54895802fe8935cc2fe980ad
+
+permissions:
+  contents: read
+concurrency:
+  group: qt-tests-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   qt:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -22,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: ${{ inputs.viewer_ref }}
+          ref: ${{ inputs.viewer_ref || 'c69aa8311e61b16f54895802fe8935cc2fe980ad' }}
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:

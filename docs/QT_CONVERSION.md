@@ -16,6 +16,14 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+The October viewer integration pins `c69aa8311e61b16f54895802fe8935cc2fe980ad`
+in the GUI extra and both CI workflows. It combines fractional playback,
+selection performance and a corrected owner-identity memo. Qt checks now run
+automatically for application/test/dependency changes; manual runs can still
+override the viewer commit. The earlier snapshots below remain historical
+evidence. Current integration and review status is tracked in
+[ANY3dView's integration record](https://github.com/audunarn/ANY3dView/blob/codex/qt-integration-20261002/docs/QT_INTEGRATION.md).
+
 ANYfem owns shared workflow services and Qt presentation; ANY3dView owns the
 retained viewer. Widgets invoke existing commands/services. Each window has one
 WorkbenchController. Qt Widgets provide the central viewport, project/task docks,
