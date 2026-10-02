@@ -31,6 +31,7 @@ SCHEMA_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-point-panel-distributed-p
 SCHEMA_BL5 = "anyfem.experimental-ge-bl5-panel-v1"
 SCHEMA_BL5_STAGED_V2 = "anyfem.experimental-ge-bl5-panel-staged-v2"
 SCHEMA_BL5_MATERIAL_V3 = "anyfem.experimental-ge-bl5-panel-material-v3"
+SCHEMA_BL5_COUPLED_MATERIAL_V4 = "anyfem.experimental-ge-bl5-panel-coupled-material-v4"
 SCHEMA_BL5_DISTRIBUTED = "anyfem.experimental-ge-bl5-panel-distributed-load-v1"
 SCHEMA_BL5_DISTRIBUTED_PROGRAMME = "anyfem.experimental-ge-bl5-panel-distributed-programme-v1"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
@@ -804,10 +805,13 @@ class ExperimentalGEBL5Panel:
     distributed_programme: stiffened_shell.GEBeamDistributedProgramme | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        coupled = getattr(stiffened_shell, "BL5_COUPLED_J2_MATERIAL_V1", None)
         if (type(self.shell) is not stiffened_shell.ShellPanel or
                 not self.shell.q4_elements or self.shell.s3_elements or
-                self.shell.j2_curve is not None):
-            raise ValueError("experimental BL5 requires a pure Q4 elastic shell")
+                (self.shell.j2_curve is not None and
+                 type(self.shell.j2_curve) is not DNVC208MaterialCurve) or
+                (self.shell.j2_curve is None) != (self.bl5_material_policy != coupled)):
+            raise ValueError("experimental BL5 requires pure Q4 and matching shell material policy")
         for name, expected, minimum in (
             ("beams", b3_ge.BeamDefinition, 1),
             ("lines", stiffened_shell.ExperimentalBL5Line, 1),
@@ -826,7 +830,7 @@ class ExperimentalGEBL5Panel:
             raise ValueError("unsupported experimental BL5 Q4 pullback policy")
         material = getattr(stiffened_shell, "BL5_GENERALIZED_MATERIAL_V1", None)
         if (type(self.bl5_material_policy) is not str or
-                self.bl5_material_policy not in ("elastic", material)):
+                self.bl5_material_policy not in ("elastic", material, coupled)):
             raise ValueError("unsupported experimental BL5 material policy")
         if self.bl5_material_policy != "elastic" and self.q4_pullback_policy != selected:
             raise ValueError("BL5 material policy requires selected Q4 pullback")
@@ -926,7 +930,14 @@ class ExperimentalGEBL5Panel:
             "actions": [dict(domain=item.domain, node=item.node,
                              wrench=list(item.wrench)) for item in self.actions],
         }
-        if self.bl5_material_policy != "elastic":
+        if self.bl5_material_policy == getattr(stiffened_shell, "BL5_COUPLED_J2_MATERIAL_V1", None):
+            record["shell"]["j2_curve"] = self.shell.j2_curve.as_dict()
+            record.update(schema=SCHEMA_BL5_COUPLED_MATERIAL_V4,
+                          q4_pullback_policy=self.q4_pullback_policy,
+                          load_programme=(None if self.load_programme is None else
+                                          self.load_programme.to_payload()),
+                          bl5_material_policy=self.bl5_material_policy)
+        elif self.bl5_material_policy != "elastic":
             record.update(schema=SCHEMA_BL5_MATERIAL_V3,
                           q4_pullback_policy=self.q4_pullback_policy,
                           load_programme=(None if self.load_programme is None else
@@ -950,7 +961,8 @@ class ExperimentalGEBL5Panel:
                                  "distributed BL5 input")
             if (data["status"] != STATUS or type(data["panel"]) is not dict or
                     data["panel"].get("schema") not in
-                    (SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3)):
+                    (SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3,
+                     SCHEMA_BL5_COUPLED_MATERIAL_V4)):
                 raise ValueError("distributed BL5 requires an objective Q4 base record")
             descriptor_type = getattr(stiffened_shell, typename, None)
             if descriptor_type is None:
@@ -958,15 +970,18 @@ class ExperimentalGEBL5Panel:
             return replace(cls.from_dict(data["panel"]),
                            **{name: descriptor_type.from_payload(data[name])})
         staged = type(value) is dict and value.get("schema") in (
-            SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3)
-        material = type(value) is dict and value.get("schema") == SCHEMA_BL5_MATERIAL_V3
+            SCHEMA_BL5_STAGED_V2, SCHEMA_BL5_MATERIAL_V3,
+            SCHEMA_BL5_COUPLED_MATERIAL_V4)
+        material = type(value) is dict and value.get("schema") in (
+            SCHEMA_BL5_MATERIAL_V3, SCHEMA_BL5_COUPLED_MATERIAL_V4)
+        coupled = type(value) is dict and value.get("schema") == SCHEMA_BL5_COUPLED_MATERIAL_V4
         data = _exact_fields(value, {"schema", "status", "profile", "shell",
                                      "beams", "lines", "fixed", "actions"} |
                               ({"q4_pullback_policy", "load_programme"} if staged else set()) |
                               ({"bl5_material_policy"} if material else set()),
                              "experimental BL5 panel")
         if (data["schema"] not in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2,
-                                  SCHEMA_BL5_MATERIAL_V3) or
+                                  SCHEMA_BL5_MATERIAL_V3, SCHEMA_BL5_COUPLED_MATERIAL_V4) or
                 data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental BL5 panel schema, status, and profile required")
@@ -984,11 +999,22 @@ class ExperimentalGEBL5Panel:
                 programme = programme_type.from_payload(data["load_programme"])
         if material:
             material_policy = data["bl5_material_policy"]
-            if material_policy != getattr(stiffened_shell, "BL5_GENERALIZED_MATERIAL_V1", None):
+            expected_policy = ("BL5_COUPLED_J2_MATERIAL_V1" if coupled else
+                               "BL5_GENERALIZED_MATERIAL_V1")
+            if material_policy != getattr(stiffened_shell, expected_policy, None):
                 raise ValueError("material BL5 schema requires selected public material policy")
         shell_data = _exact_fields(data["shell"],
             {"node_ids", "coordinates_m", "q4_elements", "s3_elements",
-             "thickness_m", "young_pa", "poisson", "density_kg_m3"}, "BL5 shell")
+             "thickness_m", "young_pa", "poisson", "density_kg_m3"} |
+            ({"j2_curve"} if coupled else set()), "BL5 shell")
+        curve = None
+        if coupled:
+            curve_data = _exact_fields(shell_data["j2_curve"],
+                {"sigma_prop", "sigma_yield", "sigma_yield_2", "eps_p_y1",
+                 "eps_p_y2", "K", "n"}, "shell J2 curve")
+            curve = DNVC208MaterialCurve(**{
+                name: _finite_number(item, "shell J2 curve")
+                for name, item in curve_data.items()})
         shell = stiffened_shell.ShellPanel(
             _ids(shell_data["node_ids"], "shell nodes"),
             _rows(shell_data["coordinates_m"], 3, _finite_number, "shell coordinates"),
@@ -997,7 +1023,7 @@ class ExperimentalGEBL5Panel:
             _finite_number(shell_data["young_pa"], "shell Young modulus"),
             _finite_number(shell_data["poisson"], "shell Poisson ratio"),
             _finite_number(shell_data["density_kg_m3"], "shell density"),
-            _rows(shell_data["s3_elements"], 3, _positive_int, "S3 elements"))
+            _rows(shell_data["s3_elements"], 3, _positive_int, "S3 elements"), curve)
         if type(data["beams"]) is not list or not 1 <= len(data["beams"]) <= MAX_BEAMS:
             raise ValueError("bounded experimental GE beam list required")
         beams = []
@@ -1102,7 +1128,7 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("invalid experimental GE panel JSON") from error
     if type(data) is dict and data.get("schema") in (SCHEMA_BL5, SCHEMA_BL5_STAGED_V2,
-                                                       SCHEMA_BL5_MATERIAL_V3,
+                                                       SCHEMA_BL5_MATERIAL_V3, SCHEMA_BL5_COUPLED_MATERIAL_V4,
                                                        SCHEMA_BL5_DISTRIBUTED, SCHEMA_BL5_DISTRIBUTED_PROGRAMME):
         return ExperimentalGEBL5Panel.from_dict(data)
     if type(data) is dict and data.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
@@ -1116,6 +1142,6 @@ __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGE
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
            "SCHEMA_Q4_PULLBACK", "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
-           "SCHEMA_BL5_MATERIAL_V3",
+           "SCHEMA_BL5_MATERIAL_V3", "SCHEMA_BL5_COUPLED_MATERIAL_V4",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
            "STATUS", "SUFFIX", "save_case", "load_case"]
