@@ -25,6 +25,7 @@ SCHEMA_J2 = "anyfem.experimental-ge-point-panel-j2-v2"
 SCHEMA_Q4_PULLBACK = "anyfem.experimental-ge-point-panel-q4-pullback-v3"
 SCHEMA_CURVED_Q4 = "anyfem.experimental-ge-curved-q4-point-panel-v1"
 SCHEMA_CURVED_Q4_MATERIAL = "anyfem.experimental-ge-curved-q4-point-panel-material-v2"
+SCHEMA_CURVED_Q4_MATERIAL_NATIVE = "anyfem.experimental-ge-curved-q4-point-panel-material-native-scale-v3"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
 SCHEMA_BODY_LOAD = "anyfem.experimental-ge-point-panel-body-load-v1"
 SCHEMA_PRESSURE_LOAD = "anyfem.experimental-ge-point-panel-pressure-load-v1"
@@ -223,6 +224,7 @@ class ExperimentalGEPointPanel:
     pressure_load: stiffened_shell.GEShellPressureLoad | None = field(default=None, kw_only=True)
     distributed_programme: stiffened_shell.GEBeamDistributedProgramme | None = field(default=None, kw_only=True)
     shell_reference_policy: str = field(default="flat", kw_only=True)
+    retained_scale_policy: str = field(default="profile", kw_only=True)
 
     def __post_init__(self) -> None:
         if type(self.shell) is not stiffened_shell.ShellPanel:
@@ -241,6 +243,12 @@ class ExperimentalGEPointPanel:
         curved_policy = getattr(stiffened_shell, "CURVED_Q4_POINT_REFERENCE_V1", None)
         curved_material_policy = getattr(stiffened_shell,
                                          "CURVED_Q4_POINT_MATERIAL_REFERENCE_V1", None)
+        if (type(self.retained_scale_policy) is not str or
+                self.retained_scale_policy not in ("profile", "native_force_moment_roles_v1") or
+                (self.retained_scale_policy != "profile" and (
+                    self.shell_reference_policy != curved_material_policy or
+                    "retained_scale_policy" not in stiffened_shell.LinearDefinition.__dataclass_fields__))):
+            raise ValueError("native retained scaling requires the installed curved material point policy")
         if (type(self.shell_reference_policy) is not str or
                 self.shell_reference_policy != "flat" and
                 self.shell_reference_policy not in (curved_policy, curved_material_policy)):
@@ -329,9 +337,11 @@ class ExperimentalGEPointPanel:
         if self.q4_pullback_policy == HISTORICAL_Q4_PULLBACK_POLICY:
             return stiffened_shell.LinearDefinition(*args)
         if self.shell_reference_policy != "flat":
+            scale = ({} if self.retained_scale_policy == "profile" else
+                     {"retained_scale_policy": self.retained_scale_policy})
             return stiffened_shell.LinearDefinition(*args,
                 q4_pullback_policy=self.q4_pullback_policy,
-                shell_reference_policy=self.shell_reference_policy)
+                shell_reference_policy=self.shell_reference_policy, **scale)
         return stiffened_shell.LinearDefinition(
             *args, q4_pullback_policy=self.q4_pullback_policy)
 
@@ -438,6 +448,9 @@ class ExperimentalGEPointPanel:
                                       stiffened_shell, "CURVED_Q4_POINT_MATERIAL_REFERENCE_V1", None)
                                   else SCHEMA_CURVED_Q4),
                            shell_reference_policy=self.shell_reference_policy)
+            if self.retained_scale_policy != "profile":
+                record.update(schema=SCHEMA_CURVED_Q4_MATERIAL_NATIVE,
+                              retained_scale_policy=self.retained_scale_policy)
         return record
 
     @classmethod
@@ -510,16 +523,21 @@ class ExperimentalGEPointPanel:
             panel = cls.from_dict(data["panel"])
             programme = programme_type.from_payload(data["load_programme"])
             return replace(panel, load_programme=programme)
-        curved = value.get("schema") in (SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL)
+        native = value.get("schema") == SCHEMA_CURVED_Q4_MATERIAL_NATIVE
+        curved = value.get("schema") in (SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL,
+                                        SCHEMA_CURVED_Q4_MATERIAL_NATIVE)
         selected_q4 = value.get("schema") in (
-            SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL)
+            SCHEMA_Q4_PULLBACK, SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL,
+            SCHEMA_CURVED_Q4_MATERIAL_NATIVE)
         fields = {"schema", "status", "profile", "shell", "beams",
                   "points", "fixed", "actions"}
         data = _exact_fields(value, fields | ({"q4_pullback_policy"} if selected_q4 else set()) |
-                             ({"shell_reference_policy"} if curved else set()),
+                             ({"shell_reference_policy"} if curved else set()) |
+                             ({"retained_scale_policy"} if native else set()),
                              "experimental GE panel")
         if (data["schema"] not in (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK,
-                                   SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL) or
+                                   SCHEMA_CURVED_Q4, SCHEMA_CURVED_Q4_MATERIAL,
+                                   SCHEMA_CURVED_Q4_MATERIAL_NATIVE) or
                 data["status"] != STATUS or
                 data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1):
             raise ValueError("experimental GE panel schema, status, and profile required")
@@ -531,15 +549,19 @@ class ExperimentalGEPointPanel:
 
         if curved:
             policy_name = ("CURVED_Q4_POINT_MATERIAL_REFERENCE_V1"
-                           if data["schema"] == SCHEMA_CURVED_Q4_MATERIAL else
+                           if data["schema"] in (SCHEMA_CURVED_Q4_MATERIAL,
+                                                 SCHEMA_CURVED_Q4_MATERIAL_NATIVE) else
                            "CURVED_Q4_POINT_REFERENCE_V1")
             policy = getattr(stiffened_shell, policy_name, None)
             if policy is None or data["shell_reference_policy"] != policy:
                 raise ValueError("curved schema requires installed explicit curved reference policy")
+            if native and data["retained_scale_policy"] != "native_force_moment_roles_v1":
+                raise ValueError("native curved schema requires explicit native retained scaling")
             # Reuse strict Q4 component framing; the new outer schema carries
             # reference identity, and cannot reinterpret an old flat record.
             return cls(*_parse_point_components(dict(data, schema=SCHEMA_Q4_PULLBACK), q4_policy),
-                       shell_reference_policy=policy)
+                       shell_reference_policy=policy,
+                       retained_scale_policy=data["retained_scale_policy"] if native else "profile")
         return cls(*_parse_point_components(data, q4_policy))
 
 
@@ -1197,6 +1219,7 @@ __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGE
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
             "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_CURVED_Q4_MATERIAL",
+            "SCHEMA_CURVED_Q4_MATERIAL_NATIVE",
             "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
            "SCHEMA_BL5_MATERIAL_V3", "SCHEMA_BL5_COUPLED_MATERIAL_V4",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",

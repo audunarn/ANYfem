@@ -401,3 +401,14 @@ simultaneous yielding, two arc increments and exact detailed fresh restart.
 The physical metric and twelve-backtrack arc budget are unchanged. Bounded
 continuation is not accepted material capacity, mesh/unit invariance or independent
 external qualification; retain the solver's precise capability exclusions.
+
+An explicit `retained_scale_policy="native_force_moment_roles_v1"` on the existing
+`ExperimentalGEPointPanel` selects the solver's role-aware normalization for
+curved material point models. Its separate
+`anyfem.experimental-ge-curved-q4-point-panel-material-native-scale-v3` record
+requires that field. The default `"profile"` leaves older input records unchanged.
+Native Project persistence retains the opt-in and its distinct solver identity;
+old/new scale-policy checkpoints cannot be exchanged. Installed development checks
+exercise optional shell J2, strict negative records, simultaneous yielding, arc
+continuation and exact restart. This option is not a measured speedup or a new
+mechanical connection law.
