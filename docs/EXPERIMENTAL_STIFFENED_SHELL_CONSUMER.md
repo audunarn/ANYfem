@@ -366,8 +366,8 @@ save/reopen preserve this input record, while the solver owns accepted material
 history and its checkpoint.
 
 This route is limited to planar curved Q4 facets, full-pose points and nodal
-dead translational force-control histories. S3, staged or external load wrappers,
-footprints, curved arc continuation and spectra are unsupported. The record remains
+dead translational force-control histories. S3, external load wrappers,
+footprints and spectra are unsupported. The record remains
 `EXPERIMENTAL_NOT_QUALIFIED`; persistence does not qualify material response or
 release the curved connection mechanics.
 
@@ -412,3 +412,14 @@ old/new scale-policy checkpoints cannot be exchanged. Installed development chec
 exercise optional shell J2, strict negative records, simultaneous yielding, arc
 continuation and exact restart. This option is not a measured speedup or a new
 mechanical connection law.
+
+Curved material point records may also own a public `StagedDeadLoadProgramme`
+with empty legacy actions. The separate
+`anyfem.experimental-ge-curved-q4-point-panel-material-staged-v1` envelope nests
+only the curved material v2 or native retained-scale v3 base record; it retains
+optional shell J2, native beam bytes and the selected reference and scale
+policies. The historical staged envelope still admits only its original flat
+point schemas, and the older curved elastic policy still rejects programmes.
+Standalone and native Project save/reopen preserve the programme's model
+binding. Solver execution and accepted-state checkpoints remain separately
+owned and experimental; the consumer does not infer staged history acceptance.

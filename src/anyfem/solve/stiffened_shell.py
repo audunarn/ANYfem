@@ -27,6 +27,7 @@ SCHEMA_CURVED_Q4 = "anyfem.experimental-ge-curved-q4-point-panel-v1"
 SCHEMA_CURVED_Q4_MATERIAL = "anyfem.experimental-ge-curved-q4-point-panel-material-v2"
 SCHEMA_CURVED_Q4_MATERIAL_NATIVE = "anyfem.experimental-ge-curved-q4-point-panel-material-native-scale-v3"
 SCHEMA_STAGED = "anyfem.experimental-ge-point-panel-staged-v4"
+SCHEMA_CURVED_Q4_MATERIAL_STAGED = "anyfem.experimental-ge-curved-q4-point-panel-material-staged-v1"
 SCHEMA_BODY_LOAD = "anyfem.experimental-ge-point-panel-body-load-v1"
 SCHEMA_PRESSURE_LOAD = "anyfem.experimental-ge-point-panel-pressure-load-v1"
 SCHEMA_DISTRIBUTED_LOAD = "anyfem.experimental-ge-point-panel-distributed-load-v1"
@@ -259,8 +260,10 @@ class ExperimentalGEPointPanel:
                     (self.shell_reference_policy == curved_policy and
                      self.shell.j2_curve is not None)):
                 raise ValueError("curved point consumer requires admitted algorithmic Q4 material policy")
-            if any(value is not None for value in (self.load_programme, self.body_load,
-                    self.distributed_load, self.pressure_load, self.distributed_programme)):
+            if (any(value is not None for value in (self.body_load, self.distributed_load,
+                    self.pressure_load, self.distributed_programme)) or
+                    (self.load_programme is not None and
+                     self.shell_reference_policy != curved_material_policy)):
                 raise ValueError("curved point consumer admits fixed nodal actions only")
         for name, expected, minimum in (
             ("beams", b3_ge.BeamDefinition, 1),
@@ -436,7 +439,10 @@ class ExperimentalGEPointPanel:
                         panel=replace(self, body_load=None).to_dict(),
                         body_load=self.body_load.to_payload())
         if self.load_programme is not None:
-            return dict(schema=SCHEMA_STAGED, status=STATUS,
+            return dict(schema=(SCHEMA_CURVED_Q4_MATERIAL_STAGED
+                                if self.shell_reference_policy == getattr(
+                                    stiffened_shell, "CURVED_Q4_POINT_MATERIAL_REFERENCE_V1", None)
+                                else SCHEMA_STAGED), status=STATUS,
                         profile=stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
                         panel=replace(self, load_programme=None).to_dict(),
                         load_programme=self.load_programme.to_payload())
@@ -517,6 +523,20 @@ class ExperimentalGEPointPanel:
                     type(data["panel"]) is not dict or data["panel"].get("schema") not in
                     (SCHEMA, SCHEMA_J2, SCHEMA_Q4_PULLBACK)):
                 raise ValueError("staged GE point panel requires an explicit legacy point input schema")
+            programme_type = getattr(stiffened_shell, "StagedDeadLoadProgramme", None)
+            if programme_type is None:
+                raise ValueError("installed solver lacks the public staged GE load programme")
+            panel = cls.from_dict(data["panel"])
+            programme = programme_type.from_payload(data["load_programme"])
+            return replace(panel, load_programme=programme)
+        if value.get("schema") == SCHEMA_CURVED_Q4_MATERIAL_STAGED:
+            data = _exact_fields(value, {"schema", "status", "profile", "panel", "load_programme"},
+                                 "curved material staged GE point panel")
+            if (data["status"] != STATUS or
+                    data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                    type(data["panel"]) is not dict or data["panel"].get("schema") not in
+                    (SCHEMA_CURVED_Q4_MATERIAL, SCHEMA_CURVED_Q4_MATERIAL_NATIVE)):
+                raise ValueError("curved material staged panel requires its explicit material base record")
             programme_type = getattr(stiffened_shell, "StagedDeadLoadProgramme", None)
             if programme_type is None:
                 raise ValueError("installed solver lacks the public staged GE load programme")
@@ -1220,6 +1240,7 @@ __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGE
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
             "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_CURVED_Q4_MATERIAL",
             "SCHEMA_CURVED_Q4_MATERIAL_NATIVE",
+            "SCHEMA_CURVED_Q4_MATERIAL_STAGED",
             "SCHEMA_BL5", "SCHEMA_BL5_STAGED_V2",
            "SCHEMA_BL5_MATERIAL_V3", "SCHEMA_BL5_COUPLED_MATERIAL_V4",
            "SCHEMA_BL5_DISTRIBUTED", "SCHEMA_BL5_DISTRIBUTED_PROGRAMME",
