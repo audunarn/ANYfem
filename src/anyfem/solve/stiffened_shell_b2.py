@@ -29,6 +29,10 @@ SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal
 SCHEMA_BODY_ACCELERATION = "anyfem.experimental-b2-q4-body-acceleration-panel-v1"
 SCHEMA_MIXED_BODY_ACCELERATION = "anyfem.experimental-b2-mixed-body-acceleration-panel-v1"
 SCHEMA_FOOTPRINT_BODY_ACCELERATION = "anyfem.experimental-b2-nodal-footprint-body-acceleration-panel-v1"
+SCHEMA_LOADED_POINT = "anyfem.experimental-b2-q4-loaded-point-panel-v1"
+SCHEMA_LOADED_POINT_BODY = "anyfem.experimental-b2-q4-loaded-point-body-panel-v1"
+_LOADED_POINT_SCHEMAS = (SCHEMA_LOADED_POINT, SCHEMA_LOADED_POINT_BODY)
+LOADED_POINT_POLICY = "B2_FIXED_END_LOADED_POINT_TRACE_V1_DEV"
 _BODY_SCHEMAS = (SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION,
                  SCHEMA_FOOTPRINT_BODY_ACCELERATION)
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
@@ -95,7 +99,8 @@ def _json_load(payload):
 
 
 def _decode(record):
-    body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS
+    loaded = type(record) is dict and record.get("schema") in _LOADED_POINT_SCHEMAS
+    body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
     mixed_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_REFERENCE_MODAL
     mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_MIXED_BODY_ACCELERATION)
     modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
@@ -104,12 +109,14 @@ def _decode(record):
                              "shells", "members", "points", "affine") +
                                   (("request", "modal_boundary_policy") if modal else
                                   ("cases", "selection")) + (("footprints",) if nodal else ()) +
-                                  (("inertia_policy",) if mixed_modal else ()),
+                                  (("inertia_policy",) if mixed_modal else ()) + (("point_trace_policy",) if loaded else ()),
                     "experimental B2 panel")
-    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL) + _BODY_SCHEMAS or record["status"] != STATUS or
+    if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL) + _BODY_SCHEMAS + _LOADED_POINT_SCHEMAS or record["status"] != STATUS or
             record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
         raise ValueError("experimental B2 panel schema/status/profile required")
-    with_mass = body or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+    if loaded and record["point_trace_policy"] != LOADED_POINT_POLICY:
+        raise ValueError("explicit loaded-point trace policy required")
+    with_mass = body or loaded or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
     mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
     if mixed_modal:
         mixed_definition, _, _, policy = _mixed_modal_api()
@@ -253,7 +260,8 @@ def _decode(record):
     definition = definition_type(
         record["profile"], shell_nodes, tuple(shells), tuple(members),
         tuple(attachments), T, offset, **({"footprints": footprints} if nodal else {}),
-        **({"inertia_policy": record["inertia_policy"]} if mixed_modal else {}))
+        **({"inertia_policy": record["inertia_policy"]} if mixed_modal else {}),
+        **({"point_trace_policy": record["point_trace_policy"]} if loaded else {}))
 
     if body:
         if any(shell.density_kg_m3 is None or shell.density_kg_m3 <= 0.
@@ -454,12 +462,21 @@ class ExperimentalB2PointPanel:
     def _from_definition(cls, definition, cases, *, selected_dofs,
                          selected_points=(), recover_members=None, schema=SCHEMA,
                          nodal=False, selected_footprints=None, request=None):
-        body = schema in _BODY_SCHEMAS
+        loaded = schema in _LOADED_POINT_SCHEMAS
+        body = schema in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
+        if loaded:
+            if (cls is not ExperimentalB2LoadedPointPanel or
+                    type(definition) is not stiffened_shell.B2Q4PanelDefinition or
+                    getattr(definition, "point_trace_policy", None) != LOADED_POINT_POLICY or
+                    getattr(definition, "footprints", ())):
+                raise ValueError("explicit Q4 loaded-point policy without footprints required")
+        elif getattr(definition, "point_trace_policy", None) is not None:
+            raise ValueError("loaded-point policy requires its explicit consumer schema")
         mixed_modal = schema == SCHEMA_MIXED_REFERENCE_MODAL
         modal = schema in (SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
         mixed = schema in (SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_MIXED_BODY_ACCELERATION)
-        with_mass = body or schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
-        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION)):
+        with_mass = body or loaded or schema in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL, SCHEMA_MIXED_REFERENCE_MODAL)
+        if schema not in ((SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION) if nodal else (SCHEMA, SCHEMA_MASS, SCHEMA_MIXED, SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION) + _LOADED_POINT_SCHEMAS):
             raise ValueError("experimental B2 panel schema required")
         definition_type, s3_type = (_mixed_api() if mixed else
                                     (stiffened_shell.B2Q4PanelDefinition, None))
@@ -544,6 +561,8 @@ class ExperimentalB2PointPanel:
                           {name: list(values) for name, values in
                            recover_members.items()}},
         }
+        if loaded:
+            record["point_trace_policy"] = LOADED_POINT_POLICY
         if mixed:
             for row, shell in zip(record["shells"], definition.shells):
                 row["formulation"] = "e4-pl-s3-v2d" if type(shell) is s3_type else "e4-pl"
@@ -939,8 +958,78 @@ class ExperimentalB2BodyAccelerationPanel(ExperimentalB2PointPanel):
         raise ValueError("body-acceleration consumer supports reference-linear batches only; modes and finite gravity unsupported")
 
 
+@dataclass(frozen=True)
+class ExperimentalB2LoadedPointPanel(ExperimentalB2BodyAccelerationPanel):
+    """Detached experimental Q4 loaded-point inputs, not a qualified project.
+
+    The raw schema preserves nodal load vectors. Only the body schema expands
+    declared accelerations to fresh owner-bound distributed loads.
+    """
+
+    def __post_init__(self):
+        if (type(self) is not ExperimentalB2LoadedPointPanel or
+                type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES):
+            raise ValueError("exact bounded experimental B2 loaded-point bytes required")
+        record = _json_load(self.payload)
+        if type(record) is not dict or record.get("schema") not in _LOADED_POINT_SCHEMAS:
+            raise ValueError("explicit B2 loaded-point schema required")
+        _decode(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii")+b"\n")
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs,
+                        selected_points=(), recover_members=None, body=False):
+        if type(body) is not bool:
+            raise ValueError("explicit boolean body-load selection required")
+        return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+            selected_points=selected_points, recover_members=recover_members,
+            schema=SCHEMA_LOADED_POINT_BODY if body else SCHEMA_LOADED_POINT)
+
+    @property
+    def acceleration_cases(self):
+        if self.schema != SCHEMA_LOADED_POINT_BODY:
+            raise ValueError("raw nodal cases are not acceleration cases")
+        return _decode(self.to_dict())[1]
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.to_definition())
+        try:
+            cap = getattr(owner, "capabilities", None)
+            if (cap is None or cap.status != "experimental" or
+                    cap.production_qualified is not False or
+                    getattr(cap, "point_trace_policy", None) != LOADED_POINT_POLICY or
+                    "solve_linear_many" not in cap.operations or
+                    not callable(getattr(owner, "solve_linear_many", None))):
+                raise ValueError("installed solver lacks explicit experimental B2 loaded-point capability")
+            if (self.schema == SCHEMA_LOADED_POINT_BODY and
+                    ("body_acceleration_load" not in cap.operations or
+                     not callable(getattr(owner, "body_acceleration_load", None)))):
+                raise ValueError("installed solver lacks B2 loaded-point body-load capability")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def solve_linear_many(self, *, cancellation_token=None, on_case=None):
+        _, cases, dofs, points, recovery = _decode(self.to_dict())
+        owner = self.create_analysis()
+        try:
+            if self.schema == SCHEMA_LOADED_POINT_BODY:
+                cases = tuple((name, owner.body_acceleration_load(acceleration))
+                              for name, acceleration in cases)
+            return owner.solve_linear_many(cases, selected_dofs=dofs,
+                selected_points=points, recover_members=recovery,
+                cancellation_token=cancellation_token, on_case=on_case)
+        finally:
+            owner.close()
+
+    def modes(self, *args, **kwargs):
+        raise ValueError("loaded-point consumer supports reference-linear batches only")
+
+
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -970,7 +1059,8 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
         payload = stream.read(MAX_FILE_BYTES + 1)
     record = _json_load(payload)
     schema = record.get("schema") if type(record) is dict else None
-    consumer = (ExperimentalB2BodyAccelerationPanel if schema in _BODY_SCHEMAS else
+    consumer = (ExperimentalB2LoadedPointPanel if schema in _LOADED_POINT_SCHEMAS else
+                ExperimentalB2BodyAccelerationPanel if schema in _BODY_SCHEMAS else
                 ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
                 ExperimentalB2MixedReferenceModalPanel if schema == SCHEMA_MIXED_REFERENCE_MODAL else
                 ExperimentalB2MixedPointPanel if schema == SCHEMA_MIXED else
@@ -985,4 +1075,5 @@ __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFI
            "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "ExperimentalB2BodyAccelerationPanel", "SCHEMA_BODY_ACCELERATION",
            "SCHEMA_MIXED_BODY_ACCELERATION", "SCHEMA_FOOTPRINT_BODY_ACCELERATION",
+           "ExperimentalB2LoadedPointPanel", "SCHEMA_LOADED_POINT", "SCHEMA_LOADED_POINT_BODY",
            "save_case", "load_case"]
