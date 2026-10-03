@@ -14,6 +14,12 @@ profile and each native beam's hash before creating a fresh analysis. The file
 must use the `.anyfem-ge.json` suffix so it cannot be confused with an ordinary
 `.anyfem` project.
 
+All schemas that use these native GE beam bindings, including point, BL5,
+modal, footprint, staged and curved input records, require at least one typed
+definition but have no fixed beam-count cap. The 32 MiB input-file limit and
+each native beam's encoded-payload and hash checks still apply. This change
+does not qualify larger models or relax their mechanical admission.
+
 ```python
 from anyfem.solve.stiffened_shell import ExperimentalGEPointPanel, save_case, load_case
 

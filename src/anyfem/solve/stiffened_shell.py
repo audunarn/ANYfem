@@ -45,7 +45,6 @@ SCHEMA_REFERENCE_MODAL = "anyfem.experimental-ge-reference-modal-panel-v1"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
-MAX_BEAMS = 16
 HISTORICAL_Q4_PULLBACK_POLICY = "historical_corotational"
 
 
@@ -173,8 +172,8 @@ def _parse_point_components(data, q4_policy):
         curve,
     )
 
-    if type(data["beams"]) is not list or not 1 <= len(data["beams"]) <= MAX_BEAMS:
-        raise ValueError("bounded experimental GE beam list required")
+    if type(data["beams"]) is not list or not data["beams"]:
+        raise ValueError("nonempty experimental GE beam list required")
     beams = []
     for row in data["beams"]:
         binding = _exact_fields(row, {"raw_base64", "sha256"}, "native beam binding")
@@ -277,8 +276,6 @@ class ExperimentalGEPointPanel:
         if self.shell_reference_policy != "flat" and any(
                 any(value != 0. for value in action.wrench[3:]) for action in self.actions):
             raise ValueError("curved point consumer admits translational nodal actions only")
-        if len(self.beams) > MAX_BEAMS:
-            raise ValueError("experimental GE beam count exceeds file limit")
         if self.shell_reference_policy == curved_material_policy:
             for beam in self.beams:
                 element, _ = beam.instantiate()
@@ -919,8 +916,6 @@ class ExperimentalGEBL5Panel:
             if (type(rows) is not tuple or len(rows) < minimum or
                     any(type(item) is not expected for item in rows)):
                 raise ValueError(f"explicit experimental BL5 {name} required")
-        if len(self.beams) > MAX_BEAMS:
-            raise ValueError("experimental GE beam count exceeds file limit")
         selected = getattr(stiffened_shell, "Q4_ALGORITHMIC_PULLBACK_V1", None)
         if (type(self.q4_pullback_policy) is not str or
                 self.q4_pullback_policy not in (HISTORICAL_Q4_PULLBACK_POLICY, selected)):
@@ -1121,8 +1116,8 @@ class ExperimentalGEBL5Panel:
             _finite_number(shell_data["poisson"], "shell Poisson ratio"),
             _finite_number(shell_data["density_kg_m3"], "shell density"),
             _rows(shell_data["s3_elements"], 3, _positive_int, "S3 elements"), curve)
-        if type(data["beams"]) is not list or not 1 <= len(data["beams"]) <= MAX_BEAMS:
-            raise ValueError("bounded experimental GE beam list required")
+        if type(data["beams"]) is not list or not data["beams"]:
+            raise ValueError("nonempty experimental GE beam list required")
         beams = []
         for item in data["beams"]:
             row = _exact_fields(item, {"raw_base64", "sha256"}, "native beam binding")
