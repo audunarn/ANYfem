@@ -49,7 +49,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         if policies != tuple(name + "_DEV" for name in names):
             raise ValueError("installed solver lacks the exact finite distributing material policies")
         cyclic_names = ("GE_FINITE_DISTRIBUTING_GENERALIZED_CYCLIC_MATERIAL_V1",
-                        "GE_FINITE_DISTRIBUTING_COUPLED_J2_CYCLIC_MATERIAL_V1")
+                        "GE_FINITE_DISTRIBUTING_COUPLED_J2_CYCLIC_MATERIAL_V1",
+                        "GE_FINITE_DISTRIBUTING_NATIVE_CYCLIC_MATERIAL_V1",
+                        "GE_FINITE_DISTRIBUTING_NATIVE_COUPLED_J2_CYCLIC_MATERIAL_V1")
         policies += tuple(
             name + "_DEV" if getattr(stiffened_shell, name, None) == name + "_DEV" else None
             for name in cyclic_names)
@@ -60,7 +62,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
     @staticmethod
     def _require_policy(policy, policies):
         cyclic_names = ("GE_FINITE_DISTRIBUTING_GENERALIZED_CYCLIC_MATERIAL_V1_DEV",
-                        "GE_FINITE_DISTRIBUTING_COUPLED_J2_CYCLIC_MATERIAL_V1_DEV")
+                        "GE_FINITE_DISTRIBUTING_COUPLED_J2_CYCLIC_MATERIAL_V1_DEV",
+                        "GE_FINITE_DISTRIBUTING_NATIVE_CYCLIC_MATERIAL_V1_DEV",
+                        "GE_FINITE_DISTRIBUTING_NATIVE_COUPLED_J2_CYCLIC_MATERIAL_V1_DEV")
         if type(policy) is str and policy in cyclic_names and policy not in policies:
             raise ValueError("installed solver lacks the selected cyclic distributing material policy")
         if type(policy) is not str or policy not in policies:
@@ -77,8 +81,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
 
         policies = self._public_contract()
         self._require_policy(self.finite_distributing_material_policy, policies)
-        coupled = self.finite_distributing_material_policy in (policies[1], policies[3])
-        cyclic = self.finite_distributing_material_policy in (policies[2], policies[3])
+        coupled = self.finite_distributing_material_policy in (policies[1], policies[3], policies[5])
+        cyclic = self.finite_distributing_material_policy in policies[2:]
+        native = self.finite_distributing_material_policy in policies[4:]
         if cyclic and not self.actions:
             raise ValueError("cyclic distributing material requires explicit reference actions")
         if (type(self.shell) is not stiffened_shell.ShellPanel or
@@ -93,6 +98,10 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
             replace(self.shell, j2_curve=None), self.beams, self.points,
             self.fixed, self.actions, self.finite_distributing_footprints,
             self.q4_pullback_policy)
+        families = self._section_families(elastic.beams)
+        if (native and "PHYSICAL_AXIAL_BIAXIAL_FIBRE" not in families) or (
+                not native and "PHYSICAL_AXIAL_BIAXIAL_FIBRE" in families):
+            raise ValueError("selected distributing material policy requires matching native beam section families")
         # Canonical as_dict plus the existing parser owns the curve, nested shell
         # arrays and native BeamDefinition bytes. No element/owner is assembled.
         try:
@@ -108,6 +117,21 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         for name in ("beams", "points", "fixed", "actions",
                      "finite_distributing_footprints", "q4_pullback_policy"):
             object.__setattr__(self, name, getattr(elastic, name))
+
+    @staticmethod
+    def _section_families(beams):
+        families = []
+        for beam in beams:
+            element, _ = beam.instantiate()
+            if type(element.section) is b3_ge.PhysicalFibreSection:
+                family = "PHYSICAL_AXIAL_BIAXIAL_FIBRE"
+            elif type(element.section) is b3_ge.EllipsoidalGeneralizedSection:
+                family = "RESULTANT_ELLIPSOID"
+            else:
+                raise ValueError("explicit native generalized or physical-fibre B3 section required")
+            if family not in families:
+                families.append(family)
+        return tuple(families)
 
     @property
     def status(self):
@@ -171,6 +195,7 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
             self.fixed, self.actions, self.finite_distributing_footprints,
             self.q4_pullback_policy)
         policies = self._public_contract()
+        self._require_policy(self.finite_distributing_material_policy, policies)
         cyclic = self.finite_distributing_material_policy in policies[2:]
         return replace(elastic.definition(), shell=self.shell,
                        finite_distributing_material_policy=self.finite_distributing_material_policy,
@@ -180,13 +205,17 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         from .stiffened_shell import FINITE_DISTRIBUTING_LAW
 
         policies = self._public_contract()
+        self._require_policy(self.finite_distributing_material_policy, policies)
         cyclic = self.finite_distributing_material_policy in policies[2:]
         checkpoint_kind = {
             policies[0]: "finite_distributing_material",
             policies[1]: "finite_distributing_coupled",
             policies[2]: "finite_distributing_cyclic_material",
             policies[3]: "finite_distributing_cyclic_coupled",
+            policies[4]: "finite_distributing_cyclic_native_material",
+            policies[5]: "finite_distributing_cyclic_native_coupled",
         }[self.finite_distributing_material_policy]
+        native = self.finite_distributing_material_policy in policies[4:]
         owner = stiffened_shell.create_analysis(definition=self.definition())
         try:
             caps, preflight = owner.capabilities, owner.preflight()
@@ -197,6 +226,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
                     caps.get("analysis") != ("nonlinear_force",) or
                     caps.get("loads") != ("nodal dead translation forces",) or
                     caps.get("checkpoints") != (checkpoint_kind,) or
+                    (native and (caps.get("beam_section_families") !=
+                        self._section_families(self.beams) or
+                        caps.get("beam") != "physical axial/biaxial fibre and generalized material B3 with native retained coordinates")) or
                     caps.get("fixed_step_max_backtracks") != 16 or
                     (cyclic and (caps.get("increment_control") != ("fixed",) or
                         caps.get("zero_load_normalization") != "immutable unit-factor reference pattern" or
@@ -226,7 +258,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
             self.q4_pullback_policy)["shell"]
         record.update(schema=SCHEMA_FINITE_DISTRIBUTING_MATERIAL,
                       finite_distributing_material_policy=self.finite_distributing_material_policy)
-        if self.finite_distributing_material_policy in self._public_contract()[2:]:
+        policies = self._public_contract()
+        self._require_policy(self.finite_distributing_material_policy, policies)
+        if self.finite_distributing_material_policy in policies[2:]:
             record["admission"] = FINITE_DISTRIBUTING_CYCLIC_ADMISSION
         return record
 

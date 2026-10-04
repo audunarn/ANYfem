@@ -26,3 +26,5 @@ tests/test_stiffened_shell_ge_distributing_cyclic_consumer.py -text
 examples/stiffened_shell_ge_distributing_cyclic_consumer.py -text
 docs/development/r8-ge-distributing-cyclic-consumer-20261004.md -text
 .qualification/stiffened-shell/r8-ge-distributing-cyclic-consumer-dev-20261004-v1/** -text -whitespace
+tests/test_stiffened_shell_ge_distributing_native_material_consumer.py -text
+examples/stiffened_shell_ge_distributing_native_material_consumer.py -text
