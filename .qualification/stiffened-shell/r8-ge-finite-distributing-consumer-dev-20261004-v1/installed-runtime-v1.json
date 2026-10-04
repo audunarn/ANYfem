@@ -1,0 +1,47 @@
+{
+  "scope": "Experimental finite consumer installed workflow, not physical/scientific/release acceptance",
+  "kind": "installed",
+  "imports": {
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-finite-distributing-consumer-dev-20261004-v1\\site\\anyfem\\solve\\stiffened_shell.py": "1d02e7e1680b3132079b38ef4c29016987e7fa3af59547bb1fa1d8b0b46761a6",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-finite-distributing-consumer-dev-20261004-v1\\site\\anyfem\\solve\\stiffened_shell_project.py": "01aa4462519b5f7d9eefa9eb3cc4f8dd530ec6a6e582ac2bf206865653ce0dc8",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-finite-distributing-consumer-dev-20261004-v1\\site\\anyfem\\model\\records.py": "509f0468009d99175b6471d88ff081a0c7e370527e293bcfa25aa6cd62a2bb8c",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-finite-distributing-consumer-dev-20261004-v1\\site\\anyfem\\io\\project_file.py": "143fdbbe6eb58b098345ee5c55a8d9fa2e033cd958e6caa71bd48518f0ff90a9",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\stiffened_shell.py": "82afccca4b622e57cabe5aa093a48204f433afecd3087db6abf9b3ac0ad49a40",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\_stiffened_shell_ge_experimental.py": "2e5ac438dec969c7ac8a9f4fd5e0fdcab0ff52fcd2c889bbc59320bea19505a2",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\_stiffened_shell_ge_finite_experimental.py": "cd89c574624c863318cea0d492995a19d80dea7b2cc9c8232cafaebe1d566abf",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\_stiffened_shell_ge_distributing_finite.py": "d19315bd31dbc173ad97c870db2165e2079862dbc4847dbd9291e04ddeabf6ba",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\_stiffened_shell_ge_checkpoint_binary.py": "e26d8f75b9d922a864a1ef46eed785143bc6ad07be343a7fb545734101920971",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-finite-owner-dev-20261004-v1\\site\\anysolver\\_stiffened_shell_distributing_pose.py": "bfeb51baf86e7eec1e2521e06fe0eb19edd4303615d52140bf4b95c0682c895b"
+  },
+  "pools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\numpy.libs\\libscipy_openblas64_-63c857e738469261263c764a36be9436.dll",
+      "version": "0.3.31.188.0",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\scipy.libs\\libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll",
+      "version": "0.3.30",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    }
+  ],
+  "solver_wheel_sha256": "9a366e44b752e57b65f029a7ee54fe4c4ee7581c5bda0f85083c8c8d040f59e8",
+  "consumer_wheel_sha256": "e8379bed3db7d7f6f8349135a1f8e5e294528502aa738339e74d7b9c4b8692e6",
+  "tests": {
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_finite_distributing_consumer.py": "82cf86e25f726b1f0a6367df54b75f9176083d792a615c2d087884f14126f0b5",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_distributing_consumer.py": "9fde0e4fd7390035e8c29006dd882a4aa1ef8a66f97fbc14a4f051611f064718",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests\\test_stiffened_shell_ge_reference_modal_consumer.py::test_from_definition_rejects_unverified_attachment_and_material_scope": "14d66ca4b9e7d7f8b13a8a021592b91c7de20ee09d2ed403e4654868b4a63f23"
+  },
+  "exit_code": 0,
+  "checks_seconds": 13.798483699909411
+}

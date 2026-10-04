@@ -1,0 +1,37 @@
+{
+  "status": "EXPERIMENTAL_NOT_QUALIFIED",
+  "production_qualified": false,
+  "law": "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_PLANAR_POLAR_POSE_V1_CANDIDATE",
+  "model_identity": "d350ac352405bb850f8e60bdf5c5d6696c38ef91f93f7877eb1797e0a3fcffe3",
+  "configuration": "current",
+  "accepted_factors": [
+    0.25,
+    0.5,
+    1.0
+  ],
+  "generations": [
+    2,
+    2,
+    3
+  ],
+  "equilibrium": 8.942681437660687e-10,
+  "constraint": 1.2059448850772913e-17,
+  "checkpoint_bytes": 2355,
+  "shell_action": [
+    0.0,
+    20.000000000000004,
+    99.99999999999996,
+    -2.0011713901293504,
+    -99.99940977574583,
+    19.999881955149185
+  ],
+  "beam_action": [
+    -2.8275992658421956e-16,
+    -20.000000000000004,
+    -99.99999999999996,
+    0.0011743288480179322,
+    99.99999969390112,
+    -19.999999938780242
+  ],
+  "resumed_displacement_difference": 0.0
+}

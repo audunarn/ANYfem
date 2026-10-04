@@ -1,0 +1,196 @@
+{
+  "scope": "Experimental finite consumer development, not scientific/release acceptance",
+  "preceding_commit": "fef92e29448a63357d1e84dde739ee438264e560",
+  "source": {
+    ".gitattributes": "97d22538e16e9dba75d461b81d90a1e68fb29bcb1cc429be2f706219a958ac84",
+    "src/anyfem/solve/stiffened_shell.py": "1d02e7e1680b3132079b38ef4c29016987e7fa3af59547bb1fa1d8b0b46761a6",
+    "src/anyfem/solve/stiffened_shell_project.py": "01aa4462519b5f7d9eefa9eb3cc4f8dd530ec6a6e582ac2bf206865653ce0dc8",
+    "tests/test_stiffened_shell_ge_finite_distributing_consumer.py": "82cf86e25f726b1f0a6367df54b75f9176083d792a615c2d087884f14126f0b5",
+    "examples/stiffened_shell_ge_finite_distributing_consumer.py": "34e85faa92e3462f196b95d13e846b430d49b3efb7d2d60d0314df5a43a5ff38",
+    "docs/development/r8-ge-finite-distributing-consumer-20261004.md": "75a047d270ab04756ff2cded91d4eea5afce03c4383f88c80165fb9162db3f14"
+  },
+  "raw": {
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/build-v1/execution.json": {
+      "sha256": "7a6f42fedc5e6fa1c9651787cb35bb26aa548dc1efde97033885ab1ac1abb297",
+      "bytes": 1078
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/build-v1/stderr.log": {
+      "sha256": "7ee2194b8f5c9e2d9dfd22bd32a29428ba1f9f6314bc7e0ab563e2786db6db0f",
+      "bytes": 554
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/build-v1/stdout.log": {
+      "sha256": "c0aae701f345053ab2d2bcefb22489f4d1d2356830a2b555724b0cf964cdc104",
+      "bytes": 21590
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/build-v1/thread-samples.json": {
+      "sha256": "53ec3e5b165be6af0865659f58aaf117144c3f198192466dbe45db5eb5ebd0b2",
+      "bytes": 22879
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/document-delivery-v1.py": {
+      "sha256": "611d9e8b5405c409f37ce877a5d2fbcf6ef86c46c682222e5862f0bfb6d595fa",
+      "bytes": 9899
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/document-delivery-v2.py": {
+      "sha256": "258193719e2f72c03ee8fc04d846b64f2ca15f0dad60d46d51cf3fdeeba9e9f1",
+      "bytes": 10152
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/document-encoding-repair-v1.py": {
+      "sha256": "0cca30b54a59b22601eb1e9814b99c3eabb068eee0726d431deac6578150c0c4",
+      "bytes": 1006
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/document-encoding-repair-v2.py": {
+      "sha256": "1fad2af0f7fa26dc49a24e1315b54b8ee653d194f31e6e24872503d91109945f",
+      "bytes": 1255
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/document-v1-failure.txt": {
+      "sha256": "443d9f6c41c5a5129652d422c6214b439d8403f1171e6de9bfbcd00d04da741d",
+      "bytes": 443
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-output-v1/finite-distributing.anyfem": {
+      "sha256": "50cdb593a0522147fcece6d6d094ee8156c9f310c8a0535f21aef4825fa976c9",
+      "bytes": 11069
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-output-v1/finite-distributing.anyfem-ge.json": {
+      "sha256": "56c63bf25a0601a1d33cc12d91cd3f86a76c9d66b1d72c8461cb5d95e4b7ca30",
+      "bytes": 3964
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-output-v1/finite-distributing.checkpoint": {
+      "sha256": "aafae66cff9c6d4fe7fcb1e11bae7a4dc7a7e723e226c153cf4e7a4bc55bfb8d",
+      "bytes": 2355
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-output-v1/observations.json": {
+      "sha256": "6ac3b4ffad6d13a7432d537926dd7d42da532c89d7e97eace48c95a3b632f96f",
+      "bytes": 886
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-runtime-v1.json": {
+      "sha256": "056d3a81fa391995f898988f42619b88f38a51a9bb47ee9a3f73a348a992252b",
+      "bytes": 5670
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-v1/execution.json": {
+      "sha256": "fad51fc11abab3220ccc004a9723e86e0c2162c64581efa707bbca048d2d3867",
+      "bytes": 945
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-v1/stdout.log": {
+      "sha256": "a5ee673a19cda1e622b78d223f9d2a43b568109aac0f65a707b40a640470dfe7",
+      "bytes": 736
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/example-v1/thread-samples.json": {
+      "sha256": "04be112f7edf8729bc6f8fcf4faa20424aeb018244bac6f1852449554e3bf22b",
+      "bytes": 39731
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/install-v1/execution.json": {
+      "sha256": "c66349721a323828e8557f312e1374529c8843e055affa4ee3f66db4da944471",
+      "bytes": 1213
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/install-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/install-v1/stdout.log": {
+      "sha256": "dc5edf1f61623c081412fa2a66316fcc87ed88c3ce78de45cd4c8c942b36ddc9",
+      "bytes": 264
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/install-v1/thread-samples.json": {
+      "sha256": "6af2afc1a246552d0271bdeeee8b3624481a220132b0f11fa778d31cf2d55ad1",
+      "bytes": 9649
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/installed-runtime-v1.json": {
+      "sha256": "176258da1b0e02a230502d27e6f3962a4825ad8e92b472b710aca461b86260dc",
+      "bytes": 4605
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/installed-v1/execution.json": {
+      "sha256": "8943509cc26d4a58e1ce615df265199ee323b1338489005bc4ea4f46422eea8b",
+      "bytes": 946
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/installed-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/installed-v1/stdout.log": {
+      "sha256": "6ba1c64848d2db5597093bb61961851ce711077e1ec116937074549e21f5f422",
+      "bytes": 102
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/installed-v1/thread-samples.json": {
+      "sha256": "9c1aeabaa5e3fca716829eace817b54fae2514ee623b567e0e5df1b1178aaedb",
+      "bytes": 176383
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/inventory-delivery-v1.py": {
+      "sha256": "ef565569179c6dc743fd837d834c14cdeeaf9ed7e7861be5b1a8c9ef3f84f8f5",
+      "bytes": 1564
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/probe-v1.py": {
+      "sha256": "761ac6d29bd1220745ff71977809470741305f7f79058f58ecfa72331accd3c5",
+      "bytes": 2843
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/run-v1.py": {
+      "sha256": "9aac1326358b3961fe7154c41192fc31bc35e46a16804863388092d6dc06bb02",
+      "bytes": 1622
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-runtime-v1.json": {
+      "sha256": "0826c6f998118c0acb6508d6d663178af1d8cc5469f6e98bcedde06fdf7ccccb",
+      "bytes": 4196
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1/execution.json": {
+      "sha256": "779ec06b4ed01b5b5e09fb9f26e60c402845775fcd9871ff44d62bc13dd86340",
+      "bytes": 946
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1/stdout.log": {
+      "sha256": "dd136db3d520eab208ae62278fbff3444755e9e6485bc1d60318f45fd912c6df",
+      "bytes": 102
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1/thread-samples.json": {
+      "sha256": "1ed5641f9b3ced2dd2a4d477199583aed6240bbcde993bf220f70bd1f7d433e1",
+      "bytes": 191162
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/examples/stiffened_shell_ge_finite_distributing_consumer.py": {
+      "sha256": "34e85faa92e3462f196b95d13e846b430d49b3efb7d2d60d0314df5a43a5ff38",
+      "bytes": 3548
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/src/anyfem/io/project_file.py": {
+      "sha256": "143fdbbe6eb58b098345ee5c55a8d9fa2e033cd958e6caa71bd48518f0ff90a9",
+      "bytes": 69583
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/src/anyfem/model/records.py": {
+      "sha256": "509f0468009d99175b6471d88ff081a0c7e370527e293bcfa25aa6cd62a2bb8c",
+      "bytes": 26596
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/src/anyfem/solve/stiffened_shell.py": {
+      "sha256": "e2607dd07567789b4a25db270ac2b636bb2d2713f72a8a5001481e4b4dcf676c",
+      "bytes": 94394
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/src/anyfem/solve/stiffened_shell_project.py": {
+      "sha256": "01aa4462519b5f7d9eefa9eb3cc4f8dd530ec6a6e582ac2bf206865653ce0dc8",
+      "bytes": 15420
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/tests/test_stiffened_shell_ge_distributing_consumer.py": {
+      "sha256": "9fde0e4fd7390035e8c29006dd882a4aa1ef8a66f97fbc14a4f051611f064718",
+      "bytes": 14630
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/tests/test_stiffened_shell_ge_finite_distributing_consumer.py": {
+      "sha256": "bbc74bcebaec8086a1000aa1d6d113546a848b7adecd42d6d7a5cf5bffac529c",
+      "bytes": 7499
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/source-v1-bytes/tests/test_stiffened_shell_ge_reference_modal_consumer.py": {
+      "sha256": "14d66ca4b9e7d7f8b13a8a021592b91c7de20ee09d2ed403e4654868b4a63f23",
+      "bytes": 10743
+    },
+    ".qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/supporting-review-v1.md": {
+      "sha256": "63296ad81a8f163eb0a98c1d5c4bd1fc764f4429a6d12c7ef59273f8c7f85e47",
+      "bytes": 810
+    }
+  },
+  "wheels": {
+    "anyfem-0.4.1-py3-none-any.whl": {
+      "sha256": "e8379bed3db7d7f6f8349135a1f8e5e294528502aa738339e74d7b9c4b8692e6",
+      "bytes": 542255
+    }
+  }
+}

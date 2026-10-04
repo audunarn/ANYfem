@@ -45,6 +45,9 @@ SCHEMA_REFERENCE_MODAL = "anyfem.experimental-ge-reference-modal-panel-v1"
 SCHEMA_REFERENCE_DISTRIBUTING = "anyfem.experimental-ge-reference-distributing-panel-v1"
 REFERENCE_DISTRIBUTING_LAW = "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_POLAR_REFERENCE_LINEAR_V1_EXPERIMENTAL"
 REFERENCE_DISTRIBUTING_ADMISSION = "reference_linear_nodal_dead_actions_only"
+SCHEMA_FINITE_DISTRIBUTING = "anyfem.experimental-ge-finite-distributing-panel-v1"
+FINITE_DISTRIBUTING_LAW = "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_PLANAR_POLAR_POSE_V1_CANDIDATE"
+FINITE_DISTRIBUTING_ADMISSION = "monotone_nodal_translation_force_only"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -885,6 +888,135 @@ class ExperimentalGEReferenceDistributingPanel:
 
 
 @dataclass(frozen=True)
+class ExperimentalGEFiniteDistributingPanel:
+    """Explicit finite area-pose input; no automatic reference-project upgrade.
+
+    Geometry/physics and accepted state remain owned by the public solver.
+    This input-only format is experimental and is not a welded-surface model.
+    """
+    shell: stiffened_shell.ShellPanel
+    beams: tuple[b3_ge.BeamDefinition, ...]
+    points: tuple[stiffened_shell.PointConnection, ...]
+    fixed: tuple[stiffened_shell.FixedCoordinate, ...]
+    actions: tuple[stiffened_shell.NodalAction, ...] = ()
+    finite_distributing_footprints: tuple = ()
+    q4_pullback_policy: str = field(default=stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1)
+
+    @staticmethod
+    def _public_contract():
+        footprint = getattr(stiffened_shell, "GEFiniteDistributingFootprint", None)
+        wrench = getattr(stiffened_shell, "GEFiniteDistributingFootprintWrench", None)
+        if (footprint is None or wrench is None or
+                getattr(stiffened_shell, "GE_DISTRIBUTING_FINITE_DIRECTOR_POLAR_V1_EXPERIMENTAL", None) != FINITE_DISTRIBUTING_LAW):
+            raise ValueError("installed solver lacks the explicit experimental finite distributing contract")
+        return footprint
+
+    def __post_init__(self):
+        footprint = self._public_contract()
+        if (type(self.finite_distributing_footprints) is not tuple or
+                not self.finite_distributing_footprints or
+                any(type(g) is not footprint for g in self.finite_distributing_footprints)):
+            raise ValueError("nonempty explicitly typed finite distributing tuple required")
+        # Reuse strict input framing only; no reference owner is built or solved.
+        reference = ExperimentalGEReferenceDistributingPanel(self.shell, self.beams,
+            self.points, self.fixed, self.actions,
+            tuple(g.footprint for g in self.finite_distributing_footprints), self.q4_pullback_policy)
+        if any(any(value != 0 for value in action.wrench[3:]) for action in reference.actions):
+            raise ValueError("finite distributing input permits nodal translation forces only")
+        for name in ("shell", "beams", "points", "fixed", "actions", "q4_pullback_policy"):
+            object.__setattr__(self, name, getattr(reference, name))
+        object.__setattr__(self, "finite_distributing_footprints",
+            tuple(footprint(g) for g in reference.distributing_footprints))
+
+    @property
+    def status(self): return STATUS
+
+    @property
+    def load_input(self): return self.actions
+
+    @property
+    def recovery_selection(self):
+        return stiffened_shell.GEReferenceDistributingFootprintSelection(
+            tuple(g.footprint.footprint_id for g in self.finite_distributing_footprints))
+
+    @classmethod
+    def from_definition(cls, definition, actions=()):
+        footprint = cls._public_contract()
+        if (type(definition) is not stiffened_shell.LinearDefinition or
+                type(definition.finite_distributing_footprints) is not tuple or
+                not definition.finite_distributing_footprints or
+                type(definition.distributing_footprints) is not tuple or definition.distributing_footprints != () or
+                any(type(g) is not footprint for g in definition.finite_distributing_footprints)):
+            raise ValueError("explicit finite-only distributing definition required")
+        ExperimentalGEReferenceDistributingPanel._validate_export(replace(definition,
+            finite_distributing_footprints=(),
+            distributing_footprints=tuple(g.footprint for g in definition.finite_distributing_footprints)))
+        return cls(definition.shell, definition.beams, definition.points, definition.fixed, actions,
+                   definition.finite_distributing_footprints, definition.q4_pullback_policy)
+
+    def definition(self):
+        return stiffened_shell.LinearDefinition(stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
+            self.shell, self.beams, self.points, self.fixed,
+            q4_pullback_policy=self.q4_pullback_policy,
+            finite_distributing_footprints=self.finite_distributing_footprints)
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.definition())
+        try:
+            caps, preflight = owner.capabilities, owner.preflight()
+            if (type(caps) is not dict or caps.get("status") != STATUS or
+                    caps.get("profile") != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                    caps.get("distributing_footprint_law") != FINITE_DISTRIBUTING_LAW or
+                    caps.get("analysis") != ("nonlinear_force",) or
+                    caps.get("loads") != ("nodal dead translation forces",) or
+                    caps.get("checkpoints") != ("finite_distributing",) or
+                    not callable(getattr(owner, "recover", None)) or type(preflight) is not dict or
+                    type(preflight.get("identity")) is not str or len(preflight["identity"]) != 64 or
+                    preflight.get("constraints") != 6*(len(self.points)+len(self.finite_distributing_footprints))):
+                raise ValueError("public owner lacks the exact experimental finite distributing admission")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def to_dict(self):
+        record = _point_components_payload(self.shell, self.beams, self.points,
+                                          self.fixed, self.actions, self.q4_pullback_policy)
+        record.update(schema=SCHEMA_FINITE_DISTRIBUTING, law=FINITE_DISTRIBUTING_LAW,
+            admission=FINITE_DISTRIBUTING_ADMISSION, finite_distributing_footprints=[dict(
+                law=FINITE_DISTRIBUTING_LAW, footprint_id=g.footprint.footprint_id,
+                host_element_ids=list(g.footprint.host_element_ids), beam_node_id=g.footprint.beam_node_id,
+                bounds_xy_m=list(g.footprint.bounds_xy_m)) for g in self.finite_distributing_footprints])
+        return record
+
+    @classmethod
+    def from_dict(cls, value):
+        data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams", "points", "fixed",
+            "actions", "q4_pullback_policy", "law", "admission", "finite_distributing_footprints"},
+            "finite-distributing GE panel")
+        if (data["schema"] != SCHEMA_FINITE_DISTRIBUTING or data["status"] != STATUS or
+                data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                data["law"] != FINITE_DISTRIBUTING_LAW or data["admission"] != FINITE_DISTRIBUTING_ADMISSION):
+            raise ValueError("explicit finite distributing schema/law/admission required")
+        if type(data["finite_distributing_footprints"]) is not list or not data["finite_distributing_footprints"]:
+            raise ValueError("nonempty finite distributing list required")
+        footprint=cls._public_contract()
+        groups=[]
+        for item in data["finite_distributing_footprints"]:
+            row=_exact_fields(item,{"law", "footprint_id", "host_element_ids", "beam_node_id", "bounds_xy_m"},
+                              "finite distributing footprint")
+            if row["law"] != FINITE_DISTRIBUTING_LAW:
+                raise ValueError("exact finite distributing footprint law required")
+            if type(row["bounds_xy_m"]) is not list or len(row["bounds_xy_m"]) != 4:
+                raise ValueError("four finite rectangle bounds required")
+            groups.append(footprint(stiffened_shell.GEReferenceDistributingFootprint(row["footprint_id"],
+                _ids(row["host_element_ids"],"host element IDs"), _positive_int(row["beam_node_id"],"beam node ID"),
+                tuple(_finite_number(v,"rectangle bounds") for v in row["bounds_xy_m"]))))
+        owned=_parse_point_components(dict(data,schema=SCHEMA_Q4_PULLBACK),data["q4_pullback_policy"])
+        return cls(*owned[:5],tuple(groups),owned[5])
+
+
+@dataclass(frozen=True)
 class ExperimentalGENodalRigidFootprintPanel:
     """Explicit selected-node input, not an area weld or accepted solver state.
 
@@ -1333,9 +1465,9 @@ class ExperimentalGEBL5Panel:
                    bl5_material_policy=material_policy)
 
 
-def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel, path: str | Path) -> Path:
+def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel, path: str | Path) -> Path:
     """Atomically save a bounded input record, never solver state or results."""
-    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel):
+    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel):
         raise ValueError("experimental GE panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -1361,7 +1493,7 @@ def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | Experime
     return destination
 
 
-def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel:
+def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel:
     source = Path(path)
     if not source.name.endswith(SUFFIX):
         raise ValueError(f"experimental GE panel filename must end with {SUFFIX}")
@@ -1394,12 +1526,15 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_MODAL:
         return ExperimentalGEReferenceModalPanel.from_dict(data)
+    if type(data) is dict and data.get("schema") == SCHEMA_FINITE_DISTRIBUTING:
+        return ExperimentalGEFiniteDistributingPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
         return ExperimentalGEReferenceDistributingPanel.from_dict(data)
     return ExperimentalGEPointPanel.from_dict(data)
 
 
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
+           "ExperimentalGEFiniteDistributingPanel", "SCHEMA_FINITE_DISTRIBUTING", "FINITE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceDistributingPanel", "SCHEMA_REFERENCE_DISTRIBUTING", "REFERENCE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",

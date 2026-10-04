@@ -12,3 +12,8 @@ docs/development/r8-ge-distributing-consumer-20261004.md -text
 .qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/** -text
 
 docs/development/r8-ge-finite-distributing-compatibility-20261004.md -text
+
+tests/test_stiffened_shell_ge_finite_distributing_consumer.py -text
+examples/stiffened_shell_ge_finite_distributing_consumer.py -text
+docs/development/r8-ge-finite-distributing-consumer-20261004.md -text
+.qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/** -text -whitespace
