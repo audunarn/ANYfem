@@ -658,6 +658,7 @@ class ExperimentalGEReferenceModalPanel:
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                 definition.lines or definition.footprints or
+                getattr(definition, "distributing_footprints", ()) or
                 getattr(definition, "shell_reference_policy", "flat") != "flat"):
             raise ValueError("exact flat GE six-pose point modal definition required; curved references, lines and footprints unsupported")
         return cls(definition.shell, tuple(definition.beams), tuple(definition.points),

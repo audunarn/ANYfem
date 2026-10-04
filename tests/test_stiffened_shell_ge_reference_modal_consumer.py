@@ -187,3 +187,9 @@ def test_from_definition_rejects_unverified_attachment_and_material_scope():
         ExperimentalGEReferenceModalPanel.from_definition(replace(definition,lines=(object(),)),api.GEReferenceModesRequest())
     with pytest.raises(ValueError):
         ExperimentalGEReferenceModalPanel.from_definition(replace(definition,footprints=(object(),)),api.GEReferenceModesRequest())
+    if "distributing_footprints" in api.LinearDefinition.__dataclass_fields__:
+        footprint = api.GEReferenceDistributingFootprint("unsupported-area", (1, 2), 102,
+                                                        (0., 2., -.5, .5))
+        with pytest.raises(ValueError, match="footprints unsupported"):
+            ExperimentalGEReferenceModalPanel.from_definition(
+                replace(definition, distributing_footprints=(footprint,)), api.GEReferenceModesRequest())
