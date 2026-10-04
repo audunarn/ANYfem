@@ -1,0 +1,7 @@
+{
+  "solver_site": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-bl5-projected-joint32-v2\\site",
+  "consumer_root": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-modal-consumer-v1\\site",
+  "tests": {
+    "test_experimental_b2_mixed_reference_modal_consumer.py": "18bbb1e789bbbcc484173ad21268660176f525a0834970ab37bdd069e6b425c9"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "site": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-bl5-projected-joint32-v2\\site",
+  "public_free_exports_absent": true,
+  "definition_boundary_field_absent": true,
+  "capability_boundary_field_absent": true,
+  "site_wheel_module_identity": {
+    "anysolver/stiffened_shell.py": "66e80c63e14e61578dcf32f7d8b1e908d8f86aa572a22344f1f2dc04a7f31039",
+    "anysolver/_stiffened_shell_b2_q4_panel_experimental.py": "cdcb6a7abad4607037534e182f3a129bb12af786e53a00291054307c7f2e9a73"
+  }
+}

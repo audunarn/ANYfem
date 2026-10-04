@@ -1,0 +1,20 @@
+{
+  "src/anyfem/solve/stiffened_shell_b2.py": {
+    "before_sha256": "2af32ddec66791cef7656f7b018941833e00cf2d5b641fa3b14d536ca97eecb3",
+    "after_sha256": "454a9235798f4a7c944a03a0e1579193031af4fb45957ebe1ab6dbf6c3c20aa0",
+    "ast_equal": true,
+    "head_line_ending": "LF"
+  },
+  "src/anyfem/solve/stiffened_shell_project.py": {
+    "before_sha256": "4502150b70636426afb4dd28493daa40285129bf500745957686713e17cc7089",
+    "after_sha256": "0f65a7f9c368d0e566623a90da338ef527d212fe71faa07f1684bfa65dc39bdf",
+    "ast_equal": true,
+    "head_line_ending": "LF"
+  },
+  "examples/stiffened_shell_b2_mixed_reference_modes_consumer.py": {
+    "before_sha256": "f8410aab1480376094c9c30a172b967d4518a23a97465b24c948697caed41214",
+    "after_sha256": "f8410aab1480376094c9c30a172b967d4518a23a97465b24c948697caed41214",
+    "ast_equal": true,
+    "head_line_ending": "LF"
+  }
+}

@@ -429,3 +429,54 @@ point schemas, and the older curved elastic policy still rejects programmes.
 Standalone and native Project save/reopen preserve the programme's model
 binding. Solver execution and accepted-state checkpoints remain separately
 owned and experimental; the consumer does not infer staged history acceptance.
+
+## Explicit B2 mixed free-free reference modes
+
+`ExperimentalB2MixedReferenceModalPanel` also persists the explicit public
+`B2_FREE_FREE_MODAL_ONLY_V1` boundary policy in the distinct experimental schema
+`anyfem.experimental-b2-mixed-free-reference-modal-panel-v1`. Existing supported
+mixed modal records retain their original schema and interpretation. A free
+input requires identity transformation, zero offset, complete physical mass and
+the admitted reference inertia policy; it supports modes only. Persistence
+constructs no numerical owner and is not a checkpoint or qualification.
+
+```python
+from dataclasses import replace
+from scipy import sparse
+from anysolver import stiffened_shell as solver
+from anyfem.solve.stiffened_shell_b2 import (
+    ExperimentalB2MixedReferenceModalPanel, save_case, load_case,
+)
+
+free_definition = replace(
+    mixed_modal_definition,
+    transformation=sparse.eye(mixed_modal_definition.transformation.shape[0], format="csr"),
+    boundary_policy=solver.B2_FREE_FREE_MODAL_ONLY_V1,
+)
+case = ExperimentalB2MixedReferenceModalPanel.from_definition(
+    free_definition, solver.B2ReferenceModesRequest(count=3),
+)
+reopened = load_case(save_case(case, "free-modes.anyfem-b2.json"))
+result = reopened.modes()
+if result.status == "ok":
+    rigid_fields = result.rigid_modes
+    frequencies_hz = result.flexible.frequencies_hz
+```
+
+The structured solver result distinguishes six checked physical rigid fields
+from selected finite flexible pairs. Cancellation/failure preserves the actual
+status and contains no partial modal inventory. This is not proof of spectral
+completeness, exactly-six nullity, continuum dynamic accuracy or qualification.
+Native `Project` persistence uses the same strict input through
+`AnalysisDefinition.experimental_point_panel`; ordinary saved solver routes are
+not changed. Owners returned by `create_analysis()` must be closed by callers.
+
+Run the existing headless example with `--free-free` (and optionally `--all-s3`):
+
+```powershell
+python examples/stiffened_shell_b2_mixed_reference_modes_consumer.py free-modes.anyfem --free-free
+```
+
+It saves/reopens a native Project, solves through the public consumer and reports
+bounded rigid/flexible diagnostics. Unsupported exports and stability/capacity
+requests remain outside this experimental modal route.

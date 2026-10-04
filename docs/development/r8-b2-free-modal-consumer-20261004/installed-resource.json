@@ -1,0 +1,14 @@
+{
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-modal-consumer-v1\\check-consumer.py",
+    "installed"
+  ],
+  "status": "terminal",
+  "failure": null,
+  "exit_code": 0,
+  "peak_sampled_bytes": 212463616,
+  "elapsed_seconds": 18.596407400036696,
+  "limit_bytes": 2147483648,
+  "timeout_seconds": 180
+}

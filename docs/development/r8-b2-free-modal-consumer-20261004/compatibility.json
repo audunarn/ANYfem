@@ -1,0 +1,27 @@
+{
+  "baseline_commit": "2ede338ba28932bb9dd3e8eb0f0a4908d37fc765",
+  "baseline_module_sha256": "f478792d4d57ba756b86db095ba0f2a4685e73ed750993cb68623c96d8c62f67",
+  "records": {
+    "q4": {
+      "supported_payload_bytes": 3445,
+      "supported_sha256": "4afa952ca426adfe033cb785cc86353cfddb597edf73bb3444496647d11e5daf",
+      "exact_historical_match": true,
+      "historical_free_rejected": true,
+      "new_schema": "anyfem.experimental-b2-mixed-free-reference-modal-panel-v1"
+    },
+    "mixed": {
+      "supported_payload_bytes": 3617,
+      "supported_sha256": "62d2ba9eebdb29abaf80335319f9635f06f168ffb4c6d738b7427b954ecf8f92",
+      "exact_historical_match": true,
+      "historical_free_rejected": true,
+      "new_schema": "anyfem.experimental-b2-mixed-free-reference-modal-panel-v1"
+    },
+    "s3": {
+      "supported_payload_bytes": 3788,
+      "supported_sha256": "0ee0f3513d07b43f4af217f900ea421a1b5031194b51fe4a6fd5583d0ac1baf3",
+      "exact_historical_match": true,
+      "historical_free_rejected": true,
+      "new_schema": "anyfem.experimental-b2-mixed-free-reference-modal-panel-v1"
+    }
+  }
+}

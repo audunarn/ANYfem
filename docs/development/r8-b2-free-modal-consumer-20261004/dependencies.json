@@ -1,0 +1,51 @@
+{
+  "packages": {
+    "ANYfem": {
+      "import_path": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-modal-consumer-v1\\site\\anyfem\\__init__.py",
+      "metadata_version": "0.4.1",
+      "runtime_version": "0.4.1"
+    },
+    "ANYsolver": {
+      "import_path": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-reference-modes-v3\\site\\anysolver\\__init__.py",
+      "metadata_version": "0.4.7",
+      "runtime_version": "0.4.7"
+    },
+    "ANYmaterial": {
+      "import_path": "C:\\Github\\ANYmaterial\\src\\anymaterial\\__init__.py",
+      "metadata_version": "0.2.0",
+      "runtime_version": "0.2.0"
+    },
+    "ANYgeometry": {
+      "import_path": "C:\\Github\\ANYgeometry\\src\\anygeometry\\__init__.py",
+      "metadata_version": "0.4.3",
+      "runtime_version": "0.4.5"
+    },
+    "ANYmesher": {
+      "import_probe_unavailable": "No module named 'connections'",
+      "metadata_version": "0.5.0"
+    },
+    "ANYfileio": {
+      "import_path": "C:\\Github\\ANYfileIO\\src\\anyfileio\\__init__.py",
+      "metadata_version": "0.3.2",
+      "runtime_version": "0.3.2"
+    },
+    "numpy": {
+      "import_path": "C:\\Python\\Python314\\Lib\\site-packages\\numpy\\__init__.py",
+      "metadata_version": "2.4.6",
+      "runtime_version": "2.4.6"
+    },
+    "scipy": {
+      "import_path": "C:\\Python\\Python314\\Lib\\site-packages\\scipy\\__init__.py",
+      "metadata_version": "1.17.1",
+      "runtime_version": "1.17.1"
+    },
+    "h5py": {
+      "import_path": "C:\\Python\\Python314\\Lib\\site-packages\\h5py\\__init__.py",
+      "metadata_version": "3.15.1",
+      "runtime_version": "3.15.1"
+    }
+  },
+  "historical_solver_wheel_sha256": "1bf7dabd8771e76ed09825fb66a89e3e48d513dbb0321989c41701096a679632",
+  "current_solver_wheel_sha256": "dea651b918e92871ffc017c6a435dd1f265d22e86f9a307d00d12ebd4abfa27b",
+  "scope": "observed development graph; editable siblings are not isolated final qualification"
+}

@@ -1,0 +1,5 @@
+src/anyfem/solve/stiffened_shell_b2.py -text
+src/anyfem/solve/stiffened_shell_project.py -text
+examples/stiffened_shell_b2_mixed_reference_modes_consumer.py -text
+tests/test_experimental_b2_free_reference_modal_consumer.py -text
+docs/development/r8-b2-free-modal-consumer-20261004/** -text

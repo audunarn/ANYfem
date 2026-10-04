@@ -1,0 +1,15 @@
+{
+  "solver_site": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-reference-modes-v3\\site",
+  "consumer_root": "C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\r8-b2-free-modal-consumer-v1\\site",
+  "tests": {
+    "test_experimental_b2_free_reference_modal_consumer.py": "3da4cd05c2189f5849508cca8e19820c140092371c5fa35a73a5559ebbb0e4b4",
+    "test_experimental_b2_mixed_reference_modal_consumer.py": "18bbb1e789bbbcc484173ad21268660176f525a0834970ab37bdd069e6b425c9",
+    "test_stiffened_shell_b2_reference_modal_consumer.py": "573bab65ba2a819d95bef86d14468b617e37f41551436d6dfdfa4ae1c808c482",
+    "test_stiffened_shell_project.py": "f1c93790d910f2fabd43da5769441c5a7b0ae2846db41ef70fab7d65ce9fe523"
+  },
+  "wheel_sha256": "66739dbee7f9d6f5171dbb6371a41c71249d5ef52ac496456eac9dbd0ecd737e",
+  "modules": {
+    "anyfem/solve/stiffened_shell_b2.py": "454a9235798f4a7c944a03a0e1579193031af4fb45957ebe1ab6dbf6c3c20aa0",
+    "anyfem/solve/stiffened_shell_project.py": "0f65a7f9c368d0e566623a90da338ef527d212fe71faa07f1684bfa65dc39bdf"
+  }
+}

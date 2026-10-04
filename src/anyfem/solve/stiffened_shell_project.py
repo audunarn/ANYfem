@@ -25,6 +25,7 @@ from .stiffened_shell_b2 import (
     ExperimentalB2MixedPointPanel, SCHEMA_MIXED as B2_MIXED_SCHEMA,
     ExperimentalB2MixedReferenceModalPanel,
     SCHEMA_MIXED_REFERENCE_MODAL as B2_MIXED_MODAL_SCHEMA,
+    SCHEMA_MIXED_FREE_REFERENCE_MODAL as B2_MIXED_FREE_MODAL_SCHEMA,
     ExperimentalB2BodyAccelerationPanel, SCHEMA_BODY_ACCELERATION,
     ExperimentalB2LoadedPointPanel, SCHEMA_LOADED_POINT, SCHEMA_LOADED_POINT_BODY,
     SCHEMA_MIXED_BODY_ACCELERATION, SCHEMA_FOOTPRINT_BODY_ACCELERATION,
@@ -151,7 +152,7 @@ def _decode_point_panel(analysis_type, formulation, record):
                 SCHEMA_BODY_ACCELERATION, SCHEMA_MIXED_BODY_ACCELERATION,
                 SCHEMA_FOOTPRINT_BODY_ACCELERATION):
             return ExperimentalB2BodyAccelerationPanel.from_dict(payload)
-        if type(payload) is dict and payload.get("schema") == B2_MIXED_MODAL_SCHEMA:
+        if type(payload) is dict and payload.get("schema") in (B2_MIXED_MODAL_SCHEMA, B2_MIXED_FREE_MODAL_SCHEMA):
             return ExperimentalB2MixedReferenceModalPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == B2_MIXED_SCHEMA:
             return ExperimentalB2MixedPointPanel(json.dumps(payload, allow_nan=False).encode("ascii"))
