@@ -662,6 +662,8 @@ class ExperimentalGEReferenceModalPanel:
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                 definition.lines or definition.footprints or
                 getattr(definition, "distributing_footprints", ()) or
+                type(getattr(definition, "finite_distributing_footprints", ())) is not tuple or
+                getattr(definition, "finite_distributing_footprints", ()) != () or
                 getattr(definition, "shell_reference_policy", "flat") != "flat"):
             raise ValueError("exact flat GE six-pose point modal definition required; curved references, lines and footprints unsupported")
         return cls(definition.shell, tuple(definition.beams), tuple(definition.points),
@@ -793,9 +795,13 @@ class ExperimentalGEReferenceDistributingPanel:
         expected = {"profile", "shell", "beams", "points", "fixed", "lines", "q4_pullback_policy",
                     "footprints", "modal_boundary_policy", "footprint_chart_policy", "bl5_material_policy",
                     "shell_reference_policy", "retained_scale_policy", "distributing_footprints"}
+        if "finite_distributing_footprints" in stiffened_shell.LinearDefinition.__dataclass_fields__:
+            expected.add("finite_distributing_footprints")
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 {item.name for item in dataclass_fields(definition)} != expected or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                type(getattr(definition, "finite_distributing_footprints", ())) is not tuple or
+                getattr(definition, "finite_distributing_footprints", ()) != () or
                 definition.lines != () or definition.footprints != () or
                 definition.modal_boundary_policy != "supported" or
                 definition.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY or

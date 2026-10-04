@@ -230,6 +230,19 @@ def test_unsupported_definition_exports_fail_without_assembly(inputs, monkeypatc
     with pytest.raises(ValueError): ExperimentalGEReferenceDistributingPanel.from_definition(change(inputs[0]), inputs[1])
 
 
+def test_known_empty_finite_field_is_compatible_but_nonempty_is_rejected(inputs, monkeypatch):
+    if "finite_distributing_footprints" not in ss.LinearDefinition.__dataclass_fields__:
+        return  # Older solver graphs have no such option; their strict schema remains.
+    model, actions = inputs[:2]
+    exported=ExperimentalGEReferenceDistributingPanel.from_definition(model,actions)
+    assert exported.definition().finite_distributing_footprints==()
+    def forbidden(**kwargs):raise AssertionError("unsupported finite consumer assembled a model")
+    monkeypatch.setattr(ss,"create_analysis",forbidden)
+    for value in (None, False, [], (ss.GEFiniteDistributingFootprint(model.distributing_footprints[0]),)):
+        bad=replace(model,finite_distributing_footprints=value)
+        with pytest.raises(ValueError):ExperimentalGEReferenceDistributingPanel.from_definition(bad,actions)
+
+
 @pytest.mark.parametrize("change", (
     lambda d: d.update(extra=True), lambda d: d.update(schema="unknown"),
     lambda d: d.update(law="unknown"), lambda d: d.update(admission="finite"),
