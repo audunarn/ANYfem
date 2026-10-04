@@ -88,7 +88,7 @@ def test_cancellation_preserves_complete_accepted_prefix(inputs):
     finally:owner.close()
 
 
-@pytest.mark.parametrize('change',('schema','law','admission','group_law','empty','unknown','moment','nan','host_bool','bounds'))
+@pytest.mark.parametrize('change',('schema','law','admission','group_law','empty','unknown','material_policy','moment','nan','host_bool','bounds'))
 def test_strict_payload_rejection(inputs,change,monkeypatch):
     payload=deepcopy(inputs[2].to_dict())
     monkeypatch.setattr(ss,'create_analysis',lambda **kwargs:pytest.fail('invalid payload assembled'))
@@ -96,11 +96,40 @@ def test_strict_payload_rejection(inputs,change,monkeypatch):
     elif change=='group_law':payload['finite_distributing_footprints'][0]['law']='wrong'
     elif change=='empty':payload['finite_distributing_footprints']=[]
     elif change=='unknown':payload['extra']=1
+    elif change=='material_policy':payload['finite_distributing_material_policy']='selected-material'
     elif change=='moment':payload['actions'][0]['wrench'][3]=1.
     elif change=='nan':payload['actions'][0]['wrench'][0]=float('nan')
     elif change=='host_bool':payload['finite_distributing_footprints'][0]['host_element_ids'][0]=True
     else:payload['finite_distributing_footprints'][0]['bounds_xy_m']=[0.,1.]
     with pytest.raises(ValueError):Panel.from_dict(payload)
+
+
+@pytest.mark.parametrize('policy',(
+    'GE_FINITE_DISTRIBUTING_GENERALIZED_MATERIAL_V1_DEV',
+    'GE_FINITE_DISTRIBUTING_COUPLED_J2_MATERIAL_V1_DEV', None, True))
+def test_material_selector_cannot_be_discarded(inputs,policy,monkeypatch):
+    definition,actions,_,_=inputs
+    if 'finite_distributing_material_policy' not in ss.LinearDefinition.__dataclass_fields__:
+        pytest.skip('new explicit material selector is absent from older solver')
+    monkeypatch.setattr(ss,'create_analysis',lambda **kw:pytest.fail('unsupported material assembled'))
+    changed=replace(definition,finite_distributing_material_policy=policy)
+    with pytest.raises(ValueError,match='material policy'):
+        Panel.from_definition(changed,actions)
+    with pytest.raises(ValueError,match='material policy'):
+        ExperimentalGEReferenceDistributingPanel.from_definition(
+            replace(changed,finite_distributing_footprints=()),actions)
+    from anyfem.solve.stiffened_shell import ExperimentalGEReferenceModalPanel
+    with pytest.raises(ValueError,match='material policy'):
+        ExperimentalGEReferenceModalPanel.from_definition(
+            replace(changed,finite_distributing_footprints=()),object())
+
+
+def test_native_record_rejects_material_selector_injection(inputs,tmp_path):
+    record=AnalysisDefinition.experimental_point_panel('elastic only',inputs[2])
+    record.beam_formulation_options['panel']['finite_distributing_material_policy']='selected-material'
+    with pytest.raises(ValueError):record.to_dict()
+    from anyfem.solve.stiffened_shell_project import point_panel_from_analysis
+    with pytest.raises(ValueError):point_panel_from_analysis(record)
 
 
 @pytest.mark.parametrize('kwargs',({},dict(targets=(1.,),increment_control=object()),dict(targets=(1.,),on_case=lambda *a:None)))

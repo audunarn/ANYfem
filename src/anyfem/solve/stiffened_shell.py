@@ -661,6 +661,9 @@ class ExperimentalGEReferenceModalPanel:
 
     @classmethod
     def from_definition(cls, definition, request, *, model_identity=None):
+        if (type(getattr(definition, "finite_distributing_material_policy", "elastic")) is not str or
+                getattr(definition, "finite_distributing_material_policy", "elastic") != "elastic"):
+            raise ValueError("finite distributing material policy unsupported by modal consumer")
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                 definition.lines or definition.footprints or
@@ -800,6 +803,11 @@ class ExperimentalGEReferenceDistributingPanel:
                     "shell_reference_policy", "retained_scale_policy", "distributing_footprints"}
         if "finite_distributing_footprints" in stiffened_shell.LinearDefinition.__dataclass_fields__:
             expected.add("finite_distributing_footprints")
+        if "finite_distributing_material_policy" in stiffened_shell.LinearDefinition.__dataclass_fields__:
+            expected.add("finite_distributing_material_policy")
+        if (type(getattr(definition, "finite_distributing_material_policy", "elastic")) is not str or
+                getattr(definition, "finite_distributing_material_policy", "elastic") != "elastic"):
+            raise ValueError("finite distributing material policy unsupported by elastic consumer")
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 {item.name for item in dataclass_fields(definition)} != expected or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or

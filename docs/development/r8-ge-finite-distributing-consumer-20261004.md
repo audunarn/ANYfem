@@ -36,3 +36,19 @@ Next use the completed solver/consumer slice while addressing physical connectio
 acceptance from the saved torque/shear evidence. Do not add unrelated profile
 combinations or silently relax convergence/authority/guards. Aggregate programme
 requirements and full scientific/platform/release acceptance remain open.
+# Material selector compatibility — 4 October
+
+The appended ANYsolver `finite_distributing_material_policy` field is recognized
+without changing the elastic consumer schema. Only exact-string `elastic` is
+exportable. Both selected material policies and malformed values fail before
+export; modal export also fails closed. Native payload injection is rejected
+on parsing and mutable-record save validation. The material owner is not yet
+available through this consumer's persistence format.
+
+Installed solver/consumer integration131PASS and public solver material
+examplePASS are bound in the solver worktree's
+`.qualification/b3-ge-e4-pl/r8-distributing-material-dev-20261004-v1/installed-runtime-v15.json`.
+Solver wheel2f182820379c18029e93e143a689902dfdab56afb398aef490510a16bde43c3d;
+consumer wheeldc822ff5cb33e350b03ab9baa932758fd7fbde507191fe38d9be61732dda0ad3.
+All actual imported package paths are installed; package source bytes match
+their worktrees. Supporting Read review is clear, not scientific qualification.

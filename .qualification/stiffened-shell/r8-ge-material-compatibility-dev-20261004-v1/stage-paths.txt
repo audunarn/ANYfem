@@ -1,0 +1,13 @@
+.gitattributes
+src/anyfem/solve/stiffened_shell.py
+tests/test_stiffened_shell_ge_finite_distributing_consumer.py
+docs/development/r8-ge-finite-distributing-consumer-20261004.md
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/stage-paths.txt
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/build.log
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/execution.json
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/installed-runtime-v15.json
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/stderr.log
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/stdout.log
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/supporting-reviews.md
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/source-final/src/anyfem/solve/stiffened_shell.py
+.qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/source-final/tests/test_stiffened_shell_ge_finite_distributing_consumer.py
