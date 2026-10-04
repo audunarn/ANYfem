@@ -1,0 +1,280 @@
+{
+  "commit": "9b7482b29c5ad8560a2a6aa9d50557083a790df9",
+  "scope": "39-file consumer commit: tested source/evidence preserved; Git normalization only for two configuration files",
+  "precommit_check": "initial exact-byte check stopped at .gitattributes; commit occurred before inspection; this postcommit complete check records the result",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "source_sha256": "0bd1447926c1a46a3db91dce6040b5eae2b0967f010655860fecfa06d2074182",
+      "git_blob_sha256": "42d9794f8a9ebad7749c0ae777c08ca8dc5e058151479000e867c601c1b7f9b4",
+      "byte_exact": false,
+      "newline_only": true
+    },
+    {
+      "path": "src/anyfem/solve/stiffened_shell.py",
+      "source_sha256": "b9794fa20eea34bc2ee4392780811c3de0329169455bc4887dcc6a955c3c413e",
+      "git_blob_sha256": "b9794fa20eea34bc2ee4392780811c3de0329169455bc4887dcc6a955c3c413e",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": "src/anyfem/solve/stiffened_shell_project.py",
+      "source_sha256": "4f426442c1596ffcb0f609baa9f0f5f63b456fce6f9be77191942c2b5f586e24",
+      "git_blob_sha256": "4f426442c1596ffcb0f609baa9f0f5f63b456fce6f9be77191942c2b5f586e24",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": "tests/test_stiffened_shell_ge_distributing_consumer.py",
+      "source_sha256": "630a1cd21f67dacea974d5cbc795d6058549e4db3eb5682d90dcdd0c7a674fbd",
+      "git_blob_sha256": "630a1cd21f67dacea974d5cbc795d6058549e4db3eb5682d90dcdd0c7a674fbd",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": "examples/stiffened_shell_ge_distributing_consumer.py",
+      "source_sha256": "8d826a8b3a16cc15bdb9f1eb0e59b6d2d894f0701c65ed9d8c405cd9f5be1287",
+      "git_blob_sha256": "8d826a8b3a16cc15bdb9f1eb0e59b6d2d894f0701c65ed9d8c405cd9f5be1287",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": "docs/development/r8-ge-distributing-consumer-20261004.md",
+      "source_sha256": "8971d4c7e09c6d1b0a19dde2c01a73964a868d752e1fea28b07e4b253e5f4877",
+      "git_blob_sha256": "8971d4c7e09c6d1b0a19dde2c01a73964a868d752e1fea28b07e4b253e5f4877",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/run-v1.py",
+      "source_sha256": "0dd50915284e2276be894447a950351493b5edb2dd99744fde93ed0820efbc68",
+      "git_blob_sha256": "0dd50915284e2276be894447a950351493b5edb2dd99744fde93ed0820efbc68",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/probe-v1.py",
+      "source_sha256": "012787763f0d2850b028d6a7c827962c64ef986fcdd06d7b82e348898cdbec01",
+      "git_blob_sha256": "012787763f0d2850b028d6a7c827962c64ef986fcdd06d7b82e348898cdbec01",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/source-runtime-v1.json",
+      "source_sha256": "6443f908e3938e1aff3835a3a9d0116408a27f63fc5e6c711d318fde5af1e1d1",
+      "git_blob_sha256": "6443f908e3938e1aff3835a3a9d0116408a27f63fc5e6c711d318fde5af1e1d1",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/installed-runtime-v1.json",
+      "source_sha256": "9b7c803ef911983127f3d770954d96f6e01126cb50a151c4c39cf239777405e8",
+      "git_blob_sha256": "9b7c803ef911983127f3d770954d96f6e01126cb50a151c4c39cf239777405e8",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-runtime-v1.json",
+      "source_sha256": "02ef71a5c5a47170c8c187a323f2d7105978ad30011fcf6a5640c88a46c4a6e6",
+      "git_blob_sha256": "02ef71a5c5a47170c8c187a323f2d7105978ad30011fcf6a5640c88a46c4a6e6",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/supporting-source-review.txt",
+      "source_sha256": "793ab9164f56efbe84267532aa31c642a18e2d5a923774fed86c54b40410ea60",
+      "git_blob_sha256": "793ab9164f56efbe84267532aa31c642a18e2d5a923774fed86c54b40410ea60",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/source-v1/execution.json",
+      "source_sha256": "1fb3aa2d728b4cd3be74676df68a1dc53625710ca0f61df720330d113f8403f8",
+      "git_blob_sha256": "1fb3aa2d728b4cd3be74676df68a1dc53625710ca0f61df720330d113f8403f8",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/source-v1/stdout.log",
+      "source_sha256": "db99195b9c5a7e154c897b98e2c994ad4d7505ab2ac5b82457729cbf11438443",
+      "git_blob_sha256": "db99195b9c5a7e154c897b98e2c994ad4d7505ab2ac5b82457729cbf11438443",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/source-v1/stderr.log",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/source-v1/thread-samples.json",
+      "source_sha256": "1e274f08a726b7eaf87079c7242cd2e1faf6c544e5aa18b3f659302a820460e5",
+      "git_blob_sha256": "1e274f08a726b7eaf87079c7242cd2e1faf6c544e5aa18b3f659302a820460e5",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/build-v1/execution.json",
+      "source_sha256": "a6baec815c79c4a12b52ed3952e042c24e950ba9508504cfbd6c44d74b41efe6",
+      "git_blob_sha256": "a6baec815c79c4a12b52ed3952e042c24e950ba9508504cfbd6c44d74b41efe6",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/build-v1/stdout.log",
+      "source_sha256": "090379e15e389d312c8c8e03fb088bfd99b49a35ae661646a052b681388e7eb4",
+      "git_blob_sha256": "090379e15e389d312c8c8e03fb088bfd99b49a35ae661646a052b681388e7eb4",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/build-v1/stderr.log",
+      "source_sha256": "7ee2194b8f5c9e2d9dfd22bd32a29428ba1f9f6314bc7e0ab563e2786db6db0f",
+      "git_blob_sha256": "7ee2194b8f5c9e2d9dfd22bd32a29428ba1f9f6314bc7e0ab563e2786db6db0f",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/build-v1/thread-samples.json",
+      "source_sha256": "3378b02cf52a410b178ef30fa365084621922017849ae8a7ce7cccdcb6c06e5a",
+      "git_blob_sha256": "3378b02cf52a410b178ef30fa365084621922017849ae8a7ce7cccdcb6c06e5a",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/install-v1/execution.json",
+      "source_sha256": "3d560c3e43db773bd5910d2adf8d13df46528bb70b1bd12c5105b78ffd2d9d3c",
+      "git_blob_sha256": "3d560c3e43db773bd5910d2adf8d13df46528bb70b1bd12c5105b78ffd2d9d3c",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/install-v1/stdout.log",
+      "source_sha256": "016df88181f04011ec3d36d5572cacc5fa3ed67e65b5b2b1c4b4022814256c38",
+      "git_blob_sha256": "016df88181f04011ec3d36d5572cacc5fa3ed67e65b5b2b1c4b4022814256c38",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/install-v1/stderr.log",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/install-v1/thread-samples.json",
+      "source_sha256": "a28bd1ad8c594aae1de05a2504f0231f4b6d406314c453143155ad40e6ba8ff2",
+      "git_blob_sha256": "a28bd1ad8c594aae1de05a2504f0231f4b6d406314c453143155ad40e6ba8ff2",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/installed-v1/execution.json",
+      "source_sha256": "cf11adbe80a62db2261dfb5588fe89a68e5af9fce1a580ffb5d6d1035562eb5a",
+      "git_blob_sha256": "cf11adbe80a62db2261dfb5588fe89a68e5af9fce1a580ffb5d6d1035562eb5a",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/installed-v1/stdout.log",
+      "source_sha256": "db99195b9c5a7e154c897b98e2c994ad4d7505ab2ac5b82457729cbf11438443",
+      "git_blob_sha256": "db99195b9c5a7e154c897b98e2c994ad4d7505ab2ac5b82457729cbf11438443",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/installed-v1/stderr.log",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/installed-v1/thread-samples.json",
+      "source_sha256": "67d35fe457ec3ff6b40cf100cbe1991d5ce519e50d2ace93d5de3bea48d0b66c",
+      "git_blob_sha256": "67d35fe457ec3ff6b40cf100cbe1991d5ce519e50d2ace93d5de3bea48d0b66c",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/execution.json",
+      "source_sha256": "b4721359f5997ff47dd0556a317d591d4c4e4b365804372d24dfa890425e65ce",
+      "git_blob_sha256": "b4721359f5997ff47dd0556a317d591d4c4e4b365804372d24dfa890425e65ce",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/stdout.log",
+      "source_sha256": "072c2721369330321b032fcc0f142a5c7836fca0536bbe3cd64d5f331612aee3",
+      "git_blob_sha256": "072c2721369330321b032fcc0f142a5c7836fca0536bbe3cd64d5f331612aee3",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/stderr.log",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/thread-samples.json",
+      "source_sha256": "cd3b6f4e86f13193844432c8bc8bfab8f4e1cc4ec8ed29ff29936dca0fbab877",
+      "git_blob_sha256": "cd3b6f4e86f13193844432c8bc8bfab8f4e1cc4ec8ed29ff29936dca0fbab877",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/workflow/distributing.anyfem-ge.json",
+      "source_sha256": "f691823789e84c71743d85501e14981b261ba0601bc0b243eb392ce8c1dd406a",
+      "git_blob_sha256": "f691823789e84c71743d85501e14981b261ba0601bc0b243eb392ce8c1dd406a",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/workflow/distributing.anyfem",
+      "source_sha256": "05431da32405118dde1b2a63f77c1f3f8d0caf9365b39fb2c1b506e5b989065d",
+      "git_blob_sha256": "05431da32405118dde1b2a63f77c1f3f8d0caf9365b39fb2c1b506e5b989065d",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/workflow/reference.checkpoint",
+      "source_sha256": "53e2457aa2dc30010143d7ec6477e1081754e66f3d8e08c5377e4124b842ac00",
+      "git_blob_sha256": "53e2457aa2dc30010143d7ec6477e1081754e66f3d8e08c5377e4124b842ac00",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/example-v1/workflow/observations.json",
+      "source_sha256": "41c8fedb2332f2fbc96d2ddcf03e9eb58e101ff5b4ccc5e7578787f9eb51c512",
+      "git_blob_sha256": "41c8fedb2332f2fbc96d2ddcf03e9eb58e101ff5b4ccc5e7578787f9eb51c512",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".gitignore",
+      "source_sha256": "ebc86d282231d299de3376ba85162a0d2fb94611a43d6518ff59a84f801126eb",
+      "git_blob_sha256": "ce0b548d93469396aa875b0a0d49944827e4cbb80625ceb0affefb10af4d0ea7",
+      "byte_exact": false,
+      "newline_only": true
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/supporting-runtime-review.txt",
+      "source_sha256": "5fcdb2889f8687bb49c36d9db8741d7d0860669ce13bb544737b028d2e4be2b9",
+      "git_blob_sha256": "5fcdb2889f8687bb49c36d9db8741d7d0860669ce13bb544737b028d2e4be2b9",
+      "byte_exact": true,
+      "newline_only": false
+    },
+    {
+      "path": ".qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/slice-inventory.json",
+      "source_sha256": "50f970859e27cae8b4ab89cf20f214fff91d991f94a4372efe02b6a2e3f3df13",
+      "git_blob_sha256": "50f970859e27cae8b4ab89cf20f214fff91d991f94a4372efe02b6a2e3f3df13",
+      "byte_exact": true,
+      "newline_only": false
+    }
+  ]
+}
