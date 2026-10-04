@@ -1,0 +1,27 @@
+{
+  "status": "completed",
+  "exit_code": 0,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "-u",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\probe-v1.py"
+  ],
+  "elapsed_seconds": 6.79136810003547,
+  "sampled_peak_tree_bytes": 189267968,
+  "sampled_numeric_or_unresolved_max": 1,
+  "affinity_before_child_code": [
+    0
+  ],
+  "seconds_limit": 600,
+  "memory_limit_bytes": 2147483648,
+  "numerical_threads_limit": 8,
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1"
+  },
+  "thread_scope": "Sampled start modules/affinity; effective OpenSees library-thread qualification unresolved",
+  "supervisor_sha256": "ad9947c9268774a980041112004364d4daba6ce884fe339fab9f0d90b265d3ec"
+}

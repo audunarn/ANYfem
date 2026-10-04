@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 
 from .stiffened_shell import (
-    ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel,
+    ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceDistributingPanel,
+    SCHEMA_REFERENCE_DISTRIBUTING,
     SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2,
     ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
 )
@@ -115,7 +116,7 @@ reference-linear route; explicit targets select admitted finite stepping.
 
 def encode_point_panel(panel):
     """Return the explicit selector pair and a detached native analysis payload."""
-    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel):
+    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
     elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
@@ -140,6 +141,8 @@ def _decode_point_panel(analysis_type, formulation, record):
         raise ValueError("strict experimental mesh-native point-panel payload required")
     payload = _owned_json(record["panel"])
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
+            return ExperimentalGEReferenceDistributingPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_MODAL:
             return ExperimentalGEReferenceModalPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2):
@@ -206,6 +209,10 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
+    if type(panel) is ExperimentalGEReferenceDistributingPanel and (
+            targets is not None or increment_control is not None or on_accepted is not None or
+            on_case is not None or max_iterations != 12 or max_backtracks != 8):
+        raise ValueError("reference-distributing Project input supports reference-linear nodal dead actions only; finite/adaptive/case controls are unsupported")
     if type(panel) in (ExperimentalGEReferenceModalPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel):
         if (targets is not None or increment_control is not None or on_accepted is not None or
                 on_case is not None or max_iterations != 12 or max_backtracks != 8):

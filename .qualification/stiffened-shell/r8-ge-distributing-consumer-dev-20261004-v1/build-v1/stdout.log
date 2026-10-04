@@ -1,0 +1,357 @@
+running egg_info
+writing src\ANYfem.egg-info\PKG-INFO
+writing dependency_links to src\ANYfem.egg-info\dependency_links.txt
+writing entry points to src\ANYfem.egg-info\entry_points.txt
+writing requirements to src\ANYfem.egg-info\requires.txt
+writing top-level names to src\ANYfem.egg-info\top_level.txt
+reading manifest file 'src\ANYfem.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+adding license file 'NOTICE'
+adding license file 'THIRD_PARTY_NOTICES.md'
+adding license file 'dependency-licenses.json'
+adding license file 'docs/LICENSE.md'
+writing manifest file 'src\ANYfem.egg-info\SOURCES.txt'
+running bdist_wheel
+running build
+running build_py
+copying src\anyfem\commands.py -> build\lib\anyfem
+copying src\anyfem\command_recording.py -> build\lib\anyfem
+copying src\anyfem\diagnostics.py -> build\lib\anyfem
+copying src\anyfem\document.py -> build\lib\anyfem
+copying src\anyfem\geometry_features.py -> build\lib\anyfem
+copying src\anyfem\jobs.py -> build\lib\anyfem
+copying src\anyfem\mesh_controls.py -> build\lib\anyfem
+copying src\anyfem\mesh_jobs.py -> build\lib\anyfem
+copying src\anyfem\migration.py -> build\lib\anyfem
+copying src\anyfem\native_meshing.py -> build\lib\anyfem
+copying src\anyfem\native_meshing_backend.py -> build\lib\anyfem
+copying src\anyfem\parity.py -> build\lib\anyfem
+copying src\anyfem\quad_first.py -> build\lib\anyfem
+copying src\anyfem\scripting.py -> build\lib\anyfem
+copying src\anyfem\selection.py -> build\lib\anyfem
+copying src\anyfem\structural_preparation.py -> build\lib\anyfem
+copying src\anyfem\verification.py -> build\lib\anyfem
+copying src\anyfem\__init__.py -> build\lib\anyfem
+copying src\anyfem\application\controller.py -> build\lib\anyfem\application
+copying src\anyfem\application\ports.py -> build\lib\anyfem\application
+copying src\anyfem\application\presenters.py -> build\lib\anyfem\application
+copying src\anyfem\application\__init__.py -> build\lib\anyfem\application
+copying src\anyfem\geometry\construction.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\curves.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\entities.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\model.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\operations.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\sketching.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\snapping.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\surfaces.py -> build\lib\anyfem\geometry
+copying src\anyfem\geometry\__init__.py -> build\lib\anyfem\geometry
+copying src\anyfem\io\artifacts.py -> build\lib\anyfem\io
+copying src\anyfem\io\decks.py -> build\lib\anyfem\io
+copying src\anyfem\io\project_file.py -> build\lib\anyfem\io
+copying src\anyfem\io\recovery.py -> build\lib\anyfem\io
+copying src\anyfem\io\results.py -> build\lib\anyfem\io
+copying src\anyfem\io\result_artifact.py -> build\lib\anyfem\io
+copying src\anyfem\io\sesam.py -> build\lib\anyfem\io
+copying src\anyfem\io\__init__.py -> build\lib\anyfem\io
+copying src\anyfem\mesh\mapped.py -> build\lib\anyfem\mesh
+copying src\anyfem\mesh\refinement.py -> build\lib\anyfem\mesh
+copying src\anyfem\mesh\seeding.py -> build\lib\anyfem\mesh
+copying src\anyfem\mesh\__init__.py -> build\lib\anyfem\mesh
+copying src\anyfem\model\attributes.py -> build\lib\anyfem\model
+copying src\anyfem\model\collision.py -> build\lib\anyfem\model
+copying src\anyfem\model\coordinates.py -> build\lib\anyfem\model
+copying src\anyfem\model\formulations.py -> build\lib\anyfem\model
+copying src\anyfem\model\imperfections.py -> build\lib\anyfem\model
+copying src\anyfem\model\materials.py -> build\lib\anyfem\model
+copying src\anyfem\model\ownership.py -> build\lib\anyfem\model
+copying src\anyfem\model\project.py -> build\lib\anyfem\model
+copying src\anyfem\model\records.py -> build\lib\anyfem\model
+copying src\anyfem\model\regions.py -> build\lib\anyfem\model
+copying src\anyfem\model\sections.py -> build\lib\anyfem\model
+copying src\anyfem\model\units.py -> build\lib\anyfem\model
+copying src\anyfem\model\workplanes.py -> build\lib\anyfem\model
+copying src\anyfem\model\__init__.py -> build\lib\anyfem\model
+copying src\anyfem\post\extract.py -> build\lib\anyfem\post
+copying src\anyfem\post\fields.py -> build\lib\anyfem\post
+copying src\anyfem\post\history.py -> build\lib\anyfem\post
+copying src\anyfem\post\report.py -> build\lib\anyfem\post
+copying src\anyfem\post\results.py -> build\lib\anyfem\post
+copying src\anyfem\post\solver_data.py -> build\lib\anyfem\post
+copying src\anyfem\post\__init__.py -> build\lib\anyfem\post
+copying src\anyfem\presentation\live_progress.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\result_display.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\result_export.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\result_summary.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\scene.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\visualization.py -> build\lib\anyfem\presentation
+copying src\anyfem\presentation\__init__.py -> build\lib\anyfem\presentation
+copying src\anyfem\solve\build.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\ge_beam3.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\policy.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\run.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\stiffened_shell.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\stiffened_shell_b2.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\stiffened_shell_project.py -> build\lib\anyfem\solve
+copying src\anyfem\solve\__init__.py -> build\lib\anyfem\solve
+copying src\anyfem\ui\app.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\definitions.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\live_progress.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\panels.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\plot.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\result_display.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\result_export.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\result_summary.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\scene.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\scripting.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\tk_adapters.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\tree.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\viewport.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\visualization.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\worker.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\workspace.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\__init__.py -> build\lib\anyfem\ui
+copying src\anyfem\ui\tk\__init__.py -> build\lib\anyfem\ui\tk
+copying src\anyfem\ui\tk\__main__.py -> build\lib\anyfem\ui\tk
+running egg_info
+writing src\ANYfem.egg-info\PKG-INFO
+writing dependency_links to src\ANYfem.egg-info\dependency_links.txt
+writing entry points to src\ANYfem.egg-info\entry_points.txt
+writing requirements to src\ANYfem.egg-info\requires.txt
+writing top-level names to src\ANYfem.egg-info\top_level.txt
+reading manifest file 'src\ANYfem.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+adding license file 'LICENSE'
+adding license file 'NOTICE'
+adding license file 'THIRD_PARTY_NOTICES.md'
+adding license file 'dependency-licenses.json'
+adding license file 'docs/LICENSE.md'
+writing manifest file 'src\ANYfem.egg-info\SOURCES.txt'
+installing to build\bdist.win-amd64\wheel
+running install
+running install_lib
+creating build\bdist.win-amd64\wheel
+creating build\bdist.win-amd64\wheel\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\application
+copying build\lib\anyfem\application\controller.py -> build\bdist.win-amd64\wheel\.\anyfem\application
+copying build\lib\anyfem\application\ports.py -> build\bdist.win-amd64\wheel\.\anyfem\application
+copying build\lib\anyfem\application\presenters.py -> build\bdist.win-amd64\wheel\.\anyfem\application
+copying build\lib\anyfem\application\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\application
+copying build\lib\anyfem\commands.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\command_recording.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\diagnostics.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\document.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\geometry
+copying build\lib\anyfem\geometry\construction.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\curves.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\entities.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\model.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\operations.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\sketching.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\snapping.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\surfaces.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\geometry
+copying build\lib\anyfem\geometry_features.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\io
+copying build\lib\anyfem\io\artifacts.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\decks.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\project_file.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\recovery.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\results.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\result_artifact.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\sesam.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\io\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\io
+copying build\lib\anyfem\jobs.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\mesh
+copying build\lib\anyfem\mesh\mapped.py -> build\bdist.win-amd64\wheel\.\anyfem\mesh
+copying build\lib\anyfem\mesh\refinement.py -> build\bdist.win-amd64\wheel\.\anyfem\mesh
+copying build\lib\anyfem\mesh\seeding.py -> build\bdist.win-amd64\wheel\.\anyfem\mesh
+copying build\lib\anyfem\mesh\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\mesh
+copying build\lib\anyfem\mesh_controls.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\mesh_jobs.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\migration.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\model
+copying build\lib\anyfem\model\attributes.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\collision.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\coordinates.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\formulations.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\imperfections.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\materials.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\ownership.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\project.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\records.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\regions.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\sections.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\units.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\workplanes.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\model\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\model
+copying build\lib\anyfem\native_meshing.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\native_meshing_backend.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\parity.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\post
+copying build\lib\anyfem\post\extract.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\fields.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\history.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\report.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\results.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\solver_data.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+copying build\lib\anyfem\post\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\post
+creating build\bdist.win-amd64\wheel\anyfem\presentation
+copying build\lib\anyfem\presentation\live_progress.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\result_display.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\result_export.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\result_summary.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\scene.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\visualization.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\presentation\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\presentation
+copying build\lib\anyfem\quad_first.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\scripting.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\selection.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\solve
+copying build\lib\anyfem\solve\build.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\ge_beam3.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\policy.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\run.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\stiffened_shell.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\stiffened_shell_b2.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\stiffened_shell_project.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\solve\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\solve
+copying build\lib\anyfem\structural_preparation.py -> build\bdist.win-amd64\wheel\.\anyfem
+creating build\bdist.win-amd64\wheel\anyfem\ui
+copying build\lib\anyfem\ui\app.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\definitions.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\live_progress.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\panels.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\plot.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\result_display.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\result_export.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\result_summary.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\scene.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\scripting.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+creating build\bdist.win-amd64\wheel\anyfem\ui\tk
+copying build\lib\anyfem\ui\tk\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\ui\tk
+copying build\lib\anyfem\ui\tk\__main__.py -> build\bdist.win-amd64\wheel\.\anyfem\ui\tk
+copying build\lib\anyfem\ui\tk_adapters.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\tree.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\viewport.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\visualization.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\worker.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\workspace.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\ui\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem\ui
+copying build\lib\anyfem\verification.py -> build\bdist.win-amd64\wheel\.\anyfem
+copying build\lib\anyfem\__init__.py -> build\bdist.win-amd64\wheel\.\anyfem
+running install_egg_info
+Copying src\ANYfem.egg-info to build\bdist.win-amd64\wheel\.\ANYfem-0.4.1-py3.14.egg-info
+running install_scripts
+creating build\bdist.win-amd64\wheel\anyfem-0.4.1.dist-info\WHEEL
+creating 'C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\dist\\.tmp-z5vlqfre\\anyfem-0.4.1-py3-none-any.whl' and adding 'build\\bdist.win-amd64\\wheel' to it
+adding 'anyfem/__init__.py'
+adding 'anyfem/command_recording.py'
+adding 'anyfem/commands.py'
+adding 'anyfem/diagnostics.py'
+adding 'anyfem/document.py'
+adding 'anyfem/geometry_features.py'
+adding 'anyfem/jobs.py'
+adding 'anyfem/mesh_controls.py'
+adding 'anyfem/mesh_jobs.py'
+adding 'anyfem/migration.py'
+adding 'anyfem/native_meshing.py'
+adding 'anyfem/native_meshing_backend.py'
+adding 'anyfem/parity.py'
+adding 'anyfem/quad_first.py'
+adding 'anyfem/scripting.py'
+adding 'anyfem/selection.py'
+adding 'anyfem/structural_preparation.py'
+adding 'anyfem/verification.py'
+adding 'anyfem/application/__init__.py'
+adding 'anyfem/application/controller.py'
+adding 'anyfem/application/ports.py'
+adding 'anyfem/application/presenters.py'
+adding 'anyfem/geometry/__init__.py'
+adding 'anyfem/geometry/construction.py'
+adding 'anyfem/geometry/curves.py'
+adding 'anyfem/geometry/entities.py'
+adding 'anyfem/geometry/model.py'
+adding 'anyfem/geometry/operations.py'
+adding 'anyfem/geometry/sketching.py'
+adding 'anyfem/geometry/snapping.py'
+adding 'anyfem/geometry/surfaces.py'
+adding 'anyfem/io/__init__.py'
+adding 'anyfem/io/artifacts.py'
+adding 'anyfem/io/decks.py'
+adding 'anyfem/io/project_file.py'
+adding 'anyfem/io/recovery.py'
+adding 'anyfem/io/result_artifact.py'
+adding 'anyfem/io/results.py'
+adding 'anyfem/io/sesam.py'
+adding 'anyfem/mesh/__init__.py'
+adding 'anyfem/mesh/mapped.py'
+adding 'anyfem/mesh/refinement.py'
+adding 'anyfem/mesh/seeding.py'
+adding 'anyfem/model/__init__.py'
+adding 'anyfem/model/attributes.py'
+adding 'anyfem/model/collision.py'
+adding 'anyfem/model/coordinates.py'
+adding 'anyfem/model/formulations.py'
+adding 'anyfem/model/imperfections.py'
+adding 'anyfem/model/materials.py'
+adding 'anyfem/model/ownership.py'
+adding 'anyfem/model/project.py'
+adding 'anyfem/model/records.py'
+adding 'anyfem/model/regions.py'
+adding 'anyfem/model/sections.py'
+adding 'anyfem/model/units.py'
+adding 'anyfem/model/workplanes.py'
+adding 'anyfem/post/__init__.py'
+adding 'anyfem/post/extract.py'
+adding 'anyfem/post/fields.py'
+adding 'anyfem/post/history.py'
+adding 'anyfem/post/report.py'
+adding 'anyfem/post/results.py'
+adding 'anyfem/post/solver_data.py'
+adding 'anyfem/presentation/__init__.py'
+adding 'anyfem/presentation/live_progress.py'
+adding 'anyfem/presentation/result_display.py'
+adding 'anyfem/presentation/result_export.py'
+adding 'anyfem/presentation/result_summary.py'
+adding 'anyfem/presentation/scene.py'
+adding 'anyfem/presentation/visualization.py'
+adding 'anyfem/solve/__init__.py'
+adding 'anyfem/solve/build.py'
+adding 'anyfem/solve/ge_beam3.py'
+adding 'anyfem/solve/policy.py'
+adding 'anyfem/solve/run.py'
+adding 'anyfem/solve/stiffened_shell.py'
+adding 'anyfem/solve/stiffened_shell_b2.py'
+adding 'anyfem/solve/stiffened_shell_project.py'
+adding 'anyfem/ui/__init__.py'
+adding 'anyfem/ui/app.py'
+adding 'anyfem/ui/definitions.py'
+adding 'anyfem/ui/live_progress.py'
+adding 'anyfem/ui/panels.py'
+adding 'anyfem/ui/plot.py'
+adding 'anyfem/ui/result_display.py'
+adding 'anyfem/ui/result_export.py'
+adding 'anyfem/ui/result_summary.py'
+adding 'anyfem/ui/scene.py'
+adding 'anyfem/ui/scripting.py'
+adding 'anyfem/ui/tk_adapters.py'
+adding 'anyfem/ui/tree.py'
+adding 'anyfem/ui/viewport.py'
+adding 'anyfem/ui/visualization.py'
+adding 'anyfem/ui/worker.py'
+adding 'anyfem/ui/workspace.py'
+adding 'anyfem/ui/tk/__init__.py'
+adding 'anyfem/ui/tk/__main__.py'
+adding 'anyfem-0.4.1.dist-info/licenses/LICENSE'
+adding 'anyfem-0.4.1.dist-info/licenses/NOTICE'
+adding 'anyfem-0.4.1.dist-info/licenses/THIRD_PARTY_NOTICES.md'
+adding 'anyfem-0.4.1.dist-info/licenses/dependency-licenses.json'
+adding 'anyfem-0.4.1.dist-info/licenses/docs/LICENSE.md'
+adding 'anyfem-0.4.1.dist-info/METADATA'
+adding 'anyfem-0.4.1.dist-info/WHEEL'
+adding 'anyfem-0.4.1.dist-info/entry_points.txt'
+adding 'anyfem-0.4.1.dist-info/top_level.txt'
+adding 'anyfem-0.4.1.dist-info/RECORD'
+removing build\bdist.win-amd64\wheel
+Successfully built anyfem-0.4.1-py3-none-any.whl

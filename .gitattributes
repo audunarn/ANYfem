@@ -6,3 +6,7 @@ docs/development/r8-b2-free-modal-consumer-20261004/** -text
 src/anyfem/solve/stiffened_shell.py -text
 tests/test_stiffened_shell_ge_reference_modal_consumer.py -text
 docs/development/r8-ge-distributing-modal-guard-20261004.md -text
+tests/test_stiffened_shell_ge_distributing_consumer.py -text
+examples/stiffened_shell_ge_distributing_consumer.py -text
+docs/development/r8-ge-distributing-consumer-20261004.md -text
+.qualification/stiffened-shell/r8-ge-distributing-consumer-dev-20261004-v1/** -text

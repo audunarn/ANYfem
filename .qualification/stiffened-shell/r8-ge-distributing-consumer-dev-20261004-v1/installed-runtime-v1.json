@@ -1,0 +1,62 @@
+{
+  "scope": "Experimental reference-linear distributing consumer; not scientific/release acceptance",
+  "kind": "installed",
+  "imports": [
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\site\\anyfem\\solve\\stiffened_shell.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\site\\anyfem\\solve\\stiffened_shell_project.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\site\\anyfem\\model\\records.py",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\site\\anyfem\\io\\project_file.py"
+  ],
+  "consumer_sha256": {
+    "stiffened_shell.py": "b9794fa20eea34bc2ee4392780811c3de0329169455bc4887dcc6a955c3c413e",
+    "stiffened_shell_project.py": "4f426442c1596ffcb0f609baa9f0f5f63b456fce6f9be77191942c2b5f586e24",
+    "records.py": "509f0468009d99175b6471d88ff081a0c7e370527e293bcfa25aa6cd62a2bb8c",
+    "project_file.py": "143fdbbe6eb58b098345ee5c55a8d9fa2e033cd958e6caa71bd48518f0ff90a9"
+  },
+  "solver_import": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-ge-owner-dev-20261004-v1\\site\\anysolver\\stiffened_shell.py",
+  "solver_sha256": "3f8c6832e20996a9f6b460da03fe3de2e474d39322c3d536b5ec1854d173f338",
+  "solver_wheel_sha256": "f0267b0f5803ce69c1a181bfd7aa22bde06fa1aafdb65cbd56bba4d550745b4e",
+  "tests_sha256": {
+    "test_stiffened_shell_ge_distributing_consumer.py": "630a1cd21f67dacea974d5cbc795d6058549e4db3eb5682d90dcdd0c7a674fbd",
+    "test_stiffened_shell_nodal_footprint_consumer.py": "e9141fa30f31770554d82a11361d79bd65b3a489713c7dac147b0d143842c500",
+    "test_stiffened_shell_ge_reference_modal_consumer.py": "6e4818619b74d999c73b73c80d79bbd21e550217ad430bee65c63b277f305099"
+  },
+  "effective_pools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\numpy.libs\\libscipy_openblas64_-63c857e738469261263c764a36be9436.dll",
+      "version": "0.3.31.188.0",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Python\\Python314\\Lib\\site-packages\\scipy.libs\\libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll",
+      "version": "0.3.30",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    }
+  ],
+  "jit_disabled": true,
+  "versions": {
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "pytest": "9.0.3",
+    "ANYmaterial": "0.2.0",
+    "ANYmesher": "0.5.0",
+    "ANYfileio": "0.3.2"
+  },
+  "wheel": {
+    "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\stiffened-shell\\r8-ge-distributing-consumer-dev-20261004-v1\\dist\\anyfem-0.4.1-py3-none-any.whl",
+    "sha256": "3b8e563dd5e8cf0ecfe42f4cc9f5a8f34d46780d50dd1b0f217c510259e5cc8f",
+    "bytes": 541073
+  },
+  "exit_code": 0,
+  "checks_seconds": 5.088091799989343
+}

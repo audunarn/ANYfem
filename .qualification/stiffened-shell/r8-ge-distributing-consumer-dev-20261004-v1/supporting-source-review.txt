@@ -1,0 +1,11 @@
+Supporting OpenAI Read source review: no blocking consumer defect. No review jobs/tests run.
+Reviewed source SHA256: b9794fa20eea34bc2ee4392780811c3de0329169455bc4887dcc6a955c3c413e
+Project adapter SHA256: 4f426442c1596ffcb0f609baa9f0f5f63b456fce6f9be77191942c2b5f586e24
+Tests SHA256: 630a1cd21f67dacea974d5cbc795d6058549e4db3eb5682d90dcdd0c7a674fbd
+Example SHA256: 8d826a8b3a16cc15bdb9f1eb0e59b6d2d894f0701c65ed9d8c405cd9f5be1287
+Checks: no invented points; owned strict inputs; exact omitted-field rejection; distinct law/admission;
+public capability/preflight close-on-mismatch; native Project dispatch and finally-close;
+separate input vs checkpoint persistence; explicit exerted wrench origins and eccentric work.
+Limits: successful atomic replacement observed, no failure injection; representative legacy controls only.
+These services/old schema branches are unchanged. Not different-family/scientific/physical acceptance.
+Root serial checks establish execution outcomes; subsequent runtime review is saved separately.

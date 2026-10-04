@@ -6,6 +6,7 @@ dist/
 .release_*/
 .worktrees/
 .pytest_cache/
+.qualification/
 .pytest_tmp*/
 .idea/
 .venv/

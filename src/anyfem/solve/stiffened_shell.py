@@ -9,7 +9,7 @@ v1 and J2 v2 records retain their original schema and solver selection.
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, replace
 import json
 import math
 import os
@@ -42,6 +42,9 @@ SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-ge-nodal-rigid-footprint-panel-v1"
 SCHEMA_NODAL_FOOTPRINT_CHART_V2 = "anyfem.experimental-ge-nodal-rigid-footprint-chart-panel-v2"
 LEGACY_FOOTPRINT_CHART_POLICY = "GE_NODAL_RIGID_FOOTPRINT_UNREBASED_ADMISSION_V1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-ge-reference-modal-panel-v1"
+SCHEMA_REFERENCE_DISTRIBUTING = "anyfem.experimental-ge-reference-distributing-panel-v1"
+REFERENCE_DISTRIBUTING_LAW = "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_POLAR_REFERENCE_LINEAR_V1_EXPERIMENTAL"
+REFERENCE_DISTRIBUTING_ADMISSION = "reference_linear_nodal_dead_actions_only"
 STATUS = "EXPERIMENTAL_NOT_QUALIFIED"
 SUFFIX = ".anyfem-ge.json"
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -719,6 +722,163 @@ class ExperimentalGEReferenceModalPanel:
 
 
 @dataclass(frozen=True)
+class ExperimentalGEReferenceDistributingPanel:
+    """Owned reference-linear inputs, consuming the public distributing owner.
+
+    This is not a point-panel wrapper: an empty point list is preserved exactly.
+    Host geometry, physical admission and all mechanics remain solver-owned.
+    Saved input is neither an accepted-state checkpoint nor qualification.
+    """
+    shell: stiffened_shell.ShellPanel
+    beams: tuple[b3_ge.BeamDefinition, ...]
+    points: tuple[stiffened_shell.PointConnection, ...]
+    fixed: tuple[stiffened_shell.FixedCoordinate, ...]
+    actions: tuple[stiffened_shell.NodalAction, ...] = ()
+    distributing_footprints: tuple = ()
+    q4_pullback_policy: str = field(default=stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1)
+
+    @staticmethod
+    def _public_contract():
+        aliases = tuple(getattr(stiffened_shell, name, None) for name in (
+            "GEReferenceDistributingFootprint", "GEReferenceDistributingFootprintSelection",
+            "GEReferenceDistributingFootprintWrench"))
+        if (any(value is None for value in aliases) or
+                getattr(stiffened_shell, "GE_DISTRIBUTING_REFERENCE_LINEAR_V1_EXPERIMENTAL", None) != REFERENCE_DISTRIBUTING_LAW):
+            raise ValueError("installed solver lacks the declared public reference-linear distributing contract")
+        return aliases
+
+    def __post_init__(self):
+        footprint_type, _, _ = self._public_contract()
+        if (type(self.shell) is not stiffened_shell.ShellPanel or not self.shell.q4_elements or
+                self.shell.s3_elements or self.shell.j2_curve is not None or
+                self.q4_pullback_policy != stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1):
+            raise ValueError("explicit elastic full-map Q4 reference-distributing shell inputs required")
+        for values, expected, label in ((self.beams, b3_ge.BeamDefinition, "native beams"),
+                (self.points, stiffened_shell.PointConnection, "points"),
+                (self.fixed, stiffened_shell.FixedCoordinate, "supports"),
+                (self.actions, stiffened_shell.NodalAction, "nodal dead actions"),
+                (self.distributing_footprints, footprint_type, "distributing footprints")):
+            if type(values) is not tuple or any(type(v) is not expected for v in values):
+                raise ValueError(f"explicit typed tuple of {label} required")
+        if not self.beams or not self.fixed or not self.distributing_footprints:
+            raise ValueError("nonempty native beams, physical supports and distributing footprints required")
+        groups = tuple(footprint_type(g.footprint_id, g.host_element_ids, g.beam_node_id, g.bounds_xy_m)
+                       for g in self.distributing_footprints)
+        if len({g.footprint_id for g in groups}) != len(groups):
+            raise ValueError("duplicate distributing footprint ID")
+        # Existing strict framing owns nested arrays/native bytes without assembly.
+        try:
+            data = json.loads(json.dumps(_point_components_payload(self.shell, self.beams,
+                self.points, self.fixed, self.actions, self.q4_pullback_policy), allow_nan=False))
+        except (TypeError, ValueError, OverflowError, RecursionError) as error:
+            raise ValueError("finite strictly framed reference-distributing inputs required") from error
+        owned = _parse_point_components(data, self.q4_pullback_policy)
+        for name, value in zip(("shell", "beams", "points", "fixed", "actions", "q4_pullback_policy"), owned):
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "distributing_footprints", groups)
+
+    @property
+    def status(self): return STATUS
+
+    @property
+    def load_input(self): return self.actions
+
+    @property
+    def recovery_selection(self):
+        _, selection_type, _ = self._public_contract()
+        return selection_type(tuple(group.footprint_id for group in self.distributing_footprints))
+
+    @staticmethod
+    def _validate_export(definition):
+        expected = {"profile", "shell", "beams", "points", "fixed", "lines", "q4_pullback_policy",
+                    "footprints", "modal_boundary_policy", "footprint_chart_policy", "bl5_material_policy",
+                    "shell_reference_policy", "retained_scale_policy", "distributing_footprints"}
+        if (type(definition) is not stiffened_shell.LinearDefinition or
+                {item.name for item in dataclass_fields(definition)} != expected or
+                definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                definition.lines != () or definition.footprints != () or
+                definition.modal_boundary_policy != "supported" or
+                definition.footprint_chart_policy != LEGACY_FOOTPRINT_CHART_POLICY or
+                definition.bl5_material_policy != "elastic" or definition.shell_reference_policy != "flat" or
+                definition.retained_scale_policy != "profile"):
+            raise ValueError("exact supported reference-linear distributing definition required; omitted policies/fields are unsupported")
+
+    @classmethod
+    def from_definition(cls, definition, actions=()):
+        cls._validate_export(definition)
+        return cls(definition.shell, definition.beams, definition.points, definition.fixed, actions,
+                   definition.distributing_footprints, definition.q4_pullback_policy)
+
+    def definition(self):
+        definition = stiffened_shell.LinearDefinition(stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
+            self.shell, self.beams, self.points, self.fixed, lines=(), q4_pullback_policy=self.q4_pullback_policy,
+            footprints=(), modal_boundary_policy="supported", footprint_chart_policy=LEGACY_FOOTPRINT_CHART_POLICY,
+            bl5_material_policy="elastic", shell_reference_policy="flat", retained_scale_policy="profile",
+            distributing_footprints=self.distributing_footprints)
+        self._validate_export(definition)
+        return definition
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.definition())
+        try:
+            caps, preflight = owner.capabilities, owner.preflight()
+            if (type(caps) is not dict or caps.get("status") != STATUS or
+                    caps.get("profile") != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                    caps.get("distributing_footprint_law") != REFERENCE_DISTRIBUTING_LAW or
+                    caps.get("analysis") != ("reference_linear",) or caps.get("loads") != ("nodal dead actions",) or
+                    caps.get("checkpoints") != ("reference_linear",) or
+                    caps.get("q4_force_map") != self.q4_pullback_policy or
+                    caps.get("distributing_footprint_recovery") !=
+                        "physical exerted reference-spatial actions, shell area-centroid and actual beam-node origins" or
+                    not callable(getattr(owner, "recover", None)) or type(preflight) is not dict or
+                    preflight.get("constraints") != 6*(len(self.points)+len(self.distributing_footprints)) or
+                    preflight.get("retained_dofs") != 24*len(self.beams) or
+                    type(preflight.get("identity")) is not str or len(preflight["identity"]) != 64):
+                raise ValueError("public owner lacks the exact experimental reference-linear distributing/recovery admission")
+            _ = self.recovery_selection
+        except BaseException:
+            owner.close()
+            raise
+        return owner
+
+    def to_dict(self):
+        record = _point_components_payload(self.shell, self.beams, self.points,
+                                          self.fixed, self.actions, self.q4_pullback_policy)
+        record.update(schema=SCHEMA_REFERENCE_DISTRIBUTING, law=REFERENCE_DISTRIBUTING_LAW,
+            admission=REFERENCE_DISTRIBUTING_ADMISSION, distributing_footprints=[dict(
+                law=REFERENCE_DISTRIBUTING_LAW, footprint_id=g.footprint_id,
+                host_element_ids=list(g.host_element_ids), beam_node_id=g.beam_node_id,
+                bounds_xy_m=list(g.bounds_xy_m)) for g in self.distributing_footprints])
+        return record
+
+    @classmethod
+    def from_dict(cls, value):
+        data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams", "points", "fixed",
+            "actions", "q4_pullback_policy", "law", "admission", "distributing_footprints"},
+            "reference-distributing GE panel")
+        if (data["schema"] != SCHEMA_REFERENCE_DISTRIBUTING or data["status"] != STATUS or
+                data["profile"] != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
+                data["law"] != REFERENCE_DISTRIBUTING_LAW or data["admission"] != REFERENCE_DISTRIBUTING_ADMISSION or
+                data["q4_pullback_policy"] != stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1):
+            raise ValueError("explicit reference-linear distributing schema/law/admission required")
+        footprint_type, _, _ = cls._public_contract()
+        if type(data["distributing_footprints"]) is not list or not data["distributing_footprints"]:
+            raise ValueError("explicit nonempty distributing footprint list required")
+        groups = []
+        for item in data["distributing_footprints"]:
+            row = _exact_fields(item, {"law", "footprint_id", "host_element_ids", "beam_node_id", "bounds_xy_m"},
+                                "reference distributing footprint")
+            if row["law"] != REFERENCE_DISTRIBUTING_LAW or type(row["bounds_xy_m"]) is not list or len(row["bounds_xy_m"]) != 4:
+                raise ValueError("exact reference distributing law and four finite rectangle bounds required")
+            groups.append(footprint_type(row["footprint_id"], _ids(row["host_element_ids"], "host element IDs"),
+                _positive_int(row["beam_node_id"], "beam node ID"),
+                tuple(_finite_number(v, "rectangle bounds") for v in row["bounds_xy_m"])))
+        core = dict(data, schema=SCHEMA_Q4_PULLBACK)
+        owned = _parse_point_components(core, data["q4_pullback_policy"])
+        return cls(*owned[:5], tuple(groups), owned[5])
+
+
+@dataclass(frozen=True)
 class ExperimentalGENodalRigidFootprintPanel:
     """Explicit selected-node input, not an area weld or accepted solver state.
 
@@ -1167,9 +1327,9 @@ class ExperimentalGEBL5Panel:
                    bl5_material_policy=material_policy)
 
 
-def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel, path: str | Path) -> Path:
+def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel, path: str | Path) -> Path:
     """Atomically save a bounded input record, never solver state or results."""
-    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel):
+    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel):
         raise ValueError("experimental GE panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -1195,7 +1355,7 @@ def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | Experime
     return destination
 
 
-def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel:
+def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel:
     source = Path(path)
     if not source.name.endswith(SUFFIX):
         raise ValueError(f"experimental GE panel filename must end with {SUFFIX}")
@@ -1228,10 +1388,13 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_MODAL:
         return ExperimentalGEReferenceModalPanel.from_dict(data)
+    if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
+        return ExperimentalGEReferenceDistributingPanel.from_dict(data)
     return ExperimentalGEPointPanel.from_dict(data)
 
 
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
+           "ExperimentalGEReferenceDistributingPanel", "SCHEMA_REFERENCE_DISTRIBUTING", "REFERENCE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "SCHEMA_NODAL_FOOTPRINT", "SCHEMA_NODAL_FOOTPRINT_CHART_V2", "SCHEMA", "SCHEMA_J2",
             "SCHEMA_Q4_PULLBACK", "SCHEMA_CURVED_Q4", "SCHEMA_CURVED_Q4_MATERIAL",

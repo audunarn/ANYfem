@@ -1,0 +1,58 @@
+{
+  "status": "EXPERIMENTAL_NOT_QUALIFIED",
+  "production_qualified": false,
+  "configuration": "reference_linear",
+  "law": "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_POLAR_REFERENCE_LINEAR_V1_EXPERIMENTAL",
+  "footprint_id": "two-host-area",
+  "model_identity": "5ea33e87a311ccff9e594627af27f9761134ab76dc307df9b4e70ca49b395109",
+  "retained_dofs": 24,
+  "constraints": 6,
+  "cached_factorizations": 1,
+  "generations": [
+    1,
+    2,
+    2,
+    3
+  ],
+  "shell_centroid_m": [
+    2.0,
+    0.0,
+    0.0
+  ],
+  "beam_origin_m": [
+    2.0,
+    0.0,
+    0.1
+  ],
+  "shell_exerted_force_N": [
+    0.0,
+    10.0,
+    0.0
+  ],
+  "shell_exerted_moment_about_centroid_Nm": [
+    -1.0,
+    0.0,
+    11.5
+  ],
+  "beam_exerted_force_N": [
+    -0.0,
+    -10.0,
+    -0.0
+  ],
+  "beam_exerted_moment_about_beam_origin_Nm": [
+    -0.0,
+    -0.0,
+    -11.5
+  ],
+  "gap": [
+    2.117582368135751e-22,
+    -2.6469779601696886e-23,
+    -3.3881317890172014e-21,
+    2.117582368135751e-22,
+    3.3881317890172014e-21,
+    0.0
+  ],
+  "equilibrium": 7.8580756166835e-13,
+  "constraint": 2.9442013795832306e-21,
+  "resumed_coordinate_difference": 0.0
+}

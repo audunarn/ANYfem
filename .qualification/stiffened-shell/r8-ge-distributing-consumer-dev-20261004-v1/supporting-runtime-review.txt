@@ -1,0 +1,10 @@
+Supporting OpenAI retained-evidence review: no blocker. No reexecution.
+Reviewed source and installed hashes match; installed/example imports resolve to recorded site;
+consumer wheel3b8e563dd5e8cf0ecfe42f4cc9f5a8f34d46780d50dd1b0f217c510259e5cc8f,
+fixed solverf0267b0f5803ce69c1a181bfd7aa22bde06fa1aafdb65cbd56bba4d550745b4e.
+Source and installed42PASS/4.78s/exit0/empty stderr. Installed example24retained,
+6constraints,1factor, generations1/2/2/3, resumed coordinate difference0;
+exerted forces and offset moments balance, eq7.8581e-13/constraint2.9442e-21.
+Actual BLAS pools1/JIToff; sampled peaks222838784/189267968/173821952B within2GiB.
+Scope: bounded reference-linear experimental consumer; no physical accuracy,
+finite/material/dynamic/full release or different-family acceptance.

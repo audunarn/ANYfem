@@ -1,0 +1,401 @@
+{
+  "anyfem": {
+    "schema": "anyfem.project",
+    "format": 8,
+    "document_id": "eee78c32-b5be-42e2-97bf-b5b7687ebaba",
+    "artifact_root": "distributing.anyfem-data"
+  },
+  "name": "experimental reference distributing",
+  "mesh_only": true,
+  "imported_format": null,
+  "imported_semantics_artifact_id": null,
+  "compatibility": {
+    "archived_feature_histories": [],
+    "diagnostics": [],
+    "geometry_editing_disabled_reason": null,
+    "read_only_reason": null
+  },
+  "units": {
+    "name": "SI-m-N-Pa",
+    "units": {
+      "length": "m",
+      "force": "N",
+      "pressure": "Pa",
+      "mass": "kg",
+      "time": "s",
+      "angle": "deg",
+      "moment": "N*m",
+      "line_load": "N/m",
+      "density": "kg/m3",
+      "acceleration": "m/s2"
+    }
+  },
+  "shell_formulations": {
+    "schema": "anyfem.shell-formulation-policy-v1",
+    "q4": "e4-pl",
+    "s3": "e4-pl-s3-v2d",
+    "higher_order": "legacy",
+    "q4_formulation_id": "E4_PL_QUALIFIED_Q4_HYBRID_V2",
+    "s3_formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+    "higher_order_formulation_id": "LEGACY_SHELL_ELEMENT_HIGHER_ORDER"
+  },
+  "coordinate_systems": [
+    {
+      "id": "global",
+      "name": "Global",
+      "kind": "cartesian",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "reference": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "regions": [],
+  "output_requests": [],
+  "geometry": {
+    "schema": "anygeometry",
+    "version": 5,
+    "model_id": "467c72db-7762-409d-97f1-b5d861ea04dc",
+    "revision": 0,
+    "coordinates": {
+      "units": "m",
+      "local_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "coordinate_transform": null,
+      "crs": {}
+    },
+    "tolerance": {
+      "length": 1e-09,
+      "merge_length": 1e-07,
+      "coincidence": 1e-09,
+      "healing": 1e-07,
+      "angular": 1e-10,
+      "parameter": 1e-10,
+      "area": 1e-18,
+      "surface_residual": 1e-08,
+      "curve_fit_residual": 1e-08,
+      "aabb_padding": 1e-09,
+      "relative_length": 1e-12,
+      "relative_area": 1e-14
+    },
+    "id_state": {
+      "vertex": 1,
+      "edge": 1,
+      "face": 1,
+      "part": 1,
+      "sheet": 1,
+      "face_use": 1,
+      "coedge": 1,
+      "member": 1,
+      "member_edge_use": 1,
+      "attachment": 1,
+      "junction": 1
+    },
+    "vertices": [],
+    "edges": [],
+    "faces": [],
+    "structural": {
+      "parts": [],
+      "sheets": [],
+      "face_uses": [],
+      "coedges": [],
+      "members": [],
+      "member_edge_uses": [],
+      "attachments": [],
+      "junctions": []
+    },
+    "groups": {},
+    "tags": [],
+    "replacement_history": [],
+    "structural_replacement_history": [],
+    "construction_vertices": [],
+    "extensions": {},
+    "features": {
+      "version": 1,
+      "next_id": 1,
+      "baseline": null,
+      "records": []
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "1d8186f848d9a03139a9148a652431ed192b1cb15fdae7a9f285a113dcc40b00"
+    }
+  },
+  "materials": [],
+  "plate_sections": [],
+  "beam_sections": [],
+  "face_sections": {},
+  "edge_sections": {},
+  "assignment_ids": {
+    "faces": {},
+    "edges": {}
+  },
+  "assignments": {
+    "sections": []
+  },
+  "ownership": {
+    "sheet_joins": []
+  },
+  "supports": [],
+  "masses": [],
+  "load_cases": [],
+  "combinations": [],
+  "imperfections": [],
+  "meshing": {
+    "element_order": "linear",
+    "target_size": null,
+    "native_backend": "auto",
+    "native": null,
+    "seeding_overrides": {},
+    "refinements": []
+  },
+  "analyses": [
+    {
+      "id": "2002248f-ea3c-472f-be9c-27e7abbe2755",
+      "schema_version": 1,
+      "name": "area-pad",
+      "type": "experimental_ge_point_panel",
+      "target_kind": "none",
+      "target_id": "",
+      "settings": {},
+      "output_request_ids": [],
+      "output_requests": {},
+      "resource_policy": {},
+      "beam_formulation": "experimental-ge-point-panel",
+      "beam_formulation_options": {
+        "definition_source": "explicit-mesh-native",
+        "panel": {
+          "actions": [
+            {
+              "domain": "shell",
+              "node": 2,
+              "wrench": [
+                0.0,
+                0.0,
+                -100.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "domain": "shell",
+              "node": 4,
+              "wrench": [
+                0.0,
+                0.0,
+                100.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "domain": "beam",
+              "node": 103,
+              "wrench": [
+                0.0,
+                20.0,
+                0.0,
+                0.0,
+                0.0,
+                3.0
+              ]
+            }
+          ],
+          "admission": "reference_linear_nodal_dead_actions_only",
+          "beams": [
+            {
+              "raw_base64": "eyJkeW5hbWljX3BvbGljeSI6IlJFVEFJTl9QSFlTSUNBTF9DRUxMX0lORVJUSUFfTk9fU1RBVElDX01BU1NfU1VCU1RJVFVUSU9OIiwiZWxlbWVudF9pZCI6MSwiZWxlbWVudF9pZGVudGl0eSI6IjI1NzJhYzEzYWNmYWJiNjU2NzBlMzQ2NmU2ODJiYjhkNGI0ODc3MTI2ZDUyNWUwYzAwZGUzMmMxNTc2OTcwMDgiLCJmYW1pbHkiOiJSRVNVTFRBTlRfRUxMSVBTT0lEIiwiZm9ybXVsYXRpb25faWQiOiJDQU5ESURBVEVfR0VfQkVBTTNfTkFUSVZFX0dFTkVSQUxJWkVEX0VMTElQU09JRF9ESVNUUklCVVRFRF9TVEFUSUNfVjEiLCJub2RlX2lkcyI6WzEwMSwxMDIsMTAzXSwib3BlcmF0b3JfaWRlbnRpdHkiOiJkZjU2NTBlOTFhODcyMzQ3M2IxNjRmYjc3ZTgxNzdhYmIzNTkwNTYxNWVhZmNkNjk3MDZjMGUyMTFjNjAwZjQ3IiwicHJvZHVjdGlvbl9xdWFsaWZpZWQiOmZhbHNlLCJxdWFkcmF0dXJlIjo0LCJyZWZlcmVuY2UiOnsiY29vcmRpbmF0ZXMiOltbMS4wLDAuMCwwLjFdLFsyLjAsMC4wLDAuMV0sWzMuMCwwLjAsMC4xXV0sImV2YWx1YXRpb25faWQiOiJDRU5URVJFRF9RMl9UV09fQ09NUE9ORU5UX0NPRUZGSUNJRU5UX0FOQUxZVElDX0xJRlRfVjEiLCJmcmFtZV90b2xlcmFuY2UiOjFlLTEyLCJub2RhbF90cmlhZHMiOltbWzEuMCwwLjAsMC4wXSxbMC4wLDEuMCwwLjBdLFswLjAsMC4wLDEuMF1dLFtbMS4wLDAuMCwwLjBdLFswLjAsMS4wLDAuMF0sWzAuMCwwLjAsMS4wXV0sW1sxLjAsMC4wLDAuMF0sWzAuMCwxLjAsMC4wXSxbMC4wLDAuMCwxLjBdXV0sInJlZ3VsYXJpdHlfcmVsYXRpdmVfdG9sZXJhbmNlIjoxLjQyMTA4NTQ3MTUyMDIwMDRlLTE0LCJyb3RhdGlvbl90b2xlcmFuY2UiOjFlLTExfSwic2NoZW1hIjoiR0VfQkVBTTNfTkFUSVZFX1JFQ09OU1RSVUNUSUJMRV9ERUZJTklUSU9OX1YxIiwic2VjdGlvbiI6eyJlbGFzdGljIjpbWzIxMDAwMDAwMDAuMCwwLjAsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDY0NjE1Mzg0Ni4xNTM4NDYzLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwwLjAsNjQ2MTUzODQ2LjE1Mzg0NjMsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwxMzQ2MTUzLjg0NjE1Mzg0NjIsMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwxNzUwMDAwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMC4wLDAuMCwxNzUwMDAwLjBdXSwiaGFyZGVuaW5nIjoxMDAwMDAwMDAwLjAsIm1ldHJpYyI6W1sxLjAsMC4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwxLjAsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwxLjAsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwxLjAsMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwxLjAsMC4wXSxbMC4wLDAuMCwwLjAsMC4wLDAuMCwxLjBdXSwicG9saWN5IjoiR0VfQkVBTTNfU0lYX1JFU1VMVEFOVF9BU1NPQ0lBVEVEX0VMTElQU09JRF9IQVJERU5JTkdfVjEiLCJ5aWVsZF9mb3JjZSI6MWUrMjB9LCJzZWN0aW9uX2lkZW50aXR5IjoiMTQyMWRmZGU5NTAwNTQ0NjYzODdmN2I2YzU5YzJlMTMxMzgzMTZkYzkyNzZiMzYxNGQ3NWJhNTUzYTdjNzAwNCIsInNlY3Rpb25faW5lcnRpYSI6W1sxLjAsMC4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwxLjAsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwxLjAsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwxLjAsMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwxLjAsMC4wXSxbMC4wLDAuMCwwLjAsMC4wLDAuMCwxLjBdXSwic3RhdGljX3BvbGljeSI6IkVJR0hURUVOX0VYVEVSTkFMX1RXRU5UWV9GT1VSX0lOVEVSTkFMX1NUQVRJQ19TVEFUSU9OQVJJVFkifQo=",
+              "sha256": "708e90c0375df297c6a3d6efe59be91c222866070cc0f33b532341b3f960f05d"
+            }
+          ],
+          "distributing_footprints": [
+            {
+              "beam_node_id": 102,
+              "bounds_xy_m": [
+                1.0,
+                3.0,
+                -0.5,
+                0.5
+              ],
+              "footprint_id": "two-host-area",
+              "host_element_ids": [
+                2,
+                3
+              ],
+              "law": "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_POLAR_REFERENCE_LINEAR_V1_EXPERIMENTAL"
+            }
+          ],
+          "fixed": [
+            {
+              "component": 0,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 1,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 2,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 3,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 4,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 5,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 0,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 1,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 2,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 3,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 4,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 5,
+              "domain": "shell",
+              "node": 5
+            }
+          ],
+          "law": "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_POLAR_REFERENCE_LINEAR_V1_EXPERIMENTAL",
+          "points": [],
+          "profile": "B3_GE_E4_PL_STIFFENED_SHELL_V1",
+          "q4_pullback_policy": "STIFFENED_SHELL_Q4_ALGORITHMIC_PULLBACK_V1",
+          "schema": "anyfem.experimental-ge-reference-distributing-panel-v1",
+          "shell": {
+            "coordinates_m": [
+              [
+                0.0,
+                -0.5,
+                0.0
+              ],
+              [
+                1.0,
+                -0.5,
+                0.0
+              ],
+              [
+                2.0,
+                -0.5,
+                0.0
+              ],
+              [
+                3.0,
+                -0.5,
+                0.0
+              ],
+              [
+                0.0,
+                0.5,
+                0.0
+              ],
+              [
+                1.0,
+                0.5,
+                0.0
+              ],
+              [
+                2.0,
+                0.5,
+                0.0
+              ],
+              [
+                3.0,
+                0.5,
+                0.0
+              ]
+            ],
+            "density_kg_m3": 7850.0,
+            "j2_curve": null,
+            "node_ids": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "poisson": 0.3,
+            "q4_elements": [
+              [
+                1,
+                2,
+                6,
+                5
+              ],
+              [
+                2,
+                3,
+                7,
+                6
+              ],
+              [
+                3,
+                4,
+                8,
+                7
+              ]
+            ],
+            "s3_elements": [],
+            "thickness_m": 0.07,
+            "young_pa": 210000000000.0
+          },
+          "status": "EXPERIMENTAL_NOT_QUALIFIED"
+        },
+        "schema": "anyfem.experimental-point-panel-project-v1",
+        "status": "EXPERIMENTAL_NOT_QUALIFIED"
+      }
+    }
+  ],
+  "mesh_records": [],
+  "jobs": [],
+  "artifacts": []
+}
