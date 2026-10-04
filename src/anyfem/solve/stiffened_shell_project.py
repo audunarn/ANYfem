@@ -16,6 +16,7 @@ import json
 from .stiffened_shell import (
     ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceDistributingPanel,
     ExperimentalGEFiniteDistributingPanel, SCHEMA_FINITE_DISTRIBUTING,
+    ExperimentalGEFiniteDistributingMaterialPanel, SCHEMA_FINITE_DISTRIBUTING_MATERIAL,
     SCHEMA_REFERENCE_DISTRIBUTING,
     SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2,
     ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
@@ -117,7 +118,7 @@ reference-linear route; explicit targets select admitted finite stepping.
 
 def encode_point_panel(panel):
     """Return the explicit selector pair and a detached native analysis payload."""
-    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel):
+    if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel, ExperimentalGEFiniteDistributingMaterialPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
     elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
@@ -142,6 +143,8 @@ def _decode_point_panel(analysis_type, formulation, record):
         raise ValueError("strict experimental mesh-native point-panel payload required")
     payload = _owned_json(record["panel"])
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == SCHEMA_FINITE_DISTRIBUTING_MATERIAL:
+            return ExperimentalGEFiniteDistributingMaterialPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == SCHEMA_FINITE_DISTRIBUTING:
             return ExperimentalGEFiniteDistributingPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
@@ -212,7 +215,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     selected group recovery/restart remains on the fresh public owner.
     """
     panel = point_panel_from_analysis(analysis)
-    finite_distributing = type(panel) is ExperimentalGEFiniteDistributingPanel
+    finite_distributing = type(panel) in (ExperimentalGEFiniteDistributingPanel, ExperimentalGEFiniteDistributingMaterialPanel)
     if finite_distributing and (targets is None or increment_control is not None or on_case is not None):
         raise ValueError("finite distributing Project input requires explicit monotone targets; adaptive/batch controls unsupported")
     if type(panel) is ExperimentalGEReferenceDistributingPanel and (

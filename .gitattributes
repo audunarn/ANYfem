@@ -18,3 +18,7 @@ examples/stiffened_shell_ge_finite_distributing_consumer.py -text
 docs/development/r8-ge-finite-distributing-consumer-20261004.md -text
 .qualification/stiffened-shell/r8-ge-finite-distributing-consumer-dev-20261004-v1/** -text -whitespace
 .qualification/stiffened-shell/r8-ge-material-compatibility-dev-20261004-v1/** -text -whitespace
+src/anyfem/solve/stiffened_shell_ge_distributing_material.py -text
+tests/test_stiffened_shell_ge_distributing_material_consumer.py -text
+examples/stiffened_shell_ge_distributing_material_consumer.py -text
+.qualification/stiffened-shell/r8-ge-distributing-material-consumer-dev-20261004-v1/** -text -whitespace

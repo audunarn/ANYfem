@@ -52,3 +52,38 @@ Solver wheel2f182820379c18029e93e143a689902dfdab56afb398aef490510a16bde43c3d;
 consumer wheeldc822ff5cb33e350b03ab9baa932758fd7fbde507191fe38d9be61732dda0ad3.
 All actual imported package paths are installed; package source bytes match
 their worktrees. Supporting Read review is clear, not scientific qualification.
+
+## Distinct material consumer — subsequent installed exit
+
+`ExperimentalGEFiniteDistributingMaterialPanel` uses separate schema
+`anyfem.experimental-ge-finite-distributing-material-panel-v1` and an explicit
+required `finite_distributing_material_policy`. Supported policies preserve
+canonical generalized beam records and elastic/Q4-J2 material pairing. Canonical
+curve serialization/parsing owns the material input. Existing input framing
+is reused without compiling an owner; no mechanics or accepted state is copied.
+Old elastic formats continue to reject material intent.
+
+Standalone and native Project save/reopen preserve policy, curve and geometry.
+Public factory admission checks experimental profile, law, material policy,
+checkpoint kind and16-backtrack ceiling; failure closes the created owner.
+Both policies execute through native Project dispatch with explicit targets.
+Yielded cancellation preserves the accepted prefix; selected physical recovery
+and binary restart reproduce uninterrupted1.0001 continuation. Material state
+belongs in the solver checkpoint, not the input JSON.
+
+Source86PASS precedes added cleanup/limit checks. Final installed90PASS41.00s,
+whole42.9745s/sample212729856B, actual affinity/pools1/JIToff under600s/2GiB.
+The runnable public example is exercised in that final suite. All installed
+consumer bytes match source; every actual solver/consumer import resolves to
+the recorded isolated sites. Consumer wheel
+716ac11f89336ec2a84b54b580ea1367ff6ce456d797497118e87b1b596bca49 uses unchanged
+solver wheel2f182820379c18029e93e143a689902dfdab56afb398aef490510a16bde43c3d.
+Raw `.qualification/stiffened-shell/r8-ge-distributing-material-consumer-dev-20261004-v1`
+retains source/artifact/runtime identities, logs, example output and supporting
+review. Canonical material parsing, false-capability cleanup and old formats
+have direct checks. Supporting review is not different-family qualification.
+
+This is bounded experimental lifecycle implementation. The same physical
+fixture's1.01 continuation remains failed in solver evidence; successful1.0001
+does not replace it. Physical connection accuracy, reversal, chart transport,
+all material combinations, scale/platform/full consumer and release stay open.

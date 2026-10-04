@@ -1,0 +1,17 @@
+{
+  "status": "EXPERIMENTAL_NOT_QUALIFIED",
+  "material_policy": "GE_FINITE_DISTRIBUTING_COUPLED_J2_MATERIAL_V1_DEV",
+  "accepted_factors": [
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    1.0001
+  ],
+  "equilibrium": 3.530856446583774e-13,
+  "gap": 7.589948819396164e-18,
+  "shell_alpha": 0.001660566180442885,
+  "beam_accumulated": 0.000150016,
+  "checkpoint_bytes": 6707,
+  "law": "GE_FLAT_Q4_DISTRIBUTING_DIRECTOR_PLANAR_POLAR_POSE_V1_CANDIDATE"
+}

@@ -1473,9 +1473,14 @@ class ExperimentalGEBL5Panel:
                    bl5_material_policy=material_policy)
 
 
-def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel, path: str | Path) -> Path:
+from .stiffened_shell_ge_distributing_material import (
+    ExperimentalGEFiniteDistributingMaterialPanel, SCHEMA_FINITE_DISTRIBUTING_MATERIAL,
+)
+
+
+def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel | ExperimentalGEFiniteDistributingMaterialPanel, path: str | Path) -> Path:
     """Atomically save a bounded input record, never solver state or results."""
-    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel):
+    if type(case) not in (ExperimentalGEPointPanel, ExperimentalGEBL5Panel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel, ExperimentalGEFiniteDistributingMaterialPanel):
         raise ValueError("experimental GE panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -1501,7 +1506,7 @@ def save_case(case: ExperimentalGEPointPanel | ExperimentalGEBL5Panel | Experime
     return destination
 
 
-def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel:
+def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5Panel | ExperimentalGENodalRigidFootprintPanel | ExperimentalGEReferenceModalPanel | ExperimentalGEReferenceDistributingPanel | ExperimentalGEFiniteDistributingPanel | ExperimentalGEFiniteDistributingMaterialPanel:
     source = Path(path)
     if not source.name.endswith(SUFFIX):
         raise ValueError(f"experimental GE panel filename must end with {SUFFIX}")
@@ -1536,12 +1541,15 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         return ExperimentalGEReferenceModalPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_FINITE_DISTRIBUTING:
         return ExperimentalGEFiniteDistributingPanel.from_dict(data)
+    if type(data) is dict and data.get("schema") == SCHEMA_FINITE_DISTRIBUTING_MATERIAL:
+        return ExperimentalGEFiniteDistributingMaterialPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
         return ExperimentalGEReferenceDistributingPanel.from_dict(data)
     return ExperimentalGEPointPanel.from_dict(data)
 
 
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
+           "ExperimentalGEFiniteDistributingMaterialPanel", "SCHEMA_FINITE_DISTRIBUTING_MATERIAL",
            "ExperimentalGEFiniteDistributingPanel", "SCHEMA_FINITE_DISTRIBUTING", "FINITE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceDistributingPanel", "SCHEMA_REFERENCE_DISTRIBUTING", "REFERENCE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",

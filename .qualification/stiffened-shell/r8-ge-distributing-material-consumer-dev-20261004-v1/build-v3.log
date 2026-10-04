@@ -1,0 +1,9 @@
+Processing c:\github\anyfem\.worktrees\experimental-ge-panel-consumer
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: ANYfem
+  Building wheel for ANYfem (pyproject.toml): started
+  Building wheel for ANYfem (pyproject.toml): finished with status 'done'
+  Created wheel for ANYfem: filename=anyfem-0.4.1-py3-none-any.whl size=545618 sha256=716ac11f89336ec2a84b54b580ea1367ff6ce456d797497118e87b1b596bca49
+  Stored in directory: C:\Users\AudunArnesenNyhus\AppData\Local\Temp\pip-ephem-wheel-cache-tms5p2sc\wheels\d9\72\06\a9851eb12db08b372088f44c4f09082a128ecfec0d87e61409
+Successfully built ANYfem
