@@ -1,0 +1,25 @@
+{
+  "solver/src/anysolver/_stiffened_shell_ge_experimental.py": "e1132399408eb193392c8b745e3a5fe611abb8b43ddd6c2e0e8eb0d13ea7b836",
+  "solver/src/anysolver/_stiffened_shell_ge_finite_experimental.py": "e41b94c016f191a7629135f4f39d7600c2336f414e14171f5d3004591735d1b2",
+  "solver/src/anysolver/_stiffened_shell_ge_checkpoint_binary.py": "a497cdc764d8d2a1d076664748cc9f1815f4b8c50cbcfa79063f6a7f0820b13a",
+  "solver/src/anysolver/stiffened_shell.py": "180e5de54ca415bb9cb35ae1efcb9f85bfa5bd941042cad36bba2eb3c9b144d7",
+  "solver/tests/test_stiffened_shell_distributing_cyclic.py": "87db73ea72dc2444b5cffd7329a727b8d3d17271b0b25e3f361d71251d62e406",
+  "solver/docs/stiffened_shell_distributing_material_development.md": "107320fa2c945ce04928361cf0660ac30c424ceeb83851eac1a992dafd52b8f4",
+  "fem/src/anyfem/solve/stiffened_shell.py": "ce1c2c76a55bb3d4ec9e6bf155b5f648247949760367dd39e60b27015b77dd7f",
+  "fem/src/anyfem/solve/stiffened_shell_ge_distributing_material.py": "7ca1177590cc1737812287434270801b77f552927296437e8973eeaca2138e8b",
+  "fem/tests/test_stiffened_shell_ge_distributing_cyclic_consumer.py": "f7741f33ff77b547ea480e714a6af0dc740ed889f22326f99f285eefbafc367b",
+  "fem/examples/stiffened_shell_ge_distributing_cyclic_consumer.py": "c1c616d089d4ab6f5d06511c750e205a22b45c3a064ea883deaac1e57d4ffa1f",
+  "artifacts": {
+    "solver": {
+      "wheel": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\solver-dist-v1\\anysolver-0.4.7-py3-none-any.whl",
+      "sha256": "6cf4650208ac3660e1c919b9a136a974b1dc22cb3666cbb45a3d9124168e3316"
+    },
+    "fem": {
+      "wheel": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\fem-dist-v1\\anyfem-0.4.1-py3-none-any.whl",
+      "sha256": "6831ab5d375642ba57ed07748c5a847a566705ea80c0bdf7ca8bd3b736be1f10"
+    }
+  },
+  "solver_source_parent": "f9f45f01",
+  "consumer_source_parent": "aaccbaa",
+  "scope": "ordinary integrated development evidence, not qualification"
+}

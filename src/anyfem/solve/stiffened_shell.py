@@ -664,6 +664,9 @@ class ExperimentalGEReferenceModalPanel:
         if (type(getattr(definition, "finite_distributing_material_policy", "elastic")) is not str or
                 getattr(definition, "finite_distributing_material_policy", "elastic") != "elastic"):
             raise ValueError("finite distributing material policy unsupported by modal consumer")
+        if (type(getattr(definition, "cyclic_reference_actions", ())) is not tuple or
+                getattr(definition, "cyclic_reference_actions", ())):
+            raise ValueError("cyclic reference actions unsupported by modal consumer")
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                 definition.lines or definition.footprints or
@@ -805,9 +808,14 @@ class ExperimentalGEReferenceDistributingPanel:
             expected.add("finite_distributing_footprints")
         if "finite_distributing_material_policy" in stiffened_shell.LinearDefinition.__dataclass_fields__:
             expected.add("finite_distributing_material_policy")
+        if "cyclic_reference_actions" in stiffened_shell.LinearDefinition.__dataclass_fields__:
+            expected.add("cyclic_reference_actions")
         if (type(getattr(definition, "finite_distributing_material_policy", "elastic")) is not str or
                 getattr(definition, "finite_distributing_material_policy", "elastic") != "elastic"):
             raise ValueError("finite distributing material policy unsupported by elastic consumer")
+        if (type(getattr(definition, "cyclic_reference_actions", ())) is not tuple or
+                getattr(definition, "cyclic_reference_actions", ())):
+            raise ValueError("cyclic reference actions unsupported by elastic consumer")
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 {item.name for item in dataclass_fields(definition)} != expected or
                 definition.profile != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
@@ -1475,6 +1483,7 @@ class ExperimentalGEBL5Panel:
 
 from .stiffened_shell_ge_distributing_material import (
     ExperimentalGEFiniteDistributingMaterialPanel, SCHEMA_FINITE_DISTRIBUTING_MATERIAL,
+    FINITE_DISTRIBUTING_CYCLIC_ADMISSION,
 )
 
 
@@ -1550,6 +1559,7 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
 
 __all__ = ["ExperimentalGEPointPanel", "ExperimentalGEBL5Panel", "ExperimentalGENodalRigidFootprintPanel",
            "ExperimentalGEFiniteDistributingMaterialPanel", "SCHEMA_FINITE_DISTRIBUTING_MATERIAL",
+           "FINITE_DISTRIBUTING_CYCLIC_ADMISSION",
            "ExperimentalGEFiniteDistributingPanel", "SCHEMA_FINITE_DISTRIBUTING", "FINITE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceDistributingPanel", "SCHEMA_REFERENCE_DISTRIBUTING", "REFERENCE_DISTRIBUTING_LAW",
            "ExperimentalGEReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",

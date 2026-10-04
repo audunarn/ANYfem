@@ -1,0 +1,50 @@
+{
+  "commands": [
+    [
+      "C:\\Python\\Python314\\python.exe",
+      "-m",
+      "pip",
+      "wheel",
+      ".",
+      "--no-deps",
+      "--no-build-isolation",
+      "--no-cache-dir",
+      "-w",
+      "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\solver-dist-v1"
+    ],
+    [
+      "C:\\Python\\Python314\\python.exe",
+      "-m",
+      "pip",
+      "wheel",
+      ".",
+      "--no-deps",
+      "--no-build-isolation",
+      "--no-cache-dir",
+      "-w",
+      "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\fem-dist-v1"
+    ],
+    [
+      "C:\\Python\\Python314\\python.exe",
+      "-m",
+      "pip",
+      "install",
+      "--no-deps",
+      "--no-cache-dir",
+      "--target",
+      "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\site-v1",
+      "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\solver-dist-v1\\anysolver-0.4.7-py3-none-any.whl",
+      "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\fem-dist-v1\\anyfem-0.4.1-py3-none-any.whl"
+    ]
+  ],
+  "artifacts": {
+    "solver": {
+      "wheel": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\solver-dist-v1\\anysolver-0.4.7-py3-none-any.whl",
+      "sha256": "6cf4650208ac3660e1c919b9a136a974b1dc22cb3666cbb45a3d9124168e3316"
+    },
+    "fem": {
+      "wheel": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-distributing-cyclic-dev-20261004-v1\\fem-dist-v1\\anyfem-0.4.1-py3-none-any.whl",
+      "sha256": "6831ab5d375642ba57ed07748c5a847a566705ea80c0bdf7ca8bd3b736be1f10"
+    }
+  }
+}
