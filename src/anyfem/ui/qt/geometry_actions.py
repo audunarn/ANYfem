@@ -218,6 +218,15 @@ class GeometryActions:
             action.triggered.connect(self.app.guarded(activate))
             if label != "Properties":
                 action.setEnabled(not bool(self.app.project.read_only_reason))
+        kinds = {ref.kind for ref in refs}
+        if refs and kinds in ({"vertex"}, {"edge"}):
+            plate = kinds == {"vertex"}
+            action = menu.addAction("Add plate" if plate else "Add beam")
+            def construct(_checked=False):
+                self.assert_binding(binding)
+                return self.start_plate(refs) if plate else self.assign_beams(refs)
+            action.triggered.connect(self.app.guarded(construct))
+            action.setEnabled(not (self.app.session.read_only or self.app.project.read_only_reason))
         menu.addSeparator()
         for label, callback in (("Create set…", lambda: self.new_set(refs)),
                                 ("Add to set…", lambda: self.add_to_set(refs))):
@@ -232,10 +241,10 @@ class GeometryActions:
     def canvas_context_menu(self, event):
         if self.app._view_mode != "geometry" or not self.app.canvas_action_menu.isChecked():
             return
-        if not getattr(event,"hits",()):
+        if not getattr(event,"hits",()) and not getattr(event,"preserve_selection",False):
             return
-        refs = tuple(ref for ref in self.app.selection.items if isinstance(ref, EntityRef))
-        if len(refs) != 1:
+        refs = tuple(ref for ref in self.app.selection.ordered_items if isinstance(ref, EntityRef))
+        if not refs:
             return
         if self.menu is not None:
             self.menu.close()
@@ -245,6 +254,31 @@ class GeometryActions:
         ratio = surface.devicePixelRatioF()
         x, y = event.end
         self.menu.popup(surface.mapToGlobal(QPoint(round(x / ratio), round(y / ratio))))
+
+    def start_plate(self, refs=()):
+        from .plate_construction import PlateDraft
+        if self.app.session.read_only or self.app.project.read_only_reason:raise PermissionError("This project is read-only")
+        if any(ref.kind != "vertex" for ref in refs):raise ValueError("Select vertices for a plate boundary.")
+        self.app.viewport.cancel_plate()
+        self.app.viewport.cancel_construction()
+        self.app.selection.set_mode("vertex")
+        draft = PlateDraft(self, refs)
+        self.app.viewport.plate_draft = draft
+        draft.update_preview()
+        self.dialogs.append(draft)
+        draft.finished.connect(lambda _result: self.dialogs.remove(draft) if draft in self.dialogs else None)
+        draft.show()
+        return draft
+
+    def assign_beams(self, refs):
+        binding = self.binding()
+        sections = list(self.app.project.beam_sections)
+        if not sections:raise ValueError("Create a beam section in Sections before assigning beams.")
+        section, accepted = QInputDialog.getItem(self.app, "Add beam", "Beam section", sections, 0, False)
+        if not accepted:return
+        self.assert_binding(binding)
+        if self.app.session.read_only or self.app.project.read_only_reason:raise PermissionError("This project is read-only")
+        self.app.run(commands.CompositeCommand([commands.AssignBeam(ref.id, section) for ref in refs], label="assign beams"))
 
     def close(self):
         if self.menu is not None:

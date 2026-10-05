@@ -69,6 +69,8 @@ DESCRIPTIONS = {
     'Clear section plane': 'Remove the viewport section plane.',
     'Save viewport image': 'Save an image of the current viewport.',
     'Start construction': 'Start interactive construction using the chosen tool and workplane.',
+    'Construct plate from existing vertices': 'Activate an ordered boundary draft. Click existing vertices, review their order, then Enter or double-click to create boundary lines and one geometry face. Assign material and thickness separately.',
+    'Apply plate': 'Validate the ordered boundary with ANYgeometry and create one geometry face as one undoable command.',
     'Sketch selected flat plate': 'Start a sketch on the selected flat plate.',
     'Add local point': 'Add a construction point at the entered local coordinates.',
     'Remove last point': 'Remove the most recently added construction point.',

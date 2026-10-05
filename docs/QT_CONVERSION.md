@@ -16,6 +16,46 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 prospective selection/live-plate workflow: user requests clear
+AddFace/AddPlate explanations, automatic selected topology IDs, Shift-right-click
+Add plate/Add beam actions, and existing-point plate preview committed by Enter
+or double-click. Preserve existing owner geometry rules and command/undo paths.
+Drag selections require visible boundary-order review rather than inferred
+polygon ordering; beam conversion requires an explicit section choice. One owner
+handles the connected Qt implementation and focused widget checks. OpenAI
+implementation fallback is used because the preceding available Mistral Edit
+worker violated its explicit Git ownership boundary; a bounded Mistral READ
+review may assess the finished artifact. No geometry-coordination resumption,
+prepared execution enablement, numerical run or release is authorized here.
+
+2026-10-05 selection/live-plate delivered: Geometry displays the difference
+between Add face (closed existing edge loop) and Add plate (ordered vertices,
+new boundary edges); material/thickness assignment remains separate. Matching
+selected IDs populate geometry fields in selection order, preserving manual
+edits until selection changes. Shift-right-click retains the entire point/line
+selection and offers Add plate/Add beam. Add plate opens a modeless editable
+boundary-order review with a numbered live outline; Construction also provides
+"Construct plate from existing vertices". Enter/double-click applies one AddPlate
+command; Escape cancels. Invalid insufficient/repeated/self-crossing/nonplanar
+rings are refused using owner validation on a cloned geometry. Beam conversion
+requires an explicit existing section and uses one undoable CompositeCommand.
+Project replacement, clear, backend switch and shutdown cancel drafts; stale and
+read-only commits are refused. No coordinate-based reordering is inferred.
+
+Evidence: 19 construction/action widget checks pass, plus five parent hover-help
+checks (24 distinct checks); failed menu-order, read-only and tooltip diagnostics
+are retained in `reports/qt/plate-construction/`. Runtime: PySide6 6.10.3,
+ANYgeometry 0.4.5, software/offscreen. Parent headless import check loads neither
+Qt nor Tk; diff check passes. The wheel builds and includes the new draft module.
+Mistral READ review, specifically approved for
+source disclosure, finds no concrete defects in mutation, staleness, boundary
+validation or duplicate commit paths. Its initial broader turn-limited partial
+review and completed narrower review are retained separately. Astra checked owner
+error prefixes and missing-vertex errors against source. Offscreen screenshots
+have missing font glyphs and do not establish visual/hardware acceptance.
+Physical Linux GPU acceptance remains deferred. Both prepared execution gates
+remain false, paused coordination/frozen inputs remain unchanged; no numerical
+execution, package release or sibling modification is included.
 2026-10-05 remaining main work: user explicitly requests all remaining authored
 local work pushed. Prepared reference/remap/preassembly sources, examples, tests,
 candidate inspection/supervisor tools, schema-6 manual CI and documentation are

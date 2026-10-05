@@ -302,8 +302,42 @@ class CommandEditor(QWidget):
 class GeometryTask(CommandEditor):
     def __init__(self,app,names):
         super().__init__(app,names)
+        app.selection.add_listener(self.populate_selection)
+        self.populate_selection()
         button=QPushButton("Check selected plates for mapped meshing")
         button.clicked.connect(app.guarded(self.check_mappable));self.layout().addWidget(button)
+
+    def rebuild(self):
+        super().rebuild()
+        self._selection_signature = None
+        self.populate_selection()
+        help_text = {
+            "AddFace": "Closed boundary edge IDs create a geometry face. Assign material and thickness separately.",
+            "AddPlate": "Boundary-ordered vertex IDs create boundary lines and a geometry face. Review the order; assign material and thickness separately.",
+        }.get(self.choice.currentData(), "IDs are filled from matching selected geometry. Explicit edits remain until selection changes.")
+        self.feedback.setText(help_text)
+        self.apply.setToolTip(f"Apply {self.choice.currentText()} using the entered values as an undoable model edit. {help_text}")
+
+    def populate_selection(self):
+        refs = tuple(self.app.selection.ordered_items)
+        signature = tuple((ref.kind, ref.id) for ref in refs)
+        if signature == getattr(self, "_selection_signature", None):return
+        self._selection_signature = signature
+        from anygeometry.entities import EntityRef
+        for name, (field, _, _) in self.fields.items():
+            kind = {"vertex_ids":"vertex", "edge_ids":"edge", "face_ids":"face"}.get(name)
+            if kind is None:continue
+            ids = [ref.id for ref in refs if isinstance(ref, EntityRef) and ref.kind == kind]
+            field.setText(", ".join(map(str, ids)))
+        vertex_ids = [ref.id for ref in refs if isinstance(ref, EntityRef) and ref.kind == "vertex"]
+        names = {"AddLine": ("start", "end"), "AddArc": ("start", "via", "end")}.get(self.choice.currentData(), ())
+        for index, name in enumerate(names):
+            self.fields[name][0].setText(str(vertex_ids[index]) if index < len(vertex_ids) else "")
+        for name, (field, _, _) in self.fields.items():
+            kind = {"vertex_id":"vertex", "edge_id":"edge", "face_id":"face"}.get(name)
+            if kind:
+                ids = [ref.id for ref in refs if isinstance(ref, EntityRef) and ref.kind == kind]
+                field.setText(str(ids[0]) if len(ids) == 1 else "")
 
     def check_mappable(self):
         from anymesher.decomposition import check_mappable

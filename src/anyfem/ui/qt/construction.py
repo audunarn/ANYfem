@@ -34,7 +34,7 @@ class ConstructionPanel(QWidget):
         self.constraints.setToolTip("Constraint records use SI metres for dimensional values.")
         self.pair=QLineEdit("1, 2");self.distance=QLineEdit("1 m")
         form.addRow("Constraint point numbers",self.pair);self.length_row("Constraint distance",self.distance)
-        for label,callback in [("Start construction",self.start),("Sketch selected flat plate",self.sketch),
+        for label,callback in [("Construct plate from existing vertices",lambda:app.geometry_actions.start_plate()),("Start construction",self.start),("Sketch selected flat plate",self.sketch),
                                ("Add local point",self.add_point),("Remove last point",self.backspace),
                                ("Add distance constraint",lambda:self.add_constraint("distance")),("Add coincidence constraint",lambda:self.add_constraint("coincident")),("Remove last constraint",self.remove_constraint),
                                ("Apply",self.apply),("Cancel",app.viewport.cancel_construction)]:

@@ -18,6 +18,16 @@ class _ConstructionKeys(QObject):
 
     def eventFilter(self, target, event):
         if target is self.viewport.canvas.event_widget:
+            draft = getattr(self.viewport, "plate_draft", None)
+            if draft is not None and event.type() in {QEvent.MouseButtonPress, QEvent.MouseButtonDblClick} and event.button() == Qt.LeftButton:
+                from ...selection import owner_to_ref
+                ratio = target.devicePixelRatioF()
+                hits = self.viewport.canvas.query_point(round(event.position().x()*ratio), round(event.position().y()*ratio))
+                refs = [owner_to_ref(hit.owner) for hit in hits]
+                draft.add_vertex(next((ref for ref in refs if ref is not None and ref.kind == "vertex"), None))
+                if event.type() == QEvent.MouseButtonDblClick:draft.commit()
+                return True
+            if draft is not None and event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:return True
             if event.type() == QEvent.MouseButtonPress and event.button() == Qt.RightButton:
                 self._right_press = event.position().toPoint()
                 self._right_dragged = False
@@ -28,15 +38,20 @@ class _ConstructionKeys(QObject):
                 position = event.position().toPoint()
                 clicked = (self._right_press is not None and not self._right_dragged
                            and (position - self._right_press).manhattanLength() < QApplication.startDragDistance()
-                           and event.modifiers() == Qt.NoModifier)
+                           and event.modifiers() in {Qt.NoModifier, Qt.ShiftModifier})
                 self._right_press = None
                 if clicked:
                     # Let the viewer finish its orbit gesture before opening a menu.
-                    QTimer.singleShot(0, target, lambda: self.viewport.context_menu_at(target, position))
+                    preserve = event.modifiers() == Qt.ShiftModifier
+                    QTimer.singleShot(0, target, lambda: self.viewport.context_menu_at(target, position, preserve_selection=preserve))
             elif event.type() in {QEvent.FocusOut, QEvent.Hide}:
                 self._right_press = None
         if target is self.viewport.widget and event.type()==QEvent.Show:
             self.viewport._schedule_automatic_backend()
+        draft = getattr(self.viewport, "plate_draft", None)
+        if draft is not None and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:self.viewport.cancel_plate();return True
+            if event.key() in {Qt.Key_Return, Qt.Key_Enter}:draft.commit();return True
         if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape and not self.viewport.construction_active:
             self.viewport.dismiss_feature_highlight()
             self.viewport.selection.clear()
@@ -61,6 +76,7 @@ class QtViewport(SceneViewport):
         self._commercial_interaction_requested = True
         self._automatic_pending = backend=="auto"
         self._closed = False
+        self.plate_draft = None
         self._feature_ids = frozenset()
         self._collection_refs = frozenset()
         self.visibility = SelectionVisibility()
@@ -116,6 +132,7 @@ class QtViewport(SceneViewport):
         self._visibility_job = None
 
     def clear(self):
+        self.cancel_plate()
         self._visibility_scene = None
         self._visibility_interaction_scene = None
         super().clear()
@@ -124,7 +141,7 @@ class QtViewport(SceneViewport):
         self.dismiss_feature_highlight()
         super()._handle_selection_event(event)
 
-    def context_menu_at(self, surface, position):
+    def context_menu_at(self, surface, position, *, preserve_selection=False):
         if self._closed or surface is not self.canvas.event_widget or self.construction_active:
             return
         actions=getattr(self._window,"geometry_actions",None)
@@ -132,12 +149,34 @@ class QtViewport(SceneViewport):
             return
         ratio = surface.devicePixelRatioF()
         point = (round(position.x() * ratio), round(position.y() * ratio))
-        hits = self.canvas.query_point(*point)[:1]
-        if not hits:
+        hits = () if preserve_selection else self.canvas.query_point(*point)[:1]
+        if not hits and not preserve_selection:
             return
         self.dismiss_feature_highlight()
-        self.selection.apply_owners([hit.owner for hit in hits], "replace")
-        actions.canvas_context_menu(SimpleNamespace(hits=hits, end=point))
+        if not preserve_selection:self.selection.apply_owners([hit.owner for hit in hits], "replace")
+        actions.canvas_context_menu(SimpleNamespace(hits=hits, end=point, preserve_selection=preserve_selection))
+
+    def cancel_plate(self):
+        if self.plate_draft is not None:self.plate_draft.reject()
+
+    def begin_construction(self, *args, **kwargs):
+        self.cancel_plate()
+        return super().begin_construction(*args, **kwargs)
+
+    def _draw_construction_overlay(self):
+        super()._draw_construction_overlay()
+        draft = self.plate_draft
+        if draft is None:return
+        try:draft.check_binding()
+        except (ValueError, PermissionError):
+            self.cancel_plate();return
+        points = [self._window.project.geometry.vertices[identifier].position for identifier in draft.ids]
+        pairs = list(zip(points, points[1:]))
+        if len(points) >= 3:pairs.append((points[-1], points[0]))
+        for start, end in pairs:
+            self.canvas.add_line(self._point3d(*start), self._point3d(*end), color="#1565c0", width=3, layer=45, draw_overlay=True)
+        for index, point in enumerate(points):
+            self.canvas.add_text(self._point3d(*point), str(index+1), color="#1565c0", layer=47, draw_overlay=True)
 
     def set_collection_highlight(self,references):
         self._collection_refs=frozenset(references)
@@ -168,6 +207,7 @@ class QtViewport(SceneViewport):
     def switch_backend(self, backend):
         if backend not in {"auto","gpu","software"}:
             raise ValueError("backend must be auto, gpu or software")
+        self.cancel_plate()
         old = self.canvas
         state = old.export_view_state()
         candidate = create_viewer(self.widget, backend=backend, host=QtViewerHostAdapter())
@@ -191,6 +231,7 @@ class QtViewport(SceneViewport):
         return self.active_backend
 
     def close(self):
+        self.cancel_plate()
         self._closed=True
         self.selection.remove_listener(self._apply_highlight)
         self._cancel_interaction_restore()

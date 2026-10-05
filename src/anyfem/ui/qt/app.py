@@ -500,6 +500,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             del self._error_diagnostics[:-10]
 
     def _set_project(self,*args,**kwargs):
+        self.viewport.cancel_plate()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()
         self.panels["Solve"].reset()
