@@ -16,6 +16,21 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 PR11 merge: after notification of the recurring modal-analysis
+failure, the user explicitly directs merging now. Preserve that failed evidence
+and numerical criteria; this delivery is not a claim of full regression or
+scientific acceptance. Resolve main conflicts by retaining the newer manual
+schema-6 controls and supplying pinned geometry/mesher fallbacks for automatic
+Qt runs. Prepared execution opt-ins remain disabled by default.
+
+The October viewer integration pins `c69aa8311e61b16f54895802fe8935cc2fe980ad`
+in the GUI extra and both CI workflows. It combines fractional playback,
+selection performance and a corrected owner-identity memo. Qt checks now run
+automatically for application/test/dependency changes; manual runs can still
+override the viewer commit. The earlier snapshots below remain historical
+evidence. Current integration and review status is tracked in
+[ANY3dView's integration record](https://github.com/audunarn/ANY3dView/blob/codex/qt-integration-20261002/docs/QT_INTEGRATION.md).
+
 2026-10-05 remaining main work: user explicitly requests all remaining authored
 local work pushed. Prepared reference/remap/preassembly sources, examples, tests,
 candidate inspection/supervisor tools, schema-6 manual CI and documentation are
