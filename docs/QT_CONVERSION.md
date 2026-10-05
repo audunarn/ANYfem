@@ -47,8 +47,13 @@ from fresh wheel installations (effective module paths confirmed). Licensing
 passes for 18 direct dependencies. Evidence is under
 `reports/qt/false-diagonal/`. External Mistral READ disclosure permission for the
 sibling diff is pending; parent review and local checks complete independently.
-Shared viewer checkout synchronization is blocked by approval review because two
-untracked owner files collide with newly tracked files; no owner files are moved.
+User subsequently approved the two-file backup/update/restore. The local viewer
+history diverged, so a normal merge preserves both histories; specific conflict
+hunks retain the published owner-cache fix, regression and viewer docstring.
+Merged viewer main `9f2bb81f4f3ce155c52175cc20dfbda48328d6a4` is tree-equal to
+tested `d8b8268` and matches GitHub. All eight protected owner files are
+byte-identical; restored files now occupy tracked paths, with differing owner
+contents left unstaged. Preservation hashes are retained.
 Both prepared execution gates remain false; no numerical campaign/package release.
 2026-10-05 prospective selection/live-plate workflow: user requests clear
 AddFace/AddPlate explanations, automatic selected topology IDs, Shift-right-click
