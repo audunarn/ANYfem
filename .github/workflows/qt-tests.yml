@@ -24,7 +24,7 @@ on:
         description: Exact ANY3dView candidate commit containing the Qt host
         required: true
         type: string
-        default: c69aa8311e61b16f54895802fe8935cc2fe980ad
+        default: d8b82686e477920cb485a7d32e6f04699b6f4d6f
       geometry_ref:
         description: Exact ANYgeometry commit (schema-6 candidate d05cd3a37d884702e043b678808f50d03ed4a27e)
         required: true
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: ${{ inputs.viewer_ref || 'c69aa8311e61b16f54895802fe8935cc2fe980ad' }}
+          ref: ${{ inputs.viewer_ref || 'd8b82686e477920cb485a7d32e6f04699b6f4d6f' }}
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:

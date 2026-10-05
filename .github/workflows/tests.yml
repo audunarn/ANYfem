@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: c69aa8311e61b16f54895802fe8935cc2fe980ad
+          ref: d8b82686e477920cb485a7d32e6f04699b6f4d6f
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:
@@ -139,7 +139,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: c69aa8311e61b16f54895802fe8935cc2fe980ad
+          ref: d8b82686e477920cb485a7d32e6f04699b6f4d6f
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:

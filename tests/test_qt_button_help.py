@@ -20,6 +20,10 @@ def qapp():
 @pytest.fixture
 def window(qapp, tmp_path, monkeypatch):
     from anyfem.io import recovery
+    from PySide6.QtCore import QSettings
+    from anyfem.ui.qt import app
+    monkeypatch.setattr(app, 'QSettings', lambda *_: QSettings(
+        str(tmp_path/'workbench.ini'), QSettings.IniFormat))
     monkeypatch.setattr(recovery, 'default_recovery_root', lambda: tmp_path/'recovery')
     window = QtFemWindow(viewer_backend='software')
     window.show(); qapp.processEvents()

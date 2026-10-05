@@ -16,6 +16,40 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 prospective false-diagonal fix: reproduce a selected quad and actual
+mesh triangle in software rendering, then distinguish fill triangulation from
+semantic polygon boundaries in the shared viewer. Investigation found Qt painter
+triangle pens and retained HUD per-triangle selection outlines. Preserve actual
+model/FE edges, picking, clipping, masks and owner identity; do not modify mesh or
+geometry topology. Scope ANY3dView Qt/retained presentation and focused tests, then
+ANYfem viewer pin/integration checks. Existing dirty ANY3dView adapter/evidence work
+is excluded. OpenAI implementation fallback retains Git ownership after the prior
+Mistral Edit boundary violation; parent reviews/tests the connected result.
+2026-10-05 false-diagonal delivered: GUI and both CI viewer pins now use
+ANY3dView `d8b82686e477920cb485a7d32e6f04699b6f4d6f`, based on current integrated
+viewer main `2fba4dc`. Only source polygon/explicit logical-element indexed
+boundaries are drawn; quad fan diagonals and pale fill-antialias seams disappear.
+Real separate FE triangles retain their common edge. Geometry/mesh topology,
+numerical behavior, per-triangle colors and picking stay unchanged. Highlight and
+preselection outlines follow the same boundary contract. Viewer checks preserve
+clipping/holes, visibility, chunks/deformation, animation, topology replacement
+and approximate software depth ordering; hardware acceptance remains separate.
+
+Evidence: four quad/plate image regressions fail on the old c69 input, while two
+real-triangle controls pass. All six pass on the fixed viewer. Focused viewer/
+arrays/retained/selection plus those six application checks give 45 passes and
+9 explicit GPU-opt-in skips in 3.72 s (viewer worktree reports). ANYfem consumer
+checks give 40 passes and one saved-layout-sensitive button-help failure; five
+hover and six image checks pass after isolating test QSettings (no product change).
+Failed raster seam, depth and layout diagnostics are retained. Parent headless
+imports load neither Qt nor Tk; both wheels build and six image checks pass
+from fresh wheel installations (effective module paths confirmed). Licensing
+passes for 18 direct dependencies. Evidence is under
+`reports/qt/false-diagonal/`. External Mistral READ disclosure permission for the
+sibling diff is pending; parent review and local checks complete independently.
+Shared viewer checkout synchronization is blocked by approval review because two
+untracked owner files collide with newly tracked files; no owner files are moved.
+Both prepared execution gates remain false; no numerical campaign/package release.
 2026-10-05 prospective selection/live-plate workflow: user requests clear
 AddFace/AddPlate explanations, automatic selected topology IDs, Shift-right-click
 Add plate/Add beam actions, and existing-point plate preview committed by Enter

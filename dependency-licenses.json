@@ -4,7 +4,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANY3dView",
-      "requirement": "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@c69aa8311e61b16f54895802fe8935cc2fe980ad",
+      "requirement": "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f",
       "scope": "optional:gui",
       "upstream": "https://github.com/audunarn/ANY3dView"
     },
