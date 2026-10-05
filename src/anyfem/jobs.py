@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import inspect
 import queue
 import threading
+import time
 import traceback
 from typing import Any, Callable, Deque, Mapping
 
@@ -229,6 +230,8 @@ class JobManager:
         self._thread: threading.Thread | None = None
         self._active_id: str | None = None
         self._lock = threading.RLock()
+        self._activity: dict[str, tuple[float, float, str]] = {}
+        self.heartbeat_interval = 10.0
 
     @property
     def active_job_id(self) -> str | None:
@@ -305,6 +308,7 @@ class JobManager:
             if request is None:
                 return False
             if job_id == self._active_id:
+                if request.record.status not in (JobStatus.RUNNING, JobStatus.CANCELLING):return False
                 request.record.status = JobStatus.CANCELLING
                 request.cancellation.cancel()
                 self._append_log(job_id, "status", "cancelling")
@@ -346,6 +350,7 @@ class JobManager:
             return tuple(deepcopy(self._logs.get(job_id, ())))
 
     def poll(self, limit: int | None = None) -> list[JobEvent]:
+        self._heartbeat()
         events: list[JobEvent] = []
         while limit is None or len(events) < limit:
             try:
@@ -517,12 +522,32 @@ class JobManager:
                 error,
             )
         finally:
-            request.record.finished_utc = _now()
-            self._events.put(event)
             with self._lock:
+                request.record.finished_utc = _now()
+                self._activity.pop(request.record.id, None)
+                self._events.put(event)
                 self._active_id = None
                 self._thread = None
                 self._start_next_locked()
+
+    def _heartbeat(self):
+        """Report worker liveness during silent library calls, not solver progress."""
+        with self._lock:
+            identifier = self._active_id
+            if identifier is None or not self.running:return
+            request = self._requests[identifier]
+            if request.record.status not in (JobStatus.RUNNING, JobStatus.CANCELLING):return
+            now = time.monotonic()
+            updated, last_heartbeat, phase = self._activity.get(identifier, (now, now, "Starting"))
+            if now-max(updated,last_heartbeat) < self.heartbeat_interval:return
+            age = now-updated
+            message = f"Worker still active in {phase}. No new solver update for {age:.0f} s; this is not completion or measured progress."
+            if request.record.status == JobStatus.CANCELLING:
+                message = f"Cancellation pending; waiting for the solver safe point in {phase}."
+            self._activity[identifier] = (updated, now, phase)
+            payload = {"heartbeat": True, "last_solver_update_age_s": age}
+            self._append_log(identifier, "heartbeat", message, progress=payload)
+            self._events.put(JobEvent(identifier, "heartbeat", message, payload))
 
     def _append_log(
         self, job_id: str, kind: str, message: str, **details: Any
@@ -535,6 +560,11 @@ class JobManager:
         }
         with self._lock:
             self._logs.setdefault(job_id, []).append(entry)
+            if kind in ("started", "progress"):
+                previous = self._activity.get(job_id, (0., 0., "Starting"))
+                payload = details.get("progress", {})
+                phase = str(payload.get("stage") or message)[:160]
+                self._activity[job_id] = (time.monotonic(), previous[1], phase)
 
 
 def _is_cancelled(token: Any) -> bool:

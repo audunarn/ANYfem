@@ -532,15 +532,24 @@ def solve_capacity(
         )
 
     _report(progress, "running the capacity workflow")
-    result = run_nonlinear_capacity_workflow(
-        built.fe_model,
-        built.load_case,
-        config=config,
-        status_callback=None if progress is None else progress,
-        progress_callback=_step_reporter(progress, "capacity solve"),
-        cancellation_token=cancellation_token,
-        record_increment_snapshots=bool(record_increment_snapshots),
-    )
+    # The owner config applies resources to nonlinear analysis; scope the
+    # native thread limit across its prerequisite static and buckling work too.
+    from anysolver.threading_policy import solver_thread_scope
+    workflow_resources = getattr(config, "nonlinear_resource_config", resources)
+    with solver_thread_scope(workflow_resources) as thread_policy:
+        if progress is not None:
+            requested = thread_policy.get("requested_threads")
+            effective = [pool.get("num_threads") for pool in thread_policy.get("pools_active", ())]
+            _report(progress, f"Capacity native solver threads: requested {requested}, effective pools {effective}")
+        result = run_nonlinear_capacity_workflow(
+            built.fe_model,
+            built.load_case,
+            config=config,
+            status_callback=None if progress is None else progress,
+            progress_callback=_capacity_reporter(progress),
+            cancellation_token=cancellation_token,
+            record_increment_snapshots=bool(record_increment_snapshots),
+        )
 
     reference_name = (
         combination
@@ -573,6 +582,7 @@ def solve_capacity(
             "prestress": result.prestress_summary,
             "diagnostics": result.diagnostics,
             "nonlinear_status": result.nonlinear_result.status,
+            "thread_policy": thread_policy,
             "raw": result,
         },
         peak_load_factor=float(result.capacity_factor),
@@ -1397,3 +1407,28 @@ def preflight(
         allow_free_mechanisms=bool(allow_free_mechanisms),
         **validation_options,
     )
+
+
+def _capacity_reporter(progress):
+    """Distinguish prerequisite completion from completion of the whole run."""
+    if progress is None:return None
+    def report(record):
+        stage = str(record.get("stage", ""))
+        if stage.startswith("linear_static"):
+            noun = "Capacity - initial linear prestress solve"
+        elif stage.startswith("buckling"):
+            noun = "Capacity - buckling modes"
+        elif stage.startswith("capacity"):
+            noun = "Capacity workflow"
+        else:
+            noun = "Capacity - nonlinear analysis"
+        _step_reporter(progress, noun)(record)
+        if stage == "linear_static.complete" and record.get("status") == "converged":
+            progress(_StructuredProgressText(
+                "Initial linear solve converged. Recovering prestress and solving buckling modes; capacity run is still active.",
+                {"stage": "Prestress recovery and buckling modes"}))
+        elif stage == "buckling.complete":
+            progress(_StructuredProgressText(
+                "Buckling stage finished. Checking mode adequacy and preparing nonlinear capacity analysis.",
+                {"stage": "Mode checks and nonlinear capacity preparation"}))
+    return report

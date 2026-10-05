@@ -54,6 +54,13 @@ class _JobView(QTableView):
         self.setContextMenuPolicy(Qt.CustomContextMenu);self.customContextMenuRequested.connect(self.context_menu)
 
     def refresh(self):
+        # The workbench calls this on every job-poll tick.  Rows depend only on
+        # the job records, the committed revision and the active mesh record, so
+        # skip the model/column work while none of them has changed.
+        signature=(self.app.session.revision.id,getattr(self.app,"mesh_record_id",""),
+                   tuple((job.id,str(job.name),str(getattr(job.status,"value",job.status))) for job in self.app.project.jobs.values()))
+        if signature==getattr(self,"_signature",None):return
+        self._signature=signature
         for key in tuple(self._rows):
             if key not in self.app.project.jobs:self._model.removeRow(self._rows.pop(key)[0].row())
         for job in self.app.project.jobs.values():

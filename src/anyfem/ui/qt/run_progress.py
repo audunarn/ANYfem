@@ -141,8 +141,8 @@ class QtRunMonitor(QWidget):
         self.metrics.setText(run.metric_text())
         if run.terminal:self._cancel_requested.discard(key)
         self.cancel.setEnabled(not run.terminal and run.state!='cancelling' and key not in self._cancel_requested)
-        if run.fraction is None and not run.terminal:
-            self.bar.setRange(0,0); self.bar.setFormat('Working')
+        if not run.terminal and (run.fraction is None or run.fraction >= 1.):
+            self.bar.setRange(0,0); self.bar.setFormat('Run still active')
         else:
             self.bar.setRange(0,1000)
             fraction = 1. if run.state=='completed' else run.fraction or 0.

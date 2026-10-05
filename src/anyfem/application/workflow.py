@@ -230,13 +230,27 @@ class WorkbenchWorkflow:
             str(getattr(job, "analysis_id", ""))
         )
         if definition is not None:
-            return analysis_hash(
-                definition,
-                getattr(self.project, "output_requests", None),
-                document=self.session.snapshot().document,
-            ) != str(
-                getattr(job, "analysis_hash", "")
-            )
+            # Hashing needs a full serialized project snapshot (tens of
+            # milliseconds), and the job table asks on every poll tick.  The
+            # answer can only change with the document, so key it on the
+            # committed revision and drop every entry when that moves.
+            revision = self.session.revision
+            revision_key = (revision.id, revision.document_hash)
+            cache = getattr(self, "_job_stale_cache", None)
+            if cache is None or cache[0] != revision_key:
+                cache = (revision_key, {})
+                self._job_stale_cache = cache
+            submitted = str(getattr(job, "analysis_hash", ""))
+            key = (str(getattr(job, "analysis_id", "")), submitted)
+            stale = cache[1].get(key)
+            if stale is None:
+                stale = analysis_hash(
+                    definition,
+                    getattr(self.project, "output_requests", None),
+                    document=self.session.snapshot().document,
+                ) != submitted
+                cache[1][key] = stale
+            return stale
         return False
 
 

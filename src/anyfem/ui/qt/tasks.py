@@ -158,7 +158,12 @@ class SolveTask(QWidget):
         self.analysis.currentTextChanged.connect(self.rebuild_controls);self.rebuild_controls()
         from anysolver import ResourceConfig
         self.use_resources=QCheckBox("Use explicit solver resource policy");layout.addWidget(self.use_resources)
+        import os
+        gui_threads=min(2,max(1,(os.cpu_count() or 2)-1))
+        self.use_resources.setChecked(True)
         self.resources=OptionForm.record(ResourceConfig,exclude=("metadata",));layout.addWidget(self.resources)
+        self.resources.set_values({"solver_threads":gui_threads})
+        self.use_resources.setToolTip("Default native solver thread limit keeps CPU capacity available for the workbench. Adjust it here or disable the limit.")
         self.submit=QPushButton("Solve");self.submit.clicked.connect(app.guarded(self.start));layout.addWidget(self.submit)
         cancel=QPushButton("Cancel solve");cancel.clicked.connect(app.cancel_solve);layout.addWidget(cancel)
         self.progress=QLabel();self.progress.setWordWrap(True);layout.addWidget(self.progress)
@@ -219,7 +224,9 @@ class SolveTask(QWidget):
         if self.analysis.currentText()=="Batch linear static":options.setdefault("load_cases",list(self.app.project.load_cases))
         if self.use_resources.isChecked():
             from anysolver import ResourceConfig
-            options["resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"]=ResourceConfig(**self.resources.values())
+            key="resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"
+            raw=options.get(key)
+            options[key]=ResourceConfig(**raw) if isinstance(raw,dict) else raw or ResourceConfig(**self.resources.values())
         options["output_request_ids"] = tuple(
             item.data(Qt.UserRole) for item in self.output_requests.selectedItems()
         )
@@ -345,7 +352,11 @@ class ResultsTask(QWidget):
         # Playback/export already draws explicitly; do not queue a second draw
         # that could replace the captured frame or stop cached playback.
         blocker=QSignalBlocker(self.frame);self.frame.setValue(value)
-        self.app.shape_index=self.frame.value();del blocker
+        # Panel refresh calls this with the current shape index; writing it
+        # back unchanged publishes a workbench state event that schedules a
+        # full tree/panel refresh on every idle frame.
+        if self.app.shape_index!=self.frame.value():self.app.shape_index=self.frame.value()
+        del blocker
 
     def use_retained(self):
         return self.app.solution is None or self._display_source=="retained"

@@ -79,6 +79,13 @@ class RunProgress:
         self.stale = stale
         kind = event.kind
         payload = event.payload
+        if kind == 'heartbeat':
+            # Keep the last true solver update time, stage, metrics and graph.
+            self.message = str(event.message)
+            self.sequence += 1
+            self.events.append((self.sequence,self.elapsed(now),f'heartbeat: {self.message}'[:4000]))
+            del self.events[:-self.max_events]
+            return
         text = str(event.message or value(payload, 'message', '')).strip()
         if kind == 'started':
             if self.started_at is None:

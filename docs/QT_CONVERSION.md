@@ -16,6 +16,38 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 capacity responsiveness slice: attached report stops after the initial
+linear solve converges; this precedes prestress/buckling/nonlinear stages. Remove
+Qt's unchanged-frame event feedback loop and cache unchanged job-table hashing
+(adopt the already pending related fixes). Emit phase-specific capacity progress
+and truthful worker heartbeats, never fabricated convergence/percentage. Limit
+GUI default native solver threads and scope the explicit capacity thread policy
+across prerequisite stages. Preserve tolerances, physics, cancellation, immutable
+requests and unrelated selection work. Parent retains coupled lifecycle work
+following the recorded Mistral Edit authority violation; independent Read review.
+Use blocked synthetic jobs/real Qt timers and proper native-pool diagnostics,
+not an unbounded barge capacity campaign, to discriminate UI polling versus CPU
+oversubscription. The long eigensolve itself is not claimed to be accelerated.
+Delivered: unchanged frame updates no longer publish state events; job status and
+staleness hashes cache per committed revision. Initial linear convergence now
+announces ongoing prestress/buckling work, then nonlinear preparation. Silent
+worker calls emit liveness-only log messages every 10 seconds; solver update age
+and numeric histories stay unchanged. Active stage completion uses a busy bar.
+GUI native solver threads default to at most two, adjustable/disableable; explicit
+advanced resource options win. This can trade large-solve throughput for UI CPU
+capacity. Capacity applies that policy across all prerequisite stages and records
+effective pools in solution diagnostics; two loaded OpenBLAS pools verified at 2.
+Independent Mistral review adjudicated in capacity-responsiveness-adjudication.md.
+51 focused regressions passed, plus a real small Qt capacity workflow; five live
+UI tests include barge timer/navigation while a silent worker is blocked. Evidence:
+reports/qt/capacity-responsiveness-final-tests.txt, capacity-small-real-run.txt,
+capacity-live-ui-tests.txt. No claim of full attached barge capacity acceptance.
+Isolated HEAD-plus-staged export: 52 focused tests pass, plus the existing real
+small Qt capacity workflow (1 pass); headless Qt/Tk import boundary passes.
+Evidence capacity-responsiveness-clean-tests.txt and clean-small-run.txt.
+
+
+
 2026-10-05 Mesh/Results pictograms: replace repeated generic icons with specific
 mesh topology/strategy and displacement, rotation, stress-family/component SVGs.
 Keep existing selectors, actions and hover help. Small presentation-only slice;
