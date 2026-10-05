@@ -152,6 +152,14 @@ class QtViewport(SceneViewport):
         if self._visibility_scene is not None:
             self.show(self._visibility_scene, interaction_scene=self._visibility_interaction_scene)
 
+    def _refresh_visualization_scene(self):
+        # Applying appearance must not replace the original scene with its
+        # filtered copy: hidden entities must remain available to Show.
+        if self._visibility_scene is not None:
+            self.refresh_visibility()
+        else:
+            super()._refresh_visualization_scene()
+
     def reset_visibility(self):
         self.visibility.hidden.clear()
         self._visibility_scene = None

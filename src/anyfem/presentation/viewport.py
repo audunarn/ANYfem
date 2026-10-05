@@ -385,7 +385,10 @@ class SceneViewport:
         elif hasattr(widget, "configure"):
             widget.configure(background=style.background)
         if getattr(self, "_scene", None) is not None:
-            self.show(self._scene, interaction_scene=self._interaction_scene)
+            self._refresh_visualization_scene()
+
+    def _refresh_visualization_scene(self) -> None:
+        self.show(self._scene, interaction_scene=self._interaction_scene)
 
 
     def project_to_workplane(
@@ -792,17 +795,23 @@ class SceneViewport:
             for patch in face_patches:
                 self._draw_face_patch(patch)
 
+        lines = scene.lines if self._visualization.show_model_lines else [
+            line for line in scene.lines if line.annotation or not any(
+                getattr(owner, "kind", None) in {"edge", "element"}
+                for owner in line.pick_owners
+            )
+        ]
         line_segment_count = sum(
-            max(len(np.asarray(line.points)) - 1, 0) for line in scene.lines
+            max(len(np.asarray(line.points)) - 1, 0) for line in lines
         )
         if (
             self._commercial_selection
             and line_segment_count > 1
             and hasattr(self.canvas, "add_mesh_arrays")
         ):
-            self._draw_line_batches(scene.lines)
+            self._draw_line_batches(lines)
         else:
-            for line in scene.lines:
+            for line in lines:
                 points = np.asarray(line.points, dtype=float)
                 binding = self._pick_binding(line.pick_owners, line.tag)
                 for start, end in zip(points, points[1:]):

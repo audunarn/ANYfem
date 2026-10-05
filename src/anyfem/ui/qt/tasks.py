@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
-    QListWidget, QListWidgetItem, QAbstractItemView)
+    QListWidget, QListWidgetItem, QAbstractItemView, QSlider)
 
 from ...application.workflow import ANALYSES, _solution_report
 from ...post.fields import available_fields
@@ -775,11 +775,31 @@ class VisualizationTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        note=QLabel("Appearance applies immediately to the current CAD, mesh or result view.\nShaded hides surface outlines; model lines and beam axes have a separate switch.")
+        note.setWordWrap(True);form.addRow(note)
         self.render=QComboBox();self.render.addItems(["Shaded with edges","Shaded","Wireframe"]);form.addRow("Render mode",self.render)
-        self.opacity=QLineEdit("1");form.addRow("Surface opacity",self.opacity)
+        self.render.setToolTip("Shaded: filled surfaces. Shaded with edges: filled surfaces and their outlines. Wireframe: outlines only.")
+        self.opacity=QLineEdit("1");form.addRow("Surface opacity (0 to 1)",self.opacity)
+        self.opacity.setToolTip("0 is transparent; 1 is opaque. Applies when you finish editing. Does not change lines, loads or supports.")
+        self.transparency=QSlider(Qt.Horizontal);self.transparency.setRange(0,100)
+        self.transparency.setTracking(False)
+        self.transparency.setToolTip("Surface transparency: 0% opaque, 100% transparent. Applies when the slider is released. Model lines and beam axes remain controlled separately.")
+        self.transparency_value=QLabel("0%")
+        slider_row=QWidget();slider_layout=QVBoxLayout(slider_row);slider_layout.setContentsMargins(0,0,0,0)
+        slider_layout.addWidget(self.transparency);slider_layout.addWidget(self.transparency_value)
+        form.addRow("Transparency",slider_row)
         self.appearance={}
         from ...presentation.visualization import GEOMETRY_DETAILS
-        for field in fields(VisualizationStyle):
+        ordered=sorted(fields(VisualizationStyle),key=lambda field:0 if field.name in {"show_model_lines","show_beam_sections"} else 1)
+        labels={"show_model_lines":"Show model lines / beam axes","show_beam_sections":"Show beam section shapes",
+                "edge_color":"Surface edge colour","edge_width":"Surface edge width"}
+        help_text={"show_model_lines":"Show or hide CAD curves and beam centre lines. Surface outlines, beam section shapes, loads and supports are separate.",
+                   "show_beam_sections":"Draw the physical cross-section shapes of beams. Turn off for a simpler model; their axes use the model-lines switch.",
+                   "geometry_detail":"Display tessellation of curved CAD surfaces only. Does not change the engineering mesh.",
+                   "edge_color":"Colour of surface outlines in Shaded with edges or Wireframe. Does not recolour model lines.",
+                   "edge_width":"Surface outline width in pixels. Does not change model lines."}
+        for field in ordered:
             if field.name in {"render_mode","surface_opacity"}:continue
             value=getattr(app.viewport.visualization,field.name)
             if isinstance(value,bool):
@@ -787,7 +807,8 @@ class VisualizationTask(QWidget):
             elif field.name in {"geometry_detail","result_colormap"}:
                 widget=QComboBox();widget.addItems(GEOMETRY_DETAILS if field.name=="geometry_detail" else list(RESULT_COLORMAPS));widget.setCurrentText(value)
             else:widget=QLineEdit(str(value))
-            self.appearance[field.name]=widget;form.addRow(field.name.replace("_"," ").capitalize(),widget)
+            widget.setToolTip(help_text.get(field.name,field.name.replace("_"," ").capitalize()+" appearance setting."))
+            self.appearance[field.name]=widget;form.addRow(labels.get(field.name,field.name.replace("_"," ").capitalize()),widget)
             if field.name in {"background","edge_color"}:
                 button=QPushButton("Choose colour");button.clicked.connect(lambda checked=False,widget=widget:self.choose_colour(widget));form.addRow(button)
         self.plane=QLineEdit("1, 0, 0");form.addRow("Section plane normal",self.plane)
@@ -798,25 +819,56 @@ class VisualizationTask(QWidget):
         section=QPushButton("Enable section plane");section.clicked.connect(app.guarded(self.section));layout.addWidget(section)
         clear=QPushButton("Clear section plane");clear.clicked.connect(app.viewport.clear_section_plane);layout.addWidget(clear)
         capture=QPushButton("Save viewport image");capture.clicked.connect(app.guarded(self.capture));layout.addWidget(capture);layout.addStretch()
+        self.sync_from_viewport()
+        self.render.currentTextChanged.connect(app.guarded(self.apply))
+        self.opacity.editingFinished.connect(app.guarded(self.apply))
+        self.transparency.valueChanged.connect(self._transparency_changed)
+        for widget in self.appearance.values():
+            signal=widget.toggled if isinstance(widget,QCheckBox) else widget.currentTextChanged if isinstance(widget,QComboBox) else widget.editingFinished
+            signal.connect(app.guarded(self.apply))
+
+    def _transparency_changed(self,value):
+        self.opacity.setText(f"{1-value/100:.2f}")
+        self.transparency_value.setText(f"{value}%")
+        self.app.guarded(self.apply)()
 
     def apply(self):
         values={}
         for name,widget in self.appearance.items():
             old=getattr(self.app.viewport.visualization,name)
             values[name]=widget.isChecked() if isinstance(widget,QCheckBox) else widget.currentText() if isinstance(widget,QComboBox) else int(widget.text()) if isinstance(old,int) else widget.text()
-        style=replace(self.app.viewport.visualization,render_mode=self.render.currentText(),surface_opacity=float(self.opacity.text()),**values)
+        old_style=self.app.viewport.visualization
+        style=replace(old_style,render_mode=self.render.currentText(),surface_opacity=float(self.opacity.text()),**values)
+        for label,colour in (("background",style.background),("surface edge",style.edge_color)):
+            if not QColor(colour).isValid():raise ValueError(f"invalid {label} colour {colour!r}")
         self.app.viewport.set_visualization(style)
+        results=self.app.panels.get("Results")
+        if results is not None and old_style.result_colormap!=style.result_colormap:
+            with QSignalBlocker(results.colors):results.colors.setCurrentText(style.result_colormap)
+        with QSignalBlocker(self.transparency):self.transparency.setValue(round(100*(1-style.surface_opacity)))
+        self.transparency_value.setText(f"{self.transparency.value()}%")
+        mode=self.app._view_mode
+        geometry_changed=any(getattr(old_style,key)!=getattr(style,key) for key in ("show_beam_sections","geometry_detail"))
+        if geometry_changed and mode=="geometry":self.app.show_geometry()
+        elif geometry_changed and mode=="mesh":self.app.show_mesh()
+        elif geometry_changed and mode=="inspection_mesh":self.app.show_inspection_mesh()
+        elif mode=="results" and results is not None and style!=old_style:
+            scene_fields=("result_colormap","show_result_nodes","show_result_supports","show_result_loads","show_result_masses","show_imperfect_reference","show_beam_sections")
+            if any(getattr(old_style,key)!=getattr(style,key) for key in scene_fields):results.show_results()
 
     def choose_colour(self,widget):
         colour=QColorDialog.getColor(QColor(widget.text()),self,"Viewport colour")
-        if colour.isValid():widget.setText(colour.name())
+        if colour.isValid():
+            widget.setText(colour.name());self.app.guarded(self.apply)()
 
     def reset(self):
-        self.app.viewport.set_visualization(VisualizationStyle());self.sync_from_viewport()
+        self.sync_from_viewport(VisualizationStyle());self.apply()
 
-    def sync_from_viewport(self):
-        style=self.app.viewport.visualization
+    def sync_from_viewport(self,style=None):
+        style=self.app.viewport.visualization if not isinstance(style,VisualizationStyle) else style
+        blockers=[QSignalBlocker(widget) for widget in (self.render,self.opacity,self.transparency,*self.appearance.values())]
         self.render.setCurrentText(style.render_mode);self.opacity.setText(str(style.surface_opacity))
+        self.transparency.setValue(round(100*(1-style.surface_opacity)));self.transparency_value.setText(f"{self.transparency.value()}%")
         for name,widget in self.appearance.items():
             value=getattr(style,name)
             if isinstance(widget,QCheckBox):widget.setChecked(value)

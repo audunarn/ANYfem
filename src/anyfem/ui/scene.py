@@ -197,6 +197,8 @@ class Polyline:
     # shell.  Depth clipping otherwise makes one connected beam appear as
     # disconnected alternating segments.
     draw_overlay: bool = False
+    # Display annotations can share geometric owners without being model axes.
+    annotation: bool = False
 
     @property
     def tag(self) -> str:
@@ -1565,6 +1567,7 @@ def build_imperfection_overlay(
                     points=points,
                     color=COLOR_IMPERFECTION,
                     width=3,
+                    annotation=True,
                 )
                 for points in lines
             )
@@ -1576,6 +1579,7 @@ def build_imperfection_overlay(
                     points=points,
                     color=COLOR_IMPERFECTION,
                     width=4,
+                    annotation=True,
                 )
             )
         else:

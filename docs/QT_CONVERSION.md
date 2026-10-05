@@ -16,6 +16,36 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 CAD visualization improvement: confirmed unmeshed Shaded/opacity only
+apply after buried Apply, CAD polylines always drawn, beam-section visibility does
+not rebuild cached geometry. Deliver immediate valid appearance changes, separate
+CAD/model-line toggle and quick transparency, rebuild relevant scene builders while
+retaining camera, visibility and view mode. No model/mesh/numerical changes. Scope
+Qt visualization task, shared appearance/presenter visualization hunks and new
+focused tests; exclude existing line-colour, launcher/package/process/section work.
+Implementation fallback: the 24-turn Mistral attempt ended with source inspection
+only, no edits/checkpoint/handoff; current and prior read-only endings demonstrate
+unreliable execution rather than an implementation limit alone. Preserve JSONL;
+parent owns the narrowed connected visualization implementation. The reread global
+policy adds prospective early progress checkpoints and explicit handoff labels;
+apply those to future dispatches without restarting completed work.
+Delivered: render icons/dropdowns and checkboxes apply immediately; text applies
+on editing completion, transparency slider on release to avoid rebuild storms.
+Separate model lines/beam axes from surface edges and physical beam sections.
+Keep support/collision annotations and explicitly tagged imperfection lines visible.
+CAD/mesh section/detail controls rebuild relevant caches without changing camera;
+Qt appearance redraw uses unfiltered source so hidden items can be shown again.
+Result colormap is synchronized to the Results control and scene refresh uses its
+selected live/retained source. Supporting independent OpenAI review found and
+verified repairs for annotations, colormap and retained selection. 69 focused
+checks pass, one opt-in Tk check skipped; failed evidence retained. Parent read
+headless boundary and native offscreen screenshot (font fallback squares prevent
+text visual acceptance); form wraps long rows for narrow docks. No numerical or
+hardware qualification claim. Evidence reports/qt/cad-visualization-reviewed-tests.txt,
+cad-visualization-final-tests.txt, cad-visualization-preview.png and review.md.
+Exact HEAD-plus-index export: 69 passed, one opt-in Tk skip; headless Qt/Tk
+import boundary and diff checks pass. Evidence cad-visualization-clean-tests.txt.
+
 2026-10-05 remaining interaction lag slice: user still reports delayed controls
 and camera motion after phase-reporting fix. Competing causes are full software
 mesh painting, UI polling work and numerical-worker contention. Profile the actual
