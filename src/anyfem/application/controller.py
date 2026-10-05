@@ -247,6 +247,11 @@ class WorkbenchController:
                 cancel(active)
             for queued in tuple(getattr(self.job_manager, "queued", ())):
                 cancel(queued)
+        # Both replacement and close release ownership of this manager.
+        # Noncooperative process work must not outlive that ownership.
+        shutdown = getattr(self.job_manager, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
         shutdown = getattr(self.mesh_task_manager, "shutdown", None)
         if callable(shutdown):
             shutdown()

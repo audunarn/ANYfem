@@ -15,9 +15,35 @@ class _ConstructionKeys(QObject):
         self.viewport = viewport
         self._right_press = None
         self._right_dragged = False
+        self._camera_drag = False
 
     def eventFilter(self, target, event):
         if target is self.viewport.canvas.event_widget:
+            kind = event.type()
+            if kind in {QEvent.MouseButtonPress, QEvent.MouseButtonDblClick}:
+                if event.button() == Qt.MiddleButton:
+                    self._camera_drag = True
+                    self.viewport._begin_interaction_scene()
+                else:
+                    # Picking and context menus require the complete owner map.
+                    self.viewport._cancel_interaction_restore()
+                    self.viewport._restore_full_scene()
+            elif kind == QEvent.MouseMove:
+                if event.buttons() & (Qt.RightButton | Qt.MiddleButton):
+                    if event.buttons() & Qt.MiddleButton or (self._right_press is not None and
+                            (event.position().toPoint() - self._right_press).manhattanLength() >= QApplication.startDragDistance()):
+                        self._camera_drag = True
+                        self.viewport._begin_interaction_scene()
+            elif kind == QEvent.MouseButtonRelease and event.button() in {Qt.RightButton, Qt.MiddleButton}:
+                if self._camera_drag:
+                    self._camera_drag = False
+                    self.viewport._schedule_full_scene()
+            elif kind == QEvent.Wheel:
+                self.viewport._begin_interaction_scene()
+                self.viewport._schedule_full_scene()
+            elif kind in {QEvent.FocusOut, QEvent.Hide}:
+                self._camera_drag = False
+                self.viewport._schedule_full_scene()
             draft = getattr(self.viewport, "plate_draft", None)
             if draft is not None and event.type() in {QEvent.MouseButtonPress, QEvent.MouseButtonDblClick} and event.button() == Qt.LeftButton:
                 from ...selection import owner_to_ref
@@ -109,6 +135,8 @@ class QtViewport(SceneViewport):
         self._apply_highlight()
 
     def show(self, scene, *, interaction_scene=None, reset_view=False):
+        from ...presentation.interaction_scene import camera_scene
+        interaction_scene = camera_scene(scene if interaction_scene is None else interaction_scene)
         mesh=self._window.mesh;job=self._window.active_job_id
         if mesh is not self._visibility_mesh or job != self._visibility_job:
             # Node/element IDs belong to one mesh/result realization.
@@ -147,6 +175,8 @@ class QtViewport(SceneViewport):
         actions=getattr(self._window,"geometry_actions",None)
         if actions is None or self._window._view_mode != "geometry" or not self._window.canvas_action_menu.isChecked():
             return
+        self._cancel_interaction_restore()
+        self._restore_full_scene()
         ratio = surface.devicePixelRatioF()
         point = (round(position.x() * ratio), round(position.y() * ratio))
         hits = () if preserve_selection else self.canvas.query_point(*point)[:1]
@@ -208,6 +238,10 @@ class QtViewport(SceneViewport):
         if backend not in {"auto","gpu","software"}:
             raise ValueError("backend must be auto, gpu or software")
         self.cancel_plate()
+        self._cancel_interaction_restore()
+        # Restore the surviving canvas before attempting a backend that may
+        # fail. Otherwise failed creation leaves sampled picking data behind.
+        self._restore_full_scene()
         old = self.canvas
         state = old.export_view_state()
         candidate = create_viewer(self.widget, backend=backend, host=QtViewerHostAdapter())

@@ -22,6 +22,18 @@ from .tree import QtModelTree
 from .tasks import MeshTask, SolveTask, ResultsTask, VisualizationTask
 
 
+def _worker_process_job_manager(project):
+    """Solves run in a separate worker process so the window stays responsive.
+
+    A solver thread shares the GUI's interpreter lock and froze the window for seconds
+    at a time during long runs (see anyfem.job_process).  ``ANYFEM_JOB_EXECUTOR=thread``
+    runs jobs in-process instead, for diagnosis.
+    """
+    import os
+    from ...jobs import JobManager
+    return JobManager(project,executor=os.environ.get("ANYFEM_JOB_EXECUTOR","process"))
+
+
 class _Value:
     def __init__(self,value):self.value=value
     def get(self):return self.value
@@ -179,7 +191,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     """One window, one workbench controller, no Tk runtime."""
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
-        self.workbench=WorkbenchController(project if project is not None else default_project())
+        self.workbench=WorkbenchController(project if project is not None else default_project(),
+                                           job_manager_factory=_worker_process_job_manager)
         self.scheduler=QtSchedulerPort(self)
         self.dialogs=QtDialogPort(self)
         self.clipboard=QtClipboardPort()

@@ -16,6 +16,54 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 remaining interaction lag slice: user still reports delayed controls
+and camera motion after phase-reporting fix. Competing causes are full software
+mesh painting, UI polling work and numerical-worker contention. Profile the actual
+barge geometry/mesh and timer service under a bounded synthetic CPU worker before
+choosing execution changes. Mistral owns Qt viewport camera LOD/restore integration
+and focused tests (viewport.py adapter/new interaction helper only); parent owns
+profiling, contracts and integration. Preserve dirty section-library/package/
+launcher work and shared viewport line-colour candidate. No barge capacity campaign,
+solver tolerance change or full hardware/scientific acceptance claim.
+
+Parent continuation: two bounded Mistral camera assignments and one Read review
+ended after source reads without edits or handoff; preserve their JSONL evidence.
+Implementation falls back to OpenAI rather than repeating unsuccessful dispatch.
+The pre-existing process executor candidate is adopted only within this authorized
+responsiveness scope after inspection and focused checks. Parent repairs shutdown
+registration race and removes unsupported 80-percent barge contention claim.
+
+Qt solves now use a spawned worker process, preserving immutable inputs, structured
+progress, solver outcomes, cooperative cancellation and headless thread defaults.
+Worker failures return typed diagnostics; closing cancels queued jobs and terminates
+active or late-starting processes. ANYFEM_JOB_EXECUTOR=thread is a diagnostic escape.
+Camera movement uses a prebuilt bounded scene (beam axes and sampled shell draw
+polygons); complete detail and picking return after movement. This is display-only;
+no geometry, mesh, solver tolerances or project/result formats change. Visibility
+filters apply to both scenes, and backend changes cancel pending detail restores.
+
+Measured actual cached example mesh with the installed software viewer: ordinary
+full paints 3.645/3.717 seconds; moving paints 0.101/0.109 seconds. Profiled samples
+are excluded from that comparison. Full stationary detail remains expensive in
+software, including restoration; no fluid dense-scene GPU or full barge capacity
+acceptance is claimed. Evidence reports/qt/barge-interaction-after.txt, script
+profile-barge-interaction-after.py; original failed/incomplete evidence retained.
+28 process/lifecycle checks passed, including real small Qt linear/capacity answer
+comparison, cancellation, crash/transport failure and a delayed-spawn shutdown race.
+Camera checks verify gesture restoration, full-detail picking and backend replacement.
+Verification: broad mixed-checkout widget suite 185 passed / one camera timer
+assertion failed; failed evidence preserved. After replacing the realtime-style
+180 ms assertion with bounded polling, intended clean export passes 42 focused
+process/camera/lifecycle/headless checks and 20 relevant Qt workflow checks.
+Six final camera checks also pass, including actual camera position movement.
+Independent supporting OpenAI review found replacement orphan-process and failed
+backend rollback defects; both repaired and reviewer verified rollback correction.
+Different-family Mistral review did not complete, so no independent scientific or
+hardware qualification claim. Evidence responsiveness-workbench-tests.txt,
+responsiveness-clean-tests.txt, responsiveness-clean-interaction-tests.txt,
+camera-final-tests.txt and responsiveness-review.md. All unrelated work preserved.
+
+
 2026-10-05 capacity responsiveness slice: attached report stops after the initial
 linear solve converges; this precedes prestress/buckling/nonlinear stages. Remove
 Qt's unchanged-frame event feedback loop and cache unchanged job-table hashing

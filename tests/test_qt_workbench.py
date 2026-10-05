@@ -935,6 +935,9 @@ def test_qt_submit_rejects_unavailable_request_before_queuing(window,qapp):
 
 
 def test_qt_requested_scope_does_not_follow_an_edit_during_solve(window,qapp,tmp_path,monkeypatch):
+    # In-process hooks (a local closure or a patched module) cannot reach a worker process; process jobs are
+    # covered by test_qt_process_jobs.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.job_manager.executor="thread"
     import json
     import threading
     from anyfem.application.workflow import ANALYSES
@@ -1465,6 +1468,9 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
 @pytest.mark.parametrize("batch", [False,True])
 @pytest.mark.parametrize("fallback", [False,True])
 def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,tmp_path,monkeypatch,batch,fallback):
+    # In-process hooks (a local closure or a patched module) cannot reach a worker process; process jobs are
+    # covered by test_qt_process_jobs.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.job_manager.executor="thread"
     import csv
     import numpy as np
     import anysolver
@@ -2390,6 +2396,9 @@ def test_qt_autosave_recovery_round_trip(window,monkeypatch):
 @pytest.mark.parametrize("mesh_source,action",[("geometry","cancel"),("geometry","edit"),("geometry","replace"),
     ("imported","cancel"),("imported","edit"),("imported","replace"),("imported","close")])
 def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypatch,tmp_path,mesh_source,action):
+    # In-process hooks (a local closure or a patched module) cannot reach a worker process; process jobs are
+    # covered by test_qt_process_jobs.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.job_manager.executor="thread"
     import threading
     from anyfem.application.workflow import ANALYSES
     from anyfem.model.records import JobStatus

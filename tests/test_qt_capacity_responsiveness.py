@@ -70,7 +70,8 @@ def test_barge_ui_timers_and_navigation_continue_during_silent_job(window,qapp):
         entered.set();assert release.wait(5)
         return None
     manager=window.job_manager
-    record=manager.submit(AnalysisDefinition('Capacity'),window.session.snapshot(),silent)
+    # a local closure cannot be imported by a worker process, so this synthetic job runs in-process
+    record=manager.submit(AnalysisDefinition('Capacity'),window.session.snapshot(),silent,executor='thread')
     assert entered.wait(5)
     ticks=[];timer=QTimer(window);timer.setInterval(30);timer.timeout.connect(lambda:ticks.append(1))
     timer.start()

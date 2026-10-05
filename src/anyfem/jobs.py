@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import inspect
+import os
 import queue
 import threading
 import time
@@ -14,6 +15,7 @@ import traceback
 from typing import Any, Callable, Deque, Mapping
 
 from .document import ProjectSnapshot, canonical_hash
+from .job_process import WorkerProcessError, prepare_call, run_in_worker_process
 from .model.records import AnalysisDefinition, JobRecord, JobStatus, OutputRequest
 
 __all__ = ["JobEvent", "JobManager", "JobRequest", "analysis_hash"]
@@ -21,6 +23,21 @@ __all__ = ["JobEvent", "JobManager", "JobRequest", "analysis_hash"]
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+EXECUTORS = ("thread", "process")
+
+
+def _resolve_executor(value: str | None) -> str:
+    """``thread`` (in-process, the library default) or ``process`` (see job_process).
+
+    ``ANYFEM_JOB_EXECUTOR`` overrides the default, for diagnosing a run in-process.
+    """
+
+    chosen = (value or os.environ.get("ANYFEM_JOB_EXECUTOR") or "thread").strip().lower()
+    if chosen not in EXECUTORS:
+        raise ValueError(f"unknown job executor {chosen!r}; use one of {', '.join(EXECUTORS)}")
+    return chosen
 
 
 def _cancellation_token():
@@ -210,6 +227,8 @@ class JobRequest:
     kwargs: dict[str, Any] = field(default_factory=dict)
     cancellation: Any = None
     project_override: Any = None
+    executor: str = "thread"
+    process: Any = None  # the worker process while a "process" job is running
 
 
 class JobManager:
@@ -220,8 +239,9 @@ class JobManager:
     thread.
     """
 
-    def __init__(self, project=None) -> None:
+    def __init__(self, project=None, *, executor: str | None = None) -> None:
         self.project = project
+        self.executor = _resolve_executor(executor)
         self._pending: Deque[JobRequest] = deque()
         self._requests: dict[str, JobRequest] = {}
         self._results: dict[str, Any] = {}
@@ -230,6 +250,7 @@ class JobManager:
         self._thread: threading.Thread | None = None
         self._active_id: str | None = None
         self._lock = threading.RLock()
+        self._shutdown = False
         self._activity: dict[str, tuple[float, float, str]] = {}
         self.heartbeat_interval = 10.0
 
@@ -255,6 +276,7 @@ class JobManager:
         kwargs: Mapping[str, Any] | None = None,
         name: str | None = None,
         project_override: Any = None,
+        executor: str | None = None,
     ) -> JobRecord:
         submitted_analysis_hash = analysis_hash(
             analysis,
@@ -290,8 +312,11 @@ class JobManager:
             # mesh entities.  Capture an owned clone at submission time for
             # that case; normal geometry jobs continue to use ProjectSnapshot.
             project_override=deepcopy(project_override),
+            executor=self.executor if executor is None else _resolve_executor(executor),
         )
         with self._lock:
+            if self._shutdown:
+                raise RuntimeError("the job manager has been shut down")
             self._requests[record.id] = request
             self._logs[record.id] = []
             self._append_log(record.id, "queued", "queued")
@@ -324,6 +349,33 @@ class JobManager:
                     return True
         return False
 
+    def shutdown(self) -> None:
+        """Stop the worker process of a running job at once (application exit).
+
+        Unlike :meth:`cancel`, which waits for the solver's next safe point, this
+        does not wait: the application is going away and a worker left running
+        would keep burning CPU.  Thread jobs are daemon threads and end with the
+        interpreter.
+        """
+
+        with self._lock:
+            self._shutdown = True
+            for queued in tuple(self.queued):
+                self.cancel(queued)
+            request = self._requests.get(self._active_id) if self._active_id else None
+            process = None if request is None else request.process
+        if process is not None and process.is_alive():
+            process.terminate()
+
+    def _register_process(self, request: JobRequest, process: Any) -> None:
+        # Shutdown can happen while spawn is still preparing the worker.
+        # Register under the same lock, so either shutdown or this callback
+        # terminates it; a late registration must not escape shutdown.
+        with self._lock:
+            request.process = process
+            if self._shutdown and process.is_alive():
+                process.terminate()
+
     def rerun(self, job_id: str, snapshot: ProjectSnapshot | None = None) -> JobRecord:
         original = self._requests[job_id]
         return self.submit(
@@ -334,6 +386,7 @@ class JobManager:
             kwargs=original.kwargs,
             name=f"{original.record.name} rerun",
             project_override=original.project_override,
+            executor=original.executor,
         )
 
     def result(self, job_id: str) -> Any:
@@ -396,7 +449,7 @@ class JobManager:
 
     # ------------------------------------------------------------------
     def _start_next_locked(self) -> None:
-        if self.running or not self._pending:
+        if self._shutdown or self.running or not self._pending:
             return
         request = self._pending.popleft()
         self._active_id = request.record.id
@@ -430,22 +483,29 @@ class JobManager:
             self._events.put(JobEvent(request.record.id, "progress", message, value))
 
         try:
-            kwargs = dict(request.kwargs)
-            project = (
-                deepcopy(request.project_override)
-                if request.project_override is not None
-                else request.snapshot.thaw()
-            )
-            kwargs.setdefault("project", project)
-            kwargs.setdefault("progress", progress)
-            parameters = inspect.signature(request.function).parameters
-            accepts_kwargs = any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD
-                for parameter in parameters.values()
-            )
-            if accepts_kwargs or "cancellation_token" in parameters:
-                kwargs.setdefault("cancellation_token", request.cancellation)
-            result = request.function(**kwargs)
+            if request.executor == "process":
+                # The numerical work runs in its own process, so it cannot take the GUI's
+                # interpreter lock; this thread only waits on a pipe.
+                result = run_in_worker_process(
+                    function=request.function,
+                    kwargs=request.kwargs,
+                    snapshot=request.snapshot,
+                    project_override=request.project_override,
+                    progress=progress,
+                    token=request.cancellation,
+                    on_process=lambda process: self._register_process(request, process),
+                )
+            else:
+                result = request.function(
+                    **prepare_call(
+                        request.function,
+                        request.kwargs,
+                        request.snapshot,
+                        request.project_override,
+                        progress,
+                        request.cancellation,
+                    )
+                )
             outcome = _result_outcome(result)
             if outcome is not None:
                 request.record.outcome = outcome.to_dict()
@@ -501,18 +561,21 @@ class JobManager:
         except BaseException as error:  # noqa: BLE001 - preserved in job diagnostics
             cancelled = _is_cancelled(request.cancellation)
             request.record.status = JobStatus.CANCELLED if cancelled else JobStatus.FAILED
+            remote = isinstance(error, WorkerProcessError)
+            error_type = error.remote_type if remote else type(error).__name__
+            error_traceback = (error.remote_traceback or traceback.format_exc()) if remote else traceback.format_exc()
             request.record.diagnostics.append(
                 {
-                    "type": type(error).__name__,
+                    "type": error_type,
                     "message": str(error),
-                    "traceback": traceback.format_exc(),
+                    "traceback": error_traceback,
                 }
             )
             self._append_log(
                 request.record.id,
                 "cancelled" if cancelled else "failed",
                 str(error),
-                error_type=type(error).__name__,
+                error_type=error_type,
                 traceback=request.record.diagnostics[-1]["traceback"],
             )
             event = JobEvent(
