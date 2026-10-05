@@ -77,8 +77,9 @@ def _symbol(name):
 @lru_cache(maxsize=256)
 def navigation_icon(name):
     """Own SVG artwork rasterized at several sizes for Qt's high-DPI icon engine."""
-    symbol=_symbol(name)
-    body=_DRAWINGS[symbol]
+    from .field_icons import field_drawing
+    body=field_drawing(name)
+    if body is None:body=_DRAWINGS[_symbol(name)]
     key=str(name).lower()
     if key.startswith("add"):
         body+='<circle cx="25" cy="25" r="6" fill="white"/><path d="M22 25H28 M25 22V28" stroke="#16804a"/>'

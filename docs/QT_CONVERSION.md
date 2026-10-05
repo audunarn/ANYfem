@@ -16,6 +16,17 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 Mesh/Results pictograms: replace repeated generic icons with specific
+mesh topology/strategy and displacement, rotation, stress-family/component SVGs.
+Keep existing selectors, actions and hover help. Small presentation-only slice;
+parent implementation with pixel uniqueness/widget checks and visual inspection.
+Preserve concurrent application/viewport/tasks/tests; no numerical rerun required.
+Delivered: four strategy pictograms and 28 distinct toolbar-size field pictograms;
+engineering component badges use vector strokes, independent of installed fonts.
+Seven focused widget/icon/help checks pass; inspected field-icons-preview.png.
+Evidence reports/qt/field-icons-tests-final.txt; no scientific acceptance claims.
+
+
 2026-10-05 physical-beam slice: expose persistent ANYgeometry Members as single
 Beams tree rows; keep axis subdivisions and FE elements hidden. Use explicit
 ordered owner chains, not inferred coordinate coincidence. Rebuild the example
