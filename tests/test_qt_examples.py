@@ -23,12 +23,23 @@ def test_examples_menu_creates_section(window, qapp, monkeypatch, tmp_path):
     action = window._actions["Floating barge section…"]
     assert action.toolTip()
     action.trigger(); qapp.processEvents()
-    assert len(window.project.geometry.faces) == 9
+    assert len(window.project.geometry.faces) == 184
+    assert len(window.project.edge_sections) == 188
     assert window.session.dirty and window.viewport._scene.faces
     path = tmp_path/"barge.anyfem"
     window.save_project(path=str(path))
     window.new_project(); window.open_project(str(path))
-    assert len(window.project.geometry.faces) == 9
+    assert len(window.project.geometry.faces) == 184
+    assert len(window.project.edge_sections) == 188
+    from anyfem import commands
+    from anygeometry.entities import EntityRef
+    identifier = next(iter(window.project.geometry.vertices))
+    before = window.project.geometry.vertex_position(identifier).copy()
+    window.run(commands.MoveEntities((EntityRef("vertex", identifier),), (0,0,.05)))
+    window.undo()
+    import numpy as np
+    np.testing.assert_allclose(window.project.geometry.vertex_position(identifier), before)
+    assert len(window.project.edge_sections) == 188
 
 
 def test_example_cancel_and_discard_declined(window, monkeypatch):

@@ -26,6 +26,31 @@ ANYfem viewer pin/integration checks. Existing dirty ANY3dView adapter/evidence 
 is excluded. OpenAI implementation fallback retains Git ownership after the prior
 Mistral Edit boundary violation; parent reviews/tests the connected result.
 2026-10-05 false-diagonal delivered: GUI and both CI viewer pins now use
+2026-10-05 barge reinforcement extension: longitudinal T stiffeners at exact
+700 mm spacing on deck, bottom and sides; transverse T girders at X=0 and 4 m.
+Preserve 5 m section, nominal vessel dimensions and open cut ends. The final
+width/side bays are 500/400 mm; do not redistribute the requested spacing.
+Shared station vertices/edges and explicitly oriented plate loops make each beam
+an actual plate boundary. Inward web directions and automatic centroid offsets
+are explicit; T200×8/100×10 stiffeners and T600×10/200×16 girders are illustrative.
+Detached initial geometry now uses public ANYgeometry APIs in one transaction,
+avoiding hundreds of primitive history snapshots; subsequent edits still use
+the workbench command stack. Separate surface and aggregate beam sets persist.
+184 assigned plate patches and 188 beam segments; no mesh/solve campaign.
+Four focused checks passed in 4.68 s: exact spacings, shared topology, section
+roundtrip, Qt activation/save-reopen and edit/undo; owner topology validation is
+empty. Evidence: `reports/qt/barge-members-tests.txt`. Independent Mistral READ
+review completed with no confirmed findings; exact spacing, shared topology and
+inward webs were checked against source. Its first bounded attempt exhausted
+before assessment (system Python lacks dependencies); both logs are retained.
+Its undo question concerns initial assignments on a detached new document, not
+an active user edit; Qt edit/undo is separately tested. Region definitions are
+also compared after serialization in response to its coverage observation.
+The software preview was inspected for reinforcement geometry; offscreen text
+rendered as missing-font squares, so that image is not UI font acceptance.
+Headless imports remain free of Qt/Tk. No physical GPU/scientific acceptance
+is added; unrelated source and frozen execution gates are preserved.
+
 2026-10-05 example-menu slice: add an editable floating-barge midship section
 through a headless command-backed builder and the existing project replacement
 path. Nominal vessel dimensions 30 × 11 × 2.5 m follow the Damen B11 product page;
