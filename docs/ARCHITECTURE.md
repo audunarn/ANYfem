@@ -3,6 +3,13 @@
 This describes the package as built. See
 [`QUALITY_CONTROL.md`](QUALITY_CONTROL.md) for how to check it.
 
+## Application boundary — decision 2026-10-02
+
+ANYfem remains separate from ANYstructure. The planned integration/replacement
+of ANYstructure's FEM interface is cancelled; ANYstructure retains its current
+Tk-based FEM interface. Existing saved-state readers remain compatibility tools,
+not a commitment to migrate the interface. Historical gate evidence is preserved.
+
 ## Boundaries
 
 ```text
@@ -15,7 +22,7 @@ ANYfem  ->  ANYsolver     analysis
 ```
 
 The dependency direction is one-way and **ANYfem never imports ANYstructure** —
-including `migration.py`, which reads the old GUI's saved state as plain JSON.
+including `migration.py`, which reads ANYstructure's saved state as plain JSON.
 That is the rule paying for itself: ANYfem consumes ANYstructure's output
 without depending on ANYstructure, and there is a test asserting no
 `anystruct` module is ever loaded.
@@ -40,7 +47,7 @@ ANYgeometry has no reverse dependency on any of these application packages.
 | `selection.py` | Selection state and the tag encoding shared by every view. |
 | `ui/` | Viewport, model tree, stage panels, XY plot, worker thread. |
 | `verification.py`, `parity.py` | Closed-form evidence and the capability ledger. |
-| `migration.py` | Reads ANYstructure's saved FE state as data; measures the migration gate. |
+| `migration.py` | Reads ANYstructure's saved FE state as data; measures the historical migration gate. |
 
 Everything below `ui/` works without Tk.
 

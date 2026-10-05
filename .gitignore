@@ -5,6 +5,7 @@ build/
 dist/
 .release_*/
 .worktrees/
+.compatibility-candidates/
 .pytest_cache/
 .pytest_tmp*/
 .idea/

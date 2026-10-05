@@ -95,13 +95,15 @@ python -m anyfem.migration         # the migration gate, all five criteria
 All three write reports under `reports/`, and are installed as `anyfem-verify`,
 `anyfem-parity` and `anyfem-gate`.
 
-The parity ledger is the gate for replacing ANYstructure's FE application
-workflow. It tracks 49 capabilities across that GUI's 176 options
+The parity ledger records the historical proposal to replace ANYstructure's FE
+application workflow. That proposal was cancelled on 2026-10-02: ANYstructure
+retains its current Tk-based FEM interface, and ANYfem remains separate. It tracks 49 capabilities across that GUI's 176 options
 and reports **92% covered with nothing blocking**: every capability is either
 covered or named in `OUT_OF_SCOPE` with a reason. A capability counts as
 covered only when ANYfem can do the same job.
 
-The ledger is one of five migration criteria, and the **gate is still closed**.
+The ledger is one of five historical migration criteria; the recorded **gate is
+still closed**, not a remaining product-roadmap requirement or an accepted migration.
 Three are met — ledger clear, `save_runtime_fem_state` files importable, the
 headless API builds every model type. Two are not, and both need the same
 thing: a fixed set of models run through ANYstructure with the results
@@ -730,10 +732,12 @@ SESAM **export** is deliberately refused: the solver states that semantic
 export from an arbitrary model is outside its supported gate, and a file
 written anyway would look authoritative without being so.
 
-## Migrating from ANYstructure's FE GUI
+## Reading saved ANYstructure FEM state
 
-ANYfem is meant to replace `fem_integration.py`, and `anyfem.migration` is the
-part of that which needs code. It reads the old GUI's saved runs — **without
+The planned replacement/integration was cancelled on 2026-10-02. ANYstructure
+retains its current Tk-based FEM interface; ANYfem remains a separate application.
+The existing `anyfem.migration` compatibility utility remains available. It reads
+ANYstructure's saved runs — **without
 importing ANYstructure**, because a `save_runtime_fem_state` file is plain or
 gzipped JSON, so it is read as data:
 
@@ -763,7 +767,8 @@ the file to rebuild from.
 anyfem-gate run.json      # all five migration criteria
 ```
 
-**The gate is closed.** Three criteria are met: the ledger is clear, saved state
+**The historical migration gate is closed.** It is retained as evidence/tooling,
+not an active requirement to replace ANYstructure. Three criteria are met: the ledger is clear, saved state
 is importable, and the headless API builds every ANYstructure model type — a
 stiffened panel and a cylinder, meshed and solved with no Tk loaded. Two are
 not, and both need a fixed set of models run through ANYstructure with results

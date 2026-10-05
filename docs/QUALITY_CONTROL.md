@@ -104,7 +104,9 @@ is checked against and how close it has to be:
 | SYMM-01 | quarter model agrees with the full model |
 | INTR-01 | a CalculiX FRD round trip preserves displacement |
 
-**3. The parity ledger** is the migration gate, not a verification. It records
+**3. The parity ledger** supports the historical migration gate, not a verification.
+The replacement proposal was cancelled on 2026-10-02; ANYstructure retains its
+Tk-based FEM interface. Existing comparison tools and evidence remain available. It records
 what ANYstructure's `fem_integration.py` exposes and what ANYfem covers, and
 computes whether the ledger is clear. It is deliberately unflattering: a
 capability counts as covered only when ANYfem can do the same job.
@@ -135,7 +137,10 @@ The parity ledger has none left: every capability is covered or named in
 `OUT_OF_SCOPE` with a reason. Run `anyfem-parity` for the current state rather
 than trusting a copy here.
 
-**The migration gate is a separate question, and it is still closed.** Run
+**The historical migration gate remains closed.** The 2026-10-02 decision
+cancels ANYfem integration/replacement in ANYstructure, so completing this gate
+is no longer an active product-roadmap requirement. Its unmet criteria remain
+unmet; this does not waive independent scientific or release gates. Run
 `anyfem-gate`. Three of five criteria are met — ledger clear, saved ANYstructure
 FE state importable, headless API builds every model type. Two are not, and
 both need the same thing: a fixed set of models run through ANYstructure with
