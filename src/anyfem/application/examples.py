@@ -9,6 +9,8 @@ from ..model.project import Project
 from ..model.materials import steel
 from ..model.sections import PlateSection, BeamSection
 from ..model.regions import ManualRegion, Region, RegionDomain, RegionRef
+from ..model.attributes import fixed
+from ..model.records import AnalysisDefinition
 
 BARGE_DESCRIPTION = (
     "5 m midship section of a nominal 30 m × 11 m × 2.5 m box barge. "
@@ -20,10 +22,16 @@ BARGE_DESCRIPTION = (
     "S355 steel: 12 mm deck, 10 mm shell, 8 mm bulkhead; T200×8/100×10 stiffeners "
     "and T600×10/200×16 girders (illustrative sections, dimensions in mm). "
     "A nominal 1.5 m draft places the waterline at Z = 1.5 m. "
-    "Geometry and section properties are provided; hydrostatic loads and floating "
-    "equilibrium are not applied."
+    "The X = 0 end is fixed; an axial force couple at X = 5 m applies bending "
+    "about Y: approximately 41.46 MN·m, calibrated to peak von Mises stress "
+    "near 200 MPa on the default 700 mm mesh. Local peaks can change with refinement. "
+    "Choose Generate mesh, then Solve (linear static). Hydrostatic equilibrium is not included."
 )
 BARGE_SOURCE = "https://www.damen.com/vessels/pontoons-and-barges/stan-pontoons/stan-pontoon-b11"
+# Recovered maximum from the nominal-load linear run on the default mesh,
+# ANYgeometry 0.4.5 / ANYmesher 0.5.1 / ANYsolver 0.4.6. Retained run evidence
+# is documented in QT_CONVERSION.md; no tolerances or physics are calibrated.
+BARGE_LINEAR_STRESS_SCALE = 200.e6 / 364767294.03233093
 
 
 def floating_barge_section() -> Project:
@@ -145,4 +153,56 @@ def floating_barge_section() -> Project:
                 ParameterRange.point(0.), tuple(ParameterRange.point(max(0.,min(1.,value))) for value in uv),
                 source_kind="vertex", source_id=identifier, evidence=AttachmentEvidence.EXACT,
                 tolerance_used=1.e-9, sheet_id=sheets[target])
+    # Clamp the physical end perimeter, including reinforcement endpoints.
+    for identifier, axis in geometry.edges.items():
+        if (geometry.faces_using_edge(identifier)
+                and geometry.vertex_position(axis.start)[0] == geometry.vertex_position(axis.end)[0] == 0.):
+            stack.run(commands.AddSupport(fixed(EntityRef("edge", identifier), name="Fixed X = 0")))
+    moment = barge_bending_moment(project)
+    for surface, sign in (("Deck", 1.), ("Bottom", -1.)):
+        face = geometry.faces[faces[surface][0].id]
+        loaded = [item.edge for item in face.loop
+                  if geometry.vertex_position(geometry.edges[item.edge].start)[0]
+                  == geometry.vertex_position(geometry.edges[item.edge].end)[0] == 5.]
+        if len(loaded) != 1:
+            raise ValueError("Barge end loading requires one continuous deck/bottom edge")
+        stack.run(commands.AddLineLoad(EntityRef("edge", loaded[0]), (sign*moment/(2.5*11.), 0., 0.)))
+    project.target_size = .7
+    project.add_analysis(AnalysisDefinition("Barge bending — approximately 200 MPa"))
     return project
+
+
+def barge_nominal_bending_moment(project, target_stress=200.e6):
+    """Elastic My estimate using the gross hull plus longitudinal stiffeners.
+
+    Uses owner beam section properties. Excludes transverse members and the
+    bulkhead from longitudinal section area; local clamp/load peaks are not
+    predicted by this nominal beam-section estimate.
+    """
+    import numpy as np
+    deck = project.plate_sections["Deck 12 mm"].thickness
+    hull = project.plate_sections["Hull 10 mm"].thickness
+    components = [(11.*deck, 2.5, 11.*deck**3/12.),
+                  (11.*hull, 0., 11.*hull**3/12.),
+                  (2.5*hull, 1.25, hull*2.5**3/12.),
+                  (2.5*hull, 1.25, hull*2.5**3/12.)]
+    for identifier, name in project.edge_sections.items():
+        edge = project.geometry.edges[identifier]
+        a, b = (project.geometry.vertex_position(v) for v in (edge.start, edge.end))
+        if not min(a[0],b[0]) < 1. < max(a[0],b[0]):
+            continue
+        section = project.beam_sections[name]
+        properties = section.properties()
+        _, local_y, local_z = project.beam_section_frame(identifier)
+        z = a[2] + np.asarray(project.beam_offset_vector(identifier))[2]
+        inertia = properties["Iy"]*local_z[2]**2 + properties["Iz"]*local_y[2]**2
+        components.append((properties["area"], z, inertia))
+    neutral = sum(area*z for area,z,_ in components)/sum(area for area,_,_ in components)
+    inertia = sum(local + area*(z-neutral)**2 for area,z,local in components)
+    extreme = max(2.5 + deck/2. - neutral, neutral + hull/2.)
+    return target_stress*inertia/extreme
+
+
+def barge_bending_moment(project):
+    """Default example moment scaled from its recovered linear elastic peak."""
+    return barge_nominal_bending_moment(project)*BARGE_LINEAR_STRESS_SCALE

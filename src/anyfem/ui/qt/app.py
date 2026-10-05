@@ -326,7 +326,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(analysis,"Solve",self.panels["Solve"].start)
         examples=self.menuBar().addMenu("Examples")
         action=self._action(examples,"Floating barge section…",self.open_barge_example)
-        action.setToolTip("Create a 5 m barge section with longitudinal stiffeners at 700 mm and transverse girders at 4000 mm")
+        action.setToolTip("Create an S355 barge section: 700 mm stiffeners, 4000 mm girders, fixed end and bending load for approximately 200 MPa")
         action.setStatusTip(action.toolTip())
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
         toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -490,7 +490,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.session.dirty=True
         self.refresh_all()
         self.show_geometry(reset_view=True)
-        self.set_status("Barge section: 5 × 11 × 2.5 m; stiffeners 700 mm; girders 4000 mm; nominal draft 1.5 m")
+        self.set_status("S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
         self._schedule_autosave()
 
     def _update_view_label(self):pass

@@ -36,7 +36,7 @@ from anymesher import (
 )
 
 from ..mesh.mapped import Mesh
-from ..model.attributes import LoadCase
+from ..model.attributes import LoadCase, DOF_NAMES
 from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
@@ -457,11 +457,30 @@ def _add_beams(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     """
 
     element_class = QuadraticBeamElement if mesh.is_quadratic else BeamElement
+    # Native mesh edge maps also retain source-boundary aliases for loads and
+    # supports. Only section-bearing edges define physical beam ownership.
+    owners = {}
     for edge_id, element_ids in mesh.elements_of_edge.items():
+        if edge_id not in project.edge_sections:
+            continue
+        for element_id in dict.fromkeys(element_ids):
+            if element_id not in mesh.beams:
+                continue
+            if element_id in owners and owners[element_id] != edge_id:
+                raise ProjectError(f"beam element {element_id} has multiple section-bearing edge owners")
+            owners[element_id] = edge_id
+    unassigned = set(mesh.beams) - owners.keys()
+    if unassigned:
+        raise ProjectError(f"beam elements have no section-bearing edge owner: {sorted(unassigned)[:10]}")
+    for edge_id, element_ids in mesh.elements_of_edge.items():
+        if edge_id not in project.edge_sections:
+            continue
         section = project.beam_section_of(edge_id)
         _axis, _local_y, local_z = project.beam_section_frame(edge_id)
         properties = section.properties(orientation=local_z)
-        for element_id in element_ids:
+        for element_id in dict.fromkeys(element_ids):
+            if element_id not in mesh.beams:
+                continue
             fe_model.add_element(
                 element_id,
                 element_class(
@@ -572,7 +591,35 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
         fe_model.add_element(element_id, element)
 
 
+def _implied_zero_clamp_nodes(project: Project, mesh: Mesh) -> set[int]:
+    """Zero-slave clamps already imposed by fully fixed MPC masters.
+
+    The implication is established only from exact global homogeneous full
+    clamps. Zero-valued slave conditions implied by those full clamps are
+    redundant. Other partial, nonzero and local-frame conditions stay audited.
+    """
+    clamped = set()
+    for support in project.supports:
+        if (support.coordinate_system_id == "global"
+                and set(support.constraints) == set(DOF_NAMES)
+                and all(value == 0. for value in support.constraints.values())):
+            for target in _attribute_targets(project, support.region, support.ref):
+                clamped.update(_nodes_on_target(mesh, target, constrained=True))
+    implied = set()
+    for coupling in mesh.couplings.values():
+        if hasattr(coupling, "beam_node"):
+            beam_node = int(coupling.beam_node)
+            masters = [int(node) for node,weight in zip(coupling.plate_nodes,coupling.weights) if weight != 0.]
+        else:
+            beam_node, shell_node = coupling
+            masters = [int(shell_node)]
+        if beam_node in clamped and masters and all(node in clamped for node in masters):
+            implied.add(beam_node)
+    return implied
+
+
 def _add_supports(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
+    implied_zero = _implied_zero_clamp_nodes(project, mesh)
     for support in project.supports:
         targets = _attribute_targets(project, support.region, support.ref)
         # A restraint holds a physical location, so it reaches the offset
@@ -591,6 +638,10 @@ def _add_supports(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             )
         system = _coordinate_system(project, support.coordinate_system_id)
         if system.id == "global":
+            if all(value == 0. for value in support.constraints.values()):
+                node_ids = [node for node in node_ids if node not in implied_zero]
+                if not node_ids:
+                    continue
             fe_model.add_boundary_condition(
                 BoundaryCondition(
                     name=support.name,

@@ -26,6 +26,43 @@ ANYfem viewer pin/integration checks. Existing dirty ANY3dView adapter/evidence 
 is excluded. OpenAI implementation fallback retains Git ownership after the prior
 Mistral Edit boundary violation; parent reviews/tests the connected result.
 2026-10-05 false-diagonal delivered: GUI and both CI viewer pins now use
+2026-10-05 runnable-barge load slice: user confirms longitudinal ends, clamp
+X=0 and bending moment at X=5, S355 and approximately 200 MPa stress. Retain
+12/10/8 mm plating. Two distributed axial edge loads form a pure My couple;
+gross hull plus owner longitudinal-stiffener properties estimate 75.610681 MN m
+for nominal elastic stress 200 MPa. Exclude transverse members/bulkhead from
+longitudinal section area; local end stress peaks may differ. Set 700 mm target
+mesh and linear static analysis. Parent retains this connected setup following
+the recorded Edit-worker boundary violation; independent mechanics READ review
+will inspect the result. Competing runtime uncertainties are native meshing of
+continuous attached members and clamp/load-end stress amplification. One bounded
+example mesh/static check (90 s preparation deadline) decides whether it is
+demonstrably runnable and whether empirical load scaling is needed; preserve
+failure evidence and existing tolerances/owner capability restrictions. No frozen
+prepared campaign, default switch, qualification or release authority is consumed.
+Outcome: nominal load produced a converged linear solution and recovered maximum
+von Mises 364.767294 MPa. Set the default moment to 41.456941 MN m (scale
+0.5482947711); owner recovery from the scaled converged displacement vector gives
+200 MPa maximum at a beam element, without another factorization. This is a
+mesh-specific example load choice, not a change to solver physics or tolerances.
+Default mesh: 4,348 nodes, 3,185 shells, 1,060 beams, 700 mm size; installed
+ANYgeometry 0.4.5 / ANYmesher 0.5.1 / ANYsolver 0.4.6. Actual runtime pools report
+two OpenBLAS threads. Linear solve converged and the MPC postcheck residual is
+8.54e-19 against unchanged 1e-10 tolerance. Stress recovery remains owner-labelled;
+no broader formulation qualification or convergence claim is made.
+Repair two adapter issues exposed by this valid example: source boundary aliases
+must not own extra beams, and fully fixed plate masters already imply a homogeneous
+zero clamp on their eccentric MPC slave. Reject orphan/ambiguous beam ownership;
+retain partial/nonzero/local conditions for the usual constraint audit. Four
+continuous end-edge supports reach the same 236 mesh targets as the initial
+44 redundant end-edge supports. The external mechanics READ review confirms the
+couple, estimate and exact zero-clamp implication; report and parent adjudication
+are under `reports/qt/barge-bending-*`. Review coverage additions include zero
+weights, local frames, legacy couplings, fully implied scopes and repeated aliases.
+Focused setup/Qt/adapter/linear-solve regressions: 27 passed in 12.89 s; six existing
+coupling checks pass in 4.18 s. Initial assembly/constraint and test-harness failures
+are retained. Unrelated ResultsTask/Qt-workbench owner edits remain excluded.
+
 2026-10-05 continuous-barge/display correction: user rejects the dense plate
 grid and vertex markers. Replace 184 patches with one continuous face each for
 deck, bottom, port side, starboard side and bulkhead. Preserve exact reinforcement

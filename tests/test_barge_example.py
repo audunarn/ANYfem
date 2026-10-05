@@ -15,6 +15,13 @@ def test_barge_section_roundtrip():
     assert restored.face_sections == project.face_sections
     assert restored.edge_sections == project.edge_sections
     assert restored.geometry.attachments == project.geometry.attachments
+    assert restored.supports == project.supports
+    assert {key: value.name for key,value in restored.analyses.items()} == {
+        key: value.name for key,value in project.analyses.items()}
+    assert restored.target_size == .7
+    for original, reopened in zip(project.load_case().line_loads, restored.load_case().line_loads):
+        assert original.ref == reopened.ref
+        np.testing.assert_allclose(original.force_per_length, reopened.force_per_length)
     sets = {region.name: region for region in restored.regions}
     assert {region.name: region.definition for region in restored.regions} == {
         region.name: region.definition for region in project.regions}
@@ -97,3 +104,25 @@ def test_explicit_point_policy_omits_generated_mesh_node_markers():
     assert [point.ref.id for point in build_mesh_scene(project, mesh).points] == [1]
     # Without the explicit policy, mesh-only nodes retain their normal markers.
     assert len(build_mesh_scene(Project(), mesh).points) == 2
+
+
+def test_bending_setup_has_pure_end_couple_and_full_clamp():
+    from anyfem.application.examples import barge_bending_moment
+    project = floating_barge_section()
+    assert project.materials["S355"].yield_stress >= 355.e6
+    assert project.target_size == .7
+    assert next(iter(project.analyses.values())).type == "linear_static"
+    force, moment = np.zeros(3), np.zeros(3)
+    for load in project.load_case().line_loads:
+        edge = project.geometry.edges[load.ref.id]
+        a, b = (project.geometry.vertex_position(v) for v in (edge.start, edge.end))
+        assert a[0] == b[0] == 5.
+        resultant = load.force_per_length*np.linalg.norm(b-a)
+        force += resultant
+        moment += np.cross((a+b)/2., resultant)
+    np.testing.assert_allclose(force, 0., atol=1.e-8)
+    np.testing.assert_allclose(moment, (0.,barge_bending_moment(project),0.), atol=1.e-8)
+    for support in project.supports:
+        edge = project.geometry.edges[support.ref.id]
+        assert project.geometry.vertex_position(edge.start)[0] == project.geometry.vertex_position(edge.end)[0] == 0.
+        assert len(support.constraints) == 6 and all(value == 0. for value in support.constraints.values())
