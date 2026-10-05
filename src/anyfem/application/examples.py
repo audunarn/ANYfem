@@ -1,6 +1,8 @@
 """Editable teaching models built with public owner APIs, without UI imports."""
 from anygeometry.entities import EntityRef, OrientedEdge
 from anygeometry.surfaces import Plane
+from anygeometry.structural import AttachmentEvidence, AttachmentKind, ParameterRange
+from ..presentation.points import USER_POINT_GROUP
 
 from .. import commands
 from ..model.project import Project
@@ -11,7 +13,8 @@ from ..model.regions import ManualRegion, Region, RegionDomain, RegionRef
 BARGE_DESCRIPTION = (
     "5 m midship section of a nominal 30 m × 11 m × 2.5 m box barge. "
     "X is longitudinal, Y transverse and Z upward from the bottom. "
-    "Includes deck, bottom, sides and a transverse bulkhead; the cut ends are open. "
+    "Continuous deck, bottom, sides and transverse bulkhead; the cut ends are open. "
+    "Only the eight outer corner points are displayed. "
     "Longitudinal stiffeners at 700 mm; transverse girders at 4000 mm (X = 0 and 4 m). "
     "End bays are shorter where the dimensions do not divide by the spacing. "
     "S355 steel: 12 mm deck, 10 mm shell, 8 mm bulkhead; T200×8/100×10 stiffeners "
@@ -24,7 +27,7 @@ BARGE_SOURCE = "https://www.damen.com/vessels/pontoons-and-barges/stan-pontoons/
 
 
 def floating_barge_section() -> Project:
-    """Build a detached bay; panel boundaries and beam axes share owner topology."""
+    """Build continuous plates with persistent member-on-face attachments."""
     project = Project(name="Floating barge — midship section")
     stack = commands.CommandStack(project)
     stack.run(commands.AddMaterial(steel("S355", .010)))
@@ -56,19 +59,20 @@ def floating_barge_section() -> Project:
             positions[0], positions[1]-positions[0], positions[3]-positions[0]))
         faces.setdefault(name, []).append(EntityRef("face", identifier))
 
-    # Construct the initial example in one owner transaction, without creating
-    # hundreds of per-primitive undo snapshots for a detached new document.
+    # Plates are physical surfaces, not a grid of reinforcement bays. Beam
+    # intersections retain their own topology and declared surface attachments.
     with geometry.transaction():
-        for a, b in zip(xs, xs[1:]):
-            for c, d in zip(ys, ys[1:]):
-                plate("Deck", ((a,c,2.5),(b,c,2.5),(b,d,2.5),(a,d,2.5)))
-                plate("Bottom", ((a,c,0.),(a,d,0.),(b,d,0.),(b,c,0.)))
-            for c, d in zip(zs, zs[1:]):
-                plate("Port side", ((a,-5.5,c),(b,-5.5,c),(b,-5.5,d),(a,-5.5,d)))
-                plate("Starboard side", ((a,5.5,c),(a,5.5,d),(b,5.5,d),(b,5.5,c)))
-        for a, b in zip(ys, ys[1:]):
-            for c, d in zip(zs, zs[1:]):
-                plate("Transverse bulkhead", ((2.5,a,c),(2.5,b,c),(2.5,b,d),(2.5,a,d)))
+        plate("Deck", ((0.,-5.5,2.5),(5.,-5.5,2.5),(5.,5.5,2.5),(0.,5.5,2.5)))
+        plate("Bottom", ((0.,-5.5,0.),(0.,5.5,0.),(5.,5.5,0.),(5.,-5.5,0.)))
+        plate("Port side", ((0.,-5.5,0.),(5.,-5.5,0.),(5.,-5.5,2.5),(0.,-5.5,2.5)))
+        plate("Starboard side", ((0.,5.5,0.),(0.,5.5,2.5),(5.,5.5,2.5),(5.,5.5,0.)))
+        plate("Transverse bulkhead", ((2.5,-5.5,0.),(2.5,5.5,0.),(2.5,5.5,2.5),(2.5,-5.5,2.5)))
+        corners = tuple(EntityRef("vertex", vertex((x,y,z)))
+                        for x in (0.,5.) for y in (-5.5,5.5) for z in (0.,2.5))
+        geometry.add_to_group(USER_POINT_GROUP, corners)
+        part = geometry.add_part(name="Barge midship section")
+        sheets = {name: geometry.add_sheet((refs[0].id,), part_id=part, name=name)
+                  for name,refs in faces.items()}
 
     def region(name, refs, kind):
         made = Region(name, RegionDomain.GEOMETRY, kind, ManualRegion(tuple(refs)))
@@ -99,8 +103,46 @@ def floating_barge_section() -> Project:
                 web_height=h, web_thickness=tw, flange_width=b, flange_thickness=tf,
                 web_direction=inward, offset_mode="automatic")))
             project.assign_beam_region(region(name, refs, "edge"), name)
+            face_id = faces[surface][0].id
+            for ref in refs:
+                members = geometry.members_using_edge(ref.id)
+                if len(members) != 1:
+                    raise ValueError("Barge reinforcement must resolve to one assigned member")
+                member = members[0]
+                axis = geometry.edges[ref.id]
+                samples = [geometry.project_to_face(face_id, geometry.vertex_position(identifier))
+                           for identifier in (axis.start, axis.end)]
+                if any(distance > 1.e-9 for _,_,distance in samples):
+                    raise ValueError("Barge reinforcement is outside its declared plate")
+                uv = [sample[1] for sample in samples]
+                ranges = tuple(ParameterRange(max(0.,min(1.,min(p[i] for p in uv))),
+                                              max(0.,min(1.,max(p[i] for p in uv)))) for i in (0,1))
+                geometry.add_attachment(member, AttachmentKind.MEMBER_ON_FACE, "face", face_id,
+                    ParameterRange(0.,1.), ranges, evidence=AttachmentEvidence.EXACT,
+                    tolerance_used=1.e-9, sheet_id=sheets[surface])
         all_stiffeners.extend(stiffeners)
         all_girders.extend(girders)
     region("Longitudinal stiffeners — 700 mm", all_stiffeners, "edge")
     region("Transverse girders — 4000 mm", all_girders, "edge")
+    region("User points — main corners", corners, "vertex")
+    # Continuous surfaces no longer share a subdivided bulkhead boundary.
+    # Declare the existing beam intersection points and bulkhead corners as
+    # owner attachments instead of relying on coordinate coincidence alone.
+    for coordinate, identifier in vertices.items():
+        x, y, z = coordinate
+        if x != 2.5:
+            continue
+        targets = ["Transverse bulkhead"]
+        if abs(y) == 5.5 and z in (0.,2.5):
+            targets = ["Bottom" if z == 0. else "Deck",
+                       "Port side" if y < 0. else "Starboard side"]
+        for target in targets:
+            face_id = faces[target][0].id
+            _, uv, distance = geometry.project_to_face(face_id, geometry.vertex_position(identifier))
+            if distance > 1.e-9:
+                raise ValueError("Barge joint point is outside its declared plate")
+            geometry.add_attachment(None, AttachmentKind.VERTEX_ON_FACE, "face", face_id,
+                ParameterRange.point(0.), tuple(ParameterRange.point(max(0.,min(1.,value))) for value in uv),
+                source_kind="vertex", source_id=identifier, evidence=AttachmentEvidence.EXACT,
+                tolerance_used=1.e-9, sheet_id=sheets[target])
     return project

@@ -23,13 +23,15 @@ def test_examples_menu_creates_section(window, qapp, monkeypatch, tmp_path):
     action = window._actions["Floating barge section…"]
     assert action.toolTip()
     action.trigger(); qapp.processEvents()
-    assert len(window.project.geometry.faces) == 184
+    assert len(window.project.geometry.faces) == 5
     assert len(window.project.edge_sections) == 188
+    assert len(window.viewport._scene.points) == 8
+    assert len(window.tree._rows["Points"]) == 8
     assert window.session.dirty and window.viewport._scene.faces
     path = tmp_path/"barge.anyfem"
     window.save_project(path=str(path))
     window.new_project(); window.open_project(str(path))
-    assert len(window.project.geometry.faces) == 184
+    assert len(window.project.geometry.faces) == 5
     assert len(window.project.edge_sections) == 188
     from anyfem import commands
     from anygeometry.entities import EntityRef

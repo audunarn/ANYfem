@@ -668,7 +668,8 @@ def build_geometry_scene(
         )
 
     if show_points:
-        for vertex_id in sorted(geometry.vertices):
+        from ..presentation.points import displayed_geometry_point_ids
+        for vertex_id in sorted(displayed_geometry_point_ids(geometry)):
             feature_id = entity_owners.get(EntityRef("vertex", vertex_id))
             if feature_id is not None and feature_id not in exposed:
                 continue
@@ -829,8 +830,14 @@ def build_mesh_scene(
         for vertex_id, node_id in mesh.node_of_vertex.items()
         if vertex_id in project.geometry.vertices
     }
+    from ..presentation.points import USER_POINT_GROUP, displayed_geometry_point_ids
+    point_ids = displayed_geometry_point_ids(project.geometry) if USER_POINT_GROUP in project.geometry.groups else None
     for node_id in sorted(mesh.nodes):
         vertex_id = vertex_of_node.get(int(node_id))
+        # An explicit user-point policy also omits generated FE-node markers;
+        # the mesh elements remain rendered and selectable as before.
+        if point_ids is not None and vertex_id not in point_ids:
+            continue
         geometry_ref = (
             None if vertex_id is None else EntityRef("vertex", vertex_id)
         )

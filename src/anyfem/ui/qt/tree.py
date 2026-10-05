@@ -4,6 +4,7 @@ from PySide6.QtGui import QStandardItem, QStandardItemModel, QColor, QBrush
 from PySide6.QtWidgets import QTreeView,QHeaderView,QMenu,QLineEdit,QVBoxLayout,QWidget,QPushButton
 from anygeometry import feature_entity_owners
 from ...presentation.tree import bounded_entity_ids, bounded_unowned_entity_ids
+from ...presentation.points import displayed_geometry_point_ids
 from .geometry_actions import is_geometry_set,set_references
 
 
@@ -75,7 +76,7 @@ class QtModelTree(QTreeView):
             for ref,feature_id in owners.items():
                 owned[ref.kind].add(ref.id)
                 generated.setdefault(feature_id,{}).setdefault(ref.kind,[]).append(ref.id)
-            for label,kind,items in [("Points","vertex",geometry.vertices),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
+            for label,kind,items in [("Points","vertex",displayed_geometry_point_ids(geometry)),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
                 self._sync_group(label,[(identifier,f"{kind.capitalize()} {identifier}","",geometry.entity_ref(kind,identifier)) for identifier in bounded_unowned_entity_ids(items,owned[kind],self.query)])
             sets=[region for region in self.project.regions if is_geometry_set(region)]
             contents={}

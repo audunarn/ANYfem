@@ -26,6 +26,33 @@ ANYfem viewer pin/integration checks. Existing dirty ANY3dView adapter/evidence 
 is excluded. OpenAI implementation fallback retains Git ownership after the prior
 Mistral Edit boundary violation; parent reviews/tests the connected result.
 2026-10-05 false-diagonal delivered: GUI and both CI viewer pins now use
+2026-10-05 continuous-barge/display correction: user rejects the dense plate
+grid and vertex markers. Replace 184 patches with one continuous face each for
+deck, bottom, port side, starboard side and bulkhead. Preserve exact reinforcement
+stations and section definitions; assigned Members are reused, with explicit
+ANYgeometry MEMBER_ON_FACE attachments rather than relying on plate bay edges.
+Keep topology vertices required by beam intersections; a persistent
+`anyfem:user_points` geometry group identifies the eight main corner points.
+Scene and Qt tree display those deliberately exposed points; explicit later
+geometry.point commands also remain visible. Mesh display suppresses other node
+markers for this explicit point-display policy. Ordinary models preserve their
+existing behavior. This small connected correction remains with the parent
+following the recorded Mistral Edit boundary violation. Mistral READ review
+completed; its point-order concern was repaired with sorted explicit IDs while
+ordinary mappings retain bounded iteration. Mesh-only markers remain omitted
+under the explicit policy intentionally, with a focused normal-model control.
+Its bulkhead-coincidence observation led to 44 explicit VERTEX_ON_FACE joint
+witnesses after review; those additions have parent checks, not a new review claim.
+Runtime: five faces, 188 assigned members and 232 attachments; owner topology
+validation empty. Focused example/Qt/scene checks: 46 passed in 11.16 s, including
+attachment membership, surface projection, persistence, eight markers/tree rows,
+later point creation/undo and ordinary scenes. Evidence under
+`reports/qt/barge-continuous-*`. After review, 11 example/Qt/scalability checks
+passed in 6.93 s; final six example checks passed in 5.02 s after joint witnesses.
+Attachment roundtrip and later explicit point creation/undo pass; the software
+preview confirms eight markers and continuous surfaces. Offscreen font squares
+remain an environment limitation. No meshing/solver campaign or acceptance added.
+
 2026-10-05 barge reinforcement extension: longitudinal T stiffeners at exact
 700 mm spacing on deck, bottom and sides; transverse T girders at X=0 and 4 m.
 Preserve 5 m section, nominal vessel dimensions and open cut ends. The final
