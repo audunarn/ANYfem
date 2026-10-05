@@ -30,6 +30,13 @@ class QtModelTree(QTreeView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
 
+    def beam_references(self, identifier):
+        geometry = self.project.geometry
+        member = geometry.members.get(identifier)
+        if member is None:return ()
+        return tuple(geometry.entity_ref("edge", geometry.member_edge_uses[use].edge_id)
+                     for use in member.edge_use_ids)
+
     def generated_entity_owners(self):
         return feature_entity_owners(self.project.geometry)
 
@@ -47,7 +54,7 @@ class QtModelTree(QTreeView):
         try:
             for index in self.selectionModel().selectedRows():
                 value=index.data(Qt.UserRole)
-                if isinstance(value,(tuple,list)) and value[0] in {"geometry","sets"}:
+                if isinstance(value,(tuple,list)) and value[0] in {"geometry","sets","members"}:
                     self.selectionModel().select(index,QItemSelectionModel.Deselect|QItemSelectionModel.Rows)
         finally:self._refreshing=prior
 
@@ -76,6 +83,11 @@ class QtModelTree(QTreeView):
             for ref,feature_id in owners.items():
                 owned[ref.kind].add(ref.id)
                 generated.setdefault(feature_id,{}).setdefault(ref.kind,[]).append(ref.id)
+            member_edges = {use.edge_id for use in geometry.member_edge_uses.values()}
+            owned["edge"].update(member_edges)
+            self._sync_group("Beams", [(identifier, geometry.members[identifier].name or f"Beam {identifier}",
+                                       f"{len(geometry.members[identifier].edge_use_ids)} segments", ("members",identifier))
+                                      for identifier in bounded_entity_ids(geometry.members,self.query)])
             for label,kind,items in [("Points","vertex",displayed_geometry_point_ids(geometry)),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
                 self._sync_group(label,[(identifier,f"{kind.capitalize()} {identifier}","",geometry.entity_ref(kind,identifier)) for identifier in bounded_unowned_entity_ids(items,owned[kind],self.query)])
             sets=[region for region in self.project.regions if is_geometry_set(region)]
@@ -136,6 +148,8 @@ class QtModelTree(QTreeView):
         for identifier in sets:
             try:collection.extend(set_references(self.project,identifier))
             except (ValueError,KeyError):pass
+        for value in selected:
+            if isinstance(value,(tuple,list)) and value[0]=="members":collection.extend(self.beam_references(value[1]))
         self.app.viewport.set_collection_highlight(collection)
 
     def refresh_visibility(self):
@@ -149,6 +163,7 @@ class QtModelTree(QTreeView):
                 if hasattr(value,"kind"):refs=(value,)
                 elif isinstance(value,(tuple,list)):
                     if value[0]=="geometry":refs=feature_refs.get(value[1],())
+                    elif value[0]=="members":refs=self.beam_references(value[1])
                     elif value[0]=="sets":
                         try:refs=set_references(self.project,value[1])
                         except (ValueError,KeyError):pass
@@ -192,6 +207,8 @@ class QtModelTree(QTreeView):
             if isinstance(value,(tuple,list)) and value[0]=="sets":
                 try:collections.extend(set_references(self.project,value[1]))
                 except (ValueError,KeyError) as exc:self.app.set_status(str(exc),error=True)
+        for value in refs:
+            if isinstance(value,(tuple,list)) and value[0]=="members":collections.extend(self.beam_references(value[1]))
         refs=[ref for ref in refs if hasattr(ref,"kind") and hasattr(ref,"id")]
         refs=list(dict.fromkeys(refs+collections))
         self._tree_driven=True
@@ -235,7 +252,8 @@ class QtModelTree(QTreeView):
         menu.addAction(self.app._actions["Show selected"])
         menu.addSeparator()
         menu.addAction("Edit / inspect",lambda:self.app.guarded(lambda:self.edit_record(index.siblingAtColumn(0).data(Qt.UserRole)))())
-        menu.addAction("Delete",lambda:self.app.guarded(lambda:self.app._delete_tree_items(keys))())
+        if not any(key.startswith("members:") for key in keys):
+            menu.addAction("Delete",lambda:self.app.guarded(lambda:self.app._delete_tree_items(keys))())
         value=index.siblingAtColumn(0).data(Qt.UserRole)
         if isinstance(value,(tuple,list)) and value[0]=="sets":
             menu.addAction("Rename set…",lambda:self.app.guarded(lambda:self.app.geometry_actions.rename_set(value[1]))())
@@ -254,6 +272,8 @@ class QtModelTree(QTreeView):
         return exposing
 
     def edit_record(self,value):
+        if isinstance(value,(tuple,list)) and value[0]=="members":
+            return self.app.geometry_actions.properties(self.beam_references(value[1]))
         if not isinstance(value,(tuple,list)):return
         attribute,key=value
         if attribute=="sets":
@@ -289,7 +309,7 @@ class QtModelTree(QTreeView):
         from PySide6.QtCore import QItemSelectionModel
         prior=self._refreshing;self._refreshing=True
         try:
-            records=[index for index in self.selectionModel().selectedRows() if isinstance(index.data(Qt.UserRole),(tuple,list))]
+            records=[index for index in self.selectionModel().selectedRows() if isinstance(index.data(Qt.UserRole),(tuple,list)) and index.data(Qt.UserRole)[0]!="members"]
             self.clearSelection()
             for index in records:self.selectionModel().select(index,QItemSelectionModel.Select|QItemSelectionModel.Rows)
             refs=set(self.app.selection.items)
@@ -301,7 +321,11 @@ class QtModelTree(QTreeView):
             for row in range(self._model.rowCount()):
                 for item in descendants(self._model.item(row)):
                     ref=item.data(Qt.UserRole)
-                    if hasattr(ref,"kind") and ref in refs:
+                    selected = hasattr(ref,"kind") and ref in refs
+                    if isinstance(ref,(tuple,list)) and ref[0]=="members":
+                        beam_refs = set(self.beam_references(ref[1]))
+                        selected = bool(beam_refs) and beam_refs <= refs
+                    if selected:
                         self.selectionModel().select(item.index(),QItemSelectionModel.Select|QItemSelectionModel.Rows)
         finally:
             self._refreshing=prior

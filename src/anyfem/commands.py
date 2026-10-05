@@ -88,6 +88,7 @@ __all__ = [
     "AddPointLoad",
     "AddPlateSection",
     "AddBeamSection",
+    "AddBeamMember",
     "AddPolyline",
     "AddPressure",
     "AddRefinement",
@@ -1343,6 +1344,28 @@ class AddLine(GeometryCommand):
 
     def operate(self, project: Project) -> int:
         return project.geometry.add_line(self.start, self.end)
+
+
+@dataclass(eq=False)
+class AddBeamMember(GeometryCommand):
+    """Assign an explicit, unbranched axis chain as one physical beam."""
+    edge_ids: Sequence[int]
+    section: str
+    name: str = ""
+    label: str = "add beam"
+
+    def __post_init__(self):
+        GeometryCommand.__init__(self)
+
+    def operate(self, project):
+        from .presentation.beams import ordered_beam_chain
+        geometry = project.geometry
+        chain = ordered_beam_chain(geometry, self.edge_ids)
+        if any(geometry.members_using_edge(use.edge) for use in chain):
+            raise GeometryError("Axis already belongs to a beam; edit its existing beam instead")
+        member = geometry.add_member(chain, name=self.name)
+        for use in chain:project.assign_beam(use.edge, self.section)
+        return member
 
 
 @dataclass(eq=False)

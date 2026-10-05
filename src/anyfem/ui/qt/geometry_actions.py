@@ -278,7 +278,15 @@ class GeometryActions:
         if not accepted:return
         self.assert_binding(binding)
         if self.app.session.read_only or self.app.project.read_only_reason:raise PermissionError("This project is read-only")
-        self.app.run(commands.CompositeCommand([commands.AssignBeam(ref.id, section) for ref in refs], label="assign beams"))
+        from ...presentation.beams import ordered_beam_chain
+        ids = tuple(ref.id for ref in refs)
+        geometry = self.app.project.geometry
+        try:chain = ordered_beam_chain(geometry, ids)
+        except ValueError:chain = ()
+        if chain and not any(geometry.members_using_edge(use.edge) for use in chain):
+            self.app.run(commands.AddBeamMember(ids, section))
+        else:
+            self.app.run(commands.CompositeCommand([commands.AssignBeam(ref.id, section) for ref in refs], label="assign beams"))
 
     def close(self):
         if self.menu is not None:

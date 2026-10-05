@@ -16,6 +16,30 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 physical-beam slice: expose persistent ANYgeometry Members as single
+Beams tree rows; keep axis subdivisions and FE elements hidden. Use explicit
+ordered owner chains, not inferred coordinate coincidence. Rebuild the example
+with one member per stiffener/girder leg and full-span plate attachments, then
+check persistence, selection/visibility and a bounded default mesh/static run.
+OpenAI retains tightly connected implementation following the recorded Mistral
+Edit authority violation; independent Read review remains available. Preserve
+concurrent workflow/viewport/app/tasks and existing test edits unstaged.
+Delivered: AddBeamMember groups a selected connected, unbranched set of unowned
+lines in stable axis order; disconnected/branched selections retain separate beam
+assignment. Qt Beams rows select/highlight/hide the whole chain, with subdivisions
+hidden. Example now has 44 physical beams over the same 188 assigned axis segments.
+Rebuilt default mesh has unchanged 4,348/3,185/1,060 node/shell/beam counts;
+linear static recovered 200 MPa peak von Mises, MPC residual 4.2013e-19 with
+unchanged 1e-10 tolerance. Independent Mistral Read findings adjudicated in
+reports/qt/physical-beams-adjudication.md. Legacy singleton members are preserved;
+recreate the example to obtain full-span members. Attached member splitting/deletion
+continues to require an owner-qualified remap, beyond this tree-construction slice.
+Validation: 22 focused tests passed both in the mixed workspace and an isolated
+HEAD-plus-staged-files export; headless Qt/Tk import boundary and diff checks pass.
+Evidence: reports/qt/physical-beams-final-tests.txt, physical-beams-clean-tests-final.txt,
+physical-beams-run.txt and physical-beams-solve.json.
+
+
 2026-10-05 prospective false-diagonal fix: reproduce a selected quad and actual
 mesh triangle in software rendering, then distinguish fill triangulation from
 semantic polygon boundaries in the shared viewer. Investigation found Qt painter

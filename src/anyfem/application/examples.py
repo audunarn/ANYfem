@@ -99,10 +99,12 @@ def floating_barge_section() -> Project:
     )
     all_stiffeners, all_girders = [], []
     for surface, stations, point, inward in surfaces:
-        stiffeners = [EntityRef("edge", edge(point(a,s),point(b,s)).edge)
-                      for s in stations[1:-1] for a,b in zip(xs,xs[1:])]
-        girders = [EntityRef("edge", edge(point(x,a),point(x,b)).edge)
-                   for x in (0.,4.) for a,b in zip(stations,stations[1:])]
+        stiffener_chains = [tuple(edge(point(a,s),point(b,s)) for a,b in zip(xs,xs[1:]))
+                            for s in stations[1:-1]]
+        girder_chains = [tuple(edge(point(x,a),point(x,b)) for a,b in zip(stations,stations[1:]))
+                         for x in (0.,4.)]
+        stiffeners = [EntityRef("edge", use.edge) for chain in stiffener_chains for use in chain]
+        girders = [EntityRef("edge", use.edge) for chain in girder_chains for use in chain]
         for kind, refs, sizes in (("stiffeners", stiffeners, (.200,.008,.100,.010)),
                                  ("girders", girders, (.600,.010,.200,.016))):
             name = f"{surface} {kind}"
@@ -110,16 +112,17 @@ def floating_barge_section() -> Project:
             stack.run(commands.AddBeamSection(BeamSection(name, "T-bar", "S355",
                 web_height=h, web_thickness=tw, flange_width=b, flange_thickness=tf,
                 web_direction=inward, offset_mode="automatic")))
+            chains = stiffener_chains if kind == "stiffeners" else girder_chains
+            members = [geometry.add_member(chain, part_id=part, name=f"{name} {index}")
+                       for index,chain in enumerate(chains, 1)]
             project.assign_beam_region(region(name, refs, "edge"), name)
             face_id = faces[surface][0].id
-            for ref in refs:
-                members = geometry.members_using_edge(ref.id)
-                if len(members) != 1:
-                    raise ValueError("Barge reinforcement must resolve to one assigned member")
-                member = members[0]
-                axis = geometry.edges[ref.id]
+            for member, chain in zip(members, chains):
+                first, last = geometry.edges[chain[0].edge], geometry.edges[chain[-1].edge]
+                endpoints = (first.start if chain[0].forward else first.end,
+                             last.end if chain[-1].forward else last.start)
                 samples = [geometry.project_to_face(face_id, geometry.vertex_position(identifier))
-                           for identifier in (axis.start, axis.end)]
+                           for identifier in endpoints]
                 if any(distance > 1.e-9 for _,_,distance in samples):
                     raise ValueError("Barge reinforcement is outside its declared plate")
                 uv = [sample[1] for sample in samples]
@@ -153,7 +156,7 @@ def floating_barge_section() -> Project:
                 ParameterRange.point(0.), tuple(ParameterRange.point(max(0.,min(1.,value))) for value in uv),
                 source_kind="vertex", source_id=identifier, evidence=AttachmentEvidence.EXACT,
                 tolerance_used=1.e-9, sheet_id=sheets[target])
-    # Clamp the physical end perimeter, including reinforcement endpoints.
+    # Clamp the plate end perimeter; attached reinforcement endpoints follow through MPCs.
     for identifier, axis in geometry.edges.items():
         if (geometry.faces_using_edge(identifier)
                 and geometry.vertex_position(axis.start)[0] == geometry.vertex_position(axis.end)[0] == 0.):
