@@ -1,9 +1,10 @@
 """Qt model/view representation of project records and persistent entity references."""
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QTreeView,QHeaderView,QMenu,QLineEdit,QVBoxLayout,QWidget
+from PySide6.QtGui import QStandardItem, QStandardItemModel, QColor, QBrush
+from PySide6.QtWidgets import QTreeView,QHeaderView,QMenu,QLineEdit,QVBoxLayout,QWidget,QPushButton
 from anygeometry import feature_entity_owners
 from ...presentation.tree import bounded_entity_ids, bounded_unowned_entity_ids
+from .geometry_actions import is_geometry_set,set_references
 
 
 class QtModelTree(QTreeView):
@@ -33,6 +34,21 @@ class QtModelTree(QTreeView):
 
     def reset_feature_exposure(self):
         self.exploded_feature_ids=frozenset()
+        self.app.viewport.reset_visibility()
+        self.app.viewport.set_collection_highlight(())
+        self.app.viewport.set_feature_highlight(())
+        actions=getattr(self.app,"geometry_actions",None)
+        if actions is not None:actions.close()
+
+    def dismiss_feature_selection(self):
+        from PySide6.QtCore import QItemSelectionModel
+        prior=self._refreshing;self._refreshing=True
+        try:
+            for index in self.selectionModel().selectedRows():
+                value=index.data(Qt.UserRole)
+                if isinstance(value,(tuple,list)) and value[0] in {"geometry","sets"}:
+                    self.selectionModel().select(index,QItemSelectionModel.Deselect|QItemSelectionModel.Rows)
+        finally:self._refreshing=prior
 
     def search(self,text):
         self.query=text
@@ -43,6 +59,9 @@ class QtModelTree(QTreeView):
         search=QLineEdit(panel);search.setPlaceholderText("Find topology by entity ID")
         search.textChanged.connect(self.search)
         layout.addWidget(search);layout.addWidget(self)
+        create=QPushButton("Create set from selection…",panel)
+        create.clicked.connect(lambda:self.app.guarded(self.app.geometry_actions.new_set)())
+        layout.addWidget(create)
         return panel
 
     def refresh(self):
@@ -58,6 +77,21 @@ class QtModelTree(QTreeView):
                 generated.setdefault(feature_id,{}).setdefault(ref.kind,[]).append(ref.id)
             for label,kind,items in [("Points","vertex",geometry.vertices),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
                 self._sync_group(label,[(identifier,f"{kind.capitalize()} {identifier}","",geometry.entity_ref(kind,identifier)) for identifier in bounded_unowned_entity_ids(items,owned[kind],self.query)])
+            sets=[region for region in self.project.regions if is_geometry_set(region)]
+            contents={}
+            unresolved=set()
+            for region in sets:
+                try:contents[region.id]=set_references(self.project,region.id)
+                except (ValueError,KeyError):contents[region.id]=();unresolved.add(region.id)
+            self._sync_group("Sets",[(region.id,region.name,"unresolved" if region.id in unresolved else str(len(contents[region.id])),("sets",region.id)) for region in sets])
+            for identifier,(item,_) in self._rows["Sets"].items():
+                item.removeRows(0,item.rowCount())
+                refs=contents[identifier]
+                for kind in ("vertex","edge","face"):
+                    by_id={ref.id:ref for ref in refs if ref.kind==kind}
+                    for key in bounded_entity_ids(sorted(by_id),self.query):
+                        child=QStandardItem(f"{kind.capitalize()} {key}");child.setEditable(False)
+                        child.setData(by_id[key],Qt.UserRole);item.appendRow(child)
             for label,attribute in [("Features","geometry"),("Materials","materials"),("Plate sections","plate_sections"),("Beam sections","beam_sections"),("Load cases","load_cases"),("Supports","supports"),("Masses","masses"),("Imperfections","imperfections"),("Coordinate systems","coordinate_systems"),("Regions","regions"),("Output requests","output_requests"),("Meshes","mesh_records"),("Analyses","analyses"),("Jobs","jobs")]:
                 values=getattr(self.project,attribute,{})
                 if attribute=="geometry":
@@ -66,6 +100,7 @@ class QtModelTree(QTreeView):
                 pairs=values.items() if hasattr(values,"items") else enumerate(values)
                 rows=[]
                 for key,value in pairs:
+                    if attribute=="regions" and is_geometry_set(value):continue
                     key=getattr(value,"id",key)
                     if attribute=="materials":key=self.project.material_ids.get(value.name,key)
                     state=getattr(value,"status","")
@@ -90,9 +125,38 @@ class QtModelTree(QTreeView):
                     for value in getattr(case,collection,()):loads.append((value.id,f"{case.name}: {type(value).__name__}","",("load",value.id)))
             self._sync_group("Loads",loads)
             self._sync_group("Results",[(job.result_artifact_id,job.name,"stale" if self.app._job_is_stale(job) else "",("result",job.result_artifact_id)) for job in self.project.jobs.values() if job.result_artifact_id])
+            self.refresh_visibility()
             self.sync_from_selection()
         finally:
             self._refreshing=False
+        selected=[index.data(Qt.UserRole) for index in self.selectionModel().selectedRows()]
+        sets=[value[1] for value in selected if isinstance(value,(tuple,list)) and value[0]=="sets"]
+        collection=[]
+        for identifier in sets:
+            try:collection.extend(set_references(self.project,identifier))
+            except (ValueError,KeyError):pass
+        self.app.viewport.set_collection_highlight(collection)
+
+    def refresh_visibility(self):
+        """Dim hidden topology in every occurrence without changing selection."""
+        owners=self.generated_entity_owners()
+        feature_refs={}
+        for ref,identifier in owners.items():feature_refs.setdefault(identifier,[]).append(ref)
+        def visit(parent):
+            for row in range(parent.rowCount()):
+                item=parent.child(row);value=item.data(Qt.UserRole);refs=()
+                if hasattr(value,"kind"):refs=(value,)
+                elif isinstance(value,(tuple,list)):
+                    if value[0]=="geometry":refs=feature_refs.get(value[1],())
+                    elif value[0]=="sets":
+                        try:refs=set_references(self.project,value[1])
+                        except (ValueError,KeyError):pass
+                count=sum(self.app.viewport.visibility.is_hidden(ref) for ref in refs)
+                hidden=bool(refs) and count==len(refs)
+                item.setForeground(QBrush(QColor("#8794a6")) if hidden else QBrush())
+                item.setToolTip("Hidden in viewport" if hidden else "Partly hidden in viewport" if count else "")
+                visit(item)
+        visit(self._model.invisibleRootItem())
 
     def _sync_group(self,label,rows):
         parent=self._groups.get(label)
@@ -121,13 +185,22 @@ class QtModelTree(QTreeView):
         if self._refreshing:
             return
         refs=[index.data(Qt.UserRole) for index in self.selectionModel().selectedRows()]
+        features=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="geometry"]
+        collections=[]
+        for value in refs:
+            if isinstance(value,(tuple,list)) and value[0]=="sets":
+                try:collections.extend(set_references(self.project,value[1]))
+                except (ValueError,KeyError) as exc:self.app.set_status(str(exc),error=True)
         refs=[ref for ref in refs if hasattr(ref,"kind") and hasattr(ref,"id")]
+        refs=list(dict.fromkeys(refs+collections))
         self._tree_driven=True
         try:
             if refs and len({ref.kind for ref in refs})==1:self.app.selection.set_mode(refs[0].kind)
             self.app.selection.clear()
             for ref in refs:
                 if ref.kind==self.app.selection.mode:self.app.selection.select(ref,extend=True)
+            self.app.viewport.set_feature_highlight(features)
+            self.app.viewport.set_collection_highlight(collections)
         finally:self._tree_driven=False
 
     def _activated(self,index):
@@ -144,6 +217,7 @@ class QtModelTree(QTreeView):
         if hasattr(value,"kind"):return f"{value.kind}:{value.id}"
         if not isinstance(value,(tuple,list)):return None
         attribute,key=value
+        if attribute=="sets":return f"region:{key}"
         prefix={"geometry":"feature","materials":"material","plate_sections":"plate_section","beam_sections":"beam_section","load_cases":"case","supports":"support","masses":"mass","imperfections":"imperfection","coordinate_systems":"coordinate","regions":"region","mesh_records":"mesh","analyses":"analysis","jobs":"job","output_requests":"output_request"}.get(attribute,attribute)
         return f"{prefix}:{key}"
 
@@ -154,13 +228,21 @@ class QtModelTree(QTreeView):
         values=[item.data(Qt.UserRole) for item in self.selectionModel().selectedRows()]
         keys=tuple(key for value in values if (key:=self.item_key(value)))
         if not keys:return
-        menu=QMenu(self)
+        refs=self.app.geometry_actions.references()
+        menu=self.app.geometry_actions.menu_for(refs,self) if refs else QMenu(self)
+        menu.addAction(self.app._actions["Hide selected"])
+        menu.addAction(self.app._actions["Show selected"])
+        menu.addSeparator()
         menu.addAction("Edit / inspect",lambda:self.app.guarded(lambda:self.edit_record(index.siblingAtColumn(0).data(Qt.UserRole)))())
         menu.addAction("Delete",lambda:self.app.guarded(lambda:self.app._delete_tree_items(keys))())
+        value=index.siblingAtColumn(0).data(Qt.UserRole)
+        if isinstance(value,(tuple,list)) and value[0]=="sets":
+            menu.addAction("Rename set…",lambda:self.app.guarded(lambda:self.app.geometry_actions.rename_set(value[1]))())
         if all(key.startswith("feature:") for key in keys):
             for label,action in [("Expose / collapse topology","explode"),("Suppress / resume","suppress"),("Rename","rename"),("Dependencies","dependencies")]:
                 menu.addAction(label,lambda checked=False,action=action:self.app.guarded(lambda:self.app._tree_action(action,keys))())
         menu.exec(self.viewport().mapToGlobal(position))
+        menu.deleteLater()
 
     def toggle_feature_topology(self,identifiers):
         identifiers=set(identifiers)
@@ -173,6 +255,8 @@ class QtModelTree(QTreeView):
     def edit_record(self,value):
         if not isinstance(value,(tuple,list)):return
         attribute,key=value
+        if attribute=="sets":
+            self.app.geometry_actions.properties(set_references(self.project,key));return
         if attribute=="geometry":
             if self.app.panels["Construction"].edit_sketch(int(key)):return
             record=self.project.geometry.features.get(int(key));panel=self.app.panels["Geometry"]

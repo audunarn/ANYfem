@@ -846,6 +846,7 @@ class WorkbenchWorkflow:
             record = self.project.mesh_records.get(event.job_id)
             if record is None:
                 continue
+            self._observe_run_event("mesh", event)
             if event.kind in ("started", "progress"):
                 self.set_status(event.message)
                 continue
@@ -1161,6 +1162,8 @@ class WorkbenchWorkflow:
         if self._closing:
             return
         for event in self.job_manager.poll():
+            if event.job_id in self.project.jobs:
+                self._observe_run_event("solve", event)
             if event.kind in ("queued", "started", "progress", "status"):
                 self._on_progress(event.message, event.payload)
             elif event.kind == "completed":
@@ -1750,6 +1753,9 @@ class WorkbenchWorkflow:
     def _fit(self) -> None:
         self.viewport.fit()
 
+
+    def _observe_run_event(self, kind: str, event: Any) -> None:
+        """Optional UI-thread presentation hook; no worker or project mutation."""
 
     def _on_progress(self, text: str, payload: Any = None) -> None:
         line = _job_progress_text(text, payload)

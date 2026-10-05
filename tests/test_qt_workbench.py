@@ -41,6 +41,135 @@ def wait_until(qapp,predicate,timeout=30):
     assert predicate(), "Qt workflow did not reach the expected state within its bounded wait"
 
 
+def test_quick_selection_buttons_follow_all_selection_routes(window,qapp):
+    for mode in ("vertex","edge","face","vertex"):
+        window.quick_selection_actions[mode].trigger()
+        assert window.selection.mode==mode
+        assert window.selection_mode.currentText()==mode
+        assert [key for key,action in window.quick_selection_actions.items() if action.isChecked()]==[mode]
+    window.selection_mode.setCurrentText("node")
+    assert not any(action.isChecked() for action in window.quick_selection_actions.values())
+    window.selection.set_mode("face")
+    assert window.quick_selection_actions["face"].isChecked()
+
+
+def test_workspace_icons_and_dropdown_stay_synchronized(window,qapp):
+    before=window.commands.history()
+    tasks=window._workspace_docks[1];tasks.hide()
+    for index,name in enumerate(window.panels):
+        window.workspace_actions[name].trigger();qapp.processEvents()
+        assert tasks.isVisible()
+        assert window.details.currentIndex()==index
+        assert window.task_selector.currentText()==name
+        assert [key for key,action in window.workspace_actions.items() if action.isChecked()]==[name]
+        assert not window.workspace_actions[name].icon().isNull()
+    window.task_selector.setCurrentText("Geometry")
+    assert window.workspace_actions["Geometry"].isChecked()
+    window.notebook.select("Loads & BC")
+    assert window.workspace_actions["Loads & BC"].isChecked()
+    assert window.commands.history()==before
+
+
+def test_workspace_option_icons_choose_existing_options_and_wrap(window,qapp):
+    from PySide6.QtTest import QTest
+    before=window.commands.history()
+    for name,panel in window.panels.items():
+        window.notebook.select(name);qapp.processEvents()
+        strip=panel.option_icons
+        assert strip.buttons
+        for button in strip.buttons:
+            assert button.width()==button.height()==36
+            assert button.toolTip() and button.accessibleName()
+            assert not button.icon().isNull()
+        if name=="Scripts":continue
+        QTest.mouseClick(strip.buttons[-1],Qt.LeftButton)
+        assert strip.combo.currentIndex()==strip.combo.count()-1
+        assert [i for i,button in enumerate(strip.buttons) if button.isChecked()]==[strip.combo.currentIndex()]
+        strip.combo.setCurrentIndex(0)
+        assert strip.buttons[0].isChecked()
+    window.notebook.select("Geometry");qapp.processEvents()
+    strip=window.panels["Geometry"].option_icons
+    assert len({button.y() for button in strip.buttons})>1
+    assert all(button.geometry().right()<strip.width() for button in strip.buttons)
+    assert window.commands.history()==before
+
+
+def test_option_icons_refresh_when_result_fields_change(window,qapp):
+    field=window.panels["Results"].field;strip=window.panels["Results"].option_icons
+    field.clear();field.addItems(["magnitude","stress"]);field.setCurrentIndex(1)
+    qapp.processEvents()
+    assert [button.toolTip() for button in strip.buttons]==[
+        "Select magnitude in this workspace.", "Select stress in this workspace."]
+    assert strip.buttons[1].isChecked()
+    field.setEnabled(False)
+    assert not any(button.isEnabled() for button in strip.buttons)
+    scripts=window.panels["Scripts"].option_icons
+    scripts.sources[0].setEnabled(False)
+    assert not scripts.buttons[0].isEnabled()
+
+
+def test_feature_tree_highlights_outputs_without_selecting_assignment_targets(window,qapp):
+    from PySide6.QtCore import QItemSelectionModel
+    from anygeometry import feature_entity_owners
+    feature=window.run(cmd.AddFeature("generator.plate",parameters={"length":2,"width":1}))
+    other=window.run(cmd.AddFeature("generator.plate",parameters={"length":1,"width":1,"origin":(0,0,2)}))
+    qapp.processEvents()
+    item=window.tree._rows["Features"][feature.feature_id][0]
+    window.tree.selectionModel().select(item.index(),QItemSelectionModel.ClearAndSelect|QItemSelectionModel.Rows)
+    owners=feature_entity_owners(window.project.geometry)
+    expected={item.tag for item in window.viewport._scene.faces if any(owners.get(ref)==feature.feature_id for ref in (item.owners or (item.ref,)))}
+    assert expected
+    assert set(window.viewport.canvas._highlighted_tags)==expected
+    assert not window.selection.items
+    window.switch_viewer_backend("software")
+    assert set(window.viewport.canvas._highlighted_tags)==expected
+    window.viewport._handle_selection_event(type("EmptyClick",(),{"hits":(),"gesture":"click","operation":"replace"})())
+    assert not window.viewport.canvas._highlighted_tags
+    assert not window.tree.selectionModel().isSelected(item.index())
+    window.tree.selectionModel().select(item.index(),QItemSelectionModel.ClearAndSelect|QItemSelectionModel.Rows)
+    assert window.viewport.canvas._highlighted_tags
+    from PySide6.QtTest import QTest
+    QTest.keyClick(window.viewport.canvas.event_widget,Qt.Key_Escape)
+    assert not window.tree.selectionModel().isSelected(item.index())
+    assert not window.viewport.canvas._highlighted_tags
+
+
+@pytest.mark.parametrize("disabled",[False,True])
+def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp_path,monkeypatch,disabled):
+    from anyfem.io import recovery
+    monkeypatch.setattr(recovery,"default_recovery_root",lambda:tmp_path/"recovery")
+    if disabled:monkeypatch.setenv("ANY3DVIEW_DISABLE_GPU","1")
+    else:monkeypatch.delenv("ANY3DVIEW_DISABLE_GPU",raising=False)
+    window=QtFemWindow(viewer_backend="auto")
+    try:
+        window.run(cmd.AddPoint(1,2,3))
+        initial=window.viewport.canvas
+        assert initial.backend_name=="software"
+        window.show()
+        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and window.viewport.canvas._renderer.frame_count>1)
+        assert window.renderer.currentText()=="auto"
+        assert window.viewport.canvas.surface.isVisible()
+        assert window.viewport.canvas.viewport_size[0]>1
+        assert window.viewport.selectable_tags()
+        if disabled:
+            assert window.viewport.active_backend=="software"
+            assert window.viewport.backend_diagnostics
+        elif os.environ.get("ANYFEM_QT_TEST_BACKEND")=="gpu":
+            assert window.viewport.active_backend=="gpu",window.viewport.backend_diagnostics
+    finally:
+        window.session.mark_saved();window.close();qapp.processEvents()
+
+
+def test_automatic_pending_initialization_does_not_outlive_window(qapp,tmp_path,monkeypatch):
+    from anyfem.io import recovery
+    monkeypatch.setattr(recovery,"default_recovery_root",lambda:tmp_path/"recovery")
+    window=QtFemWindow(viewer_backend="auto")
+    initial=window.viewport.canvas
+    window.show();window.session.mark_saved();window.close();qapp.processEvents()
+    assert window.viewport.canvas is initial
+    assert window.viewport._closed
+
+
 def cantilever(window):
     from uuid import uuid4
     a=window.run(cmd.AddPoint(0,0,0));b=window.run(cmd.AddPoint(1,0,0))

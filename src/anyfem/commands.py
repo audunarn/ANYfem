@@ -93,6 +93,7 @@ __all__ = [
     "AddRefinement",
     "ClearRefinements",
     "AddRegion",
+    "EditGeometrySet",
     "AddSupport",
     "AddSurfaceTraction",
     "AddCoordinateSystem",
@@ -107,6 +108,7 @@ __all__ = [
     "CompositeCommand",
     "CommitStructuredLayout",
     "CopyEntities",
+    "MoveEntities",
     "CircularPattern",
     "DeleteEntity",
     "DeleteAttribute",
@@ -1180,6 +1182,10 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
         return "geometry.set_face_corners", {"corners": tuple(command.corners)}, {
             "face": (anchor("face", command.face_id),)
         }
+    if isinstance(command, MoveEntities):
+        return "geometry.transform", {"matrix": command.affine_matrix().tolist()}, {
+            "entities": tuple(_feature_anchor(geometry, item) for item in command.references)
+        }
     if isinstance(command, CopyEntities):
         return "geometry.copy", {"matrix": command.affine_matrix().tolist()}, {
             "entities": tuple(_feature_anchor(geometry, item) for item in command.references)
@@ -1288,6 +1294,8 @@ def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any
         )
     if isinstance(command, SetFaceCorners):
         return None
+    if isinstance(command, MoveEntities):
+        return tuple(_numbered_outputs(outputs, "entity"))
     if isinstance(command, (CopyEntities, MirrorEntities)):
         return _insert_result(geometry, outputs)
     if isinstance(command, (LinearPattern, CircularPattern)):
@@ -1402,6 +1410,34 @@ class Extrude(GeometryCommand):
 
     def operate(self, project: Project) -> List[int]:
         return project.geometry.extrude(self.edge_ids, self.vector)
+
+
+@dataclass(eq=False)
+class MoveEntities(GeometryCommand):
+    """Translate an owner-defined closure, preserving IDs and design history."""
+
+    references: Sequence[EntityRef]
+    translation: Sequence[float]
+    label: str = "move geometry"
+
+    def __post_init__(self) -> None:
+        GeometryCommand.__init__(self)
+        self.references = tuple(dict.fromkeys(self.references))
+
+    def affine_matrix(self) -> np.ndarray:
+        offset = np.asarray(self.translation, dtype=float)
+        if offset.shape != (3,) or not np.all(np.isfinite(offset)):
+            raise GeometryError("move translation must be a finite 3-vector")
+        if not self.references:
+            raise GeometryError("select geometry to move")
+        matrix = np.eye(4)
+        matrix[:3, 3] = offset
+        return matrix
+
+    def operate(self, project: Project) -> tuple[EntityRef, ...]:
+        from anygeometry.editing import translate_entities
+        self.affine_matrix()
+        return translate_entities(project.geometry, self.references, self.translation)
 
 
 @dataclass(eq=False)
@@ -3228,6 +3264,43 @@ class AddBeamSection(Command):
             project.beam_sections.pop(self.section.name, None)
         else:
             project.beam_sections[self.section.name] = self._previous
+
+
+@dataclass(eq=False)
+class EditGeometrySet(Command):
+    """Rename or replace a manual geometry scope without changing its UUID."""
+
+    region_id: str
+    name: str | None = None
+    references: Sequence[EntityRef] | None = None
+    label: str = "edit geometry set"
+
+    def do(self, project: Project) -> Region:
+        from .model.regions import ManualRegion, RegionDomain
+        region = project.regions[self.region_id]
+        if region.domain is not RegionDomain.GEOMETRY or not isinstance(region.definition, ManualRegion):
+            raise ProjectError("only manual geometry sets can be edited here")
+        name = region.name if self.name is None else self.name.strip()
+        if not name:
+            raise ProjectError("a set needs a name")
+        if any(other.id != region.id and other.name == name for other in project.regions):
+            raise ProjectError(f"a set or region named {name!r} already exists")
+        definition, kind = region.definition, region.entity_kind
+        if self.references is not None:
+            refs = tuple(dict.fromkeys(project.geometry.entity_ref(ref.kind, ref.id)
+                                       for ref in self.references))
+            if not refs:
+                raise ProjectError("a set needs at least one geometry entity")
+            definition = ManualRegion(refs)
+            kinds = {ref.kind for ref in refs}
+            kind = next(iter(kinds)) if len(kinds) == 1 else "mixed"
+        self._before = region.name, region.definition, region.entity_kind
+        region.name, region.definition, region.entity_kind = name, definition, kind
+        return region
+
+    def undo(self, project: Project) -> None:
+        region = project.regions[self.region_id]
+        region.name, region.definition, region.entity_kind = self._before
 
 
 @dataclass(eq=False)
