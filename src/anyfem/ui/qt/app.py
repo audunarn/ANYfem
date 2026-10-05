@@ -324,6 +324,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         analysis=self.menuBar().addMenu("Analysis")
         self._action(analysis,"Generate mesh",self.panels["Mesh"].start)
         self._action(analysis,"Solve",self.panels["Solve"].start)
+        examples=self.menuBar().addMenu("Examples")
+        action=self._action(examples,"Floating barge section…",self.open_barge_example)
+        action.setToolTip("Create an editable 5 m midship section of a 30 × 11 × 2.5 m floating box barge")
+        action.setStatusTip(action.toolTip())
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
         toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         icons={"New":QStyle.SP_FileIcon,"Open":QStyle.SP_DirOpenIcon,"Save":QStyle.SP_DialogSaveButton,
@@ -474,6 +478,20 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _update_window_title(self):
         self.setWindowTitle(f"{'*' if self.session.dirty else ''}{self.project.name} — ANYfem (Qt){' [read-only]' if self.session.read_only else ''}")
+
+    def open_barge_example(self):
+        from PySide6.QtWidgets import QMessageBox
+        from ...application.examples import BARGE_DESCRIPTION, floating_barge_section
+        answer=QMessageBox.question(self,"Floating barge section",BARGE_DESCRIPTION+"\n\nCreate this example as a new project?",
+                                   QMessageBox.Ok|QMessageBox.Cancel,QMessageBox.Cancel)
+        if answer!=QMessageBox.Ok or not self._confirm_discard():return
+        project=floating_barge_section()
+        self._set_project(project)
+        self.session.dirty=True
+        self.refresh_all()
+        self.show_geometry(reset_view=True)
+        self.set_status("Floating barge section: 5 × 11 × 2.5 m; open cut ends; nominal draft 1.5 m")
+        self._schedule_autosave()
 
     def _update_view_label(self):pass
 

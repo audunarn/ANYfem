@@ -26,6 +26,22 @@ ANYfem viewer pin/integration checks. Existing dirty ANY3dView adapter/evidence 
 is excluded. OpenAI implementation fallback retains Git ownership after the prior
 Mistral Edit boundary violation; parent reviews/tests the connected result.
 2026-10-05 false-diagonal delivered: GUI and both CI viewer pins now use
+2026-10-05 example-menu slice: add an editable floating-barge midship section
+through a headless command-backed builder and the existing project replacement
+path. Nominal vessel dimensions 30 × 11 × 2.5 m follow the Damen B11 product page;
+the 5 m section length, 1.5 m draft and shell/bulkhead thicknesses are illustrative.
+Protect unsaved documents, save/reopen and named geometry sets; no mesh/solve or
+floating-equilibrium acceptance is implied. This small application slice remains
+with the parent after the previously recorded Mistral Edit Git-boundary violation.
+Implemented as Examples → Floating barge section…; starts a new unsaved project
+after the normal discard/save decision. Nine assigned plates share twelve
+vertices; named sets expose the deck, bottom, sides and transverse bulkhead.
+Dimensional reference: [Damen Stan Pontoon B11](https://www.damen.com/vessels/pontoons-and-barges/stan-pontoons/stan-pontoon-b11).
+Headless roundtrip, real Qt activation/cancel/discard/save-reopen and existing
+button-help checks: 8 passed in 3.75 s; logs in `reports/qt/barge-example-tests*`.
+The first check incorrectly referenced nonexistent Project artifact attributes;
+that test error and its diagnostic are retained. No numerical campaign run.
+
 ANY3dView `d8b82686e477920cb485a7d32e6f04699b6f4d6f`, based on current integrated
 viewer main `2fba4dc`. Only source polygon/explicit logical-element indexed
 boundaries are drawn; quad fan diagonals and pale fill-antialias seams disappear.
