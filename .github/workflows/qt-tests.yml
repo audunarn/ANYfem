@@ -25,6 +25,21 @@ on:
         required: true
         type: string
         default: c69aa8311e61b16f54895802fe8935cc2fe980ad
+      geometry_ref:
+        description: Exact ANYgeometry commit (schema-6 candidate d05cd3a37d884702e043b678808f50d03ed4a27e)
+        required: true
+        type: string
+        default: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
+      mesher_ref:
+        description: Exact ANYmesh commit (schema-6 safeguard 615de9b7ac78a1b39c90eb1717e443ab47a17e44)
+        required: true
+        type: string
+        default: e21c0fc93662776762430e14450d54ac9192e2e8
+      schema6_fixtures:
+        description: Run owner-generated schema-6 consumer checks with the selected geometry/mesher candidates
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -62,12 +77,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
+          ref: ${{ inputs.geometry_ref || '26e7e3c98ac1a5573e19643d6658d00094bff0bc' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: e21c0fc93662776762430e14450d54ac9192e2e8
+          ref: ${{ inputs.mesher_ref || 'e21c0fc93662776762430e14450d54ac9192e2e8' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -137,6 +152,33 @@ jobs:
           ANY3DVIEW_RUN_QT_GPU_TESTS: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a python -m pytest tests/test_qt_host.py -q --junitxml=../../reports/qt-viewer.xml
+      - name: Generate schema-6 owner documents
+        if: inputs.schema6_fixtures
+        run: |
+          python -c "from pathlib import Path; Path('reports').mkdir(exist_ok=True)"
+          python .ecosystem/ANYgeometry/tools/general_intersections/consumer_contract_fixtures.py reports/schema6-fixtures > reports/schema6-fixtures-build.log
+      - name: Schema-6 persistence, references and detached preparation
+        if: inputs.schema6_fixtures
+        env:
+          ANYFEM_SCHEMA6_FIXTURES: reports/schema6-fixtures
+        run: python -m pytest tests/test_geometry_schema6_consumer.py -q --junitxml=reports/schema6-headless.xml
+      - name: Schema-6 visible Qt (Windows software)
+        if: inputs.schema6_fixtures && runner.os == 'Windows'
+        env:
+          ANYFEM_SCHEMA6_FIXTURES: reports/schema6-fixtures
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANYFEM_QT_TEST_BACKEND: software
+          ANY3DVIEW_DISABLE_GPU: '1'
+        run: python -m pytest tests/test_qt_geometry_schema6_consumer.py -q --basetemp=reports/schema6-qt-output --junitxml=reports/schema6-qt.xml
+      - name: Schema-6 visible Qt (Linux Mesa)
+        if: inputs.schema6_fixtures && runner.os == 'Linux'
+        env:
+          ANYFEM_SCHEMA6_FIXTURES: reports/schema6-fixtures
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANYFEM_QT_TEST_BACKEND: gpu
+          QT_QPA_PLATFORM: xcb
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a python -m pytest tests/test_qt_geometry_schema6_consumer.py -q --basetemp=reports/schema6-qt-output --junitxml=reports/schema6-qt.xml
       - name: Retain results
         if: always()
         uses: actions/upload-artifact@v4

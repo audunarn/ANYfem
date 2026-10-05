@@ -3,7 +3,7 @@ import json
 import inspect
 from dataclasses import replace, fields,asdict
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
@@ -165,10 +165,13 @@ class SolveTask(QWidget):
         self.material_response=QLabel();self.material_response.setWordWrap(True);layout.addWidget(self.material_response)
         self.analysis.currentTextChanged.connect(self.refresh)
         self.transcript=QPlainTextEdit();self.transcript.setReadOnly(True);layout.addWidget(self.transcript)
+        self.transcript.document().setMaximumBlockCount(1500)
         self.progress_data=LiveProgressData()
         self.graph=QComboBox();self.graph.addItems(list(GRAPH_CHOICES));layout.addWidget(self.graph)
         self.plot=HistoryPlot();layout.addWidget(self.plot)
         self.graph.currentTextChanged.connect(self.update_graph)
+        self.graph_timer=QTimer(self);self.graph_timer.setSingleShot(True);self.graph_timer.setInterval(100)
+        self.graph_timer.timeout.connect(self.update_graph)
 
     def start(self):
         self.app.solve(self.analysis.currentText(),**self.settings())
@@ -244,14 +247,19 @@ class SolveTask(QWidget):
         self.submit.setEnabled(self.app.mesh is not None and not self.app.session.read_only)
 
     def begin_job(self,name,job_id,report):
+        self.graph_timer.stop()
         self.progress_data.clear()
+        self.update_graph()
         self.transcript.setPlainText(f"{name}\nJob {job_id}\n{report}")
 
     def append_progress(self,text,payload=None):
         self.transcript.appendPlainText(text)
-        if self.progress_data.ingest(text,payload):self.update_graph()
+        if self.progress_data.ingest(text,payload) and not self.graph_timer.isActive():self.graph_timer.start()
 
     def update_graph(self,*_):
+        choice=self.graph.currentText();choices=self.progress_data.graph_choices
+        if tuple(self.graph.itemText(i) for i in range(self.graph.count()))!=choices:
+            with QSignalBlocker(self.graph):self.graph.clear();self.graph.addItems(list(choices));self.graph.setCurrentText(choice)
         series=self.progress_data.series(self.graph.currentText())
         self.plot.show_series([] if series is None else [series])
 
@@ -262,25 +270,37 @@ class SolveTask(QWidget):
         self.progress.setText(text)
 
     def reset(self):
+        self.graph_timer.stop()
         self.progress.clear();self.transcript.clear()
         self.progress_data.clear();self.plot.show_series([])
+        self.update_graph()
 
 
 class ResultsTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
+        self._display_source=None;self._selected_entry=None;self._quantity_component=None
+        self._live_quantity_descriptors=();self._display_pending=False;self._syncing_controls=False
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows);form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.field=QComboBox();self.field.addItems(available_fields());self.field.setCurrentText("magnitude");form.addRow("Field",self.field)
-        self.scale=QLineEdit("auto");form.addRow("Deformation scale (auto or number)",self.scale)
-        self.frame=QSpinBox();form.addRow("Frame",self.frame)
+        self.scale=QLineEdit("auto");self.scale.setToolTip("Auto or a visual displacement multiplier; result values remain unchanged")
+        form.addRow("Deformation scale",self.scale)
+        from .result_browser import ResultFrameSelector
+        self.frame=ResultFrameSelector();form.addRow("Frame",self.frame)
         self.playback_speed=QComboBox();self.playback_speed.addItems(["0.5","1","2","4","8","12","20","30"])
         self.playback_speed.setCurrentText("4");form.addRow("Playback speed (fps)",self.playback_speed)
         self.units=QComboBox();self.units.addItems(["SI (m / Pa)","Engineering (mm / MPa)"]);form.addRow("Display units",self.units)
         self.colors=QComboBox();self.colors.addItems(list(RESULT_COLORMAPS));form.addRow("Color map",self.colors)
         self.minimum=QLineEdit();self.maximum=QLineEdit()
-        form.addRow("Color minimum (blank = automatic)",self.minimum);form.addRow("Color maximum (blank = automatic)",self.maximum)
-        self.component=QLineEdit();self.component.setPlaceholderText("For vector artifacts: component name, or blank for magnitude")
-        form.addRow("Artifact component",self.component)
+        self.minimum.setPlaceholderText("Automatic");self.maximum.setPlaceholderText("Automatic")
+        form.addRow("Color minimum",self.minimum);form.addRow("Color maximum",self.maximum)
+        from .result_browser import ResultComponentSelector
+        self.component=ResultComponentSelector();self.component.setPlaceholderText("Choose a saved component")
+        form.addRow("Component",self.component)
+        for combo in (self.field,self.units,self.colors,self.component):
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon);combo.setMinimumContentsLength(8)
+        self.selection_details=QLabel();self.selection_details.setWordWrap(True);layout.addWidget(self.selection_details)
         self.envelope=QCheckBox("Envelope of retained frames");layout.addWidget(self.envelope)
         show=QPushButton("Show results");show.clicked.connect(app.guarded(self.show_results));layout.addWidget(show)
         play=QPushButton("Play retained frames");play.clicked.connect(app.guarded(self.play));layout.addWidget(play)
@@ -301,6 +321,14 @@ class ResultsTask(QWidget):
         for label,callback in [("Probe selection",self._probe),("Sample along selected line",self.along_line),("Plot history",self.history),("Plot at selected point",self.history_at_selection),("Export field CSV",self.export_csv),("Export report",self.export_report),("Export GIF",self.export_gif)]:
             button=QPushButton(label);button.clicked.connect(app.guarded(callback));layout.addWidget(button)
         self.frame.valueChanged.connect(self._frame_changed)
+        self.field.currentTextChanged.connect(self._field_changed)
+        self.component.currentTextChanged.connect(self._controls_changed)
+        self.units.currentTextChanged.connect(self._controls_changed)
+        self.colors.currentTextChanged.connect(self._controls_changed)
+        self.scale.editingFinished.connect(self._controls_changed)
+        self.minimum.editingFinished.connect(self._controls_changed)
+        self.maximum.editingFinished.connect(self._controls_changed)
+        self.quantities.currentIndexChanged.connect(lambda *_:setattr(self,"_quantity_component",None))
 
     def activate_job(self,job_id):
         solution=self.app.solutions.get(job_id)
@@ -311,17 +339,91 @@ class ResultsTask(QWidget):
     def _frame_changed(self,value):
         self.app.shape_index=value
         self.refresh_details()
+        self._controls_changed()
+
+    def _set_frame_index(self,value):
+        # Playback/export already draws explicitly; do not queue a second draw
+        # that could replace the captured frame or stop cached playback.
+        blocker=QSignalBlocker(self.frame);self.frame.setValue(value)
+        self.app.shape_index=self.frame.value();del blocker
+
+    def use_retained(self):
+        return self.app.solution is None or self._display_source=="retained"
+
+    def live_field_names(self):
+        solution=self.app.solution
+        fn=getattr(solution,"available_fields",None)
+        return tuple(fn() if callable(fn) else available_fields()) if solution is not None else ()
+
+    def _field_changed(self,*_):
+        if self._syncing_controls:return
+        self.update_component_choices()
+        self._selected_entry=("field",self.field_name(),self.component.text().strip() or None) if self.use_retained() else ("live_field",self.field_name(),None)
+        self.frame.setMaximum(max(0,self.frame_count()-1))
+        self._controls_changed()
+
+    def frame_count(self):
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
+        if self.use_retained() and dataset is not None:
+            if self.field_name() in dataset.field_keys:
+                frames=dataset.field(self.field_name()).descriptor.frames
+                if frames:return len(frames)
+            return len(dataset.frames)
+        solution=self.app.solution
+        return len(getattr(solution,"shapes",()) or (solution,)) if solution is not None else 0
+
+    def update_component_choices(self):
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
+        components=tuple(dataset.field(self.field_name()).descriptor.components) if self.use_retained() and dataset is not None and self.field_name() in dataset.field_keys else ()
+        previous=self.component.text();blocker=QSignalBlocker(self.component)
+        self.component.clear();self.component.addItem("");self.component.addItems(components)
+        self.component.setText(previous if previous in components else "")
+        self.component.setEnabled(bool(components));del blocker
+
+    def _controls_changed(self,*_):
+        inspection=self._selected_entry is not None and self._selected_entry[0] in {"field_table","live","history","table"}
+        if self._syncing_controls or (self.app._view_mode!="results" and not inspection) or self._display_pending:return
+        self._display_pending=True
+        owner=(id(self.app.session),self.app.project.document_id,self.app.active_job_id,id(self.app.solution),id(self.app.result_datasets.get(self.app.active_job_id)))
+        def display():
+            self._display_pending=False
+            current=(id(self.app.session),self.app.project.document_id,self.app.active_job_id,id(self.app.solution),id(self.app.result_datasets.get(self.app.active_job_id)))
+            if not self.app._closing and owner==current:
+                if inspection:self.app.guarded(self.inspect_quantity)()
+                elif self.app._view_mode=="results":self.app.guarded(self.show_results)()
+        QTimer.singleShot(0,self,display)
+
+    def select_entry(self,entry):
+        self.app.notebook.select("Results")
+        self._syncing_controls=True
+        try:
+            if entry.kind in {"live_field","field"}:
+                self._display_source="retained" if entry.kind=="field" else "live"
+                self.ensure_compatible_field();self.field.setCurrentText(entry.key)
+                self.update_component_choices();self.component.setText(entry.component or "")
+                self.frame.setMaximum(max(0,self.frame_count()-1))
+            else:
+                kind="field" if entry.kind=="field_table" else entry.kind
+                choice=next((i for i in range(self.quantities.count()) if tuple(self.quantities.itemData(i))==(kind,entry.key)),None)
+                if choice is None:raise ValueError("This result quantity is no longer available")
+                self.quantities.setCurrentIndex(choice);self._quantity_component=entry.component
+            self._selected_entry=entry.identity
+        finally:self._syncing_controls=False
+        if entry.kind in {"live_field","field"}:self.show_results()
+        else:self.inspect_quantity()
+        if entry.kind not in {"live_field","field"}:self.selection_details.setText(f"{entry.label}\n{entry.unit or 'dimensionless'} · {entry.location or 'Table / history'}")
+        self.app.show_result_browser();self.app.result_browser.sync_selection()
 
     def refresh(self):
-        self.ensure_compatible_field()
         solution=self.app.solution
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         owner=(self.app.active_job_id,id(solution) if solution is not None else id(dataset) if dataset is not None else None)
         if owner!=self._preview_owner:
             self.reset();self._preview_owner=owner
-        count=len(getattr(solution,"shapes",()) or (solution,)) if solution is not None else len(dataset.frames) if dataset is not None else 0
+        self.ensure_compatible_field();self.update_component_choices()
+        count=self.frame_count()
         self.frame.setMaximum(max(0,count-1))
-        self.frame.setValue(self.app.shape_index)
+        self._set_frame_index(self.app.shape_index)
         if solution is not None:self.report.setPlainText(_solution_report(solution))
         elif dataset is not None:
             job=self.app.project.jobs.get(self.app.active_job_id)
@@ -332,14 +434,16 @@ class ResultsTask(QWidget):
         elif dataset is None:
             self.report.clear();self.table.show_rows([],[]);self.plot.show_series([])
         self.refresh_details()
-        choices=[]
+        choices=[];self._live_quantity_descriptors=()
         if dataset is not None:
             choices.extend(((f"Output: {dataset.field(key).descriptor.label}" if key.startswith("request_") else f"Field: {key}"),("field",key)) for key in dataset.field_keys)
             choices.extend((f"History: {key}",("history",key)) for key in dataset.history_keys)
             choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys)
         elif solution is not None:
             from ...post.solver_data import available_solution_quantities
-            choices.extend((item.descriptor.label,("live",item.descriptor.quantity_id)) for item in available_solution_quantities(solution))
+            self._live_quantity_descriptors=tuple(item.descriptor for item in available_solution_quantities(solution))
+            choices.extend((item.label,("live",item.quantity_id)) for item in self._live_quantity_descriptors)
+        else:self._live_quantity_descriptors=()
         if choices!=[(self.quantities.itemText(i),tuple(self.quantities.itemData(i)) if self.quantities.itemData(i) is not None else None) for i in range(self.quantities.count())]:
             selected=self.quantities.currentData()
             prior=tuple(selected) if selected is not None else None
@@ -358,12 +462,17 @@ class ResultsTask(QWidget):
             if submitted is None and provenance.get("submitted_inputs") is not None:
                 submitted=json.dumps(provenance["submitted_inputs"],indent=2,sort_keys=True)
         self.submitted_inputs.setPlainText(submitted or "Submitted input text is unavailable; retained artifact hashes identify its provenance.")
-        if solution is None:
+        if solution is None or self.use_retained():
             summary=dataset.metadata("summary") if dataset is not None else {}
             status=summary.get("status")
             self.outcome.setText(f"Retained result · stored status: {status}" if status is not None else "Retained result · stored status unavailable" if dataset is not None else "Run an analysis to see its outcome.")
             self.outcome.setStyleSheet("color: #555555")
-            self.frame_details.setText(f"Persisted frame {self.app.shape_index+1} of {len(dataset.frames)}" if dataset is not None else "")
+            if dataset is not None and self.field_name() in dataset.field_keys:
+                descriptor=dataset.field(self.field_name()).descriptor
+                values=descriptor.frames or dataset.frames
+                coordinate=f" · value {values[self.frame.value()]:g}" if self.frame.value()<len(values) else ""
+                self.frame_details.setText(f"{descriptor.label}: saved frame {self.frame.value()+1} of {len(values)}{coordinate}")
+            else:self.frame_details.setText("")
             return
         text,color=outcome_text(solution,submitted);self.outcome.setText(text);self.outcome.setStyleSheet(f"color: {color}")
         shapes=getattr(solution,"shapes",())
@@ -403,18 +512,25 @@ class ResultsTask(QWidget):
         elif kind=="table":values=dataset.table(key,rows=slice(0,2000))
         elif kind=="live":
             from ...post.solver_data import resolve_solution_quantity
-            values=resolve_solution_quantity(self.app.solution,key).data
+            resolved=resolve_solution_quantity(self.app.solution,key);values=resolved.data
         else:raise ValueError("Select an available quantity")
         if isinstance(values,(dict,list)) and (isinstance(values,dict) or values and isinstance(values[0],dict)):
             self.report.setPlainText(json.dumps(values,indent=2,default=str));return
         values=np.asarray(values)
+        selected_component=self._quantity_component
+        components=tuple(descriptor.components) if kind=="field" else tuple(getattr(resolved.descriptor,"components",())) if kind=="live" else ()
+        if selected_component is not None:
+            if selected_component not in components or values.ndim<2 or values.shape[-1]!=len(components):
+                raise ValueError("The selected component has no compatible saved column")
+            values=np.take(values,components.index(selected_component),axis=-1)
         if values.ndim==0:values=values.reshape(1,1)
         elif values.ndim==1:values=values.reshape(-1,1)
         else:values=values.reshape(values.shape[0],-1)
         columns=[f"Column {i+1}" for i in range(values.shape[1])]
+        if selected_component is not None:columns=[selected_component] if values.shape[1]==1 else [f"{selected_component} · {i+1}" for i in range(values.shape[1])]
         rows=values[:2000].tolist()
         if kind=="field":
-            if len(descriptor.components)==values.shape[1]:columns=list(descriptor.components)
+            if selected_component is None and len(descriptor.components)==values.shape[1]:columns=list(descriptor.components)
             association="node_ids" if descriptor.location=="node" else "element_ids"
             association_key=f"{key}_{association}"
             if association_key in dataset.table_keys:
@@ -500,7 +616,7 @@ class ResultsTask(QWidget):
     def export_gif(self):
         if self._gif_capture is not None:raise ValueError("GIF capture is already running")
         dataset=self.app.result_datasets.get(self.app.active_job_id)
-        count=len(getattr(self.app.solution,"shapes",()) or (self.app.solution,)) if self.app.solution is not None else len(dataset.frames) if dataset is not None else 0
+        count=self.frame_count()
         if not count:raise ValueError("Select a result to export")
         path=self.app.dialogs.save_file(filetypes=[("GIF animation","*.gif")],defaultextension=".gif")
         if not path:return
@@ -514,10 +630,10 @@ class ResultsTask(QWidget):
             self._gif_capture=None;return
         try:
             if state["index"]<state["count"]:
-                self.frame.setValue(state["index"]);self.show_results()
+                self._set_frame_index(state["index"]);self.show_results()
                 state["images"].append(self.app.viewport.canvas.capture_image());state["index"]+=1
                 self.app.scheduler.call_later(1,self._capture_gif_frame);return
-            self.frame.setValue(state["original"]);self.show_results();self._gif_capture=None
+            self._set_frame_index(state["original"]);self.show_results();self._gif_capture=None
             from ...presentation.result_export import save_gif
             future=self.app._artifact_executor.submit(save_gif,state["images"],state["path"])
             def poll():
@@ -526,12 +642,14 @@ class ResultsTask(QWidget):
                 self.app.guarded(lambda:self.app.set_status(f"GIF exported to {future.result()}"))()
             self.app.scheduler.call_later(50,poll)
         except Exception:
-            self._gif_capture=None;self.frame.setValue(state["original"])
+            self._gif_capture=None;self._set_frame_index(state["original"])
             raise
 
     def reset(self):
         self._gif_capture=None
         self._preview_owner=None
+        self._display_source=None;self._selected_entry=None;self._quantity_component=None;self._live_quantity_descriptors=()
+        self.component.setText("");self.selection_details.clear()
         self.app.viewport.canvas.stop_animation()
         self.report.clear();self.table.show_rows([],[]);self.plot.show_series([])
 
@@ -542,21 +660,24 @@ class ResultsTask(QWidget):
         if not path:return
         shape=self.app.current_shape()
         dataset=self.app.result_datasets.get(self.app.active_job_id)
-        if shape is not None:text=field_to_csv(shape,self.field_name())
-        elif dataset is not None:text=lazy_field_to_csv(dataset,self.field_name(),frame=self.app.shape_index)
+        if self.use_retained() and dataset is not None:text=lazy_field_to_csv(dataset,self.field_name(),frame=self.frame.value())
+        elif shape is not None:text=field_to_csv(shape,self.field_name())
         else:raise ValueError("Select a result to export")
         write_csv(text,path);self.app.set_status(f"Field exported to {path}")
 
     def ensure_compatible_field(self):
         solution=self.app.solution
         dataset=self.app.result_datasets.get(self.app.active_job_id)
-        if solution is None and dataset is not None:choices=list(dataset.field_keys)
+        if solution is None and dataset is None:return self.field.currentText()
+        if self.use_retained() and dataset is not None:choices=list(dataset.field_keys)
         else:
             fn=getattr(solution,"available_fields",None)
             choices=list(fn() if callable(fn) else available_fields())
         if choices and [self.field.itemText(i) for i in range(self.field.count())]!=choices:
+            blocker=QSignalBlocker(self.field)
             current=self.field.currentText();self.field.clear();self.field.addItems(choices)
             self.field.setCurrentText(current if current in choices else "magnitude" if "magnitude" in choices else choices[0])
+            del blocker
         return self.field.currentText()
 
     def field_name(self):return self.field.currentText()
@@ -584,9 +705,34 @@ class ResultsTask(QWidget):
         return None
 
     def show_results(self):
-        if self.app.solution is None:
-            self.app.show_persisted_result(self.field_name(),frame=self.frame.value(),scale=self.scale_value(None),component=self.component.text().strip() or None,limits=self.colour_limits())
+        if self.use_retained():
+            dataset=self.app.result_datasets.get(self.app.active_job_id)
+            component=self.component.text().strip() or None
+            if dataset is not None:
+                descriptor=dataset.field(self.field_name()).descriptor
+                if component is not None and component not in descriptor.components:raise ValueError("Choose a component available in this retained field")
+                if descriptor.location not in {"node","element","element_face","integration_point"}:
+                    from ...presentation.result_browser import ResultEntry
+                    self.select_entry(ResultEntry((),descriptor.label,"field_table",self.field_name(),component,descriptor.unit,descriptor.location))
+                    return
+            self.app.show_persisted_result(self.field_name(),frame=self.frame.value(),scale=self.scale_value(None),component=component,limits=self.colour_limits())
+            choice=next((i for i in range(self.quantities.count()) if tuple(self.quantities.itemData(i))==("field",self.field_name())),None)
+            if choice is not None:self.quantities.setCurrentIndex(choice)
+            self._quantity_component=component
         else:self.app.show_results()
+        self._selected_entry=("field",self.field_name(),self.component.text().strip() or None) if self.use_retained() else ("live_field",self.field_name(),None)
+        if self.use_retained() and dataset is not None:
+            from ...presentation.result_display import unit_transform
+            _,unit=unit_transform(descriptor.unit,self.display_units())
+            selected=component or ("translation magnitude" if {"ux","uy","uz"}<=set(descriptor.components) else "component norm" if len(descriptor.components)>1 else "scalar")
+            self.selection_details.setText(f"{descriptor.label} · {selected}\n{unit or 'dimensionless'} · {descriptor.location} · {descriptor.basis} basis")
+        else:
+            from ...post.fields import field_unit
+            from ...presentation.result_display import unit_transform
+            _,unit=unit_transform(field_unit(self.field_name()),self.display_units())
+            self.selection_details.setText(f"Live result · {self.field_name()}\n{unit or 'dimensionless'}")
+        self.refresh_details()
+        self.app.result_browser.refresh();self.app.show_result_browser()
 
     def playback_fps(self):
         import math
@@ -598,18 +744,18 @@ class ResultsTask(QWidget):
     def play(self):
         fps=self.playback_fps()
         dataset=self.app.result_datasets.get(self.app.active_job_id)
-        count=len(getattr(self.app.solution,"shapes",()) or (self.app.solution,)) if self.app.solution is not None else len(dataset.frames) if dataset is not None else 0
+        count=self.frame_count()
         if not count:raise ValueError("Select a result before playback")
         canvas=self.app.viewport.canvas
         canvas.begin_animation_cache()
         original=self.app.shape_index
         try:
             for index in range(count):
-                self.app.shape_index=index;self.frame.setValue(index)
+                self._set_frame_index(index)
                 self.show_results()
                 canvas.capture_animation_frame()
         finally:
-            self.app.shape_index=original;self.frame.setValue(original);self.show_results()
+            self._set_frame_index(original);self.show_results()
         canvas.play_animation(fps=fps)
         self.app.set_status(f"playback started at {fps:g} fps")
 

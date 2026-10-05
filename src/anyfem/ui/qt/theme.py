@@ -7,7 +7,7 @@ def apply_theme(window):
     font.setPointSizeF(10)
     window.setFont(font)
     window.setStyleSheet("""
-        QMainWindow, QDockWidget, QWidget#TaskWorkspace { background: #f3f5f8; }
+        QMainWindow, QDialog, QDockWidget, QWidget#TaskWorkspace { background: #f3f5f8; }
         QWidget { color: #253247; }
         QMenuBar, QToolBar { background: #ffffff; border: none; spacing: 5px; }
         QMenuBar::item { padding: 7px 12px; }

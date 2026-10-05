@@ -159,8 +159,12 @@ class FacePatch:
     # efficient face batch without losing element-level selection.
     owners: tuple[SceneOwner, ...] = ()
     polygon_owners: Optional[List[tuple[SceneOwner, ...]]] = None
+    # Per-polygon visibility can differ from collapsed-feature pick ownership.
+    polygon_visibility_owners: Optional[List[tuple[SceneOwner, ...]]] = None
 
     def __post_init__(self) -> None:
+        if self.polygon_visibility_owners is not None and len(self.polygon_visibility_owners) != len(self.polygons):
+            raise ValueError("polygon_visibility_owners must have one entry per face polygon")
         if self.polygon_owners is not None and len(self.polygon_owners) != len(
             self.polygons
         ):
@@ -606,12 +610,14 @@ def build_geometry_scene(
                     polygons=[],
                     colors=[],
                     outline="",
+                    polygon_visibility_owners=[],
                 )
                 collapsed_face_patches[feature_id] = patch
                 collapsed_face_owners[feature_id] = []
                 scene.faces.append(patch)
             patch.polygons.extend(polygons)
             patch.colors.extend([COLOR_PLATE] * len(polygons))
+            patch.polygon_visibility_owners.extend([(face_ref,)] * len(polygons))
             collapsed_face_owners[feature_id].append(face_ref)
             continue
         scene.faces.append(
@@ -1102,6 +1108,8 @@ def build_persisted_result_scene(
 
     stored = dataset.field(field_key)
     descriptor = stored.descriptor
+    if component is not None and component not in descriptor.components:
+        raise ValueError(f"{descriptor.label} has no saved component {component!r}")
     values = stored.read(_artifact_frame(stored.shape, frame))
     location = descriptor.location
     if location not in ("node", "element", "element_face", "integration_point"):
@@ -1160,7 +1168,7 @@ def build_persisted_result_scene(
         built=SimpleNamespace(mesh=mesh, project=project),
         deformed_positions=lambda _scale=1.0: positions,
     )
-    return build_result_scene(
+    scene = build_result_scene(
         shape,
         field=field_key,
         scale=1.0,
@@ -1171,6 +1179,10 @@ def build_persisted_result_scene(
         show_nodes=show_nodes,
         show_beam_sections=show_beam_sections,
     )
+    if component is not None and scene.legend is not None:
+        unavailable=" (unavailable)" if "unavailable" in str(scene.legend["title"]) else ""
+        scene.legend["title"]=f"{descriptor.label} · {component}{unavailable}"
+    return scene
 
 
 def _artifact_frame(shape: Sequence[int], frame: int) -> int | None:

@@ -35,7 +35,12 @@ def selectors(profile, requested):
     if profile == "quick":
         return list(QUICK)
     if profile == "qt":
-        return ["tests/test_qt_workbench.py", "tests/test_application_frontend_boundary.py"]
+        return ["tests/test_qt_workbench.py", "tests/test_qt_geometry_actions.py",
+                "tests/test_qt_visibility.py", "tests/test_visibility.py",
+                "tests/test_run_progress.py", "tests/test_qt_run_progress.py",
+                "tests/test_qt_button_help.py",
+                "tests/test_qt_result_browser.py", "tests/test_result_browser.py",
+                "tests/test_geometry_sets_actions.py", "tests/test_application_frontend_boundary.py"]
     return ["tests"]
 
 

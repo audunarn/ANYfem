@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt, QSettings, QSize
-from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem
+from PySide6.QtGui import QAction, QActionGroup, QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QMainWindow,
     QPlainTextEdit, QPushButton, QTabWidget, QTableView, QVBoxLayout, QWidget,
     QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle)
@@ -190,7 +190,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.setCentralWidget(self.viewport.widget)
         self.viewport.set_pick_handler(self._on_pick)
         self.tree=QtModelTree(self)
-        model_dock=self._dock("Model",self.tree.panel(),Qt.LeftDockWidgetArea)
+        from .geometry_actions import GeometryActions
+        self.geometry_actions=GeometryActions(self)
+        self.left_tabs=QTabWidget()
+        model_scroll=QScrollArea();model_scroll.setWidgetResizable(True);model_scroll.setWidget(self.tree.panel())
+        self.left_tabs.addTab(model_scroll,"Model")
+        model_dock=self._dock("Model",self.left_tabs,Qt.LeftDockWidgetArea)
         self.details=self.notebook=_Workspace()
         from .construction import ConstructionPanel
         from .definitions import DefinitionsTask
@@ -206,6 +211,16 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             "Visualization":VisualizationTask(self),"Scripts":ScriptTask(self),
             "Definitions":DefinitionsTask(self),
         }
+        from .result_browser import QtResultBrowser
+        self.result_browser=QtResultBrowser(self);self.left_tabs.addTab(self.result_browser,"Results")
+        from .navigation import install_option_icons,ActionIcons
+        selectors={"Geometry":"choice","Construction":"mode","Generators":"kind","Sections":"choice",
+                   "Loads & BC":"choice","Mesh":"strategy","Solve":"analysis","Results":"field",
+                   "Visualization":"render","Definitions":"choice"}
+        for name,attribute in selectors.items():install_option_icons(self.panels[name],getattr(self.panels[name],attribute))
+        scripts=self.panels["Scripts"]
+        scripts.option_icons=ActionIcons(scripts.findChildren(QPushButton),scripts)
+        scripts.layout().insertWidget(1,scripts.option_icons)
         self.details.panels=self.panels
         for name,panel in self.panels.items():self.details.addTab(panel,name)
         task_workspace=QWidget();task_workspace.setObjectName("TaskWorkspace")
@@ -221,7 +236,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.log=QPlainTextEdit();self.log.setReadOnly(True)
         messages_dock=self._dock("Messages",self.log,Qt.BottomDockWidgetArea)
         self.tabifyDockWidget(jobs_dock,messages_dock);jobs_dock.raise_()
-        self._workspace_docks=(model_dock,tasks_dock,jobs_dock,messages_dock)
+        from .run_progress import QtRunMonitor
+        self.run_monitor=QtRunMonitor(self)
+        self.run_dock=self._dock("Run monitor",self.run_monitor,Qt.BottomDockWidgetArea)
+        self.tabifyDockWidget(jobs_dock,self.run_dock)
+        self.run_dock.hide();jobs_dock.raise_()
+        self._workspace_docks=(model_dock,tasks_dock,jobs_dock,messages_dock,self.run_dock)
         self.resizeDocks([model_dock,tasks_dock],[260,360],Qt.Horizontal)
         self.resizeDocks([jobs_dock,messages_dock],[140,140],Qt.Vertical)
         self._actions={}
@@ -238,6 +258,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         settings=QSettings("ANY", "ANYfem-Qt")
         if settings.contains("geometry"):self.restoreGeometry(settings.value("geometry"))
         if settings.contains("docks"):self.restoreState(settings.value("docks"))
+        from .button_help import ButtonHelp
+        self.button_help=ButtonHelp(self)
 
     def _dock(self,title,widget,area):
         dock=QDockWidget(title,self);dock.setObjectName(title)
@@ -246,7 +268,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def reset_workspace_layout(self):
         self.restoreState(self._default_workspace_state)
-        model,tasks,jobs,messages=self._workspace_docks
+        model,tasks,jobs,messages,run=self._workspace_docks
         self.resizeDocks([model,tasks],[260,390],Qt.Horizontal)
         self.resizeDocks([jobs],[150],Qt.Vertical)
         jobs.raise_()
@@ -263,7 +285,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(file,"New",lambda:self.new_project(confirm=True),"Ctrl+N")
         self._action(file,"Open",lambda:self.open_project(confirm=True),"Ctrl+O")
         self._recent_menu=file.addMenu("Recent projects");self._refresh_recent_menu()
-        self._action(file,"Save",self.save_project,"Ctrl+S")
+        self._action(file,"Save",self.save_project,"Ctrl+Alt+S")
         self._action(file,"Save as",lambda:self.save_project(ask=True),"Ctrl+Shift+S")
         self._action(file,"Recover autosave",self.recover_autosave)
         self._action(file,"Open file inspector",self.open_file_inspector)
@@ -277,8 +299,18 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Redo",self.redo,"Ctrl+Y")
         self._action(edit,"Select all",self._select_all,"Ctrl+A")
         self._action(edit,"Delete selected",self._delete_selection,"Delete")
+        self._action(edit,"Create geometry set…",self.geometry_actions.new_set,"Ctrl+G")
+        self._action(edit,"Add selection to set…",self.geometry_actions.add_to_set)
+        self._action(edit,"Copy geometry…",lambda:self.geometry_actions.vector_dialog("Copy"))
+        self._action(edit,"Move geometry…",lambda:self.geometry_actions.vector_dialog("Move"))
+        self._action(edit,"Geometry properties…",self.geometry_actions.properties)
         self._action(edit,"Commands",self.show_command_palette,"Ctrl+P")
         view=self.menuBar().addMenu("View")
+        self._action(view,"Hide selected",lambda:self.set_selection_hidden(True),"Ctrl+H")
+        self._action(view,"Show selected",lambda:self.set_selection_hidden(False),"Ctrl+S")
+        self._action(view,"Show all",self.show_all_items)
+        self.canvas_action_menu=self._action(view,"Actions on canvas right-click",lambda:None)
+        self.canvas_action_menu.setCheckable(True);self.canvas_action_menu.setChecked(True)
         for name,callback in [("Geometry",self.show_geometry),("Mesh",self.show_mesh),("Results",self.panels["Results"].show_results),("Fit",self.viewport.fit)]:
             self._action(view,name,callback)
         self._action(view,"Frame selection",self.viewport.frame_selection,"F")
@@ -303,6 +335,15 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             toolbar.addAction(action)
         self.addToolBarBreak()
         toolbar=self.addToolBar("Selection and renderer");toolbar.setObjectName("Selection and renderer")
+        self.quick_selection_actions={}
+        self.quick_selection_group=QActionGroup(self);self.quick_selection_group.setExclusive(False)
+        for label,mode in (("Point","vertex"),("Line","edge"),("Face","face")):
+            action=QAction(label,self);action.setCheckable(True);action.setChecked(mode==self.selection.mode)
+            action.setToolTip(f"Select {label.lower()} geometry")
+            action.triggered.connect(lambda checked=False,mode=mode:self._quick_select(mode))
+            self.quick_selection_group.addAction(action);toolbar.addAction(action)
+            self.quick_selection_actions[mode]=action
+        toolbar.addSeparator()
         self.selection_mode=QComboBox();self.selection_mode.addItems(["vertex","edge","face","node","element"])
         self.selection_mode.currentTextChanged.connect(self.selection.set_mode);toolbar.addWidget(self.selection_mode)
         self.selection_tool=QComboBox();self.selection_tool.addItems(["box","single","lasso"])
@@ -316,10 +357,41 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.renderer=QComboBox();self.renderer.addItems(["auto","gpu","software"]);self.renderer.setCurrentText(self._viewer_backend)
         self.renderer.currentTextChanged.connect(lambda backend:self.guarded(lambda:self.switch_viewer_backend(backend))());toolbar.addWidget(self.renderer)
         self.renderer.setToolTip("Viewport renderer");self.renderer.setAccessibleName("Viewport renderer")
+        from .navigation import navigation_icon
+        toolbar.addSeparator()
+        self.workspace_actions={};self.workspace_action_group=QActionGroup(self)
+        for index,name in enumerate(self.panels):
+            action=QAction(navigation_icon(name),name,self);action.setCheckable(True)
+            action.setChecked(index==self.details.currentIndex());action.setToolTip(name+" workspace")
+            action.triggered.connect(lambda checked=False,index=index:self._select_workspace(index))
+            self.workspace_action_group.addAction(action);toolbar.addAction(action)
+            button=toolbar.widgetForAction(action);button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            button.setIconSize(QSize(24,24));button.setFixedSize(36,36);button.setAccessibleName(name+" workspace")
+            self.workspace_actions[name]=action
+        self.details.currentChanged.connect(self._sync_workspace_icons)
+
+    def _select_workspace(self,index):
+        self.details.setCurrentIndex(index)
+        self._workspace_docks[1].show();self._workspace_docks[1].raise_()
+
+    def _sync_workspace_icons(self,index):
+        for position,action in enumerate(self.workspace_actions.values()):action.setChecked(position==index)
+        if self.details.tabText(index)=="Results":self.show_result_browser()
 
     def _selection_policy(self,*_):
         self.viewport.configure_selection(tool=self.selection_tool.currentText(),
             depth=self.selection_depth.currentText(),operation=self.selection_operation.currentText())
+
+    def _quick_select(self,mode):
+        self.viewport.dismiss_feature_highlight()
+        self.selection.set_mode(mode)
+        self._sync_selection_controls()
+
+    def _sync_selection_controls(self):
+        self.selection_mode.blockSignals(True)
+        self.selection_mode.setCurrentText(self.selection.mode)
+        self.selection_mode.blockSignals(False)
+        for mode,action in self.quick_selection_actions.items():action.setChecked(mode==self.selection.mode)
 
     def _set_show_attributes(self,visible):
         self._show_attributes.set(bool(visible))
@@ -327,7 +399,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def refresh_views(self):
         if self._closing:return
-        if self._view_mode=="results" and self.solution is None and self.active_job_id in self.result_datasets:
+        if self._view_mode=="results" and self.panels["Results"].use_retained() and self.active_job_id in self.result_datasets:
             self.panels["Results"].show_results()
         else:super().refresh_views()
 
@@ -335,6 +407,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if self._closing or self._refresh_suspended or self._refreshing:return
         self._refreshing=True
         try:
+            self.run_monitor.bind_document()
             self.tree.refresh();self.refresh_panels();self.job_status.refresh()
             self._actions["Undo"].setEnabled(self.commands.can_undo and not self.session.read_only)
             self._actions["Redo"].setEnabled(self.commands.can_redo and not self.session.read_only)
@@ -343,6 +416,13 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def refresh_panels(self):
         for panel in self.panels.values():panel.refresh()
+        self.result_browser.refresh()
+
+    def show_result_browser(self):
+        switching=self.left_tabs.currentWidget() is not self.result_browser
+        self.left_tabs.setCurrentWidget(self.result_browser)
+        self._workspace_docks[0].show()
+        if switching:self.resizeDocks([self._workspace_docks[0]],[370],Qt.Horizontal)
 
     def _on_workbench_event(self,event):
         if self._closing or self._refresh_pending:return
@@ -354,10 +434,43 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _on_selection_changed(self):
         if self._closing:return
+        self._sync_selection_controls()
+        if not getattr(self.tree,"_tree_driven",False):self.viewport.dismiss_feature_highlight()
         if getattr(self.selection.domain,"value","geometry")=="geometry":
             self._geometry_selection_mode=self.selection.mode
         self.tree.sync_from_selection()
         self.statusBar().showMessage(f"{len(self.selection.items)} selected · {self._status.get()}")
+
+    def _observe_run_event(self,kind,event):
+        monitor=getattr(self,"run_monitor",None)
+        if monitor is None:return
+        records=self.project.mesh_records if kind=="mesh" else self.project.jobs
+        record=records.get(event.job_id)
+        if record is None:return
+        try:
+            stale=(record.source_model_hash!=self.session.revision.model_hash if kind=="mesh" else self._job_is_stale(record))
+            monitor.observe(kind,event,record.name,stale=stale)
+            if event.kind in {"queued","started"}:
+                self.run_dock.show();self.run_dock.raise_()
+                self.resizeDocks([self.run_dock],[300],Qt.Vertical)
+        except Exception as error:
+            self.set_status(f"Run monitor update failed: {error}",error=True)
+
+    def set_selection_hidden(self, hidden):
+        refs=tuple(dict.fromkeys((*self.selection.ordered_items,*self.geometry_actions.references())))
+        if not refs:
+            self.set_status("Select items in the canvas or model tree first.")
+            return
+        self.viewport.visibility.set_hidden(refs,hidden)
+        self.viewport.refresh_visibility()
+        self.tree.refresh_visibility()
+        self.set_status(f"{'Hidden' if hidden else 'Shown'} {len(refs)} selected items.")
+
+    def show_all_items(self):
+        self.viewport.visibility.hidden.clear()
+        self.viewport.refresh_visibility()
+        self.tree.refresh_visibility()
+        self.set_status("All items shown.")
 
     def _update_window_title(self):
         self.setWindowTitle(f"{'*' if self.session.dirty else ''}{self.project.name} — ANYfem (Qt){' [read-only]' if self.session.read_only else ''}")
@@ -413,10 +526,14 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def closeEvent(self,event):
         if self._closing:event.accept();return
         if not self._confirm_discard():event.ignore();return
+        self.geometry_actions.close()
         settings=QSettings("ANY","ANYfem-Qt")
         settings.setValue("geometry",self.saveGeometry());settings.setValue("docks",self.saveState())
         self.flush_project_writes()
         self._closing=True
+        self.run_monitor.stop()
+        self.button_help.close()
+        self.panels["Solve"].graph_timer.stop()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()
         self.scheduler.close()
