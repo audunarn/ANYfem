@@ -6,7 +6,8 @@ solver state or qualify an experimental model. Standalone consumer files retain
 their existing meanings. Explicit selected-node footprints use the same GE
 factory with their own strict schema. B2 footprints use their distinct static
 nodal law and selected batches. Their distinct virgin reference-modal record
-owns physical mass and a modes-only route; BL5 remains unsupported here.
+owns physical mass and a modes-only route. BL5 uses its separate explicit
+Project selector and preserves each panel input schema and solver policy.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _owned_json(value):
 
 
 def encode_bl5_panel(panel):
-    """A distinct native Project route; never relabel a point-panel record."""
+    """Own a distinct BL5 input, including explicit elastic native-fibre v5."""
     from .stiffened_shell import ExperimentalGEBL5Panel
     if type(panel) is not ExperimentalGEBL5Panel:
         raise ValueError("exact ExperimentalGEBL5Panel required")

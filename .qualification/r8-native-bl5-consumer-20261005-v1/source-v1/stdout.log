@@ -1,0 +1,27 @@
+.....F.....................                                              [100%]
+================================== FAILURES ===================================
+_________ test_project_finite_helper_and_accepted_prefix_cancellation _________
+
+tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-native-bl5-consumer-20261005-v1/source-temp-v1/test_project_finite_helper_and0')
+
+    def test_project_finite_helper_and_accepted_prefix_cancellation(tmp_path):
+        case = panel(shell='mixed'); record = AnalysisDefinition.experimental_bl5_panel('native', case)
+        result = solve_bl5_panel(record, targets=(.5,), max_iterations=24, max_backtracks=12)
+        assert result.status == 'completed'
+        owner = record.create_bl5_panel_analysis(); fresh = record.create_bl5_panel_analysis()
+        token = CancellationToken()
+        try:
+            def cancel(accepted): token.cancel('accepted consumer prefix')
+            with pytest.raises(SolveCancelled):
+                owner.solve(case.load_input, (.5,1.), cancellation_token=token, on_accepted=cancel,
+                            max_iterations=24, max_backtracks=12)
+>           assert owner.recover().load_position == .5
+E           AssertionError: assert None == 0.5
+E            +  where None = FinitePointResult(status='completed', load_factor=0.5, shell_displacement=array([ 0.00000000e+00,  0.00000000e+00,  0....um_reference_used=False, body_load=None, distributed_load=None, pressure_load=None, distributing_footprint_wrenches=()).load_position
+E            +    where FinitePointResult(status='completed', load_factor=0.5, shell_displacement=array([ 0.00000000e+00,  0.00000000e+00,  0....um_reference_used=False, body_load=None, distributed_load=None, pressure_load=None, distributing_footprint_wrenches=()) = recover()
+E            +      where recover = <anysolver._stiffened_shell_ge_experimental.ExperimentalGEAnalysis object at 0x0000028C53811A90>.recover
+
+..\..\tests\test_stiffened_shell_native_fibre_bl5_consumer.py:91: AssertionError
+=========================== short test summary info ===========================
+FAILED ..\..\tests\test_stiffened_shell_native_fibre_bl5_consumer.py::test_project_finite_helper_and_accepted_prefix_cancellation
+1 failed, 26 passed in 314.82s (0:05:14)

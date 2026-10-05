@@ -1,0 +1,10 @@
+{
+  "anyfem_wheel": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-consumer-20261005-v1\\wheel-v1\\anyfem-0.4.1-py3-none-any.whl",
+  "anyfem_wheel_sha256": "a8a255eb26696543e31f27d7a49a1df15af8f16c7a1ef341953f02028df545bc",
+  "solver_wheel": "C:/Github/ANYsolver/.perf2-worktrees/stiffened-main-reconcile-20261001/.qualification/b3-ge-e4-pl/r8-native-fibre-bl5-dev-20261005-v1/wheel-s3-v1/anysolver-0.4.7-py3-none-any.whl",
+  "solver_wheel_sha256": "b3d5f572797f3c2954d1bf9dc1c6b4293da14c5812e543dbde7f314a60207291",
+  "source_passes_reused": 26,
+  "source_affected_passes": 1,
+  "installed_passes": 23,
+  "acceptance": "development only; root acceptance reserved"
+}

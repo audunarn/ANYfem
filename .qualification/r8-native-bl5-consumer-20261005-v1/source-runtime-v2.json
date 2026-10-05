@@ -1,0 +1,53 @@
+{
+  "imports": {
+    "anyfem": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\src\\anyfem\\__init__.py",
+    "anysolver": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-fibre-bl5-dev-20261005-v1\\installed-s3-v1\\anysolver\\__init__.py",
+    "numpy": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numpy\\__init__.py",
+    "scipy": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\scipy\\__init__.py",
+    "numba": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numba\\__init__.py",
+    "llvmlite": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\llvmlite\\__init__.py"
+  },
+  "versions": {
+    "anyfem": "0.4.1",
+    "anysolver": "0.4.7",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "numba": "0.68.0",
+    "llvmlite": "0.50.0"
+  },
+  "pools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numpy.libs\\libscipy_openblas64_-ed4f167a5330424524f45258e7ca2c8d.dll",
+      "version": "0.3.34.106.0",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\scipy.libs\\libscipy_openblas-197ee2fc9b4d071f7e048078cac74115.dll",
+      "version": "0.3.31.dev",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    }
+  ],
+  "affinity": [
+    0
+  ],
+  "jit_off": true,
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "OPENBLAS_CORETYPE": null
+  }
+}

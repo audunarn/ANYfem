@@ -1,0 +1,78 @@
+{
+  "q4": {
+    "outcome": "result",
+    "result_type": "anysolver._stiffened_shell_ge_experimental.LinearResult",
+    "status": "completed",
+    "free_equilibrium_ratio": 1.00695722633398e-14,
+    "constraint_max": 1.6790814936756083e-21,
+    "shell_displacement_finite": true,
+    "fields": [
+      "status",
+      "shell_displacement",
+      "beam_coordinates",
+      "multipliers",
+      "reactions",
+      "free_equilibrium_ratio",
+      "constraint_max",
+      "generation",
+      "production_qualified",
+      "point_wrenches",
+      "body_load",
+      "distributed_load",
+      "pressure_load",
+      "distributing_footprint_wrenches"
+    ]
+  }
+}
+{
+  "s3": {
+    "outcome": "result",
+    "result_type": "anysolver._stiffened_shell_ge_experimental.LinearResult",
+    "status": "completed",
+    "free_equilibrium_ratio": 2.938634682902606e-15,
+    "constraint_max": 1.1193876624504055e-21,
+    "shell_displacement_finite": true,
+    "fields": [
+      "status",
+      "shell_displacement",
+      "beam_coordinates",
+      "multipliers",
+      "reactions",
+      "free_equilibrium_ratio",
+      "constraint_max",
+      "generation",
+      "production_qualified",
+      "point_wrenches",
+      "body_load",
+      "distributed_load",
+      "pressure_load",
+      "distributing_footprint_wrenches"
+    ]
+  }
+}
+{
+  "mixed": {
+    "outcome": "result",
+    "result_type": "anysolver._stiffened_shell_ge_experimental.LinearResult",
+    "status": "completed",
+    "free_equilibrium_ratio": 7.006612872050237e-15,
+    "constraint_max": 8.470329472543003e-22,
+    "shell_displacement_finite": true,
+    "fields": [
+      "status",
+      "shell_displacement",
+      "beam_coordinates",
+      "multipliers",
+      "reactions",
+      "free_equilibrium_ratio",
+      "constraint_max",
+      "generation",
+      "production_qualified",
+      "point_wrenches",
+      "body_load",
+      "distributed_load",
+      "pressure_load",
+      "distributing_footprint_wrenches"
+    ]
+  }
+}

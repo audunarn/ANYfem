@@ -1,0 +1,1074 @@
+[
+  {
+    "seconds": 0.15092949999962002,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 0.3237540000118315,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 0.45650090009439737,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 0.595082400017418,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 0.7331144000636414,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 0.8713082000613213,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.013734000036493,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.1542274000821635,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.3044223000761122,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.4528201000066474,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.5996172000886872,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.7437759001040831,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 1.8829526000190526,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.0210722000338137,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.1713586000259966,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.31202390010003,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.453215500107035,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.5887391000287607,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.7310728000011295,
+    "threads": [
+      {
+        "pid": 120088,
+        "id": 37580,
+        "start_module": "C:\\Python\\Python314\\python.exe",
+        "query_status": 0,
+        "numeric_or_unresolved": true
+      },
+      {
+        "pid": 120088,
+        "id": 126196,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 130748,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 115984,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 50704,
+        "start_module": "C:\\Windows\\System32\\combase.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 122968,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 127208,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      },
+      {
+        "pid": 120088,
+        "id": 128648,
+        "start_module": "C:\\Windows\\System32\\ntdll.dll",
+        "query_status": 0,
+        "numeric_or_unresolved": false
+      }
+    ]
+  },
+  {
+    "seconds": 2.8631085000233725,
+    "threads": []
+  }
+]

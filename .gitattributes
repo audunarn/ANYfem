@@ -28,3 +28,10 @@ docs/development/r8-ge-distributing-cyclic-consumer-20261004.md -text
 .qualification/stiffened-shell/r8-ge-distributing-cyclic-consumer-dev-20261004-v1/** -text -whitespace
 tests/test_stiffened_shell_ge_distributing_native_material_consumer.py -text
 examples/stiffened_shell_ge_distributing_native_material_consumer.py -text
+
+.qualification/r8-native-bl5-consumer-20261005-v1/** -text -whitespace
+src/anyfem/solve/stiffened_shell.py -text whitespace=cr-at-eol
+src/anyfem/solve/stiffened_shell_project.py -text whitespace=cr-at-eol
+tests/test_stiffened_shell_native_fibre_bl5_consumer.py -text whitespace=cr-at-eol
+examples/stiffened_shell_native_fibre_bl5_consumer.py -text whitespace=cr-at-eol
+docs/experimental_stiffened_shell_native_fibre_bl5.md -text whitespace=cr-at-eol

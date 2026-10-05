@@ -1,0 +1,7 @@
+{
+  "reason": "git diff --cached --check identified blank lines at EOF in new example; formatting-only repair",
+  "tested_sha256": "254370cd65f69fb3c156eaad1ac6b90528023f8eb58210c340454c7cbfbf2199",
+  "final_sha256": "4b66397ea8cb4fbd944a09d11ce7cdf078ee431d059634635930d43990cc4274",
+  "same_AST": true,
+  "package_wheel_unchanged": true
+}

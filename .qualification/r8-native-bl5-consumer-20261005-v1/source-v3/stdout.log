@@ -1,0 +1,9 @@
+.                                                                        [100%]
+1 passed in 5.70s
+{
+  "status": "completed",
+  "fem_modules": 99,
+  "solver_modules": 424,
+  "loaded_modules": 309,
+  "solver_wheel_sha256": "b3d5f572797f3c2954d1bf9dc1c6b4293da14c5812e543dbde7f314a60207291"
+}
