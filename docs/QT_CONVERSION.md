@@ -45,8 +45,13 @@ Failed raster seam, depth and layout diagnostics are retained. Parent headless
 imports load neither Qt nor Tk; both wheels build and six image checks pass
 from fresh wheel installations (effective module paths confirmed). Licensing
 passes for 18 direct dependencies. Evidence is under
-`reports/qt/false-diagonal/`. External Mistral READ disclosure permission for the
-sibling diff is pending; parent review and local checks complete independently.
+`reports/qt/false-diagonal/`. User-approved external Mistral READ review completed
+on 2026-10-05; report and parent adjudication are retained in that directory.
+Disabled-plane clipping already bypasses clipping; owner/tag selection admission
+and the stationary-camera/2,500-primitive HUD guard are unchanged. No confirmed
+correctness regression was found. Software fill antialiasing is disabled to avoid
+internal seams: outer silhouettes can appear jagged with outlines off; boundary
+strokes remain antialiased. This is a recorded visual limitation, not GPU acceptance.
 User subsequently approved the two-file backup/update/restore. The local viewer
 history diverged, so a normal merge preserves both histories; specific conflict
 hunks retain the published owner-cache fix, regression and viewer docstring.
