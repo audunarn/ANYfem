@@ -3,6 +3,12 @@ from dataclasses import replace
 from hashlib import sha256
 import json
 import pytest
+import anygeometry
+
+pytestmark = pytest.mark.skipif(
+    not all(callable(getattr(anygeometry, name, None)) for name in (
+        'query_prepared_model_scope', 'validate_prepared_model_scope_binding')),
+    reason='requires coordinated unpublished prepared-model-scope owner API')
 
 from anygeometry import GeometryModel,plan_intersections,apply_intersections
 from anygeometry.entities import EntityRef

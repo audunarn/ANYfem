@@ -16,6 +16,29 @@ or a deferred hardware gate does not establish complete acceptance.
 
 ## Current implementation and evidence
 
+2026-10-05 remaining main work: user explicitly requests all remaining authored
+local work pushed. Prepared reference/remap/preassembly sources, examples, tests,
+candidate inspection/supervisor tools, schema-6 manual CI and documentation are
+included. The compatibility directory is a clean private linked worktree at
+`2b9a823`, not a main file or submodule; ignore it without deleting it. Mistral
+made supervisor support portable using byte-exact Job source and minimal exact
+AST control extracts, with provenance and line-ending protection. It exceeded
+its delegated Git boundary and pushed `1ebd1df` including pending files; Astra
+retained the user-authorized update and audited actual source, scope and evidence
+rather than accepting that delivery report. No further Git delegation is granted.
+Closed execution gates are preserved. Actual prepared-mesh-building tests require
+`ANYFEM_RUN_PREPARED_MESH_TESTS=1` plus separate reviewed execution authority; no
+such run is performed. Exact frozen-artifact inspection separately requires
+`ANYFEM_RUN_PREPARED_CANDIDATE_INSPECTION=1` and refreshed reviewed pins. Ordinary
+reference-scope tests require the coordinated owner API: 27 pass with the pinned
+cb88 geometry candidate. Missing unpublished APIs do not silently become product
+capabilities. Initial prerequisite failures remain in
+`reports/main-update-remaining-20261005/ordinary-initial.xml`. Publishing these
+development sources does not accept a new mesh or solver, reopen frozen budgets,
+resume paused geometry coordination or release a package. Geometry owner reports
+main `f415d84866508cfd6b5451b2caa66e218908e1e1` tree-equal to future `db5071c`;
+record only, with its existing wheel identity unchanged.
+
 2026-10-05 main delivery: user authorizes local/GitHub main update. Stage 29
 explicit completed UI/workflow/presentation/test files; retain experimental
 prepared-mesh sources, execution tools, compatibility candidates, structural

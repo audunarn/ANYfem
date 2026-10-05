@@ -1,6 +1,7 @@
 """Cheap contract guards only: never call mesh fixtures, FE build or solver."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,6 +53,8 @@ def test_duplicate_record_identity_refuses():
         harness.assert_pressure_binding('child', pressure, SimpleNamespace(references=(binding, binding)), case_id='case-id')
 
 
+@pytest.mark.skipif(os.environ.get('ANYFEM_RUN_PREPARED_CANDIDATE_INSPECTION') != '1',
+                    reason='requires exact local candidate artifacts and refreshed reviewed source pins')
 def test_current_owner_clone_keeps_complete_project_inputs_without_preparation():
     # Geometry construction and extraction only: never call build_fixture,
     # plan/apply intersections, triangulation, FE build or solver.
