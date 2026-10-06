@@ -1,0 +1,24 @@
+{
+  "command": [
+    "C:/Python/Python314/python.exe",
+    "-I",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\entry-v2.py",
+    "installed-v2"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1",
+  "status": "failed",
+  "exit_code": 1,
+  "failure": null,
+  "process_wall_seconds": 4.4529138,
+  "seconds_limit": 116.0,
+  "reserve_seconds": 30.0,
+  "cumulative_used_seconds": 8.213906,
+  "remaining_seconds": 141.786094,
+  "authority_sha256": "4e057dd97fec8b910801c9fa39db8e4c9d3f693156589aa3481f640d0530c062",
+  "supervisor_sha256": "305d5e16e4be361e7fed6e7d75073c5d0fc590598e457aac3a2034c79c83f0b9",
+  "entry_sha256": "66a4c097cbda362e9a34ce6bff38f5c86271f98812d75e349fe95529f7a7c34f",
+  "manifest_sha256": "2bc667cb133a909feee02672388bef6c5eeb48b26b8cdcd24c099b07ac397769",
+  "selectors_sha256": "8370b2fd118a34c2937507bd0e75b4feb871dc9299ad7678c41aefc1b206345d",
+  "tree_memory": "Entry watchdog samples entire tree, flushes samples and fails on resource changes; native timeout kills tree",
+  "timing": "Whole interpreter launch through terminal, including preparation/import/test/post-audit overhead"
+}

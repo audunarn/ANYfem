@@ -1,0 +1,8 @@
+{
+  "prior_attempt": "installed-v2 FAILED4.4529138s before cases",
+  "cause": "Configured base-site threadpoolctl and pytest/_pytest are absent from frozen CI target",
+  "exact_additional_bindings": 74,
+  "case_artifacts_thresholds_resources_changed": false,
+  "origin_guard_unchanged": true,
+  "runtime_ledger_used": 8.213906
+}

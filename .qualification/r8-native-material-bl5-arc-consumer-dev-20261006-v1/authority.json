@@ -1,8 +1,8 @@
 {
-  "status": "PENDING_USER_APPROVAL",
+  "status": "APPROVED",
   "total_seconds": 150,
   "reserved_for_final_verification_seconds": 30,
-  "approval_evidence": null,
+  "approval_evidence": "Human message 2026-10-06: I approve, responding to pending120-second Jacobian and150-second consumer requests; apply separately, no added scope",
   "scope": "Only the two frozen installed consumer tests; no build/install or solver campaign",
   "memory_bytes": 2147483648,
   "affinity": [

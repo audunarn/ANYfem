@@ -34,6 +34,7 @@ def test_project_native_material_arc_prefix_cancel_restore_continue(tmp_path):
     assert result['cancellation']['before_commit']['stage'] == 'stiffened-shell.arc.commit'
     assert all(item['reason'] and item['stage'] for item in result['cancellation'].values())
     assert all(result['refusals'].values())
+    assert result['wrong_model_identity'] != result['model_identity']
     assert result['input_roundtrip_equal'] and result['native_definition_bytes_equal']
     assert result['fresh_restore_bytes_equal'] and result['continued_bytes_equal']
     assert result['continued']['free_equilibrium_ratio'] <= 1e-8
@@ -46,7 +47,7 @@ def test_project_native_material_arc_prefix_cancel_restore_continue(tmp_path):
     generalized = {row['element_id'] for row in result['continued']['beam_generalized_material']}
     assert physical and generalized and physical.isdisjoint(generalized)
     assert physical == {row['element_id'] for row in result['physical_fibre_members']}
-    case = load_case(directory/'original-case.json')
+    case = load_case(directory/'original-case.anyfem-ge.json')
     reopened = load_project(directory/'original-project.anyfem')
     record = reopened.analyses[result['project_analysis_id']]
     assert bl5_panel_from_analysis(record).to_dict() == case.to_dict() == EXAMPLE['panel']().to_dict()

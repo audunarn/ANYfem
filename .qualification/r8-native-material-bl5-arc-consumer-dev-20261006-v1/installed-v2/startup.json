@@ -1,0 +1,12 @@
+{
+  "pid": 141372,
+  "initial_affinity": [
+    0
+  ],
+  "pre_numerical_affinity": [
+    0
+  ],
+  "executable": "C:\\Python\\Python314\\python.exe",
+  "psutil_path": "C:\\Python\\Python314\\Lib\\site-packages\\psutil\\__init__.py",
+  "psutil_sha256": "7b6a0675824eb1fa2ff0cb1eb36e358dc454703e51dfa4e9a0e6ccd26a159f0c"
+}

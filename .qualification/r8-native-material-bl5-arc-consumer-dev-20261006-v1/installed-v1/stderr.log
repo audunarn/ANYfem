@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-native-material-bl5-arc-consumer-dev-20261006-v1\entry.py", line 139, in <module>
+    imports=loaded();write('loaded-before.json',imports);verify_loaded(imports)
+                                                         ~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-native-material-bl5-arc-consumer-dev-20261006-v1\entry.py", line 115, in verify_loaded
+    assert path.is_relative_to(CI.resolve()), name
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: psutil._common

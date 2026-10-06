@@ -1,0 +1,19 @@
+{
+  "arguments": [
+    "-q",
+    "-c",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\snapshot-v5\\pyproject.toml",
+    "-o",
+    "pythonpath=",
+    "--basetemp",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\installed-v5\\temp",
+    "--junitxml=C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\installed-v5\\junit.xml",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\snapshot-v5\\tests\\test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-material-bl5-arc-consumer-dev-20261006-v1\\snapshot-v5\\tests\\test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals"
+  ],
+  "selectors": [
+    "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue",
+    "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals"
+  ],
+  "config_sha256": "0e6c176eaa6153aa3cf47b1140b91b2d630602fee39ebbc5bdbef2e92f5ae9b5"
+}

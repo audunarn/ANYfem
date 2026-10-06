@@ -1,0 +1,6 @@
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue", "when": "setup", "outcome": "passed", "duration": 0.0030074999667704105, "detail": null}
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue", "when": "call", "outcome": "passed", "duration": 26.07316060003359, "detail": null}
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue", "when": "teardown", "outcome": "passed", "duration": 0.00018209998961538076, "detail": null}
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals", "when": "setup", "outcome": "passed", "duration": 0.00010820000898092985, "detail": null}
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals", "when": "call", "outcome": "passed", "duration": 0.3139259999152273, "detail": null}
+{"nodeid": "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals", "when": "teardown", "outcome": "passed", "duration": 0.00016930000856518745, "detail": null}

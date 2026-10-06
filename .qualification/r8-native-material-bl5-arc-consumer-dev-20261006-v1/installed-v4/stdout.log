@@ -1,0 +1,125 @@
+F.                                                                       [100%]
+================================== FAILURES ===================================
+_______ test_project_native_material_arc_prefix_cancel_restore_continue _______
+
+tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-native-material-bl5-arc-consumer-dev-20261006-v1/installed-v4/temp/test_project_native_material_a0')
+
+    def test_project_native_material_arc_prefix_cancel_restore_continue(tmp_path):
+        directory = tmp_path/'arc'
+>       result = EXAMPLE['workflow'](directory)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+snapshot-v4\tests\test_stiffened_shell_native_material_bl5_arc_consumer.py:20: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+snapshot-v4\examples\stiffened_shell_native_material_bl5_arc_consumer.py:125: in workflow
+    thickness_m=restored.shell.thickness_m*1.01)).create_analysis()
+                                                  ^^^^^^^^^^^^^^^^^
+..\r8-b2-physical-footprint-consumer-20261006-v1\site-v1\anyfem\solve\stiffened_shell.py:1304: in create_analysis
+    owner = stiffened_shell.create_analysis(definition=self.definition())
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Github\ANYsolver\.perf2-worktrees\stiffened-main-reconcile-20261001\.qualification\b3-ge-e4-pl\r8-native-material-bl5-arc-dev-20261006-v1\site-v1\anysolver\stiffened_shell.py:219: in create_analysis
+    return ExperimentalGEAnalysis(definition, resources=resources)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Github\ANYsolver\.perf2-worktrees\stiffened-main-reconcile-20261001\.qualification\b3-ge-e4-pl\r8-native-material-bl5-arc-dev-20261006-v1\site-v1\anysolver\_stiffened_shell_ge_experimental.py:950: in __init__
+    line_c, self._line_samples, self._line_terms = _compile_weak_lines(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+lines = (ExperimentalBL5Line(shell_nodes=(1, 2, 3, 4), beam_halfcells=((0, 0), (0, 1), (1, 0), (1, 1)), multiplier_span=1, expected_beam_arm=(0.0, 0.0, -0.05), basis='continuous_p1_coarse'),)
+
+    def compile_lines(lines, *, shell_ids, shell_xyz, shell_cells,
+                      thickness, beam_ids, beam_nodes, beam_parts,
+                      shell_count, beam_count, with_terms=False):
+        """Build the fixed sparse C rows and keep local operators for later work.
+    
+        The returned rows are derivatives of integrated constraint work with
+        respect to multiplier coefficients, not pointwise collocation equations.
+        """
+        if type(lines) is not tuple or any(type(line) not in
+                                           (ExperimentalL1Line, ExperimentalBL5Line)
+                                           for line in lines):
+            raise ValueError("typed experimental weak lines required")
+        if type(with_terms) is not bool:
+            raise ValueError("explicit finite line term selection required")
+        terms = []
+        shell_index = {node: i for i, node in enumerate(shell_ids)}
+        beam_index = {node: i for i, node in enumerate(beam_ids)}
+        shell_edges = {frozenset((cell[j], cell[(j+1) % len(cell)]))
+                       for cell in shell_cells for j in range(len(cell))}
+        positions = np.array([beam_nodes[node][0] for node in beam_ids])
+        frames = np.array([beam_nodes[node][1] for node in beam_ids])
+        state = Mechanical(positions, np.zeros_like(positions), frames,
+                           np.tile(np.eye(3), (len(beam_parts), 2, 1, 1)),
+                           np.zeros((len(beam_parts), 18)))
+        count = shell_count+beam_count
+        row_indices, columns, values = [], [], []
+        samples = []
+        line_row = 0
+        seen_lines = set()
+        abscissae = (.5-.5/np.sqrt(3.), .5+.5/np.sqrt(3.))
+        for line in lines:
+            line.__post_init__()
+            label = "L1" if type(line) is ExperimentalL1Line else "BL5"
+            identity = (line.shell_nodes, line.beam_halfcells)
+            if identity in seen_lines:
+                raise ValueError(f"repeated experimental {label} material line")
+            seen_lines.add(identity)
+            if any(node not in shell_index for node in line.shell_nodes):
+                raise ValueError(f"{label} line references unknown shell node")
+            if any(frozenset((line.shell_nodes[i], line.shell_nodes[i+1]))
+                   not in shell_edges for i in range(len(line.shell_nodes)-1)):
+                raise ValueError(f"{label} material trace must follow shell element edges")
+            if type(line) is ExperimentalBL5Line:
+                segments = _bl5_segments(
+                    line, shell_index, shell_xyz, beam_nodes, beam_parts,
+                    abscissae)
+            else:
+                segments = ((edge, edge, float(alpha), float(alpha),
+                             .5*float(np.linalg.norm(shell_xyz[shell_index[line.shell_nodes[edge+1]]]-
+                                                      shell_xyz[shell_index[line.shell_nodes[edge]]])), None)
+                            for edge in range(len(line.beam_halfcells))
+                            for alpha in abscissae)
+            seen_stations = set()
+            for shell_edge, beam_edge, shell_alpha, beam_alpha, weight, support_alpha in segments:
+                element_index, cell = line.beam_halfcells[beam_edge]
+                if element_index >= len(beam_parts):
+                    raise ValueError(f"{label} line references unknown native beam half-cell")
+                element = beam_parts[element_index][0]
+                reference = element.operator.reference
+                node_rows = tuple(beam_index[node] for node in element.node_ids)
+                shell_pair = line.shell_nodes[shell_edge:shell_edge+2]
+                shell_rows = tuple(shell_index[node] for node in shell_pair)
+                shell_reference = shell_xyz[list(shell_rows)]
+                shell_slots = np.r_[np.arange(6*shell_rows[0], 6*shell_rows[0]+6),
+                                    np.arange(6*shell_rows[1], 6*shell_rows[1]+6)]
+                length = float(np.linalg.norm(shell_reference[1]-shell_reference[0]))
+                if not np.isfinite(length) or length <= 1e-10:
+                    raise ValueError(f"nondegenerate {label} reference edge required")
+                station = (element_index, cell, float(beam_alpha))
+                if station in seen_stations:
+                    raise ValueError(f"repeated native {label} station")
+                seen_stations.add(station)
+                port = NativeHalfCellPort.from_reference(
+                    reference, node_rows, element_index, cell, float(beam_alpha),
+                    beam_count-24*len(beam_parts), beam_count)
+                if type(line) is ExperimentalL1Line:
+                    local_operator = L1LocalOperator.at_reference(
+                        shell_reference, np.zeros((2, 6)), thickness,
+                        port, state, offset=line.beam_offset,
+                        station=float(shell_alpha))
+                    observed_offset = local_operator.reference_offset
+                    expected_offset = line.expected_shell_offset
+                else:
+                    local_operator = BL5LocalOperator.at_reference(
+                        shell_reference, np.zeros((2, 6)), thickness,
+                        port, state, station=float(shell_alpha))
+                    observed_offset = local_operator.reference_arm
+                    expected_offset = line.expected_beam_arm
+                if not np.allclose(observed_offset, expected_offset,
+                                   rtol=1e-10, atol=1e-10):
+>                   raise ValueError(f"{label} reference correspondence offset mismatch")
+E                   ValueError: BL5 reference correspondence offset mismatch
+
+C:\Github\ANYsolver\.perf2-worktrees\stiffened-main-reconcile-20261001\.qualification\b3-ge-e4-pl\r8-native-material-bl5-arc-dev-20261006-v1\site-v1\anysolver\_stiffened_shell_l1_assembly_experimental.py:364: ValueError
+=========================== short test summary info ===========================
+FAILED snapshot-v4\tests\test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue
+1 failed, 1 passed in 1.84s

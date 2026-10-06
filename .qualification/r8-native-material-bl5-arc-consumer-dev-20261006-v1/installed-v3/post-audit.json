@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "pytest_exit_code": 1,
+  "input_count": 5,
+  "loaded_files": 1587,
+  "full_diagnostics": "workflow JSON, actual solver checkpoints and Project are inside temp/"
+}

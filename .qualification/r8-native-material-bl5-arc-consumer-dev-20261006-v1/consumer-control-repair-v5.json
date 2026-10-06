@@ -1,0 +1,9 @@
+{
+  "prior": "installed-v4 actual1PASS/1FAIL8.0120853s",
+  "fix": "Valid density-only wrong-model owner; explicitly distinct public compiled identities; geometry/reference arms/J2 unchanged",
+  "example_sha256": "9b48280346efde5b857ff8fa54ca8d3f828da2153bcb3419f888560f8e3aec7c",
+  "test_sha256": "ae49b8f095c34381534b674098854207f98f0bfc748fc79096225f6b7d6afc80",
+  "used150_seconds": 22.1113119,
+  "criteria_changed": false,
+  "package_changes": false
+}

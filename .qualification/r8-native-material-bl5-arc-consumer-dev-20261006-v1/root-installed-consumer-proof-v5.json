@@ -1,0 +1,59 @@
+{
+  "status": "ROOT_INSPECTED_INSTALLED_CONSUMER_TWO_CASE_PASS",
+  "tests": 2,
+  "failures": 0,
+  "post_audit": "passed",
+  "solver_wheel_sha256": "4c027af197b7d8337e9ceb1d106e2b77befbb493179a7e6528ba9fb6e6cbf98a",
+  "consumer_wheel_sha256": "d1c9714d7ca3e21d5d95c4ab9813bbf40d635c99cfa732a5f9284242f45d8daf",
+  "source_test_sha256": "ae49b8f095c34381534b674098854207f98f0bfc748fc79096225f6b7d6afc80",
+  "source_example_sha256": "9b48280346efde5b857ff8fa54ca8d3f828da2153bcb3419f888560f8e3aec7c",
+  "model_identity": "18f0643b5262581afce1f4f1264e4cf3cead38786315f233de76aa2568df5342",
+  "wrong_model_identity": "d3fe6fdc3b1b14e6a5ac0a75c478172f2edf8df63dfc933c32eacd0858132cab",
+  "generation_inventory": [
+    3,
+    4,
+    5
+  ],
+  "fresh_restore_bytes_equal": true,
+  "continued_bytes_equal": true,
+  "input_roundtrip_equal": true,
+  "native_definition_bytes_equal": true,
+  "physical_fibre_alpha_max": 3.6762996240148006E-05,
+  "s3_alpha_max": 2.1591735186810974E-06,
+  "cancellation": {
+    "before_step": {
+      "reason": "consumer before first arc step",
+      "stage": "stiffened-shell.arc.step"
+    },
+    "before_commit": {
+      "reason": "consumer cancels before atomic arc commit",
+      "stage": "stiffened-shell.arc.commit"
+    },
+    "after_prefix": {
+      "reason": "consumer preserves one accepted arc prefix",
+      "stage": "stiffened-shell.arc.step"
+    }
+  },
+  "refusals": {
+    "corrupted_checkpoint": "arc snapshot digest",
+    "wrong_model": "incompatible arc metadata",
+    "changed_controller": "arc controller/load/metric differs from accepted history"
+  },
+  "free_equilibrium_ratio": 6.029523875000334E-11,
+  "constraint_max": 8.214266713879657E-18,
+  "effective_runtime": "before/after affinity0,pools1,Numba1,JIToff",
+  "peak_tree_rss": 203509760,
+  "samples": 286,
+  "actual_imported_files": 1591,
+  "actual_solver_imports": 250,
+  "actual_consumer_imports": 65,
+  "process_wall_seconds": 31.46984,
+  "cumulative150_used": 53.5811519,
+  "remaining150": 96.41884809999999,
+  "preserved_failures": [
+    "v1/v2 pre-case dependency origin",
+    "v3 filename suffix",
+    "v4 invalid wrong-model reference arm"
+  ],
+  "production_qualified": false
+}

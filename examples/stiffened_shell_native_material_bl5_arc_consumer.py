@@ -105,7 +105,7 @@ def workflow(output):
     directory = Path(output)
     directory.mkdir(parents=True, exist_ok=False)
     original = panel()
-    standalone = load_case(save_case(original, directory/'original-case.json'))
+    standalone = load_case(save_case(original, directory/'original-case.anyfem-ge.json'))
     project = Project('experimental native material BL5 arc', mesh_only=True)
     record = AnalysisDefinition.experimental_bl5_panel('mixed P1 native material arc', standalone)
     project.add_analysis(record)
@@ -122,9 +122,12 @@ def workflow(output):
         owner = record.create_bl5_panel_analysis(); cleanup.callback(owner.close)
         fresh = record.create_bl5_panel_analysis(); cleanup.callback(fresh.close)
         wrong = replace(restored, shell=replace(restored.shell,
-            thickness_m=restored.shell.thickness_m*1.01)).create_analysis()
+            density_kg_m3=restored.shell.density_kg_m3*1.01)).create_analysis()
         cleanup.callback(wrong.close)
         preflight = owner.preflight()
+        wrong_identity = wrong.preflight()['identity']
+        if wrong_identity == preflight['identity']:
+            raise RuntimeError('admitted density-only model did not change compiled identity')
         if owner.capabilities.get('arc_length') != 'experimental_native_fibre_bl5_material_tangent_plane_v1':
             raise RuntimeError('public solver lacks the native BL5 material arc DEV route')
         force = owner.solve(restored.load_input, (.001,), **OPTIONS)
@@ -186,6 +189,7 @@ def workflow(output):
         result = dict(status=resumed.status, restored_status=restored_prefix.status,
             production_qualified=False, schema=restored.to_dict()['schema'], profile=dict(PROFILE),
             policy=restored.bl5_material_policy, model_identity=preflight['identity'],
+            wrong_model_identity=wrong_identity,
             project_analysis_id=record.id, analysis_type=record.type,
             formulation=record.beam_formulation, solver_route='public create_bl5_panel_analysis -> continue_arc_length',
             provenance=dict(anyfem_module=anyfem.__file__, anysolver_module=anysolver.__file__),

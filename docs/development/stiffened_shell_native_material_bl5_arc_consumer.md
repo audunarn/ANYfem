@@ -1,9 +1,12 @@
 # Native material BL5 arc consumer
 
-Status: IMPLEMENTED_BUT_UNVERIFIED source candidate. No interpreter, test, build,
-install or numerical run is authorized for this separately scoped ANYfem slice.
-The earlier solver allowance is not reused. OpenAI owns implementation because
-Mistral/local availability remains cached unavailable.
+Status: scoped installed development verification passed, two cases at installed-v5.
+Root inspected terminal JUnit, post-audit, actual workflow and effective settings.
+The final run took31.46984 process seconds; fresh150s ledger53.5811519used,
+96.4188481remaining, including four preserved failures. No package rebuild/source
+change was needed. Earlier source-only and failed checkpoints below retain their
+original meaning. OpenAI is fallback because Mistral/local remain unavailable;
+this does not establish different-family or scientific acceptance.
 
 ## Early checkpoint
 
@@ -182,3 +185,38 @@ Both consumer tests and the Python harness remain UNRUN. The supervisor refuses
 interpreter launch while fresh 150-second user approval is pending. No existing
 solver or historical consumer execution allowance is reused, and no build/install
 is proposed.
+
+### 2026-10-06 installed consumer persistence repair
+
+The supervised installed consumer v3 reached the actual tests and reported one
+pass and one failure. The workflow failed at its first case save because
+`original-case.json` violates the existing public `save_case` filename contract.
+The example and its integrated test now use `original-case.anyfem-ge.json` for
+both save/reopen paths. The unchanged v6 schema, Project `.anyfem` path and
+solver checkpoint `.bin` artifacts retain their separate existing meanings.
+
+The remaining public seed/arc/restore/recovery calls and preflight identity/node
+keys were checked against source signatures; no further concrete API misuse was
+identified by this inspection. Assertions and scientific criteria are unchanged.
+The repaired files have not been executed by the author. The prior failure is
+preserved; root owns refreshed frozen inputs and subsequent supervised checks.
+
+### 2026-10-06 admitted wrong-model checkpoint control repair
+
+The installed v4 attempt reported one pass and one failure before checkpoint
+refusal: changing shell thickness alone invalidated the BL5 reference arm. That
+failure is preserved. The negative control now changes only positive shell
+`density_kg_m3` by one percent, leaving geometry, thickness, expected reference
+arms, J2 elasticity and load/controller inputs unchanged. The public compiled
+definition record includes density in its hashed model identity. Both owners
+must construct and preflight successfully, and their public identities must
+differ before the original checkpoint is offered to the wrong owner. Typed
+checkpoint refusal and the fresh owner's empty recovery requirement remain.
+The test additionally asserts the actual distinct identity recorded in workflow
+diagnostics. This repaired control is not executed by the author; root owns its
+next frozen-input supervised check. No package or geometry guard changed.
+
+
+## 2026-10-06 installed final-candidate evidence
+
+Installed-v5 passed both exact cases against existing solver4c027af1 and ANYfem d1c9714d wheels. Actual mixed/biaxial/P1 history advances generation3 -> prefix4 ->5; positive physical-fibre/S3 alpha is retained. Project/input roundtrip, cancelled-step/atomic-commit/prefix preservation, corrupted checkpoint, admitted density-different model and changed-controller refusal, fresh restore and continued byte equality pass. Final equilibrium6.029523875e-11 and constraint8.214266714e-18 meet existing limits. Root verified effective settings,1591 imported files, peak sampled treeRSS203509760bytes/286samples and successful post-audit. See existing raw installed-v1 through installed-v5 and root-installed-consumer-proof-v5.json. Earlier failures and snapshots remain unchanged. This is one experimental fixture, not capacity, full consumer/platform qualification or release.

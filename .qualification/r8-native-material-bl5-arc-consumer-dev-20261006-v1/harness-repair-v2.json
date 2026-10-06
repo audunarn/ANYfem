@@ -1,0 +1,8 @@
+{
+  "status": "NARROW_HARNESS_DEPENDENCY_BINDING_REPAIR",
+  "prior_attempt": "installed-v1 failed3.7609922s BEFORE tests",
+  "cause": "Watchdog psutil was imported from configured Python314 base site before solver dependency site; original manifest omitted its helper identities",
+  "added_exact_module_hash_bindings": 5,
+  "artifact_case_controls_changed": false,
+  "scope": "No interpreter/source bypass; existing origin+hash branch enforces each exact psutil module; other origin guards unchanged"
+}
