@@ -56,7 +56,7 @@ def _owned_json(value):
 
 
 def encode_bl5_panel(panel):
-    """Own a distinct BL5 input, including explicit elastic native-fibre v5."""
+    """Own a distinct BL5 input, including native elastic v5 and mixed J2 v6."""
     from .stiffened_shell import ExperimentalGEBL5Panel
     if type(panel) is not ExperimentalGEBL5Panel:
         raise ValueError("exact ExperimentalGEBL5Panel required")

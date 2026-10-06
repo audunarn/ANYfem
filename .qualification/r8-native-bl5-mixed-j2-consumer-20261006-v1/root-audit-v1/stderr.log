@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-native-bl5-mixed-j2-consumer-20261006-v1\root-installed-audit-v1.py", line 52, in <module>
+    assert '\nVersion: 0.4.1\n' in metadata and '\nRequires-Python: >=3.11\n' in metadata
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

@@ -1,0 +1,136 @@
+{
+  "state": "verified against assigned development consumer criteria; root acceptance pending",
+  "artifact_sha256": "0e1ae7b3324410cfd64c4ba1dfd8810e1b6e239de22ba8bfeedcf9bb55cb0315",
+  "package_python_file_count": 99,
+  "evidence_sha256": {
+    "source-v1/execution.json": "20ff9e0d17f1cca000f9fc4b4f85c6cd4f923ea6d97c0eaf74bbbc10b2539119",
+    "source-v2/execution.json": "f1634b7a56651822eb303d22644407e427333a6a9bdf0b99080eb31d16d3cde6",
+    "build-v1/execution.json": "de1b032413f81767071f7303e390ee3599c94d05163bbaa92934109e649c2261",
+    "install-v1/execution.json": "589ba4061f8c9bea41c6ec14445d1d18dae2f142b65cb15d95249e823f83b0a0",
+    "installed-v1/execution.json": "773fdeb33b53e9838b339ce818e0aaf527fba4c6ead7412a99b94925968ca1bf",
+    "installed-v2/execution.json": "a7dcfe1389ac49c47eeac8ed67e48b2c45b1f6462f46042cbd5c99985671cb33",
+    "candidate-source-shas.json": "68020dd6f1ec25f19459d8e158f623db2627117ce4f7e2a4cb3832140f5ee8ee",
+    "artifact-provenance-v1.json": "fec3470ec50a9c28a8a9c7fcbc95cab62164cb4c161054b76c7cf88c95831ba1",
+    "installed-input-snapshot-manifest-v1.json": "9341cbf034e1505411a0bb2031ab72896e4260e851887fcc8603d032af70ea7f",
+    "installed-selected-tests-v1.json": "dcc48e2daf58357a3045330237d708eddd49a8fe37214b6004018a490eee2e43",
+    "installed-binding-v2.json": "6e030da07d8d7e41b5ff19d851128b8ae730d0bcbda0b612a76508dfb0f042e3",
+    "installed-loaded-v2.json": "d70404b8b47290f39a5fba54b10700b5eb0c0514b2b8903d753df3e897646fcb",
+    "installed-dependency-bindings-v2.json": "2a6e595cae8b8eccebebca34e1c0893b6385aea9753ca36245dbc7c40a612469",
+    "installed-runtime-v2.json": "c8c2949cf58d75491dc88ffb9b628c94c4b740f9759abeec8cbccb86ca2f409f",
+    "installed-post-runtime-v2.json": "4b7a952d74e0fb622c26bf9510da1f251d6b3c23c63708c6cdfab745caf469e9",
+    "installed-junit-v2.xml": "55b33c2fbeceb8685a8cbde0ae627c4d6833a78d2c480c7d672be8c39613d6b7",
+    "source-v1-axial-metadata-replay.json": "960d10d3ef7b558bdd4ba3fb260f7016815657c1cc700871a651aaca5046aa98",
+    "source-junit-v1.xml": "329ba706fab9c326fa3a66e6eb86edc7b740fd9b9d902894df9c32b6a2ee4bcc",
+    "source-junit-v2.xml": "00df1381caee27d67a10eb17b3803e6b4b51ed0202a3fe80fb6793ed2e9eb29e",
+    "installed-v3/execution.json": "6a255132547d9b694122e63e2bca3df4b915deae9847a956409887b33033970f",
+    "installed-binding-v3.json": "70f5d71cf01bb1d589b3adcc9b689ba175fc7d051537fd3d64a065695ef8baac",
+    "installed-loaded-v3.json": "d70404b8b47290f39a5fba54b10700b5eb0c0514b2b8903d753df3e897646fcb",
+    "installed-dependency-bindings-v3.json": "6e078c4e3a6f3783de30242333d3f99397af62a3b8a32a3ef3965af7f35a7ad1",
+    "installed-runtime-v3.json": "c8c2949cf58d75491dc88ffb9b628c94c4b740f9759abeec8cbccb86ca2f409f",
+    "installed-post-runtime-v3.json": "4b7a952d74e0fb622c26bf9510da1f251d6b3c23c63708c6cdfab745caf469e9",
+    "installed-junit-v3.xml": "73b3db5cae79db2d979756613d86ffaf00799f97bbbecf185f9d1b37753c097e",
+    "installed-selected-tests-v3.json": "7722d3c0e15975cb7a74b648cc222e1d332f4e14c55a70f845298016af8fc931",
+    "entry-v3.py": "44e17521a0c42780da7c1d8b1f00431a9f897b576538fa33240e5ec5d689d132",
+    "runner-v3.py": "c87da9c5c6376c16b273ca441fd6d4a5d5417f6d1d7c14165c1abf0273b1ec5e",
+    "protected-v2-identities-v3.json": "adf8ec43251081c4e3c2702327d8c36e60b59db1b3955d534b5e2cd9e9364a12"
+  },
+  "installed_workflow": {
+    "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\installed-temp-v2\\test_project_fixed_translation0\\workflow.json",
+    "sha256": "184a9461874c0ac05a7aadfdea5c7ccb24648df47496715be6db490956f1709a",
+    "status": "completed",
+    "history_generation": 3,
+    "continued_generation": 4,
+    "schema": "anyfem.experimental-ge-bl5-panel-native-mixed-j2-v6",
+    "policy": "BL5_NATIVE_FIBRE_MIXED_SHELL_MATERIAL_V1_DEV",
+    "target": 5e-06,
+    "shell_s3_alpha_max": 2.1591735186810974e-06,
+    "physical_fibre_alpha_max": 3.6762996240148006e-05,
+    "physical_member_ids": [
+      2
+    ],
+    "generalized_member_ids": [
+      1
+    ]
+  },
+  "check_truth": {
+    "source_v1": "7 passed / 1 bad axial-yield premise failed; exact complete saved result replayed after correction",
+    "source_v2": "1 strict-input metadata check passed",
+    "installed_v1": "harness preflight origin assertion failed; zero pytest/numerical cases",
+    "installed_v2": "7 explicit installed impact cases passed; all-S3 axial full workflow excluded",
+    "installed_v3": "1 corrected all-S3 axial full Project workflow passed; elastic S3/yielded physical fibres"
+  },
+  "shared_resource": {
+    "total_seconds": 600.0,
+    "inherited_used_seconds": 402.72211770003196,
+    "used_seconds_before_final_bookkeeping": 562.3846062001171,
+    "remaining_seconds_before_final_bookkeeping": 37.615393799882895,
+    "conservative_debits": [
+      {
+        "kind": "containing shell envelope; replay child precise timing UNKNOWN",
+        "seconds": 5.2350776,
+        "containing_tool_wall_time_seconds": 5.2350776,
+        "includes_already_accounted_source_v2_seconds": 4.935120200039819,
+        "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/runner.py source v2; & 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/replay-source-v1.py",
+        "authority": "root adopted conservative envelope; deliberate V2 double count; no fresh numerical run"
+      },
+      {
+        "label": "pre-installed-byte-binding",
+        "seconds": 0.221211,
+        "kind": "containing tool envelope; exact byte-only child duration UNKNOWN",
+        "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/bind-installed.py",
+        "authority": "root adopted .221211 second conservative envelope; no rerun"
+      },
+      {
+        "label": "final-v2-bookkeeping-envelope",
+        "seconds": 0.3414474,
+        "kind": "containing tool envelope; final bookkeeping child precise duration UNKNOWN",
+        "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/finalize-handoff.py; git status --short --untracked-files=normal",
+        "authority": "root adopted conservative .3414474 second envelope; no rerun"
+      }
+    ],
+    "final_bookkeeping_exact_child_wall_receipt": "bookkeeping-v3/execution.json",
+    "authoritative_final_ledger": "ledger.json",
+    "final_reserved_seconds": 20.0
+  },
+  "scientific_qualified": false,
+  "release_ready": false,
+  "open_gates": [
+    "root final byte/import/JUnit audit and artifact acceptance",
+    "scientific acceptance",
+    "required different-family review",
+    "full programme and Revision8",
+    "release/publication"
+  ],
+  "ownership": "isolated df9d1d78 checkout only; product unchanged since source V1; no main/sibling/Git/config/dependency/version edits",
+  "prior_manifest_sha256": "0a4bcc9124581f928e30a1281013ad14c0e26a3f9245a67590a409d601595654",
+  "protected_v2_identities": {
+    "entry.py": "02688230ccdbb8286d61c84f2e3109eb5b605dddc10a9c6eaaede8344d23444e",
+    "runner.py": "b464b8c6d6f23e0c86bad95125c8c8d994fb0a75c1255f1525eb5647cd3d7734",
+    "final-manifest.json": "0a4bcc9124581f928e30a1281013ad14c0e26a3f9245a67590a409d601595654",
+    "handoff.md": "dd9c4b3727f742625d811e56bdf799de1f11848548c2d14d84b6159b67aedbc4",
+    "installed-input-snapshot-manifest-v1.json": "9341cbf034e1505411a0bb2031ab72896e4260e851887fcc8603d032af70ea7f",
+    "artifact-provenance-v1.json": "fec3470ec50a9c28a8a9c7fcbc95cab62164cb4c161054b76c7cf88c95831ba1",
+    "installed-selected-tests-v1.json": "dcc48e2daf58357a3045330237d708eddd49a8fe37214b6004018a490eee2e43"
+  },
+  "installed_unique_cases": {
+    "count": 8,
+    "provenance": "7 V2 plus 1 V3 by impact; not one fresh full-eight campaign",
+    "v3_selector": "test_project_fixed_translation_material_restart[s3-axial-fibre-p0]"
+  },
+  "installed_axial_workflow": {
+    "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\installed-temp-v3\\test_project_fixed_translation0\\workflow.json",
+    "sha256": "d51e8cf20b59960e75ac53e58e7fe2c58a08faf6902bf351a8b808e76127c186",
+    "history_generation": 3,
+    "continued_generation": 4,
+    "s3_alpha_max": 0.0,
+    "physical_fibre_alpha_max": 1.8259807654843005e-05,
+    "physical_member_ids": [
+      1,
+      2
+    ],
+    "input_bytes_equal": true,
+    "force_seed_restore_bytes_equal": true,
+    "fresh_restore_bytes_equal": true,
+    "continued_bytes_equal": true
+  }
+}

@@ -1,0 +1,415 @@
+{
+  "anyfem": {
+    "schema": "anyfem.project",
+    "format": 8,
+    "document_id": "c886674c-4642-40ce-850f-fe906c0f0049",
+    "artifact_root": "panel.anyfem-data"
+  },
+  "name": "native mixed J2 BL5",
+  "mesh_only": true,
+  "imported_format": null,
+  "imported_semantics_artifact_id": null,
+  "compatibility": {
+    "archived_feature_histories": [],
+    "diagnostics": [],
+    "geometry_editing_disabled_reason": null,
+    "read_only_reason": null
+  },
+  "units": {
+    "name": "SI-m-N-Pa",
+    "units": {
+      "length": "m",
+      "force": "N",
+      "pressure": "Pa",
+      "mass": "kg",
+      "time": "s",
+      "angle": "deg",
+      "moment": "N*m",
+      "line_load": "N/m",
+      "density": "kg/m3",
+      "acceleration": "m/s2"
+    }
+  },
+  "shell_formulations": {
+    "schema": "anyfem.shell-formulation-policy-v1",
+    "q4": "e4-pl",
+    "s3": "e4-pl-s3-v2d",
+    "higher_order": "legacy",
+    "q4_formulation_id": "E4_PL_QUALIFIED_Q4_HYBRID_V2",
+    "s3_formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+    "higher_order_formulation_id": "LEGACY_SHELL_ELEMENT_HIGHER_ORDER"
+  },
+  "coordinate_systems": [
+    {
+      "id": "global",
+      "name": "Global",
+      "kind": "cartesian",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "reference": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "regions": [],
+  "output_requests": [],
+  "geometry": {
+    "schema": "anygeometry",
+    "version": 5,
+    "model_id": "1dd17545-8066-413b-9dc5-20989a81d01d",
+    "revision": 0,
+    "coordinates": {
+      "units": "m",
+      "local_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "coordinate_transform": null,
+      "crs": {}
+    },
+    "tolerance": {
+      "length": 1e-09,
+      "merge_length": 1e-07,
+      "coincidence": 1e-09,
+      "healing": 1e-07,
+      "angular": 1e-10,
+      "parameter": 1e-10,
+      "area": 1e-18,
+      "surface_residual": 1e-08,
+      "curve_fit_residual": 1e-08,
+      "aabb_padding": 1e-09,
+      "relative_length": 1e-12,
+      "relative_area": 1e-14
+    },
+    "id_state": {
+      "vertex": 1,
+      "edge": 1,
+      "face": 1,
+      "part": 1,
+      "sheet": 1,
+      "face_use": 1,
+      "coedge": 1,
+      "member": 1,
+      "member_edge_use": 1,
+      "attachment": 1,
+      "junction": 1
+    },
+    "vertices": [],
+    "edges": [],
+    "faces": [],
+    "structural": {
+      "parts": [],
+      "sheets": [],
+      "face_uses": [],
+      "coedges": [],
+      "members": [],
+      "member_edge_uses": [],
+      "attachments": [],
+      "junctions": []
+    },
+    "groups": {},
+    "tags": [],
+    "replacement_history": [],
+    "structural_replacement_history": [],
+    "construction_vertices": [],
+    "extensions": {},
+    "features": {
+      "version": 1,
+      "next_id": 1,
+      "baseline": null,
+      "records": []
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "79a8c264102b4d0bdc57419e7092a9a1a72586f102aae2367c11397d6e3f6469"
+    }
+  },
+  "materials": [],
+  "plate_sections": [],
+  "beam_sections": [],
+  "face_sections": {},
+  "edge_sections": {},
+  "assignment_ids": {
+    "faces": {},
+    "edges": {}
+  },
+  "assignments": {
+    "sections": []
+  },
+  "ownership": {
+    "sheet_joins": []
+  },
+  "supports": [],
+  "masses": [],
+  "load_cases": [],
+  "combinations": [],
+  "imperfections": [],
+  "meshing": {
+    "element_order": "linear",
+    "target_size": null,
+    "native_backend": "auto",
+    "native": null,
+    "seeding_overrides": {},
+    "refinements": []
+  },
+  "analyses": [
+    {
+      "id": "d249ac85-66ce-46f4-ba76-b6d2529c4d26",
+      "schema_version": 1,
+      "name": "native material line",
+      "type": "experimental_ge_bl5_panel",
+      "target_kind": "none",
+      "target_id": "",
+      "settings": {},
+      "output_request_ids": [],
+      "output_requests": {},
+      "resource_policy": {},
+      "beam_formulation": "experimental-ge-bl5-panel",
+      "beam_formulation_options": {
+        "definition_source": "explicit-mesh-native",
+        "panel": {
+          "actions": [
+            {
+              "domain": "beam",
+              "node": 105,
+              "wrench": [
+                500.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ],
+          "beams": [
+            {
+              "raw_base64": "eyJkeW5hbWljX3BvbGljeSI6IlJFVEFJTl9QSFlTSUNBTF9DRUxMX0lORVJUSUFfTk9fU1RBVElDX01BU1NfU1VCU1RJVFVUSU9OIiwiZWxlbWVudF9pZCI6MSwiZWxlbWVudF9pZGVudGl0eSI6ImNiZWE1YWUwN2E2ODY2M2Q5YWZmOGJhOThhZTVmMGVjMDg0MmViZGQ0MTBiZjUxZTYxYzEzODc1YzU4NzBjZDIiLCJmYW1pbHkiOiJSRVNVTFRBTlRfRUxMSVBTT0lEIiwiZm9ybXVsYXRpb25faWQiOiJDQU5ESURBVEVfR0VfQkVBTTNfTkFUSVZFX0dFTkVSQUxJWkVEX0VMTElQU09JRF9ESVNUUklCVVRFRF9TVEFUSUNfVjEiLCJub2RlX2lkcyI6WzEwMSwxMDIsMTAzXSwib3BlcmF0b3JfaWRlbnRpdHkiOiJhMmZlMTNhZTBiMmI5YjQyN2VkNzZlMmYyYWQ1OGY2MWEzZGI2OWMwMWYxODg2ZTQ5ODk4OTliMWRmODBjZmI5IiwicHJvZHVjdGlvbl9xdWFsaWZpZWQiOmZhbHNlLCJxdWFkcmF0dXJlIjo0LCJyZWZlcmVuY2UiOnsiY29vcmRpbmF0ZXMiOltbMC4wLDAuMCwwLjA2NzVdLFswLjI1LDAuMCwwLjA2NzVdLFswLjUsMC4wLDAuMDY3NV1dLCJldmFsdWF0aW9uX2lkIjoiQ0VOVEVSRURfUTJfVFdPX0NPTVBPTkVOVF9DT0VGRklDSUVOVF9BTkFMWVRJQ19MSUZUX1YxIiwiZnJhbWVfdG9sZXJhbmNlIjoxZS0xMiwibm9kYWxfdHJpYWRzIjpbW1sxLjAsMC4wLDAuMF0sWzAuMCwxLjAsMC4wXSxbMC4wLDAuMCwxLjBdXSxbWzEuMCwwLjAsMC4wXSxbMC4wLDEuMCwwLjBdLFswLjAsMC4wLDEuMF1dLFtbMS4wLDAuMCwwLjBdLFswLjAsMS4wLDAuMF0sWzAuMCwwLjAsMS4wXV1dLCJyZWd1bGFyaXR5X3JlbGF0aXZlX3RvbGVyYW5jZSI6MS40MjEwODU0NzE1MjAyMDA0ZS0xNCwicm90YXRpb25fdG9sZXJhbmNlIjoxZS0xMX0sInNjaGVtYSI6IkdFX0JFQU0zX05BVElWRV9SRUNPTlNUUlVDVElCTEVfREVGSU5JVElPTl9WMSIsInNlY3Rpb24iOnsiZWxhc3RpYyI6W1syMTAwMDAwMDAwLjAsMC4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCw2NDYxNTM4NDYuMTUzODQ2MywwLjAsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDY0NjE1Mzg0Ni4xNTM4NDYzLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMTM0NjE1My44NDYxNTM4NDYyLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwwLjAsMTc1MDAwMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwwLjAsMTc1MDAwMC4wXV0sImhhcmRlbmluZyI6MTAwMDAwMDAwMC4wLCJtZXRyaWMiOltbMS4wLDAuMCwwLjAsMC4wLDAuMCwwLjBdLFswLjAsMS4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwwLjAsMS4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMS4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwwLjAsMS4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwwLjAsMS4wXV0sInBvbGljeSI6IkdFX0JFQU0zX1NJWF9SRVNVTFRBTlRfQVNTT0NJQVRFRF9FTExJUFNPSURfSEFSREVOSU5HX1YxIiwieWllbGRfZm9yY2UiOjFlKzIwfSwic2VjdGlvbl9pZGVudGl0eSI6IjE0MjFkZmRlOTUwMDU0NDY2Mzg3ZjdiNmM1OWMyZTEzMTM4MzE2ZGM5Mjc2YjM2MTRkNzViYTU1M2E3YzcwMDQiLCJzZWN0aW9uX2luZXJ0aWEiOltbMS4wLDAuMCwwLjAsMC4wLDAuMCwwLjBdLFswLjAsMS4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwwLjAsMS4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMS4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwwLjAsMS4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwwLjAsMS4wXV0sInN0YXRpY19wb2xpY3kiOiJFSUdIVEVFTl9FWFRFUk5BTF9UV0VOVFlfRk9VUl9JTlRFUk5BTF9TVEFUSUNfU1RBVElPTkFSSVRZIn0K",
+              "sha256": "7ca4bb697bef5f2279454bec8a7c2287282bf60c07709d3491d517448fd3ee25"
+            },
+            {
+              "raw_base64": "eyJkeW5hbWljX3BvbGljeSI6IlJFVEFJTl9QSFlTSUNBTF9DRUxMX0lORVJUSUFfTk9fU1RBVElDX01BU1NfU1VCU1RJVFVUSU9OIiwiZWxlbWVudF9pZCI6MiwiZWxlbWVudF9pZGVudGl0eSI6IjMxODY4YzIyNzZjMGIyOTE1YzQ0MDY1MjVkMjA4OGJlYTljZTkxNTlkYzRlMjg2YTQwYmY4YjNmYWRmYWM0N2EiLCJmYW1pbHkiOiJQSFlTSUNBTF9BWElBTF9CSUFYSUFMX0ZJQlJFIiwiZm9ybXVsYXRpb25faWQiOiJDQU5ESURBVEVfR0VfQkVBTTNfTkFUSVZFX1BIWVNJQ0FMX0ZJQlJFX1NUQVRJQ19WMSIsIm5vZGVfaWRzIjpbMTAzLDEwNCwxMDVdLCJvcGVyYXRvcl9pZGVudGl0eSI6ImJlMGRkZGEyM2JjNzMyZjFmNjAzM2NjN2JkODBmZmUzOGUwMDFhNGUxOTliNjBhMDU0OWI1OTZhZGY3MTM3YWIiLCJwcm9kdWN0aW9uX3F1YWxpZmllZCI6ZmFsc2UsInF1YWRyYXR1cmUiOjQsInJlZmVyZW5jZSI6eyJjb29yZGluYXRlcyI6W1swLjUsMC4wLDAuMDY3NV0sWzAuNzUsMC4wLDAuMDY3NV0sWzEuMCwwLjAsMC4wNjc1XV0sImV2YWx1YXRpb25faWQiOiJDRU5URVJFRF9RMl9UV09fQ09NUE9ORU5UX0NPRUZGSUNJRU5UX0FOQUxZVElDX0xJRlRfVjEiLCJmcmFtZV90b2xlcmFuY2UiOjFlLTEyLCJub2RhbF90cmlhZHMiOltbWzEuMCwwLjAsMC4wXSxbMC4wLDEuMCwwLjBdLFswLjAsMC4wLDEuMF1dLFtbMS4wLDAuMCwwLjBdLFswLjAsMS4wLDAuMF0sWzAuMCwwLjAsMS4wXV0sW1sxLjAsMC4wLDAuMF0sWzAuMCwxLjAsMC4wXSxbMC4wLDAuMCwxLjBdXV0sInJlZ3VsYXJpdHlfcmVsYXRpdmVfdG9sZXJhbmNlIjoxLjQyMTA4NTQ3MTUyMDIwMDRlLTE0LCJyb3RhdGlvbl90b2xlcmFuY2UiOjFlLTExfSwic2NoZW1hIjoiR0VfQkVBTTNfTkFUSVZFX1JFQ09OU1RSVUNUSUJMRV9ERUZJTklUSU9OX1YxIiwic2VjdGlvbiI6eyJiYWNrZ3JvdW5kX2ZhY3RvciI6W1swLjAsMC4wLDAuMCwwLjAsMC4wLDAuMF0sWzAuMCwyNTQxOS41NTYzNzIwODk3MDQsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwyNTQxOS41NTYzNzIwODk3MDQsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDAuMCwxMTYwLjIzODcwMjIzMDY0MjcsMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMC4wLDAuMCwwLjBdXSwiZmlicmVzIjpbeyJhcmVhIjowLjAwMjUsImN1cnZlIjp7ImZsb3dfc3RyZXNzIjpbMTAwMDAwLjBdLCJwbGFzdGljX3N0cmFpbiI6WzAuMF0sInRhaWxfc2xvcGUiOjEwMDAwMDAwMDAuMH0sImZpYnJlX2lkIjoiMCIsInkiOi0wLjAyODg2NzUxMzQ1OTQ4MTI5LCJ5b3VuZyI6MjEwMDAwMDAwMDAwLjAsInoiOi0wLjAyODg2NzUxMzQ1OTQ4MTI5fSx7ImFyZWEiOjAuMDAyNSwiY3VydmUiOnsiZmxvd19zdHJlc3MiOlsxMDAwMDAuMF0sInBsYXN0aWNfc3RyYWluIjpbMC4wXSwidGFpbF9zbG9wZSI6MTAwMDAwMDAwMC4wfSwiZmlicmVfaWQiOiIxIiwieSI6LTAuMDI4ODY3NTEzNDU5NDgxMjksInlvdW5nIjoyMTAwMDAwMDAwMDAuMCwieiI6MC4wMjg4Njc1MTM0NTk0ODEyOX0seyJhcmVhIjowLjAwMjUsImN1cnZlIjp7ImZsb3dfc3RyZXNzIjpbMTAwMDAwLjBdLCJwbGFzdGljX3N0cmFpbiI6WzAuMF0sInRhaWxfc2xvcGUiOjEwMDAwMDAwMDAuMH0sImZpYnJlX2lkIjoiMiIsInkiOjAuMDI4ODY3NTEzNDU5NDgxMjksInlvdW5nIjoyMTAwMDAwMDAwMDAuMCwieiI6LTAuMDI4ODY3NTEzNDU5NDgxMjl9LHsiYXJlYSI6MC4wMDI1LCJjdXJ2ZSI6eyJmbG93X3N0cmVzcyI6WzEwMDAwMC4wXSwicGxhc3RpY19zdHJhaW4iOlswLjBdLCJ0YWlsX3Nsb3BlIjoxMDAwMDAwMDAwLjB9LCJmaWJyZV9pZCI6IjMiLCJ5IjowLjAyODg2NzUxMzQ1OTQ4MTI5LCJ5b3VuZyI6MjEwMDAwMDAwMDAwLjAsInoiOjAuMDI4ODY3NTEzNDU5NDgxMjl9XSwicG9saWN5IjoiR0VfQkVBTTNfUEhZU0lDQUxfRklCUkVfSU5DUkVNRU5UQUxfUE9URU5USUFMX1YxIn0sInNlY3Rpb25faWRlbnRpdHkiOiJlMTBjY2MyYjc1OWUwZDUwODA5MGJiNmY1ZjM1ZjUzOGYzZTM4Yzc2MjdiZGNlY2JiZmI1MGQ1NDk3MWZmNTg2Iiwic2VjdGlvbl9pbmVydGlhIjpbWzEuMCwwLjAsMC4wLDAuMCwwLjAsMC4wXSxbMC4wLDEuMCwwLjAsMC4wLDAuMCwwLjBdLFswLjAsMC4wLDEuMCwwLjAsMC4wLDAuMF0sWzAuMCwwLjAsMC4wLDEuMCwwLjAsMC4wXSxbMC4wLDAuMCwwLjAsMC4wLDEuMCwwLjBdLFswLjAsMC4wLDAuMCwwLjAsMC4wLDEuMF1dLCJzdGF0aWNfcG9saWN5IjoiRUlHSFRFRU5fRVhURVJOQUxfVFdFTlRZX0ZPVVJfSU5URVJOQUxfU1RBVElDX1NUQVRJT05BUklUWSJ9Cg==",
+              "sha256": "b1bca43580d1cbfffa60d8d8b8858e2a78002c16792365c6f054f67eaa7bbd1d"
+            }
+          ],
+          "bl5_material_policy": "BL5_NATIVE_FIBRE_MIXED_SHELL_MATERIAL_V1_DEV",
+          "fixed": [
+            {
+              "component": 0,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 1,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 2,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 3,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 4,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 5,
+              "domain": "shell",
+              "node": 1
+            },
+            {
+              "component": 0,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 1,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 2,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 3,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 4,
+              "domain": "shell",
+              "node": 5
+            },
+            {
+              "component": 5,
+              "domain": "shell",
+              "node": 5
+            }
+          ],
+          "lines": [
+            {
+              "basis": "continuous_p1_coarse",
+              "beam_halfcells": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "expected_beam_arm": [
+                0.0,
+                0.0,
+                -0.05
+              ],
+              "multiplier_span": 1,
+              "shell_nodes": [
+                1,
+                2,
+                3,
+                4
+              ]
+            }
+          ],
+          "load_programme": null,
+          "profile": "B3_GE_E4_PL_STIFFENED_SHELL_V1",
+          "q4_pullback_policy": "STIFFENED_SHELL_Q4_ALGORITHMIC_PULLBACK_V1",
+          "schema": "anyfem.experimental-ge-bl5-panel-native-mixed-j2-v6",
+          "shell": {
+            "coordinates_m": [
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.3333333333333333,
+                0.0,
+                0.0
+              ],
+              [
+                0.6666666666666666,
+                0.0,
+                0.0
+              ],
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.2,
+                0.0
+              ],
+              [
+                0.3333333333333333,
+                0.2,
+                0.0
+              ],
+              [
+                0.6666666666666666,
+                0.2,
+                0.0
+              ],
+              [
+                1.0,
+                0.2,
+                0.0
+              ]
+            ],
+            "density_kg_m3": 7850.0,
+            "j2_curve": {
+              "K": 4000000.0,
+              "eps_p_y1": 0.005,
+              "eps_p_y2": 0.01,
+              "n": 0.2,
+              "sigma_prop": 1000000.0,
+              "sigma_yield": 1050000.0,
+              "sigma_yield_2": 1100000.0
+            },
+            "node_ids": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "poisson": 0.3,
+            "q4_elements": [
+              [
+                1,
+                2,
+                6,
+                5
+              ]
+            ],
+            "s3_elements": [
+              [
+                2,
+                3,
+                7
+              ],
+              [
+                2,
+                7,
+                6
+              ],
+              [
+                3,
+                4,
+                8
+              ],
+              [
+                3,
+                8,
+                7
+              ]
+            ],
+            "thickness_m": 0.035,
+            "young_pa": 210000000000.0
+          },
+          "status": "EXPERIMENTAL_NOT_QUALIFIED"
+        },
+        "schema": "anyfem.experimental-bl5-panel-project-v1",
+        "status": "EXPERIMENTAL_NOT_QUALIFIED"
+      }
+    }
+  ],
+  "mesh_records": [],
+  "jobs": [],
+  "artifacts": []
+}

@@ -1,0 +1,17 @@
+{
+  "command": [
+    "C:/Python/Python314/python.exe",
+    "-I",
+    "-S",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\root-installed-audit-v1.py"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+  "status": "failed",
+  "exit_code": 1,
+  "process_wall_seconds": 0.1673179,
+  "seconds_limit": 5.0,
+  "cumulative_used_seconds": 562.6735981000534,
+  "remaining_seconds": 37.326401899946575,
+  "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+  "audit_sha256": "2aa69503413299057545d0b31994f454d8eb5492f08b71e69256144b378f4e6d"
+}

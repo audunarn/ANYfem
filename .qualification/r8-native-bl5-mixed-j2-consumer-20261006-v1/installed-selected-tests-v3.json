@@ -1,0 +1,7 @@
+{
+  "selectors": [
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_project_fixed_translation_material_restart[s3-axial-fibre-p0]"
+  ],
+  "snapshot_manifest_sha256": "9341cbf034e1505411a0bb2031ab72896e4260e851887fcc8603d032af70ea7f",
+  "pyproject_sha256": "0e6c176eaa6153aa3cf47b1140b91b2d630602fee39ebbc5bdbef2e92f5ae9b5"
+}

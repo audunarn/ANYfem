@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="8" time="74.929" timestamp="2026-10-06T10:37:06.487937+02:00" hostname="WORK_STABEIST1"><testcase classname="tests.test_stiffened_shell_native_bl5_mixed_j2_consumer" name="test_project_fixed_translation_material_restart[s3-axial-fibre-p0]" time="15.934"><failure message="assert 0.0 &gt; 0.0&#10; +  where 0.0 = max(&lt;generator object test_project_fixed_translation_material_restart.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001E96DEB33E0&gt;)">tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/source-temp-v1/test_project_fixed_translation0')
+shell = 's3', family = 'axial', beams = 'fibre', basis = 'p0'
+
+    @pytest.mark.parametrize('shell,family,beams,basis', [
+        ('s3', 'axial', 'fibre', 'p0'),
+        ('mixed', 'biaxial', 'mixed', 'continuous_p1_coarse')])
+    def test_project_fixed_translation_material_restart(tmp_path, shell, family, beams, basis):
+        result = EXAMPLE['workflow'](tmp_path, shell, family, beams, basis)
+        assert result['status'] == 'completed' and not result['production_qualified']
+        assert result['schema'] == SCHEMA_BL5_NATIVE_MIXED_J2_V6
+        assert result['policy'] == ss.BL5_NATIVE_FIBRE_MIXED_SHELL_MATERIAL_V1
+        assert result['target'] == EXAMPLE['TARGETS'][-1]
+        assert result['shell_s3_material'] and result['beam_fibre_material']
+        assert bool(result['beam_generalized_material']) == (beams == 'mixed')
+&gt;       assert max(value for record in result['shell_s3_material'] for value in record['alpha']) &gt; 0.
+E       assert 0.0 &gt; 0.0
+E        +  where 0.0 = max(&lt;generator object test_project_fixed_translation_material_restart.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001E96DEB33E0&gt;)
+
+..\..\tests\test_stiffened_shell_native_bl5_mixed_j2_consumer.py:29: AssertionError</failure></testcase><testcase classname="tests.test_stiffened_shell_native_bl5_mixed_j2_consumer" name="test_project_fixed_translation_material_restart[mixed-biaxial-mixed-continuous_p1_coarse]" time="22.519" /><testcase classname="tests.test_stiffened_shell_native_bl5_mixed_j2_consumer" name="test_v6_strict_legacy_isolation_and_owned_project_record" time="0.356" /><testcase classname="tests.test_stiffened_shell_native_bl5_mixed_j2_consumer" name="test_public_failure_cancel_and_checkpoint_atomicity" time="33.811" /><testcase classname="tests.test_stiffened_shell_native_fibre_bl5_consumer" name="test_strict_v5_mutation_topology_and_project_ownership" time="0.398" /><testcase classname="tests.test_bl5_material_consumer" name="test_bl5_material_v3_strict_schema_and_default_isolation" time="0.946" /><testcase classname="tests.test_bl5_coupled_material_consumer" name="test_bl5_coupled_v4_strict_roundtrip_and_legacy_isolation" time="0.301" /><testcase classname="tests.test_bl5_project" name="test_bl5_payload_is_owned_and_route_cannot_be_relabelled" time="0.255" /></testsuite></testsuites>

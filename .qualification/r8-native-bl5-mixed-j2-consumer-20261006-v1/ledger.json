@@ -1,0 +1,382 @@
+{
+  "total_seconds": 600.0,
+  "inherited_used_seconds": 402.72211770003196,
+  "used_seconds": 563.0746102000534,
+  "attempts": [
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\source-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry.py",
+        "source",
+        "v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 79.47079709998798,
+      "seconds_limit": 90.0,
+      "cumulative_used_seconds": 482.19291480001993,
+      "remaining_seconds": 117.80708519998007,
+      "sampled_peak_tree_rss": 201519104,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "23b05c18e48e429c831bfaea5a74cc4022983d042378240b24b81f19f4d60f84",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "19e3d20d1aa2916e1085ff267accc0f64012ad563071119dad29c2d7ec877240",
+      "entry_sha256": "fb612bcdc0f6eeee0bc2d748cfcb7f96f57652bcebf4c8027ee0fc82c69a158e"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\source-v2",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry.py",
+        "source",
+        "v2"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 4.935120200039819,
+      "seconds_limit": 57.807085199980065,
+      "cumulative_used_seconds": 487.12803500005975,
+      "remaining_seconds": 112.87196499994025,
+      "sampled_peak_tree_rss": 182161408,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "cf333ff7a99c09359cc7222cd95ca07a57029a1684f865a578bff41b87e9e5f3",
+      "entry_sha256": "fc1dcaff3d70080b23552314afb3802df5b2c5cd04dcfe191d3073dfc67abfee"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\build-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-m",
+        "pip",
+        "wheel",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer",
+        "--no-deps",
+        "--no-build-isolation",
+        "--no-cache-dir",
+        "--no-index",
+        "-w",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\wheel-v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 4.247954800026491,
+      "seconds_limit": 87.63688739994024,
+      "cumulative_used_seconds": 496.61106740008626,
+      "remaining_seconds": 103.38893259991374,
+      "sampled_peak_tree_rss": 108683264,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "b464b8c6d6f23e0c86bad95125c8c8d994fb0a75c1255f1525eb5647cd3d7734",
+      "entry_sha256": "233c7fdff4e97307fae8989df003e6de65ebf43450055b51131a5fdc88d20152"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\install-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
+        "--no-cache-dir",
+        "--no-index",
+        "--target",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\site-v1",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\wheel-v1\\anyfem-0.4.1-py3-none-any.whl"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 1.6463941999245435,
+      "seconds_limit": 83.38893259991374,
+      "cumulative_used_seconds": 498.2574616000108,
+      "remaining_seconds": 101.7425383999892,
+      "sampled_peak_tree_rss": 86355968,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "b464b8c6d6f23e0c86bad95125c8c8d994fb0a75c1255f1525eb5647cd3d7734",
+      "entry_sha256": "34d08accd69899391445f41cef9bcb2ef9d750785de79b02ea9000fae55ec0b1"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\installed-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry.py",
+        "installed",
+        "v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 2.155615600058809,
+      "seconds_limit": 81.7425383999892,
+      "cumulative_used_seconds": 500.4130772000696,
+      "remaining_seconds": 99.58692279993039,
+      "sampled_peak_tree_rss": 163123200,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "b464b8c6d6f23e0c86bad95125c8c8d994fb0a75c1255f1525eb5647cd3d7734",
+      "entry_sha256": "5e2432eb7c531131a260933d166cbd4f973b99e3cb82632d1ca40bbe88904107"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\installed-v2",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry.py",
+        "installed",
+        "v2"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 42.113199800020084,
+      "seconds_limit": 79.36571179993041,
+      "cumulative_used_seconds": 542.7474880000897,
+      "remaining_seconds": 57.252511999910325,
+      "sampled_peak_tree_rss": 199073792,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "b464b8c6d6f23e0c86bad95125c8c8d994fb0a75c1255f1525eb5647cd3d7734",
+      "entry_sha256": "02688230ccdbb8286d61c84f2e3109eb5b605dddc10a9c6eaaede8344d23444e"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\installed-v3",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry-v3.py",
+        "installed",
+        "v3"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 19.295670800027438,
+      "seconds_limit": 36.91106459991033,
+      "cumulative_used_seconds": 562.3846062001171,
+      "remaining_seconds": 37.615393799882895,
+      "sampled_peak_tree_rss": 197152768,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "c87da9c5c6376c16b273ca441fd6d4a5d5417f6d1d7c14165c1abf0273b1ec5e",
+      "entry_sha256": "44e17521a0c42780da7c1d8b1f00431a9f897b576538fa33240e5ec5d689d132"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\bookkeeping-v3",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\finalize-v3.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "process_wall_seconds": 0.12167399993631989,
+      "seconds_limit": 17.615393799882895,
+      "cumulative_used_seconds": 562.5062802000534,
+      "remaining_seconds": 37.493719799946575,
+      "sampled_peak_tree_rss": 13131776,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+        "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+        "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+        "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+      },
+      "runner_sha256": "c87da9c5c6376c16b273ca441fd6d4a5d5417f6d1d7c14165c1abf0273b1ec5e",
+      "entry_sha256": "44e17521a0c42780da7c1d8b1f00431a9f897b576538fa33240e5ec5d689d132"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\root-audit-v1",
+      "command": [
+        "C:/Python/Python314/python.exe",
+        "-I",
+        "-S",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\root-installed-audit-v1.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "process_wall_seconds": 0.1673179,
+      "seconds_limit": 5.0,
+      "cumulative_used_seconds": 562.6735981000534,
+      "remaining_seconds": 37.326401899946575,
+      "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+      "audit_sha256": "2aa69503413299057545d0b31994f454d8eb5492f08b71e69256144b378f4e6d"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\root-audit-v2",
+      "command": [
+        "C:/Python/Python314/python.exe",
+        "-I",
+        "-S",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\root-installed-audit-v1.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "process_wall_seconds": 0.4010121,
+      "seconds_limit": 5.0,
+      "cumulative_used_seconds": 563.0746102000534,
+      "remaining_seconds": 36.92538979994663,
+      "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+      "audit_sha256": "2fd8d32c28c40da185f9f7c8ae2b61f497030e0c2f95a3cf7e12b86ff1047a9c"
+    }
+  ],
+  "conservative_debits": [
+    {
+      "kind": "containing shell envelope; replay child precise timing UNKNOWN",
+      "seconds": 5.2350776,
+      "containing_tool_wall_time_seconds": 5.2350776,
+      "includes_already_accounted_source_v2_seconds": 4.935120200039819,
+      "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/runner.py source v2; & 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/replay-source-v1.py",
+      "authority": "root adopted conservative envelope; deliberate V2 double count; no fresh numerical run"
+    },
+    {
+      "label": "pre-installed-byte-binding",
+      "seconds": 0.221211,
+      "kind": "containing tool envelope; exact byte-only child duration UNKNOWN",
+      "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/bind-installed.py",
+      "authority": "root adopted .221211 second conservative envelope; no rerun"
+    },
+    {
+      "label": "final-v2-bookkeeping-envelope",
+      "seconds": 0.3414474,
+      "kind": "containing tool envelope; final bookkeeping child precise duration UNKNOWN",
+      "exact_command": "& 'C:/Python/Python314/python.exe' .qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/finalize-handoff.py; git status --short --untracked-files=normal",
+      "authority": "root adopted conservative .3414474 second envelope; no rerun"
+    }
+  ]
+}

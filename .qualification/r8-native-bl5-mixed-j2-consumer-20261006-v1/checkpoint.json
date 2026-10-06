@@ -1,0 +1,43 @@
+{
+  "state": "verified against assigned development consumer criteria; root acceptance pending",
+  "policy": "ANY_ECOSYSTEM_RISK_PROPORTIONATE_ENGINEERING_V1 2026-09-24.2",
+  "repository": "C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer",
+  "head": "df9d1d78b734de8a1d395a975c34ff5856e8c38f",
+  "initial_dirty": [],
+  "findings": [
+    "Existing ExperimentalGEBL5Panel native v5 supports elastic Q4/S3 physical fibres only; its shell-curve/policy condition admits coupled Q4 J2 but rejects the new mixed J2 policy.",
+    "Project has a dedicated BL5 selector and versioned panel dispatch; reuse it.",
+    "Solver public mixed J2 example demonstrates force seed and fixed translation load/unload, named S3/fibre/generalized recovery, checkpoint/fresh restore/continue."
+  ],
+  "planned_delta": {
+    "schema": "anyfem.experimental-ge-bl5-panel-native-mixed-j2-v6",
+    "policy": "BL5_NATIVE_FIBRE_MIXED_SHELL_MATERIAL_V1_DEV",
+    "dispatch": "existing BL5 selector; exact native beam bytes; require all-S3 or Q4/S3 with J2 curve"
+  },
+  "checks": "new complete consumer workflow plus malformed/legacy-policy/refusal/cancellation/checkpoint coverage; source and installed identity",
+  "resource_remaining_seconds": 117.80708519998007,
+  "reserve_seconds": 20,
+  "numerical_slot": "awaiting explicit root communication before launch",
+  "remaining": "implement connected input/decoder and example/tests, inspect harness, source check, request installed integration decision, handoff",
+  "reserved": "scientific acceptance, release, different-family review and programme gates stay OPEN",
+  "source_receipt": "source-v1/execution.json",
+  "source_failed_tests": 1,
+  "next": "root final audit/acceptance and integration; no numerical jobs active",
+  "artifact_sha256": "0e1ae7b3324410cfd64c4ba1dfd8810e1b6e239de22ba8bfeedcf9bb55cb0315",
+  "consumed_seconds": 542.7474880000897,
+  "remaining_seconds": 57.252511999910325,
+  "installed_process_cap_seconds": 81.7425383999892,
+  "selected_installed_tests": [
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_project_fixed_translation_material_restart[mixed-biaxial-mixed-continuous_p1_coarse]",
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_v6_strict_legacy_isolation_and_owned_project_record",
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_public_failure_cancel_and_checkpoint_atomicity",
+    "test_stiffened_shell_native_fibre_bl5_consumer.py::test_strict_v5_mutation_topology_and_project_ownership",
+    "test_bl5_material_consumer.py::test_bl5_material_v3_strict_schema_and_default_isolation",
+    "test_bl5_coupled_material_consumer.py::test_bl5_coupled_v4_strict_roundtrip_and_legacy_isolation",
+    "test_bl5_project.py::test_bl5_payload_is_owned_and_route_cannot_be_relabelled"
+  ],
+  "installed_scope_gap": "all-S3 axial complete workflow remains source V1 evidence; excluded from installed selectors",
+  "timing_uncertainty": "metadata replay child unknown; root-adopted 5.2350776 second containing shell debit separately recorded",
+  "final_manifest": "final-manifest.json",
+  "installed_check": "7 passed; scoped impact verification, not installed eight or scientific acceptance"
+}

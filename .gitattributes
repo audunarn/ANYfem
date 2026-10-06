@@ -35,3 +35,7 @@ src/anyfem/solve/stiffened_shell_project.py -text whitespace=cr-at-eol
 tests/test_stiffened_shell_native_fibre_bl5_consumer.py -text whitespace=cr-at-eol
 examples/stiffened_shell_native_fibre_bl5_consumer.py -text whitespace=cr-at-eol
 docs/experimental_stiffened_shell_native_fibre_bl5.md -text whitespace=cr-at-eol
+.qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/** -text -whitespace
+tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py -text whitespace=cr-at-eol
+examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py -text whitespace=cr-at-eol
+docs/experimental_stiffened_shell_native_bl5_mixed_j2.md -text whitespace=cr-at-eol

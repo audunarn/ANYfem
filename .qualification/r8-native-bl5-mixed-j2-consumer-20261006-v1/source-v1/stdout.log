@@ -1,0 +1,26 @@
+F.......                                                                 [100%]
+================================== FAILURES ===================================
+_____ test_project_fixed_translation_material_restart[s3-axial-fibre-p0] ______
+
+tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-native-bl5-mixed-j2-consumer-20261006-v1/source-temp-v1/test_project_fixed_translation0')
+shell = 's3', family = 'axial', beams = 'fibre', basis = 'p0'
+
+    @pytest.mark.parametrize('shell,family,beams,basis', [
+        ('s3', 'axial', 'fibre', 'p0'),
+        ('mixed', 'biaxial', 'mixed', 'continuous_p1_coarse')])
+    def test_project_fixed_translation_material_restart(tmp_path, shell, family, beams, basis):
+        result = EXAMPLE['workflow'](tmp_path, shell, family, beams, basis)
+        assert result['status'] == 'completed' and not result['production_qualified']
+        assert result['schema'] == SCHEMA_BL5_NATIVE_MIXED_J2_V6
+        assert result['policy'] == ss.BL5_NATIVE_FIBRE_MIXED_SHELL_MATERIAL_V1
+        assert result['target'] == EXAMPLE['TARGETS'][-1]
+        assert result['shell_s3_material'] and result['beam_fibre_material']
+        assert bool(result['beam_generalized_material']) == (beams == 'mixed')
+>       assert max(value for record in result['shell_s3_material'] for value in record['alpha']) > 0.
+E       assert 0.0 > 0.0
+E        +  where 0.0 = max(<generator object test_project_fixed_translation_material_restart.<locals>.<genexpr> at 0x000001E96DEB33E0>)
+
+..\..\tests\test_stiffened_shell_native_bl5_mixed_j2_consumer.py:29: AssertionError
+=========================== short test summary info ===========================
+FAILED ..\..\tests\test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_project_fixed_translation_material_restart[s3-axial-fibre-p0]
+1 failed, 7 passed in 74.93s (0:01:14)

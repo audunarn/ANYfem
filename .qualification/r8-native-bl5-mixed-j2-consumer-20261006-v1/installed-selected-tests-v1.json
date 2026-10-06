@@ -1,0 +1,13 @@
+{
+  "selectors": [
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_project_fixed_translation_material_restart[mixed-biaxial-mixed-continuous_p1_coarse]",
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_v6_strict_legacy_isolation_and_owned_project_record",
+    "test_stiffened_shell_native_bl5_mixed_j2_consumer.py::test_public_failure_cancel_and_checkpoint_atomicity",
+    "test_stiffened_shell_native_fibre_bl5_consumer.py::test_strict_v5_mutation_topology_and_project_ownership",
+    "test_bl5_material_consumer.py::test_bl5_material_v3_strict_schema_and_default_isolation",
+    "test_bl5_coupled_material_consumer.py::test_bl5_coupled_v4_strict_roundtrip_and_legacy_isolation",
+    "test_bl5_project.py::test_bl5_payload_is_owned_and_route_cannot_be_relabelled"
+  ],
+  "snapshot_manifest_sha256": "9341cbf034e1505411a0bb2031ab72896e4260e851887fcc8603d032af70ea7f",
+  "pyproject_sha256": "0e6c176eaa6153aa3cf47b1140b91b2d630602fee39ebbc5bdbef2e92f5ae9b5"
+}

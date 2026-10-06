@@ -1,0 +1,37 @@
+{
+  "status": "completed",
+  "exit_code": 0,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1\\entry-v3.py",
+    "installed",
+    "v3"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-native-bl5-mixed-j2-consumer-20261006-v1",
+  "process_wall_seconds": 19.295670800027438,
+  "seconds_limit": 36.91106459991033,
+  "cumulative_used_seconds": 562.3846062001171,
+  "remaining_seconds": 37.615393799882895,
+  "sampled_peak_tree_rss": 197152768,
+  "memory_limit_bytes": 2147483648,
+  "affinity": [
+    0
+  ],
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "OPENBLAS_CORETYPE": null
+  },
+  "candidate": {
+    "src/anyfem/solve/stiffened_shell.py": "42d2c8b25f5668bd50bdf6b8a58559d3cd13bf05813e540781fc4d713d9479da",
+    "src/anyfem/solve/stiffened_shell_project.py": "8324bfee45689293ba2fb5750f2d7f5f2e2792bf9989ad21c621f77256248be6",
+    "tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py": "b41415e2cd1f813c3d64fbda3eac56c49a0bfa08c2154a8d178d4061578d07a4",
+    "examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py": "ae9fd0ff22431124e6eb1faaad6e9edee035361b4e6599d45ef7a4629471a074"
+  },
+  "runner_sha256": "c87da9c5c6376c16b273ca441fd6d4a5d5417f6d1d7c14165c1abf0273b1ec5e",
+  "entry_sha256": "44e17521a0c42780da7c1d8b1f00431a9f897b576538fa33240e5ec5d689d132"
+}

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-native-bl5-mixed-j2-consumer-20261006-v1\entry.py", line 18, in <module>
+    assert Path(anymaterial.__file__).resolve().is_relative_to(CI.resolve())
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError
