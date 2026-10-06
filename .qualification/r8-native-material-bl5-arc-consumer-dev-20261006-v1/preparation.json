@@ -1,0 +1,7 @@
+{
+  "status": "SOURCE_ONLY_UNRUN",
+  "method": "Native PowerShell/.NET copies and hashes only; no interpreter",
+  "prepare_sha256": "d1c945bf6a49b1bdf0f53a8c17d78b5584f3b836557b433da4c7fb4cc89a2331",
+  "manifest_sha256": "cacb3dd6cddc14fabc89723dbd7a58d23645d345e50762c52490980d48d59393",
+  "selectors_sha256": "8370b2fd118a34c2937507bd0e75b4feb871dc9299ad7678c41aefc1b206345d"
+}

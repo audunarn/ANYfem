@@ -170,7 +170,7 @@ can reuse that wheel with the solver wheel
 This native administrative hash check executes no interpreter and makes no
 new workflow/runtime claim. Fresh150s consumer authority has been requested;
 no answer or execution allowance is inferred. Old solver remainder untouched.
- 
+
 ### 2026-10-06 pending installed consumer check
 
 A source-only harness is prepared in

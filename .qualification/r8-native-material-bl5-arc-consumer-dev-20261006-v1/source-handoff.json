@@ -1,0 +1,27 @@
+{
+  "status": "SOURCE_ONLY_UNRUN",
+  "approval": "PENDING_USER_APPROVAL",
+  "native_source_wheel_site_binding": "PASS",
+  "method": "Read-only native PowerShell SHA256 audit; no interpreter",
+  "consumer_commit": "58a1d3d4f6ace545959a212859f3055fd30fc6ba",
+  "input_count": 5,
+  "anyfem_modules": 99,
+  "anysolver_modules": 430,
+  "dependency_bindings": 743,
+  "hashes": {
+    "prepare.ps1": "66b70958cbd77876cd0cafb5ceaf3c71ea4c0f85079662b61dfa838e588fe98a",
+    "entry.py": "a1b3505aedcf1fc8bd36c86d920caea3213b6390fa60befae74a3892477919ae",
+    "supervisor.ps1": "eaaa0c6311f2e94114158e61ebb1c8e7ab556f6b5a634f0d9839995a8fed7a6b",
+    "frozen-manifest.json": "cacb3dd6cddc14fabc89723dbd7a58d23645d345e50762c52490980d48d59393",
+    "selectors.json": "8370b2fd118a34c2937507bd0e75b4feb871dc9299ad7678c41aefc1b206345d",
+    "authority.json": "d3bbfd0533af578bc80e9c9ca893893853b81506ca2df06153070923425ab23c",
+    "ledger.json": "c5e2ec36cf98309302103255b203fe12701b059b05579ef65d106eca2400ddaf",
+    "preparation.json": "2ca4db7abec47865e9521ada501d1de56c5dbef18524237872461ef4346c76b9",
+    "handoff.md": "f9ba8fe3cb4bddffd46e9d9eec439a0ab042656444533a136e10329bb8236173"
+  },
+  "interpreter_jobs": 0,
+  "prospective_total_seconds": 150,
+  "used_seconds": 0,
+  "old_ledgers_untouched": true,
+  "ready_command": "& 'C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-native-material-bl5-arc-consumer-dev-20261006-v1/supervisor.ps1' -Attempt 'installed-v1' -Cap 120 -Reserve 30"
+}

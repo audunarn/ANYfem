@@ -1,0 +1,4 @@
+[
+  "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_project_native_material_arc_prefix_cancel_restore_continue",
+  "tests/test_stiffened_shell_native_material_bl5_arc_consumer.py::test_existing_v6_project_ownership_and_strict_input_refusals"
+]

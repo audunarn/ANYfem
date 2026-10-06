@@ -1,0 +1,12 @@
+{
+  "status": "PENDING_USER_APPROVAL",
+  "total_seconds": 150,
+  "reserved_for_final_verification_seconds": 30,
+  "approval_evidence": null,
+  "scope": "Only the two frozen installed consumer tests; no build/install or solver campaign",
+  "memory_bytes": 2147483648,
+  "affinity": [
+    0
+  ],
+  "one_job": true
+}
