@@ -44,3 +44,6 @@ src/anyfem/solve/stiffened_shell_b2.py -text whitespace=cr-at-eol
 tests/test_stiffened_shell_b2_physical_footprint_consumer.py -text whitespace=cr-at-eol
 examples/stiffened_shell_b2_physical_footprint_consumer.py -text whitespace=cr-at-eol
 docs/experimental_b2_physical_rigid_footprint.md -text whitespace=cr-at-eol
+examples/stiffened_shell_native_material_bl5_arc_consumer.py -text whitespace=cr-at-eol
+tests/test_stiffened_shell_native_material_bl5_arc_consumer.py -text whitespace=cr-at-eol
+docs/development/stiffened_shell_native_material_bl5_arc_consumer.md -text whitespace=cr-at-eol
