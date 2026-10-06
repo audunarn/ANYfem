@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Load definition and evaluation moved to the new ANYloads package (ANYfem now
+  depends on `ANYloads>=0.1,<0.2`): the equation evaluator, trusted Python code
+  and its per-user trust list, the CSV/Excel `PressureTable`, and the fluid-side
+  sign. ANYfem keeps attaching them to wet surfaces, meshes, the project file and
+  the viewport, through `PressureField`/`CaseContext` adapters. Nothing changes
+  in project files. The trust list moved from ANYfem's config to ANYloads'
+  (`ANYLOADS_TRUSTED_CODE_FILE`; `trusted_code.json` under the ANYloads user
+  config directory), and `anyfem.model.expressions` remains as an alias.
+
+- Define wet pressure by Python code or from a CSV/Excel table. Code is a
+  `def pressure(case, x, y, z)` (optionally `t`, `name`, `parameters`) called per
+  element, or once with numpy arrays (`code_vectorized`); it is only parsed when a
+  project is opened, validated or drawn and runs only when its SHA-256 is in a
+  per-user trust list outside the project (typing code into ANYfem trusts it; code
+  from a file asks before a solve, and the Qt solve shows it first). A
+  `PressureTable` reads `case, x, y, z, pressure` rows (CSV/TSV/text/.xlsx; case
+  identifier by number, time with optional linear time interpolation, or name; or
+  one map), maps them to element centres by nearest point or inverse-distance
+  weighting with an optional maximum distance, converts units, and stores the
+  file's path and SHA-256 so a changed file is refused.
+  `Project.add_load_cases_from_table` makes one case per identifier. Load cases now
+  have a stable `number` (series steps use step + 1). Qt: a code editor field,
+  Add wet pressure table and Add load cases from table. Files using code or tables
+  are format 9. Excel needs the optional `openpyxl` (extra `excel`).
+
 - Add wet surfaces and fluid pressure. A plate marked as a `WetSurface` (with the
   side the fluid is on, or a point inside a closed hull) receives a `WetPressure`
   from a load case: a uniform value, an equation of the element centroid, the case

@@ -7,11 +7,12 @@ import json
 import re
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QLabel, QLineEdit, QCheckBox,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget)
+    QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ... import commands
-from ...model.attributes import Support
+from ...model.attributes import PressureTable, Support
 from ...model.materials import MaterialSpec
 from ...model.sections import PlateSection, BeamSection
 from ...model.coordinates import CoordinateSystem
@@ -20,6 +21,28 @@ from ...model.records import OutputRequest
 from ...model.regions import region_from_dict, RegionRef
 from ...model.units import UnitProfile
 from anygeometry import SketchDefinition
+
+
+class CodeEdit(QPlainTextEdit):
+    """A monospace multi-line field that reads and writes like a QLineEdit."""
+
+    def __init__(self):
+        super().__init__()
+        self.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        self.setTabChangesFocus(False)
+        self.setMinimumHeight(150)
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)
+
+    def text(self):return self.toPlainText()
+    def setText(self,value):self.setPlainText(value)
+
+
+PRESSURE_CODE_HINT="\n".join((
+    "def pressure(case, x, y, z):",
+    "    # case: load case number; x, y, z: element centre in metres.",
+    "    # Optional arguments: t (case time), name, parameters.",
+    "    return 1025 * 9.81 * max(0.0, 2.0 - z)",
+))
 
 
 def title(name):
@@ -122,11 +145,13 @@ class CommandEditor(QWidget):
 
     @staticmethod
     def make_field(default, annotation, name):
-        field=QLineEdit()
+        field=CodeEdit() if name=="code" else QLineEdit()
         missing=default is inspect.Parameter.empty or default is dataclasses.MISSING or repr(default)=="<factory>"
         if not missing and default is not None:
             field.setText(default if isinstance(default,str) else json.dumps(default,default=lambda value:value.tolist() if hasattr(value,"tolist") else str(value)))
-        if "EntityRef" in annotation:
+        if name=="code":
+            field.setPlaceholderText(PRESSURE_CODE_HINT)
+        elif "EntityRef" in annotation:
             field.setPlaceholderText("Selection, vertex:1 / edge:1 / face:1, or group:name")
         elif "Sequence" in annotation:
             field.setPlaceholderText("Comma-separated values")
@@ -180,7 +205,8 @@ class CommandEditor(QWidget):
             raise ValueError(f"Enter a valid value: {text}") from None
         converters={"SketchDefinition":SketchDefinition.from_parameters,
                     "Region":region_from_dict,"OutputRequest":OutputRequest.from_dict,
-                    "UnitProfile":UnitProfile.from_dict}
+                    "UnitProfile":UnitProfile.from_dict,
+                    "PressureTable":lambda data:PressureTable(**data)}
         converter=converters.get(annotation.split(" | ")[0])
         return converter(value) if converter is not None else value
 

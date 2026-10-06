@@ -1728,7 +1728,7 @@ def _wet_pressure_samples(project, geometry, case, mesh):
     show the side the fluid is on and how the pressure varies.
     """
 
-    from ..model.wetfield import WetFieldError, expression_pressure, fluid_sign
+    from ..model.wetfield import WetFieldError, field_pressure, fluid_sign
 
     if mesh is not None:
         from ..model.project import ProjectError
@@ -1766,12 +1766,10 @@ def _wet_pressure_samples(project, geometry, case, mesh):
             except Exception:  # an undisplayable plate is reported by validation
                 continue
             try:
-                if load.kind == "uniform":
-                    magnitude = np.full(len(points), float(load.value))
-                elif load.kind == "expression":
-                    magnitude = expression_pressure(case, load, np.array(points))
+                if load.kind != "mapping":
+                    magnitude = field_pressure(case, load, np.array(points))
                 elif load.mapping_key == "face":
-                    magnitude = np.full(
+                    magnitude = load.scale * np.full(
                         len(points), load.mapping.get(surface.ref.id, 0.0)
                     )
                 else:
@@ -1781,7 +1779,7 @@ def _wet_pressure_samples(project, geometry, case, mesh):
                         (
                             point,
                             normal,
-                            fluid_sign(surface, point, normal) * load.scale * float(value),
+                            fluid_sign(surface, point, normal) * float(value),
                         )
                     )
             except WetFieldError:

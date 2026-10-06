@@ -994,6 +994,32 @@ class WorkbenchWorkflow:
             self.refresh_all()
 
 
+    def confirm_untrusted_code(self, items) -> bool:
+        """Ask the user to approve pressure code that came from a file.
+
+        ``items`` are ``(load case, pressure name, code)``. A frontend that can
+        show the code overrides this; the default refuses, so headless use
+        never runs code it was not told to trust.
+        """
+
+        return False
+
+    def _require_trusted_pressure_code(self) -> None:
+        pending = self.project.untrusted_code()
+        if not pending:
+            return
+        if not self.confirm_untrusted_code(pending):
+            names = ", ".join(f"{case}: {name}" for case, name, _code in pending)
+            raise ValueError(
+                "this project contains pressure code that has not been "
+                f"approved on this machine ({names}). Review it and approve it "
+                "(anyloads.trust_code), or remove it, before solving."
+            )
+        from anyloads import trust_code
+
+        for _case, _name, code in pending:
+            trust_code(code)
+
     def solve(
         self, analysis: str = "Linear static", *,
         output_request_ids: Iterable[str] = (), **options: Any,
@@ -1010,6 +1036,7 @@ class WorkbenchWorkflow:
             function = ANALYSES[analysis]
         except KeyError:
             raise ValueError(f"unknown analysis {analysis!r}") from None
+        self._require_trusted_pressure_code()
 
         self.analysis = analysis
         if isinstance(output_request_ids, str):

@@ -166,3 +166,158 @@ def test_qt_overlay_shows_wet_outline_and_arrows_in_the_scene(window, qapp):
     scene = build_attribute_overlay(window.project, case_name="default")
     assert any(line.color == COLOR_WET for line in scene.lines)
     assert any(arrow.color == COLOR_WET for arrow in scene.arrows)
+
+
+@pytest.fixture
+def isolated_trust(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANYLOADS_TRUSTED_CODE_FILE", str(tmp_path / "trusted.json"))
+    return tmp_path
+
+
+def _plate_with_wet_surface(window):
+    points = [window.run(cmd.AddPoint(x, 0, z)) for x, z in ((0, 0), (2, 0), (2, 3), (0, 3))]
+    plate = window.run(cmd.AddPlate(points))
+    ref = window.project.geometry.entity_ref("face", plate)
+    window.run(cmd.AddLoadCase("Service"))
+    window.run(cmd.AddWetSurface(ref, name="Hull", fluid_side="negative_normal"))
+    return ref
+
+
+def test_qt_pressure_code_is_typed_in_a_code_field_and_edited(window, qapp, isolated_trust):
+    from anyfem.ui.qt.editors import CodeEdit
+
+    _plate_with_wet_surface(window)
+    panel = window.panels["Loads & BC"]
+    panel.case.setCurrentText("Service")
+    _choose(panel, "AddWetPressure")
+    code_field = panel.fields["code"][0]
+    assert isinstance(code_field, CodeEdit)
+    code = "def pressure(case, x, y, z):\n    return 1000.0 * max(0.0, 2.0 - z)\n"
+    code_field.setText(code)
+    panel.apply.click()
+    qapp.processEvents()
+    load = window.project.load_cases["Service"].wet_pressures[0]
+    assert load.kind == "code" and load.code.strip() == code.strip()
+    from anyloads import is_trusted
+
+    assert is_trusted(load.code)
+
+    window.tree.refresh()
+    window.tree.edit_record(("load", load.id))
+    edited = "def pressure(case, x, y, z):\n    return 2000.0\n"
+    panel.record_fields["replacement"][1]["code"][0].setText(edited)
+    panel.apply.click()
+    qapp.processEvents()
+    assert window.project.load_cases["Service"].wet_pressures[0].code.strip() == edited.strip()
+    assert is_trusted(window.project.load_cases["Service"].wet_pressures[0].code)
+
+
+def test_qt_pressure_table_commands_and_edit_round_trip(window, qapp, isolated_trust):
+    _plate_with_wet_surface(window)
+    path = isolated_trust / "p.csv"
+    rows = ["time,x,y,z,pressure"]
+    for time, value in ((0.0, 1000.0), (1.0, 2000.0)):
+        for x in (0.5, 1.5):
+            for z in (0.5, 1.5, 2.5):
+                rows.append(f"{time},{x},0,{z},{value}")
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    panel = window.panels["Loads & BC"]
+    _choose(panel, "AddLoadCasesFromTable")
+    panel.fields["name"][0].setText("run")
+    panel.fields["path"][0].setText(str(path))
+    panel.fields["key"][0].setText("time")
+    panel.apply.click()
+    qapp.processEvents()
+    assert {"run_0", "run_1"} <= set(window.project.load_cases)
+    assert window.project.load_cases["run_1"].time == 1.0
+
+    _choose(panel, "AddWetPressureTable")
+    panel.case.setCurrentText("Service")
+    panel.fields["path"][0].setText(str(path))
+    panel.fields["key"][0].setText("time")
+    panel.fields["case"][0].setText("Service")
+    panel.apply.click()
+    qapp.processEvents()
+    load = window.project.load_cases["Service"].wet_pressures[0]
+    assert load.kind == "table" and load.table.key == "time"
+
+    window.tree.refresh()
+    window.tree.edit_record(("load", load.id))
+    panel.apply.click()  # editing a table pressure must round-trip the table
+    qapp.processEvents()
+    again = window.project.load_cases["Service"].wet_pressures[0]
+    assert again.table == load.table and again.id == load.id
+
+    window.undo()
+    qapp.processEvents()
+    window.redo()
+
+
+def test_qt_solve_asks_before_running_code_from_a_file(window, qapp, isolated_trust, monkeypatch):
+    from anyloads import is_trusted
+
+    _plate_with_wet_surface(window)
+    code = "def pressure(z):\n    return 1000.0\n"
+    window.run(cmd.AddWetPressure(code=code, case="Service"))
+    (isolated_trust / "trusted.json").unlink()
+    assert not is_trusted(code)
+
+    asked = []
+    monkeypatch.setattr(window, "confirm_untrusted_code", lambda items: asked.append(items) or False)
+    window.generate_mesh(0.5)
+    with pytest.raises(ValueError, match="has not been approved"):
+        window.solve("Linear static", load_case="Service")
+    assert asked and asked[0][0][2] == code
+    assert not is_trusted(code)
+
+    monkeypatch.setattr(window, "confirm_untrusted_code", lambda items: True)
+    window._require_trusted_pressure_code()
+    assert is_trusted(code)
+
+
+def test_qt_table_series_and_code_solve_in_the_worker_process(window, qapp, isolated_trust):
+    """The worker process must see the trusted code and read the table file."""
+    import time
+
+    from anyfem import steel
+    from anyfem.model import PlateSection
+    from anyfem.model.attributes import Support
+
+    material = steel("S355", 0.010)
+    window.run(cmd.AddMaterial(material))
+    window.run(cmd.AddPlateSection(PlateSection("plate", 0.010, material.name), material))
+    points = [window.run(cmd.AddPoint(x, y, 0)) for x, y in ((0, 0), (2, 0), (2, 1), (0, 1))]
+    edges = [window.run(cmd.AddLine(a, b)) for a, b in zip(points, points[1:] + points[:1])]
+    face = window.run(cmd.AddFace(edges))
+    window.run(cmd.AssignPlate(face, "plate"))
+    for edge in edges:
+        window.run(cmd.AddSupport(Support(
+            f"fixed-{edge}", window.project.geometry.entity_ref("edge", edge),
+            dict.fromkeys(["ux", "uy", "uz", "rx", "ry", "rz"], 0))))
+    ref = window.project.geometry.entity_ref("face", face)
+    window.run(cmd.AddWetSurface(ref, name="Hull", fluid_side="negative_normal"))
+
+    path = isolated_trust / "p.csv"
+    lines = ["time,x,y,z,pressure"]
+    for time_value, value in ((0.0, 1000.0), (1.0, 4000.0)):
+        for x in (0.5, 1.5):
+            for y in (0.25, 0.75):
+                lines.append(f"{time_value},{x},{y},0,{value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    window.run(cmd.AddLoadCasesFromTable("tab", str(path), key="time"))
+    window.run(cmd.AddLoadCase("code"))
+    window.run(cmd.AddWetPressure(
+        code="def pressure(case, x, y, z):\n    return 2500.0\n", case="code"))
+
+    window.generate_mesh(0.25)
+    window.solve("Batch linear static", load_cases=["tab_0", "tab_1", "code"])
+    end = time.monotonic() + 120
+    while window.solution is None and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert window.solution is not None, window._status.get()
+    peaks = {name: shape.max_translation()[1]
+             for name, shape in zip(window.solution.case_names, window.solution.shapes)}
+    assert peaks["tab_1"] == pytest.approx(4.0 * peaks["tab_0"], rel=1e-6)
+    assert peaks["code"] == pytest.approx(2.5 * peaks["tab_0"], rel=1e-6)

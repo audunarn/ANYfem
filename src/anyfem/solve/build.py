@@ -37,7 +37,7 @@ from anymesher import (
 
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase, DOF_NAMES, WetPressure, WetSurface
-from ..model.wetfield import WetFieldError, expression_pressure, fluid_sign
+from ..model.wetfield import WetFieldError, field_pressure, fluid_sign
 from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
@@ -1003,11 +1003,8 @@ def wet_element_pressures(
                 if value == 0.0:
                     continue
                 centroid, normal = geometry[int(element_id)]
-                signed = (
-                    fluid_sign(owner[int(element_id)], centroid, normal)
-                    * load.scale
-                    * float(value)
-                )
+                # ``value`` already carries the load's scale.
+                signed = fluid_sign(owner[int(element_id)], centroid, normal) * float(value)
                 key = int(element_id)
                 previous = accumulated.get(key)
                 accumulated[key] = WetElementPressure(
@@ -1045,16 +1042,14 @@ def _wet_pressure_values(
     pick: np.ndarray,
     centroids: np.ndarray,
 ) -> np.ndarray:
-    """Pressure magnitude of the picked elements of ``element_ids``.
+    """Scaled pressure magnitude of the picked elements of ``element_ids``.
 
-    ``centroids`` belong to the picked elements only.
+    ``centroids`` belong to the picked elements only. Every source except a
+    mapping by id is evaluated by ANYloads.
     """
 
-    if load.kind == "uniform":
-        return np.full(len(pick), float(load.value))
-
-    if load.kind == "expression":
-        return expression_pressure(case, load, centroids)
+    if load.kind != "mapping":
+        return field_pressure(case, load, centroids)
 
     values = np.zeros(len(element_ids))
     position = {int(e): index for index, e in enumerate(element_ids)}
@@ -1066,7 +1061,7 @@ def _wet_pressure_values(
                     f"{element_id}, which is not on a selected wet surface"
                 )
             values[position[element_id]] = value
-        return values[pick]
+        return load.scale * values[pick]
     for face_id, value in load.mapping.items():
         elements = by_face.get(face_id)
         if not elements:
@@ -1076,7 +1071,7 @@ def _wet_pressure_values(
             )
         for element_id in elements:
             values[position[int(element_id)]] = value
-    return values[pick]
+    return load.scale * values[pick]
 
 
 def _add_nodal(

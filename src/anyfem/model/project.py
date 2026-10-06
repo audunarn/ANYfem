@@ -37,7 +37,14 @@ from ..structural_preparation import (
     remap_mesh_to_source,
     source_work_mapping,
 )
-from .attributes import Combination, LoadCase, Mass, Support, WetSurface
+from .attributes import (
+    Combination,
+    LoadCase,
+    Mass,
+    PressureTable,
+    Support,
+    WetSurface,
+)
 from .imperfections import Imperfection
 from .formulations import ShellFormulationPolicy
 from .sections import BeamSection, PlateSection, SectionAssignment
@@ -1534,6 +1541,7 @@ class Project:
                 case.set_time(time)
                 case.series = name
                 case.step = index
+                case.number = None  # a step is numbered by its step
                 created.append(case)
                 if builder is not None:
                     builder(case, time, index)
@@ -1548,7 +1556,17 @@ class Project:
 
         if name not in self.load_cases:
             self.load_cases[name] = LoadCase(
-                name=name, _region_factory=self.singleton_region
+                name=name,
+                _region_factory=self.singleton_region,
+                number=1
+                + max(
+                    (
+                        item.number or 0
+                        for item in self.load_cases.values()
+                        if item.series is None
+                    ),
+                    default=0,
+                ),
             )
         case = self.load_cases[name]
         case._region_factory = self.singleton_region
@@ -2397,6 +2415,14 @@ class Project:
         problems: List[str] = []
         if not case.wet_pressures:
             return problems
+        for load in case.wet_pressures:
+            if load.table is not None:
+                problem = self._table_problem(load.table)
+                if problem is not None:
+                    problems.append(
+                        f"load case {case_name!r} wet pressure {load.name!r}: "
+                        f"{problem}"
+                    )
         known = {surface.id for surface in self.wet_surfaces}
         if not known:
             problems.append(
@@ -2411,6 +2437,98 @@ class Project:
                     f"names unknown wet surface(s) {unknown}"
                 )
         return problems
+
+    @staticmethod
+    def _table_problem(table: PressureTable) -> str | None:
+        """Why a pressure table cannot be used, from the file alone."""
+
+        from pathlib import Path
+
+        from anyloads import PressureTableError, read_table
+
+        path = Path(table.path).expanduser()
+        if not path.is_file():
+            return f"pressure table {table.path} does not exist"
+        try:
+            read_table(table)
+        except PressureTableError as error:
+            return str(error)
+        return None
+
+    def untrusted_code(self) -> List[tuple[str, str, str]]:
+        """``(case, pressure name, code)`` for pressure code not yet trusted.
+
+        Code that came from a project file is inert until the user approves
+        it; callers that are about to run a solve ask first.
+        """
+
+        from anyloads import is_trusted
+
+        found: List[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for case_name, case in self.load_cases.items():
+            for load in case.wet_pressures:
+                if load.code is not None and load.code not in seen and not is_trusted(load.code):
+                    seen.add(load.code)
+                    found.append((case_name, load.name, load.code))
+        return found
+
+    def add_load_cases_from_table(
+        self,
+        name: str,
+        table: PressureTable,
+        *,
+        surfaces: Sequence[str] = (),
+        scale: float = 1.0,
+    ) -> List[LoadCase]:
+        """One load case per case identifier in a pressure table.
+
+        A time-keyed table gives cases at those times (the pressure follows
+        each case's time, so ``interpolate_time`` tables also work at other
+        times); a number- or name-keyed table pins each case to its own rows. A
+        table without identifiers is one map and makes one case.
+        """
+
+        keys = table.keys()
+        if table.key is None:
+            keys = [None]
+        if not keys:
+            raise ProjectError("the pressure table has no rows")
+        width = len(str(len(keys) - 1))
+        names = [f"{name}_{index:0{width}d}" for index in range(len(keys))]
+        clashes = [item for item in names if item in self.load_cases]
+        if clashes:
+            raise ProjectError(
+                f"load case(s) {clashes[:3]} already exist; remove them or "
+                "choose another name"
+            )
+        created: List[LoadCase] = []
+        try:
+            for index, (case_name, key) in enumerate(zip(names, keys)):
+                case = self.load_case(case_name)
+                created.append(case)
+                case.series = name
+                case.step = index
+                case.number = None
+                if table.key == "time":
+                    case.set_time(key)
+                    case.add_wet_pressure(
+                        table=table, surfaces=surfaces, scale=scale,
+                        name=f"{name} table",
+                    )
+                else:
+                    case.add_wet_pressure(
+                        table=table,
+                        table_case=key,
+                        surfaces=surfaces,
+                        scale=scale,
+                        name=f"{name} table",
+                    )
+        except BaseException:
+            for case in created:
+                self.load_cases.pop(case.name, None)
+            raise
+        return created
 
     # ------------------------------------------------------------------
     # lookup

@@ -14,7 +14,17 @@ from uuid import uuid4
 import numpy as np
 
 from anygeometry.entities import EntityRef
-from .expressions import RESERVED_NAMES, check_expression, expression_names
+from anyloads import (
+    FLUID_SIDES,
+    CaseContext,
+    LoadError,
+    PressureField,
+    PressureTable,
+    check_fluid_side,
+    check_parameter,
+    expression_names,
+    trust_code,
+)
 from .regions import RegionRef
 
 __all__ = [
@@ -27,6 +37,7 @@ __all__ = [
     "Pressure",
     "Support",
     "SurfaceTraction",
+    "PressureTable",
     "WetPressure",
     "WetSurface",
     "antisymmetry",
@@ -392,11 +403,7 @@ class SurfaceTraction:
         )
 
 
-WET_FLUID_SIDES: tuple[str, ...] = (
-    "positive_normal",
-    "negative_normal",
-    "away_from_point",
-)
+WET_FLUID_SIDES: tuple[str, ...] = FLUID_SIDES
 WET_MAPPING_KEYS: tuple[str, ...] = ("face", "element")
 
 
@@ -429,34 +436,22 @@ class WetSurface:
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
             raise ValueError("a wet surface is made of plates")
-        if self.fluid_side not in WET_FLUID_SIDES:
-            raise ValueError(
-                "fluid side must be one of " + ", ".join(WET_FLUID_SIDES)
-            )
-        if self.fluid_side == "away_from_point":
-            if self.interior_point is None:
-                raise ValueError(
-                    "a wet surface facing away from a point needs that point"
-                )
-            object.__setattr__(
-                self,
-                "interior_point",
-                _vector3(self.interior_point, "wet-surface interior point"),
-            )
-        elif self.interior_point is not None:
-            raise ValueError(
-                "an interior point only applies when the fluid side is "
-                "away_from_point"
-            )
+        # ANYloads owns what a fluid side means; this record only carries it.
+        object.__setattr__(
+            self,
+            "interior_point",
+            check_fluid_side(self.fluid_side, self.interior_point),
+        )
 
 
 @dataclass(frozen=True)
 class WetPressure:
-    """Fluid pressure on wet surfaces: uniform, an equation, or a mapping.
+    """Fluid pressure on wet surfaces: a value, equation, mapping, code or table.
 
-    Exactly one of ``value``, ``expression`` and ``mapping`` is given. The
-    pressure is a positive magnitude pressing into the plate; the wet
-    surface's fluid side turns it into the solver's normal-signed pressure.
+    Exactly one of ``value``, ``expression``, ``mapping``, ``code`` and
+    ``table`` is given. The pressure is a positive magnitude pressing into the
+    plate; the wet surface's fluid side turns it into the solver's
+    normal-signed pressure.
 
     ``expression``
         A formula of the element centroid ``x, y, z`` (metres), the case time
@@ -470,8 +465,21 @@ class WetPressure:
         elements the mapping does not list are dry (zero). Naming one that is
         not on a wet surface is refused.
 
+    ``code``
+        Python source defining ``def pressure(case, x, y, z): ...`` that
+        returns the pressure for a load case number and an element centroid.
+        It may also declare ``t``, ``name`` and ``parameters``. It runs only
+        once trusted (see :mod:`anyfem.model.usercode`); with
+        ``code_vectorized`` it is called once with numpy arrays instead of per
+        element.
+    ``table``
+        A :class:`PressureTable`: pressures at points per load case, from a
+        CSV/Excel file. ``table_case`` pins which case identifier to use
+        instead of deriving it from the load case.
+
     ``surfaces`` restricts the pressure to some wet surfaces by id; empty
-    means every wet surface.
+    means every wet surface. ``scale`` multiplies the result (e.g. 1000 for a
+    table in kPa).
     """
 
     value: float | None = None
@@ -482,6 +490,10 @@ class WetPressure:
     scale: float = 1.0
     name: str = "wet pressure"
     id: str = field(default_factory=_uuid)
+    code: str | None = None
+    code_vectorized: bool = False
+    table: PressureTable | None = None
+    table_case: float | int | str | None = None
 
     def __post_init__(self) -> None:
         given = [
@@ -490,20 +502,32 @@ class WetPressure:
                 ("value", self.value),
                 ("expression", self.expression),
                 ("mapping", self.mapping),
+                ("code", self.code),
+                ("table", self.table),
             )
             if item is not None
         ]
         if len(given) != 1:
             raise ValueError(
-                "a wet pressure needs exactly one of a value, an expression "
-                f"or a mapping (got {', '.join(given) or 'none'})"
+                "a wet pressure needs exactly one of a value, an expression, "
+                f"a mapping, code or a table (got {', '.join(given) or 'none'})"
             )
-        if self.value is not None:
-            object.__setattr__(
-                self, "value", _finite_scalar(self.value, "wet pressure")
+        if self.mapping is None:
+            # ANYloads validates and normalises every source it evaluates.
+            normalised = PressureField(
+                value=self.value,
+                expression=self.expression,
+                code=self.code,
+                code_vectorized=self.code_vectorized,
+                table=self.table,
+                table_case=self.table_case,
+                scale=self.scale,
             )
-        if self.expression is not None:
-            check_expression(self.expression)
+            object.__setattr__(self, "value", normalised.value)
+            object.__setattr__(self, "code_vectorized", normalised.code_vectorized)
+            object.__setattr__(self, "scale", normalised.scale)
+        elif self.code is not None or self.table_case is not None:
+            raise ValueError("a mapping cannot also carry code or a table case")
         if self.mapping is not None:
             if self.mapping_key not in WET_MAPPING_KEYS:
                 raise ValueError(
@@ -536,7 +560,27 @@ class WetPressure:
     def kind(self) -> str:
         if self.value is not None:
             return "uniform"
-        return "expression" if self.expression is not None else "mapping"
+        if self.expression is not None:
+            return "expression"
+        if self.code is not None:
+            return "code"
+        return "table" if self.table is not None else "mapping"
+
+    @property
+    def field(self) -> PressureField:
+        """The ANYloads definition that evaluates this pressure (not a mapping)."""
+
+        if self.mapping is not None:
+            raise ValueError("a mapping is evaluated per plate or element id")
+        return PressureField(
+            value=self.value,
+            expression=self.expression,
+            code=self.code,
+            code_vectorized=self.code_vectorized,
+            table=self.table,
+            table_case=self.table_case,
+            scale=self.scale,
+        )
 
 
 @dataclass
@@ -570,6 +614,18 @@ class LoadCase:
     parameters: dict[str, float] = field(default_factory=dict)
     series: str | None = None
     step: int | None = None
+    # The load case number handed to pressure code and matched by a
+    # number-keyed pressure table. Assigned when the project creates the case;
+    # a series step is numbered by its step instead (see ``case_number``).
+    number: int | None = None
+
+    @property
+    def case_number(self) -> int:
+        """1-based number of this case: step + 1 within a series, else ``number``."""
+
+        if self.step is not None:
+            return int(self.step) + 1
+        return 0 if self.number is None else int(self.number)
 
     def add_point_load(
         self,
@@ -615,8 +671,16 @@ class LoadCase:
         surfaces: Sequence[str] = (),
         scale: float = 1.0,
         name: str = "wet pressure",
+        code: str | None = None,
+        code_vectorized: bool = False,
+        table: PressureTable | None = None,
+        table_case: float | int | str | None = None,
     ) -> WetPressure:
-        """Apply fluid pressure to the project's wet surfaces."""
+        """Apply fluid pressure to the project's wet surfaces.
+
+        Code passed here is the caller's own, so it is trusted on this
+        machine; code that arrives inside a project file is not.
+        """
 
         load = WetPressure(
             value=value,
@@ -626,7 +690,13 @@ class LoadCase:
             surfaces=tuple(surfaces),
             scale=scale,
             name=name,
+            code=code,
+            code_vectorized=code_vectorized,
+            table=table,
+            table_case=table_case,
         )
+        if code is not None:
+            trust_code(code)
         self.wet_pressures.append(load)
         return load
 
@@ -638,14 +708,18 @@ class LoadCase:
     def set_parameter(self, name: str, value: float) -> None:
         """A named number the case's pressure equations may read."""
 
-        name = str(name)
-        if not name.isidentifier():
-            raise ValueError(f"parameter name {name!r} is not an identifier")
-        if name in RESERVED_NAMES:
-            raise ValueError(
-                f"parameter name {name!r} is reserved; choose another"
-            )
-        self.parameters[name] = _finite_scalar(value, f"parameter {name!r}")
+        key, number = check_parameter(name, value)
+        self.parameters[key] = number
+
+    def context(self) -> CaseContext:
+        """This case as ANYloads sees it: number, name, time, parameters."""
+
+        return CaseContext(
+            number=self.case_number,
+            name=self.name,
+            time=self.time,
+            parameters=self.parameters,
+        )
 
     def add_line_load(
         self, ref: EntityRef, force_per_length: Sequence[float], *,

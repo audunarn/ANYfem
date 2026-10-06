@@ -1,76 +1,70 @@
-"""Fluid-pressure evaluation shared by the solver build and the viewport.
+"""Adapters between ANYfem's wet loads and ANYloads' evaluation.
 
-Both must agree exactly on which way a wet pressure acts and what an equation
-gives at a point, so the arithmetic lives here, free of mesh and solver types.
+ANYloads owns how a pressure is defined and evaluated (equation, trusted code,
+table) and which way fluid pressure acts; this module only translates ANYfem's
+records into its vocabulary and its errors into ANYfem's.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
 import numpy as np
 
-from .attributes import LoadCase, WetPressure, WetSurface
-from .expressions import ExpressionError, evaluate_expression
+from anyloads import LoadError, UntrustedCodeError
+from anyloads import fluid_sign as _fluid_sign
 
-__all__ = ["WetFieldError", "expression_pressure", "fluid_sign"]
+from .attributes import LoadCase, WetPressure, WetSurface
+
+__all__ = [
+    "UntrustedWetCodeError",
+    "WetFieldError",
+    "field_pressure",
+    "fluid_sign",
+]
 
 
 class WetFieldError(ValueError):
     """A wet pressure cannot be evaluated."""
 
 
+class UntrustedWetCodeError(WetFieldError):
+    """Pressure code from a project has not been approved on this machine."""
+
+
 def fluid_sign(
     surface: WetSurface, centroid: np.ndarray, normal: np.ndarray
 ) -> float:
-    """Sign turning a pressure magnitude into a normal-signed pressure.
+    """Sign turning a pressure magnitude into a normal-signed pressure."""
 
-    The solver's positive pressure acts along the element normal; fluid on the
-    positive-normal side pushes against it.
-    """
-
-    if surface.fluid_side == "positive_normal":
-        return -1.0
-    if surface.fluid_side == "negative_normal":
-        return 1.0
-    outward = np.asarray(centroid, dtype=float) - np.asarray(
-        surface.interior_point, dtype=float
-    )
-    side = float(np.dot(normal, outward))
-    if side == 0.0:
-        raise WetFieldError(
-            f"wet surface {surface.name!r}: the interior point lies in the "
-            "plane of an element, so the fluid side cannot be decided"
+    try:
+        return _fluid_sign(
+            surface.fluid_side,
+            surface.interior_point,
+            centroid,
+            normal,
+            label=f"wet surface {surface.name!r}",
         )
-    return -1.0 if side > 0.0 else 1.0
+    except LoadError as error:
+        raise WetFieldError(str(error)) from None
 
 
-def expression_pressure(
+def field_pressure(
     case: LoadCase, load: WetPressure, centroids: np.ndarray
 ) -> np.ndarray:
-    """An equation's pressure magnitude at each centroid."""
+    """A pressure source's magnitude at each centroid for this case (scaled).
 
-    centroids = np.asarray(centroids, dtype=float).reshape(-1, 3)
-    variables: Dict[str, Any] = {
-        "x": centroids[:, 0],
-        "y": centroids[:, 1],
-        "z": centroids[:, 2],
-        **case.parameters,
-    }
-    if case.time is not None:
-        variables["t"] = float(case.time)
+    Covers every kind except a mapping by plate or element id, which needs the
+    mesh and is resolved by the solver build.
+    """
+
+    where = f"load case {case.name!r} wet pressure {load.name!r}"
     try:
-        return evaluate_expression(
-            load.expression, variables, size=len(centroids)
-        )
-    except ExpressionError as error:
+        return load.field.evaluate(case.context(), centroids)
+    except UntrustedCodeError as error:
+        raise UntrustedWetCodeError(f"{where}: {error}") from None
+    except LoadError as error:
         hint = (
-            "; the case has no time (set one, or generate the case with "
-            "add_load_case_series)"
-            if case.time is None and "'t'" in str(error)
+            "; set one, or generate the case with add_load_case_series"
+            if case.time is None and "no time" in str(error)
             else ""
         )
-        raise WetFieldError(
-            f"load case {case.name!r} wet pressure {load.name!r}: "
-            f"{error}{hint}"
-        ) from None
+        raise WetFieldError(f"{where}: {error}{hint}") from None

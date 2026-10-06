@@ -571,6 +571,17 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             if choice in self.panels:self.notebook.select(choice)
             else:self._actions[choice].trigger()
 
+    def confirm_untrusted_code(self,items):
+        """Show pressure code that came from a file and ask before it may run."""
+        from PySide6.QtWidgets import QMessageBox
+        box=QMessageBox(self);box.setIcon(QMessageBox.Warning);box.setWindowTitle("Run pressure code from this project?")
+        box.setText("This project defines pressure with Python code. It runs with the same access as ANYfem, so only continue if you trust where the project came from.")
+        blocks=[f"# {case}: {name}"+chr(10)+code for case,name,code in items]
+        box.setDetailedText((chr(10)*2).join(blocks))
+        box.setStandardButtons(QMessageBox.Yes|QMessageBox.No);box.setDefaultButton(QMessageBox.No)
+        box.button(QMessageBox.Yes).setText("Trust and run");box.button(QMessageBox.No).setText("Cancel")
+        return box.exec()==QMessageBox.Yes
+
     def closeEvent(self,event):
         if self._closing:event.accept();return
         if not self._confirm_discard():event.ignore();return

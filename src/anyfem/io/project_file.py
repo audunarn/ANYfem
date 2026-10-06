@@ -29,6 +29,7 @@ from anygeometry.model import GeometryModel
 from anygeometry.serialization import from_dict as geometry_from_dict
 from anygeometry.serialization import to_dict as geometry_to_dict
 
+from anyloads import PressureTable
 from ..model.attributes import (
     LoadCase,
     Mass,
@@ -322,7 +323,8 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             else {}
         ),
         "load_cases": [
-            _load_case_to_dict(case) for case in _by_name(project.load_cases)
+            _load_case_to_dict(case, numbered=_uses_wet_loads(project))
+            for case in _by_name(project.load_cases)
         ],
         "combinations": [
             {"id": item.id, "name": item.name, "factors": dict(item.factors)}
@@ -1645,6 +1647,14 @@ def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
         entry["value"] = float(load.value)
     elif load.expression is not None:
         entry["expression"] = load.expression
+    elif load.code is not None:
+        entry["code"] = load.code
+        if load.code_vectorized:
+            entry["code_vectorized"] = True
+    elif load.table is not None:
+        entry["table"] = load.table.to_dict()
+        if load.table_case is not None:
+            entry["table_case"] = load.table_case
     else:
         entry["mapping_key"] = load.mapping_key
         entry["mapping"] = {
@@ -1653,8 +1663,9 @@ def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
     return entry
 
 
-def _load_case_to_dict(case: LoadCase) -> Dict[str, Any]:
+def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, Any]:
     return {
+        **({"number": int(case.number)} if numbered and case.number is not None else {}),
         **(
             {"wet_pressures": [_wet_pressure_to_dict(i) for i in case.wet_pressures]}
             if case.wet_pressures
@@ -1778,6 +1789,10 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
         case.set_parameter(str(key), value)
     case.series = None if data.get("series") is None else str(data["series"])
     case.step = None if data.get("step") is None else int(data["step"])
+    if data.get("number") is not None:
+        case.number = int(data["number"])
+    elif case.series is not None:
+        case.number = None  # a series step is numbered by its step
     for index, entry in enumerate(data.get("wet_pressures", ())):
         try:
             load = WetPressure(
@@ -1789,6 +1804,14 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 mapping_key=str(entry.get("mapping_key", "face")),
                 surfaces=tuple(entry.get("surfaces", ())),
                 scale=entry.get("scale", 1.0),
+                code=entry.get("code"),
+                code_vectorized=bool(entry.get("code_vectorized", False)),
+                table=(
+                    None
+                    if entry.get("table") is None
+                    else PressureTable.from_dict(entry["table"])
+                ),
+                table_case=entry.get("table_case"),
             )
         except ValueError as error:
             raise ProjectFileError(

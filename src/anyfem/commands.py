@@ -82,6 +82,7 @@ __all__ = [
     "AddLineLoad",
     "AddLoadCase",
     "AddLoadCaseSeries",
+    "AddLoadCasesFromTable",
     "AddMass",
     "AddMaterial",
     "AddMeshRecord",
@@ -101,6 +102,7 @@ __all__ = [
     "AddSupport",
     "AddSurfaceTraction",
     "AddWetPressure",
+    "AddWetPressureTable",
     "AddWetSurface",
     "AddCoordinateSystem",
     "AddStiffenedPanel",
@@ -2289,6 +2291,12 @@ class EditAttribute(Command):
         )
         if type(previous) is not type(self.replacement):
             raise TypeError("an attribute edit cannot change the attribute type")
+        code = getattr(self.replacement, "code", None)
+        if code is not None and code != getattr(previous, "code", None):
+            # The user typed this edit; approve the new text (trust is per text).
+            from anyloads import trust_code
+
+            trust_code(code)
         if self._previous is None:
             self._previous = previous
             self._address = address
@@ -2885,12 +2893,16 @@ class AddWetPressure(Command):
     scale: float = 1.0
     name: str = "wet pressure"
     case: str = "default"
+    code: str | None = None
+    code_vectorized: bool = False
     label: str = "add wet pressure"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
         case = project.load_case(self.case)
         if self._load is None:
+            # Code typed here is the user's own, so it is trusted (see
+            # anyloads.usercode); code from a project file never is.
             self._load = case.add_wet_pressure(
                 value=self.value,
                 expression=self.expression,
@@ -2899,6 +2911,8 @@ class AddWetPressure(Command):
                 surfaces=self.surfaces,
                 scale=self.scale,
                 name=self.name,
+                code=self.code,
+                code_vectorized=self.code_vectorized,
             )
         else:
             case.wet_pressures.append(self._load)
@@ -2906,6 +2920,100 @@ class AddWetPressure(Command):
 
     def undo(self, project: Project) -> None:
         project.load_case(self.case).wet_pressures.remove(self._load)
+
+
+@dataclass(eq=False)
+class AddWetPressureTable(Command):
+    """Map pressures from a CSV/Excel file onto the wet surfaces of one case.
+
+    The file needs ``x, y, z, pressure`` columns and, when it holds several
+    load cases, an identifier column named by ``key`` (number, time or name).
+    """
+
+    path: str
+    key: str | None = None
+    sheet: str | None = None
+    length_scale: float = 1.0
+    method: str = "nearest"
+    neighbours: int = 4
+    max_distance: float | None = None
+    interpolate_time: bool = False
+    scale: float = 1.0
+    surfaces: Sequence[str] = ()
+    name: str = "pressure table"
+    case: str = "default"
+    label: str = "add pressure table"
+    _load: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        case = project.load_case(self.case)
+        if self._load is None:
+            from .model.attributes import PressureTable
+
+            table = PressureTable.from_file(
+                self.path,
+                key=self.key,
+                sheet=self.sheet,
+                length_scale=self.length_scale,
+                method=self.method,
+                neighbours=self.neighbours,
+                max_distance=self.max_distance,
+                interpolate_time=self.interpolate_time,
+            )
+            self._load = case.add_wet_pressure(
+                table=table, surfaces=self.surfaces, scale=self.scale, name=self.name
+            )
+        else:
+            case.wet_pressures.append(self._load)
+        return self._load
+
+    def undo(self, project: Project) -> None:
+        project.load_case(self.case).wet_pressures.remove(self._load)
+
+
+@dataclass(eq=False)
+class AddLoadCasesFromTable(Command):
+    """One load case per case identifier in a CSV/Excel pressure file."""
+
+    name: str
+    path: str
+    key: str | None = "time"
+    sheet: str | None = None
+    length_scale: float = 1.0
+    method: str = "nearest"
+    neighbours: int = 4
+    max_distance: float | None = None
+    interpolate_time: bool = False
+    scale: float = 1.0
+    surfaces: Sequence[str] = ()
+    label: str = "add load cases from table"
+    _created: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        if self._created is None:
+            from .model.attributes import PressureTable
+
+            table = PressureTable.from_file(
+                self.path,
+                key=self.key,
+                sheet=self.sheet,
+                length_scale=self.length_scale,
+                method=self.method,
+                neighbours=self.neighbours,
+                max_distance=self.max_distance,
+                interpolate_time=self.interpolate_time,
+            )
+            self._created = project.add_load_cases_from_table(
+                self.name, table, surfaces=self.surfaces, scale=self.scale
+            )
+        else:
+            for case in self._created:
+                project.load_cases[case.name] = case
+        return list(self._created)
+
+    def undo(self, project: Project) -> None:
+        for case in self._created or ():
+            project.load_cases.pop(case.name, None)
 
 
 @dataclass(eq=False)

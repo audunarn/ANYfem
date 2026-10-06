@@ -85,7 +85,7 @@ class LoadTask(CommandEditor):
         commands.AddLineLoad:"edge",commands.AddSurfaceTraction:"face",commands.AddMass:None,
         commands.AddWetSurface:"face"}
     def __init__(self,app):
-        super().__init__(app,["AddPointLoad","AddPressure","AddSupport","AddLineLoad","AddSurfaceTraction","AddWetSurface","AddWetPressure","AddMass","SetAcceleration","SetFollowerPressure","AddLoadCase","AddLoadCaseSeries","DeleteLoadCase","AddCombination","EditAttribute","DeleteAttribute"])
+        super().__init__(app,["AddPointLoad","AddPressure","AddSupport","AddLineLoad","AddSurfaceTraction","AddWetSurface","AddWetPressure","AddWetPressureTable","AddMass","SetAcceleration","SetFollowerPressure","AddLoadCase","AddLoadCaseSeries","AddLoadCasesFromTable","DeleteLoadCase","AddCombination","EditAttribute","DeleteAttribute"])
         form=QFormLayout();self.layout().addLayout(form)
         self.case=QComboBox();form.addRow("Active load case",self.case)
         self.case.currentTextChanged.connect(self.case_changed)

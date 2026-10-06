@@ -564,6 +564,54 @@ pressure, and the rest are dry. Naming a plate or element that is not on a wet
 surface, a plate on two wet surfaces, an unknown name in an equation, or a
 non-finite result is refused.
 
+Pressure can also come from **your own Python code** or from a **CSV/Excel file**.
+The definitions and their evaluation (equations, code, tables, trust, fluid side) are
+owned by [ANYloads](https://github.com/audunarn/ANYloads), so ANYfem and ANYworkspaceAI
+compute the same pressure for the same definition; ANYfem attaches them to plates,
+meshes and the solver:
+
+```python
+# Code: receives the load case number and the element centre, returns pressure.
+case.add_wet_pressure(code="""
+def pressure(case, x, y, z):
+    return 1025 * 9.81 * max(0.0, 2.0 + 0.1 * case - z)
+""")
+# Optional extra arguments: t (case time), name (case name), parameters (dict).
+# code_vectorized=True calls it once with numpy arrays x, y, z instead.
+
+# Table: rows of  case, x, y, z, pressure  (CSV, TSV, text or .xlsx).
+from anyfem.model import PressureTable
+table = PressureTable.from_file("loads.csv", key="time", interpolate_time=True)
+case.add_wet_pressure(table=table)                     # uses the case's own time
+project.add_load_cases_from_table("run", table)        # one case per time in the file
+```
+
+A table's case identifier (`key`) is `"number"` (the load case number), `"time"`
+(the case time; with `interpolate_time` a time between two rows' times is
+interpolated linearly) or `"name"`; with no key the file is one map for every case.
+Pressure is mapped to each wet element's centre from the nearest table point
+(`method="nearest"`) or inverse-distance weighted (`"idw"`, `neighbours=`); a
+`max_distance` refuses an element with no point near it. Columns are found by
+header (`case/time/number/name`, `x`, `y`, `z`, `pressure`) or named with
+`columns={"x": "X [mm]", ...}`; without a header the order is `[key,] x, y, z,
+pressure`. Convert units with `length_scale` (e.g. `0.001` for mm) and the
+pressure `scale` (e.g. `1000` for kPa). The project stores the file's path and
+SHA-256 and refuses a file that has changed; use an absolute path and keep the
+file with the project. Excel needs `pip install ANYfem[excel]` (openpyxl).
+
+The load case **number** is 1, 2, 3 ... in creation order (kept when a project is
+saved), and a series step is numbered `step + 1`.
+
+**Code is never run just because a project says so.** Opening a project, checking
+it and drawing it only *parse* the code. It runs only when its SHA-256 is in your
+per-user trust list (`platformdirs` config dir, `trusted_code.json`; override with
+`ANYLOADS_TRUSTED_CODE_FILE`), which lives outside the project file. Code you type
+into ANYfem (`add_wet_pressure(code=...)`, the Add wet pressure form, an edit) is
+trusted automatically; code that arrives in a file is not, and starting a solve
+shows it and asks (headless: `anyloads.trust_code(code)`). Trust is
+per exact text, so any edit needs approving again. Trusting code means it runs
+with your account's full access, like any script you run.
+
 Many load cases, for example a quasi-static sequence, are generated from a
 template and solved together, since the stiffness is the same at every step:
 
