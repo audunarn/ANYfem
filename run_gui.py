@@ -93,6 +93,8 @@ _SOURCE_PROJECTS = (
         "anymaterial",
         _ECOSYSTEM_WORKSPACE / "ANYmaterial" / "src",
     ),
+    # Load definitions and their evaluation (equations, trusted code, tables).
+    ("ANYloads", "anyloads", _ECOSYSTEM_WORKSPACE / "ANYloads" / "src"),
     (
         "ANYgeometry",
         "anygeometry",
@@ -149,6 +151,7 @@ for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
 
 ECOSYSTEM_REQUIREMENTS = (
     ("ANYmaterial", "ANYmaterial>=0.2,<0.3", "0.2.0"),
+    ("ANYloads", "ANYloads>=0.1,<0.2", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.4.3,<0.5", "0.4.3"),
     ("ANYfileio", "ANYfileio>=0.3.2,<0.4", "0.3.2"),
     ("ANYmesher", "ANYmesher>=0.5,<0.6", "0.5.0"),
@@ -224,6 +227,7 @@ def editable_repair_command() -> str:
 
     projects = (
         str(_ECOSYSTEM_WORKSPACE / "ANYmaterial"),
+        str(_ECOSYSTEM_WORKSPACE / "ANYloads"),
         str(_ECOSYSTEM_WORKSPACE / "ANYgeometry") + "[planar]",
         str(_ANYMESHER_PROJECT),
         str(_ECOSYSTEM_WORKSPACE / "ANYfileIO"),

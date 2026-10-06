@@ -24,6 +24,15 @@ from uuid import uuid4
 
 import pytest
 
+# Running locally, use the neighbouring ANYloads checkout when it is not
+# installed, as the launcher does; an installed or hosted copy still wins.
+if importlib.util.find_spec("anyloads") is None:
+    _loads_source = Path(__file__).resolve().parents[2] / "ANYloads" / "src"
+    if _loads_source.is_dir():
+        import sys
+
+        sys.path.insert(0, str(_loads_source))
+
 
 _RUN_GUI_TESTS = os.environ.get("ANYFEM_RUN_GUI_TESTS", "").casefold() in {
     "1",

@@ -76,6 +76,11 @@ jobs:
           path: .ecosystem/ANYmaterial
       - uses: actions/checkout@v4
         with:
+          repository: audunarn/ANYloads
+          ref: 8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b
+          path: .ecosystem/ANYloads
+      - uses: actions/checkout@v4
+        with:
           repository: audunarn/ANYgeometry
           ref: ${{ inputs.geometry_ref || '26e7e3c98ac1a5573e19643d6658d00094bff0bc' }}
           path: .ecosystem/ANYgeometry
@@ -104,7 +109,7 @@ jobs:
           sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libgl1-mesa-dev libx11-dev libx11-xcb1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxkbcommon-x11-0
       - name: Install candidate GUI and public owners
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D
           python -m pip install -e ".[dev,qt,tk]"
       - name: Default and explicit frontend launcher contracts
         run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q
