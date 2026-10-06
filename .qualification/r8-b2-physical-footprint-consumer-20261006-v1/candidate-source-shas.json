@@ -1,0 +1,7 @@
+{
+  "src/anyfem/solve/stiffened_shell_b2.py": "db959888b5ab3cce405a8420419d5ae60f9f09ccb3ba743d6afcca143ee2cba2",
+  "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+  "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "0391559e178908aa65479cd2db72f196802c74c1c8ce24488cc46ce77438d859",
+  "examples/stiffened_shell_b2_physical_footprint_consumer.py": "63ed246b419985d2499c301a5c0ccbcd612dad0a0754ae423b097ea8dfdca7bc",
+  "docs/experimental_b2_physical_rigid_footprint.md": "71616a4a18977b759ec3de5091491e7c2c8406b3aacbaeacc0c6fb170eec1bdf"
+}

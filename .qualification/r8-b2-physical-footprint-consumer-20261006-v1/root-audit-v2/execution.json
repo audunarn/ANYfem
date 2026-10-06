@@ -1,0 +1,18 @@
+{
+  "command": [
+    "C:/Python/Python314/python.exe",
+    "-I",
+    "-S",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\root-installed-audit-v1.py"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+  "status": "completed",
+  "exit_code": 0,
+  "process_wall_seconds": 0.2801606,
+  "seconds_limit": 5.0,
+  "cumulative_used_seconds": 589.8657126999195,
+  "remaining_seconds": 10.134287300080517,
+  "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+  "audit_sha256": "9640c61c4e37869710ec4bee0f011f0d92d8dd06d08d06dced2c994aac84474f",
+  "wrapper_sha256": "7a556210d8ca437da276b98e8db1a80afcc789ffcfae23e770063419114139bf"
+}

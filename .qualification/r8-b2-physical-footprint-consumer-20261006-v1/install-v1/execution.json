@@ -1,0 +1,43 @@
+{
+  "status": "completed",
+  "exit_code": 0,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "-m",
+    "pip",
+    "install",
+    "--no-deps",
+    "--no-cache-dir",
+    "--no-index",
+    "--target",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\site-v1",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\wheel-v1\\anyfem-0.4.1-py3-none-any.whl"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+  "process_wall_seconds": 2.1488742999499664,
+  "seconds_limit": 2.8289296000730246,
+  "cumulative_used_seconds": 582.8948854998865,
+  "remaining_seconds": 17.105114500113473,
+  "sampled_peak_tree_rss": 73613312,
+  "memory_limit_bytes": 2147483648,
+  "affinity": [
+    0
+  ],
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "OPENBLAS_CORETYPE": null
+  },
+  "candidate": {
+    "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+    "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+    "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+    "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b"
+  },
+  "runner_sha256": "a4623f50842896af84e057a751f95afb15b9fcd63583dd58cb5cf410d09e46dd",
+  "entry_sha256": "25e6a7da689a104164f2223f890edd3f5d27899fe44ddaf11cb707cea586700d"
+}

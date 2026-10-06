@@ -1,0 +1,13 @@
+{
+  "status": "RECOVERED_WITH_UNRESOLVED_TIMING_UNCERTAINTY",
+  "exact_supervised_used_seconds": 589.8657126999195,
+  "cumulative_conservative_upper_bound_seconds": 601.9032020000751,
+  "authorized_cap_seconds": 600.0,
+  "assumed_remaining_authority_seconds": 0.0,
+  "bound_excess_seconds": 1.9032020000751118,
+  "compliance": "UNPROVEN: the conservative bound exceeds600 but the actual setup child timing is unknown; no actual violation inferred from the coarse editing envelope",
+  "evidence_sha256": "2a2ed4f022d123d6206040e45e8d44148b40e9e05b11e7c9e696bac6bc7e8661",
+  "root_byte_audit_sha256": "06e59e6d4c666123f1c521d4f2701d760d969ad4c5004310175a06e57f887dc5",
+  "independent_review_sha256": "c02d00910c706c95326380e14ff5b1c10e2a8b5879b7b88cbaf347e3ba26bd18",
+  "action": "No further check jobs; source/artifact/caller evidence retained, resource acceptance remains unproven; no consumed authority renewed"
+}

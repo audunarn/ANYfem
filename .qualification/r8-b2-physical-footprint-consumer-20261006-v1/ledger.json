@@ -1,0 +1,398 @@
+{
+  "total_seconds": 600.0,
+  "inherited_used_seconds": 563.0746102000534,
+  "used_seconds": 601.9032020000751,
+  "attempts": [
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\source-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\entry.py",
+        "source",
+        "v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 3.2973269999492913,
+      "seconds_limit": 12.0,
+      "cumulative_used_seconds": 566.3719372000027,
+      "remaining_seconds": 33.62806279999734,
+      "sampled_peak_tree_rss": 186859520,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "db959888b5ab3cce405a8420419d5ae60f9f09ccb3ba743d6afcca143ee2cba2",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "0391559e178908aa65479cd2db72f196802c74c1c8ce24488cc46ce77438d859",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "63ed246b419985d2499c301a5c0ccbcd612dad0a0754ae423b097ea8dfdca7bc"
+      },
+      "runner_sha256": "18de750447f47cdd39bd180f9a8c1eb822b5dc7fff43fe5a9b847d1d111bc6e5",
+      "entry_sha256": "e34f14f6ea7a79b0e1df16adbc378ac37d87bb31f04875c1e62bcf1cb23a7772"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\source-v2",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\entry-v2.py",
+        "source",
+        "v2"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 3.268318900023587,
+      "seconds_limit": 12.0,
+      "cumulative_used_seconds": 569.6402561000262,
+      "remaining_seconds": 30.35974389997375,
+      "sampled_peak_tree_rss": 188194816,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "83c7c80648e042c345279d43afb128ef4c84a1e1d7c9c4161367697132d8e32f",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "27c1d2302b5c5c81cad42756bd238140d4a3e2c921f411ff34023ea0500507a9",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "63ed246b419985d2499c301a5c0ccbcd612dad0a0754ae423b097ea8dfdca7bc"
+      },
+      "runner_sha256": "83f9070e3ba30eda391f5b6ce55c9511b76f48871a793fe524374d4b6e32f2ce",
+      "entry_sha256": "f35ec4ca7e120821a2b0c2c8bb13b2f65c4fb86dc2c3274b548b44ffacaf3b18"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\source-v3",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\entry-v3.py",
+        "source",
+        "v3"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 7.434684699983336,
+      "seconds_limit": 10.35974389997375,
+      "cumulative_used_seconds": 577.0749408000096,
+      "remaining_seconds": 22.925059199990415,
+      "sampled_peak_tree_rss": 187236352,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "848ec0a0d9032b3fb9bd3fc41ac7a3bbc6861321ba46b37671df7ed6c130c5f6",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "fb9585b30cf71f74edd14ed4faf7179deacf7343fba204bc8e44f4aaeb8289c7"
+      },
+      "runner_sha256": "8f384a3aaa3fa96e4b648b244bf19d0427ae3a0ac990d0c7dd4305402d039dcb",
+      "entry_sha256": "20ecb46a7305fd314801396f1b5768e50ced1ab97d0c1d30352c3b2d7335a4b8"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\build-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-m",
+        "pip",
+        "wheel",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer",
+        "--no-deps",
+        "--no-build-isolation",
+        "--no-cache-dir",
+        "--no-index",
+        "-w",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\wheel-v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 3.6710703999269754,
+      "seconds_limit": 6.5,
+      "cumulative_used_seconds": 580.7460111999366,
+      "remaining_seconds": 19.25398880006344,
+      "sampled_peak_tree_rss": 108486656,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b"
+      },
+      "runner_sha256": "a4623f50842896af84e057a751f95afb15b9fcd63583dd58cb5cf410d09e46dd",
+      "entry_sha256": "25e6a7da689a104164f2223f890edd3f5d27899fe44ddaf11cb707cea586700d"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\install-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
+        "--no-cache-dir",
+        "--no-index",
+        "--target",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\site-v1",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\wheel-v1\\anyfem-0.4.1-py3-none-any.whl"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 2.1488742999499664,
+      "seconds_limit": 2.8289296000730246,
+      "cumulative_used_seconds": 582.8948854998865,
+      "remaining_seconds": 17.105114500113473,
+      "sampled_peak_tree_rss": 73613312,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b"
+      },
+      "runner_sha256": "a4623f50842896af84e057a751f95afb15b9fcd63583dd58cb5cf410d09e46dd",
+      "entry_sha256": "25e6a7da689a104164f2223f890edd3f5d27899fe44ddaf11cb707cea586700d"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\installed-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\entry-v4.py",
+        "installed",
+        "v1"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 6.201009300071746,
+      "seconds_limit": 8.0,
+      "cumulative_used_seconds": 589.0958947999583,
+      "remaining_seconds": 10.904105200041727,
+      "sampled_peak_tree_rss": 185741312,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b"
+      },
+      "runner_sha256": "a4623f50842896af84e057a751f95afb15b9fcd63583dd58cb5cf410d09e46dd",
+      "entry_sha256": "25e6a7da689a104164f2223f890edd3f5d27899fe44ddaf11cb707cea586700d"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\bookkeeping-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "command": [
+        "C:\\Python\\Python314\\python.exe",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\finalize.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "process_wall_seconds": 0.20541319996118546,
+      "seconds_limit": 2.9041052000417267,
+      "cumulative_used_seconds": 589.3013079999195,
+      "remaining_seconds": 10.698692000080541,
+      "sampled_peak_tree_rss": 19845120,
+      "memory_limit_bytes": 2147483648,
+      "affinity": [
+        0
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        "NUMBA_DISABLE_JIT": "1",
+        "OPENBLAS_CORETYPE": null
+      },
+      "candidate": {
+        "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+        "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+        "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+        "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b"
+      },
+      "runner_sha256": "1040c233ce3701a7768d4e17a06de4104e4a58466558268fb03dc773f7cde5d3",
+      "entry_sha256": "25e6a7da689a104164f2223f890edd3f5d27899fe44ddaf11cb707cea586700d"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\root-audit-v1",
+      "command": [
+        "C:/Python/Python314/python.exe",
+        "-I",
+        "-S",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\root-installed-audit-v1.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "status": "failed",
+      "exit_code": 1,
+      "process_wall_seconds": 0.2842441,
+      "seconds_limit": 5.0,
+      "cumulative_used_seconds": 589.5855520999195,
+      "remaining_seconds": 10.41444790008054,
+      "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+      "audit_sha256": "5cb0ccbfebb38525cf9e460896480c9efe2d6bad10eb2a91faeb414e7a69c4e6",
+      "wrapper_sha256": "09e965998dd18c6f4263786a0ee84450841584d9c7f5da465f53a09335438bea"
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\root-audit-v2",
+      "command": [
+        "C:/Python/Python314/python.exe",
+        "-I",
+        "-S",
+        "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\root-installed-audit-v1.py"
+      ],
+      "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+      "status": "completed",
+      "exit_code": 0,
+      "process_wall_seconds": 0.2801606,
+      "seconds_limit": 5.0,
+      "cumulative_used_seconds": 589.8657126999195,
+      "remaining_seconds": 10.134287300080517,
+      "memory_accounting": "Metadata-only Python -I -S; no numerical imports or new model execution; peak memory not independently sampled",
+      "audit_sha256": "9640c61c4e37869710ec4bee0f011f0d92d8dd06d08d06dced2c994aac84474f",
+      "wrapper_sha256": "7a556210d8ca437da276b98e8db1a80afcc789ffcfae23e770063419114139bf"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "source-v1-setup-and-supervisor",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 0.3087783000507085,
+      "containing_bound_seconds": 3.6061053,
+      "already_recorded_interval_seconds": 3.2973269999492913,
+      "cumulative_used_seconds": 590.1744909999702,
+      "remaining_seconds": 9.825509000029797,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "source-v2-setup-and-supervisor",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 0.2796310999764131,
+      "containing_bound_seconds": 3.54795,
+      "already_recorded_interval_seconds": 3.268318900023587,
+      "cumulative_used_seconds": 590.4541220999466,
+      "remaining_seconds": 9.54587790005337,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "source-v3-setup-and-supervisor",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 0.3246793000166637,
+      "containing_bound_seconds": 7.759364,
+      "already_recorded_interval_seconds": 7.434684699983336,
+      "cumulative_used_seconds": 590.7788013999633,
+      "remaining_seconds": 9.2211986000367,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "build-v1-setup-and-supervisor",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 0.364648000073025,
+      "containing_bound_seconds": 4.0357184,
+      "already_recorded_interval_seconds": 3.6710703999269754,
+      "cumulative_used_seconds": 591.1434494000363,
+      "remaining_seconds": 8.856550599963725,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "bookkeeping-v1-setup-and-supervisor",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 0.25975260003881456,
+      "containing_bound_seconds": 0.4651658,
+      "already_recorded_interval_seconds": 0.20541319996118546,
+      "cumulative_used_seconds": 591.4032020000751,
+      "remaining_seconds": 8.596797999924888,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    },
+    {
+      "path": "unsupervised-child-accounting.md",
+      "name": "initial-ast-outer-edit-tool-bound",
+      "status": "UNKNOWN_CHILD_TIMING_CONSERVATIVE_CONTAINING_BOUND",
+      "process_wall_seconds": null,
+      "conservative_debit_seconds": 10.5,
+      "containing_bound_seconds": 10.5,
+      "already_recorded_interval_seconds": 0.0,
+      "cumulative_used_seconds": 601.9032020000751,
+      "remaining_seconds": -1.9032020000751118,
+      "evidence": "Existing worker tool records only; no reconstruction rerun; initial 10.5s includes source editing and is only a coarse bound"
+    }
+  ],
+  "exact_supervised_used_seconds": 589.8657126999195,
+  "accounting_basis": "used_seconds is now a conservative upper bound, not measured total; missing initial AST timing remains UNKNOWN",
+  "cumulative_resource_compliance": "UNPROVEN",
+  "assumed_remaining_authority_seconds": 0.0
+}

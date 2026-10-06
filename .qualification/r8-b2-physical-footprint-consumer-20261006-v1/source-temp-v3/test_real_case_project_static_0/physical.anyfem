@@ -1,0 +1,817 @@
+{
+  "anyfem": {
+    "schema": "anyfem.project",
+    "format": 8,
+    "document_id": "8baf1903-e2b4-4042-936b-de507ff3a568",
+    "artifact_root": "physical.anyfem-data"
+  },
+  "name": "physical B2 footprint",
+  "mesh_only": true,
+  "imported_format": null,
+  "imported_semantics_artifact_id": null,
+  "compatibility": {
+    "archived_feature_histories": [],
+    "diagnostics": [],
+    "geometry_editing_disabled_reason": null,
+    "read_only_reason": null
+  },
+  "units": {
+    "name": "SI-m-N-Pa",
+    "units": {
+      "length": "m",
+      "force": "N",
+      "pressure": "Pa",
+      "mass": "kg",
+      "time": "s",
+      "angle": "deg",
+      "moment": "N*m",
+      "line_load": "N/m",
+      "density": "kg/m3",
+      "acceleration": "m/s2"
+    }
+  },
+  "shell_formulations": {
+    "schema": "anyfem.shell-formulation-policy-v1",
+    "q4": "e4-pl",
+    "s3": "e4-pl-s3-v2d",
+    "higher_order": "legacy",
+    "q4_formulation_id": "E4_PL_QUALIFIED_Q4_HYBRID_V2",
+    "s3_formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+    "higher_order_formulation_id": "LEGACY_SHELL_ELEMENT_HIGHER_ORDER"
+  },
+  "coordinate_systems": [
+    {
+      "id": "global",
+      "name": "Global",
+      "kind": "cartesian",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "reference": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "regions": [],
+  "output_requests": [],
+  "geometry": {
+    "schema": "anygeometry",
+    "version": 5,
+    "model_id": "8e60d50b-881f-4ff8-add5-f966acef77ac",
+    "revision": 0,
+    "coordinates": {
+      "units": "m",
+      "local_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "coordinate_transform": null,
+      "crs": {}
+    },
+    "tolerance": {
+      "length": 1e-09,
+      "merge_length": 1e-07,
+      "coincidence": 1e-09,
+      "healing": 1e-07,
+      "angular": 1e-10,
+      "parameter": 1e-10,
+      "area": 1e-18,
+      "surface_residual": 1e-08,
+      "curve_fit_residual": 1e-08,
+      "aabb_padding": 1e-09,
+      "relative_length": 1e-12,
+      "relative_area": 1e-14
+    },
+    "id_state": {
+      "vertex": 1,
+      "edge": 1,
+      "face": 1,
+      "part": 1,
+      "sheet": 1,
+      "face_use": 1,
+      "coedge": 1,
+      "member": 1,
+      "member_edge_use": 1,
+      "attachment": 1,
+      "junction": 1
+    },
+    "vertices": [],
+    "edges": [],
+    "faces": [],
+    "structural": {
+      "parts": [],
+      "sheets": [],
+      "face_uses": [],
+      "coedges": [],
+      "members": [],
+      "member_edge_uses": [],
+      "attachments": [],
+      "junctions": []
+    },
+    "groups": {},
+    "tags": [],
+    "replacement_history": [],
+    "structural_replacement_history": [],
+    "construction_vertices": [],
+    "extensions": {},
+    "features": {
+      "version": 1,
+      "next_id": 1,
+      "baseline": null,
+      "records": []
+    },
+    "checksum": {
+      "algorithm": "sha256",
+      "value": "ffc4eefa9d975f08c6c2e5ea352f7c61c7c8b2afac84421ee6d2a0f60f175fe7"
+    }
+  },
+  "materials": [],
+  "plate_sections": [],
+  "beam_sections": [],
+  "face_sections": {},
+  "edge_sections": {},
+  "assignment_ids": {
+    "faces": {},
+    "edges": {}
+  },
+  "assignments": {
+    "sections": []
+  },
+  "ownership": {
+    "sheet_joins": []
+  },
+  "supports": [],
+  "masses": [],
+  "load_cases": [],
+  "combinations": [],
+  "imperfections": [],
+  "meshing": {
+    "element_order": "linear",
+    "target_size": null,
+    "native_backend": "auto",
+    "native": null,
+    "seeding_overrides": {},
+    "refinements": []
+  },
+  "analyses": [
+    {
+      "id": "58f9fd62-79a2-4885-826f-1021f25e1369",
+      "schema_version": 1,
+      "name": "physical footprint",
+      "type": "experimental_b2_point_panel",
+      "target_kind": "none",
+      "target_id": "",
+      "settings": {},
+      "output_request_ids": [],
+      "output_requests": {},
+      "resource_policy": {},
+      "beam_formulation": "experimental-b2-point-panel",
+      "beam_formulation_options": {
+        "definition_source": "explicit-mesh-native",
+        "panel": {
+          "panel": {
+            "affine": {
+              "data": [
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0
+              ],
+              "indices": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28,
+                29,
+                30,
+                31,
+                32,
+                33,
+                34,
+                35,
+                36,
+                37,
+                38,
+                39,
+                40,
+                41,
+                42,
+                43,
+                44,
+                45,
+                46,
+                47
+              ],
+              "indptr": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28,
+                29,
+                30,
+                31,
+                32,
+                33,
+                34,
+                35,
+                36,
+                36,
+                36,
+                36,
+                36,
+                36,
+                36,
+                37,
+                38,
+                39,
+                40,
+                41,
+                42,
+                43,
+                44,
+                45,
+                46,
+                47,
+                48
+              ],
+              "offset": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "shape": [
+                54,
+                48
+              ]
+            },
+            "cases": [
+              {
+                "id": "case-0",
+                "load": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  -1.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ],
+            "members": [
+              {
+                "local_y_global": [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                "member_id": "beam",
+                "node_ids": [
+                  10,
+                  11
+                ],
+                "profile_id": "B2_E4_PL_FAST_LINEAR_V1",
+                "reference_points_m": [
+                  [
+                    0.5,
+                    0.5,
+                    0.0
+                  ],
+                  [
+                    1.5,
+                    0.5,
+                    0.0
+                  ]
+                ],
+                "schema_id": "B2_PHYSICAL_LINEAR_DEFINITION_V1",
+                "section": {
+                  "kind": "isotropic_scalar",
+                  "operator_id": "B2_PHYSICAL_FLEXIBILITY_LINEAR_V1",
+                  "scalar_parameters": [
+                    2000.0,
+                    0.25,
+                    0.04,
+                    0.00013333333333333337,
+                    0.00013333333333333337,
+                    0.00026666666666666673,
+                    0.8,
+                    0.8
+                  ],
+                  "stiffness": [
+                    [
+                      80.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      25.6,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      25.6,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.21333333333333337,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.2666666666666667,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.2666666666666667
+                    ]
+                  ]
+                },
+                "section_id": "square",
+                "source_id": "explicit-square-beam",
+                "unit_system": "SI"
+              },
+              {
+                "local_y_global": [
+                  0.0,
+                  1.0,
+                  0.0
+                ],
+                "member_id": "beam-right",
+                "node_ids": [
+                  11,
+                  12
+                ],
+                "profile_id": "B2_E4_PL_FAST_LINEAR_V1",
+                "reference_points_m": [
+                  [
+                    1.5,
+                    0.5,
+                    0.0
+                  ],
+                  [
+                    2.5,
+                    0.5,
+                    0.0
+                  ]
+                ],
+                "schema_id": "B2_PHYSICAL_LINEAR_DEFINITION_V1",
+                "section": {
+                  "kind": "isotropic_scalar",
+                  "operator_id": "B2_PHYSICAL_FLEXIBILITY_LINEAR_V1",
+                  "scalar_parameters": [
+                    2000.0,
+                    0.25,
+                    0.04,
+                    0.00013333333333333337,
+                    0.00013333333333333337,
+                    0.00026666666666666673,
+                    0.8,
+                    0.8
+                  ],
+                  "stiffness": [
+                    [
+                      80.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      25.6,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      25.6,
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.21333333333333337,
+                      0.0,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.2666666666666667,
+                      0.0
+                    ],
+                    [
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.0,
+                      0.2666666666666667
+                    ]
+                  ]
+                },
+                "section_id": "square",
+                "source_id": "explicit-square-beam-right",
+                "unit_system": "SI"
+              }
+            ],
+            "points": [],
+            "profile": "B2_E4_PL_FAST_LINEAR_V1",
+            "schema": "anyfem.experimental-b2-q4-point-panel-v1",
+            "selection": {
+              "dofs": [
+                12,
+                13,
+                36,
+                41
+              ],
+              "members": {
+                "beam-right": [
+                  0.0,
+                  0.5,
+                  1.0
+                ]
+              },
+              "points": []
+            },
+            "shell_nodes": [
+              [
+                1,
+                [
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              ],
+              [
+                2,
+                [
+                  1.0,
+                  0.0,
+                  0.0
+                ]
+              ],
+              [
+                3,
+                [
+                  2.0,
+                  0.0,
+                  0.0
+                ]
+              ],
+              [
+                4,
+                [
+                  0.0,
+                  1.0,
+                  0.0
+                ]
+              ],
+              [
+                5,
+                [
+                  1.0,
+                  1.0,
+                  0.0
+                ]
+              ],
+              [
+                6,
+                [
+                  2.0,
+                  1.0,
+                  0.0
+                ]
+              ]
+            ],
+            "shells": [
+              {
+                "E": 1000.0,
+                "node_ids": [
+                  1,
+                  2,
+                  5,
+                  4
+                ],
+                "nu": 0.3,
+                "reference_normal": [
+                  0.0,
+                  0.0,
+                  1.0
+                ],
+                "shell_id": "shell-0",
+                "thickness_m": 0.15
+              },
+              {
+                "E": 1000.0,
+                "node_ids": [
+                  2,
+                  3,
+                  6,
+                  5
+                ],
+                "nu": 0.3,
+                "reference_normal": [
+                  0.0,
+                  0.0,
+                  1.0
+                ],
+                "shell_id": "shell-1",
+                "thickness_m": 0.15
+              }
+            ],
+            "status": "EXPERIMENTAL_NOT_QUALIFIED"
+          },
+          "physical_footprints": [
+            {
+              "beam_node": 10,
+              "configuration": "reference_linear_static_with_objective_spectral_continuation",
+              "director": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "footprint_id": "physical-left",
+              "law": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+              "normal_spin": "independent",
+              "patch_cells": [
+                [
+                  1,
+                  2,
+                  5,
+                  4
+                ]
+              ],
+              "production_qualified": false,
+              "rows_per_node": 5,
+              "semantics": "complete_selected_cell_patch",
+              "shell_nodes": [
+                1,
+                2,
+                5,
+                4
+              ],
+              "tangent_basis": [
+                [
+                  1.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0
+                ],
+                [
+                  0.0,
+                  0.0
+                ]
+              ]
+            }
+          ],
+          "schema": "anyfem.experimental-b2-physical-rigid-footprint-panel-v1",
+          "selected_physical_footprints": [
+            "physical-left"
+          ],
+          "status": "EXPERIMENTAL_NOT_QUALIFIED"
+        },
+        "schema": "anyfem.experimental-point-panel-project-v1",
+        "status": "EXPERIMENTAL_NOT_QUALIFIED"
+      }
+    }
+  ],
+  "mesh_records": [],
+  "jobs": [],
+  "artifacts": []
+}

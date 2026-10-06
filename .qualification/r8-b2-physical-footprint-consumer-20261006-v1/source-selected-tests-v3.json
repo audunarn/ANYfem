@@ -1,0 +1,7 @@
+{
+  "selectors": [
+    "test_stiffened_shell_b2_physical_footprint_consumer.py"
+  ],
+  "snapshot_manifest_sha256": "c157ef86acf2eed788ee07ac94be14d849358f8925f23884c66fcb1a0589b458",
+  "pyproject_sha256": "0e6c176eaa6153aa3cf47b1140b91b2d630602fee39ebbc5bdbef2e92f5ae9b5"
+}

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-b2-physical-footprint-consumer-20261006-v1\root-installed-audit-v1.py", line 125, in <module>
+    assert workflow == source_workflow
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

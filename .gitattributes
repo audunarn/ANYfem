@@ -39,3 +39,8 @@ docs/experimental_stiffened_shell_native_fibre_bl5.md -text whitespace=cr-at-eol
 tests/test_stiffened_shell_native_bl5_mixed_j2_consumer.py -text whitespace=cr-at-eol
 examples/stiffened_shell_native_fibre_bl5_mixed_j2_consumer.py -text whitespace=cr-at-eol
 docs/experimental_stiffened_shell_native_bl5_mixed_j2.md -text whitespace=cr-at-eol
+.qualification/r8-b2-physical-footprint-consumer-20261006-v1/** -text -whitespace
+src/anyfem/solve/stiffened_shell_b2.py -text whitespace=cr-at-eol
+tests/test_stiffened_shell_b2_physical_footprint_consumer.py -text whitespace=cr-at-eol
+examples/stiffened_shell_b2_physical_footprint_consumer.py -text whitespace=cr-at-eol
+docs/experimental_b2_physical_rigid_footprint.md -text whitespace=cr-at-eol

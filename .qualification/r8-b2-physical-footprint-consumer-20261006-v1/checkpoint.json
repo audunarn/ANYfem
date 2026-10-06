@@ -1,0 +1,48 @@
+{
+  "state": "implemented; AST parsed; source impact child ready under root-reviewed contract",
+  "repository": "C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer",
+  "head": "94a0b0c56d9494ea2555aab65ed17c086e4d461b",
+  "policy": "ANY_ECOSYSTEM_RISK_PROPORTIONATE_ENGINEERING_V1 2026-09-24.2",
+  "findings": [
+    "Public solver already provides a separate B2PhysicalRigidFootprintDefinition, five-row director descriptor, typed selection/batch result and physical-footprint buckling request/result.",
+    "Existing ANYfem B2 common serializer owns shell/member/affine/case/selected recovery data and the Project selector dispatches by explicit versioned panel schema.",
+    "Historical nodal footprint decoder asserts its six-row descriptor; retain it untouched."
+  ],
+  "design": {
+    "consumer": "ExperimentalB2PhysicalRigidFootprintPanel",
+    "schema": "anyfem.experimental-b2-physical-rigid-footprint-panel-v1",
+    "format": "strict envelope holding existing historical POINT common-input record with empty points plus exact public physical footprint descriptors and typed selected footprint IDs",
+    "routes": "public physical definition reconstruction; static and selected 1/10/100 batch delegation; explicit B2PhysicalFootprintBucklingRequest delegation; existing B2 Project selector/save/reopen",
+    "reserved": "no new physics, law, mass/prestress, old schema meaning or compatibility changes"
+  },
+  "planned_changes": [
+    "stiffened_shell_b2.py dedicated thin consumer and case dispatch",
+    "stiffened_shell_project.py existing B2 selector admission/dispatch",
+    "new focused example/test/doc only"
+  ],
+  "check_plan": "one bounded impact check over genuine source workflow and strict/refusal/cancel guards; assess one new consumer build/install/matching installed check against actual remaining budget; no jobs until root checkpoint review",
+  "shared_remaining_seconds": 36.92538979994663,
+  "numerical_limits": {
+    "jobs": 1,
+    "tree_rss_bytes": 2147483648,
+    "affinity": [
+      0
+    ],
+    "pools": 1,
+    "numba_threads": 1,
+    "jit_off": true
+  },
+  "gaps": "new installed artifact acceptance may not fit; preserve source candidate and unmet gate if so",
+  "historical_evidence": "sandbox emits false protected deletions; never restore/discard those historical files",
+  "source_process_cap_seconds": 12.0,
+  "inherited_used_seconds": 563.0746102000534,
+  "immutable_input_manifest": "installed-input-snapshot-manifest-v1.json",
+  "exact_source_command": "C:/Python/Python314/python.exe runner.py source v1",
+  "source_identity": {
+    "src/anyfem/solve/stiffened_shell_b2.py": "db959888b5ab3cce405a8420419d5ae60f9f09ccb3ba743d6afcca143ee2cba2",
+    "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+    "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "0391559e178908aa65479cd2db72f196802c74c1c8ce24488cc46ce77438d859",
+    "examples/stiffened_shell_b2_physical_footprint_consumer.py": "63ed246b419985d2499c301a5c0ccbcd612dad0a0754ae423b097ea8dfdca7bc",
+    "docs/experimental_b2_physical_rigid_footprint.md": "71616a4a18977b759ec3de5091491e7c2c8406b3aacbaeacc0c6fb170eec1bdf"
+  }
+}

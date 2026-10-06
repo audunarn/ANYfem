@@ -24,6 +24,7 @@ from .stiffened_shell import (
 )
 from .stiffened_shell_b2 import (
     ExperimentalB2PointPanel, ExperimentalB2NodalRigidFootprintPanel,
+    ExperimentalB2PhysicalRigidFootprintPanel, SCHEMA_PHYSICAL_FOOTPRINT as B2_PHYSICAL_FOOTPRINT_SCHEMA,
     ExperimentalB2ReferenceModalPanel, SCHEMA_REFERENCE_MODAL as B2_MODAL_SCHEMA,
     SCHEMA_NODAL_FOOTPRINT as B2_FOOTPRINT_SCHEMA,
     ExperimentalB2MixedPointPanel, SCHEMA_MIXED as B2_MIXED_SCHEMA,
@@ -122,7 +123,7 @@ def encode_point_panel(panel):
     if type(panel) in (ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceModalPanel, ExperimentalGEReferenceDistributingPanel, ExperimentalGEFiniteDistributingPanel, ExperimentalGEFiniteDistributingMaterialPanel):
         analysis_type, formulation = GE_TYPE, GE_FORMULATION
         payload = panel.to_dict()
-    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
+    elif type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2PhysicalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
         analysis_type, formulation = B2_TYPE, B2_FORMULATION
         payload = json.loads(panel.payload)
     else:
@@ -156,6 +157,8 @@ def _decode_point_panel(analysis_type, formulation, record):
             return ExperimentalGENodalRigidFootprintPanel.from_dict(payload)
         return ExperimentalGEPointPanel.from_dict(payload)
     if (analysis_type, formulation) == (B2_TYPE, B2_FORMULATION):
+        if type(payload) is dict and payload.get("schema") == B2_PHYSICAL_FOOTPRINT_SCHEMA:
+            return ExperimentalB2PhysicalRigidFootprintPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") in (SCHEMA_LOADED_POINT, SCHEMA_LOADED_POINT_BODY):
             return ExperimentalB2LoadedPointPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") in (
@@ -241,7 +244,7 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
             targets is not None or increment_control is not None or on_accepted is not None or
             max_iterations != 12 or max_backtracks != 8):
         raise ValueError("finite solve controls require an explicit staged GE programme, footprint, or body/distributed/pressure load with targets")
-    if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
+    if type(panel) in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2PhysicalRigidFootprintPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
         return panel.solve_linear_many(
             cancellation_token=cancellation_token, on_case=on_case)
     if on_case is not None:

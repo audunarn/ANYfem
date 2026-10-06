@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "C:\Github\ANYfem\.worktrees\experimental-ge-panel-consumer\.qualification\r8-b2-physical-footprint-consumer-20261006-v1\finalize.py", line 27, in <module>
+    workflow=json.loads(workflow_path.read_text())
+                        ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Python\Python314\Lib\pathlib\__init__.py", line 787, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python\Python314\Lib\pathlib\__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\installed-temp-v1\\test_real_case_project_static_b0\\workflow.json'

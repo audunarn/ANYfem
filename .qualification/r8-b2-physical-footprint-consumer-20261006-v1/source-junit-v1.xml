@@ -1,0 +1,452 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="0.413" timestamp="2026-10-06T11:27:59.484991+02:00" hostname="WORK_STABEIST1"><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v1.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_real_case_project_static_batches_and_physical_buckling" time="0.005"><failure message="ValueError: experimental B2 point attachments required">tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-b2-physical-footprint-consumer-20261006-v1/source-temp-v1/test_real_case_project_static_0')
+
+    def test_real_case_project_static_batches_and_physical_buckling(tmp_path):
+&gt;       result = EXAMPLE['workflow'](tmp_path)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+installed-input-snapshot-v1\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:23: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v1\examples\stiffened_shell_b2_physical_footprint_consumer.py:65: in workflow
+    original = panel()
+               ^^^^^^^
+installed-input-snapshot-v1\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+..\..\src\anyfem\solve\stiffened_shell_b2.py:835: in from_definition
+    base = ExperimentalB2PointPanel.from_definition(common, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:484: in from_definition
+    return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:629: in _from_definition
+    return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
+&lt;string&gt;:4: in __init__
+    ???
+..\..\src\anyfem\solve\stiffened_shell_b2.py:466: in __post_init__
+    _decode(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+record = {'affine': {'data': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, ...], 'indices': [0, 1, 2, 3, 4, 5, ...], 'indptr': [0, 1, 2, 3, 4,...0], 'member_id': 'beam-right', 'node_ids': [11, 12], 'profile_id': 'B2_E4_PL_FAST_LINEAR_V1', ...}], 'points': [], ...}
+
+    def _decode(record):
+        loaded = type(record) is dict and record.get("schema") in _LOADED_POINT_SCHEMAS
+        body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
+        free_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_FREE_REFERENCE_MODAL
+        mixed_modal = type(record) is dict and record.get("schema") in _MIXED_MODAL_SCHEMAS
+        mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_BODY_ACCELERATION) + _MIXED_MODAL_SCHEMAS
+        modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL,) + _MIXED_MODAL_SCHEMAS
+        nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION)
+        record = _exact(record, ("schema", "status", "profile", "shell_nodes",
+                                 "shells", "members", "points", "affine") +
+                                      (("request", "modal_boundary_policy") if modal else
+                                      ("cases", "selection")) + (("footprints",) if nodal else ()) +
+                                      (("inertia_policy",) if mixed_modal else ()) + (("point_trace_policy",) if loaded else ()),
+                        "experimental B2 panel")
+        if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS + _BODY_SCHEMAS + _LOADED_POINT_SCHEMAS or record["status"] != STATUS or
+                record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
+            raise ValueError("experimental B2 panel schema/status/profile required")
+        if loaded and record["point_trace_policy"] != LOADED_POINT_POLICY:
+            raise ValueError("explicit loaded-point trace policy required")
+        with_mass = body or loaded or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS
+        mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
+        if mixed_modal:
+            mixed_definition, _, _, policy = _mixed_modal_api()
+            if type(record["inertia_policy"]) is not str or record["inertia_policy"] != policy:
+                raise ValueError("explicit native S3 mixed reference inertia policy required")
+        if free_modal:
+            free_policy, _ = _mixed_free_modal_api()
+            if type(record["modal_boundary_policy"]) is not str or record["modal_boundary_policy"] != free_policy:
+                raise ValueError("explicit public B2 free-free modal-only boundary policy required")
+        node_rows = record["shell_nodes"]
+        if type(node_rows) is not list or not node_rows:
+            raise ValueError("experimental B2 shell nodes required")
+        shell_nodes = {}
+        for entry in node_rows:
+            if type(entry) is not list or len(entry) != 2:
+                raise ValueError("shell node ID and coordinate required")
+            node_id = _integer(entry[0], "shell node ID", minimum=1)
+            xyz = _vector(entry[1], 3, "shell coordinate")
+            if node_id in shell_nodes:
+                raise ValueError("unique shell node IDs required")
+            shell_nodes[node_id] = xyz
+    
+        if type(record["shells"]) is not list or not record["shells"]:
+            raise ValueError("experimental B2 Q4 shells required")
+        shells = []
+        for item in record["shells"]:
+            fields = ("shell_id", "node_ids", "E", "nu", "thickness_m",
+                      "reference_normal")
+            row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()) +
+                         (("formulation",) if mixed else ()), "mixed shell" if mixed else "Q4 shell")
+            formulation = row["formulation"] if mixed else "e4-pl"
+            if formulation not in ("e4-pl", "e4-pl-s3-v2d"):
+                raise ValueError("explicit mixed shell formulation e4-pl or e4-pl-s3-v2d required")
+            count = 3 if formulation == "e4-pl-s3-v2d" else 4
+            node_ids = _vector(row["node_ids"], count, "mixed node IDs" if mixed else "Q4 node IDs", integer=True)
+            normal = _vector(row["reference_normal"], 3, "mixed normal" if mixed else "Q4 normal")
+            if mixed and (len(set(node_ids)) != count or any(node not in shell_nodes for node in node_ids)
+                          or not any(value != 0. for value in normal)):
+                raise ValueError("distinct known mixed shell nodes and nonzero authoritative normal required")
+            density = row.get("density_kg_m3")
+            shell_type = s3_type if count == 3 else stiffened_shell.Q4PanelShell
+            shells.append(shell_type(
+                _identifier(row["shell_id"], "shell ID"),
+                node_ids,
+                _number(row["E"], "Q4 modulus"),
+                _number(row["nu"], "Q4 Poisson ratio"),
+                _number(row["thickness_m"], "Q4 thickness"),
+                normal,
+                density_kg_m3=(None if density is None else
+                              _number(density, "Q4 density"))))
+    
+        if type(record["members"]) is not list or not record["members"]:
+            raise ValueError("experimental physical B2 members required")
+        members = []
+        for item in record["members"]:
+            fields = ("member_id", "source_id", "node_ids",
+                                "reference_points_m", "local_y_global",
+                                "section_id", "section", "profile_id",
+                                "schema_id", "unit_system")
+            row = _exact(item, fields + (("mass",) if with_mass else ()),
+                         "physical B2 member")
+            mass = None
+            if with_mass and row["mass"] is not None:
+                mass_row = _exact(row["mass"],
+                                  ("source_id", "origin_local_m", "matrix_per_m"),
+                                  "physical B2 mass")
+                matrix = mass_row["matrix_per_m"]
+                if type(matrix) is not list or len(matrix) != 6:
+                    raise ValueError("six-row physical B2 mass required")
+                mass = stiffened_shell.MassMetadata(
+                    _identifier(mass_row["source_id"], "mass source ID"),
+                    _vector(mass_row["origin_local_m"], 3, "mass origin"),
+                    tuple(_vector(line, 6, "mass row") for line in matrix))
+            section_row = _exact(row["section"],
+                                 ("operator_id", "kind", "stiffness",
+                                  "scalar_parameters"), "physical B2 section")
+            stiffness = section_row["stiffness"]
+            if type(stiffness) is not list or len(stiffness) != 6:
+                raise ValueError("six-row physical B2 section required")
+            scalar = section_row["scalar_parameters"]
+            if scalar is not None:
+                scalar = _vector(scalar, 8, "scalar section parameters")
+            section = stiffened_shell.LinearSection(
+                tuple(_vector(line, 6, "section row") for line in stiffness),
+                _identifier(section_row["kind"], "section kind"),
+                _identifier(section_row["operator_id"], "section operator ID"),
+                scalar)
+            points = row["reference_points_m"]
+            if type(points) is not list or len(points) != 2:
+                raise ValueError("two physical B2 reference positions required")
+            members.append(stiffened_shell.PhysicalB2Member(
+                _identifier(row["member_id"], "member ID"),
+                _identifier(row["source_id"], "member source ID"),
+                _vector(row["node_ids"], 2, "beam node IDs", integer=True),
+                tuple(_vector(point, 3, "beam reference position")
+                      for point in points),
+                _vector(row["local_y_global"], 3, "beam local y"),
+                _identifier(row["section_id"], "section ID"), section, mass=mass,
+                profile_id=_identifier(row["profile_id"], "member profile"),
+                schema_id=_identifier(row["schema_id"], "member schema"),
+                unit_system=_identifier(row["unit_system"], "unit system")))
+    
+        if type(record["points"]) is not list or (not nodal and not record["points"]):
+&gt;           raise ValueError("experimental B2 point attachments required")
+E           ValueError: experimental B2 point attachments required
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:227: ValueError</failure></testcase><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v1.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_strict_distinct_descriptor_owned_input_and_legacy_guards" time="0.003"><failure message="ValueError: experimental B2 point attachments required">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000020C959348A0&gt;
+
+    def test_strict_distinct_descriptor_owned_input_and_legacy_guards(monkeypatch):
+&gt;       original = panel(); raw = original.to_dict()
+                   ^^^^^^^
+
+installed-input-snapshot-v1\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v1\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+..\..\src\anyfem\solve\stiffened_shell_b2.py:835: in from_definition
+    base = ExperimentalB2PointPanel.from_definition(common, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:484: in from_definition
+    return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:629: in _from_definition
+    return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
+&lt;string&gt;:4: in __init__
+    ???
+..\..\src\anyfem\solve\stiffened_shell_b2.py:466: in __post_init__
+    _decode(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+record = {'affine': {'data': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, ...], 'indices': [0, 1, 2, 3, 4, 5, ...], 'indptr': [0, 1, 2, 3, 4,...0], 'member_id': 'beam-right', 'node_ids': [11, 12], 'profile_id': 'B2_E4_PL_FAST_LINEAR_V1', ...}], 'points': [], ...}
+
+    def _decode(record):
+        loaded = type(record) is dict and record.get("schema") in _LOADED_POINT_SCHEMAS
+        body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
+        free_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_FREE_REFERENCE_MODAL
+        mixed_modal = type(record) is dict and record.get("schema") in _MIXED_MODAL_SCHEMAS
+        mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_BODY_ACCELERATION) + _MIXED_MODAL_SCHEMAS
+        modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL,) + _MIXED_MODAL_SCHEMAS
+        nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION)
+        record = _exact(record, ("schema", "status", "profile", "shell_nodes",
+                                 "shells", "members", "points", "affine") +
+                                      (("request", "modal_boundary_policy") if modal else
+                                      ("cases", "selection")) + (("footprints",) if nodal else ()) +
+                                      (("inertia_policy",) if mixed_modal else ()) + (("point_trace_policy",) if loaded else ()),
+                        "experimental B2 panel")
+        if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS + _BODY_SCHEMAS + _LOADED_POINT_SCHEMAS or record["status"] != STATUS or
+                record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
+            raise ValueError("experimental B2 panel schema/status/profile required")
+        if loaded and record["point_trace_policy"] != LOADED_POINT_POLICY:
+            raise ValueError("explicit loaded-point trace policy required")
+        with_mass = body or loaded or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS
+        mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
+        if mixed_modal:
+            mixed_definition, _, _, policy = _mixed_modal_api()
+            if type(record["inertia_policy"]) is not str or record["inertia_policy"] != policy:
+                raise ValueError("explicit native S3 mixed reference inertia policy required")
+        if free_modal:
+            free_policy, _ = _mixed_free_modal_api()
+            if type(record["modal_boundary_policy"]) is not str or record["modal_boundary_policy"] != free_policy:
+                raise ValueError("explicit public B2 free-free modal-only boundary policy required")
+        node_rows = record["shell_nodes"]
+        if type(node_rows) is not list or not node_rows:
+            raise ValueError("experimental B2 shell nodes required")
+        shell_nodes = {}
+        for entry in node_rows:
+            if type(entry) is not list or len(entry) != 2:
+                raise ValueError("shell node ID and coordinate required")
+            node_id = _integer(entry[0], "shell node ID", minimum=1)
+            xyz = _vector(entry[1], 3, "shell coordinate")
+            if node_id in shell_nodes:
+                raise ValueError("unique shell node IDs required")
+            shell_nodes[node_id] = xyz
+    
+        if type(record["shells"]) is not list or not record["shells"]:
+            raise ValueError("experimental B2 Q4 shells required")
+        shells = []
+        for item in record["shells"]:
+            fields = ("shell_id", "node_ids", "E", "nu", "thickness_m",
+                      "reference_normal")
+            row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()) +
+                         (("formulation",) if mixed else ()), "mixed shell" if mixed else "Q4 shell")
+            formulation = row["formulation"] if mixed else "e4-pl"
+            if formulation not in ("e4-pl", "e4-pl-s3-v2d"):
+                raise ValueError("explicit mixed shell formulation e4-pl or e4-pl-s3-v2d required")
+            count = 3 if formulation == "e4-pl-s3-v2d" else 4
+            node_ids = _vector(row["node_ids"], count, "mixed node IDs" if mixed else "Q4 node IDs", integer=True)
+            normal = _vector(row["reference_normal"], 3, "mixed normal" if mixed else "Q4 normal")
+            if mixed and (len(set(node_ids)) != count or any(node not in shell_nodes for node in node_ids)
+                          or not any(value != 0. for value in normal)):
+                raise ValueError("distinct known mixed shell nodes and nonzero authoritative normal required")
+            density = row.get("density_kg_m3")
+            shell_type = s3_type if count == 3 else stiffened_shell.Q4PanelShell
+            shells.append(shell_type(
+                _identifier(row["shell_id"], "shell ID"),
+                node_ids,
+                _number(row["E"], "Q4 modulus"),
+                _number(row["nu"], "Q4 Poisson ratio"),
+                _number(row["thickness_m"], "Q4 thickness"),
+                normal,
+                density_kg_m3=(None if density is None else
+                              _number(density, "Q4 density"))))
+    
+        if type(record["members"]) is not list or not record["members"]:
+            raise ValueError("experimental physical B2 members required")
+        members = []
+        for item in record["members"]:
+            fields = ("member_id", "source_id", "node_ids",
+                                "reference_points_m", "local_y_global",
+                                "section_id", "section", "profile_id",
+                                "schema_id", "unit_system")
+            row = _exact(item, fields + (("mass",) if with_mass else ()),
+                         "physical B2 member")
+            mass = None
+            if with_mass and row["mass"] is not None:
+                mass_row = _exact(row["mass"],
+                                  ("source_id", "origin_local_m", "matrix_per_m"),
+                                  "physical B2 mass")
+                matrix = mass_row["matrix_per_m"]
+                if type(matrix) is not list or len(matrix) != 6:
+                    raise ValueError("six-row physical B2 mass required")
+                mass = stiffened_shell.MassMetadata(
+                    _identifier(mass_row["source_id"], "mass source ID"),
+                    _vector(mass_row["origin_local_m"], 3, "mass origin"),
+                    tuple(_vector(line, 6, "mass row") for line in matrix))
+            section_row = _exact(row["section"],
+                                 ("operator_id", "kind", "stiffness",
+                                  "scalar_parameters"), "physical B2 section")
+            stiffness = section_row["stiffness"]
+            if type(stiffness) is not list or len(stiffness) != 6:
+                raise ValueError("six-row physical B2 section required")
+            scalar = section_row["scalar_parameters"]
+            if scalar is not None:
+                scalar = _vector(scalar, 8, "scalar section parameters")
+            section = stiffened_shell.LinearSection(
+                tuple(_vector(line, 6, "section row") for line in stiffness),
+                _identifier(section_row["kind"], "section kind"),
+                _identifier(section_row["operator_id"], "section operator ID"),
+                scalar)
+            points = row["reference_points_m"]
+            if type(points) is not list or len(points) != 2:
+                raise ValueError("two physical B2 reference positions required")
+            members.append(stiffened_shell.PhysicalB2Member(
+                _identifier(row["member_id"], "member ID"),
+                _identifier(row["source_id"], "member source ID"),
+                _vector(row["node_ids"], 2, "beam node IDs", integer=True),
+                tuple(_vector(point, 3, "beam reference position")
+                      for point in points),
+                _vector(row["local_y_global"], 3, "beam local y"),
+                _identifier(row["section_id"], "section ID"), section, mass=mass,
+                profile_id=_identifier(row["profile_id"], "member profile"),
+                schema_id=_identifier(row["schema_id"], "member schema"),
+                unit_system=_identifier(row["unit_system"], "unit system")))
+    
+        if type(record["points"]) is not list or (not nodal and not record["points"]):
+&gt;           raise ValueError("experimental B2 point attachments required")
+E           ValueError: experimental B2 point attachments required
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:227: ValueError</failure></testcase><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v1.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_project_cancelled_prefix_and_callback_failures" time="0.003"><failure message="ValueError: experimental B2 point attachments required">def test_project_cancelled_prefix_and_callback_failures():
+&gt;       original = panel(10); record = AnalysisDefinition.experimental_point_panel('physical', original)
+                   ^^^^^^^^^
+
+installed-input-snapshot-v1\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:82: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v1\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+..\..\src\anyfem\solve\stiffened_shell_b2.py:835: in from_definition
+    base = ExperimentalB2PointPanel.from_definition(common, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:484: in from_definition
+    return cls._from_definition(definition, cases, selected_dofs=selected_dofs,
+..\..\src\anyfem\solve\stiffened_shell_b2.py:629: in _from_definition
+    return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
+&lt;string&gt;:4: in __init__
+    ???
+..\..\src\anyfem\solve\stiffened_shell_b2.py:466: in __post_init__
+    _decode(record)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+record = {'affine': {'data': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, ...], 'indices': [0, 1, 2, 3, 4, 5, ...], 'indptr': [0, 1, 2, 3, 4,...0], 'member_id': 'beam-right', 'node_ids': [11, 12], 'profile_id': 'B2_E4_PL_FAST_LINEAR_V1', ...}], 'points': [], ...}
+
+    def _decode(record):
+        loaded = type(record) is dict and record.get("schema") in _LOADED_POINT_SCHEMAS
+        body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
+        free_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_FREE_REFERENCE_MODAL
+        mixed_modal = type(record) is dict and record.get("schema") in _MIXED_MODAL_SCHEMAS
+        mixed = type(record) is dict and record.get("schema") in (SCHEMA_MIXED, SCHEMA_MIXED_BODY_ACCELERATION) + _MIXED_MODAL_SCHEMAS
+        modal = type(record) is dict and record.get("schema") in (SCHEMA_REFERENCE_MODAL,) + _MIXED_MODAL_SCHEMAS
+        nodal = type(record) is dict and record.get("schema") in (SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL, SCHEMA_FOOTPRINT_BODY_ACCELERATION)
+        record = _exact(record, ("schema", "status", "profile", "shell_nodes",
+                                 "shells", "members", "points", "affine") +
+                                      (("request", "modal_boundary_policy") if modal else
+                                      ("cases", "selection")) + (("footprints",) if nodal else ()) +
+                                      (("inertia_policy",) if mixed_modal else ()) + (("point_trace_policy",) if loaded else ()),
+                        "experimental B2 panel")
+        if (record["schema"] not in (SCHEMA, SCHEMA_MIXED, SCHEMA_MASS, SCHEMA_NODAL_FOOTPRINT, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS + _BODY_SCHEMAS + _LOADED_POINT_SCHEMAS or record["status"] != STATUS or
+                record["profile"] != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1):
+            raise ValueError("experimental B2 panel schema/status/profile required")
+        if loaded and record["point_trace_policy"] != LOADED_POINT_POLICY:
+            raise ValueError("explicit loaded-point trace policy required")
+        with_mass = body or loaded or record["schema"] in (SCHEMA_MASS, SCHEMA_REFERENCE_MODAL) + _MIXED_MODAL_SCHEMAS
+        mixed_definition, s3_type = _mixed_api() if mixed else (None, None)
+        if mixed_modal:
+            mixed_definition, _, _, policy = _mixed_modal_api()
+            if type(record["inertia_policy"]) is not str or record["inertia_policy"] != policy:
+                raise ValueError("explicit native S3 mixed reference inertia policy required")
+        if free_modal:
+            free_policy, _ = _mixed_free_modal_api()
+            if type(record["modal_boundary_policy"]) is not str or record["modal_boundary_policy"] != free_policy:
+                raise ValueError("explicit public B2 free-free modal-only boundary policy required")
+        node_rows = record["shell_nodes"]
+        if type(node_rows) is not list or not node_rows:
+            raise ValueError("experimental B2 shell nodes required")
+        shell_nodes = {}
+        for entry in node_rows:
+            if type(entry) is not list or len(entry) != 2:
+                raise ValueError("shell node ID and coordinate required")
+            node_id = _integer(entry[0], "shell node ID", minimum=1)
+            xyz = _vector(entry[1], 3, "shell coordinate")
+            if node_id in shell_nodes:
+                raise ValueError("unique shell node IDs required")
+            shell_nodes[node_id] = xyz
+    
+        if type(record["shells"]) is not list or not record["shells"]:
+            raise ValueError("experimental B2 Q4 shells required")
+        shells = []
+        for item in record["shells"]:
+            fields = ("shell_id", "node_ids", "E", "nu", "thickness_m",
+                      "reference_normal")
+            row = _exact(item, fields + (("density_kg_m3",) if with_mass else ()) +
+                         (("formulation",) if mixed else ()), "mixed shell" if mixed else "Q4 shell")
+            formulation = row["formulation"] if mixed else "e4-pl"
+            if formulation not in ("e4-pl", "e4-pl-s3-v2d"):
+                raise ValueError("explicit mixed shell formulation e4-pl or e4-pl-s3-v2d required")
+            count = 3 if formulation == "e4-pl-s3-v2d" else 4
+            node_ids = _vector(row["node_ids"], count, "mixed node IDs" if mixed else "Q4 node IDs", integer=True)
+            normal = _vector(row["reference_normal"], 3, "mixed normal" if mixed else "Q4 normal")
+            if mixed and (len(set(node_ids)) != count or any(node not in shell_nodes for node in node_ids)
+                          or not any(value != 0. for value in normal)):
+                raise ValueError("distinct known mixed shell nodes and nonzero authoritative normal required")
+            density = row.get("density_kg_m3")
+            shell_type = s3_type if count == 3 else stiffened_shell.Q4PanelShell
+            shells.append(shell_type(
+                _identifier(row["shell_id"], "shell ID"),
+                node_ids,
+                _number(row["E"], "Q4 modulus"),
+                _number(row["nu"], "Q4 Poisson ratio"),
+                _number(row["thickness_m"], "Q4 thickness"),
+                normal,
+                density_kg_m3=(None if density is None else
+                              _number(density, "Q4 density"))))
+    
+        if type(record["members"]) is not list or not record["members"]:
+            raise ValueError("experimental physical B2 members required")
+        members = []
+        for item in record["members"]:
+            fields = ("member_id", "source_id", "node_ids",
+                                "reference_points_m", "local_y_global",
+                                "section_id", "section", "profile_id",
+                                "schema_id", "unit_system")
+            row = _exact(item, fields + (("mass",) if with_mass else ()),
+                         "physical B2 member")
+            mass = None
+            if with_mass and row["mass"] is not None:
+                mass_row = _exact(row["mass"],
+                                  ("source_id", "origin_local_m", "matrix_per_m"),
+                                  "physical B2 mass")
+                matrix = mass_row["matrix_per_m"]
+                if type(matrix) is not list or len(matrix) != 6:
+                    raise ValueError("six-row physical B2 mass required")
+                mass = stiffened_shell.MassMetadata(
+                    _identifier(mass_row["source_id"], "mass source ID"),
+                    _vector(mass_row["origin_local_m"], 3, "mass origin"),
+                    tuple(_vector(line, 6, "mass row") for line in matrix))
+            section_row = _exact(row["section"],
+                                 ("operator_id", "kind", "stiffness",
+                                  "scalar_parameters"), "physical B2 section")
+            stiffness = section_row["stiffness"]
+            if type(stiffness) is not list or len(stiffness) != 6:
+                raise ValueError("six-row physical B2 section required")
+            scalar = section_row["scalar_parameters"]
+            if scalar is not None:
+                scalar = _vector(scalar, 8, "scalar section parameters")
+            section = stiffened_shell.LinearSection(
+                tuple(_vector(line, 6, "section row") for line in stiffness),
+                _identifier(section_row["kind"], "section kind"),
+                _identifier(section_row["operator_id"], "section operator ID"),
+                scalar)
+            points = row["reference_points_m"]
+            if type(points) is not list or len(points) != 2:
+                raise ValueError("two physical B2 reference positions required")
+            members.append(stiffened_shell.PhysicalB2Member(
+                _identifier(row["member_id"], "member ID"),
+                _identifier(row["source_id"], "member source ID"),
+                _vector(row["node_ids"], 2, "beam node IDs", integer=True),
+                tuple(_vector(point, 3, "beam reference position")
+                      for point in points),
+                _vector(row["local_y_global"], 3, "beam local y"),
+                _identifier(row["section_id"], "section ID"), section, mass=mass,
+                profile_id=_identifier(row["profile_id"], "member profile"),
+                schema_id=_identifier(row["schema_id"], "member schema"),
+                unit_system=_identifier(row["unit_system"], "unit system")))
+    
+        if type(record["points"]) is not list or (not nodal and not record["points"]):
+&gt;           raise ValueError("experimental B2 point attachments required")
+E           ValueError: experimental B2 point attachments required
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:227: ValueError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,146 @@
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+_________ test_real_case_project_static_batches_and_physical_buckling _________
+
+tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-b2-physical-footprint-consumer-20261006-v1/source-temp-v2/test_real_case_project_static_0')
+
+    def test_real_case_project_static_batches_and_physical_buckling(tmp_path):
+>       result = EXAMPLE['workflow'](tmp_path)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:23: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v2\examples\stiffened_shell_b2_physical_footprint_consumer.py:65: in workflow
+    original = panel()
+               ^^^^^^^
+installed-input-snapshot-v2\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cls = <class 'anyfem.solve.stiffened_shell_b2.ExperimentalB2PhysicalRigidFootprintPanel'>
+definition = B2PhysicalRigidFootprintDefinition(profile='B2_E4_PL_FAST_LINEAR_V1', shell_nodes_m={1: (0.0, 0.0, 0.0), 2: (1.0, 0.0,...0., 0., 0., 0., 0., 0.,
+       0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+       0., 0., 0.]))
+cases = (('case-0', array([ 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,
+        0.,  0.,  0.,  0.,  0.,  0...,  0.,  0.,  0.,  0.,  0.,
+        0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,  0.,  0.,  0.,
+        0.,  0.])),)
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs=(),
+                        recover_members=None, selected_footprints=None):
+        definition_type, group_type, selection_type, _, _ = _physical_footprint_api()
+        if (type(definition) is not definition_type or
+                not definition.physical_footprints or
+                any(type(group) is not group_type for group in definition.physical_footprints)):
+            raise ValueError("exact public physical-footprint definition required")
+        if selected_footprints is not None and type(selected_footprints) is not selection_type:
+            raise ValueError("typed public physical-footprint recovery selection required")
+        common = stiffened_shell.B2Q4PanelDefinition(definition.profile, definition.shell_nodes_m,
+            definition.shells, definition.members, (), definition.transformation, definition.prescribed_offset)
+        common_record = ExperimentalB2PointPanel._from_definition(common, cases, selected_dofs=selected_dofs,
+            recover_members=recover_members, neutral=True)
+>       return cls.from_dict(dict(schema=SCHEMA_PHYSICAL_FOOTPRINT, status=STATUS, panel=common_record,
+               ^^^^^^^^^^^^^
+            physical_footprints=[json.loads(json.dumps(group.descriptor(), allow_nan=False))
+                                 for group in definition.physical_footprints],
+            selected_physical_footprints=(list(selected_footprints.footprint_ids)
+                                         if selected_footprints is not None else [])))
+E       AttributeError: type object 'ExperimentalB2PhysicalRigidFootprintPanel' has no attribute 'from_dict'
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:839: AttributeError
+________ test_strict_distinct_descriptor_owned_input_and_legacy_guards ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001FF09E808A0>
+
+    def test_strict_distinct_descriptor_owned_input_and_legacy_guards(monkeypatch):
+>       original = panel(); raw = original.to_dict()
+                   ^^^^^^^
+
+installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v2\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cls = <class 'anyfem.solve.stiffened_shell_b2.ExperimentalB2PhysicalRigidFootprintPanel'>
+definition = B2PhysicalRigidFootprintDefinition(profile='B2_E4_PL_FAST_LINEAR_V1', shell_nodes_m={1: (0.0, 0.0, 0.0), 2: (1.0, 0.0,...0., 0., 0., 0., 0., 0.,
+       0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+       0., 0., 0.]))
+cases = (('case-0', array([ 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,
+        0.,  0.,  0.,  0.,  0.,  0...,  0.,  0.,  0.,  0.,  0.,
+        0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,  0.,  0.,  0.,
+        0.,  0.])),)
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs=(),
+                        recover_members=None, selected_footprints=None):
+        definition_type, group_type, selection_type, _, _ = _physical_footprint_api()
+        if (type(definition) is not definition_type or
+                not definition.physical_footprints or
+                any(type(group) is not group_type for group in definition.physical_footprints)):
+            raise ValueError("exact public physical-footprint definition required")
+        if selected_footprints is not None and type(selected_footprints) is not selection_type:
+            raise ValueError("typed public physical-footprint recovery selection required")
+        common = stiffened_shell.B2Q4PanelDefinition(definition.profile, definition.shell_nodes_m,
+            definition.shells, definition.members, (), definition.transformation, definition.prescribed_offset)
+        common_record = ExperimentalB2PointPanel._from_definition(common, cases, selected_dofs=selected_dofs,
+            recover_members=recover_members, neutral=True)
+>       return cls.from_dict(dict(schema=SCHEMA_PHYSICAL_FOOTPRINT, status=STATUS, panel=common_record,
+               ^^^^^^^^^^^^^
+            physical_footprints=[json.loads(json.dumps(group.descriptor(), allow_nan=False))
+                                 for group in definition.physical_footprints],
+            selected_physical_footprints=(list(selected_footprints.footprint_ids)
+                                         if selected_footprints is not None else [])))
+E       AttributeError: type object 'ExperimentalB2PhysicalRigidFootprintPanel' has no attribute 'from_dict'
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:839: AttributeError
+_____________ test_project_cancelled_prefix_and_callback_failures _____________
+
+    def test_project_cancelled_prefix_and_callback_failures():
+>       original = panel(10); record = AnalysisDefinition.experimental_point_panel('physical', original)
+                   ^^^^^^^^^
+
+installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+installed-input-snapshot-v2\examples\stiffened_shell_b2_physical_footprint_consumer.py:58: in panel
+    return ExperimentalB2PhysicalRigidFootprintPanel.from_definition(definition(),
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cls = <class 'anyfem.solve.stiffened_shell_b2.ExperimentalB2PhysicalRigidFootprintPanel'>
+definition = B2PhysicalRigidFootprintDefinition(profile='B2_E4_PL_FAST_LINEAR_V1', shell_nodes_m={1: (0.0, 0.0, 0.0), 2: (1.0, 0.0,...0., 0., 0., 0., 0., 0.,
+       0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+       0., 0., 0.]))
+cases = (('case-0', array([ 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -1.,
+        0.,  0.,  0.,  0.,  0.,  0....,  0.,  0.,  0.,  0.,
+        0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.,  0., -6.,  0.,  0.,  0.,
+        0.,  0.])), ...)
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs=(),
+                        recover_members=None, selected_footprints=None):
+        definition_type, group_type, selection_type, _, _ = _physical_footprint_api()
+        if (type(definition) is not definition_type or
+                not definition.physical_footprints or
+                any(type(group) is not group_type for group in definition.physical_footprints)):
+            raise ValueError("exact public physical-footprint definition required")
+        if selected_footprints is not None and type(selected_footprints) is not selection_type:
+            raise ValueError("typed public physical-footprint recovery selection required")
+        common = stiffened_shell.B2Q4PanelDefinition(definition.profile, definition.shell_nodes_m,
+            definition.shells, definition.members, (), definition.transformation, definition.prescribed_offset)
+        common_record = ExperimentalB2PointPanel._from_definition(common, cases, selected_dofs=selected_dofs,
+            recover_members=recover_members, neutral=True)
+>       return cls.from_dict(dict(schema=SCHEMA_PHYSICAL_FOOTPRINT, status=STATUS, panel=common_record,
+               ^^^^^^^^^^^^^
+            physical_footprints=[json.loads(json.dumps(group.descriptor(), allow_nan=False))
+                                 for group in definition.physical_footprints],
+            selected_physical_footprints=(list(selected_footprints.footprint_ids)
+                                         if selected_footprints is not None else [])))
+E       AttributeError: type object 'ExperimentalB2PhysicalRigidFootprintPanel' has no attribute 'from_dict'
+
+..\..\src\anyfem\solve\stiffened_shell_b2.py:839: AttributeError
+=========================== short test summary info ===========================
+FAILED installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py::test_real_case_project_static_batches_and_physical_buckling
+FAILED installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py::test_strict_distinct_descriptor_owned_input_and_legacy_guards
+FAILED installed-input-snapshot-v2\tests\test_stiffened_shell_b2_physical_footprint_consumer.py::test_project_cancelled_prefix_and_callback_failures
+3 failed in 0.36s

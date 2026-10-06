@@ -1,0 +1,326 @@
+{
+  "status": "scoped installed DEVELOPMENT verified",
+  "candidate": {
+    "src/anyfem/solve/stiffened_shell_b2.py": "d010421c16c36ab6fedcd61c91d1ca4157e843799d9db7b74c480cb09672452e",
+    "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+    "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "9c2c8a0e499c1b16532190fa7b9121f9aec00ea31870f96790e0dd217b2ec6e2",
+    "examples/stiffened_shell_b2_physical_footprint_consumer.py": "cdd3e09f5bbc2d6865f989c5ad542e582a91147792ea92b30c3d2bf89017af7b",
+    "docs/experimental_b2_physical_rigid_footprint.md": "71616a4a18977b759ec3de5091491e7c2c8406b3aacbaeacc0c6fb170eec1bdf"
+  },
+  "consumer_wheel_sha256": "d1c9714d7ca3e21d5d95c4ab9813bbf40d635c99cfa732a5f9284242f45d8daf",
+  "solver_wheel_sha256": "375e9e4525c93aaa4e1d75a26bbbd8fb506494064ae3a698e5ea67603c9b5a9b",
+  "source_wheel_site_modules": 99,
+  "verified_package_payloads": 99,
+  "verified_wheel_metadata": 10,
+  "snapshot_inputs": 2,
+  "imported_consumer_modules": 65,
+  "imported_solver_modules": 246,
+  "loaded_dependency_bytes": 742,
+  "unchanged_frozen_sibling_modules": 117,
+  "counts": {
+    "source-v1": {
+      "cases": 3,
+      "failures": 3
+    },
+    "source-v2": {
+      "cases": 3,
+      "failures": 3
+    },
+    "source-v3": {
+      "cases": 3,
+      "failures": 2
+    },
+    "installed-v1": {
+      "cases": 3,
+      "failures": 0
+    }
+  },
+  "workflow": {
+    "status": "completed",
+    "project_status": "completed",
+    "schema": "anyfem.experimental-b2-physical-rigid-footprint-panel-v1",
+    "physical_descriptor": {
+      "beam_node": 10,
+      "configuration": "reference_linear_static_with_objective_spectral_continuation",
+      "director": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "footprint_id": "physical-left",
+      "law": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+      "normal_spin": "independent",
+      "patch_cells": [
+        [
+          1,
+          2,
+          5,
+          4
+        ]
+      ],
+      "production_qualified": false,
+      "rows_per_node": 5,
+      "semantics": "complete_selected_cell_patch",
+      "shell_nodes": [
+        1,
+        2,
+        5,
+        4
+      ],
+      "tangent_basis": [
+        [
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ]
+    },
+    "input_bytes_equal": true,
+    "batches": [
+      {
+        "case_count": 1,
+        "status": "completed",
+        "factorization_count": 1,
+        "solve_count": 1,
+        "maximum_rhs_chunk": 1,
+        "selected_dofs": [
+          12,
+          13,
+          36,
+          41
+        ],
+        "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+        "selected_footprint_counts": [
+          1
+        ]
+      },
+      {
+        "case_count": 10,
+        "status": "completed",
+        "factorization_count": 1,
+        "solve_count": 10,
+        "maximum_rhs_chunk": 1,
+        "selected_dofs": [
+          12,
+          13,
+          36,
+          41
+        ],
+        "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+        "selected_footprint_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "case_count": 100,
+        "status": "completed",
+        "factorization_count": 1,
+        "solve_count": 100,
+        "maximum_rhs_chunk": 1,
+        "selected_dofs": [
+          12,
+          13,
+          36,
+          41
+        ],
+        "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+        "selected_footprint_counts": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "buckling_status": "ok",
+    "selected_mapping_matches_original_definition": true,
+    "footprint_wrenches_match_original_definition": true,
+    "recovered_footprint_ids": [
+      "physical-left"
+    ],
+    "selected_displacements": [
+      -0.013033268821212222,
+      -0.00299978495959629,
+      0.0,
+      0.0
+    ],
+    "selected_affine_reactions": [
+      1.1102230246251565e-16,
+      5.117434254131581e-17,
+      3.0000000000000004,
+      -2.876761058100835e-16
+    ],
+    "requested_member_stations": {
+      "beam-right": [
+        0.0,
+        0.5,
+        1.0
+      ]
+    },
+    "beam_resultants_local": [
+      [
+        "beam-right",
+        [
+          [
+            -1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        ]
+      ]
+    ],
+    "buckling_policy": "B2_PHYSICAL_RIGID_FOOTPRINT_GREEN_BUCKLING_V1_DEV",
+    "buckling_failure_reason": null,
+    "load_factors": [
+      0.16324601652203263
+    ],
+    "production_qualified": false
+  },
+  "exact_source_installed_common_workflow_equal": true,
+  "installed_additional_mapping_fields": [
+    "footprint_wrenches_match_original_definition",
+    "recovered_footprint_ids"
+  ],
+  "inherited_ledger_used_before_root_audit": 589.5855520999195,
+  "limitations": [
+    "Source V1/V2 failed before owner solves; codec/method repairs retained",
+    "Source V3 one pass/two bad public-semantic assertions, not a passing source campaign",
+    "Installed3 checks prove actual caller content/refusal/cancellation only on this artifact/host",
+    "Prepared owner has one factorization even for zero-solve pre-cancellation",
+    "Root audit V1 incorrectly required identical schemas despite two newly added installed mapping fields; all original fields match exactly",
+    "Mass, modes, nonlinear and material requests remain unsupported by this consumer",
+    "Non-author OpenAI review is not different-family/scientific acceptance",
+    "Full programme, physical/external/scale/platform/release/main obligations remain incomplete"
+  ]
+}

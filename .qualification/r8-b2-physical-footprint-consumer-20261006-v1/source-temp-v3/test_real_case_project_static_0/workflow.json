@@ -1,0 +1,268 @@
+{
+  "status": "completed",
+  "project_status": "completed",
+  "schema": "anyfem.experimental-b2-physical-rigid-footprint-panel-v1",
+  "physical_descriptor": {
+    "beam_node": 10,
+    "configuration": "reference_linear_static_with_objective_spectral_continuation",
+    "director": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "footprint_id": "physical-left",
+    "law": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+    "normal_spin": "independent",
+    "patch_cells": [
+      [
+        1,
+        2,
+        5,
+        4
+      ]
+    ],
+    "production_qualified": false,
+    "rows_per_node": 5,
+    "semantics": "complete_selected_cell_patch",
+    "shell_nodes": [
+      1,
+      2,
+      5,
+      4
+    ],
+    "tangent_basis": [
+      [
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0
+      ],
+      [
+        0.0,
+        0.0
+      ]
+    ]
+  },
+  "input_bytes_equal": true,
+  "batches": [
+    {
+      "case_count": 1,
+      "status": "completed",
+      "factorization_count": 1,
+      "solve_count": 1,
+      "maximum_rhs_chunk": 1,
+      "selected_dofs": [
+        12,
+        13,
+        36,
+        41
+      ],
+      "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+      "selected_footprint_counts": [
+        1
+      ]
+    },
+    {
+      "case_count": 10,
+      "status": "completed",
+      "factorization_count": 1,
+      "solve_count": 10,
+      "maximum_rhs_chunk": 1,
+      "selected_dofs": [
+        12,
+        13,
+        36,
+        41
+      ],
+      "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+      "selected_footprint_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "case_count": 100,
+      "status": "completed",
+      "factorization_count": 1,
+      "solve_count": 100,
+      "maximum_rhs_chunk": 1,
+      "selected_dofs": [
+        12,
+        13,
+        36,
+        41
+      ],
+      "footprint_law_id": "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL",
+      "selected_footprint_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "buckling_status": "ok",
+  "selected_mapping_matches_original_definition": true,
+  "selected_displacements": [
+    -0.013033268821212222,
+    -0.00299978495959629,
+    0.0,
+    0.0
+  ],
+  "selected_affine_reactions": [
+    1.1102230246251565e-16,
+    5.117434254131581e-17,
+    3.0000000000000004,
+    -2.876761058100835e-16
+  ],
+  "requested_member_stations": {
+    "beam-right": [
+      0.0,
+      0.5,
+      1.0
+    ]
+  },
+  "beam_resultants_local": [
+    [
+      "beam-right",
+      [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ]
+    ]
+  ],
+  "buckling_policy": "B2_PHYSICAL_RIGID_FOOTPRINT_GREEN_BUCKLING_V1_DEV",
+  "buckling_failure_reason": null,
+  "load_factors": [
+    0.16324601652203263
+  ],
+  "production_qualified": false
+}

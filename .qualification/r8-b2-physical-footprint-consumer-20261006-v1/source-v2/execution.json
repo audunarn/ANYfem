@@ -1,0 +1,37 @@
+{
+  "status": "failed",
+  "exit_code": 1,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1\\entry-v2.py",
+    "source",
+    "v2"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.qualification\\r8-b2-physical-footprint-consumer-20261006-v1",
+  "process_wall_seconds": 3.268318900023587,
+  "seconds_limit": 12.0,
+  "cumulative_used_seconds": 569.6402561000262,
+  "remaining_seconds": 30.35974389997375,
+  "sampled_peak_tree_rss": 188194816,
+  "memory_limit_bytes": 2147483648,
+  "affinity": [
+    0
+  ],
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "OPENBLAS_CORETYPE": null
+  },
+  "candidate": {
+    "src/anyfem/solve/stiffened_shell_b2.py": "83c7c80648e042c345279d43afb128ef4c84a1e1d7c9c4161367697132d8e32f",
+    "src/anyfem/solve/stiffened_shell_project.py": "93edbe43c8290972d7c86be372f677aa4c17e6f3a5d93ef182d9b70e46b534b0",
+    "tests/test_stiffened_shell_b2_physical_footprint_consumer.py": "27c1d2302b5c5c81cad42756bd238140d4a3e2c921f411ff34023ea0500507a9",
+    "examples/stiffened_shell_b2_physical_footprint_consumer.py": "63ed246b419985d2499c301a5c0ccbcd612dad0a0754ae423b097ea8dfdca7bc"
+  },
+  "runner_sha256": "83f9070e3ba30eda391f5b6ce55c9511b76f48871a793fe524374d4b6e32f2ce",
+  "entry_sha256": "f35ec4ca7e120821a2b0c2c8bb13b2f65c4fb86dc2c3274b548b44ffacaf3b18"
+}

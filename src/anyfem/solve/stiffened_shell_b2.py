@@ -27,6 +27,7 @@ SCHEMA_MIXED_FREE_REFERENCE_MODAL = "anyfem.experimental-b2-mixed-free-reference
 _MIXED_MODAL_SCHEMAS = (SCHEMA_MIXED_REFERENCE_MODAL, SCHEMA_MIXED_FREE_REFERENCE_MODAL)
 SCHEMA_MASS = "anyfem.experimental-b2-q4-point-panel-mass-v2"
 SCHEMA_NODAL_FOOTPRINT = "anyfem.experimental-b2-nodal-rigid-footprint-panel-v1"
+SCHEMA_PHYSICAL_FOOTPRINT = "anyfem.experimental-b2-physical-rigid-footprint-panel-v1"
 SCHEMA_REFERENCE_MODAL = "anyfem.experimental-b2-nodal-footprint-reference-modal-panel-v1"
 SCHEMA_BODY_ACCELERATION = "anyfem.experimental-b2-q4-body-acceleration-panel-v1"
 SCHEMA_MIXED_BODY_ACCELERATION = "anyfem.experimental-b2-mixed-body-acceleration-panel-v1"
@@ -100,7 +101,7 @@ def _json_load(payload):
         raise ValueError("invalid experimental B2 panel JSON") from exc
 
 
-def _decode(record):
+def _decode(record, *, neutral=False):
     loaded = type(record) is dict and record.get("schema") in _LOADED_POINT_SCHEMAS
     body = type(record) is dict and record.get("schema") in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
     free_modal = type(record) is dict and record.get("schema") == SCHEMA_MIXED_FREE_REFERENCE_MODAL
@@ -222,7 +223,7 @@ def _decode(record):
             schema_id=_identifier(row["schema_id"], "member schema"),
             unit_system=_identifier(row["unit_system"], "unit system")))
 
-    if type(record["points"]) is not list or (not nodal and not record["points"]):
+    if type(record["points"]) is not list or (not nodal and not neutral and not record["points"]):
         raise ValueError("experimental B2 point attachments required")
     attachments = []
     for item in record["points"]:
@@ -486,7 +487,7 @@ class ExperimentalB2PointPanel:
     @classmethod
     def _from_definition(cls, definition, cases, *, selected_dofs,
                          selected_points=(), recover_members=None, schema=SCHEMA,
-                         nodal=False, selected_footprints=None, request=None):
+                         nodal=False, selected_footprints=None, request=None, neutral=False):
         loaded = schema in _LOADED_POINT_SCHEMAS
         body = schema in _BODY_SCHEMAS + (SCHEMA_LOADED_POINT_BODY,)
         if loaded:
@@ -625,6 +626,8 @@ class ExperimentalB2PointPanel:
             record.pop("selection")
             record.update(request=asdict(request), modal_boundary_policy=(
                 _mixed_free_modal_api()[0] if free_modal else "supported"))
+        if neutral:
+            return record
         return cls(json.dumps(record, sort_keys=True, separators=(",", ":"),
                               allow_nan=False).encode("ascii"))
 
@@ -750,6 +753,150 @@ class ExperimentalB2NodalRigidFootprintPanel(ExperimentalB2PointPanel):
 
     def modes(self, request, *, cancellation=None):
         raise ValueError("B2 nodal-footprint consumer is static only; modes and prestress unsupported")
+
+
+def _physical_footprint_api():
+    names = ("B2PhysicalRigidFootprintDefinition", "B2PhysicalRigidFootprint",
+             "B2PhysicalRigidFootprintSelection", "B2PhysicalFootprintBucklingRequest",
+             "B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL")
+    exports = tuple(getattr(stiffened_shell, name, None) for name in names)
+    if any(value is None for value in exports):
+        raise ValueError("installed solver lacks public B2 physical-footprint exports")
+    return exports
+
+
+def _decode_physical_footprint(record):
+    data = _exact(record, ("schema", "status", "panel", "physical_footprints",
+                           "selected_physical_footprints"), "B2 physical footprint panel")
+    if data["schema"] != SCHEMA_PHYSICAL_FOOTPRINT or data["status"] != STATUS:
+        raise ValueError("explicit experimental physical-footprint schema required")
+    definition_type, group_type, selection_type, _, _ = _physical_footprint_api()
+    if (type(data["panel"]) is not dict or data["panel"].get("schema") != SCHEMA or
+            data["panel"].get("points") != []):
+        raise ValueError("physical footprints require static common inputs with empty POINTs")
+    common, cases, dofs, points, recovery = _decode(data["panel"], neutral=True)
+    if type(data["physical_footprints"]) is not list or not data["physical_footprints"]:
+        raise ValueError("explicit nonempty physical-footprint descriptor list required")
+    groups = []
+    for item in data["physical_footprints"]:
+        row = _exact(item, ("law", "footprint_id", "shell_nodes", "beam_node", "patch_cells",
+            "semantics", "configuration", "rows_per_node", "normal_spin", "director",
+            "tangent_basis", "production_qualified"), "public physical footprint")
+        if type(row["shell_nodes"]) is not list or type(row["patch_cells"]) is not list:
+            raise ValueError("explicit physical-footprint nodes and cells required")
+        if type(row["tangent_basis"]) is not list or len(row["tangent_basis"]) != 3:
+            raise ValueError("explicit three-by-two physical tangent basis required")
+        group = group_type(_identifier(row["footprint_id"], "physical footprint ID"),
+            tuple(_integer(node, "footprint node", minimum=1) for node in row["shell_nodes"]),
+            _integer(row["beam_node"], "physical B2 endpoint", minimum=1),
+            _vector(row["director"], 3, "physical director"),
+            tuple(_vector(values, 2, "physical tangent basis") for values in row["tangent_basis"]),
+            tuple(_vector(cell, 4, "physical patch cell", integer=True) for cell in row["patch_cells"]))
+        if (row != json.loads(json.dumps(group.descriptor(), allow_nan=False)) or
+                type(row["rows_per_node"]) is not int or type(row["production_qualified"]) is not bool):
+            raise ValueError("matching public five-row physical-footprint descriptor required")
+        groups.append(group)
+    if len({group.footprint_id for group in groups}) != len(groups):
+        raise ValueError("distinct physical footprint IDs required")
+    selected = data["selected_physical_footprints"]
+    if type(selected) is not list:
+        raise ValueError("explicit physical footprint selection ID list required")
+    selection = selection_type(tuple(selected)) if selected else None
+    if selection is not None and any(name not in {g.footprint_id for g in groups}
+                                     for name in selection.footprint_ids):
+        raise ValueError("selected physical footprint ID is not declared")
+    definition = definition_type(common.profile, common.shell_nodes_m, common.shells,
+        common.members, tuple(groups), common.transformation, common.prescribed_offset)
+    return definition, cases, dofs, recovery, selection
+
+
+@dataclass(frozen=True)
+class ExperimentalB2PhysicalRigidFootprintPanel(ExperimentalB2PointPanel):
+    """Distinct five-row physical law, using the existing bounded B2 input codec."""
+
+    def __post_init__(self):
+        if type(self.payload) is not bytes or len(self.payload) > MAX_FILE_BYTES:
+            raise ValueError("bounded physical-footprint input bytes required")
+        record = _json_load(self.payload)
+        _decode_physical_footprint(record)
+        object.__setattr__(self, "payload", json.dumps(record, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("ascii") + b"\n")
+
+    @classmethod
+    def from_dict(cls, record):
+        return cls(json.dumps(record, allow_nan=False).encode("ascii"))
+
+    def to_dict(self):
+        return _json_load(self.payload)
+
+    @classmethod
+    def from_definition(cls, definition, cases, *, selected_dofs=(),
+                        recover_members=None, selected_footprints=None):
+        definition_type, group_type, selection_type, _, _ = _physical_footprint_api()
+        if (type(definition) is not definition_type or
+                not definition.physical_footprints or
+                any(type(group) is not group_type for group in definition.physical_footprints)):
+            raise ValueError("exact public physical-footprint definition required")
+        if selected_footprints is not None and type(selected_footprints) is not selection_type:
+            raise ValueError("typed public physical-footprint recovery selection required")
+        common = stiffened_shell.B2Q4PanelDefinition(definition.profile, definition.shell_nodes_m,
+            definition.shells, definition.members, (), definition.transformation, definition.prescribed_offset)
+        common_record = ExperimentalB2PointPanel._from_definition(common, cases, selected_dofs=selected_dofs,
+            recover_members=recover_members, neutral=True)
+        return cls.from_dict(dict(schema=SCHEMA_PHYSICAL_FOOTPRINT, status=STATUS, panel=common_record,
+            physical_footprints=[json.loads(json.dumps(group.descriptor(), allow_nan=False))
+                                 for group in definition.physical_footprints],
+            selected_physical_footprints=(list(selected_footprints.footprint_ids)
+                                         if selected_footprints is not None else [])))
+
+    def definition(self):
+        return _decode_physical_footprint(self.to_dict())[0]
+
+    def create_analysis(self):
+        owner = stiffened_shell.create_analysis(definition=self.definition())
+        try:
+            cap = owner.capabilities
+            if (cap.profile_id != stiffened_shell.B2_E4_PL_FAST_LINEAR_V1 or
+                    cap.status != "experimental" or cap.production_qualified is not False or
+                    cap.footprint_law_id != _physical_footprint_api()[-1]):
+                raise ValueError("matching experimental public physical-footprint capability required")
+            return owner
+        except BaseException:
+            owner.close()
+            raise
+
+    def solve_linear(self, case_id):
+        _, cases, _, recovery, selection = _decode_physical_footprint(self.to_dict())
+        loads = {name:load for name,load in cases}
+        if type(case_id) is not str or case_id not in loads:
+            raise ValueError("declared physical-footprint case ID required")
+        owner = self.create_analysis()
+        try:
+            return owner.solve_linear(loads[case_id], selected_footprints=selection,
+                recover_members=recovery)
+        finally:
+            owner.close()
+
+    def solve_linear_many(self, *, cancellation_token=None, on_case=None):
+        _, cases, dofs, recovery, selection = _decode_physical_footprint(self.to_dict())
+        owner = self.create_analysis()
+        try:
+            return owner.solve_linear_many(cases, selected_dofs=dofs, selected_footprints=selection,
+                recover_members=recovery, cancellation_token=cancellation_token, on_case=on_case)
+        finally:
+            owner.close()
+
+    def buckling(self, request, *, cancellation=None):
+        if type(request) is not _physical_footprint_api()[3]:
+            raise ValueError("typed B2PhysicalFootprintBucklingRequest required")
+        owner = self.create_analysis()
+        try:
+            return owner.buckling(request, cancellation=cancellation)
+        finally:
+            owner.close()
+
+    def modes(self, *args, **kwargs):
+        raise ValueError("physical-footprint consumer supports static and reference buckling only")
 
 
 @dataclass(frozen=True)
@@ -1082,7 +1229,7 @@ class ExperimentalB2LoadedPointPanel(ExperimentalB2BodyAccelerationPanel):
 
 
 def save_case(case: ExperimentalB2PointPanel, path: str | Path) -> Path:
-    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
+    if type(case) not in (ExperimentalB2PointPanel, ExperimentalB2MixedPointPanel, ExperimentalB2NodalRigidFootprintPanel, ExperimentalB2PhysicalRigidFootprintPanel, ExperimentalB2ReferenceModalPanel, ExperimentalB2MixedReferenceModalPanel, ExperimentalB2BodyAccelerationPanel, ExperimentalB2LoadedPointPanel):
         raise ValueError("experimental B2 panel case required")
     destination = Path(path)
     if not destination.name.endswith(SUFFIX):
@@ -1112,7 +1259,8 @@ def load_case(path: str | Path) -> ExperimentalB2PointPanel:
         payload = stream.read(MAX_FILE_BYTES + 1)
     record = _json_load(payload)
     schema = record.get("schema") if type(record) is dict else None
-    consumer = (ExperimentalB2LoadedPointPanel if schema in _LOADED_POINT_SCHEMAS else
+    consumer = (ExperimentalB2PhysicalRigidFootprintPanel if schema == SCHEMA_PHYSICAL_FOOTPRINT else
+                ExperimentalB2LoadedPointPanel if schema in _LOADED_POINT_SCHEMAS else
                 ExperimentalB2BodyAccelerationPanel if schema in _BODY_SCHEMAS else
                 ExperimentalB2ReferenceModalPanel if schema == SCHEMA_REFERENCE_MODAL else
                 ExperimentalB2MixedReferenceModalPanel if schema in _MIXED_MODAL_SCHEMAS else
@@ -1126,6 +1274,7 @@ __all__ = ["ExperimentalB2PointPanel", "SCHEMA", "SCHEMA_MASS", "STATUS", "SUFFI
            "ExperimentalB2MixedReferenceModalPanel", "SCHEMA_MIXED_REFERENCE_MODAL",
            "SCHEMA_MIXED_FREE_REFERENCE_MODAL",
            "ExperimentalB2NodalRigidFootprintPanel", "SCHEMA_NODAL_FOOTPRINT",
+           "ExperimentalB2PhysicalRigidFootprintPanel", "SCHEMA_PHYSICAL_FOOTPRINT",
            "ExperimentalB2ReferenceModalPanel", "SCHEMA_REFERENCE_MODAL",
            "ExperimentalB2BodyAccelerationPanel", "SCHEMA_BODY_ACCELERATION",
            "SCHEMA_MIXED_BODY_ACCELERATION", "SCHEMA_FOOTPRINT_BODY_ACCELERATION",

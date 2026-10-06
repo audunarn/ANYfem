@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="3.461" timestamp="2026-10-06T11:33:47.080299+02:00" hostname="WORK_STABEIST1"><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v3.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_real_case_project_static_batches_and_physical_buckling" time="2.973"><failure message="AssertionError: None&#10;assert 'ok' == 'completed'&#10;  &#10;  - completed&#10;  + ok">tmp_path = WindowsPath('C:/Github/ANYfem/.worktrees/experimental-ge-panel-consumer/.qualification/r8-b2-physical-footprint-consumer-20261006-v1/source-temp-v3/test_real_case_project_static_0')
+
+    def test_real_case_project_static_batches_and_physical_buckling(tmp_path):
+        result = EXAMPLE['workflow'](tmp_path)
+        assert result['status'] == result['project_status'] == 'completed'
+        assert result['schema'] == SCHEMA_PHYSICAL_FOOTPRINT and result['input_bytes_equal']
+        assert result['selected_mapping_matches_original_definition']
+        assert result['requested_member_stations'] == {'beam-right':[0.,.5,1.]}
+        assert result['beam_resultants_local'][0][0] == 'beam-right'
+        assert len(result['beam_resultants_local'][0][1]) == 3
+        assert not result['production_qualified']
+        descriptor = result['physical_descriptor']
+        assert descriptor['law'] == api.B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL
+        assert descriptor['rows_per_node'] == 5 and descriptor['normal_spin'] == 'independent'
+        assert [item['case_count'] for item in result['batches']] == [1,10,100]
+        for item in result['batches']:
+            assert item['status'] == 'completed' and item['factorization_count'] == 1
+            assert item['solve_count'] == item['case_count']
+            assert item['selected_dofs'] == list(EXAMPLE['DOFS'])
+            assert item['selected_footprint_counts'] == [1]*item['case_count']
+            assert 1 &lt;= item['maximum_rhs_chunk'] &lt;= item['case_count']
+        assert result['batches'][-1]['maximum_rhs_chunk'] &lt; 100
+&gt;       assert result['buckling_status'] == 'completed', result['buckling_failure_reason']
+E       AssertionError: None
+E       assert 'ok' == 'completed'
+E         
+E         - completed
+E         + ok
+
+installed-input-snapshot-v3\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:43: AssertionError</failure></testcase><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v3.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_strict_distinct_descriptor_owned_input_and_legacy_guards" time="0.030" /><testcase classname=".qualification.r8-b2-physical-footprint-consumer-20261006-v1.installed-input-snapshot-v3.tests.test_stiffened_shell_b2_physical_footprint_consumer" name="test_project_cancelled_prefix_and_callback_failures" time="0.192"><failure message="AssertionError: assert ('cancelled' == 'cancelled'&#10;  &#10;    cancelled and () == ()&#10;  &#10;  Use -v to get more diff and 1 == 0)&#10; +  where 1 = B2PhysicalRigidFootprintBatchResult(status='cancelled', selected_dofs=(12, 13, 36, 41), selected_points=(), cases=(), ...ysical-left', 4, 10, 'director_2')), footprint_law_id='B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL').factorization_count">def test_project_cancelled_prefix_and_callback_failures():
+        original = panel(10); record = AnalysisDefinition.experimental_point_panel('physical', original)
+        token = CancellationToken(); token.cancel('before physical batch')
+        before = solve_point_panel(record, cancellation_token=token)
+&gt;       assert before.status == 'cancelled' and before.cases == () and before.factorization_count == 0
+E       AssertionError: assert ('cancelled' == 'cancelled'
+E         
+E           cancelled and () == ()
+E         
+E         Use -v to get more diff and 1 == 0)
+E        +  where 1 = B2PhysicalRigidFootprintBatchResult(status='cancelled', selected_dofs=(12, 13, 36, 41), selected_points=(), cases=(), ...ysical-left', 4, 10, 'director_2')), footprint_law_id='B2_PHYSICAL_RIGID_FOOTPRINT_DIRECTOR_REFERENCE_V1_EXPERIMENTAL').factorization_count
+
+installed-input-snapshot-v3\tests\test_stiffened_shell_b2_physical_footprint_consumer.py:91: AssertionError</failure></testcase></testsuite></testsuites>
