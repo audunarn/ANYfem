@@ -52,6 +52,8 @@ from .model.attributes import (
     Pressure,
     Support,
     SurfaceTraction,
+    WetPressure,
+    WetSurface,
 )
 from .model.imperfections import Imperfection
 from .model.project import Project, ProjectError
@@ -79,6 +81,7 @@ __all__ = [
     "AddLine",
     "AddLineLoad",
     "AddLoadCase",
+    "AddLoadCaseSeries",
     "AddMass",
     "AddMaterial",
     "AddMeshRecord",
@@ -97,6 +100,8 @@ __all__ = [
     "EditGeometrySet",
     "AddSupport",
     "AddSurfaceTraction",
+    "AddWetPressure",
+    "AddWetSurface",
     "AddCoordinateSystem",
     "AddStiffenedPanel",
     "AddSketch",
@@ -1894,7 +1899,8 @@ class DeleteEntity(Command):
         working = geometry.clone(include_features=False)
         _delete_exact_geometry_ref(working, self.ref)
         aliases = {self.ref}
-        containers = [project.supports, project.masses, project.imperfections, project.refinements]
+        containers = [project.supports, project.masses, project.wet_surfaces,
+                      project.imperfections, project.refinements]
         containers.extend(getattr(case, name) for case in project.load_cases.values()
                           for name in ("point_loads", "pressures", "line_loads", "surface_tractions"))
         for container in containers:
@@ -2053,6 +2059,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_al
         "edge_section": None,
         "supports": [],
         "masses": [],
+        "wet_surfaces": [],
         "imperfections": [],
         "refinements": [],
         "loads": [],
@@ -2072,7 +2079,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_al
             kept.append(item)
     project.supports[:] = kept
 
-    for attribute in ("masses", "imperfections"):
+    for attribute in ("masses", "wet_surfaces", "imperfections"):
         container = getattr(project, attribute)
         survivors = []
         for item in container:
@@ -2130,6 +2137,7 @@ def _reattach_attributes(
         getattr(case, attribute).append(load)
     project.supports.extend(removed.get("supports", ()))
     project.masses.extend(removed.get("masses", ()))
+    project.wet_surfaces.extend(removed.get("wet_surfaces", ()))
     project.imperfections.extend(removed.get("imperfections", ()))
     project.refinements.extend(removed.get("refinements", ()))
     project.geometry_attachment_regions.update(removed.get("geometry_attachment_regions", {}))
@@ -2223,6 +2231,8 @@ _EDITABLE_ATTRIBUTE_TYPES = (
     Pressure,
     LineLoad,
     SurfaceTraction,
+    WetSurface,
+    WetPressure,
     Imperfection,
 )
 
@@ -2232,7 +2242,7 @@ def _attribute_container(
 ) -> tuple[tuple[str, ...], list[Any], int, Any]:
     """Locate one UUID-backed support, mass or load without using its label."""
 
-    for attribute in ("supports", "masses", "imperfections"):
+    for attribute in ("supports", "masses", "wet_surfaces", "imperfections"):
         container = getattr(project, attribute)
         for index, item in enumerate(container):
             if getattr(item, "id", None) == item_id:
@@ -2243,6 +2253,7 @@ def _attribute_container(
             "pressures",
             "line_loads",
             "surface_tractions",
+            "wet_pressures",
         ):
             container = getattr(case, attribute)
             for index, item in enumerate(container):
@@ -2834,6 +2845,99 @@ class AddMass(Command):
 
 
 @dataclass(eq=False)
+class AddWetSurface(Command):
+    """Mark a plate as wetted, so wet pressures act on it."""
+
+    ref: EntityRef
+    name: str = "wet surface"
+    fluid_side: str = "positive_normal"
+    interior_point: Sequence[float] | None = None
+    label: str = "add wet surface"
+    _surface: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        if self._surface is None:
+            self._surface = project.add_wet_surface(
+                WetSurface(
+                    ref=self.ref,
+                    name=self.name,
+                    fluid_side=self.fluid_side,
+                    interior_point=self.interior_point,  # type: ignore[arg-type]
+                )
+            )
+        else:
+            project.wet_surfaces.append(self._surface)
+        return self._surface
+
+    def undo(self, project: Project) -> None:
+        project.wet_surfaces.remove(self._surface)
+
+
+@dataclass(eq=False)
+class AddWetPressure(Command):
+    """Fluid pressure on the wet surfaces: a value, an equation or a mapping."""
+
+    value: float | None = None
+    expression: str | None = None
+    mapping: Mapping[int, float] | None = None
+    mapping_key: str = "face"
+    surfaces: Sequence[str] = ()
+    scale: float = 1.0
+    name: str = "wet pressure"
+    case: str = "default"
+    label: str = "add wet pressure"
+    _load: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        case = project.load_case(self.case)
+        if self._load is None:
+            self._load = case.add_wet_pressure(
+                value=self.value,
+                expression=self.expression,
+                mapping=self.mapping,
+                mapping_key=self.mapping_key,
+                surfaces=self.surfaces,
+                scale=self.scale,
+                name=self.name,
+            )
+        else:
+            case.wet_pressures.append(self._load)
+        return self._load
+
+    def undo(self, project: Project) -> None:
+        project.load_case(self.case).wet_pressures.remove(self._load)
+
+
+@dataclass(eq=False)
+class AddLoadCaseSeries(Command):
+    """One load case per time step; undo removes exactly the cases it made."""
+
+    name: str
+    times: Sequence[float] = ()
+    template: str | None = None
+    parameters: Mapping[str, float] | None = None
+    label: str = "add load case series"
+    _created: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        if self._created is None:
+            self._created = project.add_load_case_series(
+                self.name,
+                self.times,
+                template=self.template,
+                parameters=self.parameters,
+            )
+        else:
+            for case in self._created:
+                project.load_cases[case.name] = case
+        return list(self._created)
+
+    def undo(self, project: Project) -> None:
+        for case in self._created or ():
+            project.load_cases.pop(case.name, None)
+
+
+@dataclass(eq=False)
 class SetAcceleration(Command):
     """Gravity or a design acceleration field on one case."""
 
@@ -3149,7 +3253,7 @@ def _region_users(project: Project, identifier: str) -> list[str]:
         for item in project.section_assignments.values()
         if item.region.id == identifier
     )
-    for collection_name in ("supports", "masses"):
+    for collection_name in ("supports", "masses", "wet_surfaces"):
         for item in getattr(project, collection_name):
             if getattr(getattr(item, "region", None), "id", None) == identifier:
                 users.append(

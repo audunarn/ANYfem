@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+- Add wet surfaces and fluid pressure. A plate marked as a `WetSurface` (with the
+  side the fluid is on, or a point inside a closed hull) receives a `WetPressure`
+  from a load case: a uniform value, an equation of the element centroid, the case
+  time and named parameters (`rho * g * max(0, draft - z)`; a restricted, parsed
+  vocabulary, never `eval`), or a direct mapping of pressures to plates or mesh
+  elements. Pressure is sampled once per element at its centroid. Fail-closed:
+  mapping to a dry plate or element, a plate on two wet surfaces, an unknown name
+  or a non-finite value stops the build. `Project.add_load_case_series` creates
+  one load case per time step from a template and/or builder for quasi-static
+  sequences, each carrying its `time`, parameters, `series` and `step`; the cases
+  are solved together by `solve_linear_static_many` with one factorization. The
+  Qt Loads task gets Add wet surface, Add wet pressure and Add load case series.
+  Persistence adds project format 9, written only when a project uses these
+  features (other projects stay format 8; an older ANYfem refuses a format-9 file
+  rather than dropping its loads). The batch workflow no longer needs a load case
+  named "default", batch results are now marked stale when any solved case's
+  loading changes (the old definition pointed at "default" and tracked nothing),
+  and a result view shows the loads of the case it displays. Wet surfaces are
+  listed in the model tree under "Wet surfaces", like Sets: each row shows its
+  plates, selecting it highlights them, it can be hidden, edited, renamed in its
+  record and deleted (undoably), and wet pressures appear under Loads. The
+  viewport outlines every wet plate (with a cross, in blue, never pickable) and
+  draws the active case's pressure as arrows pointing into the plate from the
+  fluid side, longer where the pressure is higher and absent where it is zero, so
+  a waterline is visible. With a mesh the arrows come from the solver's own
+  per-element evaluation (a shared function, so the picture cannot disagree with
+  the load); before meshing, plates are sampled on a 5 x 5 grid, and a mapping by
+  element id waits for a mesh. It follows the Loads display toggle. Not yet done:
+  a nodal (non-uniform within an element) pressure representation.
+
+- Run solves and meshing in a separate worker process instead of a thread of the
+  GUI process. The numerical code is largely Python, so a worker thread competes
+  with Qt for the interpreter lock, and every GUI repaint (hundreds of lock
+  hand-offs) is stretched by it. Measured on the floating barge example with the
+  software viewer, one full repaint of the mesh view takes 1.4 s idle, 1.4 s while
+  a CPU-bound Python process runs, and 92 s while a CPU-bound Python thread runs
+  (a worst case: that loop never releases the lock); a camera-moving repaint takes
+  0.04 s, 0.04 s and 1.7 s. In a real Capacity run in a thread only 14 % of the
+  expected GUI timer ticks fired; with the worker process 98 % did, and pressing
+  Generate mesh no longer blocks the first event-loop pass for about 10 s. The
+  camera level-of-detail preview (separate change, docs/QT_CONVERSION.md) removes
+  the other cost, the repaint itself; the two compound. Inputs cross as the
+  existing immutable snapshot, the solver job gets its codec-cloned mesh, and a
+  finished mesh returns through ANYmesher's public codec, as in a saved project;
+  progress, structured payloads, error diagnostics and cancellation cross a pipe,
+  and solver results are pickled (read-only mapping views and thread-local work
+  buffers travel on a private pickler only; ANYfem's rule against copying such
+  views elsewhere is unchanged). The worker runs at below-normal priority, exits if
+  the application disappears or the project is replaced, and a crash in native
+  solver code fails the job without taking the GUI down. The library defaults stay
+  `thread` (`JobManager(executor="process")` / `MeshTaskManager(executor="process")`
+  opt in; a job function must then be a module-level callable, otherwise the job
+  fails with an explicit message rather than silently falling back); the Qt
+  workbench opts in, and `ANYFEM_JOB_EXECUTOR=thread` runs jobs in-process for
+  diagnosis. The Tk frontend is unchanged. Starting a job costs the worker's
+  start-up (under two seconds on the barge example), small against a capacity
+  run and noticeable on tiny solves. Remaining costs are not job management:
+  stationary full-detail repaints in the software viewer, and the solver's
+  production validation (preflight), which assembles the stiffness matrix with
+  its element guards enabled and took 13 s of an 18 s Linear static run on the
+  barge example (ANYsolver owns that).
+- Add an optional standard beam-section library to the Sections task. "Browse
+  section library..." opens ANYsection's catalogue (T-bars, angles, bulb flats as
+  equivalent angles, flat bars), shows the section properties as ANYsolver resolves
+  them, and loads the pick into the Add beam section form for review. Nothing is
+  applied until the engineer chooses the material and applies, as one undoable
+  command; sections are named `designation [series | standard]` because catalogue
+  designations repeat. ANYsection is optional (`pip install ANYfem[sections]`): the
+  button is disabled with an install hint when it is missing, and the launcher
+  uses a sibling `ANYsection` checkout when one is present.
 - Accept both the v1 and the v2 (ANYmesher 0.5 and later) qualified S3
   structural-preparation record when building a solver model. v2 adds the
   `quality_policy` and `quality_target` evidence; a record whose members do not

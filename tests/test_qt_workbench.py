@@ -1211,6 +1211,9 @@ def test_qt_plate_mesh_routes(window,qapp,strategy):
 
 
 def test_qt_inspection_only_mesh_stays_unadmitted(window,qapp,monkeypatch):
+    # The mesher is patched in this process, which a worker process cannot see; process meshing is
+    # covered by test_mesh_process.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.mesh_task_manager.executor="thread"
     from anyfem.model.project import Project
     original=Project.generate_mesh
     def inspection_mesh(project,*args,**kwargs):
@@ -1267,6 +1270,9 @@ def test_qt_automatic_mesh_with_remaining_budget_is_admitted(window,qapp,monkeyp
 
 
 def test_qt_strict_mesh_policy_retains_owner_refusal(window,qapp,monkeypatch):
+    # The mesher is patched in this process, which a worker process cannot see; process meshing is
+    # covered by test_mesh_process.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.mesh_task_manager.executor="thread"
     import anymesher.recovery as recovery
     from anymesher.s3_repair import S3RepairError
     def refuse(*args,**kwargs):
@@ -2466,6 +2472,9 @@ def test_qt_inflight_solve_cancellation_and_stale_ownership(window,qapp,monkeypa
 
 @pytest.mark.parametrize("action",["cancel","edit","replace","failure"])
 def test_qt_inflight_mesh_ownership(window,qapp,monkeypatch,action):
+    # The mesher is patched in this process, which a worker process cannot see; process meshing is
+    # covered by test_mesh_process.py.  The env var also covers the manager a project replacement creates.
+    monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.mesh_task_manager.executor="thread"
     import threading
     from anyfem.model.project import Project
     started=threading.Event();release=threading.Event()
@@ -2494,3 +2503,60 @@ def test_qt_inflight_mesh_ownership(window,qapp,monkeypatch,action):
             assert window.mesh is None
             if action=="failure":assert "deliberate mesh failure" in str(record.diagnostics)
     finally:release.set()
+
+
+def test_barge_idle_refresh_quiesces_and_external_event_is_delivered(window, qapp, monkeypatch):
+    from anyfem.application.examples import floating_barge_section
+    window._set_project(floating_barge_section())
+    window.refresh_all()
+    for _ in range(4):
+        qapp.processEvents()
+    calls = []
+    refresh = window.refresh_all
+    def counted():
+        calls.append(1)
+        refresh()
+    monkeypatch.setattr(window, 'refresh_all', counted)
+    for _ in range(10):
+        qapp.processEvents()
+    assert calls == []
+    window.workbench._publish('state_changed', 'analysis')
+    for _ in range(4):
+        qapp.processEvents()
+    assert len(calls) == 1
+    for _ in range(10):
+        qapp.processEvents()
+    assert len(calls) == 1
+
+
+def test_result_frame_setter_notifies_only_real_clamped_changes(window):
+    task = window.panels['Results']
+    task.frame.setRange(0, 3)
+    events = []
+    window.workbench.add_listener(events.append)
+    task._set_frame_index(1)
+    assert window.shape_index == 1
+    assert [event.field for event in events] == ['shape_index']
+    events.clear()
+    task._set_frame_index(1)
+    assert events == []
+    task._set_frame_index(99)
+    assert window.shape_index == task.frame.value() == 3
+    assert [event.field for event in events] == ['shape_index']
+
+
+def test_workbench_event_during_refresh_is_not_discarded(window, qapp, monkeypatch):
+    for _ in range(4):
+        qapp.processEvents()
+    calls = []
+    original = window.tree.refresh
+    def refresh():
+        calls.append(1)
+        original()
+        if len(calls) == 1:
+            window.workbench._publish('command_executed')
+    monkeypatch.setattr(window.tree, 'refresh', refresh)
+    window.refresh_all()
+    for _ in range(4):
+        qapp.processEvents()
+    assert len(calls) == 2

@@ -1,3 +1,12 @@
+## Global working instructions
+
+Before repository work, read `~/.codex/AGENTS.md` (on this workstation:
+`C:/Users/AudunArnesenNyhus/.codex/AGENTS.md`). Apply its current global working
+instructions together with the repository-specific instructions below. Follow
+system/developer and current user instructions first; retain applicable local
+engineering, qualification and execution constraints. If the global file is
+unavailable, report that limitation rather than assuming its contents.
+
 # ANY ecosystem working instructions
 
 Read `ECOSYSTEM_GUIDE.md` and the canonical adopted philosophy at

@@ -346,6 +346,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         "ownership",
         "supports",
         "masses",
+        "wet_surfaces",
         "imperfections",
         "geometry_attachment_regions",
         "meshing",
@@ -402,7 +403,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict):
             item.pop("id", None)
             item.pop("name", None)
-    for item in payload.get("masses", ()):
+    for item in (*payload.get("masses", ()), *payload.get("wet_surfaces", ())):
         if isinstance(item, dict):
             item.pop("id", None)
             item.pop("name", None)

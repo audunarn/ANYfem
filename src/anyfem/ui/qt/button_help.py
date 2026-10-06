@@ -35,6 +35,7 @@ DESCRIPTIONS = {
     'Apply unit profile': 'Apply the chosen project unit profile; stored engineering quantities retain their SI values.',
     'Create DNV material': 'Create a material using the chosen DNV material settings.',
     'Create plate section with DNV material': 'Create a plate section and its DNV material using the entered settings.',
+    'Browse section library': 'Browse standard beam sections (T-bar, angle, bulb flat, flat bar) and load one into the beam section form for review.',
     'Apply support preset to selection': 'Assign the selected support preset to the selected geometry.',
     'Open file': 'Choose a file to inspect and display its import information.',
     'Save JSON report': 'Save the displayed file inspection report as JSON.',

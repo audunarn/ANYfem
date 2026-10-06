@@ -22,6 +22,7 @@ _PACKAGES = (
     ("ANYfileio", "anyfileio"),
     ("ANY3dView", "any3dview"),
     ("ANYtk3D", "anytk3d"),
+    ("ANYsection", "anysection"),  # optional: standard beam sections
 )
 
 

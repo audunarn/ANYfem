@@ -34,6 +34,14 @@ def _worker_process_job_manager(project):
     return JobManager(project,executor=os.environ.get("ANYFEM_JOB_EXECUTOR","process"))
 
 
+def _worker_process_mesh_manager():
+    """Meshing runs in a worker process too: the mesh thread alone froze the window for ~10 s
+    after pressing Generate mesh on the barge example (same cause as for solves)."""
+    import os
+    from ...mesh_jobs import MeshTaskManager
+    return MeshTaskManager(executor=os.environ.get("ANYFEM_JOB_EXECUTOR","process"))
+
+
 class _Value:
     def __init__(self,value):self.value=value
     def get(self):return self.value
@@ -192,7 +200,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
         self.workbench=WorkbenchController(project if project is not None else default_project(),
-                                           job_manager_factory=_worker_process_job_manager)
+                                           job_manager_factory=_worker_process_job_manager,
+                                           mesh_task_manager_factory=_worker_process_mesh_manager)
         self.scheduler=QtSchedulerPort(self)
         self.dialogs=QtDialogPort(self)
         self.clipboard=QtClipboardPort()

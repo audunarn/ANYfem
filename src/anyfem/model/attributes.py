@@ -14,6 +14,7 @@ from uuid import uuid4
 import numpy as np
 
 from anygeometry.entities import EntityRef
+from .expressions import RESERVED_NAMES, check_expression, expression_names
 from .regions import RegionRef
 
 __all__ = [
@@ -26,6 +27,8 @@ __all__ = [
     "Pressure",
     "Support",
     "SurfaceTraction",
+    "WetPressure",
+    "WetSurface",
     "antisymmetry",
     "fixed",
     "pinned",
@@ -389,6 +392,153 @@ class SurfaceTraction:
         )
 
 
+WET_FLUID_SIDES: tuple[str, ...] = (
+    "positive_normal",
+    "negative_normal",
+    "away_from_point",
+)
+WET_MAPPING_KEYS: tuple[str, ...] = ("face", "element")
+
+
+@dataclass(frozen=True)
+class WetSurface:
+    """A plate wetted by fluid: the plates a wet pressure is applied to.
+
+    A pressure on a wet surface is the fluid pressing *into* the plate. Which
+    way that is depends on which side of the plate the fluid is on, so the
+    surface records it:
+
+    ``positive_normal``
+        the fluid touches the side the element normal points to, so the load
+        acts against the normal.
+    ``negative_normal``
+        the fluid touches the opposite side, so the load acts along the normal.
+    ``away_from_point``
+        the fluid is outside a closed volume containing ``interior_point``
+        (a hull, a tank). The side is decided per element from where its
+        normal points, so inconsistent element orientation cannot flip a load.
+    """
+
+    ref: EntityRef
+    name: str = "wet surface"
+    region: RegionRef | None = None
+    fluid_side: str = "positive_normal"
+    interior_point: np.ndarray | None = None
+    id: str = field(default_factory=_uuid)
+
+    def __post_init__(self) -> None:
+        if self.ref.kind != "face":
+            raise ValueError("a wet surface is made of plates")
+        if self.fluid_side not in WET_FLUID_SIDES:
+            raise ValueError(
+                "fluid side must be one of " + ", ".join(WET_FLUID_SIDES)
+            )
+        if self.fluid_side == "away_from_point":
+            if self.interior_point is None:
+                raise ValueError(
+                    "a wet surface facing away from a point needs that point"
+                )
+            object.__setattr__(
+                self,
+                "interior_point",
+                _vector3(self.interior_point, "wet-surface interior point"),
+            )
+        elif self.interior_point is not None:
+            raise ValueError(
+                "an interior point only applies when the fluid side is "
+                "away_from_point"
+            )
+
+
+@dataclass(frozen=True)
+class WetPressure:
+    """Fluid pressure on wet surfaces: uniform, an equation, or a mapping.
+
+    Exactly one of ``value``, ``expression`` and ``mapping`` is given. The
+    pressure is a positive magnitude pressing into the plate; the wet
+    surface's fluid side turns it into the solver's normal-signed pressure.
+
+    ``expression``
+        A formula of the element centroid ``x, y, z`` (metres), the case time
+        ``t`` and the case's named parameters, e.g.
+        ``rho*g*max(0, draft - z)`` for hydrostatic pressure. Elements above
+        the waterline evaluate to zero through ``max``.
+    ``mapping``
+        Pressures given directly: ``{face_id: value}`` for a pressure per
+        geometric plate (``mapping_key="face"``) or ``{element_id: value}`` for
+        a pressure per mesh element (``mapping_key="element"``). Wet plates or
+        elements the mapping does not list are dry (zero). Naming one that is
+        not on a wet surface is refused.
+
+    ``surfaces`` restricts the pressure to some wet surfaces by id; empty
+    means every wet surface.
+    """
+
+    value: float | None = None
+    expression: str | None = None
+    mapping: Mapping[int, float] | None = None
+    mapping_key: str = "face"
+    surfaces: tuple[str, ...] = ()
+    scale: float = 1.0
+    name: str = "wet pressure"
+    id: str = field(default_factory=_uuid)
+
+    def __post_init__(self) -> None:
+        given = [
+            label
+            for label, item in (
+                ("value", self.value),
+                ("expression", self.expression),
+                ("mapping", self.mapping),
+            )
+            if item is not None
+        ]
+        if len(given) != 1:
+            raise ValueError(
+                "a wet pressure needs exactly one of a value, an expression "
+                f"or a mapping (got {', '.join(given) or 'none'})"
+            )
+        if self.value is not None:
+            object.__setattr__(
+                self, "value", _finite_scalar(self.value, "wet pressure")
+            )
+        if self.expression is not None:
+            check_expression(self.expression)
+        if self.mapping is not None:
+            if self.mapping_key not in WET_MAPPING_KEYS:
+                raise ValueError(
+                    "mapping key must be one of " + ", ".join(WET_MAPPING_KEYS)
+                )
+            if not self.mapping:
+                raise ValueError("a wet pressure mapping needs at least one entry")
+            mapping: dict[int, float] = {}
+            for key, value in dict(self.mapping).items():
+                try:
+                    if isinstance(key, (bool, np.bool_)):
+                        raise ValueError
+                    identifier = int(key)
+                    if isinstance(key, float) and identifier != key:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        "a wet pressure mapping is keyed by integer ids"
+                    ) from None
+                mapping[identifier] = _finite_scalar(
+                    value, f"pressure for {key!r}"
+                )
+            object.__setattr__(self, "mapping", mapping)
+        object.__setattr__(
+            self, "scale", _finite_scalar(self.scale, "pressure scale")
+        )
+        object.__setattr__(self, "surfaces", tuple(str(i) for i in self.surfaces))
+
+    @property
+    def kind(self) -> str:
+        if self.value is not None:
+            return "uniform"
+        return "expression" if self.expression is not None else "mapping"
+
+
 @dataclass
 class LoadCase:
     """A named collection of loads.
@@ -412,6 +562,14 @@ class LoadCase:
     _region_factory: Callable[[EntityRef], RegionRef] | None = field(
         default=None, repr=False, compare=False
     )
+    wet_pressures: List[WetPressure] = field(default_factory=list)
+    # Quasi-static stepping: a case may carry the time its equations are
+    # evaluated at and named numbers those equations read. ``series`` and
+    # ``step`` record which generated sequence a case belongs to.
+    time: float | None = None
+    parameters: dict[str, float] = field(default_factory=dict)
+    series: str | None = None
+    step: int | None = None
 
     def add_point_load(
         self,
@@ -446,6 +604,48 @@ class LoadCase:
         load = Pressure(ref=ref, value=value, region=region)
         self.pressures.append(load)
         return load
+
+    def add_wet_pressure(
+        self,
+        *,
+        value: float | None = None,
+        expression: str | None = None,
+        mapping: Mapping[int, float] | None = None,
+        mapping_key: str = "face",
+        surfaces: Sequence[str] = (),
+        scale: float = 1.0,
+        name: str = "wet pressure",
+    ) -> WetPressure:
+        """Apply fluid pressure to the project's wet surfaces."""
+
+        load = WetPressure(
+            value=value,
+            expression=expression,
+            mapping=mapping,
+            mapping_key=mapping_key,
+            surfaces=tuple(surfaces),
+            scale=scale,
+            name=name,
+        )
+        self.wet_pressures.append(load)
+        return load
+
+    def set_time(self, time: float | None) -> None:
+        """The time this case's equations are evaluated at (``t``)."""
+
+        self.time = None if time is None else _finite_scalar(time, "case time")
+
+    def set_parameter(self, name: str, value: float) -> None:
+        """A named number the case's pressure equations may read."""
+
+        name = str(name)
+        if not name.isidentifier():
+            raise ValueError(f"parameter name {name!r} is not an identifier")
+        if name in RESERVED_NAMES:
+            raise ValueError(
+                f"parameter name {name!r} is reserved; choose another"
+            )
+        self.parameters[name] = _finite_scalar(value, f"parameter {name!r}")
 
     def add_line_load(
         self, ref: EntityRef, force_per_length: Sequence[float], *,
@@ -510,11 +710,27 @@ class LoadCase:
 
         self.follower_pressure = bool(follower)
 
+    @property
+    def is_template(self) -> bool:
+        """True when an equation reads the time but the case has none.
+
+        Such a case is a pattern to generate a series from, not something to
+        solve; batch solves skip it unless it is named explicitly.
+        """
+
+        if self.time is not None:
+            return False
+        return any(
+            load.expression is not None and "t" in expression_names(load.expression)
+            for load in self.wet_pressures
+        )
+
     def is_empty(self) -> bool:
         return not (
             self.point_loads
             or self.pressures
             or self.line_loads
             or self.surface_tractions
+            or self.wet_pressures
             or self.gravity is not None
         )

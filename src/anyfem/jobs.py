@@ -173,6 +173,28 @@ def _selected_loading_semantics(
             "unresolved_target": str(analysis.target_id),
         }
     load_cases = document.get("load_cases", ())
+    if analysis.target_kind == "load_cases":
+        # A batch solves several cases; every one of them is solver input, so a
+        # change to any selected case must make the results stale.
+        requested = analysis.settings.get("load_cases")
+        if requested is None:
+            selected = [
+                item for item in load_cases if isinstance(item, Mapping)
+            ]
+            unresolved: list[str] = []
+        else:
+            selected, unresolved = [], []
+            for target in requested:
+                found = _find_named_or_identified(load_cases, str(target))
+                if found is None:
+                    unresolved.append(str(target))
+                else:
+                    selected.append(found)
+        return {
+            "kind": "load_cases",
+            "cases": [_without_presentation_identity(item) for item in selected],
+            "unresolved_targets": sorted(unresolved),
+        }
     if analysis.target_kind == "load_case":
         case = _find_named_or_identified(load_cases, str(analysis.target_id))
         if case is None:

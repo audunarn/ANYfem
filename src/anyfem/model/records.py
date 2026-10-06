@@ -304,7 +304,9 @@ class AnalysisDefinition:
             raise ValueError("analysis definition needs a name")
         if not self.type:
             raise ValueError("analysis definition needs a type")
-        if self.target_kind not in ("load_case", "combination", "none"):
+        if self.target_kind not in (
+            "load_case", "load_cases", "combination", "none"
+        ):
             raise ValueError(f"unknown analysis target kind {self.target_kind!r}")
         self.output_request_ids = tuple(
             dict.fromkeys(str(value) for value in self.output_request_ids)

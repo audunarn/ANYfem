@@ -54,6 +54,19 @@ def solve(window, qapp, analysis, values, executor):
 
 def test_the_workbench_defaults_to_a_worker_process(window):
     assert window.job_manager.executor == "process"
+    assert window.mesh_task_manager.executor == "process"   # meshing froze the window too
+
+
+def test_gui_meshing_in_a_worker_process_gives_a_usable_mesh(window, qapp):
+    cantilever(window)
+    window.generate_mesh_async(0.25, strategy="auto")
+    wait_until(qapp, lambda: window.mesh is not None)
+    assert window.mesh.num_elements > 0 and window.mesh_record_id
+    record = window.project.mesh_records[window.mesh_record_id]
+    assert record.mesh_hash and record.status == "completed"
+    # a solve on that mesh works end to end (mesh and solve both ran in worker processes)
+    solution, _ = solve(window, qapp, "Linear static", {}, "process")
+    assert solution is not None
 
 
 @pytest.mark.parametrize("analysis,values", [

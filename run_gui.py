@@ -129,6 +129,17 @@ def _active_distribution_version(distribution: str) -> str:
         break
     return metadata.version(distribution)
 
+# Optional siblings are used when they are checked out beside ANYfem and are
+# never required: ANYsection supplies the standard beam-section library and
+# ANYfem starts without it.  Inserted first so the required projects below,
+# and ANYfem itself, still end up ahead of it.
+_OPTIONAL_SOURCE_PROJECTS = (
+    ("ANYsection", "anysection", _ECOSYSTEM_WORKSPACE / "ANYsection" / "src"),
+)
+for _distribution, _module, _source in _OPTIONAL_SOURCE_PROJECTS:
+    if _source.is_dir() and str(_source) not in sys.path:
+        sys.path.insert(0, str(_source))
+
 # Insert in reverse so ANYfem itself remains first and every module inspected
 # below is the sibling checkout that the launcher is about to execute.
 for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):

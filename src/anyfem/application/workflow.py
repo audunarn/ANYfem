@@ -1020,6 +1020,10 @@ class WorkbenchWorkflow:
         if options.get("combination") is not None:
             target_kind = "combination"
             target_id = str(options["combination"])
+        if analysis == "Batch linear static":
+            # A batch has no single case; it solves every case it is given.
+            target_kind = "load_cases"
+            target_id = "batch"
         definition = AnalysisDefinition(
             name=f"{analysis} {len(self.project.analyses) + 1}",
             type=analysis.lower().replace(" ", "_"),
@@ -1711,6 +1715,18 @@ class WorkbenchWorkflow:
         )
 
 
+    def _result_case_name(self, shape) -> str:
+        """The load case whose loads a result shape should display.
+
+        A batch result has one case per shape, so the case selected in the
+        Loads panel says nothing about which shape is on screen.
+        """
+
+        solved = getattr(getattr(shape.built, "load_case", None), "name", None)
+        if solved is not None and str(solved) in self.project.load_cases:
+            return str(solved)
+        return self.active_case()
+
     def active_case(self) -> str:
         panel = self.panels.get("Loads & BC")
         return "default" if panel is None else panel.case_name()
@@ -1752,7 +1768,7 @@ class WorkbenchWorkflow:
             scene,
             project=getattr(shape.built,"project",self.project),
             mesh=shape.built.mesh,
-            case_name=str(getattr(self.project.jobs.get(self.active_job_id),"target_id",self.active_case())),
+            case_name=self._result_case_name(shape),
             show_supports=panel.show_result_supports(),
             show_loads=panel.show_result_loads(),
             show_masses=panel.show_result_masses(),
@@ -2040,7 +2056,7 @@ class WorkbenchWorkflow:
                     )
                     return
                 prefix, identifier = key.split(":", 1)
-                if prefix in {"support", "mass", "imperfection", "load"}:
+                if prefix in {"support", "mass", "wet_surface", "imperfection", "load"}:
                     categories.add("attribute")
                     if key.endswith(":gravity"):
                         self.set_status(
@@ -3145,6 +3161,20 @@ def _submitted_input_report(
                 "pressures": _record_settings(case.pressures),
                 "line_loads": _record_settings(case.line_loads),
                 "surface_tractions": _record_settings(case.surface_tractions),
+                **(
+                    {
+                        "wet_pressures": _record_settings(case.wet_pressures),
+                        "time": case.time,
+                        "parameters": _record_settings(case.parameters),
+                        "series": case.series,
+                        "step": case.step,
+                    }
+                    if case.wet_pressures
+                    or case.time is not None
+                    or case.parameters
+                    or case.series is not None
+                    else {}
+                ),
             }
         )
     support_inputs = []
@@ -3216,6 +3246,11 @@ def _submitted_input_report(
         ],
         "supports": support_inputs,
         "masses": _record_settings(project.masses),
+        **(
+            {"wet_surfaces": _record_settings(project.wet_surfaces)}
+            if project.wet_surfaces
+            else {}
+        ),
         "load_cases": load_cases,
         "combinations": _record_settings(
             sorted(project.combinations.values(), key=lambda item: item.name)
@@ -3247,7 +3282,11 @@ def _execute_analysis_job(
     mesh = resolved.pop("mesh", None)
     if built is None:
         build_options: Dict[str, Any] = {}
-        if "combination" in resolved:
+        if analysis_name == "Batch linear static":
+            # The batch builds each requested case itself, so there is no
+            # single "default" case to resolve here.
+            build_options["load_case"] = None
+        elif "combination" in resolved:
             build_options["combination"] = resolved["combination"]
         elif "load_case" in resolved:
             build_options["load_case"] = resolved["load_case"]

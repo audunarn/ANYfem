@@ -46,6 +46,29 @@ cad-visualization-final-tests.txt, cad-visualization-preview.png and review.md.
 Exact HEAD-plus-index export: 69 passed, one opt-in Tk skip; headless Qt/Tk
 import boundary and diff checks pass. Evidence cad-visualization-clean-tests.txt.
 
+
+2026-10-05 interaction lag follow-up (contention evidence, meshing, preflight): the
+process executor adopted below rests on the measured effect of interpreter-lock
+contention on repaints, and the same defect was found in meshing. A full software
+paint of the barge mesh view takes 1.37 s idle, 1.44 s beside a CPU-bound Python
+process and 92 s beside a CPU-bound Python thread (a worst case that never releases
+the lock; moving paints 0.039, 0.040 and 1.74 s); a timer-only check understates
+this because a paint needs the lock hundreds of times. A real Capacity run in a
+thread fired 14 % of expected GUI timer ticks, 98 % in a worker process.
+Meshing ran on a thread too and blocked the first event-loop pass after Generate
+mesh for 10.12 s (0.23 s now; repaints during meshing 0.20 s median, 1.0x idle).
+MeshTaskManager(executor="process") runs the shared run_mesh_job in a worker and
+returns the mesh through ANYmesher's public codec: semantic hash, counts, quality
+and progress stages match the in-process run; the mesher's per-run working-model
+UUID differs, as between any two runs. Structured progress and error diagnostics
+cross the pipe. The Qt workbench opts in; tests that patch the mesher in-process
+select the thread executor explicitly. Barge Linear static spends 0.4 s building,
+13.1 s in preflight and 4.4 s solving; preflight (ANYsolver validate_production_model,
+which assembles the stiffness matrix with element guards enabled) has no skip option
+and is left to its owner. Remaining stalls are full software repaints. No GPU or
+full barge capacity claim. Evidence reports/qt/gil-contention-evidence.md and the
+scripts beside it.
+
 2026-10-05 remaining interaction lag slice: user still reports delayed controls
 and camera motion after phase-reporting fix. Competing causes are full software
 mesh painting, UI polling work and numerical-worker contention. Profile the actual

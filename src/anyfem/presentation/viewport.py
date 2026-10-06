@@ -83,6 +83,45 @@ def _commercial_selection_api() -> Optional[dict[str, Any]]:
         return None
 
 
+# Each (colour, width, overlay) line style is one retained mesh and one draw
+# call.  Result views colour every beam from a continuous ramp, which produced
+# one mesh per distinct colour (349 for the barge example, about 70 microseconds
+# of Python per draw call).  Above this many styles the colours are snapped to
+# the finest grid that fits.  Scenes with fewer styles are drawn exactly.
+MAX_LINE_STYLE_GROUPS = 64
+_LINE_COLOUR_STEPS = (4, 8, 16, 32, 64, 128)
+
+
+def _snap_hex_colour(colour: str, step: int) -> str:
+    if not (len(colour) == 7 and colour[0] == "#"):
+        return colour
+    try:
+        channels = [int(colour[index:index + 2], 16) for index in (1, 3, 5)]
+    except ValueError:
+        return colour
+    snapped = [min(255, (value // step) * step + step // 2) for value in channels]
+    return "#%02x%02x%02x" % tuple(snapped)
+
+
+def line_colour_snapper(styles, maximum: int = MAX_LINE_STYLE_GROUPS):
+    """Return a colour mapping that keeps distinct line styles within ``maximum``.
+
+    ``styles`` yields ``(colour, width, overlay)`` triples.  The mapping is the
+    identity when they already fit; otherwise it snaps ``#rrggbb`` colours to
+    the finest step in ``_LINE_COLOUR_STEPS`` that fits, so the per-channel
+    error never exceeds ``step / 2``.  Non-hex colour names are left alone.
+    """
+
+    distinct = set(styles)
+    if len(distinct) <= maximum:
+        return lambda colour: colour
+    for step in _LINE_COLOUR_STEPS:
+        count = len({(_snap_hex_colour(c, step), w, o) for c, w, o in distinct})
+        if count <= maximum:
+            break
+    return lambda colour: _snap_hex_colour(colour, step)
+
+
 class SceneViewport:
     """Scene translation and interaction shared by toolkit viewport adapters."""
 
@@ -986,11 +1025,15 @@ class SceneViewport:
 
         from any3dview import MeshArrays, PackedOwnerTable
 
+        snap = line_colour_snapper(
+            (str(line.color), int(line.width), bool(line.draw_overlay))
+            for line in polylines
+        )
         groups: dict[tuple[str, int, bool], list[tuple[object, object, object]]] = {}
         for line in polylines:
             points = np.asarray(line.points, dtype=float)
             binding = self._pick_binding(line.pick_owners, line.tag)
-            key = (str(line.color), int(line.width), bool(line.draw_overlay))
+            key = (snap(str(line.color)), int(line.width), bool(line.draw_overlay))
             for start, end in zip(points, points[1:]):
                 groups.setdefault(key, []).append((start, end, binding))
 

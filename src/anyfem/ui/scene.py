@@ -1271,6 +1271,9 @@ def _blend(first: str, second: str, amount: float) -> str:
 # ----------------------------------------------------------------------
 COLOR_MASS = "#6a1b9a"
 COLOR_PRESSURE = "#1565c0"
+COLOR_WET = "#0288d1"
+# Sample points per side across a wet plate before a mesh exists.
+_WET_GRID = 5
 COLOR_MOMENT = "#ef6c00"
 COLOR_ROTATION = "#00838f"
 
@@ -1662,6 +1665,12 @@ def build_attribute_overlay(
                 )
         scene.points.extend(_limited(markers))
 
+    if show_loads:
+        _draw_wet_surfaces(scene, project, geometry)
+    if show_loads and case_name is not None:
+        case = project.load_cases.get(case_name)
+        if case is not None and case.wet_pressures:
+            _draw_wet_pressures(scene, project, geometry, case, mesh, arrow_length)
     if show_loads and case_name is not None:
         case = project.load_cases.get(case_name)
         if case is not None:
@@ -1670,6 +1679,141 @@ def build_attribute_overlay(
             _draw_loads(scene, geometry, display_case, arrow_length)
 
     return scene
+
+
+def _draw_wet_surfaces(scene: Scene, project, geometry) -> None:
+    """Outline every wet plate, with a cross through it, in the wet colour.
+
+    The lines are untagged annotations, so they never steal a click from the
+    plate underneath.
+    """
+
+    if isinstance(geometry, _MeshOverlayGeometry) or not project.wet_surfaces:
+        return
+    parameters = np.linspace(0.0, 1.0, 9)
+    seen: set[int] = set()
+    outlines: List[Polyline] = []
+    for surface in _budgeted_assignments(_display_attributes(project, project.wet_surfaces)):
+        face_id = surface.ref.id
+        if surface.ref.kind != "face" or face_id in seen or face_id not in geometry.faces:
+            continue
+        seen.add(face_id)
+        try:
+            grid = _face_grid(geometry, face_id, parameters)
+        except Exception:  # an undisplayable plate is reported by validation
+            continue
+        middle = len(parameters) // 2
+        for line, width in (
+            (np.vstack([grid[0, :], grid[1:, -1], grid[-1, -2::-1], grid[-2::-1, 0]]), 3),
+            (grid[middle, :], 1),
+            (grid[:, middle], 1),
+        ):
+            outlines.append(
+                Polyline(
+                    ref=None,
+                    points=np.asarray(line, dtype=float),
+                    color=COLOR_WET,
+                    width=width,
+                    annotation=True,
+                )
+            )
+    scene.lines.extend(outlines)
+
+
+def _wet_pressure_samples(project, geometry, case, mesh):
+    """``(point, normal, signed pressure)`` for the wet pressures of a case.
+
+    With a mesh the solver's own evaluation is used, element by element. Before
+    meshing, plates are sampled at a few interior points, which is enough to
+    show the side the fluid is on and how the pressure varies.
+    """
+
+    from ..model.wetfield import WetFieldError, expression_pressure, fluid_sign
+
+    if mesh is not None:
+        from ..model.project import ProjectError
+        from ..solve.build import wet_element_pressures
+
+        try:
+            items = wet_element_pressures(
+                project, mesh, case, limit=OVERLAY_SYMBOL_LIMIT
+            )
+        except ProjectError:
+            return []
+        return [(item.centroid, item.normal, item.pressure) for item in items]
+
+    if isinstance(geometry, _MeshOverlayGeometry):
+        return []
+    # A pressure field needs a finer sampling than a symbol: a hydrostatic
+    # gradient is only readable with several points across the depth.
+    surfaces = _limited(
+        _display_attributes(project, project.wet_surfaces),
+        max(1, OVERLAY_SYMBOL_LIMIT // _WET_GRID**2),
+    )
+    by_id = {surface.id: surface for surface in project.wet_surfaces}
+    samples = []
+    for load in case.wet_pressures:
+        wanted = set(load.surfaces) if load.surfaces else set(by_id)
+        for surface in surfaces:
+            if not (wanted & {surface.id}) or surface.ref.id not in geometry.faces:
+                continue
+            try:
+                grid = _face_grid(
+                    geometry, surface.ref.id, np.linspace(0.1, 0.9, _WET_GRID)
+                )
+                points = list(grid.reshape((-1, 3)))
+                normal = face_normal(geometry, surface.ref.id)
+            except Exception:  # an undisplayable plate is reported by validation
+                continue
+            try:
+                if load.kind == "uniform":
+                    magnitude = np.full(len(points), float(load.value))
+                elif load.kind == "expression":
+                    magnitude = expression_pressure(case, load, np.array(points))
+                elif load.mapping_key == "face":
+                    magnitude = np.full(
+                        len(points), load.mapping.get(surface.ref.id, 0.0)
+                    )
+                else:
+                    continue  # element ids exist only on a mesh
+                for point, value in zip(points, magnitude):
+                    samples.append(
+                        (
+                            point,
+                            normal,
+                            fluid_sign(surface, point, normal) * load.scale * float(value),
+                        )
+                    )
+            except WetFieldError:
+                continue
+    return samples
+
+
+def _draw_wet_pressures(scene: Scene, project, geometry, case, mesh, arrow_length: float) -> None:
+    """Arrows into each wet plate, longer where the pressure is higher."""
+
+    samples = [
+        item
+        for item in _wet_pressure_samples(project, geometry, case, mesh)
+        if item[2] != 0.0
+    ]
+    if not samples:
+        return
+    peak = max(abs(item[2]) for item in samples)
+    arrows: List[Arrow] = []
+    for point, normal, pressure in _limited(samples):
+        # The signed pressure is positive along the plate normal: the arrow
+        # shows the direction the fluid pushes, ending on the plate.
+        direction = normal if pressure > 0.0 else -normal
+        length = arrow_length * (0.25 + 0.75 * abs(pressure) / peak)
+        arrows.append(
+            Arrow(
+                start=np.asarray(point) - length * direction,
+                end=np.asarray(point),
+                color=COLOR_WET,
+            )
+        )
+    scene.arrows.extend(arrows)
 
 
 def _draw_support(scene: Scene, geometry, support, symbol: float) -> None:

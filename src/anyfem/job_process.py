@@ -31,6 +31,7 @@ worker, not the application, and is reported as a failed job.
 from __future__ import annotations
 
 import copyreg
+import dataclasses
 import inspect
 import io
 import multiprocessing
@@ -55,10 +56,20 @@ class WorkerProcessError(RuntimeError):
     and formatted traceback so diagnostics read the same as for a thread job.
     """
 
-    def __init__(self, message: str, *, remote_type: str = "WorkerProcessError", remote_traceback: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        remote_type: str = "WorkerProcessError",
+        remote_traceback: str = "",
+        remote_diagnostic: Any = None,
+    ) -> None:
         super().__init__(message)
         self.remote_type = remote_type
         self.remote_traceback = remote_traceback
+        # Structured evidence computed in the worker by the job's own ``error_diagnostic``
+        # hook (see _worker_main); None when the job has none or the worker died.
+        self.remote_diagnostic = remote_diagnostic
 
 
 # ----------------------------------------------------------------------
@@ -167,6 +178,7 @@ def _worker_main(connection: Any, cancel_event: Any, payload: bytes) -> None:
     def send(message: tuple) -> None:
         connection.send_bytes(dumps(message))
 
+    spec = None
     try:
         spec = loads(payload)
         token = _cancellation_token()
@@ -178,6 +190,13 @@ def _worker_main(connection: Any, cancel_event: Any, payload: bytes) -> None:
         threading.Thread(target=forward_cancellation, name="anyfem-cancel", daemon=True).start()
 
         def progress(value: Any) -> None:
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                # A structured progress record (e.g. a mesh stage) travels as itself.
+                try:
+                    send(("object", value))
+                    return
+                except Exception:
+                    pass  # fall through to the readable text
             message = getattr(value, "message", None) or str(value)
             raw = getattr(value, "payload", None)
             structured = dict(raw) if isinstance(raw, Mapping) else None
@@ -201,8 +220,15 @@ def _worker_main(connection: Any, cancel_event: Any, payload: bytes) -> None:
         connection.send_bytes(data)
     except BaseException as error:  # noqa: BLE001 - reported to the parent, which decides
         kind = getattr(error, "remote_type", None) or type(error).__name__
+        diagnostic = None
         try:
-            send(("error", kind, str(error), traceback.format_exc()))
+            hook = getattr(spec["function"], "error_diagnostic", None) if spec is not None else None
+            if callable(hook):
+                diagnostic = hook(error)
+        except BaseException:  # noqa: BLE001 - a broken hook must not hide the job's own error
+            diagnostic = None
+        try:
+            send(("error", kind, str(error), traceback.format_exc(), diagnostic))
         except Exception:  # pragma: no cover - the pipe itself is gone
             pass
     finally:
@@ -279,6 +305,8 @@ def run_in_worker_process(
                     break
                 if message[0] == "progress":
                     progress(_progress_value(message[1], message[2]))
+                elif message[0] == "object":
+                    progress(message[1])
                 else:
                     outcome = message
             elif not process.is_alive() and not receiver.poll(0):
@@ -298,8 +326,13 @@ def run_in_worker_process(
         )
     if outcome[0] == "result":
         return outcome[1]
-    _, remote_type, message, remote_traceback = outcome
-    raise WorkerProcessError(message, remote_type=remote_type, remote_traceback=remote_traceback)
+    _, remote_type, message, remote_traceback, *rest = outcome
+    raise WorkerProcessError(
+        message,
+        remote_type=remote_type,
+        remote_traceback=remote_traceback,
+        remote_diagnostic=rest[0] if rest else None,
+    )
 
 
 def _is_cancelled(token: Any) -> bool:

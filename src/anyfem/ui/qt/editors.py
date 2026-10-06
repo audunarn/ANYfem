@@ -196,7 +196,7 @@ class CommandEditor(QWidget):
         if name=="force_per_length":return "line_load"
         if name in {"traction","force_per_area"}:return "pressure"
         if name=="constraints":return "constraints"
-        if name=="value":return {"AddPressure":"pressure","Pressure":"pressure","AddMass":"mass","Mass":"mass"}.get(owner)
+        if name=="value":return {"AddPressure":"pressure","Pressure":"pressure","AddWetPressure":"pressure","AddMass":"mass","Mass":"mass"}.get(owner)
         if name=="acceleration":return "acceleration"
         if name=="density":return "density"
         if name=="yield_stress":return "pressure"

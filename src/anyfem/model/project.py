@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+import numpy as np
 from anymaterial import MaterialSpec
 from anygeometry.closure import extract_model_closure
 from anygeometry.entities import EntityRef
@@ -36,7 +37,7 @@ from ..structural_preparation import (
     remap_mesh_to_source,
     source_work_mapping,
 )
-from .attributes import Combination, LoadCase, Mass, Support
+from .attributes import Combination, LoadCase, Mass, Support, WetSurface
 from .imperfections import Imperfection
 from .formulations import ShellFormulationPolicy
 from .sections import BeamSection, PlateSection, SectionAssignment
@@ -97,6 +98,8 @@ class Project:
     sheet_join_intents: Dict[str, SheetJoinIntent] = field(default_factory=dict)
     supports: List[Support] = field(default_factory=list)
     masses: List[Mass] = field(default_factory=list)
+    # Plates wetted by fluid; the target of wet pressures in a load case.
+    wet_surfaces: List[WetSurface] = field(default_factory=list)
     load_cases: Dict[str, LoadCase] = field(default_factory=dict)
     combinations: Dict[str, Combination] = field(default_factory=dict)
     imperfections: List[Imperfection] = field(default_factory=list)
@@ -1447,6 +1450,99 @@ class Project:
         self.masses.append(mass)
         return mass
 
+    def add_wet_surface(self, surface: WetSurface) -> WetSurface:
+        """Mark plates as wet so wet pressures act on them."""
+
+        if not self.mesh_only:
+            self._require_entity(surface.ref)
+        if surface.region is None:
+            surface = replace(surface, region=self.singleton_region(surface.ref))
+        self.wet_surfaces.append(surface)
+        return surface
+
+    def add_load_case_series(
+        self,
+        name: str,
+        times: Sequence[float],
+        *,
+        template: str | LoadCase | None = None,
+        builder: Callable[[LoadCase, float, int], None] | None = None,
+        parameters: Mapping[str, float] | None = None,
+        digits: int | None = None,
+    ) -> List[LoadCase]:
+        """Create one load case per time step, for a quasi-static sequence.
+
+        Each case is named ``"<name>_<step>"`` (zero-padded), carries its
+        ``time`` and the shared ``parameters``, and is evaluated by its own
+        equations -- so a pressure expression in ``t`` yields a different load
+        at every step. The loads of each case come from ``template`` (an
+        existing case, copied) and/or ``builder(case, time, step)``, called
+        once per new case to add loads that depend on the step.
+
+        Because stiffness does not change between steps, the cases can be
+        solved together with one factorization
+        (:func:`anyfem.solve.solve_linear_static_many`).
+        """
+
+        times = [float(t) for t in times]
+        if not times:
+            raise ProjectError("a load case series needs at least one time step")
+        if not all(np.isfinite(times)):
+            raise ProjectError("load case series times must be finite")
+        if template is None and builder is None:
+            raise ProjectError(
+                "a load case series needs a template case or a builder"
+            )
+        source = None
+        if template is not None:
+            source = (
+                template
+                if isinstance(template, LoadCase)
+                else self.load_cases.get(template)
+            )
+            if source is None:
+                raise ProjectError(f"no load case named {template!r}")
+        width = digits if digits is not None else len(str(len(times) - 1))
+        names = [f"{name}_{index:0{width}d}" for index in range(len(times))]
+        clashes = [item for item in names if item in self.load_cases]
+        if clashes:
+            raise ProjectError(
+                f"load case(s) {clashes[:3]} already exist; remove them or "
+                "choose another series name"
+            )
+        created: List[LoadCase] = []
+        try:
+            for index, (case_name, time) in enumerate(zip(names, times)):
+                case = self.load_case(case_name)
+                if source is not None:
+                    case.point_loads[:] = list(source.point_loads)
+                    case.pressures[:] = list(source.pressures)
+                    case.line_loads[:] = list(source.line_loads)
+                    case.surface_tractions[:] = list(source.surface_tractions)
+                    case.wet_pressures[:] = list(source.wet_pressures)
+                    case.gravity = (
+                        None if source.gravity is None else np.array(source.gravity)
+                    )
+                    case.gravity_coordinate_system_id = (
+                        source.gravity_coordinate_system_id
+                    )
+                    case.follower_pressure = source.follower_pressure
+                    for key, value in source.parameters.items():
+                        case.set_parameter(key, value)
+                for key, value in (parameters or {}).items():
+                    case.set_parameter(key, value)
+                case.set_time(time)
+                case.series = name
+                case.step = index
+                created.append(case)
+                if builder is not None:
+                    builder(case, time, index)
+        except BaseException:
+            for case in created:
+                self.load_cases.pop(case.name, None)
+            raise
+        return created
+
     def load_case(self, name: str = "default") -> LoadCase:
         """Fetch a load case, creating it on first use."""
 
@@ -2148,6 +2244,7 @@ class Project:
         for label, items in (
             ("support", self.supports),
             ("mass", self.masses),
+            ("wet surface", self.wet_surfaces),
             ("imperfection", self.imperfections),
         ):
             for item in items:
@@ -2180,6 +2277,7 @@ class Project:
                         problems.append(
                             f"load case {case_name!r} {label} {index} {coordinates}"
                         )
+            problems.extend(self._wet_pressure_problems(case_name, case))
             if (
                 case.gravity is not None
                 and case.gravity_coordinate_system_id not in self.coordinate_systems
@@ -2289,6 +2387,30 @@ class Project:
                 f"model {self.name!r} is not ready to solve:\n  - "
                 + "\n  - ".join(problems)
             )
+
+    def _wet_pressure_problems(self, case_name: str, case: LoadCase) -> List[str]:
+        """Static checks on a case's wet pressures; geometry-free."""
+
+        # Names an equation reads (parameters, time) are checked when a case is
+        # built, not here: a template case may legitimately lack the time and
+        # parameters that only its generated series supplies.
+        problems: List[str] = []
+        if not case.wet_pressures:
+            return problems
+        known = {surface.id for surface in self.wet_surfaces}
+        if not known:
+            problems.append(
+                f"load case {case_name!r} has wet pressure but the model has "
+                "no wet surfaces; mark the wetted plates first"
+            )
+        for load in case.wet_pressures:
+            unknown = sorted(set(load.surfaces) - known)
+            if unknown and known:
+                problems.append(
+                    f"load case {case_name!r} wet pressure {load.name!r} "
+                    f"names unknown wet surface(s) {unknown}"
+                )
+        return problems
 
     # ------------------------------------------------------------------
     # lookup

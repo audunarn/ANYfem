@@ -36,7 +36,8 @@ from anymesher import (
 )
 
 from ..mesh.mapped import Mesh
-from ..model.attributes import LoadCase, DOF_NAMES
+from ..model.attributes import LoadCase, DOF_NAMES, WetPressure, WetSurface
+from ..model.wetfield import WetFieldError, expression_pressure, fluid_sign
 from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
@@ -793,6 +794,9 @@ def _accumulate_case(
                 target.pressure_loads.get(element_id, 0.0) + factor * load.value
             )
 
+    if case.wet_pressures:
+        _accumulate_wet_pressures(project, mesh, case, factor, target)
+
     for load in case.line_loads:
         system = _coordinate_system(project, load.coordinate_system_id)
         targets = _attribute_targets(
@@ -859,6 +863,220 @@ def _accumulate_case(
             np.zeros(3) if target.gravity is None else np.asarray(target.gravity)
         )
         target.gravity = current + factor * system.to_global(case.gravity)
+
+
+def _wet_elements(
+    project: Project, mesh: Mesh, surfaces: Sequence[WetSurface]
+) -> tuple[Dict[int, WetSurface], Dict[int, list[int]]]:
+    """Shell elements on the given wet surfaces.
+
+    Returns ``(owner, by_face)``: each element's wet surface, and the elements
+    of each geometric plate that is reached as a whole plate (needed to map a
+    pressure to a plate). A plate or element on two wet surfaces is refused:
+    its fluid side would be ambiguous.
+    """
+
+    owner: Dict[int, WetSurface] = {}
+    by_face: Dict[int, list[int]] = {}
+    for surface in surfaces:
+        targets = _attribute_targets(
+            project,
+            surface.region,
+            surface.ref,
+            geometry_kinds=("face",),
+            mesh_kinds=("element", "element_face"),
+        )
+        found = 0
+        for scoped in targets:
+            element_ids = _elements_on_target(mesh, scoped)
+            if isinstance(scoped, EntityRef):
+                by_face.setdefault(int(scoped.id), []).extend(element_ids)
+            for element_id in element_ids:
+                element_id = int(element_id)
+                if element_id not in mesh.quads and element_id not in mesh.tris:
+                    raise ProjectError(
+                        f"wet surface {surface.name!r} reaches element "
+                        f"{element_id}, which is not a plate element"
+                    )
+                previous = owner.get(element_id)
+                if previous is not None and previous.id != surface.id:
+                    raise ProjectError(
+                        f"element {element_id} is on two wet surfaces "
+                        f"({previous.name!r} and {surface.name!r}); its fluid "
+                        "side would be ambiguous"
+                    )
+                owner[element_id] = surface
+                found += 1
+        if not found:
+            raise ProjectError(
+                f"wet surface {surface.name!r} ({surface.id!r}) has an empty "
+                "or unresolved scope in the active mesh"
+            )
+    return owner, by_face
+
+
+def _element_centroid_normal(mesh: Mesh, element_id: int) -> tuple[np.ndarray, np.ndarray]:
+    """Corner-mean centroid and unit normal, in the solver's node order.
+
+    The normal is the one the solver's positive pressure acts along.
+    """
+
+    corners = np.array([mesh.nodes[node] for node in mesh.corners_of(element_id)])
+    if len(corners) == 3:
+        normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+    else:
+        normal = np.cross(corners[2] - corners[0], corners[3] - corners[1])
+    length = float(np.linalg.norm(normal))
+    if length == 0.0:
+        raise ProjectError(f"element {element_id} has zero area")
+    return corners.mean(axis=0), normal / length
+
+
+@dataclass(frozen=True)
+class WetElementPressure:
+    """One wet shell element's normal-signed pressure and where it acts."""
+
+    element_id: int
+    pressure: float
+    centroid: np.ndarray
+    normal: np.ndarray
+
+
+def wet_element_pressures(
+    project: Project,
+    mesh: Mesh,
+    case: LoadCase,
+    *,
+    limit: int | None = None,
+) -> List[WetElementPressure]:
+    """Evaluate a case's wet pressures per shell element.
+
+    The pressure is sampled once per element at its corner-mean centroid and
+    applied uniformly over the element, the same representation the solver
+    uses for a uniform pressure. A pressure that varies strongly across an
+    element (a waterline through it) is therefore resolved only to the mesh
+    size. Several wet pressures on one element are summed.
+
+    ``limit`` keeps an evenly spread subset of that many elements per wet
+    pressure, for drawing; the solver always takes every element.
+    """
+
+    if not project.wet_surfaces:
+        raise ProjectError(
+            f"load case {case.name!r} has wet pressure but the model has no "
+            "wet surfaces"
+        )
+    by_surface_id = {surface.id: surface for surface in project.wet_surfaces}
+    accumulated: Dict[int, WetElementPressure] = {}
+    for load in case.wet_pressures:
+        if load.surfaces:
+            missing = [item for item in load.surfaces if item not in by_surface_id]
+            if missing:
+                raise ProjectError(
+                    f"wet pressure {load.name!r} names unknown wet surface(s) "
+                    f"{missing}"
+                )
+            selected = [by_surface_id[item] for item in load.surfaces]
+        else:
+            selected = list(project.wet_surfaces)
+        owner, by_face = _wet_elements(project, mesh, selected)
+        element_ids = np.array(sorted(owner), dtype=int)
+        if limit is None or len(element_ids) <= limit:
+            pick = np.arange(len(element_ids))
+        else:
+            pick = np.unique(
+                np.linspace(0, len(element_ids) - 1, max(1, limit)).astype(int)
+            )
+
+        geometry = {
+            int(e): _element_centroid_normal(mesh, int(e))
+            for e in element_ids[pick]
+        }
+        centroids = np.array(
+            [geometry[int(e)][0] for e in element_ids[pick]]
+        ).reshape(-1, 3)
+        try:
+            magnitude = _wet_pressure_values(
+                case, load, element_ids, by_face, pick, centroids
+            )
+            for element_id, value in zip(element_ids[pick], magnitude):
+                if value == 0.0:
+                    continue
+                centroid, normal = geometry[int(element_id)]
+                signed = (
+                    fluid_sign(owner[int(element_id)], centroid, normal)
+                    * load.scale
+                    * float(value)
+                )
+                key = int(element_id)
+                previous = accumulated.get(key)
+                accumulated[key] = WetElementPressure(
+                    key,
+                    signed + (0.0 if previous is None else previous.pressure),
+                    centroid,
+                    normal,
+                )
+        except WetFieldError as error:
+            raise ProjectError(str(error)) from None
+    return [accumulated[key] for key in sorted(accumulated)]
+
+
+def _accumulate_wet_pressures(
+    project: Project,
+    mesh: Mesh,
+    case: LoadCase,
+    factor: float,
+    target: SolverLoadCase,
+) -> None:
+    """Add a case's wet pressures to a solver case as element pressures."""
+
+    for item in wet_element_pressures(project, mesh, case):
+        target.pressure_loads[item.element_id] = (
+            target.pressure_loads.get(item.element_id, 0.0)
+            + factor * item.pressure
+        )
+
+
+def _wet_pressure_values(
+    case: LoadCase,
+    load: WetPressure,
+    element_ids: np.ndarray,
+    by_face: Mapping[int, list[int]],
+    pick: np.ndarray,
+    centroids: np.ndarray,
+) -> np.ndarray:
+    """Pressure magnitude of the picked elements of ``element_ids``.
+
+    ``centroids`` belong to the picked elements only.
+    """
+
+    if load.kind == "uniform":
+        return np.full(len(pick), float(load.value))
+
+    if load.kind == "expression":
+        return expression_pressure(case, load, centroids)
+
+    values = np.zeros(len(element_ids))
+    position = {int(e): index for index, e in enumerate(element_ids)}
+    if load.mapping_key == "element":
+        for element_id, value in load.mapping.items():
+            if element_id not in position:
+                raise ProjectError(
+                    f"wet pressure {load.name!r} maps a pressure to element "
+                    f"{element_id}, which is not on a selected wet surface"
+                )
+            values[position[element_id]] = value
+        return values[pick]
+    for face_id, value in load.mapping.items():
+        elements = by_face.get(face_id)
+        if not elements:
+            raise ProjectError(
+                f"wet pressure {load.name!r} maps a pressure to plate "
+                f"{face_id}, which is not on a selected wet surface"
+            )
+        for element_id in elements:
+            values[position[int(element_id)]] = value
+    return values[pick]
 
 
 def _add_nodal(

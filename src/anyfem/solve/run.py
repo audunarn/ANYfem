@@ -207,7 +207,16 @@ def solve_linear_static_many(
             allow_quad_first=True,
         )
     resolved_project = built.project
-    requested = tuple(load_cases or tuple(resolved_project.load_cases))
+    # Without an explicit list, solve every case that can be solved: a template
+    # that only generates a time series has no time to evaluate its equations.
+    requested = tuple(
+        load_cases
+        or (
+            name
+            for name, case in resolved_project.load_cases.items()
+            if not case.is_template
+        )
+    )
     if not requested:
         raise ProjectError("a batch linear solve needs at least one load case")
 

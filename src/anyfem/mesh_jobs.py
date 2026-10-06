@@ -18,6 +18,8 @@ import traceback
 from typing import Any, Mapping
 
 from .document import ProjectSnapshot, canonical_hash
+from .job_process import WorkerProcessError, run_in_worker_process
+from .jobs import _resolve_executor
 from .mesh_controls import MeshControls, StructuredMeshControls
 
 __all__ = [
@@ -27,7 +29,9 @@ __all__ = [
     "MeshProgress",
     "MeshSettings",
     "MeshTaskManager",
+    "mesh_job_entry",
     "mesh_semantic_hash",
+    "run_mesh_job",
 ]
 
 
@@ -350,7 +354,10 @@ class _ActiveMeshJob:
 class MeshTaskManager:
     """Run at most one local mesh operation without blocking the UI thread."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, executor: str | None = None) -> None:
+        # "thread" (the library default) or "process"; see anyfem.job_process.
+        self.executor = _resolve_executor(executor)
+        self._process: Any = None  # the worker process while a "process" mesh runs
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="anyfem-mesh"
         )
@@ -432,6 +439,10 @@ class MeshTaskManager:
             active = self._active
             if active is not None:
                 active.cancellation.cancel("application is closing")
+            process = self._process
+        # A worker process does not wait for a cooperative safe point on exit.
+        if process is not None and process.is_alive():
+            process.terminate()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _run(
@@ -454,137 +465,238 @@ class MeshTaskManager:
         self._events.put(MeshJobEvent(job_id, "started", "preparing mesh snapshot"))
         try:
             cancellation.raise_if_cancelled("mesh snapshot")
-            project = snapshot.thaw()
-            from anymesher.hybrid import MeshingStrategy
-
-            requested_strategy = settings.strategy
-            if requested_strategy is None:
-                project_settings = project.native_mesh_settings
-                backend = (
-                    "automatic"
-                    if project_settings is None
-                    else str(
-                        getattr(
-                            project_settings.backend,
-                            "value",
-                            project_settings.backend,
-                        )
-                    )
+            if self.executor == "process":
+                result = self._run_in_worker(snapshot, settings, cancellation, progress)
+            else:
+                result = run_mesh_job(
+                    snapshot.thaw(),
+                    snapshot.revision.model_hash,
+                    settings,
+                    progress,
+                    cancellation,
                 )
-                requested_strategy = {
-                    "automatic": "auto",
-                    "auto": "auto",
-                    "mapped": "mapped",
-                    "native": "native",
-                }.get(backend, backend)
-            resolved_strategy = (
-                "quad_first" if requested_strategy == "quad_first"
-                else MeshingStrategy(requested_strategy).value
-            )
-            resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
-            resolved_structured_controls = (
-                settings.structured_controls
-                or StructuredMeshControls.from_settings(
-                    project.native_mesh_settings
-                )
-            )
-            progress("snapshot", "prepared immutable model snapshot", 0.1)
-            cancellation.raise_if_cancelled("mesh generation")
-            progress("generation", "generating mesh elements", 0.2)
-            mesh = project.generate_mesh(
-                settings.target_size,
-                overrides=dict(settings.overrides),
-                order=settings.element_order,
-                strategy=settings.strategy,
-                structure_preference=settings.structure_preference,
-                quality_policy=dict(settings.quality_policy),
-                mesh_controls=resolved_controls,
-                structured_controls=resolved_structured_controls,
-                quad_options=settings.quad_options,
-                layout_policy=settings.layout_policy,
-                automation=settings.automation,
-                cancellation_check=cancellation.raise_if_cancelled,
-            )
-            cancellation.raise_if_cancelled("mesh quality")
-            progress("quality", "checking element quality", 0.85)
-            from anymesher import verify_mesh_quality
-
-            quality = verify_mesh_quality(mesh).as_dict()
-            cancellation.raise_if_cancelled("mesh hashing")
-            progress("hash", "hashing immutable mesh result", 0.94)
-            structural_preparation = dict(project._last_mesh_preparation)
-            resolved_settings_hash = settings.input_hash
-            if (
-                settings.strategy is None
-                or settings.controls is None
-                or settings.structured_controls is None
-            ):
-                # Older/headless callers inherit the snapshotted project
-                # strategy. Canonicalize that resolved value so their hash is
-                # identical to an explicit UI submission of the same method.
-                resolved_settings_hash = MeshSettings.create(
-                    settings.target_size,
-                    element_order=settings.element_order,
-                    overrides=dict(settings.overrides),
-                    strategy=resolved_strategy,
-                    structure_preference=settings.structure_preference,
-                    quality_policy=dict(settings.quality_policy),
-                    controls=resolved_controls,
-                    structured_controls=resolved_structured_controls,
-                    quad_options=settings.quad_options,
-                    layout_policy=settings.layout_policy,
-                    automation=settings.automation,
-                ).input_hash
-            semantic_input_hash = canonical_hash(
-                {
-                    "mesh_settings": resolved_settings_hash,
-                    # The constrained triangulator is not consulted by an
-                    # explicitly mapped job and therefore must not affect its
-                    # reproducibility hash.
-                    "native_backend": (
-                        None
-                        if resolved_strategy == "mapped"
-                        else project.native_triangulation_backend
-                    ),
-                }
-            )
-            mesh_hash = mesh_semantic_hash(
-                mesh,
-                model_hash=snapshot.revision.model_hash,
-                mesh_input_hash=semantic_input_hash,
-                structural_preparation=structural_preparation,
-            )
-            cancellation.raise_if_cancelled("mesh completion")
-            progress("complete", "mesh and quality checks complete", 1.0)
         except BaseException as error:  # noqa: BLE001 - retained as diagnostics
             if _is_cancelled(cancellation):
                 self._events.put(
                     MeshJobEvent(job_id, "cancelled", "mesh generation cancelled")
                 )
             else:
+                diagnostic = (
+                    error.remote_diagnostic
+                    if isinstance(error, WorkerProcessError) and error.remote_diagnostic
+                    else _exception_diagnostic(error)
+                )
                 self._events.put(
-                    MeshJobEvent(
-                        job_id,
-                        "failed",
-                        str(error),
-                        _exception_diagnostic(error),
-                    )
+                    MeshJobEvent(job_id, "failed", str(error), diagnostic)
                 )
             return
         self._events.put(
-            MeshJobEvent(
-                job_id,
-                "completed",
-                "mesh generation complete",
-                MeshJobResult(
-                    mesh=mesh,
-                    mesh_hash=mesh_hash,
-                    quality=quality,
-                    structural_preparation=structural_preparation,
-                ),
-            )
+            MeshJobEvent(job_id, "completed", "mesh generation complete", result)
         )
 
+    def _run_in_worker(
+        self,
+        snapshot: ProjectSnapshot,
+        settings: MeshSettings,
+        cancellation: Any,
+        progress: Any,
+    ) -> "MeshJobResult":
+        """Mesh in a separate process, so meshing cannot take the GUI's interpreter lock.
+
+        See :mod:`anyfem.job_process`.  The mesh comes back through the public codec.
+        """
+
+        def forward(value: Any) -> None:
+            if isinstance(value, MeshProgress):
+                progress(value.stage, value.message, value.fraction)
+
+        def register(process: Any) -> None:
+            with self._lock:
+                self._process = process
+                if self._closing and process.is_alive():
+                    process.terminate()  # shutdown ran before the worker existed
+
+        try:
+            transport = run_in_worker_process(
+                function=mesh_job_entry,
+                kwargs={"settings": settings, "model_hash": snapshot.revision.model_hash},
+                snapshot=snapshot,
+                project_override=None,
+                progress=forward,
+                token=cancellation,
+                on_process=register,
+            )
+        finally:
+            with self._lock:
+                self._process = None
+        from anymesher.serialize import mesh_from_dict
+
+        return MeshJobResult(
+            mesh=mesh_from_dict(transport.mesh),
+            mesh_hash=transport.mesh_hash,
+            quality=transport.quality,
+            structural_preparation=transport.structural_preparation,
+        )
+
+
+
+def run_mesh_job(
+    project: Any,
+    model_hash: str,
+    settings: "MeshSettings",
+    progress: Any,
+    cancellation: Any,
+) -> "MeshJobResult":
+    """Generate, check and hash one mesh.
+
+    Shared by the in-process path and the worker process, so both run exactly the
+    same meshing.  ``progress(stage, message, fraction)`` reports stages; the
+    cancellation token is checked between them.  Raises on failure or cancellation.
+    """
+
+    from anymesher.hybrid import MeshingStrategy
+
+    requested_strategy = settings.strategy
+    if requested_strategy is None:
+        project_settings = project.native_mesh_settings
+        backend = (
+            "automatic"
+            if project_settings is None
+            else str(
+                getattr(
+                    project_settings.backend,
+                    "value",
+                    project_settings.backend,
+                )
+            )
+        )
+        requested_strategy = {
+            "automatic": "auto",
+            "auto": "auto",
+            "mapped": "mapped",
+            "native": "native",
+        }.get(backend, backend)
+    resolved_strategy = (
+        "quad_first" if requested_strategy == "quad_first"
+        else MeshingStrategy(requested_strategy).value
+    )
+    resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
+    resolved_structured_controls = (
+        settings.structured_controls
+        or StructuredMeshControls.from_settings(
+            project.native_mesh_settings
+        )
+    )
+    progress("snapshot", "prepared immutable model snapshot", 0.1)
+    cancellation.raise_if_cancelled("mesh generation")
+    progress("generation", "generating mesh elements", 0.2)
+    mesh = project.generate_mesh(
+        settings.target_size,
+        overrides=dict(settings.overrides),
+        order=settings.element_order,
+        strategy=settings.strategy,
+        structure_preference=settings.structure_preference,
+        quality_policy=dict(settings.quality_policy),
+        mesh_controls=resolved_controls,
+        structured_controls=resolved_structured_controls,
+        quad_options=settings.quad_options,
+        layout_policy=settings.layout_policy,
+        automation=settings.automation,
+        cancellation_check=cancellation.raise_if_cancelled,
+    )
+    cancellation.raise_if_cancelled("mesh quality")
+    progress("quality", "checking element quality", 0.85)
+    from anymesher import verify_mesh_quality
+
+    quality = verify_mesh_quality(mesh).as_dict()
+    cancellation.raise_if_cancelled("mesh hashing")
+    progress("hash", "hashing immutable mesh result", 0.94)
+    structural_preparation = dict(project._last_mesh_preparation)
+    resolved_settings_hash = settings.input_hash
+    if (
+        settings.strategy is None
+        or settings.controls is None
+        or settings.structured_controls is None
+    ):
+        # Older/headless callers inherit the snapshotted project
+        # strategy. Canonicalize that resolved value so their hash is
+        # identical to an explicit UI submission of the same method.
+        resolved_settings_hash = MeshSettings.create(
+            settings.target_size,
+            element_order=settings.element_order,
+            overrides=dict(settings.overrides),
+            strategy=resolved_strategy,
+            structure_preference=settings.structure_preference,
+            quality_policy=dict(settings.quality_policy),
+            controls=resolved_controls,
+            structured_controls=resolved_structured_controls,
+            quad_options=settings.quad_options,
+            layout_policy=settings.layout_policy,
+            automation=settings.automation,
+        ).input_hash
+    semantic_input_hash = canonical_hash(
+        {
+            "mesh_settings": resolved_settings_hash,
+            # The constrained triangulator is not consulted by an
+            # explicitly mapped job and therefore must not affect its
+            # reproducibility hash.
+            "native_backend": (
+                None
+                if resolved_strategy == "mapped"
+                else project.native_triangulation_backend
+            ),
+        }
+    )
+    mesh_hash = mesh_semantic_hash(
+        mesh,
+        model_hash=model_hash,
+        mesh_input_hash=semantic_input_hash,
+        structural_preparation=structural_preparation,
+    )
+    cancellation.raise_if_cancelled("mesh completion")
+    progress("complete", "mesh and quality checks complete", 1.0)
+    return MeshJobResult(
+        mesh=mesh,
+        mesh_hash=mesh_hash,
+        quality=quality,
+        structural_preparation=structural_preparation,
+    )
+
+
+@dataclass(frozen=True)
+class _MeshTransport:
+    """A finished mesh as it leaves the worker process.
+
+    A live mesh holds objects that cannot be pickled (immutable ANYgeometry views,
+    local closures).  ANYmesher's public versioned codec is the supported boundary,
+    the same one a saved project uses, so the mesh crosses as its codec dictionary.
+    """
+
+    mesh: Mapping[str, Any]
+    mesh_hash: str
+    quality: Mapping[str, Any]
+    structural_preparation: Mapping[str, Any]
+
+
+def mesh_job_entry(*, project, progress, cancellation_token, settings, model_hash):
+    """The worker-process entry point: mesh, then hand the result over as codec data."""
+
+    from anymesher.serialize import mesh_to_dict
+
+    def staged(stage: str, message: str, fraction: float) -> None:
+        progress(MeshProgress(stage, message, float(fraction)))
+
+    result = run_mesh_job(project, model_hash, settings, staged, cancellation_token)
+    return _MeshTransport(
+        mesh=mesh_to_dict(result.mesh),
+        mesh_hash=result.mesh_hash,
+        quality=dict(result.quality),
+        structural_preparation=dict(result.structural_preparation),
+    )
+
+
+# Structured evidence a mesher error exposes is computed where the error is raised.
+mesh_job_entry.error_diagnostic = _exception_diagnostic
 
 def _cancellation_token():
     try:

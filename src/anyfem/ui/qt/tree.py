@@ -54,7 +54,7 @@ class QtModelTree(QTreeView):
         try:
             for index in self.selectionModel().selectedRows():
                 value=index.data(Qt.UserRole)
-                if isinstance(value,(tuple,list)) and value[0] in {"geometry","sets","members"}:
+                if isinstance(value,(tuple,list)) and value[0] in {"geometry","sets","wet_surfaces","members"}:
                     self.selectionModel().select(index,QItemSelectionModel.Deselect|QItemSelectionModel.Rows)
         finally:self._refreshing=prior
 
@@ -105,6 +105,18 @@ class QtModelTree(QTreeView):
                     for key in bounded_entity_ids(sorted(by_id),self.query):
                         child=QStandardItem(f"{kind.capitalize()} {key}");child.setEditable(False)
                         child.setData(by_id[key],Qt.UserRole);item.appendRow(child)
+            wet=list(self.project.wet_surfaces)
+            wet_contents={}
+            for surface in wet:
+                try:wet_contents[surface.id]=self.wet_surface_references(surface)
+                except (ValueError,KeyError):wet_contents[surface.id]=None
+            self._sync_group("Wet surfaces",[(surface.id,surface.name,"unresolved" if wet_contents[surface.id] is None else str(len(wet_contents[surface.id])),("wet_surfaces",surface.id)) for surface in wet])
+            for identifier,(item,_) in self._rows["Wet surfaces"].items():
+                item.removeRows(0,item.rowCount())
+                for ref in sorted(wet_contents.get(identifier) or (),key=lambda ref:(ref.kind,ref.id)):
+                    if self.query and self.query not in str(ref.id):continue
+                    child=QStandardItem(f"{ref.kind.capitalize()} {ref.id}");child.setEditable(False)
+                    child.setData(ref,Qt.UserRole);item.appendRow(child)
             for label,attribute in [("Features","geometry"),("Materials","materials"),("Plate sections","plate_sections"),("Beam sections","beam_sections"),("Load cases","load_cases"),("Supports","supports"),("Masses","masses"),("Imperfections","imperfections"),("Coordinate systems","coordinate_systems"),("Regions","regions"),("Output requests","output_requests"),("Meshes","mesh_records"),("Analyses","analyses"),("Jobs","jobs")]:
                 values=getattr(self.project,attribute,{})
                 if attribute=="geometry":
@@ -134,8 +146,10 @@ class QtModelTree(QTreeView):
                                 child.setData(geometry.entity_ref(kind,identifier),Qt.UserRole);branch.appendRow(child)
             loads=[]
             for case in self.project.load_cases.values():
-                for collection in ("point_loads","pressures","line_loads","surface_tractions"):
-                    for value in getattr(case,collection,()):loads.append((value.id,f"{case.name}: {type(value).__name__}","",("load",value.id)))
+                for collection in ("point_loads","pressures","line_loads","surface_tractions","wet_pressures"):
+                    for value in getattr(case,collection,()):
+                        label=f"{case.name}: Wet pressure ({value.kind})" if collection=="wet_pressures" else f"{case.name}: {type(value).__name__}"
+                        loads.append((value.id,label,"",("load",value.id)))
             self._sync_group("Loads",loads)
             self._sync_group("Results",[(job.result_artifact_id,job.name,"stale" if self.app._job_is_stale(job) else "",("result",job.result_artifact_id)) for job in self.project.jobs.values() if job.result_artifact_id])
             self.refresh_visibility()
@@ -143,14 +157,27 @@ class QtModelTree(QTreeView):
         finally:
             self._refreshing=False
         selected=[index.data(Qt.UserRole) for index in self.selectionModel().selectedRows()]
-        sets=[value[1] for value in selected if isinstance(value,(tuple,list)) and value[0]=="sets"]
         collection=[]
-        for identifier in sets:
-            try:collection.extend(set_references(self.project,identifier))
+        for value in selected:
+            try:collection.extend(self.collection_references(value))
             except (ValueError,KeyError):pass
         for value in selected:
             if isinstance(value,(tuple,list)) and value[0]=="members":collection.extend(self.beam_references(value[1]))
         self.app.viewport.set_collection_highlight(collection)
+
+    def wet_surface_references(self,surface):
+        """The plates a wet surface covers, resolved like a set's members."""
+        if surface.region is not None:return set_references(self.project,surface.region.id)
+        return tuple(self.project.geometry.resolve_ref(surface.ref))
+
+    def collection_references(self,value):
+        """Geometry behind a set or wet-surface row, for highlight and hiding."""
+        if not isinstance(value,(tuple,list)):return ()
+        if value[0]=="sets":return set_references(self.project,value[1])
+        if value[0]=="wet_surfaces":
+            surface=next((item for item in self.project.wet_surfaces if item.id==value[1]),None)
+            return () if surface is None else self.wet_surface_references(surface)
+        return ()
 
     def refresh_visibility(self):
         """Dim hidden topology in every occurrence without changing selection."""
@@ -164,8 +191,8 @@ class QtModelTree(QTreeView):
                 elif isinstance(value,(tuple,list)):
                     if value[0]=="geometry":refs=feature_refs.get(value[1],())
                     elif value[0]=="members":refs=self.beam_references(value[1])
-                    elif value[0]=="sets":
-                        try:refs=set_references(self.project,value[1])
+                    elif value[0] in {"sets","wet_surfaces"}:
+                        try:refs=self.collection_references(value)
                         except (ValueError,KeyError):pass
                 count=sum(self.app.viewport.visibility.is_hidden(ref) for ref in refs)
                 hidden=bool(refs) and count==len(refs)
@@ -204,8 +231,8 @@ class QtModelTree(QTreeView):
         features=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="geometry"]
         collections=[]
         for value in refs:
-            if isinstance(value,(tuple,list)) and value[0]=="sets":
-                try:collections.extend(set_references(self.project,value[1]))
+            if isinstance(value,(tuple,list)) and value[0] in {"sets","wet_surfaces"}:
+                try:collections.extend(self.collection_references(value))
                 except (ValueError,KeyError) as exc:self.app.set_status(str(exc),error=True)
         for value in refs:
             if isinstance(value,(tuple,list)) and value[0]=="members":collections.extend(self.beam_references(value[1]))
@@ -236,7 +263,7 @@ class QtModelTree(QTreeView):
         if not isinstance(value,(tuple,list)):return None
         attribute,key=value
         if attribute=="sets":return f"region:{key}"
-        prefix={"geometry":"feature","materials":"material","plate_sections":"plate_section","beam_sections":"beam_section","load_cases":"case","supports":"support","masses":"mass","imperfections":"imperfection","coordinate_systems":"coordinate","regions":"region","mesh_records":"mesh","analyses":"analysis","jobs":"job","output_requests":"output_request"}.get(attribute,attribute)
+        prefix={"wet_surfaces":"wet_surface","geometry":"feature","materials":"material","plate_sections":"plate_section","beam_sections":"beam_section","load_cases":"case","supports":"support","masses":"mass","imperfections":"imperfection","coordinate_systems":"coordinate","regions":"region","mesh_records":"mesh","analyses":"analysis","jobs":"job","output_requests":"output_request"}.get(attribute,attribute)
         return f"{prefix}:{key}"
 
     def _context_menu(self,position):
@@ -288,7 +315,7 @@ class QtModelTree(QTreeView):
             record=next(record for name,record in values.items() if getattr(record,"id",self.project.material_ids.get(name,name))==key)
             operation={"materials":"AddMaterial","plate_sections":"AddPlateSection","beam_sections":"AddBeamSection"}[attribute]
             self.app.panels["Sections"].load_values(operation,**{"material" if attribute=="materials" else "section":record});page="Sections"
-        elif attribute in {"supports","masses","imperfections","load"}:
+        elif attribute in {"supports","masses","wet_surfaces","imperfections","load"}:
             from ...commands import _attribute_container
             record=_attribute_container(self.project,str(key))[3]
             self.app.panels["Loads & BC"].load_values("EditAttribute",replacement=record);page="Loads & BC"

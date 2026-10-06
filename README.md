@@ -527,6 +527,71 @@ of a case rather than of one load, because that is how the solver models it;
 combining a follower case with a dead one is refused rather than quietly
 resolved.
 
+### Wet surfaces, fluid pressure and load-case series
+
+Plates that carry fluid pressure are marked as *wet surfaces*; a *wet pressure*
+in a load case is applied to exactly those plates. The pressure is a magnitude
+pressing into the plate, and the wet surface records which side the fluid is on,
+so the solver's normal-signed pressure gets the right sign:
+
+```python
+from anyfem.model import WetSurface
+
+# Fluid outside a closed hull: the side is decided per element from the point
+# inside, so inconsistent element orientation cannot flip a load.
+hull = project.add_wet_surface(WetSurface(
+    ref=project.face(side), name="shell",
+    fluid_side="away_from_point", interior_point=(0.0, 0.0, 2.0)))
+# or fluid_side="positive_normal" / "negative_normal" for an explicit side
+
+case = project.load_case("still water")
+case.set_parameter("rho", 1025.0)
+case.set_parameter("draft", 2.0)
+case.add_wet_pressure(expression="rho * g * max(0, draft - z)")    # an equation
+
+case.add_wet_pressure(mapping={face_a: 12_000.0, face_b: 8_500.0})  # per plate
+case.add_wet_pressure(mapping={element_id: p}, mapping_key="element")  # per element
+case.add_wet_pressure(value=30_000.0, surfaces=(tank.id,))         # one surface
+```
+
+An equation reads the element-centroid position `x, y, z` (metres), the case time
+`t`, the case's named parameters and `g`, `pi`, `e`; it may use `abs sqrt exp log
+sin cos tan tanh sinh cosh min max clip where sign` and nothing else, so a project
+file cannot execute code. It is evaluated once per element at the centroid and
+applied uniformly over the element, so a waterline inside an element is resolved
+only to the mesh size; a mapping lists the wet plates or elements that carry
+pressure, and the rest are dry. Naming a plate or element that is not on a wet
+surface, a plate on two wet surfaces, an unknown name in an equation, or a
+non-finite result is refused.
+
+Many load cases, for example a quasi-static sequence, are generated from a
+template and solved together, since the stiffness is the same at every step:
+
+```python
+template = project.load_case("wave template")
+for name, value in {"rho": 1025.0, "draft": 2.0, "period": 8.0}.items():
+    template.set_parameter(name, value)
+template.add_wet_pressure(
+    expression="rho * g * max(0, draft + 1.2*sin(2*pi*t/period) - z)")
+project.add_load_case_series("wave", times=[0, 1, 2, 3, 4, 5, 6, 7],
+                             template="wave template")
+# or build each step's loads yourself:
+project.add_load_case_series("tide", [0, 6, 12],
+    builder=lambda case, t, step: case.add_wet_pressure(mapping=table[step]))
+
+batch = solve_linear_static_many(project, load_cases=[f"wave_{i}" for i in range(8)])
+```
+
+Each step is an ordinary load case named `<series>_<step>` that carries its `time`,
+parameters and `series`/`step`, so it can also be solved, combined and reported on
+its own. Files that use any of this are written as project format 9; files that do
+not stay format 8, and an older ANYfem refuses a format-9 file instead of silently
+dropping its loads. In the Qt workbench the Loads task offers Add wet surface, Add
+wet pressure and Add load case series, the model tree lists "Wet surfaces" like
+sets (select to highlight, edit, delete), the viewport outlines wet plates and draws
+the active case's pressure as arrows into the plate, and the Batch linear static
+analysis solves the generated cases.
+
 ## Analyses
 
 ```python

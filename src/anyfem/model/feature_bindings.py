@@ -19,12 +19,14 @@ def _stage_feature_project(project: Project) -> Project:
     working_project.regions = deepcopy(project.regions)
     working_project._singleton_region_cache = {}
     working_project._singleton_region_cache_size = -1
-    for name in ("supports", "masses", "imperfections", "refinements"):
+    for name in ("supports", "masses", "wet_surfaces", "imperfections", "refinements"):
         setattr(working_project, name, list(getattr(project, name)))
     working_project.load_cases = {name: copy(case) for name, case in project.load_cases.items()}
     for case in working_project.load_cases.values():
-        for name in ("point_loads", "pressures", "line_loads", "surface_tractions"):
+        for name in ("point_loads", "pressures", "line_loads", "surface_tractions",
+                     "wet_pressures"):
             setattr(case, name, list(getattr(case, name)))
+        case.parameters = dict(case.parameters)
         case._region_factory = working_project.singleton_region
     working_project.adopt_geometry_attachment_regions()
     return working_project
@@ -44,6 +46,7 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
         "sheet_join_intents": dict(project.sheet_join_intents),
         "supports": list(project.supports),
         "masses": list(project.masses),
+        "wet_surfaces": list(project.wet_surfaces),
         "imperfections": list(project.imperfections),
         "refinements": list(project.refinements),
         "element_order": project.element_order,
@@ -53,6 +56,7 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
                 list(case.pressures),
                 list(case.line_loads),
                 list(case.surface_tractions),
+                list(case.wet_pressures),
             )
             for name, case in project.load_cases.items()
         },
@@ -79,6 +83,7 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
     project.sheet_join_intents.update(snapshot.get("sheet_join_intents", {}))
     project.supports[:] = list(snapshot["supports"])
     project.masses[:] = list(snapshot.get("masses", ()))
+    project.wet_surfaces[:] = list(snapshot.get("wet_surfaces", ()))
     project.imperfections[:] = list(snapshot.get("imperfections", ()))
     project.refinements[:] = list(snapshot.get("refinements", ()))
     project.element_order = snapshot.get("element_order", project.element_order)
@@ -89,6 +94,7 @@ def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
         case.pressures[:] = list(pressures)
         case.line_loads[:] = list(lines)
         case.surface_tractions[:] = list(optional[0] if optional else ())
+        case.wet_pressures[:] = list(optional[1] if len(optional) > 1 else ())
 
 
 def _inactive_feature_ids(project):
@@ -171,7 +177,7 @@ def _rebind_feature_attachments(project: Project, log, *, previous_geometry=None
             raise GeometryError(f"feature edit resolved an unavailable attachment {target}")
         return item if target == reference else replace(item, ref=target)
 
-    for name in ("supports", "masses", "imperfections", "refinements"):
+    for name in ("supports", "masses", "wet_surfaces", "imperfections", "refinements"):
         getattr(project, name)[:] = [rebind(item) for item in getattr(project, name)]
     for case in project.load_cases.values():
         for name in ("point_loads", "pressures", "line_loads", "surface_tractions"):

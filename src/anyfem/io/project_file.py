@@ -33,6 +33,8 @@ from ..model.attributes import (
     LoadCase,
     Mass,
     Support,
+    WetPressure,
+    WetSurface,
 )
 from ..model.regions import RegionRef
 from ..mesh.refinement import Refinement
@@ -64,6 +66,11 @@ __all__ = [
 ]
 
 FORMAT_VERSION = 8
+# Wet surfaces, wet pressures and load-case series are written as format 9 and
+# only then, so a file that does not use them stays readable by older ANYfem,
+# while one that does is refused by a reader that would silently drop its loads.
+WET_LOADS_FORMAT = 9
+MAX_READ_FORMAT = WET_LOADS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -175,7 +182,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         ]} if project.geometry_attachment_regions else {}),
         "anyfem": {
             "schema": "anyfem.project",
-            "format": FORMAT_VERSION,
+            "format": (
+                WET_LOADS_FORMAT if _uses_wet_loads(project) else FORMAT_VERSION
+            ),
             "document_id": project.document_id,
             "artifact_root": f"{project.name}.anyfem-data",
         },
@@ -303,6 +312,15 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             }
             for mass in project.masses
         ],
+        **(
+            {
+                "wet_surfaces": [
+                    _wet_surface_to_dict(surface) for surface in project.wet_surfaces
+                ]
+            }
+            if project.wet_surfaces
+            else {}
+        ),
         "load_cases": [
             _load_case_to_dict(case) for case in _by_name(project.load_cases)
         ],
@@ -436,10 +454,10 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
     version = int(header["format"])
     if version < 1:
         raise ProjectFileError(f"unsupported ANYfem project format {version}")
-    if version > FORMAT_VERSION:
+    if version > MAX_READ_FORMAT:
         raise ProjectFileError(
             f"the file is format {version} but this ANYfem reads up to "
-            f"{FORMAT_VERSION}; upgrade ANYfem to open it"
+            f"{MAX_READ_FORMAT}; upgrade ANYfem to open it"
         )
 
     document_id = str(header.get("document_id", ""))
@@ -825,6 +843,24 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         else:
             project.add_mass(mass)
 
+    for entry in data.get("wet_surfaces", ()):
+        surface = WetSurface(
+            id=str(entry.get("id")) if entry.get("id") else str(uuid4()),
+            name=str(entry.get("name", "wet surface")),
+            ref=_existing_ref(
+                project, entry["ref"], "wet_surface.ref", region=entry.get("region")
+            ),
+            region=_region_ref_from(
+                project, entry.get("region"), "wet_surface.region"
+            ),
+            fluid_side=str(entry.get("fluid_side", "positive_normal")),
+            interior_point=entry.get("interior_point"),
+        )
+        if project.mesh_only or not project.geometry.resolve_ref(surface.ref):
+            project.wet_surfaces.append(surface)
+        else:
+            project.add_wet_surface(surface)
+
     for entry in data.get("load_cases", ()):
         _load_case_from_dict(project, entry)
     for entry in data.get("combinations", ()):
@@ -1075,7 +1111,12 @@ def _finalize_compatibility_recovery(project: Project) -> None:
     referenced_regions: set[str] = {
         assignment.region.id for assignment in project.section_assignments.values()
     }
-    scoped_items = [*project.supports, *project.masses, *project.output_requests.values()]
+    scoped_items = [
+        *project.supports,
+        *project.masses,
+        *project.wet_surfaces,
+        *project.output_requests.values(),
+    ]
     for case in project.load_cases.values():
         scoped_items.extend(case.point_loads)
         scoped_items.extend(case.pressures)
@@ -1572,8 +1613,57 @@ def _populate_legacy_geometry(
         geometry.restore_id_state(state)
 
 
+def _uses_wet_loads(project: Project) -> bool:
+    return bool(project.wet_surfaces) or any(
+        case.wet_pressures or case.time is not None or case.parameters
+        or case.series is not None
+        for case in project.load_cases.values()
+    )
+
+
+def _wet_surface_to_dict(surface: WetSurface) -> Dict[str, Any]:
+    return {
+        "id": surface.id,
+        "name": surface.name,
+        "ref": _ref(surface.ref),
+        "region": _region_ref(surface.region),
+        "fluid_side": surface.fluid_side,
+        "interior_point": (
+            None if surface.interior_point is None else _vector(surface.interior_point)
+        ),
+    }
+
+
+def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {
+        "id": load.id,
+        "name": load.name,
+        "scale": float(load.scale),
+        "surfaces": list(load.surfaces),
+    }
+    if load.value is not None:
+        entry["value"] = float(load.value)
+    elif load.expression is not None:
+        entry["expression"] = load.expression
+    else:
+        entry["mapping_key"] = load.mapping_key
+        entry["mapping"] = {
+            str(key): float(value) for key, value in sorted(load.mapping.items())
+        }
+    return entry
+
+
 def _load_case_to_dict(case: LoadCase) -> Dict[str, Any]:
     return {
+        **(
+            {"wet_pressures": [_wet_pressure_to_dict(i) for i in case.wet_pressures]}
+            if case.wet_pressures
+            else {}
+        ),
+        **({"time": float(case.time)} if case.time is not None else {}),
+        **({"parameters": dict(sorted(case.parameters.items()))} if case.parameters else {}),
+        **({"series": case.series} if case.series is not None else {}),
+        **({"step": int(case.step)} if case.step is not None else {}),
         "id": case.id,
         "name": case.name,
         "follower_pressure": bool(case.follower_pressure),
@@ -1678,6 +1768,33 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
         )
         if entry.get("id"):
             case.pressures[-1] = replace(load, id=str(entry["id"]))
+    wet_context = f"load_cases[{case.name!r}]"
+    if data.get("time") is not None:
+        case.set_time(data["time"])
+    parameters = data.get("parameters", {})
+    if not isinstance(parameters, Mapping):
+        raise ProjectFileError(f"{wet_context}.parameters must be an object")
+    for key, value in parameters.items():
+        case.set_parameter(str(key), value)
+    case.series = None if data.get("series") is None else str(data["series"])
+    case.step = None if data.get("step") is None else int(data["step"])
+    for index, entry in enumerate(data.get("wet_pressures", ())):
+        try:
+            load = WetPressure(
+                id=str(entry["id"]) if entry.get("id") else str(uuid4()),
+                name=str(entry.get("name", "wet pressure")),
+                value=entry.get("value"),
+                expression=entry.get("expression"),
+                mapping=entry.get("mapping"),
+                mapping_key=str(entry.get("mapping_key", "face")),
+                surfaces=tuple(entry.get("surfaces", ())),
+                scale=entry.get("scale", 1.0),
+            )
+        except ValueError as error:
+            raise ProjectFileError(
+                f"{wet_context}.wet_pressures[{index}]: {error}"
+            ) from None
+        case.wet_pressures.append(load)
     for index, entry in enumerate(data.get("line_loads", ())):
         load = case.add_line_load(
             ref=_existing_ref(

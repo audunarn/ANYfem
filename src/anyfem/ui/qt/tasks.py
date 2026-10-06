@@ -221,7 +221,7 @@ class SolveTask(QWidget):
             choice=self.case.currentText() or "default"
             if choice.startswith("combination: "):options.setdefault("combination",choice.split(": ",1)[1])
             else:options.setdefault("load_case",choice)
-        if self.analysis.currentText()=="Batch linear static":options.setdefault("load_cases",list(self.app.project.load_cases))
+        if self.analysis.currentText()=="Batch linear static":options.setdefault("load_cases",[name for name,case in self.app.project.load_cases.items() if not case.is_template])
         if self.use_resources.isChecked():
             from anysolver import ResourceConfig
             key="resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"

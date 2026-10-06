@@ -27,6 +27,7 @@ from anyfem.ui.scene import (
     Scene,
     build_mesh_scene,
 )
+from anyfem.presentation import viewport as presentation_viewport
 from anyfem.ui import viewport as viewport_module
 
 
@@ -449,6 +450,71 @@ def test_geometry_lines_are_one_retained_batch_with_segment_owners(monkeypatch) 
         "ent_edge8",
         "ent_edge9",
     ]
+
+
+def _ramp_lines(count=250):
+    """Beams coloured from a continuous ramp, one distinct colour each."""
+
+    return [
+        Polyline(
+            EntityRef("edge", identifier),
+            np.asarray(((identifier, 0, 0), (identifier, 1, 0)), dtype=float),
+            color="#%02x%02x%02x" % (identifier % 256, (identifier * 3) % 256, 255 - identifier % 256),
+        )
+        for identifier in range(1, count + 1)
+    ]
+
+
+def test_many_result_colours_are_capped_to_a_bounded_number_of_line_meshes(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("edge"))
+    scene = Scene(lines=_ramp_lines())
+    assert len({line.color for line in scene.lines}) == 250
+
+    viewport.show(scene)
+
+    calls = viewport.canvas.mesh_calls
+    assert presentation_viewport.MAX_LINE_STYLE_GROUPS <= 64
+    assert 1 < len(calls) <= 64
+    # Every segment keeps its own owner, whatever mesh it ended up in.
+    assert sum(len(mesh.lines) for mesh, _ in calls) == 250
+    keys = sorted(
+        options["owners"].owners_for("line", index)[0].key
+        for mesh, options in calls
+        for index in range(len(mesh.lines))
+    )
+    assert keys == sorted(f"ent_edge{identifier}" for identifier in range(1, 251))
+    # Snapping stays within half of the grid step actually used.
+    drawn = {options["color"] for _mesh, options in calls}
+    for line in scene.lines:
+        original = [int(line.color[i:i + 2], 16) for i in (1, 3, 5)]
+        nearest = min(
+            max(abs(a - int(c[i:i + 2], 16)) for a, i in zip(original, (1, 3, 5)))
+            for c in drawn
+        )
+        assert nearest <= 64
+
+
+def test_line_colours_within_the_cap_are_drawn_exactly(monkeypatch) -> None:
+    viewport = _viewport(monkeypatch, Selection("edge"))
+    scene = Scene(lines=_ramp_lines(10))
+
+    viewport.show(scene)
+
+    drawn = sorted(options["color"] for _mesh, options in viewport.canvas.mesh_calls)
+    assert drawn == sorted(line.color for line in scene.lines)
+
+
+def test_line_colour_snapper_chooses_the_finest_step_that_fits() -> None:
+    styles = [(f"#{value:02x}0000", 1, False) for value in range(0, 256, 2)]
+    snap = presentation_viewport.line_colour_snapper(styles, maximum=16)
+
+    snapped = {snap(colour) for colour, _width, _overlay in styles}
+    assert len(snapped) <= 16
+    assert len(snapped) > 4  # not coarser than necessary
+    assert snap("steelblue") == "steelblue"
+    assert snap("#12345") == "#12345"
 
 
 def test_pan_orbit_uses_low_detail_scene_then_restores_full_scene(
