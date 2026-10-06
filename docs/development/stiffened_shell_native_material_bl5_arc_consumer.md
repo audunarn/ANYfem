@@ -170,3 +170,15 @@ can reuse that wheel with the solver wheel
 This native administrative hash check executes no interpreter and makes no
 new workflow/runtime claim. Fresh150s consumer authority has been requested;
 no answer or execution allowance is inferred. Old solver remainder untouched.
+ 
+### 2026-10-06 pending installed consumer check
+
+A source-only harness is prepared in
+`.qualification/r8-native-material-bl5-arc-consumer-dev-20261006-v1/`.
+Its `handoff.md` contains the exact prospective command and scope;
+`source-handoff.json` binds the frozen inputs, existing wheels/sites, current
+product bytes and harness hashes. Native PowerShell preparation only was run.
+Both consumer tests and the Python harness remain UNRUN. The supervisor refuses
+interpreter launch while fresh 150-second user approval is pending. No existing
+solver or historical consumer execution allowance is reused, and no build/install
+is proposed.
