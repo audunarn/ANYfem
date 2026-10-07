@@ -55,11 +55,13 @@ from .model.attributes import (
     WetPressure,
     WetSurface,
 )
+from anyloads import Envelope
+from .model.connections import Connection, ConnectionLoad, resolve_dofs
 from .model.imperfections import Imperfection
 from .model.project import Project, ProjectError
 from .model.coordinates import CoordinateSystem
 from .model.records import MeshRecord, OutputRequest
-from .model.regions import Region
+from .model.regions import ManualRegion, Region, RegionDomain, RegionRef
 from .model.feature_bindings import (
     _attribute_snapshot, _restore_attributes, _rebind_feature_attachments, _stage_feature_project,
     _resolve_attachment_scope,
@@ -73,6 +75,8 @@ from .geometry_features import BUTTERFLY_HOLE_KIND
 __all__ = [
     "AddArc",
     "AddCombination",
+    "AddConnection",
+    "AddConnectionLoad",
     "AddCone",
     "AddCylinder",
     "AddFace",
@@ -82,6 +86,8 @@ __all__ = [
     "AddLineLoad",
     "AddLoadCase",
     "AddLoadCaseSeries",
+    "AddLoadSeries",
+    "SetLoadSeriesTimes",
     "AddLoadCasesFromTable",
     "AddMass",
     "AddMaterial",
@@ -1902,7 +1908,7 @@ class DeleteEntity(Command):
         _delete_exact_geometry_ref(working, self.ref)
         aliases = {self.ref}
         containers = [project.supports, project.masses, project.wet_surfaces,
-                      project.imperfections, project.refinements]
+                      project.connections, project.imperfections, project.refinements]
         containers.extend(getattr(case, name) for case in project.load_cases.values()
                           for name in ("point_loads", "pressures", "line_loads", "surface_tractions"))
         for container in containers:
@@ -2062,6 +2068,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_al
         "supports": [],
         "masses": [],
         "wet_surfaces": [],
+        "connections": [],
         "imperfections": [],
         "refinements": [],
         "loads": [],
@@ -2081,7 +2088,7 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_al
             kept.append(item)
     project.supports[:] = kept
 
-    for attribute in ("masses", "wet_surfaces", "imperfections"):
+    for attribute in ("masses", "wet_surfaces", "connections", "imperfections"):
         container = getattr(project, attribute)
         survivors = []
         for item in container:
@@ -2090,6 +2097,16 @@ def _detach_attributes(project: Project, ref: EntityRef, *, aliases=None, raw_al
             else:
                 survivors.append(item)
         container[:] = survivors
+    if removed["connections"]:
+        gone = {item.id for item in removed["connections"]}
+        for case in project.load_cases.values():
+            survivors = []
+            for load in case.connection_loads:
+                if load.connection in gone:
+                    removed["loads"].append((case.name, "connection_loads", load))
+                else:
+                    survivors.append(load)
+            case.connection_loads[:] = survivors
 
     refinements = []
     for item in project.refinements:
@@ -2140,6 +2157,7 @@ def _reattach_attributes(
     project.supports.extend(removed.get("supports", ()))
     project.masses.extend(removed.get("masses", ()))
     project.wet_surfaces.extend(removed.get("wet_surfaces", ()))
+    project.connections.extend(removed.get("connections", ()))
     project.imperfections.extend(removed.get("imperfections", ()))
     project.refinements.extend(removed.get("refinements", ()))
     project.geometry_attachment_regions.update(removed.get("geometry_attachment_regions", {}))
@@ -2235,6 +2253,8 @@ _EDITABLE_ATTRIBUTE_TYPES = (
     SurfaceTraction,
     WetSurface,
     WetPressure,
+    Connection,
+    ConnectionLoad,
     Imperfection,
 )
 
@@ -2244,7 +2264,7 @@ def _attribute_container(
 ) -> tuple[tuple[str, ...], list[Any], int, Any]:
     """Locate one UUID-backed support, mass or load without using its label."""
 
-    for attribute in ("supports", "masses", "wet_surfaces", "imperfections"):
+    for attribute in ("supports", "masses", "wet_surfaces", "connections", "imperfections"):
         container = getattr(project, attribute)
         for index, item in enumerate(container):
             if getattr(item, "id", None) == item_id:
@@ -2256,6 +2276,7 @@ def _attribute_container(
             "line_loads",
             "surface_tractions",
             "wet_pressures",
+            "connection_loads",
         ):
             container = getattr(case, attribute)
             for index, item in enumerate(container):
@@ -2321,6 +2342,7 @@ class DeleteAttribute(Command):
     _item: Any = field(default=None, init=False)
     _address: tuple[str, ...] | None = field(default=None, init=False)
     _index: int = field(default=-1, init=False)
+    _orphans: List[Any] = field(default_factory=list, init=False)
 
     def do(self, project: Project) -> Any:
         address, container, index, item = _attribute_container(project, self.item_id)
@@ -2329,6 +2351,15 @@ class DeleteAttribute(Command):
             self._address = address
             self._index = index
         container.pop(index)
+        if isinstance(item, Connection):
+            # A load at a reference point that no longer exists has nowhere to
+            # act, so it leaves with the connection and returns with it.
+            self._orphans = []
+            for case in project.load_cases.values():
+                for position, load in reversed(list(enumerate(case.connection_loads))):
+                    if load.connection == item.id:
+                        self._orphans.append((case.name, position, load))
+                        case.connection_loads.pop(position)
         return item
 
     def undo(self, project: Project) -> None:
@@ -2336,6 +2367,10 @@ class DeleteAttribute(Command):
             return
         container = _attribute_container_at(project, self._address)
         container.insert(min(self._index, len(container)), self._item)
+        for case_name, position, load in reversed(self._orphans):
+            loads = project.load_case(case_name).connection_loads
+            loads.insert(min(position, len(loads)), load)
+        self._orphans = []
 
 
 @dataclass(eq=False)
@@ -2346,11 +2381,12 @@ class AddPointLoad(Command):
     case: str = "default"
     coordinate_system_id: str = "global"
     distribution_policy: str = "per_target"
+    envelope: Envelope | Mapping | None = None
     label: str = "add point load"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
-        case = project.load_case(self.case)
+        case = _loadable_case(project, self.case)
         if self._load is None:
             self._load = case.add_point_load(
                 self.ref,
@@ -2358,6 +2394,7 @@ class AddPointLoad(Command):
                 self.moment,
                 coordinate_system_id=self.coordinate_system_id,
                 distribution_policy=self.distribution_policy,
+                envelope=_envelope_of(self.envelope),
             )
         else:
             case.point_loads.append(self._load)
@@ -2372,13 +2409,16 @@ class AddPressure(Command):
     ref: EntityRef
     value: float
     case: str = "default"
+    envelope: Envelope | Mapping | None = None
     label: str = "add pressure"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
-        case = project.load_case(self.case)
+        case = _loadable_case(project, self.case)
         if self._load is None:
-            self._load = case.add_pressure(self.ref, self.value)
+            self._load = case.add_pressure(
+                self.ref, self.value, envelope=_envelope_of(self.envelope)
+            )
         else:
             case.pressures.append(self._load)
         return self._load
@@ -2775,22 +2815,44 @@ PunchHole = ButterflyHoleDecomposition
 # ----------------------------------------------------------------------
 # loads, masses, combinations and imperfections
 # ----------------------------------------------------------------------
+def _loadable_case(project: Project, name: str) -> Any:
+    """The case a load may be added to: never a derived step of a series."""
+
+    case = project.load_case(name)
+    if case.parent is not None:
+        raise ProjectError(
+            f"{name!r} is a step of the load series {case.parent!r} and carries "
+            f"that series' loads; add the load to {case.parent!r} instead (give "
+            "it an envelope to limit when it acts)"
+        )
+    return case
+
+
+def _envelope_of(value: Any) -> Any:
+    try:
+        return Envelope.coerce(value)
+    except ValueError as error:
+        raise ProjectError(f"envelope: {error}") from None
+
+
 @dataclass(eq=False)
 class AddLineLoad(Command):
     ref: EntityRef
     force_per_length: Sequence[float] = (0.0, 0.0, 0.0)
     case: str = "default"
     coordinate_system_id: str = "global"
+    envelope: Envelope | Mapping | None = None
     label: str = "add line load"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
-        case = project.load_case(self.case)
+        case = _loadable_case(project, self.case)
         if self._load is None:
             self._load = case.add_line_load(
                 self.ref,
                 self.force_per_length,
                 coordinate_system_id=self.coordinate_system_id,
+                envelope=_envelope_of(self.envelope),
             )
         else:
             case.line_loads.append(self._load)
@@ -2806,16 +2868,18 @@ class AddSurfaceTraction(Command):
     traction: Sequence[float] = (0.0, 0.0, 0.0)
     case: str = "default"
     coordinate_system_id: str = "global"
+    envelope: Envelope | Mapping | None = None
     label: str = "add surface traction"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
-        case = project.load_case(self.case)
+        case = _loadable_case(project, self.case)
         if self._load is None:
             self._load = case.add_surface_traction(
                 self.ref,
                 self.traction,
                 coordinate_system_id=self.coordinate_system_id,
+                envelope=_envelope_of(self.envelope),
             )
         else:
             case.surface_tractions.append(self._load)
@@ -2881,6 +2945,130 @@ class AddWetSurface(Command):
         project.wet_surfaces.remove(self._surface)
 
 
+
+@dataclass(eq=False)
+class AddConnection(Command):
+    """Tie the selected points, lines or plates to one reference point.
+
+    ``kind`` is ``rigid`` (the tied nodes move with the reference point as one
+    rigid body, adding stiffness), ``distributing`` (the reference point
+    follows the average motion of the nodes and a load there is spread over
+    them, adding none) or ``spring`` (the selection is tied, rigidly or
+    distributing as ``tie`` says, to an inner point that the loaded reference
+    point is joined to by springs: ``stiffness`` is six numbers ux, uy, uz in
+    N/m and rx, ry, rz in N*m/rad, or two: translational and rotational).  ``dofs`` says which motions are tied: ``full``,
+    ``translations`` or one of ``plane_section_x/y/z`` (a plane section stays
+    plane without holding the section in its own plane), or a list such as
+    ``ux, uy, rz``.  The reference point is the ``centroid`` of the selection,
+    the centre of its ``bounding_box``, or a given ``point``.  Apply a load
+    there with :class:`AddConnectionLoad`.
+
+    With no ``refs`` the current selection is used.
+    """
+
+    refs: Sequence[EntityRef]
+    name: str = "connection"
+    kind: str = "rigid"
+    dofs: Sequence[str] = ("full",)
+    reference: str = "centroid"
+    reference_point: Sequence[float] | None = None
+    weighting: str = "tributary"
+    stiffness: Sequence[float] | None = None
+    tie: str = "rigid"
+    label: str = "add connection"
+    _connection: Any = field(default=None, init=False)
+    _region: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        if self._connection is None:
+            refs = tuple(dict.fromkeys(self.refs))
+            if not refs:
+                raise ProjectError("select the points, lines or plates to connect")
+            if len({ref.kind for ref in refs}) != 1:
+                raise ProjectError(
+                    "a connection ties one kind of entity: points, lines or plates"
+                )
+            region = None
+            if len(refs) > 1:
+                self._region = Region(
+                    f"{self.name} selection",
+                    RegionDomain.GEOMETRY,
+                    refs[0].kind,
+                    ManualRegion(refs),
+                    hidden=True,
+                )
+                region = RegionRef(self._region.id)
+            try:
+                connection = Connection(
+                    ref=refs[0],
+                    name=self.name,
+                    region=region,
+                    kind=self.kind,
+                    dofs=resolve_dofs(self.dofs),
+                    reference=self.reference,
+                    reference_point=self.reference_point,  # type: ignore[arg-type]
+                    weighting=self.weighting,
+                    stiffness=self.stiffness,  # type: ignore[arg-type]
+                    tie=self.tie,
+                )
+            except ValueError as error:
+                raise ProjectError(str(error)) from None
+            if self._region is not None:
+                project.regions.add(self._region)
+            try:
+                self._connection = project.add_connection(connection)
+            except BaseException:
+                if self._region is not None:
+                    project.regions.remove(self._region.id)
+                raise
+        else:
+            if self._region is not None:
+                project.regions.add(self._region)
+            project.connections.append(self._connection)
+        return self._connection
+
+    def undo(self, project: Project) -> None:
+        project.connections.remove(self._connection)
+        if self._region is not None:
+            project.regions.remove(self._region.id)
+
+
+@dataclass(eq=False)
+class AddConnectionLoad(Command):
+    """A force and moment at a connection's reference point.
+
+    ``connection`` is the connection's name (or id).  The moment acts on
+    everything the connection ties together, about the reference point.
+    """
+
+    connection: str
+    force: Sequence[float] = (0.0, 0.0, 0.0)
+    moment: Sequence[float] = (0.0, 0.0, 0.0)
+    case: str = "default"
+    name: str = "connection load"
+    envelope: Envelope | Mapping | None = None
+    label: str = "add connection load"
+    _load: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        case = _loadable_case(project, self.case)
+        if self._load is None:
+            target = project.connection_for(self.connection)
+            try:
+                self._load = case.add_connection_load(
+                    target.id, self.force, self.moment, name=self.name,
+                    envelope=_envelope_of(self.envelope),
+                )
+            except ValueError as error:
+                raise ProjectError(str(error)) from None
+        else:
+            case.connection_loads.append(self._load)
+        return self._load
+
+    def undo(self, project: Project) -> None:
+        project.load_case(self.case).connection_loads.remove(self._load)
+
+
 @dataclass(eq=False)
 class AddWetPressure(Command):
     """Fluid pressure on the wet surfaces: a value, an equation or a mapping."""
@@ -2895,11 +3083,12 @@ class AddWetPressure(Command):
     case: str = "default"
     code: str | None = None
     code_vectorized: bool = False
+    envelope: Envelope | Mapping | None = None
     label: str = "add wet pressure"
     _load: Any = field(default=None, init=False)
 
     def do(self, project: Project) -> Any:
-        case = project.load_case(self.case)
+        case = _loadable_case(project, self.case)
         if self._load is None:
             # Code typed here is the user's own, so it is trusted (see
             # anyloads.usercode); code from a project file never is.
@@ -2913,6 +3102,7 @@ class AddWetPressure(Command):
                 name=self.name,
                 code=self.code,
                 code_vectorized=self.code_vectorized,
+                envelope=_envelope_of(self.envelope),
             )
         else:
             case.wet_pressures.append(self._load)
@@ -3046,6 +3236,92 @@ class AddLoadCaseSeries(Command):
 
 
 @dataclass(eq=False)
+class AddLoadSeries(Command):
+    """A load case that spans a whole time history, one step per time.
+
+    Give ``times`` explicitly, or a ``duration`` and ``step`` (and optionally a
+    ``start``): ``duration=60, step=0.1`` is 600 steps at 0, 0.1 ... 59.9 s.
+    Loads added to this case are stored once and may carry an envelope (a
+    window by load case number or time, and a factor over time).  The steps
+    ``<name>_000`` ... are derived cases that are solved; ``parameters`` are
+    the named numbers its equations and envelopes read.
+    """
+
+    name: str
+    duration: float | None = None
+    step: float | None = None
+    start: float = 0.0
+    times: Sequence[float] = ()
+    parameters: Mapping[str, float] | None = None
+    label: str = "add load series"
+    _removed: Any = field(default=None, init=False)
+
+    @staticmethod
+    def sampled(duration: float | None, step: float | None, start: float) -> List[float]:
+        if duration is None or step is None:
+            raise ProjectError("give the times, or a duration and a step")
+        if not (duration > 0.0 and step > 0.0 and step <= duration):
+            raise ProjectError("duration and step must be positive, with step <= duration")
+        count = int(round(duration / step))
+        if abs(count * step - duration) > 1.0e-9 * duration:
+            raise ProjectError("the duration must be a whole number of steps")
+        return [round(start + index * step, 10) for index in range(count)]
+
+    def do(self, project: Project) -> Any:
+        if self._removed is None:
+            times = list(self.times) or self.sampled(self.duration, self.step, self.start)
+            case = project.add_load_series(self.name, times, parameters=self.parameters)
+            self._removed = [case, *project.series_children(self.name)]
+            return case
+        for item in self._removed:
+            project.load_cases[item.name] = item
+        return self._removed[0]
+
+    def undo(self, project: Project) -> None:
+        project.remove_load_series(self.name)
+
+
+@dataclass(eq=False)
+class SetLoadSeriesTimes(Command):
+    """Change the times (and so the number of steps) of a load series."""
+
+    name: str
+    duration: float | None = None
+    step: float | None = None
+    start: float = 0.0
+    times: Sequence[float] = ()
+    label: str = "set load series times"
+    _previous: Any = field(default=None, init=False)
+    _old_steps: Any = field(default=None, init=False)
+
+    def do(self, project: Project) -> Any:
+        case = project.load_cases.get(self.name)
+        if case is None or case.times is None:
+            raise ProjectError(f"{self.name!r} is not a load series")
+        times = project._series_times(
+            list(self.times) or AddLoadSeries.sampled(self.duration, self.step, self.start)
+        )
+        self._previous = case.times
+        self._old_steps = project.series_children(self.name)
+        case.times = times
+        try:
+            return project.expand_load_series(self.name)
+        except BaseException:
+            case.times = self._previous
+            for item in self._old_steps:
+                project.load_cases[item.name] = item
+            raise
+
+    def undo(self, project: Project) -> None:
+        case = project.load_cases[self.name]
+        for child in project.series_children(self.name):
+            del project.load_cases[child.name]
+        case.times = self._previous
+        for item in self._old_steps:
+            project.load_cases[item.name] = item
+
+
+@dataclass(eq=False)
 class SetAcceleration(Command):
     """Gravity or a design acceleration field on one case."""
 
@@ -3143,6 +3419,7 @@ class DeleteLoadCase(Command):
     name: str
     label: str = "delete load case"
     _case: Any = field(default=None, init=False)
+    _removed: List[Any] = field(default_factory=list, init=False)
 
     def do(self, project: Project) -> None:
         if self.name not in project.load_cases:
@@ -3157,9 +3434,24 @@ class DeleteLoadCase(Command):
                 f"load case {self.name!r} is used by combination(s) "
                 f"{sorted(using)}; remove those first"
             )
+        case = project.load_cases[self.name]
+        if case.parent is not None:
+            raise ProjectError(
+                f"{self.name!r} is a step of the load series {case.parent!r}; "
+                f"delete {case.parent!r} (or change its times) instead"
+            )
+        if case.times is not None:
+            self._removed = project.remove_load_series(self.name)
+            self._case = case
+            return
         self._case = project.load_cases.pop(self.name)
 
     def undo(self, project: Project) -> None:
+        if self._removed:
+            for item in self._removed:
+                project.load_cases[item.name] = item
+            self._removed = []
+            return
         project.load_cases[self.name] = self._case
 
 
@@ -3361,7 +3653,7 @@ def _region_users(project: Project, identifier: str) -> list[str]:
         for item in project.section_assignments.values()
         if item.region.id == identifier
     )
-    for collection_name in ("supports", "masses", "wet_surfaces"):
+    for collection_name in ("supports", "masses", "wet_surfaces", "connections"):
         for item in getattr(project, collection_name):
             if getattr(getattr(item, "region", None), "id", None) == identifier:
                 users.append(

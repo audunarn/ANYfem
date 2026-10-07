@@ -37,6 +37,7 @@ from ..model.attributes import (
     WetPressure,
     WetSurface,
 )
+from ..model.connections import CONNECTION_DOF_NAMES, Connection, ConnectionLoad
 from ..model.regions import RegionRef
 from ..mesh.refinement import Refinement
 from ..model.imperfections import Imperfection
@@ -71,7 +72,13 @@ FORMAT_VERSION = 8
 # only then, so a file that does not use them stays readable by older ANYfem,
 # while one that does is refused by a reader that would silently drop its loads.
 WET_LOADS_FORMAT = 9
-MAX_READ_FORMAT = WET_LOADS_FORMAT
+# Connections (a reference point tied to selected geometry, and the loads
+# applied there) are format 10, again only when a project uses them.
+CONNECTIONS_FORMAT = 10
+# Load series definitions and load envelopes (a window and a factor over time)
+# are format 11, again only when used.
+ENVELOPES_FORMAT = 11
+MAX_READ_FORMAT = ENVELOPES_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -184,7 +191,13 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "anyfem": {
             "schema": "anyfem.project",
             "format": (
-                WET_LOADS_FORMAT if _uses_wet_loads(project) else FORMAT_VERSION
+                ENVELOPES_FORMAT
+                if _uses_envelopes(project)
+                else CONNECTIONS_FORMAT
+                if _uses_connections(project)
+                else WET_LOADS_FORMAT
+                if _uses_wet_loads(project)
+                else FORMAT_VERSION
             ),
             "document_id": project.document_id,
             "artifact_root": f"{project.name}.anyfem-data",
@@ -320,6 +333,16 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
                 ]
             }
             if project.wet_surfaces
+            else {}
+        ),
+        **(
+            {
+                "connections": [
+                    _connection_to_dict(connection)
+                    for connection in project.connections
+                ]
+            }
+            if project.connections
             else {}
         ),
         "load_cases": [
@@ -845,6 +868,32 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         else:
             project.add_mass(mass)
 
+    for entry in data.get("connections", ()):
+        try:
+            connection = Connection(
+                id=str(entry.get("id")) if entry.get("id") else str(uuid4()),
+                name=str(entry.get("name", "connection")),
+                ref=_existing_ref(
+                    project, entry["ref"], "connection.ref", region=entry.get("region")
+                ),
+                region=_region_ref_from(
+                    project, entry.get("region"), "connection.region"
+                ),
+                kind=str(entry.get("kind", "rigid")),
+                dofs=tuple(entry.get("dofs", CONNECTION_DOF_NAMES)),
+                reference=str(entry.get("reference", "centroid")),
+                reference_point=entry.get("reference_point"),
+                weighting=str(entry.get("weighting", "tributary")),
+                stiffness=entry.get("stiffness"),
+                tie=str(entry.get("tie", "rigid")),
+            )
+        except ValueError as error:
+            raise ProjectFileError(f"connections: {error}") from None
+        if project.mesh_only or not project.geometry.resolve_ref(connection.ref):
+            project.connections.append(connection)
+        else:
+            project.add_connection(connection)
+
     for entry in data.get("wet_surfaces", ()):
         surface = WetSurface(
             id=str(entry.get("id")) if entry.get("id") else str(uuid4()),
@@ -864,7 +913,15 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             project.add_wet_surface(surface)
 
     for entry in data.get("load_cases", ()):
-        _load_case_from_dict(project, entry)
+        # The steps of a load series are derived from its definition's times;
+        # the entries written for them only keep other readers and hashes whole.
+        if entry.get("parent") is None:
+            _load_case_from_dict(project, entry)
+    for case in [item for item in project.load_cases.values() if item.times is not None]:
+        try:
+            project.expand_load_series(case.name)
+        except ProjectError as error:
+            raise ProjectFileError(f"load series {case.name!r}: {error}") from None
     for entry in data.get("combinations", ()):
         combination = project.add_combination(
             name=str(entry["name"]),
@@ -1117,6 +1174,7 @@ def _finalize_compatibility_recovery(project: Project) -> None:
         *project.supports,
         *project.masses,
         *project.wet_surfaces,
+        *project.connections,
         *project.output_requests.values(),
     ]
     for case in project.load_cases.values():
@@ -1615,6 +1673,66 @@ def _populate_legacy_geometry(
         geometry.restore_id_state(state)
 
 
+def _uses_envelopes(project: Project) -> bool:
+    return any(
+        case.times is not None
+        or any(
+            getattr(load, "envelope", None) is not None
+            for collection in (
+                case.point_loads, case.pressures, case.line_loads,
+                case.surface_tractions, case.wet_pressures, case.connection_loads,
+            )
+            for load in collection
+        )
+        for case in project.load_cases.values()
+    )
+
+
+def _envelope_entry(load: Any) -> Dict[str, Any]:
+    envelope = getattr(load, "envelope", None)
+    return {} if envelope is None else {"envelope": envelope.to_dict()}
+
+
+def _envelope_from(entry: Mapping[str, Any], context: str) -> Any:
+    from anyloads import Envelope, LoadError
+
+    if entry.get("envelope") is None:
+        return None
+    try:
+        return Envelope.from_dict(entry["envelope"])
+    except LoadError as error:
+        raise ProjectFileError(f"{context}.envelope: {error}") from None
+
+
+def _uses_connections(project: Project) -> bool:
+    return bool(project.connections) or any(
+        case.connection_loads for case in project.load_cases.values()
+    )
+
+
+def _connection_to_dict(connection: Connection) -> Dict[str, Any]:
+    return {
+        "id": connection.id,
+        "name": connection.name,
+        "ref": _ref(connection.ref),
+        "region": _region_ref(connection.region),
+        "kind": connection.kind,
+        "dofs": list(connection.dofs),
+        "reference": connection.reference,
+        "reference_point": (
+            None
+            if connection.reference_point is None
+            else _vector(connection.reference_point)
+        ),
+        "weighting": connection.weighting,
+        **(
+            {"stiffness": list(connection.stiffness), "tie": connection.tie}
+            if connection.kind == "spring"
+            else {}
+        ),
+    }
+
+
 def _uses_wet_loads(project: Project) -> bool:
     return bool(project.wet_surfaces) or any(
         case.wet_pressures or case.time is not None or case.parameters
@@ -1660,6 +1778,7 @@ def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
         entry["mapping"] = {
             str(key): float(value) for key, value in sorted(load.mapping.items())
         }
+    entry.update(_envelope_entry(load))
     return entry
 
 
@@ -1671,6 +1790,25 @@ def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, A
             if case.wet_pressures
             else {}
         ),
+        **(
+            {
+                "connection_loads": [
+                    {
+                        "id": load.id,
+                        "name": load.name,
+                        "connection": load.connection,
+                        "force": _vector(load.force),
+                        "moment": _vector(load.moment),
+                        **_envelope_entry(load),
+                    }
+                    for load in case.connection_loads
+                ]
+            }
+            if case.connection_loads
+            else {}
+        ),
+        **({"times": [float(t) for t in case.times]} if case.times is not None else {}),
+        **({"parent": case.parent} if case.parent is not None else {}),
         **({"time": float(case.time)} if case.time is not None else {}),
         **({"parameters": dict(sorted(case.parameters.items()))} if case.parameters else {}),
         **({"series": case.series} if case.series is not None else {}),
@@ -1689,6 +1827,7 @@ def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, A
                 "moment": _vector(load.moment),
                 "coordinate_system_id": load.coordinate_system_id,
                 "distribution_policy": load.distribution_policy,
+                **_envelope_entry(load),
             }
             for load in case.point_loads
         ],
@@ -1696,6 +1835,7 @@ def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, A
             {
                 "id": load.id, "ref": _ref(load.ref),
                 "region": _region_ref(load.region), "value": float(load.value),
+                **_envelope_entry(load),
             }
             for load in case.pressures
         ],
@@ -1705,6 +1845,7 @@ def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, A
                 "region": _region_ref(load.region),
                 "coordinate_system_id": load.coordinate_system_id,
                 "force_per_length": _vector(load.force_per_length),
+                **_envelope_entry(load),
             }
             for load in case.line_loads
         ],
@@ -1714,6 +1855,7 @@ def _load_case_to_dict(case: LoadCase, *, numbered: bool = False) -> Dict[str, A
                 "region": _region_ref(load.region),
                 "coordinate_system_id": load.coordinate_system_id,
                 "traction": _vector(load.traction),
+                **_envelope_entry(load),
             }
             for load in case.surface_tractions
         ],
@@ -1760,6 +1902,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
             ),
             coordinate_system_id=str(entry.get("coordinate_system_id", "global")),
             distribution_policy=str(entry.get("distribution_policy", "per_target")),
+            envelope=_envelope_from(entry, f"load_cases[{case.name!r}].point_loads[{index}]"),
         )
         if entry.get("id"):
             case.point_loads[-1] = replace(load, id=str(entry["id"]))
@@ -1776,10 +1919,31 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 project, entry.get("region"),
                 f"load_cases[{case.name!r}].pressures[{index}].region",
             ),
+            envelope=_envelope_from(entry, f"load_cases[{case.name!r}].pressures[{index}]"),
         )
         if entry.get("id"):
             case.pressures[-1] = replace(load, id=str(entry["id"]))
+    for index, entry in enumerate(data.get("connection_loads", ())):
+        try:
+            load = ConnectionLoad(
+                id=str(entry["id"]) if entry.get("id") else str(uuid4()),
+                name=str(entry.get("name", "connection load")),
+                connection=str(entry["connection"]),
+                force=entry.get("force", (0.0, 0.0, 0.0)),
+                moment=entry.get("moment", (0.0, 0.0, 0.0)),
+                envelope=_envelope_from(entry, f"load_cases[{case.name!r}].connection_loads[{index}]"),
+            )
+        except (KeyError, ValueError) as error:
+            raise ProjectFileError(
+                f"load_cases[{case.name!r}].connection_loads[{index}]: {error}"
+            ) from None
+        case.connection_loads.append(load)
     wet_context = f"load_cases[{case.name!r}]"
+    if data.get("times") is not None:
+        try:
+            case.times = project._series_times(data["times"])
+        except Exception as error:
+            raise ProjectFileError(f"{wet_context}.times: {error}") from None
     if data.get("time") is not None:
         case.set_time(data["time"])
     parameters = data.get("parameters", {})
@@ -1812,6 +1976,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                     else PressureTable.from_dict(entry["table"])
                 ),
                 table_case=entry.get("table_case"),
+                envelope=_envelope_from(entry, f"{wet_context}.wet_pressures[{index}]"),
             )
         except ValueError as error:
             raise ProjectFileError(
@@ -1832,6 +1997,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 f"load_cases[{case.name!r}].line_loads[{index}].region",
             ),
             coordinate_system_id=str(entry.get("coordinate_system_id", "global")),
+            envelope=_envelope_from(entry, f"load_cases[{case.name!r}].line_loads[{index}]"),
         )
         if entry.get("id"):
             case.line_loads[-1] = replace(load, id=str(entry["id"]))
@@ -1849,6 +2015,7 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 f"load_cases[{case.name!r}].surface_tractions[{index}].region",
             ),
             coordinate_system_id=str(entry.get("coordinate_system_id", "global")),
+            envelope=_envelope_from(entry, f"load_cases[{case.name!r}].surface_tractions[{index}]"),
         )
         if entry.get("id"):
             case.surface_tractions[-1] = replace(load, id=str(entry["id"]))

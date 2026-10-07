@@ -17,6 +17,7 @@ from anygeometry.entities import EntityRef
 from anyloads import (
     FLUID_SIDES,
     CaseContext,
+    Envelope,
     LoadError,
     PressureField,
     PressureTable,
@@ -25,6 +26,7 @@ from anyloads import (
     expression_names,
     trust_code,
 )
+from .connections import ConnectionLoad
 from .regions import RegionRef
 
 __all__ = [
@@ -335,10 +337,13 @@ class PointLoad:
     coordinate_system_id: str = "global"
     distribution_policy: str = "per_target"
     id: str = field(default_factory=_uuid)
+    # When the load acts and how strongly over a time history; None = always.
+    envelope: Envelope | None = None
 
     def __post_init__(self) -> None:
         if self.ref.kind != "vertex":
             raise ValueError("a point load applies to a point")
+        object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         object.__setattr__(self, "force", _vector3(self.force, "point-load force"))
         object.__setattr__(self, "moment", _vector3(self.moment, "point-load moment"))
         if self.distribution_policy not in ("per_target", "total_distributed"):
@@ -353,10 +358,13 @@ class Pressure:
     value: float
     region: RegionRef | None = None
     id: str = field(default_factory=_uuid)
+    # When the load acts and how strongly over a time history; None = always.
+    envelope: Envelope | None = None
 
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
             raise ValueError("a pressure applies to a plate")
+        object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         object.__setattr__(self, "value", _finite_scalar(self.value, "pressure"))
 
 
@@ -369,10 +377,13 @@ class LineLoad:
     region: RegionRef | None = None
     coordinate_system_id: str = "global"
     id: str = field(default_factory=_uuid)
+    # When the load acts and how strongly over a time history; None = always.
+    envelope: Envelope | None = None
 
     def __post_init__(self) -> None:
         if self.ref.kind != "edge":
             raise ValueError("a line load applies to a line")
+        object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         object.__setattr__(
             self,
             "force_per_length",
@@ -394,10 +405,13 @@ class SurfaceTraction:
     region: RegionRef | None = None
     coordinate_system_id: str = "global"
     id: str = field(default_factory=_uuid)
+    # When the load acts and how strongly over a time history; None = always.
+    envelope: Envelope | None = None
 
     def __post_init__(self) -> None:
         if self.ref.kind != "face":
             raise ValueError("a surface traction applies to a plate")
+        object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         object.__setattr__(
             self, "traction", _vector3(self.traction, "surface traction")
         )
@@ -494,8 +508,11 @@ class WetPressure:
     code_vectorized: bool = False
     table: PressureTable | None = None
     table_case: float | int | str | None = None
+    # When the load acts and how strongly over a time history; None = always.
+    envelope: Envelope | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         given = [
             label
             for label, item in (
@@ -607,6 +624,8 @@ class LoadCase:
         default=None, repr=False, compare=False
     )
     wet_pressures: List[WetPressure] = field(default_factory=list)
+    # Force and moment at a connection's reference point.
+    connection_loads: List[ConnectionLoad] = field(default_factory=list)
     # Quasi-static stepping: a case may carry the time its equations are
     # evaluated at and named numbers those equations read. ``series`` and
     # ``step`` record which generated sequence a case belongs to.
@@ -618,6 +637,37 @@ class LoadCase:
     # number-keyed pressure table. Assigned when the project creates the case;
     # a series step is numbered by its step instead (see ``case_number``).
     number: int | None = None
+    # A load series definition: its loads (each with an optional envelope) are
+    # stored once, and one derived step case per time takes them (see
+    # ``Project.add_load_series``).  A definition is never solved itself.
+    times: tuple[float, ...] | None = None
+    # A derived step: the series definition it takes its loads from.  It holds
+    # no loads of its own.
+    parent: str | None = None
+    # The definition's times, kept on the resolved view of a step so an
+    # envelope window by number can tell when it opened.
+    _window_times: tuple[float, ...] | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    @property
+    def is_series(self) -> bool:
+        """True for a load series definition (its steps are the solvable cases)."""
+
+        return self.times is not None
+
+    def envelope_factor(self, envelope: Envelope | None) -> float:
+        """The multiplier an envelope gives a load in this case (1 if none)."""
+
+        if envelope is None:
+            return 1.0
+        start_time = None
+        times = self._window_times
+        if envelope.by == "number" and envelope.start is not None and times:
+            index = int(round(envelope.start)) - 1
+            if 0 <= index < len(times):
+                start_time = float(times[index])
+        return envelope.factor(self.context(), start_time=start_time)
 
     @property
     def case_number(self) -> int:
@@ -636,6 +686,7 @@ class LoadCase:
         region: RegionRef | None = None,
         coordinate_system_id: str = "global",
         distribution_policy: str = "per_target",
+        envelope: Envelope | Mapping | None = None,
     ) -> PointLoad:
         region = region or (
             self._region_factory(ref) if self._region_factory is not None else None
@@ -647,17 +698,23 @@ class LoadCase:
             region=region,
             coordinate_system_id=coordinate_system_id,
             distribution_policy=distribution_policy,
+            envelope=envelope,  # type: ignore[arg-type]
         )
         self.point_loads.append(load)
         return load
 
     def add_pressure(
-        self, ref: EntityRef, value: float, *, region: RegionRef | None = None
+        self,
+        ref: EntityRef,
+        value: float,
+        *,
+        region: RegionRef | None = None,
+        envelope: Envelope | Mapping | None = None,
     ) -> Pressure:
         region = region or (
             self._region_factory(ref) if self._region_factory is not None else None
         )
-        load = Pressure(ref=ref, value=value, region=region)
+        load = Pressure(ref=ref, value=value, region=region, envelope=envelope)  # type: ignore[arg-type]
         self.pressures.append(load)
         return load
 
@@ -675,6 +732,7 @@ class LoadCase:
         code_vectorized: bool = False,
         table: PressureTable | None = None,
         table_case: float | int | str | None = None,
+        envelope: Envelope | Mapping | None = None,
     ) -> WetPressure:
         """Apply fluid pressure to the project's wet surfaces.
 
@@ -694,10 +752,36 @@ class LoadCase:
             code_vectorized=code_vectorized,
             table=table,
             table_case=table_case,
+            envelope=envelope,  # type: ignore[arg-type]
         )
         if code is not None:
             trust_code(code)
         self.wet_pressures.append(load)
+        return load
+
+    def add_connection_load(
+        self,
+        connection: str,
+        force: Sequence[float] = (0.0, 0.0, 0.0),
+        moment: Sequence[float] = (0.0, 0.0, 0.0),
+        *,
+        name: str = "connection load",
+        envelope: Envelope | Mapping | None = None,
+    ) -> ConnectionLoad:
+        """Apply a force and moment at a connection's reference point.
+
+        ``connection`` is the id of a connection added to the project; a moment
+        here is a moment on every entity the connection ties together.
+        """
+
+        load = ConnectionLoad(
+            connection=connection,
+            force=force,  # type: ignore[arg-type]
+            moment=moment,  # type: ignore[arg-type]
+            name=name,
+            envelope=envelope,  # type: ignore[arg-type]
+        )
+        self.connection_loads.append(load)
         return load
 
     def set_time(self, time: float | None) -> None:
@@ -725,6 +809,7 @@ class LoadCase:
         self, ref: EntityRef, force_per_length: Sequence[float], *,
         region: RegionRef | None = None,
         coordinate_system_id: str = "global",
+        envelope: Envelope | Mapping | None = None,
     ) -> LineLoad:
         region = region or (
             self._region_factory(ref) if self._region_factory is not None else None
@@ -732,6 +817,7 @@ class LoadCase:
         load = LineLoad(
             ref=ref, force_per_length=force_per_length,  # type: ignore[arg-type]
             region=region, coordinate_system_id=coordinate_system_id,
+            envelope=envelope,  # type: ignore[arg-type]
         )
         self.line_loads.append(load)
         return load
@@ -740,6 +826,7 @@ class LoadCase:
         self, ref: EntityRef, traction: Sequence[float], *,
         region: RegionRef | None = None,
         coordinate_system_id: str = "global",
+        envelope: Envelope | Mapping | None = None,
     ) -> SurfaceTraction:
         region = region or (
             self._region_factory(ref) if self._region_factory is not None else None
@@ -747,6 +834,7 @@ class LoadCase:
         load = SurfaceTraction(
             ref=ref, traction=traction,  # type: ignore[arg-type]
             region=region, coordinate_system_id=coordinate_system_id,
+            envelope=envelope,  # type: ignore[arg-type]
         )
         self.surface_tractions.append(load)
         return load
@@ -792,6 +880,8 @@ class LoadCase:
         solve; batch solves skip it unless it is named explicitly.
         """
 
+        if self.times is not None:
+            return True
         if self.time is not None:
             return False
         return any(
@@ -800,11 +890,14 @@ class LoadCase:
         )
 
     def is_empty(self) -> bool:
+        if self.parent is not None:
+            return False  # a step carries its definition's loads
         return not (
             self.point_loads
             or self.pressures
             or self.line_loads
             or self.surface_tractions
             or self.wet_pressures
+            or self.connection_loads
             or self.gravity is not None
         )

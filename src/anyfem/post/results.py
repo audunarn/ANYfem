@@ -72,6 +72,40 @@ class ShapeView:
             for node_id in self.built.mesh.nodes_on(ref)
         }
 
+    def connection_motion(self, connection: str) -> Dict[str, np.ndarray]:
+        """Where a connection's reference point is and how it moved.
+
+        ``connection`` is its name or id.  For a rigid connection this is the
+        motion of the whole tied section; for a distributing one it is the
+        weighted average motion of the tied nodes.  Rotations are in radians.
+        """
+
+        item = self.built.connections.get(connection)
+        if item is None:
+            item = next(
+                (
+                    candidate
+                    for candidate in self.built.connections.values()
+                    if candidate.connection.name == connection
+                ),
+                None,
+            )
+        if item is None:
+            raise KeyError(f"no connection {connection!r} in the solved model")
+        values = self.node_displacement(item.reference_node)
+        motion = {
+            "reference_point": np.asarray(item.reference, dtype=float).copy(),
+            "displacement": np.asarray(values[:3], dtype=float),
+            "rotation": np.asarray(values[3:], dtype=float),
+        }
+        if item.section_node is not None:
+            # A spring connection: the loaded point and the section it is
+            # sprung from move differently; the difference is the spring.
+            section = self.node_displacement(item.section_node)
+            motion["section_displacement"] = np.asarray(section[:3], dtype=float)
+            motion["section_rotation"] = np.asarray(section[3:], dtype=float)
+        return motion
+
     def point_displacement(self, ref: EntityRef) -> np.ndarray:
         """The six components at a modelled point."""
 
@@ -311,6 +345,27 @@ class LinearBatchSolution(MultiShapeSolution):
         if not isinstance(shape, LinearSolution):  # pragma: no cover - invariant
             raise TypeError("linear batch contains a non-linear shape")
         return shape
+
+    def connection_history(self, connection: str) -> Dict[str, np.ndarray]:
+        """A connection's reference point through every solved case.
+
+        Returns ``case`` (names), ``time`` (the cases' times, ``nan`` where a case
+        has none), ``displacement`` and ``rotation`` (one row per case), in the
+        order the cases were solved.
+        """
+
+        project = self.built.project
+        motions = [shape.connection_motion(connection) for shape in self.shapes]
+        times = [
+            np.nan if project.load_cases[name].time is None else project.load_cases[name].time
+            for name in self.case_names
+        ]
+        return {
+            "case": np.array(self.case_names),
+            "time": np.array(times, dtype=float),
+            "displacement": np.array([m["displacement"] for m in motions]),
+            "rotation": np.array([m["rotation"] for m in motions]),
+        }
 
     def summary(self) -> str:
         return (

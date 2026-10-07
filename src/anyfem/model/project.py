@@ -107,6 +107,9 @@ class Project:
     masses: List[Mass] = field(default_factory=list)
     # Plates wetted by fluid; the target of wet pressures in a load case.
     wet_surfaces: List[WetSurface] = field(default_factory=list)
+    # Reference points that stand for a set of lines, points or plates; the
+    # target of connection loads in a load case.
+    connections: List[Connection] = field(default_factory=list)
     load_cases: Dict[str, LoadCase] = field(default_factory=dict)
     combinations: Dict[str, Combination] = field(default_factory=dict)
     imperfections: List[Imperfection] = field(default_factory=list)
@@ -1467,6 +1470,133 @@ class Project:
         self.wet_surfaces.append(surface)
         return surface
 
+    def add_connection(self, connection: Connection) -> Connection:
+        """Tie the selected geometry to one reference point.
+
+        A load applied at the reference point (``LoadCase.add_connection_load``)
+        acts on everything the connection ties together.  Names are unique so
+        a load can be addressed by the connection's name as well as its id.
+        """
+
+        if not self.mesh_only:
+            self._require_entity(connection.ref)
+        if any(item.name == connection.name for item in self.connections):
+            raise ProjectError(
+                f"a connection named {connection.name!r} already exists"
+            )
+        if connection.region is None:
+            connection = replace(
+                connection, region=self.singleton_region(connection.ref)
+            )
+        self.connections.append(connection)
+        return connection
+
+    def connection_for(self, key: str) -> Connection:
+        """A connection by id or, failing that, by its (unique) name."""
+
+        for item in self.connections:
+            if item.id == key:
+                return item
+        for item in self.connections:
+            if item.name == key:
+                return item
+        raise ProjectError(f"no connection with id or name {key!r}")
+
+    def connection_targets(self, connection: Connection) -> tuple[EntityRef, ...]:
+        """The geometry entities a connection ties, resolved through its region."""
+
+        if self.mesh_only:
+            return (connection.ref,)
+        if connection.region is None:
+            return tuple(self.geometry.resolve_ref(connection.ref))
+        geometry = self.geometry
+        region = self.regions[connection.region.id]
+        stores = {
+            "vertex": geometry.vertices,
+            "edge": geometry.edges,
+            "face": geometry.faces,
+        }
+        return tuple(
+            dict.fromkeys(
+                self.regions.resolve(
+                    region.id,
+                    geometry=geometry,
+                    candidates=tuple(
+                        EntityRef(region.entity_kind, identifier)
+                        for identifier in stores.get(region.entity_kind, {})
+                    ),
+                    feature_resolver=lambda anchor: geometry.features.resolve(
+                        anchor, geometry
+                    ),
+                )
+            )
+        )
+
+    def connection_reference_point(self, connection: Connection) -> "np.ndarray":
+        """Where a connection's reference point is, from the geometry alone.
+
+        ``centroid`` is the length-weighted centre of the selected lines, the
+        area-weighted centre of selected plates and the mean of selected
+        points; ``bounding_box`` the centre of their bounding box. The point is
+        independent of the mesh, so remeshing never moves it.
+        """
+
+        if connection.reference == "point":
+            return np.asarray(connection.reference_point, dtype=float).copy()
+        if self.mesh_only:
+            raise ProjectError(
+                "an imported mesh has no geometry to place a connection's "
+                "reference point; give it an explicit point"
+            )
+        geometry = self.geometry
+        targets = self.connection_targets(connection)
+        if not targets:
+            raise ProjectError(
+                f"connection {connection.name!r} resolves to nothing"
+            )
+        if connection.reference == "bounding_box":
+            points = np.vstack([self._entity_points(ref) for ref in targets])
+            return 0.5 * (points.min(axis=0) + points.max(axis=0))
+        total = 0.0
+        moment = np.zeros(3)
+        for ref in targets:
+            if ref.kind == "vertex":
+                weight, centre = 1.0, geometry.vertex_position(ref.id)
+            elif ref.kind == "edge":
+                weight = float(geometry.edge_length(ref.id))
+                # Uniform parameter is uniform arc length on every edge type.
+                samples = np.asarray(
+                    geometry.sample_edge(ref.id, (np.arange(32) + 0.5) / 32.0),
+                    dtype=float,
+                )
+                centre = samples.mean(axis=0)
+            else:
+                grid = np.linspace(0.0, 1.0, 17)
+                points = np.asarray(
+                    [
+                        [geometry.face_point(ref.id, float(u), float(v)) for v in grid]
+                        for u in grid
+                    ],
+                    dtype=float,
+                )
+                du = points[1:, :-1] - points[:-1, :-1]
+                dv = points[:-1, 1:] - points[:-1, :-1]
+                cells = np.linalg.norm(np.cross(du, dv), axis=-1)
+                midpoints = 0.25 * (
+                    points[1:, :-1] + points[:-1, :-1] + points[1:, 1:] + points[:-1, 1:]
+                )
+                weight = float(cells.sum())
+                centre = (cells[..., None] * midpoints).sum(axis=(0, 1)) / max(
+                    weight, 1.0e-300
+                )
+            total += weight
+            moment += weight * np.asarray(centre, dtype=float)
+        if total <= 0.0:
+            raise ProjectError(
+                f"connection {connection.name!r} selects nothing with a size"
+            )
+        return moment / total
+
     def add_load_case_series(
         self,
         name: str,
@@ -1527,6 +1657,7 @@ class Project:
                     case.line_loads[:] = list(source.line_loads)
                     case.surface_tractions[:] = list(source.surface_tractions)
                     case.wet_pressures[:] = list(source.wet_pressures)
+                    case.connection_loads[:] = list(source.connection_loads)
                     case.gravity = (
                         None if source.gravity is None else np.array(source.gravity)
                     )
@@ -1571,6 +1702,141 @@ class Project:
         case = self.load_cases[name]
         case._region_factory = self.singleton_region
         return case
+
+    # ------------------------------------------------------------------
+    # load series: shared loads with envelopes, one derived step per time
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _series_times(times: Sequence[float]) -> tuple[float, ...]:
+        try:
+            values = tuple(float(item) for item in times)
+        except (TypeError, ValueError):
+            raise ProjectError("series times must be numbers") from None
+        if not values:
+            raise ProjectError("a load series needs at least one time step")
+        if not all(np.isfinite(values)):
+            raise ProjectError("series times must be finite")
+        if any(b <= a for a, b in zip(values, values[1:])):
+            raise ProjectError("series times must increase")
+        return values
+
+    @staticmethod
+    def series_step_names(name: str, count: int) -> List[str]:
+        """``name_000`` ... for ``count`` steps, zero-padded to a common width."""
+
+        width = len(str(max(count - 1, 0)))
+        return [f"{name}_{index:0{width}d}" for index in range(count)]
+
+    def add_load_series(
+        self,
+        name: str,
+        times: Sequence[float],
+        *,
+        parameters: Mapping[str, float] | None = None,
+    ) -> LoadCase:
+        """A load case that covers a whole time history, with one step per time.
+
+        Loads added to the returned case (point, line, pressure, wet pressure,
+        connection ...) are stored **once**.  Each load may carry an
+        :class:`~anyloads.Envelope` saying from which case or time to which it
+        acts and how its strength varies, so a load that spans all of a 600
+        step record is one object, and a pulse between steps 20 and 300 is one
+        object with a window.  The steps (``name_000`` ...) are derived cases
+        that take the definition's loads evaluated at their own time; they are
+        what is solved and are never edited.  The definition itself is not
+        solvable.
+        """
+
+        times = self._series_times(times)
+        if name in self.load_cases:
+            raise ProjectError(f"a load case named {name!r} already exists")
+        case = self.load_case(name)
+        case.times = times
+        try:
+            for key, value in (parameters or {}).items():
+                case.set_parameter(key, value)
+            self.expand_load_series(name)
+        except BaseException:
+            self.remove_load_series(name)
+            raise
+        return case
+
+    def series_children(self, name: str) -> List[LoadCase]:
+        """The derived steps of a load series definition, in step order."""
+
+        children = [
+            case for case in self.load_cases.values() if case.parent == name
+        ]
+        return sorted(children, key=lambda case: case.step or 0)
+
+    def expand_load_series(self, name: str) -> List[LoadCase]:
+        """(Re)create the derived steps of a definition from its times."""
+
+        parent = self.load_cases.get(name)
+        if parent is None or parent.times is None:
+            raise ProjectError(f"{name!r} is not a load series definition")
+        for child in self.series_children(name):
+            del self.load_cases[child.name]
+        names = self.series_step_names(name, len(parent.times))
+        clashes = [item for item in names if item in self.load_cases]
+        if clashes:
+            raise ProjectError(
+                f"load case(s) {clashes[:3]} already exist; rename them or the series"
+            )
+        children = []
+        for index, (step_name, time) in enumerate(zip(names, parent.times)):
+            child = LoadCase(
+                name=step_name,
+                id=str(uuid5(NAMESPACE_URL, f"{parent.id}:step:{index}")),
+                parent=name,
+                series=name,
+                step=index,
+                time=time,
+                number=index + 1,
+                _region_factory=self.singleton_region,
+            )
+            self.load_cases[step_name] = child
+            children.append(child)
+        return children
+
+    def remove_load_series(self, name: str) -> List[LoadCase]:
+        """Remove a definition and its steps; returns everything removed."""
+
+        removed = list(self.series_children(name))
+        for child in removed:
+            self.load_cases.pop(child.name, None)
+        parent = self.load_cases.pop(name, None)
+        return ([parent] if parent is not None else []) + removed
+
+    def resolve_case(self, case: LoadCase) -> LoadCase:
+        """The case to build from: a step becomes its definition's loads at its time.
+
+        Any other case is returned as it is.  The result of resolving a step is
+        a view: it shares the definition's load lists and must not be edited.
+        """
+
+        if case.parent is None:
+            return case
+        parent = self.load_cases.get(case.parent)
+        if parent is None or parent.times is None:
+            raise ProjectError(
+                f"load case {case.name!r} belongs to the load series "
+                f"{case.parent!r}, which no longer exists"
+            )
+        from copy import copy
+
+        view = copy(parent)
+        view.name = case.name
+        view.id = case.id
+        view.time = case.time
+        view.step = case.step
+        view.number = case.number
+        view.series = parent.name
+        view.parent = None
+        view.times = None
+        view._window_times = parent.times
+        view.parameters = {**parent.parameters, **case.parameters}
+        return view
 
     def add_combination(
         self, name: str, factors: Mapping[str, float]
@@ -2357,6 +2623,7 @@ class Project:
             ("support", self.supports),
             ("mass", self.masses),
             ("wet surface", self.wet_surfaces),
+            ("connection", self.connections),
             ("imperfection", self.imperfections),
         ):
             for item in items:
@@ -2390,6 +2657,13 @@ class Project:
                             f"load case {case_name!r} {label} {index} {coordinates}"
                         )
             problems.extend(self._wet_pressure_problems(case_name, case))
+            problems.extend(self._envelope_problems(case_name, case))
+            for load in case.connection_loads:
+                if not any(item.id == load.connection for item in self.connections):
+                    problems.append(
+                        f"load case {case_name!r} connection load {load.name!r} "
+                        f"names a connection that does not exist ({load.connection!r})"
+                    )
             if (
                 case.gravity is not None
                 and case.gravity_coordinate_system_id not in self.coordinate_systems
@@ -2499,6 +2773,41 @@ class Project:
                 f"model {self.name!r} is not ready to solve:\n  - "
                 + "\n  - ".join(problems)
             )
+
+    def _envelope_problems(self, case_name: str, case: LoadCase) -> List[str]:
+        """Static checks on the envelopes of a case's loads; geometry-free."""
+
+        problems: List[str] = []
+        if case.parent is not None:
+            parent = self.load_cases.get(case.parent)
+            if parent is None or parent.times is None:
+                problems.append(
+                    f"load case {case_name!r} belongs to the load series "
+                    f"{case.parent!r}, which no longer exists"
+                )
+            return problems
+        known = set(case.parameters)
+        for collection in (
+            "point_loads", "pressures", "line_loads", "surface_tractions",
+            "wet_pressures", "connection_loads",
+        ):
+            for load in getattr(case, collection):
+                envelope = getattr(load, "envelope", None)
+                if envelope is None:
+                    continue
+                unknown = sorted(envelope.names() - known)
+                if unknown:
+                    problems.append(
+                        f"load case {case_name!r} {getattr(load, 'name', collection)!r}: "
+                        f"the envelope reads {unknown}; set them as parameters of the case"
+                    )
+                if envelope.uses_time and case.times is None and case.time is None:
+                    problems.append(
+                        f"load case {case_name!r} {getattr(load, 'name', collection)!r}: "
+                        "the envelope varies with time but the case has none; make the "
+                        "case a load series"
+                    )
+        return problems
 
     def _wet_pressure_problems(self, case_name: str, case: LoadCase) -> List[str]:
         """Static checks on a case's wet pressures; geometry-free."""

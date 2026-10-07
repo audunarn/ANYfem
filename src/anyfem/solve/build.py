@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 import numpy as np
 from anygeometry.entities import EntityRef
+from anyloads import LoadError
 from anysolver import (
     BeamElement,
     BoundaryCondition,
@@ -37,12 +38,19 @@ from anymesher import (
 
 from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase, DOF_NAMES, WetPressure, WetSurface
+from ..model.connections import (
+    Connection,
+    ConnectionEquation,
+    distributing_equations,
+    null_moment_directions,
+    rigid_equations,
+)
 from ..model.wetfield import WetFieldError, field_pressure, fluid_sign
 from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
 
-__all__ = ["BuiltModel", "build_fe_model"]
+__all__ = ["BuiltModel", "ResolvedConnection", "build_fe_model"]
 
 
 @dataclass
@@ -58,6 +66,8 @@ class BuiltModel:
         default=None,
         init=False,
     )
+    # Reference point of each connection, by connection id.
+    connections: Dict[str, "ResolvedConnection"] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         policy = getattr(self.project, "shell_formulation_policy", None)
@@ -106,6 +116,7 @@ def build_fe_model(
     _add_beams(project, mesh, fe_model)
     _add_couplings(project, mesh, fe_model)
     _add_supports(project, mesh, fe_model)
+    connections = _add_connections(project, mesh, fe_model)
     _add_masses(project, mesh, fe_model)
 
     # Imperfections move the stress-free reference geometry, so they are
@@ -121,6 +132,7 @@ def build_fe_model(
             mesh=mesh,
             project=project,
             combination=combination,
+            connections=connections,
         )
 
     # A load-free build is used for deck handoff, neutral-mesh inspection, and
@@ -156,7 +168,11 @@ def build_fe_model(
         fe_model.add_load_case(solver_case)
 
     return BuiltModel(
-        fe_model=fe_model, load_case=solver_case, mesh=mesh, project=project
+        fe_model=fe_model,
+        load_case=solver_case,
+        mesh=mesh,
+        project=project,
+        connections=connections,
     )
 
 
@@ -185,11 +201,11 @@ def _build_combination(
                 f"combination {name!r} references undefined load case "
                 f"{case_name!r}"
             ) from None
-        follower = follower or case.follower_pressure
+        follower = follower or project.resolve_case(case).follower_pressure
         _accumulate_case(project, mesh, case, float(factor), folded)
 
     if follower and any(
-        not project.load_cases[case_name].follower_pressure
+        not project.resolve_case(project.load_cases[case_name]).follower_pressure
         for case_name in combination.factors
     ):
         raise ProjectError(
@@ -683,6 +699,352 @@ def _add_supports(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                     )
 
 
+
+# ----------------------------------------------------------------------
+# connections
+# ----------------------------------------------------------------------
+@dataclass
+class ResolvedConnection:
+    """A connection resolved against one mesh.
+
+    A pure function of the project and the mesh, so the solver build and every
+    load case built later agree on the reference node without sharing state.
+    """
+
+    connection: Connection
+    reference_node: int
+    reference: np.ndarray
+    node_ids: tuple[int, ...]
+    positions: np.ndarray
+    weights: np.ndarray
+    equations: list[ConnectionEquation]
+    # Indices (0-5) of the loaded node's DOFs that can carry a load: the ones
+    # some equation involves (a spring connection: the ones with a spring).
+    # The others are held at zero, and a load on one is refused.
+    active: frozenset[int]
+    # Unit moments (3 x k) the selection cannot transmit; empty unless the
+    # connection distributes forces over collinear geometry.
+    null_moments: np.ndarray
+    # Spring connections only: the inner node the selection is tied to, and the
+    # DOFs of it that its equations involve.  The loaded node is joined to it
+    # by springs.  Other connections tie the selection to the loaded node.
+    section_node: int | None = None
+    tie_active: frozenset[int] = frozenset()
+
+    @property
+    def tie_node(self) -> int:
+        """The node the tie equations are written for."""
+
+        return self.reference_node if self.section_node is None else self.section_node
+
+    @property
+    def inactive(self) -> tuple[int, ...]:
+        return tuple(index for index in range(6) if index not in self.active)
+
+    @property
+    def tie_inactive(self) -> tuple[int, ...]:
+        return tuple(index for index in range(6) if index not in self.tie_active)
+
+
+def _connection_nodes(
+    project: Project, mesh: Mesh, connection: Connection
+) -> tuple[dict[int, float], bool]:
+    """Nodes a connection ties, with their tributary length/area/count.
+
+    The weight of a node is its consistent share of the selected lines or
+    plates, so it does not change when the mesh is refined.  Beam nodes that
+    are already dependent on the plating (offset stiffener nodes) are left out:
+    they follow the node they are tied to.  The flag says whether every weight
+    is a real tributary measure (not a plain count).
+    """
+
+    targets = _attribute_targets(
+        project,
+        connection.region,
+        connection.ref,
+        geometry_kinds=("vertex", "edge", "face"),
+        mesh_kinds=("node",),
+    )
+    dependent = _beam_coupling_nodes(mesh)
+    weights: dict[int, float] = {}
+    tributary = True
+    for target in targets:
+        if isinstance(target, EntityRef) and target.kind == "edge":
+            shares = [
+                (node, float(force[0]))
+                for node, force in _line_load_to_nodes(
+                    mesh, target, np.array([1.0, 0.0, 0.0])
+                )
+            ]
+        elif isinstance(target, EntityRef) and target.kind == "face":
+            shares = [
+                (node, float(force[0]))
+                for node, force in _traction_to_nodes(
+                    mesh, target, np.array([1.0, 0.0, 0.0])
+                )
+            ]
+        else:
+            shares = [(int(node), 1.0) for node in _nodes_on_target(mesh, target)]
+            # A bare node or point has no length or area to share.
+            tributary = tributary and isinstance(target, EntityRef)
+        for node, share in shares:
+            if node in dependent:
+                continue
+            weights[node] = weights.get(node, 0.0) + share
+    return weights, tributary
+
+
+def _beam_coupling_nodes(mesh: Mesh) -> set[int]:
+    nodes: set[int] = set()
+    for coupling in mesh.couplings.values():
+        nodes.add(
+            int(coupling.beam_node if hasattr(coupling, "beam_node") else coupling[0])
+        )
+    return nodes
+
+
+def _support_dofs(project: Project, mesh: Mesh) -> dict[tuple[int, int], str]:
+    """Node DOFs a support holds, with the support's name.
+
+    A support in a local axis system constrains a mix of global DOFs, so every
+    DOF of the same kind (translation or rotation) counts as held.
+    """
+
+    held: dict[tuple[int, int], str] = {}
+    for support in project.supports:
+        targets = _attribute_targets(project, support.region, support.ref)
+        nodes = {
+            node
+            for target in targets
+            for node in _nodes_on_target(mesh, target, constrained=True)
+        }
+        local = support.coordinate_system_id != "global"
+        indices: set[int] = set()
+        for name in support.constraints:
+            index = DOF_NAMES.index(name)
+            if not local:
+                indices.add(index)
+            else:
+                indices.update(range(0, 3) if index < 3 else range(3, 6))
+        for node in nodes:
+            for index in indices:
+                held.setdefault((node, index), support.name)
+    return held
+
+
+def _resolve_connections(project: Project, mesh: Mesh) -> Dict[str, ResolvedConnection]:
+    if not project.connections:
+        return {}
+    next_node = (max(mesh.nodes) if mesh.nodes else 0) + 1
+    held = _support_dofs(project, mesh)
+    owners: dict[tuple[int, int], str] = {}
+    resolved: Dict[str, ResolvedConnection] = {}
+    for connection in project.connections:
+        weights, tributary = _connection_nodes(project, mesh, connection)
+        if not weights:
+            raise ProjectError(
+                f"connection {connection.name!r} has an empty or unresolved "
+                "scope in the active mesh"
+            )
+        node_ids = tuple(sorted(weights))
+        positions = np.array([mesh.nodes[node] for node in node_ids], dtype=float)
+        uniform = connection.weighting == "uniform" or not tributary
+        values = (
+            np.ones(len(node_ids))
+            if uniform
+            else np.array([weights[node] for node in node_ids], dtype=float)
+        )
+        if np.any(values <= 0.0):
+            raise ProjectError(
+                f"connection {connection.name!r}: the tributary share of a node "
+                "is not positive on this element order; set the connection's "
+                "weighting to 'uniform'"
+            )
+        reference = _connection_reference(project, connection, positions, values)
+        null = np.zeros((3, 0))
+        if connection.tied_by == "rigid":
+            equations = rigid_equations(node_ids, positions, reference, connection.dofs)
+            for equation in equations:
+                owner, index = equation.dependent
+                key = (int(owner), index)
+                if key in held:
+                    raise ProjectError(
+                        f"connection {connection.name!r} ties {DOF_NAMES[index]} of "
+                        f"node {owner}, which support {held[key]!r} also "
+                        "constrains. Leave the supported entities out of a rigid "
+                        "connection, tie fewer DOFs, or use a distributing "
+                        "connection."
+                    )
+                if key in owners:
+                    raise ProjectError(
+                        f"connections {owners[key]!r} and {connection.name!r} both "
+                        f"tie {DOF_NAMES[index]} of node {owner}; a node can "
+                        "belong to one rigid connection"
+                    )
+                owners[key] = connection.name
+        else:
+            try:
+                equations, inertia = distributing_equations(
+                    node_ids, positions, values, reference, connection.dofs
+                )
+            except ValueError as error:
+                raise ProjectError(f"connection {connection.name!r}: {error}") from None
+            if connection.rotations:
+                directions = null_moment_directions(inertia)
+                null = np.zeros((3, directions.shape[1]))
+                for column in range(directions.shape[1]):
+                    for local, axis in enumerate(connection.rotations):
+                        null[axis, column] = directions[local, column]
+        tie_active = frozenset(
+            index
+            for equation in equations
+            for owner, index, _ in equation.terms
+            if owner == "ref"
+        )
+        if connection.kind == "spring":
+            section_node, reference_node = next_node, next_node + 1
+            next_node += 2
+            active = frozenset(
+                index for index, value in enumerate(connection.stiffness) if value > 0.0
+            )
+        else:
+            section_node, reference_node = None, next_node
+            next_node += 1
+            active = tie_active
+        resolved[connection.id] = ResolvedConnection(
+            connection=connection,
+            reference_node=reference_node,
+            reference=reference,
+            node_ids=node_ids,
+            positions=positions,
+            weights=values,
+            equations=equations,
+            active=active,
+            null_moments=null,
+            section_node=section_node,
+            tie_active=tie_active,
+        )
+    return resolved
+
+
+def _connection_reference(
+    project: Project,
+    connection: Connection,
+    positions: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    """The reference point: from the geometry, or from the nodes without one."""
+
+    if connection.reference == "point" or not project.mesh_only:
+        return project.connection_reference_point(connection)
+    if connection.reference == "bounding_box":
+        return 0.5 * (positions.min(axis=0) + positions.max(axis=0))
+    return (weights[:, None] * positions).sum(axis=0) / weights.sum()
+
+
+def _add_connections(
+    project: Project, mesh: Mesh, fe_model: FEModel
+) -> Dict[str, ResolvedConnection]:
+    resolved = _resolve_connections(project, mesh)
+    manager = fe_model.mesh.dof_manager
+    for item in resolved.values():
+        connection = item.connection
+        for node in filter(None, (item.section_node, item.reference_node)):
+            fe_model.add_node(node, *(float(v) for v in item.reference))
+        reference_dofs = manager.get_node_dofs(item.tie_node)
+
+        def dof(owner: object, index: int) -> int:
+            if owner == "ref":
+                return reference_dofs[index]
+            return manager.get_node_dofs(int(owner))[index]
+
+        for number, equation in enumerate(item.equations):
+            owner, index = equation.dependent
+            fe_model.add_constraint_equation(
+                terms=tuple(
+                    (dof(term_owner, term_index), coefficient)
+                    for term_owner, term_index, coefficient in equation.terms
+                ),
+                rhs=0.0,
+                source_id=f"connection:{connection.id}:{number}",
+                dependent_dof=dof(owner, index),
+            )
+        # DOFs no equation (or spring) reaches carry no stiffness; hold them so
+        # the system stays solvable, and refuse a load on them.
+        for node, unused in (
+            (item.tie_node, item.tie_inactive),
+            (item.reference_node, item.inactive if item.section_node else ()),
+        ):
+            if unused:
+                fe_model.add_boundary_condition(
+                    BoundaryCondition(
+                        name=f"{connection.name} unused reference DOFs",
+                        node_ids=[node],
+                        dof_constraints={DOF_NAMES[index]: 0.0 for index in unused},
+                    )
+                )
+        if item.section_node is not None:
+            from .spring import SpringConnectorElement
+
+            element_id = max(fe_model.mesh.elements, default=0) + 1
+            fe_model.add_element(
+                element_id,
+                SpringConnectorElement(
+                    element_id,
+                    item.section_node,
+                    item.reference_node,
+                    connection.stiffness,
+                ),
+            )
+    return resolved
+
+
+def _accumulate_connection_loads(
+    project: Project,
+    mesh: Mesh,
+    case: LoadCase,
+    factor: float,
+    target: SolverLoadCase,
+) -> None:
+    resolved = _resolve_connections(project, mesh)
+    case_factor = factor
+    for load in case.connection_loads:
+        factor = case_factor * _envelope_factor(case, load)
+        if factor == 0.0:
+            continue
+        item = resolved.get(load.connection)
+        if item is None:
+            try:
+                item = resolved.get(project.connection_for(load.connection).id)
+            except ProjectError:
+                item = None
+        if item is None:
+            raise ProjectError(
+                f"connection load {load.name!r} in case {case.name!r} names a "
+                f"connection that does not exist ({load.connection!r})"
+            )
+        name = item.connection.name
+        components = np.concatenate([load.force, load.moment])
+        scale = float(np.max(np.abs(components)))
+        for index, value in enumerate(components):
+            if value != 0.0 and index not in item.active:
+                raise ProjectError(
+                    f"connection {name!r} does not transmit a {DOF_NAMES[index]} "
+                    f"load: that component is not among its tied DOFs "
+                    f"({', '.join(item.connection.dofs)})"
+                )
+        if item.null_moments.shape[1]:
+            carried = item.null_moments.T @ load.moment
+            if scale > 0.0 and float(np.max(np.abs(carried))) > 1.0e-9 * scale:
+                raise ProjectError(
+                    f"connection {name!r} distributes forces over geometry that "
+                    "cannot carry a moment about its own axis, so part of this "
+                    "moment would be lost. Select geometry that is not "
+                    "collinear, or use a rigid connection."
+                )
+        _add_nodal(target, item.reference_node, factor * load.force, factor * load.moment)
+
+
 def _constraint_pivots(basis: np.ndarray, local_axes: Sequence[int]) -> tuple[int, ...]:
     """Choose distinct global pivot components for independent local rows."""
 
@@ -707,9 +1069,41 @@ def _resolve_load_case(
     if isinstance(load_case, LoadCase):
         return load_case
     try:
-        return project.load_cases[load_case]
+        case = project.load_cases[load_case]
     except KeyError:
         raise ProjectError(f"no load case named {load_case!r}") from None
+    _refuse_definition(project, case)
+    return case
+
+
+def _refuse_definition(project: Project, case: LoadCase) -> None:
+    """A series definition is not a case to solve.
+
+    A time-less *template* (an equation reading ``t`` on a case with no time) is
+    left to the evaluator, whose error names the unknown variable.
+    """
+
+    if case.times is not None:
+        steps = project.series_children(case.name)
+        examples = ", ".join(repr(step.name) for step in steps[:2])
+        raise ProjectError(
+            f"{case.name!r} is a load series definition, not a load case: its "
+            f"loads are applied at each of its {len(steps)} time steps. Solve a "
+            f"step ({examples}{', ...' if len(steps) > 2 else ''}) or run "
+            "'Batch linear static' to solve them all."
+        )
+
+
+def _envelope_factor(case: LoadCase, load: Any) -> float:
+    """What a load's envelope makes of it in ``case``: 0 when it is not acting."""
+
+    try:
+        return case.envelope_factor(getattr(load, "envelope", None))
+    except LoadError as error:
+        raise ProjectError(
+            f"load {getattr(load, 'name', type(load).__name__)!r} in load case "
+            f"{case.name!r}: {error}"
+        ) from None
 
 
 def _build_load_case(
@@ -717,7 +1111,7 @@ def _build_load_case(
 ) -> SolverLoadCase:
     solver_case = SolverLoadCase(name=case.name)
     _accumulate_case(project, mesh, case, 1.0, solver_case)
-    solver_case.follower_pressure = bool(case.follower_pressure)
+    solver_case.follower_pressure = bool(project.resolve_case(case).follower_pressure)
     return solver_case
 
 
@@ -734,9 +1128,19 @@ def _accumulate_case(
     ``add_pressure_load`` overwrites an element's pressure, so a combination
     that puts two pressures on the same plate would otherwise keep only the
     last one.
+
+    A step of a load series is resolved to its definition's loads at its own
+    time, and each load is scaled by its envelope: zero outside its window.
     """
 
+    _refuse_definition(project, case)
+    case = project.resolve_case(case)
+    case_factor = factor
+
     for load in case.point_loads:
+        factor = case_factor * _envelope_factor(case, load)
+        if factor == 0.0:
+            continue
         targets = _attribute_targets(
             project,
             load.region,
@@ -770,6 +1174,9 @@ def _accumulate_case(
             )
 
     for load in case.pressures:
+        factor = case_factor * _envelope_factor(case, load)
+        if factor == 0.0:
+            continue
         targets = _attribute_targets(
             project,
             load.region,
@@ -797,7 +1204,13 @@ def _accumulate_case(
     if case.wet_pressures:
         _accumulate_wet_pressures(project, mesh, case, factor, target)
 
+    if case.connection_loads:
+        _accumulate_connection_loads(project, mesh, case, factor, target)
+
     for load in case.line_loads:
+        factor = case_factor * _envelope_factor(case, load)
+        if factor == 0.0:
+            continue
         system = _coordinate_system(project, load.coordinate_system_id)
         targets = _attribute_targets(
             project,
@@ -824,6 +1237,9 @@ def _accumulate_case(
             _add_nodal(target, node_id, factor * force, np.zeros(3))
 
     for load in case.surface_tractions:
+        factor = case_factor * _envelope_factor(case, load)
+        if factor == 0.0:
+            continue
         system = _coordinate_system(project, load.coordinate_system_id)
         targets = _attribute_targets(
             project,
@@ -862,7 +1278,7 @@ def _accumulate_case(
         current = (
             np.zeros(3) if target.gravity is None else np.asarray(target.gravity)
         )
-        target.gravity = current + factor * system.to_global(case.gravity)
+        target.gravity = current + case_factor * system.to_global(case.gravity)
 
 
 def _wet_elements(
@@ -921,6 +1337,15 @@ def _element_centroid_normal(mesh: Mesh, element_id: int) -> tuple[np.ndarray, n
     The normal is the one the solver's positive pressure acts along.
     """
 
+    # A time history asks for the same elements once per step; the geometry is
+    # fixed for a mesh, so keep it with the mesh.
+    try:
+        cache = mesh.__dict__.setdefault("_anyfem_centroid_normal", {})
+    except AttributeError:
+        cache = {}
+    found = cache.get(element_id)
+    if found is not None:
+        return found
     corners = np.array([mesh.nodes[node] for node in mesh.corners_of(element_id)])
     if len(corners) == 3:
         normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
@@ -929,7 +1354,8 @@ def _element_centroid_normal(mesh: Mesh, element_id: int) -> tuple[np.ndarray, n
     length = float(np.linalg.norm(normal))
     if length == 0.0:
         raise ProjectError(f"element {element_id} has zero area")
-    return corners.mean(axis=0), normal / length
+    cache[element_id] = (corners.mean(axis=0), normal / length)
+    return cache[element_id]
 
 
 @dataclass(frozen=True)
@@ -969,6 +1395,9 @@ def wet_element_pressures(
     by_surface_id = {surface.id: surface for surface in project.wet_surfaces}
     accumulated: Dict[int, WetElementPressure] = {}
     for load in case.wet_pressures:
+        scale = _envelope_factor(case, load)
+        if scale == 0.0:
+            continue
         if load.surfaces:
             missing = [item for item in load.surfaces if item not in by_surface_id]
             if missing:
@@ -996,7 +1425,7 @@ def wet_element_pressures(
             [geometry[int(e)][0] for e in element_ids[pick]]
         ).reshape(-1, 3)
         try:
-            magnitude = _wet_pressure_values(
+            magnitude = scale * _wet_pressure_values(
                 case, load, element_ids, by_face, pick, centroids
             )
             for element_id, value in zip(element_ids[pick], magnitude):
