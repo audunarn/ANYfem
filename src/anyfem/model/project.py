@@ -10,7 +10,7 @@ front-end would later call into.
 from __future__ import annotations
 
 from collections.abc import Callable
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -2194,6 +2194,9 @@ class Project:
             preparation_payload["qualified_s3"] = mesh_preparation["qualified_s3"]
         hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
         if isinstance(hybrid_diagnostics, Mapping):
+            runtime = hybrid_diagnostics.get("runtime")
+            if isinstance(runtime, Mapping):
+                self._last_mesh_execution["meshing"] = deepcopy(dict(runtime))
             automation_record = hybrid_diagnostics.get("automation")
             if isinstance(automation_record, Mapping):
                 preparation_payload["automation"] = dict(automation_record)

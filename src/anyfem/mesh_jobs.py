@@ -11,6 +11,7 @@ returns to a safe point.
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import replace
@@ -286,6 +287,9 @@ def mesh_semantic_hash(
         hybrid_diagnostics.pop("geometry_model_id", None)
         hybrid_diagnostics.pop("geometry_revision", None)
         hybrid_diagnostics.pop("structural_preparation_hash", None)
+        # Candidate counts and phase measurements describe execution, not the
+        # materialized mesh or its geometry/quality authority.
+        hybrid_diagnostics.pop("runtime", None)
         parallel = hybrid_diagnostics.get("parallel")
         if isinstance(parallel, Mapping):
             # The exact agreed ``parallel.runtime`` block (worker counts,
@@ -800,6 +804,9 @@ def run_mesh_job(
     execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
     parallel_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
     if isinstance(parallel_diagnostics, Mapping):
+        runtime = parallel_diagnostics.get("runtime")
+        if isinstance(runtime, Mapping):
+            execution["meshing"] = deepcopy(dict(runtime))
         parallel_summary = parallel_diagnostics.get("parallel")
         if isinstance(parallel_summary, Mapping):
             # Deterministic route/component metadata only; the runtime block
