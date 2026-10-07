@@ -844,11 +844,25 @@ def _worker_main(
         result = spec["function"](**call)
         try:
             data = dumps(("result", result))
-        except Exception as error:
-            raise WorkerProcessError(
-                f"the result could not be transferred to the application: {type(error).__name__}: {error}",
-                remote_type="ResultTransferError",
-            ) from error
+        except Exception:
+            # A completed result can hold live solver objects that refuse
+            # pickle by contract (the qualified S3 V2D shells block
+            # python_pickle_restart pending a successor gate).  The solve is
+            # done; only the transfer needs a supported route.  The result is
+            # encoded through its supported plain-data APIs instead of
+            # pickling the live objects; anything without such a route
+            # fails below with the same structured transfer error as before.
+            from .result_transport import encode_result
+
+            progress("preparing the completed result for transfer")
+            try:
+                data = dumps(("encoded_result", encode_result(result)))
+            except Exception as error:
+                raise WorkerProcessError(
+                    f"the result could not be transferred to the application: "
+                    f"{type(error).__name__}: {error}",
+                    remote_type="ResultTransferError",
+                ) from error
         connection.send_bytes(data)
     except BaseException as error:  # noqa: BLE001 - reported to the parent, which decides
         kind = getattr(error, "remote_type", None) or type(error).__name__
@@ -1250,6 +1264,45 @@ def run_in_worker_process(
                 remote_type="WorkerCleanupFailed",
             )
         return outcome[1]
+    if outcome[0] == "encoded_result":
+        # A result that refuses pickle travelled as plain data.  The worker
+        # tree is already confirmed retired (the cleanup above), so the
+        # decode happens here in the waiting job thread, before the result
+        # is returned and attached.  A decode failure is a structured
+        # transfer failure; the completed solve is never retried.
+        if cleanup_failures:
+            raise WorkerProcessError(
+                "the worker process tree could not be retired, so the result is "
+                f"discarded: {'; '.join(cleanup_failures)}",
+                remote_type="WorkerCleanupFailed",
+            )
+        from .result_transport import decode_result
+
+        if _is_cancelled(token):
+            # Cancellation stays honoured while the completed result is being
+            # prepared for attachment: a job cancelled at this boundary ends
+            # cancelled, and its result is never attached.
+            raise WorkerProcessError(
+                "the job was cancelled while its completed result was being "
+                "transferred, so the result is not attached",
+                remote_type="CancelledDuringTransfer",
+            )
+        progress("transferring the completed result")
+        try:
+            decoded = decode_result(outcome[1])
+        except Exception as error:
+            raise WorkerProcessError(
+                f"the result could not be transferred to the application: "
+                f"{type(error).__name__}: {error}",
+                remote_type="ResultTransferError",
+            ) from error
+        if _is_cancelled(token):
+            raise WorkerProcessError(
+                "the job was cancelled while its completed result was being "
+                "transferred, so the result is not attached",
+                remote_type="CancelledDuringTransfer",
+            )
+        return decoded
     _, remote_type, message, remote_traceback, *rest = outcome
     error = WorkerProcessError(
         message,

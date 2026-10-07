@@ -1520,3 +1520,63 @@ line-ending conversion: `a0b29b688b8af97c43929934ca2e7a869784c55889eb4392c768249
 It retains every superseded result, failed experiment, review and procedural
 transition. Historical proposals are evidence, not renewed execution authority.
 This file is the single current conversion note.
+
+## Completed S3 result transfer — 2026-10-07
+The 15 m barge linear-static run reported completion, then ANYfem failed while
+pickling its result: S3 V2D `python_pickle_restart` is blocked by the owner.
+Question: which completed-result path transfers live solver elements, and how
+can the application use admitted canonical result/model records instead?
+Competing causes are a numerical solve failure versus an application transport
+failure; the completion event and ResultTransferError identify the latter.
+The bounded discriminating checks will exercise result transfer and completed
+postprocessing data using fake jobs and qualified element construction/codecs,
+without new native meshing, full barge solves or qualification campaigns.
+Keep solver restart guards, formulation identities, physical state, numerical
+tolerances, cancellation and stale-job attachment semantics intact. This is an
+application repair; no solver sibling edits or new scientific acceptance claim.
+
+The central codec and process integration were implemented by Mistral. Four
+bounded assignments produced useful source but reached their turn limits without
+final verification or handoff. Root completed the remaining fixture repairs,
+focused verification and documentation because completion was unreliable;
+the implementation ownership was not restarted.
+
+The completed linear-static transfer now uses a versioned application envelope
+only when ordinary result pickling fails. Exact LinearSolution/LinearBatchSolution
+classes, all dataclass fields, per-case built models, DOF mappings, materials,
+supports, loads, public mesh revisions and cached/requested stresses are
+preserved through supported constructors and canonical element records. Unknown
+state, schema drift or unverifiable records fail as ResultTransferError. The
+parent decodes in its waiting job thread after worker-tree retirement and checks
+cancellation before and after decode; progress explicitly reports preparation
+and transfer. S3 python_pickle_restart remains blocked; nonlinear/capacity
+accepted-state transfer is not expanded by this stateless linear repair.
+
+Independent review found and repaired a private mutation-epoch overwrite:
+FEMesh's public constructor must own fresh node/element subscriptions. Public
+revisions are retained; the worker's derived runtime epoch is not restored.
+Requested global and patch stress attributes are also carried or refused, never
+dropped. Tests exercise subsequent public coordinate mutation, exact S3 identity
+and pickle refusal, actual subprocess transfer/retirement, cancellation during
+decode, structured failure/no attachment, batch models and artifact adaptation
+using controlled arrays and fake recovery.
+
+Verification on Windows/Python 3.14.2: 55 tests passed (42 transfer + 13 existing
+job-process contracts; the CPU-contention benchmark deliberately deselected)
+with installed ANYsolver 0.4.6, process wall 35.01244600000791 s. The 42 transfer
+tests also passed with current ANYsolver source (distribution metadata 0.4.7),
+process wall 21.941076199989766 s. Both effective runtimes load neither Qt nor Tk.
+Evidence: reports/result-transfer-20261007/independent-frozen-20261007T122206150430Z
+and independent-current-20261007T122229720075Z in the main checkout. Preserve
+earlier failing fixture, token-binding and artifact evidence. No native mesh,
+numerical solve/recovery, full 15 m barge rerun or scientific qualification was
+performed; this establishes transport regression coverage, not new numerical
+acceptance. Physical Linux GPU acceptance remains deferred.
+
+Integrated-current-main check: all 42 transfer tests passed with the current
+ANYfem working sources and ANYsolver/ANYloads sibling sources, process wall
+21.029390400042757 s. A separate controlled probe confirmed non-empty
+BuiltModel.connections, policy and DOF metadata survive. Evidence:
+reports/result-transfer-20261007/independent-integrated-20261007T122505057353Z
+and integrated_connections_probe.log. The excluded tracked diff and five
+pre-existing untracked files remain byte-identical through integration.
