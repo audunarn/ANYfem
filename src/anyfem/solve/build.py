@@ -1202,10 +1202,10 @@ def _accumulate_case(
             )
 
     if case.wet_pressures:
-        _accumulate_wet_pressures(project, mesh, case, factor, target)
+        _accumulate_wet_pressures(project, mesh, case, case_factor, target)
 
     if case.connection_loads:
-        _accumulate_connection_loads(project, mesh, case, factor, target)
+        _accumulate_connection_loads(project, mesh, case, case_factor, target)
 
     for load in case.line_loads:
         factor = case_factor * _envelope_factor(case, load)
