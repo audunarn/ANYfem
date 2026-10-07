@@ -1870,14 +1870,17 @@ class Project:
                 in closure.source_to_work
             )
         )
+        from .._meshing_runtime import collect_geometry_runtime, merge_geometry_runtime
+
         try:
-            preparation = prepare_structural_connectivity(
-                working,
-                source_model_id=str(closure.source_model_id),
-                source_revision=closure.source_revision,
-                member_ids=working_member_ids,
-                cancellation_check=cancellation_check,
-            )
+            with collect_geometry_runtime() as preparation_runtime:
+                preparation = prepare_structural_connectivity(
+                    working,
+                    source_model_id=str(closure.source_model_id),
+                    source_revision=closure.source_revision,
+                    member_ids=working_member_ids,
+                    cancellation_check=cancellation_check,
+                )
         except StructuralPreparationError as error:
             raise ProjectError(f"structural preparation failed: {error}") from None
         preparation.source_to_working = source_work_mapping(closure)
@@ -2192,6 +2195,7 @@ class Project:
         preparation_payload = preparation.to_dict()
         if isinstance(mesh_preparation, Mapping) and "qualified_s3" in mesh_preparation:
             preparation_payload["qualified_s3"] = mesh_preparation["qualified_s3"]
+        merge_geometry_runtime(mesh, preparation_runtime)
         hybrid_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
         if isinstance(hybrid_diagnostics, Mapping):
             runtime = hybrid_diagnostics.get("runtime")

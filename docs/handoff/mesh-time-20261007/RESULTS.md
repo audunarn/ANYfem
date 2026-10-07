@@ -1,5 +1,178 @@
 # Meshing speedup — implementation and evidence
 
+## Single-process milestone — completed 2026-10-07
+
+Implemented and accepted for the requested G8/G1 and M1–M6 speedup on the
+recorded frozen workspace inputs. All 54 alternating performance runs passed;
+all six barge pairs were faster, and all seven representative medians improved.
+Every compared mesh and authored-geometry digest matches exactly, without
+coordinate rounding. The complete authored barge project also matches across
+all 12 runs. Loads, materials, tolerances, quality/admission requirements,
+candidate search and execution-policy defaults are unchanged.
+
+The source remains uncommitted on `codex/single-process-speedup` in
+`C:/ANYworkspaceWork/meshing-speedup-next-20261007/worktrees/{ANYgeometry,ANYmesh,ANYfem}`.
+Mistral authored the geometry and mesher slices; Astra supplied contracts,
+independent review, ANYfem integration and final acceptance. No version bump,
+publication, commit or push belongs to this milestone. Earlier delivery below
+is historical. Unrelated source edits in the primary checkouts were preserved.
+
+### Delivered changes
+
+- ANYgeometry: invocation-local conservative planar boundary/curve boxes prune
+  attachment clipping only after cancellation and whole-curve support checks.
+  Expanded bounds round outward; unsupported/curved/ambiguous cases retain
+  exact clipping. Scalar LinePath and private cross products preserve arithmetic,
+  production np.float64 inputs and exceptional numeric behavior.
+- ANYmesh: public BVH construction remains eager and preserves snapshots/errors;
+  the connectivity-only route validates and snapshots shell inputs immediately
+  but builds records/tree only on first lookup. Invocation-local edge screening
+  confirms winners/tolerances with scalar norms and clears/restores caches.
+  Chart queries batch selected faces per unchanged preparation stage, forwarding
+  cancellation/revision controls with older-owner fallback. Native orientation,
+  point-in-polygon and successful linear validity use vectorized checks while
+  retaining scalar/exact fallbacks, original error precedence and Python sum order.
+- ANYfem: outer geometry counters join existing runtime execution diagnostics
+  and survive process jobs. Runtime measurements do not enter solver-affecting
+  hashes. Public APIs and dependency ranges are unchanged.
+
+### Measured performance
+
+Each row is three alternating baseline/candidate pairs (AB, BA, AB), all retained.
+Numbers measure the public meshing call; exact process-wall accounting and stage
+timings are in the attempt records. Improvements are for the combined candidate.
+
+| Workload | Baseline median (range), s | Candidate median (range), s | Reduction |
+|---|---:|---:|---:|
+| Large barge, off | 54.340 (53.836–75.592) | 32.909 (32.418–34.140) | 39.4% |
+| Large barge, auto | 59.958 (59.762–60.083) | 39.200 (38.785–39.273) | 34.6% |
+| Mapped face | 1.254 (1.249–1.275) | 0.170 (0.169–0.174) | 86.4% |
+| Stiffened panel | 1.277 (1.256–1.307) | 0.694 (0.684–0.694) | 45.7% |
+| Crossing grid | 7.786 (7.722–7.807) | 7.162 (7.139–7.187) | 8.0% |
+| Native plates | 3.477 (3.474–3.504) | 2.423 (2.395–2.433) | 30.3% |
+| Plate with hole | 10.368 (10.230–11.628) | 6.312 (6.150–6.535) | 39.1% |
+| Independent structures | 14.653 (14.635–14.661) | 10.705 (10.699–10.914) | 26.9% |
+| Curved cylinder | 0.142 (0.142–0.148) | 0.116 (0.114–0.123) | 18.3% |
+
+The 0.25 m barge retains 12,100 nodes, 8,916 shells, 3,112 beams and 3,500 couplings,
+with four candidates and exactly one final connectivity application in every run.
+Attachment clipping falls from 31,620 to 2,008 calls: 29,612 conservative rejections
+(93.65%). Off-policy median structural preparation is 30.264 → 9.765 s; its nested
+remapping stage is 23.817 → 3.677 s. Connectivity is 7.871 → 7.840 s. These nested
+stage times must not be added together or interpreted as isolated patch effects.
+
+The mapped case has 37,249 nodes and 36,864 shells: unused BVH builds fall from
+one to zero, with zero lookups in both versions. Chart qualification changes from
+33 single queries to one batch for the crossing grid, four to one for native
+plates, and 192 to one for the independent-structure preparation. Selected-face
+qualification counts remain unchanged. No representative exceeded the allowed
+regression threshold; all representative pairs were faster as well.
+
+### Correctness and installed verification
+
+All 72,600 displacement components, 19,032 reaction components, 11,920 element
+stress peaks and 38,344 von Mises samples match exactly under unchanged loads.
+Strain energy is exactly 145467.31573723748 J in both runs; its relative change
+and all recorded maximum response differences are zero. Mesh correspondence is
+verified before comparison. No load calibration, geometry change or tolerance
+adjustment was used.
+
+632 selected installed-artifact tests pass: geometry 104; mesher speedup 273;
+mesher lifecycle/coupling/native contracts 142; ANYfem consumer integration 97;
+analytical/convergence 8; public parallel integration 8. The existing 4/8/16-worker
+routes retain mesh signatures and hashes. The public process-based large-barge
+job matches the same exact mesh digest and four/one lifecycle counts.
+Compiled and genuinely binary-free fallback wheel smokes both pass, including
+the protected curved-cylinder case (408 nodes, 416 elements).
+
+One opt-in experimental prepared-CURRENT-receipt module was skipped; its separate
+execution gate was not bypassed. Broader legacy Python/quadratic schema6 and
+quality-optimization sweeps remain timeout-limited: corresponding bounded parent
+checks also time out. These are preserved limitations, not passing full-suite or
+release-qualification claims. Focused affected contracts and public workloads
+above supply this milestone's acceptance evidence.
+
+### Preserved failures and review repairs
+
+Development fixtures, earlier timeout attempts and worker checkpoints remain on
+disk. Review repaired public BVH eager behavior, cache cleanup, cancellation and
+mutation controls, exact error ordering and extreme-number behavior. The first
+installed multiprocessing test attempt exposed a missing entry-point guard in
+the new verification launcher; the launcher was fixed and the full parallel and
+consumer suites then passed. A serial-adapter mock failed on the parent because
+default auto routing bypassed its interception. The test now explicitly selects
+off and uses a mutable mesh stand-in for runtime diagnostics; it passes on both
+parent and candidate. This post-freeze repair changes only a test, not measured
+runtime source or wheels. Its exact content/hash is retained in final-review.
+
+An early baseline timeout termination was denied by Windows and was completed
+by terminating only the verified owned tree; its full 200.119382 s duration is
+charged. Later jobs use reliable process-tree permissions. pip's owner-only ACLs
+were repaired only within this task's isolated artifact directories, with no byte
+changes. Failed instrumentation preflights are preserved. The automatic approval
+review initially misattributed a separate chat's pause to the parallel check;
+the identical authorized action was approved after clarifying task ownership.
+
+### Reproduction and identity
+
+Evidence root: `C:/ANYworkspaceWork/meshing-speedup-next-20261007`.
+Baseline heads: ANYgeometry `d7a920e107b270377656390772202867c77f4fc8`, ANYmesh
+`2d0afaf34179faf9eedfcc00090ef7ddfb4b740e`, ANYfem
+`2ca462a62d7f754a3c76af5db65201b8dca40b92`. The baseline freezes the existing
+dirty ANYfem/dependency overlays; candidate sources apply only the owned deltas.
+Acceptance is scoped to those explicit snapshots, not an evolving checkout.
+
+- `baseline-manifest.json`, `candidate-manifest.json` and the two
+  `artifacts/*/manifest.json` files retain full source/wheel/install hashes.
+  Both native extensions were independently rebuilt. Baseline native SHA256:
+  `429a6dab690c7d175719d90f0c3ba7bfc0b6780ec2e479b3aa3ecdcb08108c70`;
+  candidate: `b0102a2ab6b1daa56da7a2a11290f114b8cda5fe5e50c377168c3fb8f5adacbc`.
+- `accepted-barge-runs.json`, `accepted-representatives-runs.json` and
+  `performance-summary.json` identify every accepted run, ranges, counts, stages
+  and exact hashes. `measurement-tools/manifest.json` freezes executable probes;
+  `representative-inputs/manifest.json` freezes authored representative models.
+- `response-comparison.json`, both `engineering-*/data` directories and their
+  NPZ files retain the physical response comparison. Installed tests record
+  actual import/native paths; pytest's source-path override is disabled.
+- Python 3.13.9, NumPy 2.4.3 and SciPy 1.16.3 were used. Every timed run records
+  actual BLAS library identity and one numerical thread. `dependency-audit.json`
+  separately records the post-run distribution/hash audit. No shared dependency
+  install or native binary was overwritten.
+- `final-artifact-audit.json` verifies that all recorded baseline/candidate
+  artifact bytes remain unchanged and every candidate installed Python file
+  exactly matches its frozen source. External investigations remain unchanged
+  under `external/` as historical evidence.
+
+Owned timed jobs were sequential and the sustained matrix was coordinated with
+the separate static-batch task. No pending job reservations remain. Exact
+cumulative accounting, including failed and timeout attempts:
+
+- geometry-checks: 421.880434 / 1800 process seconds, 14 preserved attempts.
+- mesher-checks: 1636.447523 / 2400 process seconds, 24 preserved attempts.
+- fem-checks: 457.941720 / 3600 process seconds, 30 preserved attempts.
+- build-checks: 37.375220 / 1800 process seconds, 8 preserved attempts.
+- performance: 945.002466 / 3600 process seconds, 54 preserved attempts.
+
+## Delivery and verification follow-through
+
+The user authorized Git delivery followed by investigation of the two preserved
+verification timeouts. The measured implementation is being delivered first as
+three reviewable commits; disposable worker notes and diagnostics stay outside
+the staged change. ANYfem main advanced by three independently delivered commits
+since the frozen campaign. Integration checks will distinguish the newly merged
+source state from the immutable sources that produced the measurements above.
+
+The follow-up question is whether the Python/quadratic schema6 and mesh-quality
+checks are slow but terminating, stuck in fallback refinement, or affected by the
+new fast paths. Inspect the existing output and test/source paths first, then use
+one bounded verbose/stack-reporting run per affected path to identify the active
+stage. Compare baseline only where the result discriminates a cause. Preserve
+all prior failures and cumulative accounting; do not change scientific tolerances,
+mesh-search budgets or example geometry to make these checks pass. No new speedup
+scope is authorized by this follow-through.
+
+## Earlier milestone and main delivery — historical
+
 ## Outcome and scope
 
 Accepted for the authorized performance milestone on 2026-10-07. Implementation,
