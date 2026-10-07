@@ -28,6 +28,7 @@ __all__ = [
     "ImportedSolution",
     "LinearBatchSolution",
     "LinearSolution",
+    "LinearStaticBatchResult",
     "ModalSolution",
     "MultiShapeSolution",
     "NonlinearSolution",
@@ -372,6 +373,84 @@ class LinearBatchSolution(MultiShapeSolution):
             f"{self.built.project.name}: {len(self.shapes)} linear load cases "
             "solved with one factorization"
         )
+
+
+@dataclass(frozen=True)
+class LinearStaticBatchResult:
+    """One streamed block; only explicitly selected DOFs are retained."""
+
+    built: BuiltModel
+    block: Any
+    connections: Mapping[str, Any]
+    labels: tuple[str, ...] = ()
+    node_dofs: Mapping[int, tuple[int, ...]] = field(default_factory=dict, repr=False)
+    _rows: Mapping[int, int] = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "_rows", {
+            int(dof): index for index, dof in enumerate(self.output_dofs)
+        })
+
+    @property
+    def input_indices(self):
+        return self.block.input_indices
+
+    @property
+    def case_ids(self):
+        return self.block.case_ids
+
+    @property
+    def times(self):
+        return self.block.times
+
+    @property
+    def output_dofs(self):
+        return self.block.output_dofs
+
+    @property
+    def displacements(self):
+        return self.block.displacements
+
+    @property
+    def case_results(self):
+        return self.block.case_results
+
+    @property
+    def diagnostics(self):
+        return self.block.diagnostics
+
+    def node_displacement(self, node_id: int, case_index: int = 0) -> np.ndarray:
+        dofs = self.node_dofs.get(int(node_id), ())
+        if not dofs:
+            raise KeyError(f"node {node_id} is not in the structural model")
+        rows = self._rows
+        if any(int(dof) not in rows for dof in dofs):
+            raise KeyError(f"node {node_id} displacement was not selected")
+        return self.displacements[[rows[int(dof)] for dof in dofs], case_index].copy()
+
+    def connection_motion(self, connection: str, case_index: int = 0) -> Dict[str, np.ndarray]:
+        item = self.connections.get(connection)
+        if item is None:
+            item = next((value for value in self.connections.values()
+                         if value.connection.name == connection), None)
+        if item is None:
+            raise KeyError(f"connection {connection!r} motion was not selected")
+        values = self.node_displacement(item.reference_node, case_index)
+        motion = {
+            "reference_point": np.asarray(item.reference, dtype=float).copy(),
+            "displacement": values[:3], "rotation": values[3:],
+        }
+        if item.section_node is not None:
+            section = self.node_displacement(item.section_node, case_index)
+            motion.update(section_displacement=section[:3], section_rotation=section[3:])
+        return motion
+
+    def stresses(self, case_index: int = 0):
+        """Return the solver's selected element/component/station stress maps."""
+        return self.case_results[case_index]["element_stresses"]
+
+    def reactions(self, case_index: int = 0):
+        return self.case_results[case_index]["reactions"]
 
 
 @dataclass

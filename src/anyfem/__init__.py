@@ -124,6 +124,7 @@ from .post import (
     ImpactSolution,
     LinearBatchSolution,
     LinearSolution,
+    LinearStaticBatchResult,
     ModalSolution,
     NonlinearSolution,
     ShapeView,
@@ -131,6 +132,8 @@ from .post import (
 )
 from .solve import (
     BuiltModel,
+    StaticLoadRequest,
+    iter_linear_static_batches,
     build_fe_model,
     eigenmode_imperfection,
     preflight,
@@ -150,6 +153,9 @@ from .solve import (
 __version__ = "0.4.1"
 
 __all__ = [
+    "LinearStaticBatchResult",
+    "StaticLoadRequest",
+    "iter_linear_static_batches",
     "BeamSection",
     "AnalysisDefinition",
     "ArtifactRef",

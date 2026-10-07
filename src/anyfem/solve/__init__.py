@@ -2,6 +2,7 @@
 
 from .build import BuiltModel, build_fe_model
 from .policy import history_modes, recovery_policy, resource_policy
+from .static_batch import StaticLoadRequest, iter_linear_static_batches
 from .run import (
     ContactConfigurationError,
     eigenmode_imperfection,
@@ -19,6 +20,8 @@ from .run import (
 
 __all__ = [
     "BuiltModel",
+    "StaticLoadRequest",
+    "iter_linear_static_batches",
     "ContactConfigurationError",
     "build_fe_model",
     "eigenmode_imperfection",

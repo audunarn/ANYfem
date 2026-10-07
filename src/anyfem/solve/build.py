@@ -177,7 +177,9 @@ def build_fe_model(
 
 
 def _build_combination(
-    project: Project, mesh: Mesh, fe_model: FEModel, name: str
+    project: Project, mesh: Mesh, fe_model: FEModel, name: str,
+    *, _load_context: Any = None, _register: bool = True,
+    _time_override: float | None = None,
 ) -> SolverLoadCase:
     """Fold a factored set of cases into one equivalent load case.
 
@@ -202,7 +204,15 @@ def _build_combination(
                 f"{case_name!r}"
             ) from None
         follower = follower or project.resolve_case(case).follower_pressure
-        _accumulate_case(project, mesh, case, float(factor), folded)
+        if _time_override is not None:
+            from copy import copy
+
+            _refuse_definition(project, case)
+            case = copy(project.resolve_case(case))
+            case.time = _time_override
+        _accumulate_case(
+            project, mesh, case, float(factor), folded, _load_context=_load_context
+        )
 
     if follower and any(
         not project.resolve_case(project.load_cases[case_name]).follower_pressure
@@ -215,7 +225,8 @@ def _build_combination(
         )
     folded.follower_pressure = follower
 
-    fe_model.add_load_case(folded)
+    if _register:
+        fe_model.add_load_case(folded)
     return folded
 
 
@@ -1005,8 +1016,10 @@ def _accumulate_connection_loads(
     case: LoadCase,
     factor: float,
     target: SolverLoadCase,
+    *,
+    _resolved: Any = None,
 ) -> None:
-    resolved = _resolve_connections(project, mesh)
+    resolved = _resolve_connections(project, mesh) if _resolved is None else _resolved
     case_factor = factor
     for load in case.connection_loads:
         factor = case_factor * _envelope_factor(case, load)
@@ -1107,10 +1120,10 @@ def _envelope_factor(case: LoadCase, load: Any) -> float:
 
 
 def _build_load_case(
-    project: Project, mesh: Mesh, case: LoadCase
+    project: Project, mesh: Mesh, case: LoadCase, *, _load_context: Any = None
 ) -> SolverLoadCase:
     solver_case = SolverLoadCase(name=case.name)
-    _accumulate_case(project, mesh, case, 1.0, solver_case)
+    _accumulate_case(project, mesh, case, 1.0, solver_case, _load_context=_load_context)
     solver_case.follower_pressure = bool(project.resolve_case(case).follower_pressure)
     return solver_case
 
@@ -1121,6 +1134,8 @@ def _accumulate_case(
     case: LoadCase,
     factor: float,
     target: SolverLoadCase,
+    *,
+    _load_context: Any = None,
 ) -> None:
     """Add one case's loads into a solver load case, scaled by ``factor``.
 
@@ -1136,12 +1151,21 @@ def _accumulate_case(
     _refuse_definition(project, case)
     case = project.resolve_case(case)
     case_factor = factor
+    attribute_targets = (
+        _attribute_targets if _load_context is None else _load_context.attribute_targets
+    )
+    nodes_on_target = (
+        _nodes_on_target if _load_context is None else _load_context.nodes_on_target
+    )
+    elements_on_target = (
+        _elements_on_target if _load_context is None else _load_context.elements_on_target
+    )
 
     for load in case.point_loads:
         factor = case_factor * _envelope_factor(case, load)
         if factor == 0.0:
             continue
-        targets = _attribute_targets(
+        targets = attribute_targets(
             project,
             load.region,
             load.ref,
@@ -1152,7 +1176,7 @@ def _accumulate_case(
             {
                 node_id
                 for scoped in targets
-                for node_id in _nodes_on_target(mesh, scoped)
+                for node_id in nodes_on_target(mesh, scoped)
             }
         )
         if not node_ids:
@@ -1177,7 +1201,7 @@ def _accumulate_case(
         factor = case_factor * _envelope_factor(case, load)
         if factor == 0.0:
             continue
-        targets = _attribute_targets(
+        targets = attribute_targets(
             project,
             load.region,
             load.ref,
@@ -1188,7 +1212,7 @@ def _accumulate_case(
             {
                 element_id
                 for scoped in targets
-                for element_id in _elements_on_target(mesh, scoped)
+                for element_id in elements_on_target(mesh, scoped)
             }
         )
         if not element_ids:
@@ -1202,17 +1226,22 @@ def _accumulate_case(
             )
 
     if case.wet_pressures:
-        _accumulate_wet_pressures(project, mesh, case, case_factor, target)
+        _accumulate_wet_pressures(
+            project, mesh, case, case_factor, target, _load_context=_load_context
+        )
 
     if case.connection_loads:
-        _accumulate_connection_loads(project, mesh, case, case_factor, target)
+        _accumulate_connection_loads(
+            project, mesh, case, case_factor, target,
+            _resolved=None if _load_context is None else _load_context.connections,
+        )
 
     for load in case.line_loads:
         factor = case_factor * _envelope_factor(case, load)
         if factor == 0.0:
             continue
         system = _coordinate_system(project, load.coordinate_system_id)
-        targets = _attribute_targets(
+        targets = attribute_targets(
             project,
             load.region,
             load.ref,
@@ -1241,7 +1270,7 @@ def _accumulate_case(
         if factor == 0.0:
             continue
         system = _coordinate_system(project, load.coordinate_system_id)
-        targets = _attribute_targets(
+        targets = attribute_targets(
             project,
             load.region,
             load.ref,
@@ -1374,6 +1403,7 @@ def wet_element_pressures(
     case: LoadCase,
     *,
     limit: int | None = None,
+    _load_context: Any = None,
 ) -> List[WetElementPressure]:
     """Evaluate a case's wet pressures per shell element.
 
@@ -1408,7 +1438,11 @@ def wet_element_pressures(
             selected = [by_surface_id[item] for item in load.surfaces]
         else:
             selected = list(project.wet_surfaces)
-        owner, by_face = _wet_elements(project, mesh, selected)
+        owner, by_face = (
+            _wet_elements(project, mesh, selected)
+            if _load_context is None
+            else _load_context.wet_elements(selected)
+        )
         element_ids = np.array(sorted(owner), dtype=int)
         if limit is None or len(element_ids) <= limit:
             pick = np.arange(len(element_ids))
@@ -1418,7 +1452,11 @@ def wet_element_pressures(
             )
 
         geometry = {
-            int(e): _element_centroid_normal(mesh, int(e))
+            int(e): (
+                _element_centroid_normal(mesh, int(e))
+                if _load_context is None
+                else _load_context.centroid_normal(int(e))
+            )
             for e in element_ids[pick]
         }
         centroids = np.array(
@@ -1428,6 +1466,8 @@ def wet_element_pressures(
             magnitude = scale * _wet_pressure_values(
                 case, load, element_ids, by_face, pick, centroids
             )
+            if _load_context is not None:
+                _load_context.require_unchanged("wet pressure evaluation")
             for element_id, value in zip(element_ids[pick], magnitude):
                 if value == 0.0:
                     continue
@@ -1453,10 +1493,12 @@ def _accumulate_wet_pressures(
     case: LoadCase,
     factor: float,
     target: SolverLoadCase,
+    *,
+    _load_context: Any = None,
 ) -> None:
     """Add a case's wet pressures to a solver case as element pressures."""
 
-    for item in wet_element_pressures(project, mesh, case):
+    for item in wet_element_pressures(project, mesh, case, _load_context=_load_context):
         target.pressure_loads[item.element_id] = (
             target.pressure_loads.get(item.element_id, 0.0)
             + factor * item.pressure
