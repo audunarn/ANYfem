@@ -13,8 +13,8 @@ deliberately free of Qt, Tk and geometry knowledge:
   mesh input hash or the semantic mesh hash, and it stays a plain picklable
   dataclass so it can cross the worker-process boundary unchanged.
 
-The default is ``off``: nothing parallel is imported or attempted unless a
-caller, the Qt workbench or ``ANYFEM_MESH_WORKERS`` explicitly asks for it.
+The default is ``auto``: eligible whole-project jobs propose bounded
+parallelism. An explicit ``off`` policy keeps meshing serial.
 """
 
 from __future__ import annotations
@@ -62,13 +62,13 @@ ENVIRONMENT_VARIABLE = "ANYFEM_MESH_WORKERS"
 class MeshExecutionPolicy:
     """How much parallel meshing a caller asks for.  Plain and picklable.
 
-    ``off`` (the default) keeps every mesh serial.  ``auto`` lets the sizing
+    ``off`` keeps every mesh serial.  ``auto`` (the default) lets the sizing
     rules below propose a worker count; ANYmesh still owns the eligibility
     gates (independent components, element estimates).  ``explicit`` names a
     positive worker count and bypasses sizing, never safety.
     """
 
-    mode: str = "off"
+    mode: str = "auto"
     workers: int | None = None
 
     def __post_init__(self) -> None:
@@ -152,7 +152,7 @@ def resolve_policy(
         if not isinstance(requested, MeshExecutionPolicy):
             raise ValueError("execution_policy must be a MeshExecutionPolicy")
         return requested
-    return environment_policy(environ) or MeshExecutionPolicy.off()
+    return environment_policy(environ) or MeshExecutionPolicy.auto()
 
 
 def auto_worker_count(
@@ -210,7 +210,7 @@ def parallel_mesh_api() -> tuple[Any, Any, str] | None:
     is ``"mesh"`` or ``"result"``, or ``None`` when the installed ANYmesh does
     not provide the agreed public API (older environments).  Nothing is
     imported unless a caller actually asks for parallel execution, so the
-    default ``off`` policy never loads parallel extras.
+    explicit ``off`` policy never loads parallel extras.
     """
 
     try:
@@ -251,7 +251,7 @@ def resolve_route(
 
     resolved = resolve_policy(policy)
     if not resolved.requests_parallel:
-        return MeshExecutionRoute("serial", reason="parallel meshing is off (the default)")
+        return MeshExecutionRoute("serial", reason="parallel meshing is off")
     if automation is not None:
         return MeshExecutionRoute(
             "serial", reason="automatic mesh recovery runs serially"

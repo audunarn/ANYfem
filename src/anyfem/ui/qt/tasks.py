@@ -43,9 +43,10 @@ class MeshTask(QWidget):
         self.order=QComboBox();self.order.addItems(["linear","quadratic"]);self.order.setCurrentText(app.project.element_order);form.addRow("Element order",self.order)
         self.layout_policy=QComboBox();self.layout_policy.addItems(["existing","adaptive"]);form.addRow("Quad-first layout policy",self.layout_policy)
         self.execution=QComboBox();self.execution.addItems(["Off","Automatic","Custom count"])
+        self.execution.setCurrentText("Automatic")
         self.execution.setToolTip("Component-parallel meshing through ANYmesh's public parallel API.\n"
-            "Off (default): serial meshing, nothing parallel is imported.\n"
-            "Automatic: proposes a bounded worker count; ANYmesh still applies its independence and size gates.\n"
+            "Off: serial meshing, nothing parallel is imported.\n"
+            "Automatic (default): proposes a bounded worker count; ANYmesh still applies its independence and size gates.\n"
             "Custom count: an explicit worker count bypasses the size gates, never the safety gates.")
         self.workers=QSpinBox();self.workers.setRange(1,61);self.workers.setValue(4);self.workers.setEnabled(False)
         self.workers.setToolTip("Worker count for 'Custom count' parallel meshing (execution-only; never affects the mesh hash).")
@@ -149,7 +150,7 @@ class MeshTask(QWidget):
         self.backend.setCurrentText(self.app.project.native_triangulation_backend)
         self.order.setCurrentText(self.app.project.element_order)
         self.layout_policy.setCurrentText(parameters.get("layout_policy","existing"))
-        self.execution.setCurrentText("Off");self.workers.setValue(4)
+        self.execution.setCurrentText("Automatic");self.workers.setValue(4)
 
     def refresh(self):
         self.generate.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only)

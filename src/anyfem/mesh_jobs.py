@@ -420,6 +420,11 @@ class MeshTaskManager:
                 raise RuntimeError("mesh task manager is closed")
             if self._active is not None:
                 raise ValueError("a mesh is already being generated")
+            # Freeze the effective default/environment choice before deciding
+            # whether the submitted job needs owned process containment.
+            from .mesh_execution import resolve_policy
+
+            settings = replace(settings, execution_policy=resolve_policy(settings.execution_policy))
             cancellation = _cancellation_token()
             future = self._executor.submit(
                 self._run, str(job_id), snapshot, settings, cancellation

@@ -171,9 +171,10 @@ separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
 
-Whole-project component-parallel meshing is opt-in and defaults to Off. Select
-it in the Mesh workspace or use `MeshExecutionPolicy`/`ANYFEM_MESH_WORKERS` for
-headless jobs. See [parallel meshing](docs/PARALLEL_MESHING.md) for eligible
+Whole-project component-parallel meshing defaults to Automatic. Select Off for
+serial execution or Custom count in the Mesh workspace; headless jobs accept
+`MeshExecutionPolicy`/`ANYFEM_MESH_WORKERS` overrides. Automatic retains serial
+fallbacks and component/size eligibility gates. See [parallel meshing](docs/PARALLEL_MESHING.md) for eligible
 routes, worker containment, measured evidence and remaining acceptance gates.
 
 From a source checkout, `python run_gui.py` first checks both imported module

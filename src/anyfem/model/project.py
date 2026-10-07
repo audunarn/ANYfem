@@ -1697,7 +1697,7 @@ class Project:
         self._last_mesh_execution: dict[str, object] = {
             "route": "serial",
             "workers": None,
-            "reason": "parallel meshing is off (the default)",
+            "reason": "selected meshing path runs serially",
         }
         from ..mesh_execution import MeshExecutionPolicy
 

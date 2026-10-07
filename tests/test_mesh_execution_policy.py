@@ -1,7 +1,7 @@
 """Focused units for the mesh execution policy: modes, env, sizing, routing.
 
 The policy is execution-only: it must stay a plain picklable dataclass, refuse
-invalid input, keep ``off`` as the default and fail closed to serial with an
+invalid input, keep ``auto`` as the default and fail closed to serial with an
 explicit reason on every unsupported path.
 """
 
@@ -29,13 +29,16 @@ from anyfem.mesh_execution import (
 )
 
 
-def test_off_is_the_default_and_requests_nothing():
+def test_automatic_is_the_default(monkeypatch):
+    monkeypatch.delenv(ENVIRONMENT_VARIABLE, raising=False)
     policy = MeshExecutionPolicy()
-    assert policy.mode == "off"
+    assert policy.mode == "auto"
     assert policy.workers is None
-    assert not policy.requests_parallel
-    assert resolve_policy(None, {}) == MeshExecutionPolicy.off()
-    assert resolve_policy(None) == MeshExecutionPolicy.off()
+    assert policy.requests_parallel
+    assert resolve_policy(None, {}) == MeshExecutionPolicy.auto()
+    assert resolve_policy(None) == MeshExecutionPolicy.auto()
+    assert resolve_policy(None, {ENVIRONMENT_VARIABLE: "off"}) == MeshExecutionPolicy.off()
+    assert resolve_policy(MeshExecutionPolicy.off(), {ENVIRONMENT_VARIABLE: "auto"}) == MeshExecutionPolicy.off()
 
 
 def test_invalid_policies_refuse():
@@ -112,7 +115,7 @@ def _api():
 def test_route_off_is_serial_with_reason():
     route = resolve_route(MeshExecutionPolicy.off(), strategy="auto", api=_api())
     assert not route.parallel
-    assert "off (the default)" in route.reason
+    assert route.reason == "parallel meshing is off"
 
 
 def test_route_refuses_unsupported_paths_before_the_api():

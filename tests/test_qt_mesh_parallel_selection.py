@@ -1,6 +1,6 @@
 """Offscreen Qt coverage for the MeshTask parallel-meshing selection.
 
-The workbench control is execution-only: Off by default, Automatic proposes a
+The workbench control is execution-only: Automatic by default proposes a
 bounded count, Custom count carries an explicit worker count, and the policy
 crosses into the async submission as a plain picklable dataclass (no Qt
 objects in the payload).
@@ -49,13 +49,13 @@ def _task(window, qapp):
     return task
 
 
-def test_parallel_selection_defaults_to_off(window, qapp):
+def test_parallel_selection_defaults_to_automatic(window, qapp):
     task = _task(window, qapp)
-    assert task.execution.currentText() == "Off"
+    assert task.execution.currentText() == "Automatic"
     assert not task.workers.isEnabled()
     policy = task.settings()["execution_policy"]
-    assert policy == MeshExecutionPolicy.off()
-    assert not policy.requests_parallel
+    assert policy == MeshExecutionPolicy.auto()
+    assert policy.requests_parallel
 
 
 def test_parallel_selection_automatic(window, qapp):
@@ -87,6 +87,16 @@ def test_parallel_selection_resets_to_off(window, qapp):
     qapp.processEvents()
     assert not task.workers.isEnabled()
     assert task.settings()["execution_policy"] == MeshExecutionPolicy.off()
+
+
+def test_project_settings_reset_restores_automatic(window, qapp):
+    task = _task(window, qapp)
+    task.execution.setCurrentText("Custom count")
+    task.workers.setValue(7)
+    task.reset_mesh_drafts()
+    assert task.execution.currentText() == "Automatic"
+    assert not task.workers.isEnabled()
+    assert task.settings()["execution_policy"] == MeshExecutionPolicy.auto()
 
 
 def test_the_policy_payload_is_plain_and_picklable(window, qapp):

@@ -229,3 +229,41 @@ def test_production_caller_rejects_a_wrong_policy_type():
     project = _tiny_project("parallel-bad-policy")
     with pytest.raises(Exception, match="MeshExecutionPolicy"):
         project.generate_mesh(target_size=0.5, execution_policy="auto")
+
+
+@pytest.mark.parametrize("requested,environment,expected,contained", [
+    (None, None, MeshExecutionPolicy.auto(), True),
+    (None, "off", MeshExecutionPolicy.off(), False),
+    (None, "3", MeshExecutionPolicy.explicit(3), True),
+    (MeshExecutionPolicy.off(), "auto", MeshExecutionPolicy.off(), False),
+])
+def test_async_submission_resolves_policy_before_containment(
+    monkeypatch, requested, environment, expected, contained
+):
+    from anyfem.document import DocumentSession
+    from anyfem.job_process import WorkerProcessError
+    from anyfem.mesh_jobs import MeshSettings, MeshTaskManager
+
+    if environment is None:
+        monkeypatch.delenv("ANYFEM_MESH_WORKERS", raising=False)
+    else:
+        monkeypatch.setenv("ANYFEM_MESH_WORKERS", environment)
+    monkeypatch.setattr("anyfem.mesh_execution.parallel_mesh_api",
+                        lambda: (_generate_ok, _FullOptions, "mesh"))
+    captured = []
+
+    def fake_spawn(snapshot, settings, cancellation, progress, use_tree, register, register_tree):
+        captured.append((settings.execution_policy, use_tree))
+        raise WorkerProcessError("fake worker stopped before meshing")
+
+    manager = MeshTaskManager(executor="process")
+    monkeypatch.setattr(manager, "_spawn_worker", fake_spawn)
+    try:
+        settings = MeshSettings.create(0.5, element_order="linear", execution_policy=requested)
+        manager.submit("default-policy", DocumentSession(Project("default-policy")).snapshot(),
+                       settings).result(timeout=5)
+        assert captured == [(expected, contained)]
+        assert settings.execution_policy is requested  # Submission leaves caller settings unchanged.
+        assert any(event.kind == "failed" for event in manager.poll())
+    finally:
+        manager.shutdown()
