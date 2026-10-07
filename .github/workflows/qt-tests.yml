@@ -138,6 +138,7 @@ jobs:
           tests/test_worker_retirement_edges.py
           tests/test_mesh_parallel_integration.py
       - name: Qt contained parallel mesh completion and cancellation
+        timeout-minutes: 5
         env:
           ANYFEM_RUN_QT_TESTS: '1'
           ANYFEM_RUN_PARALLEL_MESH_TESTS: '1'
@@ -147,6 +148,7 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
         run: >-
           python -m pytest tests/test_qt_mesh_parallel_integration.py -q
+          -o faulthandler_timeout=30
           --junitxml=reports/qt-parallel-mesh.xml
       - name: Linux Qt platform startup
         if: runner.os == 'Linux'

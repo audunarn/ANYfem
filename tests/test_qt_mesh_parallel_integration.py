@@ -4,12 +4,14 @@ import os
 import time
 from pathlib import Path
 
+import job_process_helpers
 import pytest
 
 if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1" or os.environ.get("ANYFEM_RUN_PARALLEL_MESH_TESTS") != "1":
     pytest.skip("requires explicit Qt and real parallel mesh acceptance", allow_module_level=True)
 
 from PySide6.QtCore import QTimer
+from anyfem import mesh_jobs
 from anyfem.io.project_file import save_project
 from anyfem.mesh_execution import MeshExecutionPolicy
 from parallel_mesh_contract import separated_plates
@@ -60,6 +62,32 @@ def prepare(window, tmp_path, count=16):
     window.open_project(str(path))
 
 
+def gate_for(tmp_path, monkeypatch):
+    """A unique per-test gate directory, inherited by worker and pool."""
+    gate = tmp_path / "mesh-gate"
+    gate.mkdir()
+    monkeypatch.setenv(job_process_helpers.MESH_GATE_ENV, str(gate))
+    monkeypatch.setattr(mesh_jobs, "mesh_job_entry", job_process_helpers.gated_mesh_job_entry)
+    return gate
+
+
+def wait_for_gated_pool(qapp, window, gate):
+    """Bounded synchronization on an acknowledged in-flight pool task.
+
+    The gated component writes its ready marker only once a submitted task is
+    actually executing in a pool worker, and that task cannot finish before
+    the release marker exists, so the job provably cannot have completed at
+    the barrier.  This depends on neither native meshing speed nor when the
+    UI event queue delivers progress messages.
+    """
+    wait_until(qapp, lambda: any(gate.glob("ready-*")))
+    tree = window.mesh_task_manager._tree
+    assert tree is not None
+    pids = owned_descendants(tree)
+    assert len(pids) >= 5, pids
+    return pids
+
+
 def test_real_qt_parallel_job_attaches_mesh_and_records_route(window, qapp, tmp_path):
     prepare(window, tmp_path, 4)
     record = window.generate_mesh_async(0.4, strategy="native", execution_policy=MeshExecutionPolicy.explicit(4))
@@ -72,18 +100,11 @@ def test_real_qt_parallel_job_attaches_mesh_and_records_route(window, qapp, tmp_
 
 def test_real_qt_parallel_cancel_does_not_attach_partial_mesh(window, qapp, tmp_path, monkeypatch):
     prepare(window, tmp_path)
-    stages = []
-    observe = window._observe_run_event
-
-    def track(kind, event):
-        stages.append(event.message)
-        observe(kind, event)
-
-    monkeypatch.setattr(window, "_observe_run_event", track)
+    gate = gate_for(tmp_path, monkeypatch)
     record = window.generate_mesh_async(0.04, strategy="native", execution_policy=MeshExecutionPolicy.explicit(4))
-    wait_until(qapp, lambda: any(text.startswith("parallel component ") for text in stages))
-    pids = owned_descendants(window.mesh_task_manager._tree)
-    assert len(pids) >= 5, "the parallel pool was not present before cancellation"
+    # The gate is never released: the gated tasks end through the production
+    # cooperative cancellation signal, not through the fault path.
+    pids = wait_for_gated_pool(qapp, window, gate)
     started = time.perf_counter()
     assert window.cancel_mesh()
     wait_until(qapp, lambda: record.status in ("completed", "failed", "cancelled"))
@@ -96,6 +117,7 @@ def test_real_qt_parallel_cancel_does_not_attach_partial_mesh(window, qapp, tmp_
 
 def test_real_qt_worker_crash_fails_without_retry(window, qapp, tmp_path, monkeypatch):
     prepare(window, tmp_path)
+    gate = gate_for(tmp_path, monkeypatch)
     stages = []
     observe = window._observe_run_event
 
@@ -105,36 +127,21 @@ def test_real_qt_worker_crash_fails_without_retry(window, qapp, tmp_path, monkey
 
     monkeypatch.setattr(window, "_observe_run_event", track)
     record = window.generate_mesh_async(0.04, strategy="native", execution_policy=MeshExecutionPolicy.explicit(4))
-    wait_until(qapp, lambda: any(text.startswith("parallel component ") for text in stages))
-    tree = window.mesh_task_manager._tree
-    pids = owned_descendants(tree)
-    assert len(pids) >= 5
-    if os.name == "nt":
-        import ctypes
-        worker_pid = next(pid for pid in pids if pid != tree._process.pid)
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.OpenProcess.restype = ctypes.c_void_p
-        kernel.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
-        kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = kernel.OpenProcess(1, False, worker_pid)  # PROCESS_TERMINATE
-        assert handle
-        try:
-            assert kernel.TerminateProcess(handle, 1)
-        finally:
-            kernel.CloseHandle(handle)
-    else:
-        import signal
-        # The frozen mesher's workers have a parent-watch thread; its separate
-        # guardian has one thread. Avoid fault-injecting into that guardian.
-        worker_pid = next(pid for pid in pids if pid != tree._process.pid
-                          and os.getpgid(pid) == pid
-                          and len(list(Path(f"/proc/{pid}/task").iterdir())) > 1)
-        os.kill(worker_pid, signal.SIGKILL)
+    pids = wait_for_gated_pool(qapp, window, gate)
+    (gate / "release").write_text("release", encoding="utf-8")
     wait_until(qapp, lambda: record.status in ("completed", "failed", "cancelled"))
     assert record.status == "failed", record.summary
     assert window.mesh is None
     assert not any("serial meshing fallback" in text for text in stages)
-    assert not [pid for pid in pids if _pid_alive(pid)]
+    assert not [pid for pid in pids if _pid_alive(pid)], "owned mesh workers survived the crash"
+    # The failure must be the injected pool-worker death itself, so an
+    # unrelated setup failure cannot pass this test.
+    messages = [
+        str(diagnostic.get("message", ""))
+        for diagnostic in record.diagnostics
+        if isinstance(diagnostic, dict)
+    ]
+    assert any("worker process died" in message for message in messages), record.diagnostics
 
 
 def test_qt_mesh_tick_measurement(window, qapp, tmp_path):

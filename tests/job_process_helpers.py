@@ -110,3 +110,79 @@ def touch_marker(*, project, progress, cancellation_token=None, path=""):
 
     pathlib.Path(str(path)).write_text("ran", encoding="utf-8")
     return "ran"
+
+
+#: Test-only environment variable naming the gate directory shared by the
+#: pytest process, the contained mesh worker and its pool workers.
+MESH_GATE_ENV = "_ANYFEM_TEST_MESH_GATE_DIR"
+
+#: Bounded gate wait: an unreleased, uncancelled gate fails the job instead
+#: of hanging the pool or the test.
+MESH_GATE_TIMEOUT_SECONDS = 15.0
+
+
+def gated_component(payload, *, cancellation_check=None):
+    """Test-only pool task: acknowledge receipt, wait for release, crash.
+
+    Replaces ANYmesher's ``_mesh_component`` for the duration of one gated
+    mesh job.  The per-PID ready marker is written the moment a submitted
+    task really starts executing in a pool worker; that acknowledged receipt
+    is the in-flight barrier the Qt fault tests synchronize on, because
+    while it is pending the job cannot complete.  The wait honours the pool's
+    cooperative cancellation signal and is bounded.  On release the worker
+    dies hard, like the pinned test-only crash hook: no exception, no
+    cleanup.
+    """
+    import pathlib
+
+    gate = os.environ.get(MESH_GATE_ENV)
+    if not gate:
+        raise RuntimeError(f"gated mesh component requires {MESH_GATE_ENV}")
+    gate_dir = pathlib.Path(gate)
+    (gate_dir / f"ready-{os.getpid()}").write_text("ready", encoding="utf-8")
+    release = gate_dir / "release"
+    deadline = time.monotonic() + MESH_GATE_TIMEOUT_SECONDS
+    while not release.exists():
+        if cancellation_check is not None:
+            cancellation_check("gated mesh component")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("gated mesh component was never released")
+        time.sleep(0.005)
+    os._exit(3)  # test-only injected pool-worker crash
+
+
+def gated_mesh_job_entry(*, project, progress, cancellation_token, settings, model_hash):
+    """``mesh_job_entry`` with the pool's component task gated for fault tests.
+
+    Temporarily replaces ``anymesher.component_parallel._mesh_component`` with
+    :func:`gated_component`, then calls the production entry point with the
+    unchanged production inputs and restores the component afterwards.  The
+    only intercepted thing is the per-task function the pool submits; every
+    other production path (planning, dispatch, join, cancellation, teardown)
+    runs for real.
+    """
+    import anyfem.mesh_jobs as mesh_jobs
+    import anymesher.component_parallel as component_parallel
+
+    original = component_parallel._mesh_component
+    component_parallel._mesh_component = gated_component
+    try:
+        return mesh_jobs.mesh_job_entry(
+            project=project,
+            progress=progress,
+            cancellation_token=cancellation_token,
+            settings=settings,
+            model_hash=model_hash,
+        )
+    finally:
+        component_parallel._mesh_component = original
+
+
+def _gated_error_diagnostic(error):
+    """Keep the production failure diagnostic; the gate never masks it."""
+    import anyfem.mesh_jobs as mesh_jobs
+
+    return mesh_jobs.mesh_job_entry.error_diagnostic(error)
+
+
+gated_mesh_job_entry.error_diagnostic = _gated_error_diagnostic
