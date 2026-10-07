@@ -10,12 +10,13 @@ coordinate rounding. The complete authored barge project also matches across
 all 12 runs. Loads, materials, tolerances, quality/admission requirements,
 candidate search and execution-policy defaults are unchanged.
 
-The source remains uncommitted on `codex/single-process-speedup` in
+The measured source was frozen before delivery on `codex/single-process-speedup` in
 `C:/ANYworkspaceWork/meshing-speedup-next-20261007/worktrees/{ANYgeometry,ANYmesh,ANYfem}`.
 Mistral authored the geometry and mesher slices; Astra supplied contracts,
-independent review, ANYfem integration and final acceptance. No version bump,
-publication, commit or push belongs to this milestone. Earlier delivery below
-is historical. Unrelated source edits in the primary checkouts were preserved.
+independent review, ANYfem integration and acceptance of the recorded campaign.
+Git delivery was subsequently authorized; its current status is recorded below.
+No version bump or package release is included. Earlier delivery below is
+historical. Unrelated source edits in the primary checkouts were preserved.
 
 ### Delivered changes
 
@@ -155,6 +156,28 @@ cumulative accounting, including failed and timeout attempts:
 
 ## Delivery and verification follow-through
 
+The measured changes are committed and pushed as draft pull requests:
+
+- [ANYgeometry #30](https://github.com/audunarn/ANYgeometry/pull/30):
+  `3b98599473d1e795ddbebf94dca539042e0d3628`.
+- [ANYmesh #11](https://github.com/audunarn/ANYmesh/pull/11):
+  `e764c751c471e03aa7005bca8bb47b3e84f33c5a`.
+- [ANYfem #12](https://github.com/audunarn/ANYfem/pull/12):
+  implementation `81090570d351d89dbdd08ef077d85386960eee88`, followed by
+  integration merge `3aa540ccb03d3187dfcfa695795df4ffbd9627ec` of main
+  `3e4eb7f206042931d496b98f39af5e2a40b5951f`. Ninety consumer tests passed
+  against that combined source in 17.222334 process seconds. This integration
+  check does not replace or relabel the frozen performance measurements.
+
+Delivery CI exposed existing main failures. ANYmesh development smoke has the
+same four failing node IDs on main run 37663276646 and candidate run 37690580036:
+finite-hull legality nonconvergence in `test_auto_mixed_faces_share_registry_identity`,
+and three recovery-hint failures against the old pinned geometry. ANYfem's clean
+installed build cannot import `Envelope` from the CI-pinned ANYloads revision, identically on
+main run 37685840570 and candidate run 37690586051. Raw logs are preserved in
+the evidence root as `delivery-*-ci*.log`. No failed gate is waived; draft PR
+delivery is distinct from main integration or release approval.
+
 The user authorized Git delivery followed by investigation of the two preserved
 verification timeouts. The measured implementation is being delivered first as
 three reviewable commits; disposable worker notes and diagnostics stay outside
@@ -170,6 +193,72 @@ stage. Compare baseline only where the result discriminates a cause. Preserve
 all prior failures and cumulative accounting; do not change scientific tolerances,
 mesh-search budgets or example geometry to make these checks pass. No new speedup
 scope is authorized by this follow-through.
+
+### Verification follow-up outcome
+
+The broad mesh-quality timeout is resolved by a separate correctness commit,
+`c1b2115`, after the measured speedup commit. Nonintrusive instrumentation of
+the original rotated-plate test captured a repeated finite-hull state at
+iterations 11 and 13. The four-station regression uses exact binary inputs and
+an independent Fraction determinant: the old in-circle filter returned wrong
+signs in 6 of 24 point orderings. Its error bound used cross products after
+cancellation. Bounding their constituent products instead retains the existing
+Decimal fallback and stops the demonstrated flip cycle. Scientific tolerances,
+candidate search and iteration limits are unchanged.
+
+Mistral's independent read review supports the minimal predicate correction.
+Astra implemented the repair after two bounded worker investigation runs ended
+without a reliable witness or final handoff; their useful checkpoint and failed
+probes remain preserved. The successful witness observes the original function
+without copying it. The earlier worker claim of duplicate automatic recovery
+routes was incorrect: with quad options the routes are quad_first, auto, native.
+
+- Before repair: exact-oracle check **6 failed, 18 passed**.
+- Source repair: **50 passed**, including the complete mesh-quality optimization
+  file and the mixed-face test that also failed in main CI; 40.396385 process s.
+- Fresh independently built repair wheels: **266 passed** across the predicate,
+  mesh-quality, hybrid, recovery and native-validation tests; 43.393396 process s.
+  Artifacts live in `artifacts/verification-repair`, with separate hashes and
+  build inputs. The original baseline/candidate measurement artifacts remain
+  unchanged. No new performance campaign or revised savings claim is implied.
+- One correctness-only barge run with the fresh repair wheels exactly matches
+  the measured candidate mesh/material hash and authored geometry hash, with
+  four candidates, one connectivity application and unchanged operation counts.
+  Evidence: `fem-checks/delivery-repair-barge-equivalence` (35.124834 process s).
+  This was an equivalence check, not a new before/after timing pair.
+- ANYgeometry CI ran **2,883 passing tests and one failing fixture** on both
+  Linux and Windows. NumPy changed its exception wording. Test-only commit
+  `2879048bbe5f779992220ad44c2cd2f4e3edd3cb` compares the wrapper's exception with
+  the installed NumPy oracle; **19 focused tests passed**. Production geometry
+  is unchanged; the CI rerun is pending at this checkpoint.
+- ANYmesh development smoke now pins that verified geometry owner in commit
+  `0f555088b41093cf6b4c2c8532a526fbc525da14`; historical qualification inputs
+  and public dependency ranges remain unchanged. The previous owner pin lacked
+  the contracts required by three existing recovery tests. Both push and PR
+  development smoke checks are now green.
+
+**Still open:** the unchanged schema6 inspection-only test now reaches its own
+120-second recovery budget and raises `MeshRecoveryIncomplete` at triangle
+recombination start (125.737436 process s). A bounded probe observed 1,280
+distinct finite-hull states for 796 points and 1,485 triangles in 33.47 s, without
+a repeated-state witness. This is remaining Python-path work, not proof of a
+second cycle. A local cache experiment matched exact connectivity and callback
+sequences on six reference inputs but did not close the original budget gate
+(125.176489 process s). The cache was removed from delivered source; its patch,
+review and evidence are preserved. No test budget or assertion was relaxed.
+
+The draft PRs therefore deliver the measured improvement and the separately
+verified predicate repair, but do not establish complete verification or main
+merge readiness. The schema6 gate and unrelated ANYfem pinned-dependency CI
+failure remain explicit limitations. No main branch or package release was
+modified by this delivery. Primary local main branches matched their fetched
+GitHub main refs at the delivery inspection.
+
+Evidence: `finite-hull-witness.json`, `mesher-checks/gap-*`,
+`verification-gap-worker-01.log`, `verification-gap-worker-02.log`,
+`verification-gap-review.log`, `verification-gap-cache-review.log`,
+`legality-cache-comparison.json`, and
+`predicate-and-legality-cache-investigation.diff` under the evidence root.
 
 ## Earlier milestone and main delivery — historical
 
