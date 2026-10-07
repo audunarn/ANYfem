@@ -83,6 +83,13 @@ def _commercial_selection_api() -> Optional[dict[str, Any]]:
         return None
 
 
+# Tessellated curved geometry (cylinders, cones, pipe sections) is drawn with
+# smoothed normals up to this angle between neighbouring faces, so facets are
+# not visible while box and plate edges stay sharp.  Finite element meshes and
+# results always stay flat: each element must remain distinguishable.
+GEOMETRY_SMOOTH_ANGLE = 35.0
+
+
 # Each (colour, width, overlay) line style is one retained mesh and one draw
 # call.  Result views colour every beam from a continuous ramp, which produced
 # one mesh per distinct colour (349 for the barge example, about 70 microseconds
@@ -932,6 +939,19 @@ class SceneViewport:
         return outline, opacity, lit
 
 
+    def _smooth_options(self, patches) -> dict[str, Any]:
+        """``smooth_angle`` for geometry patches on a viewer that supports it.
+
+        Mesh and result patches carry one owner set per polygon and stay flat.
+        """
+
+        capabilities = getattr(self.canvas, "capabilities", None)
+        if not bool(getattr(capabilities, "smooth_normals", False)):
+            return {}
+        if any(patch.polygon_owners is not None for patch in patches):
+            return {}
+        return {"smooth_angle": GEOMETRY_SMOOTH_ANGLE}
+
     def _draw_face_patch(self, patch) -> None:
         """Submit one legacy-compatible semantic face patch."""
 
@@ -956,6 +976,7 @@ class SceneViewport:
             binding = self._pick_binding(patch.owners_for_polygon(0), patch.tag)
             if binding is not None:
                 options["bindings"] = binding
+        options.update(self._smooth_options((patch,)))
         self.canvas.add_faces(
             [polygon.tolist() for polygon in patch.polygons],
             **options,
@@ -1008,6 +1029,7 @@ class SceneViewport:
                 lit=lit,
                 tags="",
                 bindings=bindings,
+                **self._smooth_options(group),
             )
 
 

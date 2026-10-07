@@ -426,6 +426,57 @@ def test_batched_mesh_patches_keep_their_distinct_per_polygon_owners(
     ]
 
 
+def _square_patch(identifier, *, mesh=False):
+    square = np.asarray([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
+    kwargs = {}
+    if mesh:
+        kwargs["polygon_owners"] = [(MeshEntityRef("element", identifier),)]
+    return FacePatch(
+        EntityRef("face", identifier) if not mesh else None,
+        [square], ["#7799bb"], **kwargs,
+    )
+
+
+def test_geometry_faces_ask_for_smooth_normals_when_the_viewer_supports_them(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+    viewport.canvas.capabilities = SimpleNamespace(smooth_normals=True)
+
+    viewport.show(Scene(faces=[_square_patch(1)]))                    # one patch
+    viewport.show(Scene(faces=[_square_patch(2), _square_patch(3)]))  # batched
+
+    single, batched = (call[1] for call in viewport.canvas.face_calls[-2:])
+    assert single["smooth_angle"] == presentation_viewport.GEOMETRY_SMOOTH_ANGLE
+    assert batched["smooth_angle"] == presentation_viewport.GEOMETRY_SMOOTH_ANGLE
+
+
+def test_mesh_and_result_faces_stay_flat_even_on_a_smoothing_viewer(
+    monkeypatch,
+) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))
+    viewport.canvas.capabilities = SimpleNamespace(smooth_normals=True)
+
+    viewport.show(Scene(faces=[_square_patch(1, mesh=True)]))
+    # A batch containing any per-polygon (mesh) patch is not smoothed either.
+    viewport.show(Scene(faces=[_square_patch(2), _square_patch(3, mesh=True)]))
+
+    for _polygons, options in viewport.canvas.face_calls[-2:]:
+        assert "smooth_angle" not in options
+
+
+def test_viewers_without_the_capability_never_receive_smooth_angle(monkeypatch) -> None:
+    viewport = _viewport(monkeypatch, Selection("face"))  # RichCanvas: no capabilities
+
+    viewport.show(Scene(faces=[_square_patch(1)]))
+    viewport.show(Scene(faces=[_square_patch(2), _square_patch(3)]))
+    viewport.canvas.capabilities = SimpleNamespace(smooth_normals=False)
+    viewport.show(Scene(faces=[_square_patch(4)]))
+
+    for _polygons, options in viewport.canvas.face_calls:
+        assert "smooth_angle" not in options
+
+
 def test_geometry_lines_are_one_retained_batch_with_segment_owners(monkeypatch) -> None:
     viewport = _viewport(monkeypatch, Selection("edge"))
     scene = Scene(
