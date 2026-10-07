@@ -18,6 +18,11 @@ import tempfile
 
 from anymaterial import DNVC208MaterialCurve
 from anysolver import b3_ge, stiffened_shell
+from .stiffened_shell_ge_distributing_displacement import (
+    SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT,
+    SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT,
+    decode_request, encode_request, exact_route_capabilities, validate_request,
+)
 
 
 SCHEMA = "anyfem.experimental-ge-point-panel-v1"
@@ -919,6 +924,8 @@ class ExperimentalGEFiniteDistributingPanel:
     actions: tuple[stiffened_shell.NodalAction, ...] = ()
     finite_distributing_footprints: tuple = ()
     q4_pullback_policy: str = field(default=stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1)
+    displacement_control: object | None = field(default=None, kw_only=True)
+    displacement_seed_factors: tuple = field(default=(), kw_only=True)
 
     @staticmethod
     def _public_contract():
@@ -945,6 +952,7 @@ class ExperimentalGEFiniteDistributingPanel:
             object.__setattr__(self, name, getattr(reference, name))
         object.__setattr__(self, "finite_distributing_footprints",
             tuple(footprint(g) for g in reference.distributing_footprints))
+        validate_request(self)
 
     @property
     def status(self): return STATUS
@@ -958,7 +966,8 @@ class ExperimentalGEFiniteDistributingPanel:
             tuple(g.footprint.footprint_id for g in self.finite_distributing_footprints))
 
     @classmethod
-    def from_definition(cls, definition, actions=()):
+    def from_definition(cls, definition, actions=(), *, displacement_control=None,
+                        displacement_seed_factors=()):
         footprint = cls._public_contract()
         if (type(definition) is not stiffened_shell.LinearDefinition or
                 type(definition.finite_distributing_footprints) is not tuple or
@@ -970,7 +979,9 @@ class ExperimentalGEFiniteDistributingPanel:
             finite_distributing_footprints=(),
             distributing_footprints=tuple(g.footprint for g in definition.finite_distributing_footprints)))
         return cls(definition.shell, definition.beams, definition.points, definition.fixed, actions,
-                   definition.finite_distributing_footprints, definition.q4_pullback_policy)
+                   definition.finite_distributing_footprints, definition.q4_pullback_policy,
+                   displacement_control=displacement_control,
+                   displacement_seed_factors=displacement_seed_factors)
 
     def definition(self):
         return stiffened_shell.LinearDefinition(stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1,
@@ -985,9 +996,9 @@ class ExperimentalGEFiniteDistributingPanel:
             if (type(caps) is not dict or caps.get("status") != STATUS or
                     caps.get("profile") != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                     caps.get("distributing_footprint_law") != FINITE_DISTRIBUTING_LAW or
-                    caps.get("analysis") != ("nonlinear_force",) or
+                    not exact_route_capabilities(caps, "finite_distributing",
+                        self.displacement_control is not None) or
                     caps.get("loads") != ("nodal dead translation forces",) or
-                    caps.get("checkpoints") != ("finite_distributing",) or
                     not callable(getattr(owner, "recover", None)) or type(preflight) is not dict or
                     type(preflight.get("identity")) is not str or len(preflight["identity"]) != 64 or
                     preflight.get("constraints") != 6*(len(self.points)+len(self.finite_distributing_footprints))):
@@ -1005,10 +1016,12 @@ class ExperimentalGEFiniteDistributingPanel:
                 law=FINITE_DISTRIBUTING_LAW, footprint_id=g.footprint.footprint_id,
                 host_element_ids=list(g.footprint.host_element_ids), beam_node_id=g.footprint.beam_node_id,
                 bounds_xy_m=list(g.footprint.bounds_xy_m)) for g in self.finite_distributing_footprints])
-        return record
+        return encode_request(record, self, SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT)
 
     @classmethod
     def from_dict(cls, value):
+        value, request = decode_request(value, SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT,
+                                        SCHEMA_FINITE_DISTRIBUTING)
         data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams", "points", "fixed",
             "actions", "q4_pullback_policy", "law", "admission", "finite_distributing_footprints"},
             "finite-distributing GE panel")
@@ -1031,7 +1044,7 @@ class ExperimentalGEFiniteDistributingPanel:
                 _ids(row["host_element_ids"],"host element IDs"), _positive_int(row["beam_node_id"],"beam node ID"),
                 tuple(_finite_number(v,"rectangle bounds") for v in row["bounds_xy_m"]))))
         owned=_parse_point_components(dict(data,schema=SCHEMA_Q4_PULLBACK),data["q4_pullback_policy"])
-        return cls(*owned[:5],tuple(groups),owned[5])
+        return cls(*owned[:5],tuple(groups),owned[5], **request)
 
 
 @dataclass(frozen=True)
@@ -1591,9 +1604,9 @@ def load_case(path: str | Path) -> ExperimentalGEPointPanel | ExperimentalGEBL5P
         return ExperimentalGENodalRigidFootprintPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_MODAL:
         return ExperimentalGEReferenceModalPanel.from_dict(data)
-    if type(data) is dict and data.get("schema") == SCHEMA_FINITE_DISTRIBUTING:
+    if type(data) is dict and data.get("schema") in (SCHEMA_FINITE_DISTRIBUTING, SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT):
         return ExperimentalGEFiniteDistributingPanel.from_dict(data)
-    if type(data) is dict and data.get("schema") == SCHEMA_FINITE_DISTRIBUTING_MATERIAL:
+    if type(data) is dict and data.get("schema") in (SCHEMA_FINITE_DISTRIBUTING_MATERIAL, SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT):
         return ExperimentalGEFiniteDistributingMaterialPanel.from_dict(data)
     if type(data) is dict and data.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
         return ExperimentalGEReferenceDistributingPanel.from_dict(data)

@@ -18,6 +18,8 @@ from .stiffened_shell import (
     ExperimentalGEPointPanel, ExperimentalGENodalRigidFootprintPanel, ExperimentalGEReferenceDistributingPanel,
     ExperimentalGEFiniteDistributingPanel, SCHEMA_FINITE_DISTRIBUTING,
     ExperimentalGEFiniteDistributingMaterialPanel, SCHEMA_FINITE_DISTRIBUTING_MATERIAL,
+    SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT,
+    SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT,
     SCHEMA_REFERENCE_DISTRIBUTING,
     SCHEMA_NODAL_FOOTPRINT, SCHEMA_NODAL_FOOTPRINT_CHART_V2,
     ExperimentalGEReferenceModalPanel, SCHEMA_REFERENCE_MODAL,
@@ -145,9 +147,9 @@ def _decode_point_panel(analysis_type, formulation, record):
         raise ValueError("strict experimental mesh-native point-panel payload required")
     payload = _owned_json(record["panel"])
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
-        if type(payload) is dict and payload.get("schema") == SCHEMA_FINITE_DISTRIBUTING_MATERIAL:
+        if type(payload) is dict and payload.get("schema") in (SCHEMA_FINITE_DISTRIBUTING_MATERIAL, SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT):
             return ExperimentalGEFiniteDistributingMaterialPanel.from_dict(payload)
-        if type(payload) is dict and payload.get("schema") == SCHEMA_FINITE_DISTRIBUTING:
+        if type(payload) is dict and payload.get("schema") in (SCHEMA_FINITE_DISTRIBUTING, SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT):
             return ExperimentalGEFiniteDistributingPanel.from_dict(payload)
         if type(payload) is dict and payload.get("schema") == SCHEMA_REFERENCE_DISTRIBUTING:
             return ExperimentalGEReferenceDistributingPanel.from_dict(payload)
@@ -217,11 +219,26 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
     nodal footprint selects its declared V1 or V2 finite chart policy through
     its persisted input and requests finite stepping by supplying targets;
     selected group recovery/restart remains on the fresh public owner.
+    An explicitly persisted finite distributing displacement request first
+    accepts its ordinary-force seed on this fresh owner, then solves absolute
+    signed physical translation targets. Its observer receives displacement
+    publications only. To restore or continue an accepted prefix, use
+    create_point_panel_analysis and the public owner's checkpoint/restore/solve;
+    this convenience function creates a fresh owner on every call.
     """
     panel = point_panel_from_analysis(analysis)
     finite_distributing = type(panel) in (ExperimentalGEFiniteDistributingPanel, ExperimentalGEFiniteDistributingMaterialPanel)
+    displacement = finite_distributing and panel.displacement_control is not None
     if finite_distributing and (targets is None or increment_control is not None or on_case is not None):
-        raise ValueError("finite distributing Project input requires explicit monotone targets; adaptive/batch controls unsupported")
+        raise ValueError("finite distributing Project input requires explicit targets; adaptive/batch controls unsupported")
+    if displacement:
+        # Refuse malformed requests before constructing an owner or publishing
+        # a seed. Physical admission and predecessor target checks stay solver-owned.
+        from .stiffened_shell_ge_distributing_displacement import (
+            validate_targets, validate_execution_options,
+        )
+        targets = validate_targets(targets)
+        validate_execution_options(on_accepted, max_iterations, max_backtracks)
     if type(panel) is ExperimentalGEReferenceDistributingPanel and (
             targets is not None or increment_control is not None or on_accepted is not None or
             on_case is not None or max_iterations != 12 or max_backtracks != 8):
@@ -253,6 +270,14 @@ def solve_point_panel(analysis, *, cancellation_token=None, on_case=None,
         raise ValueError("staged GE solve requires explicit programme-position targets")
     owner = panel.create_analysis()
     try:
+        if displacement:
+            owner.solve(panel.actions, panel.displacement_seed_factors,
+                        cancellation_token=cancellation_token,
+                        max_iterations=max_iterations, max_backtracks=max_backtracks)
+            return owner.solve(panel.actions, targets,
+                               displacement_control=panel.displacement_control,
+                               cancellation_token=cancellation_token, on_accepted=on_accepted,
+                               max_iterations=max_iterations, max_backtracks=max_backtracks)
         if finite_distributing or staged or footprint_finite or body_finite or distributed_finite or pressure_finite:
             load = panel.actions if footprint_finite else panel.load_input
             return owner.solve(load, targets, cancellation_token=cancellation_token,

@@ -11,6 +11,10 @@ import json
 
 from anymaterial import DNVC208MaterialCurve
 from anysolver import b3_ge, stiffened_shell
+from .stiffened_shell_ge_distributing_displacement import (
+    SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT,
+    decode_request, encode_request, exact_route_capabilities, validate_request,
+)
 
 
 SCHEMA_FINITE_DISTRIBUTING_MATERIAL = (
@@ -35,6 +39,8 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
     finite_distributing_footprints: tuple = ()
     q4_pullback_policy: str = field(default=stiffened_shell.Q4_ALGORITHMIC_PULLBACK_V1)
     finite_distributing_material_policy: str = field(kw_only=True)
+    displacement_control: object | None = field(default=None, kw_only=True)
+    displacement_seed_factors: tuple = field(default=(), kw_only=True)
 
     @staticmethod
     def _public_contract():
@@ -117,6 +123,7 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         for name in ("beams", "points", "fixed", "actions",
                      "finite_distributing_footprints", "q4_pullback_policy"):
             object.__setattr__(self, name, getattr(elastic, name))
+        validate_request(self)
 
     @staticmethod
     def _section_families(beams):
@@ -149,7 +156,8 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
             tuple(group.footprint.footprint_id for group in self.finite_distributing_footprints))
 
     @classmethod
-    def from_definition(cls, definition, actions=()):
+    def from_definition(cls, definition, actions=(), *, displacement_control=None,
+                        displacement_seed_factors=()):
         from .stiffened_shell import ExperimentalGEFiniteDistributingPanel
 
         policies = cls._public_contract()
@@ -185,7 +193,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         return cls(definition.shell, definition.beams, definition.points,
                    definition.fixed, elastic.actions, definition.finite_distributing_footprints,
                    definition.q4_pullback_policy,
-                   finite_distributing_material_policy=definition.finite_distributing_material_policy)
+                   finite_distributing_material_policy=definition.finite_distributing_material_policy,
+                   displacement_control=displacement_control,
+                   displacement_seed_factors=displacement_seed_factors)
 
     def definition(self):
         from .stiffened_shell import ExperimentalGEFiniteDistributingPanel
@@ -223,9 +233,9 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
                     caps.get("profile") != stiffened_shell.B3_GE_E4_PL_STIFFENED_SHELL_V1 or
                     caps.get("distributing_footprint_law") != FINITE_DISTRIBUTING_LAW or
                     caps.get("material_policy") != self.finite_distributing_material_policy or
-                    caps.get("analysis") != ("nonlinear_force",) or
+                    not exact_route_capabilities(caps, checkpoint_kind,
+                        self.displacement_control is not None) or
                     caps.get("loads") != ("nodal dead translation forces",) or
-                    caps.get("checkpoints") != (checkpoint_kind,) or
                     (native and (caps.get("beam_section_families") !=
                         self._section_families(self.beams) or
                         caps.get("beam") != "physical axial/biaxial fibre and generalized material B3 with native retained coordinates")) or
@@ -262,7 +272,7 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         self._require_policy(self.finite_distributing_material_policy, policies)
         if self.finite_distributing_material_policy in policies[2:]:
             record["admission"] = FINITE_DISTRIBUTING_CYCLIC_ADMISSION
-        return record
+        return encode_request(record, self, SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT)
 
     @classmethod
     def from_dict(cls, value):
@@ -272,6 +282,8 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
             SCHEMA_Q4_PULLBACK, STATUS, _exact_fields, _parse_point_components,
         )
 
+        value, request = decode_request(value, SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT,
+                                        SCHEMA_FINITE_DISTRIBUTING_MATERIAL)
         data = _exact_fields(value, {"schema", "status", "profile", "shell", "beams",
             "points", "fixed", "actions", "q4_pullback_policy", "law", "admission",
             "finite_distributing_footprints", "finite_distributing_material_policy"},
@@ -301,7 +313,7 @@ class ExperimentalGEFiniteDistributingMaterialPanel:
         return cls(owned[0], elastic.beams, elastic.points, elastic.fixed,
                    elastic.actions, elastic.finite_distributing_footprints,
                    elastic.q4_pullback_policy,
-                   finite_distributing_material_policy=policy)
+                   finite_distributing_material_policy=policy, **request)
 
 
 __all__ = ["ExperimentalGEFiniteDistributingMaterialPanel",
