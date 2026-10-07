@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from dataclasses import replace
 import queue
 import threading
 import traceback
@@ -89,8 +91,18 @@ class MeshSettings:
     quad_options: object | None = None
     layout_policy: str = "existing"
     automation: object | None = None
+    # Execution-only: how much parallelism the *submission* asks for.  It is
+    # deliberately excluded from ``input_hash`` (a serial and a parallel run of
+    # the same mesh inputs must share the reproducibility hash) and never
+    # enters the project or the mesh artifact.
+    execution_policy: object | None = None
 
     def __post_init__(self) -> None:
+        if self.execution_policy is not None:
+            from .mesh_execution import MeshExecutionPolicy
+
+            if not isinstance(self.execution_policy, MeshExecutionPolicy):
+                raise TypeError("execution_policy must be a MeshExecutionPolicy")
         if self.automation is not None:
             try:
                 from anymesher import MeshAutomationOptions
@@ -168,6 +180,7 @@ class MeshSettings:
         quad_options: object | None = None,
         layout_policy: str = "existing",
         automation: object | None = None,
+        execution_policy: object | None = None,
     ) -> "MeshSettings":
         size = float(target_size)
         if size <= 0.0:
@@ -185,6 +198,7 @@ class MeshSettings:
             layout_policy=layout_policy,
             automation=automation,
             structure_preference=structure_preference,
+            execution_policy=execution_policy,
             quality_policy=tuple(
                 sorted((str(key), float(value)) for key, value in (quality_policy or {}).items())
             ),
@@ -240,6 +254,9 @@ class MeshJobResult:
     mesh_hash: str
     quality: Mapping[str, Any]
     structural_preparation: Mapping[str, Any]
+    # Execution-only route record (route/workers/reason, parallel summary);
+    # never part of any hash or the persisted project.
+    execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
 
 def mesh_semantic_hash(
@@ -269,6 +286,14 @@ def mesh_semantic_hash(
         hybrid_diagnostics.pop("geometry_model_id", None)
         hybrid_diagnostics.pop("geometry_revision", None)
         hybrid_diagnostics.pop("structural_preparation_hash", None)
+        parallel = hybrid_diagnostics.get("parallel")
+        if isinstance(parallel, Mapping):
+            # The exact agreed ``parallel.runtime`` block (worker counts,
+            # timings, element estimates) is execution-only and must not enter
+            # the mesh hash; the deterministic route metadata beside it stays.
+            parallel = dict(parallel)
+            parallel.pop("runtime", None)
+            hybrid_diagnostics["parallel"] = parallel
 
         def without_runtime_timings(value: Any) -> Any:
             if isinstance(value, Mapping):
@@ -358,6 +383,7 @@ class MeshTaskManager:
         # "thread" (the library default) or "process"; see anyfem.job_process.
         self.executor = _resolve_executor(executor)
         self._process: Any = None  # the worker process while a "process" mesh runs
+        self._tree: Any = None  # the owned worker tree while a contained mesh runs
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="anyfem-mesh"
         )
@@ -440,8 +466,16 @@ class MeshTaskManager:
             if active is not None:
                 active.cancellation.cancel("application is closing")
             process = self._process
+            tree = self._tree
         # A worker process does not wait for a cooperative safe point on exit.
-        if process is not None and process.is_alive():
+        # The registered owned tree is retired FIRST: it covers the outer
+        # worker AND any pool children, so touching the outer process
+        # separately is out of order.  The standalone process is terminated
+        # only when no tree is registered.
+        if tree is not None:
+            # Bounded and idempotent, and never an unowned PID or group.
+            tree.terminate()
+        elif process is not None and process.is_alive():
             process.terminate()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
@@ -468,13 +502,22 @@ class MeshTaskManager:
             if self.executor == "process":
                 result = self._run_in_worker(snapshot, settings, cancellation, progress)
             else:
+                serial_settings = self._thread_executor_settings(settings, progress)
                 result = run_mesh_job(
                     snapshot.thaw(),
                     snapshot.revision.model_hash,
-                    settings,
+                    serial_settings,
                     progress,
                     cancellation,
                 )
+                if serial_settings is not settings:
+                    execution = dict(result.execution)
+                    execution["route"] = "serial"
+                    execution["workers"] = None
+                    execution["reason"] = (
+                        "the thread executor cannot contain a parallel mesh worker tree"
+                    )
+                    result = replace(result, execution=execution)
         except BaseException as error:  # noqa: BLE001 - retained as diagnostics
             if _is_cancelled(cancellation):
                 self._events.put(
@@ -494,6 +537,26 @@ class MeshTaskManager:
             MeshJobEvent(job_id, "completed", "mesh generation complete", result)
         )
 
+    def _thread_executor_settings(
+        self,
+        settings: MeshSettings,
+        progress: Any,
+    ) -> MeshSettings:
+        """The in-process thread executor cannot own a worker tree: force serial."""
+
+        policy = settings.execution_policy
+        if policy is None or not policy.requests_parallel:
+            return settings
+        progress(
+            "execution",
+            "serial meshing: the thread executor cannot contain a parallel "
+            "mesh worker tree",
+            0.15,
+        )
+        from .mesh_execution import MeshExecutionPolicy
+
+        return replace(settings, execution_policy=MeshExecutionPolicy.off())
+
     def _run_in_worker(
         self,
         snapshot: ProjectSnapshot,
@@ -504,6 +567,14 @@ class MeshTaskManager:
         """Mesh in a separate process, so meshing cannot take the GUI's interpreter lock.
 
         See :mod:`anyfem.job_process`.  The mesh comes back through the public codec.
+        A submission whose execution policy asks for parallel meshing runs in a
+        contained, non-daemonic worker tree (the ANYmesh pool creates children);
+        when containment cannot be established the job falls back to an
+        ordinary serial worker *before anything is dispatched*, with the reason
+        recorded -- unless the manager is closing, in which case nothing is
+        dispatched at all, or the refusal carries cleanup failures, in which
+        case the job fails rather than spawn any further worker.  A failure
+        after execution begins is never retried serially.
         """
 
         def forward(value: Any) -> None:
@@ -512,23 +583,93 @@ class MeshTaskManager:
 
         def register(process: Any) -> None:
             with self._lock:
+                if self._closing:
+                    # shutdown() already ran: refuse ownership so no worker
+                    # may run (or keep running) after shutdown.  The caller
+                    # tears the worker down; the cancelled token reports the
+                    # job as cancelled.
+                    raise RuntimeError(
+                        "mesh task manager is closing; no mesh worker may start"
+                    )
                 self._process = process
-                if self._closing and process.is_alive():
-                    process.terminate()  # shutdown ran before the worker existed
 
+        def register_tree(process: Any, tree: Any) -> None:
+            with self._lock:
+                if self._closing:
+                    # shutdown() ran before the tree was registered here:
+                    # refuse the registration so nothing is dispatched after
+                    # shutdown.  The caller terminates the tree.
+                    raise RuntimeError(
+                        "mesh task manager is closing; no parallel mesh tree may "
+                        "be registered"
+                    )
+                self._tree = tree
+
+        policy = settings.execution_policy
+        contained = False
+        if policy is not None and policy.requests_parallel:
+            from .mesh_execution import parallel_mesh_api
+
+            if parallel_mesh_api() is not None:
+                # Only a route that can actually go parallel needs the
+                # contained tree; a missing API resolves serial inside the
+                # ordinary daemon worker.
+                contained = True
+            else:
+                progress(
+                    "execution",
+                    "serial meshing: this ANYmesher installation does not "
+                    "provide the parallel meshing API",
+                    0.15,
+                )
         try:
-            transport = run_in_worker_process(
-                function=mesh_job_entry,
-                kwargs={"settings": settings, "model_hash": snapshot.revision.model_hash},
-                snapshot=snapshot,
-                project_override=None,
-                progress=forward,
-                token=cancellation,
-                on_process=register,
+            transport = self._spawn_worker(
+                snapshot, settings, cancellation, forward, contained, register, register_tree
             )
+        except WorkerProcessError as error:
+            if not contained or error.remote_type != "ContainmentUnavailable":
+                raise
+            with self._lock:
+                closing = self._closing
+            if closing:
+                # Containment failed while the application is closing: never
+                # dispatch a fallback worker after shutdown.
+                raise
+            if getattr(error, "cleanup_failures", None):
+                # Containment failed AND its worker tree could not be
+                # cleaned up: the environment cannot be trusted to run any
+                # worker right now, so the serial fallback is refused and
+                # the job fails with the original refusal (cleanup details
+                # attached).  A pure predispatch refusal carries no cleanup
+                # failures and still falls back.
+                raise
+            # Containment failed at startup, before any pool dispatch: one
+            # serial fallback is allowed and the reason is surfaced.
+            reason = f"contained worker unavailable: {error}"
+            progress("execution", f"serial meshing fallback: {reason}", 0.15)
+            from .mesh_execution import MeshExecutionPolicy
+
+            serial_settings = replace(
+                settings, execution_policy=MeshExecutionPolicy.off()
+            )
+            transport = self._spawn_worker(
+                snapshot,
+                serial_settings,
+                cancellation,
+                forward,
+                False,
+                register,
+                register_tree,
+            )
+            execution = dict(transport.execution)
+            execution["route"] = "serial"
+            execution["workers"] = None
+            execution["reason"] = reason
+            transport = replace(transport, execution=execution)
         finally:
             with self._lock:
                 self._process = None
+                self._tree = None
         from anymesher.serialize import mesh_from_dict
 
         return MeshJobResult(
@@ -536,6 +677,29 @@ class MeshTaskManager:
             mesh_hash=transport.mesh_hash,
             quality=transport.quality,
             structural_preparation=transport.structural_preparation,
+            execution=transport.execution,
+        )
+
+    def _spawn_worker(
+        self,
+        snapshot: ProjectSnapshot,
+        settings: MeshSettings,
+        cancellation: Any,
+        progress: Any,
+        contained: bool,
+        register: Any,
+        register_tree: Any,
+    ) -> Any:
+        return run_in_worker_process(
+            function=mesh_job_entry,
+            kwargs={"settings": settings, "model_hash": snapshot.revision.model_hash},
+            snapshot=snapshot,
+            project_override=None,
+            progress=progress,
+            token=cancellation,
+            on_process=register,
+            containment=contained,
+            on_tree=register_tree if contained else None,
         )
 
 
@@ -590,6 +754,29 @@ def run_mesh_job(
     progress("snapshot", "prepared immutable model snapshot", 0.1)
     cancellation.raise_if_cancelled("mesh generation")
     progress("generation", "generating mesh elements", 0.2)
+    last_parallel_stage = None
+
+    def check_and_report(stage):
+        nonlocal last_parallel_stage
+        cancellation.raise_if_cancelled(stage)
+        # The owner polls cancellation repeatedly while waiting. Forward only
+        # changed public component stages so the run monitor remains useful
+        # without flooding the GUI thread with identical updates.
+        text = str(stage)
+        if text.startswith("parallel ") and text != last_parallel_stage:
+            fraction = 0.2
+            words = text.split()
+            if len(words) == 5 and words[:2] == ["parallel", "component"] and words[3] == "of":
+                try:
+                    done, total = int(words[2]), int(words[4])
+                except ValueError:
+                    pass  # unfamiliar owner stage stays a useful text update
+                else:
+                    if total > 0:
+                        fraction += 0.6 * min(1.0, max(0.0, done / total))
+            progress("generation", text, fraction)
+            last_parallel_stage = text
+
     mesh = project.generate_mesh(
         settings.target_size,
         overrides=dict(settings.overrides),
@@ -602,7 +789,32 @@ def run_mesh_job(
         quad_options=settings.quad_options,
         layout_policy=settings.layout_policy,
         automation=settings.automation,
-        cancellation_check=cancellation.raise_if_cancelled,
+        cancellation_check=check_and_report,
+        execution_policy=settings.execution_policy,
+    )
+    execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
+    parallel_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
+    if isinstance(parallel_diagnostics, Mapping):
+        parallel_summary = parallel_diagnostics.get("parallel")
+        if isinstance(parallel_summary, Mapping):
+            # Deterministic route/component metadata only; the runtime block
+            # (counts/timings/estimates) stays execution-only.
+            execution["parallel"] = {
+                key: value
+                for key, value in parallel_summary.items()
+                if key != "runtime"
+            }
+    route = execution.get("route", "serial")
+    workers = execution.get("workers")
+    reason = execution.get("reason", "")
+    progress(
+        "execution",
+        (
+            f"mesh route: {route}"
+            + (f" with {workers} worker(s)" if workers else "")
+            + (f" ({reason})" if reason else "")
+        ),
+        0.8,
     )
     cancellation.raise_if_cancelled("mesh quality")
     progress("quality", "checking element quality", 0.85)
@@ -660,6 +872,7 @@ def run_mesh_job(
         mesh_hash=mesh_hash,
         quality=quality,
         structural_preparation=structural_preparation,
+        execution=execution,
     )
 
 
@@ -676,6 +889,7 @@ class _MeshTransport:
     mesh_hash: str
     quality: Mapping[str, Any]
     structural_preparation: Mapping[str, Any]
+    execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
 
 def mesh_job_entry(*, project, progress, cancellation_token, settings, model_hash):
@@ -692,6 +906,7 @@ def mesh_job_entry(*, project, progress, cancellation_token, settings, model_has
         mesh_hash=result.mesh_hash,
         quality=dict(result.quality),
         structural_preparation=dict(result.structural_preparation),
+        execution=dict(result.execution),
     )
 
 

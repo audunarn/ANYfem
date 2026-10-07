@@ -10,8 +10,10 @@ remain governed by the notices shipped by their distributors.
 | ANY3dView | optional GUI | MPL-2.0 | https://github.com/audunarn/ANY3dView |
 | ANYfileio | runtime | MPL-2.0 | https://github.com/audunarn/ANYfileIO |
 | ANYgeometry | runtime | MPL-2.0 | https://github.com/audunarn/ANYgeometry |
+| ANYloads | runtime and optional Excel extra | MPL-2.0 | https://github.com/audunarn/ANYloads |
 | ANYmaterial | runtime | MPL-2.0 | https://github.com/audunarn/ANYmaterial |
 | ANYmesher | runtime | MPL-2.0 | https://github.com/audunarn/ANYmesh |
+| ANYsection | optional beam-section library | MPL-2.0 | https://github.com/audunarn/ANYsection |
 | ANYsolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYsolver |
 | ANYtk3D | optional legacy Tk extra | MPL-2.0 | https://github.com/audunarn/ANYtk3D |
 | build | development | MIT | https://github.com/pypa/build |

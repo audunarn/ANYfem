@@ -511,11 +511,16 @@ class WorkbenchWorkflow:
         quad_options: object | None = None,
         layout_policy: str | None = None,
         automation: object | None = None,
+        execution_policy: object | None = None,
+        pool_lease: object | None = None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
         The desktop Mesh task uses :meth:`generate_mesh_async`; keeping this
         method synchronous preserves the established headless/test contract.
+        ``execution_policy``/``pool_lease`` are execution-only (see
+        :mod:`anyfem.mesh_execution`); a warm pool lease stays in this process
+        and is never transported into the Qt workbench.
         """
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
@@ -574,6 +579,8 @@ class WorkbenchWorkflow:
             quad_options=quad_options,
             layout_policy=layout_policy,
             automation=automation,
+            execution_policy=execution_policy,
+            pool_lease=pool_lease,
         )
         automation_result = created_mesh.hybrid_diagnostics.get("automation", {})
         inspection_only = automation_result.get("status") == "inspection_only"
@@ -661,6 +668,9 @@ class WorkbenchWorkflow:
                 ),
                 "quality": quality,
                 "automation": dict(automation_result),
+                "execution": dict(
+                    getattr(self.project, "_last_mesh_execution", {}) or {}
+                ),
                 "solver_admission": "BLOCKED" if inspection_only else "ADMITTED",
             },
         )
@@ -707,8 +717,14 @@ class WorkbenchWorkflow:
         quad_options: object | None = None,
         layout_policy: str | None = None,
         automation: object | None = None,
+        execution_policy: object | None = None,
     ) -> MeshRecord:
-        """Submit meshing from an immutable snapshot and return immediately."""
+        """Submit meshing from an immutable snapshot and return immediately.
+
+        ``execution_policy`` is execution-only and crosses to the worker as a
+        plain picklable value; warm pool leases are deliberately not accepted
+        here (they stay local to a script's own process).
+        """
 
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
@@ -746,6 +762,7 @@ class WorkbenchWorkflow:
             quad_options=quad_options,
             layout_policy=layout_policy or "existing",
             automation=automation,
+            execution_policy=execution_policy,
         )
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
@@ -805,6 +822,13 @@ class WorkbenchWorkflow:
                     if settings.strategy == "auto"
                     else None
                 ),
+                "execution": {
+                    "requested": (
+                        None
+                        if settings.execution_policy is None
+                        else settings.execution_policy.describe()
+                    )
+                },
                 "status": "running",
             },
         )
@@ -925,6 +949,7 @@ class WorkbenchWorkflow:
                             ),
                             "quality": dict(result.quality),
                             "automation": dict(automation_result),
+                            "execution": dict(result.execution),
                             "mesh_validity": "VALID",
                             "solver_admission": (
                                 "BLOCKED" if inspection_only else "ADMITTED"

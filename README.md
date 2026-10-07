@@ -146,7 +146,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@26e7e3c98ac1a5573e19643d6658d00094bff0bc" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8"
+python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f"
 python -m pip install -e ".[gui]"
 ```
@@ -170,6 +170,11 @@ identify this candidate. The scientific matrix and full Qt acceptance remain
 separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
+
+Whole-project component-parallel meshing is opt-in and defaults to Off. Select
+it in the Mesh workspace or use `MeshExecutionPolicy`/`ANYFEM_MESH_WORKERS` for
+headless jobs. See [parallel meshing](docs/PARALLEL_MESHING.md) for eligible
+routes, worker containment, measured evidence and remaining acceptance gates.
 
 From a source checkout, `python run_gui.py` first checks both imported module
 origins and installed distribution versions, then launches the application.

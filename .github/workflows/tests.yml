@@ -42,12 +42,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
+          ref: 660430a5041a8315c523bdb542d64271f9445f7a
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: e21c0fc93662776762430e14450d54ac9192e2e8
+          ref: b9814874c692bc675306c90176c03c5fbd05c5a0
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -65,6 +65,11 @@ jobs:
           ref: 2caa92325885938c594f27145ed16069d807e364
           path: .ecosystem/ANYtk3D
 
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsection
+          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
+          path: .ecosystem/ANYsection
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -80,6 +85,7 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYsolver
           python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
+          python -m pip install --no-deps -e .ecosystem/ANYsection
           # The matrix exercises the supported Tk/headless UI path. ModernGL
           # backend build coverage belongs to ANY3dView and is not required
           # for ANYfem's platform-independent GUI contract.
@@ -135,12 +141,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
+          ref: 660430a5041a8315c523bdb542d64271f9445f7a
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: e21c0fc93662776762430e14450d54ac9192e2e8
+          ref: b9814874c692bc675306c90176c03c5fbd05c5a0
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

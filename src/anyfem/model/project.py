@@ -1677,13 +1677,37 @@ class Project:
         automation: MeshAutomationOptions | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
+        execution_policy: object | None = None,
+        pool_lease: object | None = None,
     ) -> Mesh:
         """Mesh every plate, plus every line carrying a beam.
 
         ``refinements`` and ``order`` default to the project's own, so a script
         that sets them once does not have to repeat them at every call, and a
         one-off comparison can still override them here.
+
+        ``execution_policy`` is execution-only (see :mod:`anyfem.mesh_execution`):
+        it selects component-parallel meshing through ANYmesh's public parallel
+        API for the whole-project hybrid route, is never serialized into the
+        project and never affects any mesh hash.  ``pool_lease`` may carry an
+        ANYmesh ``ParallelPoolLease`` for scripts that keep a warm pool; it is
+        used in-process only and never transported into the Qt workbench.
         """
+
+        self._last_mesh_execution: dict[str, object] = {
+            "route": "serial",
+            "workers": None,
+            "reason": "parallel meshing is off (the default)",
+        }
+        from ..mesh_execution import MeshExecutionPolicy
+
+        if execution_policy is not None and not isinstance(
+            execution_policy, MeshExecutionPolicy
+        ):
+            raise ProjectError(
+                "execution_policy must be a MeshExecutionPolicy "
+                "(see anyfem.mesh_execution)"
+            )
 
         if self.read_only_reason is not None:
             raise ProjectError(
@@ -1959,6 +1983,11 @@ class Project:
             and preparation.created_count == 0
         )
         if mapped_fast_path:
+            self._last_mesh_execution = {
+                "route": "serial",
+                "workers": None,
+                "reason": "the mapped fast path has no parallel route",
+            }
             if cancellation_check is not None:
                 cancellation_check("mapped generation start")
             mesh = generate_mapped_mesh(
@@ -2048,8 +2077,60 @@ class Project:
                 **supported_parameters,
             )
             if automation is None:
-                mesh = generate_hybrid_mesh(working, **meshing_parameters)
+                from ..mesh_execution import (
+                    ParallelMeshUnsupported,
+                    parallel_mesh_api,
+                    resolve_policy,
+                    resolve_route,
+                    run_parallel_hybrid_mesh,
+                )
+
+                policy = resolve_policy(execution_policy)
+                probed = parallel_mesh_api() if policy.requests_parallel else None
+                route = resolve_route(
+                    policy,
+                    strategy=resolved_strategy,
+                    change_set=change_set,
+                    quad_options=quad_options,
+                    automation=None,
+                    strict=resolved_certification == "strict",
+                    warm_pool=pool_lease is not None,
+                    api_probe=lambda: probed,
+                )
+                self._last_mesh_execution = {
+                    "route": route.route,
+                    "workers": route.workers,
+                    "reason": route.reason,
+                }
+                mesh = None
+                if route.parallel:
+                    try:
+                        mesh = run_parallel_hybrid_mesh(
+                            working,
+                            meshing_parameters,
+                            route,
+                            probed,
+                            pool_lease=pool_lease,
+                        )
+                    except ParallelMeshUnsupported as error:
+                        # Refused before anything was submitted: the ordinary
+                        # serial hybrid mesher takes over and the reason is
+                        # recorded.  A failure after submission is the
+                        # mesher's own typed error and is never retried here.
+                        self._last_mesh_execution = {
+                            "route": "serial",
+                            "workers": None,
+                            "reason": f"parallel route refused before dispatch: {error}",
+                        }
+                        mesh = None
+                if mesh is None:
+                    mesh = generate_hybrid_mesh(working, **meshing_parameters)
             else:
+                self._last_mesh_execution = {
+                    "route": "serial",
+                    "workers": None,
+                    "reason": "automatic mesh recovery runs serially",
+                }
                 try:
                     from anymesher import generate_automatic_mesh_result
                 except ImportError as error:
@@ -2065,6 +2146,16 @@ class Project:
                     ),
                     **meshing_parameters,
                 ).mesh
+        owner_parallel = getattr(mesh, "hybrid_diagnostics", {}).get("parallel")
+        if isinstance(owner_parallel, Mapping) and "used" in owner_parallel:
+            used = bool(owner_parallel["used"])
+            runtime = owner_parallel.get("runtime", {})
+            self._last_mesh_execution.update(
+                route="parallel" if used else "serial",
+                workers=runtime.get("workers") if used else None,
+                reason=owner_parallel.get("reason", self._last_mesh_execution.get("reason", "")),
+                parallel={key: value for key, value in owner_parallel.items() if key != "runtime"},
+            )
         if all(
             hasattr(mesh, name)
             for name in (

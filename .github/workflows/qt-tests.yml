@@ -26,15 +26,15 @@ on:
         type: string
         default: d8b82686e477920cb485a7d32e6f04699b6f4d6f
       geometry_ref:
-        description: Exact ANYgeometry commit (schema-6 candidate d05cd3a37d884702e043b678808f50d03ed4a27e)
+        description: Exact ANYgeometry commit with component planning and binding contracts
         required: true
         type: string
-        default: 26e7e3c98ac1a5573e19643d6658d00094bff0bc
+        default: 660430a5041a8315c523bdb542d64271f9445f7a
       mesher_ref:
-        description: Exact ANYmesh commit (schema-6 safeguard 615de9b7ac78a1b39c90eb1717e443ab47a17e44)
+        description: Exact ANYmesh commit with opt-in component parallel meshing and pool lifecycle
         required: true
         type: string
-        default: e21c0fc93662776762430e14450d54ac9192e2e8
+        default: b9814874c692bc675306c90176c03c5fbd05c5a0
       schema6_fixtures:
         description: Run owner-generated schema-6 consumer checks with the selected geometry/mesher candidates
         required: true
@@ -82,12 +82,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: ${{ inputs.geometry_ref || '26e7e3c98ac1a5573e19643d6658d00094bff0bc' }}
+          ref: ${{ inputs.geometry_ref || '660430a5041a8315c523bdb542d64271f9445f7a' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'e21c0fc93662776762430e14450d54ac9192e2e8' }}
+          ref: ${{ inputs.mesher_ref || 'b9814874c692bc675306c90176c03c5fbd05c5a0' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -99,6 +99,11 @@ jobs:
           repository: audunarn/ANYtk3D
           ref: 2caa92325885938c594f27145ed16069d807e364
           path: .ecosystem/ANYtk3D
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsection
+          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
+          path: .ecosystem/ANYsection
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -108,13 +113,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libgl1-mesa-dev libx11-dev libx11-xcb1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxkbcommon-x11-0
       - name: Install candidate GUI and public owners
+        env:
+          ANYMESHER_REQUIRE_NATIVE: '1'
+          ANYMESHER_DISABLE_NATIVE: '0'
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
           python -m pip install -e ".[dev,qt,tk]"
       - name: Default and explicit frontend launcher contracts
         run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q
       - name: Check source and installed dependency licensing
         run: python tools/check_licenses.py --check-installed
+      - name: Parallel mesh caller and containment contracts
+        env:
+          ANYFEM_RUN_PARALLEL_MESH_TESTS: '1'
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: >-
+          python tools/test_anyfem.py --profile focused --out reports/parallel-mesh
+          tests/test_mesh_execution_policy.py
+          tests/test_mesh_execution_submission.py
+          tests/test_mesh_task_parallel_lifecycle.py
+          tests/test_job_process_containment.py
+          tests/test_worker_retirement_edges.py
+          tests/test_mesh_parallel_integration.py
+      - name: Qt contained parallel mesh completion and cancellation
+        env:
+          ANYFEM_RUN_QT_TESTS: '1'
+          ANYFEM_RUN_PARALLEL_MESH_TESTS: '1'
+          ANYFEM_QT_TEST_BACKEND: software
+          QT_QPA_PLATFORM: offscreen
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+        run: >-
+          python -m pytest tests/test_qt_mesh_parallel_integration.py -q
+          --junitxml=reports/qt-parallel-mesh.xml
       - name: Linux Qt platform startup
         if: runner.os == 'Linux'
         env:

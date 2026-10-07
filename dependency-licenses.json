@@ -36,9 +36,33 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYgeometry",
+      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a",
+      "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANYgeometry"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYgeometry",
       "requirement": "ANYgeometry[planar]>=0.4.3,<0.5",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYgeometry"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYloads",
+      "requirement": "ANYloads[excel]>=0.1,<0.2",
+      "scope": "optional:excel",
+      "upstream": "https://github.com/audunarn/ANYloads"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYloads",
+      "requirement": "ANYloads>=0.1,<0.2",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYloads"
     },
     {
       "bundled": false,
@@ -52,7 +76,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYmesher",
-      "requirement": "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e21c0fc93662776762430e14450d54ac9192e2e8",
+      "requirement": "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0",
       "scope": "optional:gui",
       "upstream": "https://github.com/audunarn/ANYmesh"
     },
@@ -63,6 +87,14 @@
       "requirement": "ANYmesher>=0.5,<0.6",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYmesh"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYsection",
+      "requirement": "ANYsection[gui]>=0.1,<0.2",
+      "scope": "optional:sections",
+      "upstream": "https://github.com/audunarn/ANYsection"
     },
     {
       "bundled": false,

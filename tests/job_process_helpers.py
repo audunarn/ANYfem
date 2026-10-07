@@ -88,3 +88,25 @@ def busy(*, project, progress, cancellation_token=None, seconds=2.0):
 def sleep_long(*, project, progress, cancellation_token=None):
     progress("sleeping")
     time.sleep(60)
+
+
+def spawn_child_and_return(*, project, progress, cancellation_token=None):
+    """Like the ANYmesh pool: create a child process, then keep working.
+
+    The child outlives the job function on purpose: only the owned containment
+    tree may take it with the worker.
+    """
+    import subprocess
+    import sys
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    progress(f"child {child.pid}")
+    return {"child_pid": child.pid}
+
+
+def touch_marker(*, project, progress, cancellation_token=None, path=""):
+    """Write a marker file so the parent can prove this job really ran."""
+    import pathlib
+
+    pathlib.Path(str(path)).write_text("ran", encoding="utf-8")
+    return "ran"

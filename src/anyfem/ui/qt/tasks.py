@@ -42,6 +42,16 @@ class MeshTask(QWidget):
         self.backend=QComboBox();self.backend.addItems(["auto","python","native"]);self.backend.setCurrentText(app.project.native_triangulation_backend);form.addRow("Triangulation backend",self.backend)
         self.order=QComboBox();self.order.addItems(["linear","quadratic"]);self.order.setCurrentText(app.project.element_order);form.addRow("Element order",self.order)
         self.layout_policy=QComboBox();self.layout_policy.addItems(["existing","adaptive"]);form.addRow("Quad-first layout policy",self.layout_policy)
+        self.execution=QComboBox();self.execution.addItems(["Off","Automatic","Custom count"])
+        self.execution.setToolTip("Component-parallel meshing through ANYmesh's public parallel API.\n"
+            "Off (default): serial meshing, nothing parallel is imported.\n"
+            "Automatic: proposes a bounded worker count; ANYmesh still applies its independence and size gates.\n"
+            "Custom count: an explicit worker count bypasses the size gates, never the safety gates.")
+        self.workers=QSpinBox();self.workers.setRange(1,61);self.workers.setValue(4);self.workers.setEnabled(False)
+        self.workers.setToolTip("Worker count for 'Custom count' parallel meshing (execution-only; never affects the mesh hash).")
+        self.execution.currentTextChanged.connect(lambda text:self.workers.setEnabled(text=="Custom count"))
+        form.addRow("Parallel meshing",self.execution)
+        form.addRow("Mesh workers",self.workers)
         layout.addWidget(QLabel("Native meshing controls"));layout.addWidget(self.native_controls)
         layout.addWidget(QLabel("Structured layout controls"));layout.addWidget(self.structured_controls)
         for label,widget in [("Element quality policy",self.quality_controls),("Quad-first controls",self.quad_controls),("Mesh recovery policy",self.automation_controls)]:layout.addWidget(QLabel(label));layout.addWidget(widget)
@@ -80,6 +90,11 @@ class MeshTask(QWidget):
             values=self.quad_controls.values()
             if values["line_search"]=="off":values["max_local_optimizations"]=0
             options.setdefault("quad_options",QuadMeshingOptions(**values));options.setdefault("layout_policy",self.layout_policy.currentText())
+        from ...mesh_execution import MeshExecutionPolicy
+        mode=self.execution.currentText()
+        options["execution_policy"]=(MeshExecutionPolicy.off() if mode=="Off"
+            else MeshExecutionPolicy.auto() if mode=="Automatic"
+            else MeshExecutionPolicy.explicit(self.workers.value()))
         return dict(target_size=float(self.size.text()),strategy=self.strategy.currentText(),structure_preference=self.preference.currentText(),**options)
 
     def start(self):
@@ -134,6 +149,7 @@ class MeshTask(QWidget):
         self.backend.setCurrentText(self.app.project.native_triangulation_backend)
         self.order.setCurrentText(self.app.project.element_order)
         self.layout_policy.setCurrentText(parameters.get("layout_policy","existing"))
+        self.execution.setCurrentText("Off");self.workers.setValue(4)
 
     def refresh(self):
         self.generate.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only)

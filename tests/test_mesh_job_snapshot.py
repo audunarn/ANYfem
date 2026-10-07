@@ -55,6 +55,7 @@ def test_failed_mesh_snapshot_does_not_leave_an_orphan_analysis(
         imported=None,
         project=project,
         session=DocumentSession(project),
+        _require_trusted_pressure_code=lambda: None,
     )
 
     def reject_snapshot(_mesh):
