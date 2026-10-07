@@ -159,6 +159,26 @@ def _find_named_or_identified(
     return None
 
 
+def _series_definitions(selected: Any, load_cases: Any) -> list[Any]:
+    """The load series definitions behind the selected step cases, once each.
+
+    A step holds no loads of its own: they live on its definition, so the
+    definition is solver input too and a change to it must make results stale.
+    """
+
+    names = sorted(
+        {
+            str(item.get("parent"))
+            for item in selected
+            if isinstance(item, Mapping) and item.get("parent")
+        }
+    )
+    found = (_find_named_or_identified(load_cases, name) for name in names)
+    return [
+        _without_presentation_identity(item) for item in found if item is not None
+    ]
+
+
 def _selected_loading_semantics(
     analysis: AnalysisDefinition,
     document: Mapping[str, Any] | None,
@@ -194,6 +214,11 @@ def _selected_loading_semantics(
             "kind": "load_cases",
             "cases": [_without_presentation_identity(item) for item in selected],
             "unresolved_targets": sorted(unresolved),
+            **(
+                {"series_definitions": definitions}
+                if (definitions := _series_definitions(selected, load_cases))
+                else {}
+            ),
         }
     if analysis.target_kind == "load_case":
         case = _find_named_or_identified(load_cases, str(analysis.target_id))
@@ -205,6 +230,11 @@ def _selected_loading_semantics(
         return {
             "kind": "load_case",
             "case": _without_presentation_identity(case),
+            **(
+                {"series_definitions": definitions}
+                if (definitions := _series_definitions([case], load_cases))
+                else {}
+            ),
         }
     combination = _find_named_or_identified(
         document.get("combinations", ()), str(analysis.target_id)
@@ -229,7 +259,22 @@ def _selected_loading_semantics(
                     ),
                 }
             )
-    return {"kind": "combination", "terms": resolved}
+    definitions = _series_definitions(
+        [
+            item
+            for item in (
+                _find_named_or_identified(load_cases, str(target))
+                for target in (factors if isinstance(factors, Mapping) else ())
+            )
+            if item is not None
+        ],
+        load_cases,
+    )
+    return {
+        "kind": "combination",
+        "terms": resolved,
+        **({"series_definitions": definitions} if definitions else {}),
+    }
 
 
 @dataclass(frozen=True)

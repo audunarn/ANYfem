@@ -347,6 +347,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         "supports",
         "masses",
         "wet_surfaces",
+        "connections",
         "imperfections",
         "geometry_attachment_regions",
         "meshing",
@@ -406,6 +407,10 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
     for item in (*payload.get("masses", ()), *payload.get("wet_surfaces", ())):
         if isinstance(item, dict):
             item.pop("id", None)
+            item.pop("name", None)
+    for item in payload.get("connections", ()):
+        # The id stays: a connection load in a load case refers to it.
+        if isinstance(item, dict):
             item.pop("name", None)
     for item in payload.get("imperfections", ()):
         if isinstance(item, dict):

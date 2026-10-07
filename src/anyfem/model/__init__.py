@@ -21,6 +21,12 @@ from .attributes import (
     support,
     symmetry,
 )
+from .connections import (
+    CONNECTION_PRESETS,
+    Connection,
+    ConnectionLoad,
+    preset_dofs,
+)
 from .collision import (
     Collision,
     CollisionTiming,
@@ -89,11 +95,15 @@ __all__ = [
     "CoordinateSystemError",
     "DOF_NAMES",
     "Imperfection",
+    "preset_dofs",
     "ElementFaceRef",
     "GeometryGroupRef",
     "GLOBAL_COORDINATES",
     "JobRecord",
     "JobStatus",
+    "CONNECTION_PRESETS",
+    "Connection",
+    "ConnectionLoad",
     "LineLoad",
     "LoadCase",
     "Mass",

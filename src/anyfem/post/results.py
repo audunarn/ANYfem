@@ -28,6 +28,7 @@ __all__ = [
     "ImportedSolution",
     "LinearBatchSolution",
     "LinearSolution",
+    "LinearStaticBatchResult",
     "ModalSolution",
     "MultiShapeSolution",
     "NonlinearSolution",
@@ -71,6 +72,40 @@ class ShapeView:
             node_id: self.node_displacement(node_id)
             for node_id in self.built.mesh.nodes_on(ref)
         }
+
+    def connection_motion(self, connection: str) -> Dict[str, np.ndarray]:
+        """Where a connection's reference point is and how it moved.
+
+        ``connection`` is its name or id.  For a rigid connection this is the
+        motion of the whole tied section; for a distributing one it is the
+        weighted average motion of the tied nodes.  Rotations are in radians.
+        """
+
+        item = self.built.connections.get(connection)
+        if item is None:
+            item = next(
+                (
+                    candidate
+                    for candidate in self.built.connections.values()
+                    if candidate.connection.name == connection
+                ),
+                None,
+            )
+        if item is None:
+            raise KeyError(f"no connection {connection!r} in the solved model")
+        values = self.node_displacement(item.reference_node)
+        motion = {
+            "reference_point": np.asarray(item.reference, dtype=float).copy(),
+            "displacement": np.asarray(values[:3], dtype=float),
+            "rotation": np.asarray(values[3:], dtype=float),
+        }
+        if item.section_node is not None:
+            # A spring connection: the loaded point and the section it is
+            # sprung from move differently; the difference is the spring.
+            section = self.node_displacement(item.section_node)
+            motion["section_displacement"] = np.asarray(section[:3], dtype=float)
+            motion["section_rotation"] = np.asarray(section[3:], dtype=float)
+        return motion
 
     def point_displacement(self, ref: EntityRef) -> np.ndarray:
         """The six components at a modelled point."""
@@ -312,11 +347,110 @@ class LinearBatchSolution(MultiShapeSolution):
             raise TypeError("linear batch contains a non-linear shape")
         return shape
 
+    def connection_history(self, connection: str) -> Dict[str, np.ndarray]:
+        """A connection's reference point through every solved case.
+
+        Returns ``case`` (names), ``time`` (the cases' times, ``nan`` where a case
+        has none), ``displacement`` and ``rotation`` (one row per case), in the
+        order the cases were solved.
+        """
+
+        project = self.built.project
+        motions = [shape.connection_motion(connection) for shape in self.shapes]
+        times = [
+            np.nan if project.load_cases[name].time is None else project.load_cases[name].time
+            for name in self.case_names
+        ]
+        return {
+            "case": np.array(self.case_names),
+            "time": np.array(times, dtype=float),
+            "displacement": np.array([m["displacement"] for m in motions]),
+            "rotation": np.array([m["rotation"] for m in motions]),
+        }
+
     def summary(self) -> str:
         return (
             f"{self.built.project.name}: {len(self.shapes)} linear load cases "
             "solved with one factorization"
         )
+
+
+@dataclass(frozen=True)
+class LinearStaticBatchResult:
+    """One streamed block; only explicitly selected DOFs are retained."""
+
+    built: BuiltModel
+    block: Any
+    connections: Mapping[str, Any]
+    labels: tuple[str, ...] = ()
+    node_dofs: Mapping[int, tuple[int, ...]] = field(default_factory=dict, repr=False)
+    _rows: Mapping[int, int] = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "_rows", {
+            int(dof): index for index, dof in enumerate(self.output_dofs)
+        })
+
+    @property
+    def input_indices(self):
+        return self.block.input_indices
+
+    @property
+    def case_ids(self):
+        return self.block.case_ids
+
+    @property
+    def times(self):
+        return self.block.times
+
+    @property
+    def output_dofs(self):
+        return self.block.output_dofs
+
+    @property
+    def displacements(self):
+        return self.block.displacements
+
+    @property
+    def case_results(self):
+        return self.block.case_results
+
+    @property
+    def diagnostics(self):
+        return self.block.diagnostics
+
+    def node_displacement(self, node_id: int, case_index: int = 0) -> np.ndarray:
+        dofs = self.node_dofs.get(int(node_id), ())
+        if not dofs:
+            raise KeyError(f"node {node_id} is not in the structural model")
+        rows = self._rows
+        if any(int(dof) not in rows for dof in dofs):
+            raise KeyError(f"node {node_id} displacement was not selected")
+        return self.displacements[[rows[int(dof)] for dof in dofs], case_index].copy()
+
+    def connection_motion(self, connection: str, case_index: int = 0) -> Dict[str, np.ndarray]:
+        item = self.connections.get(connection)
+        if item is None:
+            item = next((value for value in self.connections.values()
+                         if value.connection.name == connection), None)
+        if item is None:
+            raise KeyError(f"connection {connection!r} motion was not selected")
+        values = self.node_displacement(item.reference_node, case_index)
+        motion = {
+            "reference_point": np.asarray(item.reference, dtype=float).copy(),
+            "displacement": values[:3], "rotation": values[3:],
+        }
+        if item.section_node is not None:
+            section = self.node_displacement(item.section_node, case_index)
+            motion.update(section_displacement=section[:3], section_rotation=section[3:])
+        return motion
+
+    def stresses(self, case_index: int = 0):
+        """Return the solver's selected element/component/station stress maps."""
+        return self.case_results[case_index]["element_stresses"]
+
+    def reactions(self, case_index: int = 0):
+        return self.case_results[case_index]["reactions"]
 
 
 @dataclass

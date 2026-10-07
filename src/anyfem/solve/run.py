@@ -180,6 +180,7 @@ def solve_linear_static_many(
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
     cancellation_token: Optional["CancellationToken"] = None,
+    load_tolerance: Optional[float] = 1.0e-6,
     **solver_options: Any,
 ):
     """Solve several unchanged-stiffness cases with one factorization.
@@ -187,6 +188,18 @@ def solve_linear_static_many(
     The returned shapes retain their own solver load case, so reactions and
     stress recovery remain case-specific. Geometry, sections, supports,
     masses, imperfections, and affine constraints are assembled only once.
+
+    The response is linear in the loads, and the stiffness is the same for
+    every case, so a long time history needs far fewer solves than it has
+    cases: the cases' loads (a pressure per element, a force per node) are
+    compressed by singular value decomposition, only the dominant load shapes
+    are solved, and every case is recombined from them.  Two real cases are
+    also solved in full as a check, and further patterns are added until the
+    recombined result agrees with them to ``max(10 * load_tolerance, 1e-8)`` of
+    the largest displacement.  Few cases, gravity, follower pressure,
+    prescribed motion, or compression that would not pay solve every case.
+    ``load_tolerance`` (first-tier cut-off on the nodal-force singular values)
+    ``None`` or 0 always solves every case.
     """
 
     from anysolver import solve_linear_many
@@ -231,17 +244,26 @@ def solve_linear_static_many(
         solver_cases.append(solver_case)
         case_names.append(case.name)
 
-    _report(progress, f"solving {len(solver_cases)} cases with one factorization")
     structured_progress = solver_options.pop("progress_callback", None)
-    matrix, info = solve_linear_many(
-        built.fe_model,
-        solver_cases,
-        cancellation_token=cancellation_token,
-        progress_callback=_step_reporter(
-            progress, "batch static solve", structured_progress
-        ),
-        **solver_options,
-    )
+    reduced = None
+    if load_tolerance:
+        reduced = _solve_compressed(
+            built.fe_model, built.mesh, solver_cases, float(load_tolerance), progress,
+            cancellation_token, structured_progress, solver_options,
+        )
+    if reduced is not None:
+        matrix, info = reduced
+    else:
+        _report(progress, f"solving {len(solver_cases)} cases with one factorization")
+        matrix, info = solve_linear_many(
+            built.fe_model,
+            solver_cases,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(
+                progress, "batch static solve", structured_progress
+            ),
+            **solver_options,
+        )
     shapes = []
     for index, (name, solver_case) in enumerate(zip(case_names, solver_cases)):
         case_built = replace(built, load_case=solver_case)
@@ -262,6 +284,252 @@ def solve_linear_static_many(
         case_names=tuple(case_names),
     )
 
+
+#: Fewer cases than this are simply all solved.
+_COMPRESSION_MIN_CASES = 8
+
+
+def _compressible(model: Any, cases: Sequence[Any]) -> bool:
+    """Whether the cases differ only in nodal forces and dead element pressures."""
+
+    if len(cases) < _COMPRESSION_MIN_CASES:
+        return False
+    for case in cases:
+        if (
+            case.gravity is not None
+            or case.follower_pressure
+            or case.element_loads
+            or case.added_node_masses
+        ):
+            return False
+    # A prescribed non-zero motion enters every solution once, not once per mode.
+    if any(
+        value != 0.0
+        for bc in model.boundary_conditions
+        for value in getattr(bc, "dof_constraints", {}).values()
+    ):
+        return False
+    return not any(float(equation.rhs) != 0.0 for equation in model.constraint_equations)
+
+
+def _load_blocks(cases: Sequence[Any]):
+    """The cases' loads as two matrices: pressure per element, force per node DOF."""
+
+    pressure_keys = sorted({key for case in cases for key in case.pressure_loads})
+    nodal_keys = sorted(
+        {
+            (node, component)
+            for case in cases
+            for node, load in case.nodal_loads.items()
+            for component, value in enumerate(load)
+            if value != 0.0
+        }
+    )
+    pressure_row = {key: row for row, key in enumerate(pressure_keys)}
+    nodal_row = {key: row for row, key in enumerate(nodal_keys)}
+    pressure = np.zeros((len(pressure_keys), len(cases)))
+    nodal = np.zeros((len(nodal_keys), len(cases)))
+    for column, case in enumerate(cases):
+        for key, value in case.pressure_loads.items():
+            pressure[pressure_row[key], column] = value
+        for node, load in case.nodal_loads.items():
+            for component, value in enumerate(load):
+                if value != 0.0:
+                    nodal[nodal_row[(node, component)], column] = value
+    return pressure_keys, pressure, nodal_keys, nodal
+
+
+def _modes(matrix: np.ndarray, tolerance: float):
+    """Dominant left/right singular vectors of a load block, and the rank kept."""
+
+    if matrix.size == 0 or not np.any(matrix):
+        return np.zeros((matrix.shape[0], 0)), np.zeros(0), np.zeros((0, matrix.shape[1])), 0.0
+    left, values, right = np.linalg.svd(matrix, full_matrices=False)
+    keep = int(np.count_nonzero(values > tolerance * values[0]))
+    dropped = float(np.sqrt(np.sum(values[keep:] ** 2)))
+    return left[:, :keep], values[:keep], right[:keep], dropped
+
+
+def _nodal_force_proxy(mesh: Any, pressure_keys: Sequence[int], pressure: np.ndarray,
+                       nodal_keys: Sequence[Any], nodal: np.ndarray) -> np.ndarray:
+    """The cases' loads as nodal forces: ``G[(node, component), case]``.
+
+    A pressure on an element is the consistent nodal force of a uniform
+    traction along the element normal, which ANYfem already lumps for surface
+    tractions.  Pressure shapes that cancel between neighbouring elements
+    (a checkerboard) leave no nodal force, so ranking *forces* needs far fewer
+    shapes than ranking element pressures.  It is only used to choose which
+    time patterns matter; the solver still receives real pressures.
+    """
+
+    from .build import _element_centroid_normal, _traction_elements_to_nodes
+
+    rows: dict[Any, int] = {}
+
+    def row(key: Any) -> int:
+        return rows.setdefault(key, len(rows))
+
+    triplets: list[tuple[int, int, float]] = []
+    for column, element_id in enumerate(pressure_keys):
+        _, normal = _element_centroid_normal(mesh, int(element_id))
+        for node, force in _traction_elements_to_nodes(mesh, (int(element_id),), normal):
+            for component in range(3):
+                if force[component] != 0.0:
+                    triplets.append((row((node, component)), column, float(force[component])))
+    nodal_rows = [row(key) for key in nodal_keys]
+    proxy = np.zeros((len(rows), pressure.shape[1]))
+    if triplets:
+        index_rows = np.array([t[0] for t in triplets])
+        index_columns = np.array([t[1] for t in triplets])
+        values = np.array([t[2] for t in triplets])
+        weights = np.zeros((len(rows), len(pressure_keys)))
+        np.add.at(weights, (index_rows, index_columns), values)
+        proxy = weights @ pressure
+    for position, target in enumerate(nodal_rows):
+        proxy[target] += nodal[position]
+    return proxy
+
+
+def _synthetic_cases(pressure_keys, pressure, nodal_keys, nodal, patterns: np.ndarray):
+    """One solver load case per pattern: the real loads of that combination of steps."""
+
+    from anysolver import LoadCase as SolverCase
+
+    cases = []
+    for index, pattern in enumerate(patterns):
+        case = SolverCase(name=f"load shape {index}")
+        for key, value in zip(pressure_keys, pressure @ pattern):
+            if value != 0.0:
+                case.pressure_loads[key] = float(value)
+        for (node, component), value in zip(nodal_keys, nodal @ pattern):
+            if value != 0.0:
+                case.nodal_loads.setdefault(node, np.zeros(6))[component] = float(value)
+        cases.append(case)
+    return cases
+
+
+def _solve_compressed(
+    model: Any,
+    mesh: Any,
+    cases: Sequence[Any],
+    tolerance: float,
+    progress: Progress,
+    cancellation_token: Any,
+    structured_progress: Any,
+    solver_options: Mapping[str, Any],
+):
+    """Solve many unchanged-stiffness cases through a few dominant load shapes.
+
+    The step-to-step patterns that matter are the dominant right singular
+    vectors of the cases' nodal-force matrix.  Each is turned into a real load
+    case (the same combination of the steps' pressures and nodal loads) and
+    solved once, and every step is recombined as the matching combination of
+    those solutions.
+
+    Accuracy is judged on displacements, not forces: a dropped force shape can
+    excite a flexible local mode far more than its size suggests.  So two real
+    cases (the largest load and the middle one) are also solved in full, and
+    when the recombined result disagrees with them the next tier of shapes is
+    added - reusing everything already solved and the same factorization -
+    until they agree or compressing no longer pays.  Returns
+    ``(displacement matrix, info)``, or ``None`` when the cases cannot be
+    compressed, in which case the caller solves every case.
+    """
+
+    from anysolver import FactorizationCache, solve_linear_many
+
+    if not _compressible(model, cases):
+        return None
+    pressure_keys, pressure, nodal_keys, nodal = _load_blocks(cases)
+    try:
+        proxy = _nodal_force_proxy(mesh, pressure_keys, pressure, nodal_keys, nodal)
+    except Exception:
+        return None
+    if not np.any(proxy):
+        return None
+    _, values, right, _ = _modes(proxy, 1.0e-14)
+    norm_total = max(float(np.linalg.norm(proxy)), 1.0e-300)
+
+    norms = np.sqrt((pressure**2).sum(axis=0) + (nodal**2).sum(axis=0))
+    checks = sorted({int(np.argmax(norms)), len(cases) // 2})
+    limit = max(10.0 * tolerance, 1.0e-8)
+    options = dict(solver_options)
+    cache = options.pop("factorization_cache", None) or FactorizationCache(
+        name="load_shapes", max_entries=2
+    )
+
+    solved = 0
+    shape_solutions = np.zeros((0, 0))
+    check_solutions = None
+    info: dict[str, Any] = {}
+    calls = 0
+    level = tolerance
+    last = -1
+    error = float("inf")
+    while level >= 1.0e-14:
+        rank = int(np.count_nonzero(values > level * values[0]))
+        level *= 1.0e-2
+        if rank == last:
+            continue
+        last = rank
+        # Two verification solves are extra, so compress only when it clearly pays.
+        if rank + 2 >= len(cases) // 2:
+            break
+        new = _synthetic_cases(
+            pressure_keys, pressure, nodal_keys, nodal, right[solved:rank]
+        )
+        batch = [*new, *(cases[index] for index in checks)] if check_solutions is None else new
+        _report(
+            progress,
+            f"solving {len(new)} more load shapes ({rank} of {len(cases)} cases) with one "
+            "factorization" + ("" if check_solutions is not None else " + 2 checks"),
+        )
+        matrix, info = solve_linear_many(
+            model,
+            batch,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(progress, "batch static solve", structured_progress),
+            factorization_cache=cache,
+            **options,
+        )
+        calls += 1
+        if str(info.get("status", "converged")) not in ("ok", "converged", "success"):
+            return None
+        if check_solutions is None:
+            check_solutions = matrix[:, len(new):]
+            matrix = matrix[:, : len(new)]
+        shape_solutions = (
+            matrix if shape_solutions.size == 0 else np.hstack([shape_solutions, matrix])
+        )
+        solved = rank
+        combined = shape_solutions @ right[:rank]
+        scale = float(np.max(np.linalg.norm(combined, axis=0)))
+        error = max(
+            float(np.linalg.norm(combined[:, index] - check_solutions[:, offset]))
+            / max(scale, 1.0e-300)
+            for offset, index in enumerate(checks)
+        )
+        if np.isfinite(error) and error <= limit:
+            info = dict(info)
+            info["load_compression"] = {
+                "cases": len(cases),
+                "solved_load_shapes": rank,
+                "solve_calls": calls,
+                "check_cases": [int(index) for index in checks],
+                "tolerance": tolerance,
+                "dropped_load_norm_relative": float(
+                    np.sqrt(np.sum(values[rank:] ** 2)) / norm_total
+                ),
+                "check_error_relative_to_largest_case": error,
+            }
+            return combined, info
+    _report(
+        progress,
+        "load compression does not pay for these cases"
+        + ("" if not np.isfinite(error) else f" (check error {error:.2e})")
+        + "; solving every case",
+    )
+    return None
 
 # ----------------------------------------------------------------------
 # modal
