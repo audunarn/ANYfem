@@ -317,8 +317,8 @@ ANYloads main `8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b`; it exists only in five
 pre-existing local dirty files. No ANYloads source or Git state was changed.
 The existing owner suite passed **64 tests** (2.082165 process seconds).
 `loads-envelope-prerequisite.diff` and `loads-envelope-prerequisite-review.md`
-make the exact proposed prerequisite delivery reviewable. Explicit permission
-to publish that fourth-repository work was requested and is still pending.
+make the exact proposed prerequisite delivery reviewable. The user explicitly approved publishing this fourth-repository prerequisite
+on 2026-10-08. Delivery and dependency integration are now in progress.
 
 ANYfem CI edits are prepared locally for merged geometry/mesher and the committed
 solver prerequisite `d109511ea953e5e5946d72ea6b163cc347b89417`. The newer solver
@@ -327,8 +327,9 @@ qualification-record blob assertions. The selected predecessor's Q4 source blob
 matches the expected `bd6c0dc2cb3661eb73942fc0fea56e527aa8d0b4`; its lack of GitHub
 checks is not called a green CI result. **120 ANYfem load-series/static-batch
 consumer tests passed** against that exact frozen source and the reviewed local
-Envelope code (`fem-owner-pins-01`, 34.994408 process seconds). CI pins remain
-uncommitted until the loads prerequisite is available. ANYfem PR #12 is not
+Envelope code (`fem-owner-pins-01`, 34.994408 process seconds). The loads prerequisite is now published in ANYloads PR #1 at
+`16b1179de9623fc065bf034b0995b02dd5e47f86`; the four exact CI owner pins
+are being delivered together in ANYfem PR #12 for CI verification. ANYfem PR #12 is not
 merged or claimed ready; primary main remains synchronized at `3e4eb7f`, with
 unrelated dirty edits preserved.
 

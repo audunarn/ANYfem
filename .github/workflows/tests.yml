@@ -26,8 +26,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Frozen G7 base plus returned-tensor stopping consistency repair.
-          ref: 5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b
+          # Committed static-stream prerequisite verified by the consumer suite.
+          ref: d109511ea953e5e5946d72ea6b163cc347b89417
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -37,17 +37,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYloads
-          ref: 8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b
+          ref: 16b1179de9623fc065bf034b0995b02dd5e47f86
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 660430a5041a8315c523bdb542d64271f9445f7a
+          ref: a534b0d3782af9007b71edb30b923fc96232be67
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: b9814874c692bc675306c90176c03c5fbd05c5a0
+          ref: 2273c61fe1e888302a02b5f376c66fe5ae8edadb
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -125,8 +125,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Frozen G7 base plus returned-tensor stopping consistency repair.
-          ref: 5ca31de9be3ca3ffa70b09612a5d98c0ef212a5b
+          # Committed static-stream prerequisite verified by the consumer suite.
+          ref: d109511ea953e5e5946d72ea6b163cc347b89417
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -136,17 +136,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYloads
-          ref: 8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b
+          ref: 16b1179de9623fc065bf034b0995b02dd5e47f86
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 660430a5041a8315c523bdb542d64271f9445f7a
+          ref: a534b0d3782af9007b71edb30b923fc96232be67
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: b9814874c692bc675306c90176c03c5fbd05c5a0
+          ref: 2273c61fe1e888302a02b5f376c66fe5ae8edadb
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
