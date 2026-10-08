@@ -237,7 +237,7 @@ routes was incorrect: with quad options the routes are quad_first, auto, native.
   the contracts required by three existing recovery tests. Both push and PR
   development smoke checks are now green.
 
-**Still open:** the unchanged schema6 inspection-only test now reaches its own
+**At the preceding checkpoint (superseded by closure below):** the unchanged schema6 inspection-only test now reaches its own
 120-second recovery budget and raises `MeshRecoveryIncomplete` at triangle
 recombination start (125.737436 process s). A bounded probe observed 1,280
 distinct finite-hull states for 796 points and 1,485 triangles in 33.47 s, without
@@ -259,6 +259,96 @@ Evidence: `finite-hull-witness.json`, `mesher-checks/gap-*`,
 `verification-gap-review.log`, `verification-gap-cache-review.log`,
 `legality-cache-comparison.json`, and
 `predicate-and-legality-cache-investigation.diff` under the evidence root.
+
+### Authorized integration closure — 2026-10-08
+
+**Delivered:** ANYgeometry PR #30 merged as
+`a534b0d3782af9007b71edb30b923fc96232be67` after all eight CI checks passed.
+ANYmesh PR #11 merged as `2273c61fe1e888302a02b5f376c66fe5ae8edadb` after
+both new-head development smoke checks passed; twelve qualification/release jobs
+were skipped by their existing conditions. Local main checkouts match those
+merges. No version bump or package release occurred.
+
+**The unchanged schema6 gate is closed.** The remaining 849-point candidate
+cycled between states 190 and 192. The captured four binary coordinates form an
+exactly cocircular rectangle, but the old 80-digit Decimal in-circle fallback
+returned nonzero residues in all 24 orders. The before-repair regression recorded
+24 failures and 24 other passes. Ambiguous in-circle evaluations now use exact
+Fraction arithmetic, preserving the filter, tolerances, orientation convention,
+first-two-coordinate behavior and signed-infinity conversion for extreme values.
+The finite-hull loop maintains incidence and a sorted pending queue while
+preserving the first admissible flip, convergence limit and candidate budgets.
+
+Evidence under `C:/ANYworkspaceWork/meshing-speedup-next-20261007`:
+
+- `schema6-cycle-witness.json` / `schema6-cycle-points.npy`: original binary input
+  and repeated-state witness; failed pre-repair runs remain in `closure-checks`.
+- `rational-predicate-review.log`: independent Mistral review confirmed the exact
+  formula and raised the float-overflow compatibility issue, which was repaired.
+- `independent-hull-review-01`: 30 exact differential cases and all five
+  cancellation phases passed against frozen before/after loop implementations.
+- `schema6-rational-gate-01`: unchanged schema6 test plus 53 predicate/hull checks
+  passed, 25.727445 process seconds. This is verification timing, not a new barge
+  speedup measurement.
+- `final-installed-mesher-01`: **323 passed**, 46.404926 process seconds, including
+  all schema6 consumer cases, recovery, hybrid meshing, quality optimization,
+  predicate witnesses, hull differential tests and cancellation.
+- `final-installed-fallback-02`: **73 passed, 5 compiled-only skips**, 2.892482
+  process seconds, in a separate installation with actual extension absence.
+  The first harness attempt incorrectly treated the build-only disable variable
+  as a runtime switch; its failed availability assertion is preserved as
+  `final-installed-fallback-01`. No product failure was hidden.
+- `final-barge-equivalence-01` and `final-process-barge-equivalence-01`: public
+  synchronous/off and process-job/auto routes both completed with exact matching
+  unrounded mesh and authored-geometry hashes. Each retains 12,100 nodes, 8,916
+  shells, 3,112 beams, 3,500 couplings, **four candidates and one connectivity
+  application**. Auto correctly selected serial work for the single component.
+  `closure-barge-comparison.json` records the comparison. The existing fixed-load
+  response evidence remains applicable to this unchanged mesh; no new solver
+  response or performance campaign is claimed.
+
+Fresh final wheels and identities are in `artifacts/verification-closure-final`.
+Original baseline, measured candidate and preceding repair artifacts were not
+overwritten. The source repair is separately reviewable in mesher commit
+`7b16c1e74cefc9bf269f2a28a5689b1ce906b009`.
+
+**Remaining ANYfem integration blocker:** Envelope is absent from committed
+ANYloads main `8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b`; it exists only in five
+pre-existing local dirty files. No ANYloads source or Git state was changed.
+The existing owner suite passed **64 tests** (2.082165 process seconds).
+`loads-envelope-prerequisite.diff` and `loads-envelope-prerequisite-review.md`
+make the exact proposed prerequisite delivery reviewable. Explicit permission
+to publish that fourth-repository work was requested and is still pending.
+
+ANYfem CI edits are prepared locally for merged geometry/mesher and the committed
+solver prerequisite `d109511ea953e5e5946d72ea6b163cc347b89417`. The newer solver
+`b246a985` was not adopted because its Linux/Python 3.14 shard has two unresolved
+qualification-record blob assertions. The selected predecessor's Q4 source blob
+matches the expected `bd6c0dc2cb3661eb73942fc0fea56e527aa8d0b4`; its lack of GitHub
+checks is not called a green CI result. **120 ANYfem load-series/static-batch
+consumer tests passed** against that exact frozen source and the reviewed local
+Envelope code (`fem-owner-pins-01`, 34.994408 process seconds). CI pins remain
+uncommitted until the loads prerequisite is available. ANYfem PR #12 is not
+merged or claimed ready; primary main remains synchronized at `3e4eb7f`, with
+unrelated dirty edits preserved.
+
+Execution accounting: the user authorized this follow-through after the earlier
+mesher ledger consumed 2,123.838313 of 2,400 seconds. A separate prospective
+closure cap of 1,200 process seconds did not reset earlier authority. The first
+Mistral allocation was 300/900 worker/parent, later 500/700 within the same total.
+Two useful but incomplete worker runs exhausted their turn limits before final
+handoff. After inspecting their source, tests and failed outputs, Astra took over
+because repeated turn exhaustion prevented reliable delivery; unspent worker
+allocation returned to the same total reserve. Failed diagnostics and harness
+attempts are included. The current ledger records 23 completed attempts,
+**536.471040 seconds consumed / 663.528960 remaining**; there are no active
+owned numerical jobs. The original schema6 120-second budget, assertions,
+scientific tolerances, fallback order and quality gates were never changed.
+
+Next action after the pending scope decision: deliver the reviewed Envelope
+prerequisite in its own PR if authorized, complete the exact loads CI pin,
+resolve ANYfem checks and merge #12 only when its applicable gates pass. No new
+optimization milestone is opened.
 
 ## Earlier milestone and main delivery — historical
 
