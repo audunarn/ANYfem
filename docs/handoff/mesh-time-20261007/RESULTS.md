@@ -312,26 +312,31 @@ Original baseline, measured candidate and preceding repair artifacts were not
 overwritten. The source repair is separately reviewable in mesher commit
 `7b16c1e74cefc9bf269f2a28a5689b1ce906b009`.
 
-**Remaining ANYfem integration blocker:** Envelope is absent from committed
-ANYloads main `8fdb08de69c8e2ccfe7be9a746e6b4cd10c68d0b`; it exists only in five
-pre-existing local dirty files. No ANYloads source or Git state was changed.
-The existing owner suite passed **64 tests** (2.082165 process seconds).
-`loads-envelope-prerequisite.diff` and `loads-envelope-prerequisite-review.md`
-make the exact proposed prerequisite delivery reviewable. The user explicitly approved publishing this fourth-repository prerequisite
-on 2026-10-08. Delivery and dependency integration are now in progress.
+**ANYloads prerequisite delivered:** the user approved publishing the existing
+five reviewed files on 2026-10-08. ANYloads PR #1 passed all 18 push/PR CI checks
+(Linux/Windows Python 3.11-3.14 and wheel checks) and merged as
+`28a15c09eff75037dedf62c66ca09ea21221c5af`; local main is synchronized. Its source
+matches the snapshot that passed all 64 local owner tests. No load values,
+version or package release changed. The original review and patch remain in
+`loads-envelope-prerequisite-review.md` and `loads-envelope-prerequisite.diff`.
 
-ANYfem CI edits are prepared locally for merged geometry/mesher and the committed
-solver prerequisite `d109511ea953e5e5946d72ea6b163cc347b89417`. The newer solver
+ANYfem PR #12 now pins the published loads commit
+`16b1179de9623fc065bf034b0995b02dd5e47f86`, merged geometry and mesher revisions,
+and solver prerequisite `d109511ea953e5e5946d72ea6b163cc347b89417`. The newer solver
 `b246a985` was not adopted because its Linux/Python 3.14 shard has two unresolved
 qualification-record blob assertions. The selected predecessor's Q4 source blob
 matches the expected `bd6c0dc2cb3661eb73942fc0fea56e527aa8d0b4`; its lack of GitHub
-checks is not called a green CI result. **120 ANYfem load-series/static-batch
-consumer tests passed** against that exact frozen source and the reviewed local
-Envelope code (`fem-owner-pins-01`, 34.994408 process seconds). The loads prerequisite is now published in ANYloads PR #1 at
-`16b1179de9623fc065bf034b0995b02dd5e47f86`; the four exact CI owner pins
-are being delivered together in ANYfem PR #12 for CI verification. ANYfem PR #12 is not
-merged or claimed ready; primary main remains synchronized at `3e4eb7f`, with
-unrelated dirty edits preserved.
+checks is not called a green CI result. All 120 ANYfem load-series/static-batch
+consumer tests passed against that exact source and the now-published Envelope
+code (`fem-owner-pins-01`, 34.994408 process seconds).
+
+The CI-pin commit is `b70af4ec88dd76a96068f148087a2b42f9926227`. Its initial clean wheel
+build/import gate passed. The full headless and Qt matrices are required for
+delivery. Initial CI run IDs are `37732605062` (headless/build) and
+`37732605060` (Qt); final head-specific check outcomes and merge identity are
+tracked by [ANYfem PR #12](https://github.com/audunarn/ANYfem/pull/12) and the
+retained delivery audit. A running check is never counted as a pass.
+Unrelated dirty work in primary ANYfem remains untouched.
 
 Execution accounting: the user authorized this follow-through after the earlier
 mesher ledger consumed 2,123.838313 of 2,400 seconds. A separate prospective
@@ -346,10 +351,10 @@ attempts are included. The current ledger records 23 completed attempts,
 owned numerical jobs. The original schema6 120-second budget, assertions,
 scientific tolerances, fallback order and quality gates were never changed.
 
-Next action after the pending scope decision: deliver the reviewed Envelope
-prerequisite in its own PR if authorized, complete the exact loads CI pin,
-resolve ANYfem checks and merge #12 only when its applicable gates pass. No new
-optimization milestone is opened.
+Delivery contract: merge ANYfem #12 only after its applicable CI gates pass,
+then synchronize local main while preserving unrelated dirty work. Final Git
+identities and check outcomes belong to the PR and delivery audit referenced
+above. No new optimization milestone is opened.
 
 ## Earlier milestone and main delivery — historical
 
