@@ -1564,6 +1564,29 @@ def _add_patch_stresses(builder: _Builder, recovered, frames, case_names=(), *, 
             builder.add_table(f"{key}_node_ids", np.asarray(node_ids, dtype=np.int64))
 
 
+def _pad_ragged_rows(rows):
+    """Stack per-element scalar sample rows, padding ragged shapes with NaN.
+
+    Each row holds one component's scalar samples for one element, so appending
+    trailing singleton axes preserves that element's own sample set, and NaN
+    (never zero) marks positions no element provided.  Uniform rows stack
+    exactly as before.  Returns the stack and the original per-element shapes
+    when padding was needed, or ``(stack, None)`` for uniform rows.
+    """
+    if len({row.shape for row in rows}) == 1:
+        return np.stack(rows), None
+    rank = max(row.ndim for row in rows)
+    normalized = [row.reshape(row.shape + (1,) * (rank - row.ndim)) for row in rows]
+    shape = tuple(max(row.shape[axis] for row in normalized) for axis in range(rank))
+    padded = np.full(
+        (len(normalized),) + shape, np.nan,
+        dtype=np.result_type(np.float64, *(row.dtype for row in rows)),
+    )
+    for index, row in enumerate(normalized):
+        padded[(index, *(slice(extent) for extent in row.shape))] = row
+    return padded, [tuple(int(extent) for extent in row.shape) for row in rows]
+
+
 def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_only: bool = False,
                         frames=(0.0,)) -> None:
     stresses = getattr(result, "element_stresses", None)
@@ -1591,9 +1614,9 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_
                 continue
             ids.append(int(element_id))
             rows.append(array)
-        if not rows or len({row.shape for row in rows}) != 1:
+        if not rows:
             continue
-        spatial = np.stack(rows)
+        spatial, ragged_shapes = _pad_ragged_rows(rows)
         scalar_per_element = spatial.ndim == 1
         if scalar_per_element:
             spatial = spatial[:, np.newaxis]
@@ -1608,8 +1631,12 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_
             basis="global" if component.startswith("global_") else "element_local",
             frames=frames,
             recovery="recovered",
-            provenance={**provenance, **({"scalar_sample_axes": list(range(2, spatial.ndim + 1))}
-                                        if not scalar_per_element else {})},
+            provenance={**provenance,
+                        **({"element_sample_shapes": {str(element_id): list(shape)
+                             for element_id, shape in zip(ids, ragged_shapes)}}
+                           if ragged_shapes is not None else {}),
+                        **({"scalar_sample_axes": list(range(2, spatial.ndim + 1))}
+                           if not scalar_per_element else {})},
         )
         if key is not None:
             builder.add_table(f"{key}_element_ids", np.asarray(ids, dtype=np.int64))
@@ -1650,9 +1677,7 @@ def _add_stress_history(
         ids = tuple(sorted({int(value) for frame in mappings for value in frame}))
         rows = []
         complete = bool(ids)
-        expected_shape = None
         for frame in mappings:
-            frame_rows = []
             for element_id in ids:
                 entry = frame.get(element_id, frame.get(str(element_id)))
                 value = (
@@ -1664,18 +1689,17 @@ def _add_stress_history(
                 if array is None or array.size == 0:
                     complete = False
                     break
-                expected_shape = array.shape if expected_shape is None else expected_shape
-                if array.shape != expected_shape:
-                    complete = False
-                    break
-                frame_rows.append(array)
+                rows.append(array)
             if not complete:
                 break
-            rows.append(np.stack(frame_rows))
         if not complete:
             builder.add_table(f"{prefix}_{component}", history)
             continue
-        values = np.stack(rows)
+        # Rows are frame-major: one row per element per frame. Ragged rows
+        # (mixed integration-point shapes) are NaN-padded so the component
+        # survives as a field; uniform rows stack exactly as before.
+        padded, ragged_shapes = _pad_ragged_rows(rows)
+        values = padded.reshape((len(mappings), len(ids)) + padded.shape[1:])
         if values.ndim == 2:
             values = values[..., np.newaxis]
             location = "element"
@@ -1697,6 +1721,16 @@ def _add_stress_history(
             frames=descriptor_frames,
             recovery=recovery,
             provenance={**dict(provenance or {}),
+                        **({"frame_element_sample_shapes": {
+                                str(frame_index): {
+                                    str(element_id): list(shape)
+                                    for element_id, shape in zip(
+                                        ids, ragged_shapes[
+                                            frame_index * len(ids):
+                                            (frame_index + 1) * len(ids)])
+                                }
+                                for frame_index in range(len(mappings))}}
+                           if ragged_shapes is not None else {}),
                         **({"scalar_sample_axes": list(range(2, values.ndim))}
                            if location == "integration_point" else {})},
         )

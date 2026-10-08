@@ -1580,3 +1580,86 @@ BuiltModel.connections, policy and DOF metadata survive. Evidence:
 reports/result-transfer-20261007/independent-integrated-20261007T122505057353Z
 and integrated_connections_probe.log. The excluded tracked diff and five
 pre-existing untracked files remain byte-identical through integration.
+
+## Mixed S3/Q4 stress contours — 2026-10-08
+User reports unavailable-colour S3 triangles around a plate hole in an otherwise
+contoured mixed mesh. Question: does recovery omit S3 records, or does application
+field/storage/display mapping discard different integration-point shapes?
+Discriminate first with controlled mixed per-element records through field,
+artifact round trip and scene, then a tiny public prescribed-displacement
+recovery if owner-output semantics remain uncertain. No mesh generation, barge
+solve or qualification campaign. Preserve stable element IDs, actual missing
+values, stress sample provenance, numerical definitions and owner safeguards.
+Main's concurrent scene/UI/performance/load-series edits are protected; use an
+isolated checkout. Mistral owns the connected ANYfem postprocessing repair;
+root retains ownership boundaries, review, integration and acceptance.
+
+
+Application repair: mixed Q4/S3 stress rows now retain every owner-provided
+sample in single-case and batch-static artifacts. Ragged rows use NaN padding,
+stable element associations, and original element sample shapes (per-frame
+shapes for histories); uniform storage is unchanged. Output reductions ignore
+padding, preserve signed maximum-absolute ties, and leave wholly missing rows
+as NaN. Named saved scalar components now reduce sample axes rather than
+mistaking the last axis for components and displaying only the first sample.
+Missing elements remain neutral in the canvas. The complete cached batch path
+is covered; its existing incomplete-frame fallback remains conservative.
+
+Mistral implemented the connected storage/display repair. Parent review found
+and corrected a mistaken static-history reachability claim, then retained the
+same owner for the batch caller. The last continuation reached its turn limit
+with useful tested source but no final handoff. Root completed the small
+compatibility corrections and final documentation: preserve complex numeric
+sample dtype, distinguish per-frame shape metadata, and keep valid requested
+frames accessible when another frame has all-NaN samples. These are consumer
+compatibility decisions; no solver mathematics was copied into ANYfem.
+
+Independent application checks: 83 tests passed on Windows/Python 3.14.2,
+process wall 7.949273899997934 s. Exact source hashes, commands, effective
+module paths, stdout/stderr and JUnit are retained in
+reports/mixed-stress-20261008/independent-candidate-20261008T104311042303Z.
+Checks exercise controlled recovered data, artifact save/open, mixed topology
+contours, output views and browser validation; effective imports load neither
+Qt nor Tk. No full plate-with-hole/barge rerun or new scientific qualification
+is claimed. Earlier failure and probe evidence remains under
+reports/mixed-stress-20261008. One worker inadvertently ran whole scene and
+postprocessing suites containing solve/mesh calls despite the narrower check
+brief; those logs are retained, not used as qualification or repeated. Initial
+probe timing was shell-based; exact child-process accounting is not established
+and will not be reconstructed by rerunning.
+
+Separate solver dependency: the tiny public prescribed-displacement probe
+confirmed default S3 V2D recovery supplied resultants but omitted physical
+von Mises/membrane/bending components. The user authorized coordination with
+ANYsolver. Its owner prepared commit 552401b9a89c6a9367abb521cfb93e5ac9210c0e
+on an isolated branch for homogeneous isotropic recovery, preserving generalized
+section unavailability. Owner publication/integration and installed-artifact
+handoff remain pending at this checkpoint; ANYfem does not invent those stresses
+or claim older installed solvers contain them. Existing saved missing values
+require a fresh solve/recovery after that solver fix becomes available.
+
+
+Integrated main repeats the same 83 application-only checks successfully,
+process wall 8.976815599991824 s; evidence
+reports/mixed-stress-20261008/independent-integrated-20261008T104634273484Z.
+The excluded tracked hunk content remains identical (only scene blob IDs and
+line offsets shift around the staged owned hunk); eight pre-existing untracked
+files retain exact SHA256 identities. Preservation receipts and both raw diffs
+are in reports/mixed-stress-20261008/integration. Only five repair-owned files
+are staged; unrelated application, scene overlay, load-series and meshing work
+is preserved. Solver main still lacks the owner branch fix at this checkpoint.
+
+
+Owner handoff evidence inspected: source commit 552401b9 has 11 focused tests
+passing (process wall 3.639203 s), including mixed public recovery, bending/shear,
+rotated tensors and generalized-section refusal. An isolated installed wheel
+mixed recovery probe passed (process wall 1.6678819 s), and all 627 Python
+modules match source/wheel/site. Wheel SHA256:
+07f20642b509f9c818734619f41244366b687804b5c593d3d3702716cf6ed4d2.
+Receipts and adjudication are at
+C:/Github/ANYsolver/.perf2-worktrees/stiffened-rev8-20261008/.development/s3-v2d-surface-recovery-20261008.
+An unrelated historical default-formulation expectation remains failed in the
+broader solver file; it was preserved, not weakened. These are ordinary source
+and installed development checks, not a solver qualification or main publication.
+The owner was asked to resolve the scoped delivery path or identify its exact
+remaining gate; consumer launch/pins stay unchanged pending that decision.

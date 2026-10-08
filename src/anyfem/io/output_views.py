@@ -119,14 +119,18 @@ def _view(descriptor, values, source_key, scope, request, component, tables):
         # Keep frames, entities and components separate. Match post.fields._reduce,
         # including the sign of the first maximum-absolute sample on a tie.
         samples = data.reshape(data.shape[:2] + (-1, data.shape[-1]))
+        # NaN marks absent samples, including padding. Keep entirely missing
+        # rows as NaN so spatial readers leave them unavailable and selected
+        # frames with valid data remain accessible.
         if reduction == "mean":
-            data = samples.mean(axis=2)
+            data = np.nanmean(samples, axis=2)
         elif reduction == "min":
-            data = samples.min(axis=2)
+            data = np.nanmin(samples, axis=2)
         elif reduction == "max":
-            data = samples.max(axis=2)
+            data = np.nanmax(samples, axis=2)
         else:
-            indices = np.argmax(np.abs(samples), axis=2, keepdims=True)
+            magnitudes = np.where(np.isnan(samples), -np.inf, np.abs(samples))
+            indices = np.argmax(magnitudes, axis=2, keepdims=True)
             data = np.take_along_axis(samples, indices, axis=2).squeeze(axis=2)
     source_frame_indices = tuple(range(len(frames)))
     if request.frame_policy in {"first", "last"}:

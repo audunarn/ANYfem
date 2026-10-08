@@ -1128,7 +1128,10 @@ def build_persisted_result_scene(
     if table_key not in dataset.table_keys:
         raise ValueError(f"{descriptor.label} has no persisted {table_kind} association")
     identifiers = np.asarray(dataset.table(table_key), dtype=int).reshape(-1)
-    scalar = _artifact_scalar_rows(values, descriptor.components, component)
+    scalar = _artifact_scalar_rows(
+        values, descriptor.components, component,
+        descriptor.provenance.get("scalar_sample_axes"),
+    )
     if len(scalar) != len(identifiers):
         raise ValueError(
             f"{descriptor.label} has {len(scalar)} values for {len(identifiers)} IDs"
@@ -1201,12 +1204,19 @@ def _artifact_frame(shape: Sequence[int], frame: int) -> int | None:
 
 
 def _artifact_scalar_rows(
-    values: np.ndarray, components: Sequence[str], component: str | None
+    values: np.ndarray, components: Sequence[str], component: str | None,
+    sample_axes: Optional[Sequence[int]] = None,
 ) -> np.ndarray:
     array = np.asarray(values, dtype=float)
     if array.ndim == 0:
         return array.reshape(1)
     if array.ndim == 1:
+        return array
+    if sample_axes is not None:
+        # Scalar sample layout: the trailing axes are per-element samples of
+        # one already-selected component, never a component axis.
+        while array.ndim > 1:
+            array = np.nanmax(np.abs(array), axis=-1)
         return array
     if component and component in components:
         array = np.take(array, components.index(component), axis=-1)
