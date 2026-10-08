@@ -1663,3 +1663,16 @@ broader solver file; it was preserved, not weakened. These are ordinary source
 and installed development checks, not a solver qualification or main publication.
 The owner was asked to resolve the scoped delivery path or identify its exact
 remaining gate; consumer launch/pins stay unchanged pending that decision.
+
+
+Delivery checkpoint: ANYfem application repair is pushed as
+c70036792c09f71ed789aef36ae2a1fdb5c50e4f; local main, origin/main and the exact
+GitHub main ref agree. Application CI remains queued. The solver owner prepared
+a clean narrow branch from common main and published draft PR #65:
+https://github.com/audunarn/ANYsolver/pull/65,
+head 974f283a253cbf5119b5ded78f0ce29003c7582e. Its diff contains the elastic S3
+recovery method and two affected test files, excluding unrelated BL5 work.
+PR review/CI and solver-main integration remain with its owner; no source pin,
+launcher override, package release or solver-main mutation is adopted here.
+Complete user-visible S3 contours on the default runtime remain pending that
+integration and a fresh solve; the ANYfem storage/display repair is delivered.
