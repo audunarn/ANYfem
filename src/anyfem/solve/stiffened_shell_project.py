@@ -145,7 +145,13 @@ def _decode_point_panel(analysis_type, formulation, record):
             record["schema"] != SCHEMA or record["status"] != STATUS or
             record["definition_source"] != "explicit-mesh-native"):
         raise ValueError("strict experimental mesh-native point-panel payload required")
-    payload = _owned_json(record["panel"])
+    raw_payload = record["panel"]
+    if (type(raw_payload) is dict and raw_payload.get("schema") in (
+            SCHEMA_FINITE_DISTRIBUTING_DISPLACEMENT,
+            SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT) and
+            type(raw_payload.get("displacement_seed_factors")) is not list):
+        raise ValueError("strict displacement seed factor list required")
+    payload = _owned_json(raw_payload)
     if (analysis_type, formulation) == (GE_TYPE, GE_FORMULATION):
         if type(payload) is dict and payload.get("schema") in (SCHEMA_FINITE_DISTRIBUTING_MATERIAL, SCHEMA_FINITE_DISTRIBUTING_MATERIAL_DISPLACEMENT):
             return ExperimentalGEFiniteDistributingMaterialPanel.from_dict(payload)
