@@ -53,8 +53,35 @@ def test_worker_process_gives_the_same_mesh_and_the_same_progress():
     identity = lambda prep: {k: v for k, v in prep.items() if k != "working_model_id"}
     assert identity(b.structural_preparation) == identity(a.structural_preparation)
     assert b.structural_preparation["working_model_id"] != a.structural_preparation["working_model_id"]
-    stages = lambda events: [(e.payload.stage, e.payload.fraction) for e in events if e.kind == "progress"]
-    assert stages(in_worker) == stages(in_process) and stages(in_worker)  # same stages, same fractions
+    # actual meshing stages are identical across executors; execution-route
+    # notices are route-specific and asserted explicitly below
+    meshing = lambda events: [
+        (e.payload.stage, e.payload.fraction)
+        for e in events
+        if e.kind == "progress" and e.payload.stage != "execution"
+    ]
+    assert meshing(in_worker) == meshing(in_process) and meshing(in_worker)
+    notices = lambda events: [
+        (e.payload.fraction, e.payload.message)
+        for e in events
+        if e.kind == "progress" and e.payload.stage == "execution"
+    ]
+    # the thread executor cannot contain a parallel worker tree: it announces
+    # the forced serial route before meshing, then reports the resolved route
+    assert any(
+        fraction == 0.15 and "thread executor" in message
+        for fraction, message in notices(in_process)
+    )
+    assert any(
+        fraction == 0.8 and message.startswith("mesh route:")
+        for fraction, message in notices(in_process)
+    )
+    # the worker process reports exactly its own resolved route: no
+    # forced-serial fallback notice precedes it
+    assert [
+        (fraction, message.startswith("mesh route: serial"))
+        for fraction, message in notices(in_worker)
+    ] == [(0.8, True)]
     assert all(isinstance(e.payload, MeshProgress) for e in in_worker if e.kind == "progress")
 
 

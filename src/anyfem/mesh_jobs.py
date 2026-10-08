@@ -260,6 +260,22 @@ class MeshJobResult:
     execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
 
+# Execution-route diagnostics the owner parallel block records beside the
+# mesh (see anyfem.mesh_execution: the policy is execution-only and never
+# enters the semantic mesh hash).  Unknown parallel keys stay hashed.
+_PARALLEL_ROUTE_KEYS = frozenset(
+    {
+        "used",
+        "route",
+        "reason",
+        "components",
+        "separation",
+        "merge_reasons",
+        "runtime",
+    }
+)
+
+
 def mesh_semantic_hash(
     mesh: Any,
     *,
@@ -292,12 +308,23 @@ def mesh_semantic_hash(
         hybrid_diagnostics.pop("runtime", None)
         parallel = hybrid_diagnostics.get("parallel")
         if isinstance(parallel, Mapping):
-            # The exact agreed ``parallel.runtime`` block (worker counts,
-            # timings, element estimates) is execution-only and must not enter
-            # the mesh hash; the deterministic route metadata beside it stays.
-            parallel = dict(parallel)
-            parallel.pop("runtime", None)
-            hybrid_diagnostics["parallel"] = parallel
+            # The owner's whole ``parallel`` block is the execution-route
+            # record (used, route, reason, components, separation,
+            # merge_reasons, runtime).  The execution policy is
+            # execution-only and never enters the semantic mesh hash, so a
+            # serial and a parallel run of the same mesh must hash
+            # identically whether the block is present or absent.  Unknown
+            # keys stay hashed; when nothing semantic remains the block is
+            # dropped so its presence cannot change the hash either.
+            semantic_parallel = {
+                key: value
+                for key, value in parallel.items()
+                if key not in _PARALLEL_ROUTE_KEYS
+            }
+            if semantic_parallel:
+                hybrid_diagnostics["parallel"] = semantic_parallel
+            else:
+                hybrid_diagnostics.pop("parallel", None)
 
         def without_runtime_timings(value: Any) -> Any:
             if isinstance(value, Mapping):

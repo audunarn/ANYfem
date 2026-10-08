@@ -557,3 +557,96 @@ The large-barge timing and engineering measurements above remain scoped to the
 recorded frozen dirty-source identities; they are not new clean-main measurements.
 The delivery snapshot preserves all outstanding files and hashes under
 main-delivery/preserved and main-delivery/before.json.
+
+## CI thread/process semantic mesh hash mismatch - investigation 2026-10-08
+
+Prospective record before the diagnostic batch (owned by this task; Astra owns
+review/acceptance).
+
+**Question.** Why does
+`tests/test_mesh_process.py::test_worker_process_gives_the_same_mesh_and_the_same_progress`
+fail only on the Linux Python 3.14 full suite (run 113167844298, 1822 tests,
+1 failure) with equal node/element counts but different `mesh_hash`, while the
+same semantic hash is asserted to survive the thread/process codec?
+
+**Competing explanations.**
+
+1. Runtime execution diagnostics (timings, counters, route metadata) leak into
+   the semantic hash payload (`structural_preparation` or mesh
+   `hybrid_diagnostics`) and differ between the thread executor (forced
+   serial) and the worker process (contained/auto route).
+2. The mesh itself or its serialization differs between executors (actual mesh
+   variation), with equal counts.
+3. A resolved-input difference (e.g. `native_triangulation_backend` or
+   resolved controls after thaw) changes `mesh_input_hash` in one route only.
+4. The root cause lies in a sibling owner (ANYmesher/ANYgeometry) whose
+   diagnostics block is not fully runtime-free on Python 3.14/Linux.
+
+**Bounded check.** Run the single failing test through the shared harness on
+Windows Python 3.13 first (label `ci-hash-worker-01`); if it passes locally,
+add a focused diagnostic that dumps the canonical hash payload components
+(model hash, semantic input hash, preparation, mesh payload) for both
+executors and diff them, run through the same harness. No broad suites, no
+tolerance changes; at most 200 process seconds of the remaining 663.528960.
+
+**Next-action decision.** If the diff isolates a leaking runtime key, exclude
+exactly that key in `mesh_semantic_hash` (or stop recording it in the hashed
+block) with a focused regression; if the mesh payload itself differs, compare
+against the sibling owner contract and report the counterexample for Astra
+rather than editing siblings.
+
+### CI repair outcome and independent acceptance
+
+The same failure subsequently appeared in Linux Python 3.11. A bounded Windows
+Python 3.13.9 reproduction and payload comparison isolated the difference to
+the execution-route record: a process job records
+`hybrid_diagnostics.parallel = {used: false, route: serial, reason: ...}`,
+whereas the thread executor forces policy off and has no such record. Mesh
+coordinates, connectivity, quality and canonical preparation were unchanged.
+The hash implementation and its old route-metadata test predated this PR and
+contradicted the execution-only contract in `mesh_execution.py`.
+
+Mistral implemented the repair in `src/anyfem/mesh_jobs.py`: exclude the seven
+known owner route-diagnostic keys, dropping an empty parallel block. Unknown
+keys remain hashed. Materialized nodes, elements, associations, couplings,
+preparation and admission data remain part of the semantic identity.
+`tests/test_mesh_task_parallel_lifecycle.py` now checks route invariance,
+absent-block equivalence, unknown-field sensitivity and mesh/admission
+sensitivity. `tests/test_mesh_process.py` retains exact mesh-hash, quality and
+canonical-preparation comparisons; it compares meshing-stage sequences exactly
+and checks route-specific execution notices explicitly.
+
+Focused source validation passed **24 tests**, including the CI failure, in
+**23.141770 process seconds** (`closure-checks/ci-hash-fix-01`).
+Real public parallel integration passed **8 tests**, including worker-count
+hash equality, in **22.323844 process seconds**
+(`closure-checks/ci-hash-parallel-01`).
+Astra reviewed the complete diff against the ANYmesh owner records, verified
+those outputs, built a fresh isolated ANYfem wheel, checked its imported path
+and source hash, and passed the same **24 focused tests** against the installed
+artifact in **23.387816 process seconds**
+(`closure-checks/ci-hash-installed-01`). Artifact identity and hashes are under
+`artifacts/ci-hash-wheel`; no shared binary was overwritten.
+
+Preserved failures: `ci-hash-worker-01` exposed a missing main guard in the
+new disposable pytest runner; it is a harness failure, not a product failure.
+The guarded runner reproduced the product hash discrepancy in
+`ci-hash-worker-02`. The diagnostic source and successful comparison remain
+at `ci-hash-diagnostic-source.py` and `closure-checks/ci-hash-diag-01`.
+The diagnostic-only test was removed from the shipped tree after preservation.
+Full failed Linux CI reports remain at `ci-evidence-linux314-113167844298`
+and `ci-evidence-linux311-113167844360`.
+
+The bounded worker runs delivered code and actual check results but exhausted
+their turn limits before final documentation/handoff. Astra reconstructed the
+handoff from their logs and completed this integration record; no claimed
+worker checks were inferred from launcher status. All numerical attempts,
+including failures, remain charged to the existing 1,200-second closure ledger:
+**647.904535 seconds used, 552.095465 seconds remaining** at this checkpoint.
+No performance campaign or budget was restarted. The measured speedup above is
+unchanged; this is a correctness repair, not a new speed measurement.
+
+Final acceptance still requires all 13 Linux/Windows, Qt and wheel checks on
+the pushed PR head. The authorized 30-minute follow-up records later CI and
+merge status in PR12 and `final-dependency-delivery.json`, without another
+documentation-only commit that restarts the full matrix.

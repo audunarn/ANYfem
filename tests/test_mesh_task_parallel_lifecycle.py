@@ -12,7 +12,8 @@ serial meshing) for the safety repairs:
   after shutdown and the cancelled token reports the job as cancelled;
 * the thread executor forces serial execution (it cannot own a tree);
 * the execution policy is execution-only: excluded from the mesh input hash;
-* the semantic mesh hash drops ONLY the exact parallel runtime block.
+* the semantic mesh hash excludes the owner parallel block's execution-route
+  diagnostics, present or absent, while preserving unknown semantic fields.
 """
 
 from __future__ import annotations
@@ -239,33 +240,24 @@ def test_submit_refuses_after_shutdown():
         )
 
 
-def test_semantic_hash_drops_only_the_parallel_runtime_block(monkeypatch):
+def test_semantic_hash_excludes_execution_route_diagnostics(monkeypatch):
     base = {
         "nodes": {1: [0.0, 0.0, 0.0], 2: [1.0, 0.0, 0.0]},
         "elements": {1: {"nodes": [1, 2]}},
         "hybrid_diagnostics": {
             "parallel": {
+                "used": True,
                 "route": "parallel",
-                "workers": 4,
+                "reason": "explicit worker count requested",
+                "components": 3,
+                "separation": {"independent_components": 3},
+                "merge_reasons": ["component 1 merged last"],
                 "runtime": {"seconds": 1.25, "worker_pids": [11, 12, 13, 14]},
             }
         },
     }
 
-    def fake_to_dict(mesh):
-        return dict(base)
-
-    monkeypatch.setattr("anymesher.serialize.mesh_to_dict", fake_to_dict)
-    reference = mesh_semantic_hash(
-        object(), model_hash="m", mesh_input_hash="i", structural_preparation={}
-    )
-
-    def hash_of(mutate):
-        payload = dict(base)
-        payload["hybrid_diagnostics"] = dict(base["hybrid_diagnostics"])
-        payload["hybrid_diagnostics"]["parallel"] = mutate(
-            dict(base["hybrid_diagnostics"]["parallel"])
-        )
+    def hash_of(payload):
         monkeypatch.setattr(
             "anymesher.serialize.mesh_to_dict", lambda mesh: dict(payload)
         )
@@ -273,17 +265,51 @@ def test_semantic_hash_drops_only_the_parallel_runtime_block(monkeypatch):
             object(), model_hash="m", mesh_input_hash="i", structural_preparation={}
         )
 
-    # runtime-only differences never change the mesh hash
-    assert hash_of(lambda parallel: {**parallel, "runtime": {"seconds": 9.9, "pids": [1]}}) == reference
-    assert hash_of(lambda parallel: {**parallel, "runtime": None}) == reference
-    # deterministic route metadata beside it still does
-    assert hash_of(lambda parallel: {**parallel, "route": "serial"}) != reference
-    assert hash_of(lambda parallel: {**parallel, "workers": 8}) != reference
-    # and the mesh itself, of course
-    monkeypatch.setattr(
-        "anymesher.serialize.mesh_to_dict",
-        lambda mesh: {**base, "nodes": {1: [0.0, 0.0, 0.0], 2: [2.0, 0.0, 0.0]}},
+    reference = hash_of(base)
+
+    def hash_of_parallel(mutate):
+        payload = dict(base)
+        payload["hybrid_diagnostics"] = dict(base["hybrid_diagnostics"])
+        payload["hybrid_diagnostics"]["parallel"] = mutate(
+            dict(base["hybrid_diagnostics"]["parallel"])
+        )
+        return hash_of(payload)
+
+    # the owner's whole parallel block is the execution-route record: no route
+    # key or runtime measurement may change the mesh hash
+    assert hash_of_parallel(lambda parallel: {**parallel, "used": False}) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "route": "serial"}) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "reason": "1 component(s)"}) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "components": 1}) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "separation": {}}) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "merge_reasons": []}) == reference
+    assert hash_of_parallel(
+        lambda parallel: {**parallel, "runtime": {"seconds": 9.9, "pids": [1]}}
+    ) == reference
+    assert hash_of_parallel(lambda parallel: {**parallel, "runtime": None}) == reference
+    # a fully routed block and an absent one are the same mesh: the worker
+    # process records the block, a forced-serial run does not (the CI mismatch)
+    absent = dict(base)
+    absent["hybrid_diagnostics"] = dict(base["hybrid_diagnostics"])
+    absent["hybrid_diagnostics"].pop("parallel")
+    assert hash_of(absent) == reference
+    # unknown semantic fields beside the route record stay hashed
+    assert (
+        hash_of_parallel(lambda parallel: {**parallel, "geometry_authority": "native"})
+        != reference
     )
+    # and solver-affecting mesh and preparation/admission data still does
+    moved = dict(base)
+    moved["nodes"] = {1: [0.0, 0.0, 0.0], 2: [2.0, 0.0, 0.0]}
+    assert hash_of(moved) != reference
     assert mesh_semantic_hash(
-        object(), model_hash="m", mesh_input_hash="i", structural_preparation={}
-    ) != reference
+        object(),
+        model_hash="m",
+        mesh_input_hash="i",
+        structural_preparation={"admission": {"accepted": False}},
+    ) != mesh_semantic_hash(
+        object(),
+        model_hash="m",
+        mesh_input_hash="i",
+        structural_preparation={"admission": {"accepted": True}},
+    )
