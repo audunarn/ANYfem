@@ -1,0 +1,8 @@
+{
+  "attempt": "installed-v2-a1",
+  "phase": "installed-controls",
+  "manifest_sha256": "fb0ba21e23ff20c95eb83fbb181827543160b20b63697b8387b649c51e6040e0",
+  "limit_seconds": 80.0,
+  "monotonic_clock": "WINDOWS_QUERY_PERFORMANCE_COUNTER",
+  "monotonic_deadline_ns": 82178183512200
+}

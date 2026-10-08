@@ -1,0 +1,41 @@
+{
+  "cap_seconds": 45.0,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "-I",
+    "-B",
+    "-c",
+    "import json,sys;sys.path[:0]=['C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\.development\\\\distributing-displacement-consumer-common-main-20261008-v1\\\\site','C:\\\\Github\\\\ANYsolver\\\\.perf2-worktrees\\\\common-main-20261008\\\\.development\\\\common-main-20261008\\\\site-v5'];import anyfem,anysolver;print(json.dumps({'anyfem':anyfem.__file__,'anysolver':anysolver.__file__}),flush=True);import pytest;raise SystemExit(pytest.main(['-x', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_finite_distributing_consumer.py::test_public_project_dispatch_recovery_and_restart', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_finite_distributing_consumer.py::test_legacy_reference_format_is_not_upgraded', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_material_consumer.py::test_wrong_owner_contract_is_closed', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_cyclic_consumer.py::test_cyclic_checkpoint_kind_is_checked_and_mismatched_owner_closed', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_native_material_consumer.py::test_native_owner_contract_failure_closes_owner']))"
+  ],
+  "consumer_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "consumer_wheel_sha256": "618e9c9dc553e0f789591b014e8a78cd447f977a8b68279dcee86fc73321718e",
+  "cpu_affinity": [
+    0
+  ],
+  "cumulative_used_seconds": 127.497438,
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer",
+  "environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "exit_code": 0,
+  "manifest_sha256": "f5911481de3530395dede8e2a38c300495c4d19a8ed671242eb8f57905a7a1f8",
+  "peak_tree_rss_bytes": 186146816,
+  "prior_used_seconds": 118.0491461,
+  "process_wall_seconds": 9.4482919,
+  "qualification": false,
+  "registration_sha256": "0996ad2079d45351dc50bc37edb1ad2e80435dd0c1aff6c196a3209fb4ecc1bf",
+  "remaining_seconds": 112.502562,
+  "runner_sha256": "abccaccbadca3b3cfec628416e684bca9cc2f68599efa0584a9d237d834e0380",
+  "solver_wheel_sha256": "866509295b400c71c398d569e95077d2a38798c8dcdb3e36d4d62b0b9e01412b",
+  "status": "passed",
+  "test_files_sha256": {
+    "tests/test_stiffened_shell_ge_distributing_cyclic_consumer.py": "f7741f33ff77b547ea480e714a6af0dc740ed889f22326f99f285eefbafc367b",
+    "tests/test_stiffened_shell_ge_distributing_material_consumer.py": "aedf45a1d2b0186f4b76bb00bdbcf82d8c2781c1d8b95737f78034c1f7334bb0",
+    "tests/test_stiffened_shell_ge_distributing_native_material_consumer.py": "9f8c8b74a42eab6c21ed9f9255edd2b92e6287146f6c0f096ce2d0355a9ba582",
+    "tests/test_stiffened_shell_ge_finite_distributing_consumer.py": "0c10bcc02350c7c10e96339235dcb5edd161a81fa8e4129ebe8167d9d361c12c"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "command": [
+    "C:/Python/Python314/python.exe",
+    "-I",
+    "-B",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\entry-v3.py",
+    "--phase",
+    "installed-controls",
+    "--attempt",
+    "installed-v3-a1"
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1",
+  "phase": "installed-controls",
+  "attempt": "installed-v3-a1",
+  "manifest_sha256": "f5911481de3530395dede8e2a38c300495c4d19a8ed671242eb8f57905a7a1f8",
+  "authority_sha256": "5bf16511ebc5ada397d27328e552b2ee91bd3655890329d6ba405af0724686e2",
+  "candidate_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "status": "timeout",
+  "started": true,
+  "owned_child_exited": true,
+  "exit_code": -1,
+  "process_wall_seconds": 40.0053873,
+  "limit_seconds": 41.956241199999994,
+  "cleanup_reserve_seconds": 2.0,
+  "parent_peak_sampled_working_set_bytes": 195743744,
+  "counts": null,
+  "primary_error": null,
+  "cleanup_error": null
+}

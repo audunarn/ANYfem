@@ -1,0 +1,23 @@
+{
+  "amendment": "V2 timed out at 78.0437588 seconds before pytest during duplicate 4,309-file dependency rehash. V3 preserves the frozen dependency catalog and verifies pinned roots, versions, METADATA/RECORD, entry modules and every loaded dependency module before/after each phase. Complete artifact catalog acceptance remains a separate final G6 check. V2 elapsed time is charged to the same 240-second logical allowance; reserve 60 seconds. Product wheels and case criteria unchanged.",
+  "approval_owner": "Root activates from existing human blanket authorization only after reviewing packet",
+  "candidate_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "concurrent_jobs": 1,
+  "cpu_affinity": [
+    0
+  ],
+  "execution": "Ordinary consumer checks only; no historical campaign authority; no qualification or release",
+  "jit_disabled": true,
+  "native_threads": 1,
+  "phase_ceilings": {
+    "affected-legacy": 45,
+    "installed-controls": 120,
+    "public-example": 70
+  },
+  "reserve_seconds": 60,
+  "schema": "anyfem.distributing-displacement-consumer-checks-v1",
+  "solver_wheel_sha256": "866509295b400c71c398d569e95077d2a38798c8dcdb3e36d4d62b0b9e01412b",
+  "status": "REGISTERED_APPROVED",
+  "total_seconds": 240,
+  "tree_memory_bytes": 2147483648
+}

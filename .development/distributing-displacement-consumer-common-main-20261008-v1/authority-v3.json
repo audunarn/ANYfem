@@ -1,0 +1,9 @@
+{
+  "approval_evidence": "User authorized programme completion and faster development testing. Same single 240-second common-main artifact-only allowance as V2; the failed 78.0437588-second V2 run remains charged. V3 changes only dependency audit cadence and installed-control phase cap, retains 60-second reserve and unchanged scientific/product cases.",
+  "candidate_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "manifest_sha256": "f5911481de3530395dede8e2a38c300495c4d19a8ed671242eb8f57905a7a1f8",
+  "proposal_sha256": "deb248f67c88832e09f662f8af1a245c435bdf06720b6a82f25d107294f09b1a",
+  "reserve_seconds": 60,
+  "status": "APPROVED",
+  "total_seconds": 240
+}

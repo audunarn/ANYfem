@@ -1,0 +1,48 @@
+{
+  "cap_seconds": 45.0,
+  "command": [
+    "C:\\Python\\Python314\\python.exe",
+    "-I",
+    "-B",
+    "-c",
+    "import json,sys;sys.path[:0]=['C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\.development\\\\distributing-displacement-consumer-common-main-20261008-v1\\\\site','C:\\\\Github\\\\ANYsolver\\\\.perf2-worktrees\\\\common-main-20261008\\\\.development\\\\common-main-20261008\\\\site-v5'];import anyfem,anysolver;print(json.dumps({'anyfem':anyfem.__file__,'anysolver':anysolver.__file__}),flush=True);import pytest;raise SystemExit(pytest.main(['-x', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_request_roundtrip_owned_inputs_and_force_identity', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_bad_seed_refused_without_assembly', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_bad_control_refused_without_assembly', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_restraint_event_empty_direction_and_unselected_seed_refused', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_strict_displacement_schema_rejects_injection', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_material_request_preserves_policy_reference_and_raw_inputs', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_combined_helper_seeds_fresh_owner_and_factory_never_reseeds', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_invalid_targets_and_unsupported_controls_refused_before_owner', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_invalid_execution_options_refused_before_force_seed', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_example_shell_translation_reads_flat_public_output', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_cancel_or_failed_seed_never_runs_next_phase_and_owner_closes', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_observer_exception_closes_combined_owner', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_partial_capability_upgrade_refused_and_owner_closed', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_legacy_owner_only_admitted_for_unselected_force_input', 'C:\\\\Github\\\\ANYfem\\\\.worktrees\\\\experimental-ge-panel-consumer\\\\tests\\\\test_stiffened_shell_ge_distributing_displacement_consumer.py::test_public_checkpoint_example']))"
+  ],
+  "consumer_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "cpu_affinity": [
+    0
+  ],
+  "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer",
+  "environment": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "exit_code": 0,
+  "function_inventory": [
+    "test_request_roundtrip_owned_inputs_and_force_identity",
+    "test_bad_seed_refused_without_assembly",
+    "test_bad_control_refused_without_assembly",
+    "test_restraint_event_empty_direction_and_unselected_seed_refused",
+    "test_strict_displacement_schema_rejects_injection",
+    "test_material_request_preserves_policy_reference_and_raw_inputs",
+    "test_combined_helper_seeds_fresh_owner_and_factory_never_reseeds",
+    "test_invalid_targets_and_unsupported_controls_refused_before_owner",
+    "test_invalid_execution_options_refused_before_force_seed",
+    "test_example_shell_translation_reads_flat_public_output",
+    "test_cancel_or_failed_seed_never_runs_next_phase_and_owner_closes",
+    "test_observer_exception_closes_combined_owner",
+    "test_partial_capability_upgrade_refused_and_owner_closed",
+    "test_legacy_owner_only_admitted_for_unselected_force_input",
+    "test_public_checkpoint_example"
+  ],
+  "peak_tree_rss_bytes": 210395136,
+  "process_wall_seconds": 14.6440475,
+  "qualification": false,
+  "runner_sha256": "a777fc844c3a981e9c1de2e2f752ddfe6d6c0ca396706dcc993a79fea6a85820",
+  "solver_wheel_sha256": "866509295b400c71c398d569e95077d2a38798c8dcdb3e36d4d62b0b9e01412b",
+  "status": "passed",
+  "test_file_sha256": "77842fe4296f1b6016e19b74505b64484611e7f5baa7902af705bada6b5d61cd",
+  "wrapper_sha256": "942070015b58b50bf28537156c15d1141b2883762d47e2618bc1022e93391c48"
+}

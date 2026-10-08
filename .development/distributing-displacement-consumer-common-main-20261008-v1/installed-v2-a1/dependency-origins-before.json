@@ -1,0 +1,123 @@
+{
+  "origins": [
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "build",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\build\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "colorama",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\colorama\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "h5py",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\h5py\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "iniconfig",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\iniconfig\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "module": "llvmlite",
+      "path": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\llvmlite\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "module": "numba",
+      "path": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numba\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": true,
+      "cached_file": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numpy\\__init__.py",
+      "expected_root": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+      "module": "numpy",
+      "path": "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2\\numpy\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "packaging",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\packaging\\__init__.py"
+    },
+    {
+      "actual_path_within_approved": true,
+      "approved_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "approved_root_is_pinned": true,
+      "approved_root_matches_expected": true,
+      "cached_before_import": false,
+      "cached_file": null,
+      "expected_root": "C:\\Python\\Python314\\Lib\\site-packages",
+      "module": "pip",
+      "path": "C:\\Python\\Python314\\Lib\\site-packages\\pip\\__init__.py"
+    }
+  ],
+  "stage": "before",
+  "sys_path": [
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\site",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\common-main-20261008\\.development\\common-main-20261008\\site-v5",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\tests",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\examples",
+    "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer",
+    "C:\\Github\\ANYsolver\\.perf2-worktrees\\stiffened-main-reconcile-20261001\\.qualification\\b3-ge-e4-pl\\r8-native-s3-restart-binding-dev-20261005-v1\\ci-site-network-v2",
+    "C:\\Github\\ANYfileIO\\src",
+    "C:\\Github\\ANYgeometry\\src",
+    "C:\\Github\\ANYmaterial\\src",
+    "C:\\Github\\ANYmesh\\src",
+    "C:\\Python\\Python314\\python314.zip",
+    "C:\\Python\\Python314\\DLLs",
+    "C:\\Python\\Python314\\Lib",
+    "C:\\Python\\Python314\\Lib\\site-packages",
+    "C:\\Python\\Python314\\Lib\\site-packages\\win32",
+    "C:\\Python\\Python314\\Lib\\site-packages\\win32\\lib",
+    "C:\\Python\\Python314\\Lib\\site-packages\\Pythonwin"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "identity": "ANYFEM_PINNED_INSTALLED_LEGACY_DEV_V1",
+  "status": "AUTHORIZED",
+  "consumer_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+  "runner_sha256": "abccaccbadca3b3cfec628416e684bca9cc2f68599efa0584a9d237d834e0380",
+  "manifest_sha256": "f5911481de3530395dede8e2a38c300495c4d19a8ed671242eb8f57905a7a1f8",
+  "consumer_wheel_sha256": "618e9c9dc553e0f789591b014e8a78cd447f977a8b68279dcee86fc73321718e",
+  "prior_ledger_sha256": "efa437f4fe3b3b90790f65e11191ec5ec0d7288791610093d3cae32f702a88d8",
+  "prior_used_seconds": 118.0491461,
+  "prior_remaining_seconds": 121.9508539,
+  "logical_total_seconds": 240.0,
+  "reserve_seconds": 60.0,
+  "child_cap_seconds": 45.0,
+  "expected_passes": 19,
+  "scope": "one installed legacy development smoke from pinned consumer/solver sites; V3 exact packet remains incomplete; no final G6 artifact acceptance",
+  "predecessor_registration_sha256": "871e55330d30533b4d694f672df4791d4b9488eb7b9c2cf7ee4b69d7f15d3304",
+  "amendment": "Bind runner and prior ledger before launch; check imported site origins and cumulative accounting after the 19 cases."
+}

@@ -1,0 +1,74 @@
+{
+  "attempts": [
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\installed-v2-a1",
+      "receipt": {
+        "attempt": "installed-v2-a1",
+        "authority_sha256": "a7adb2fcb2fecef9414edf43cd465cd122a36cd506f921938c89f11107bf6b06",
+        "candidate_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+        "cleanup_error": null,
+        "cleanup_reserve_seconds": 2.0,
+        "command": [
+          "C:/Python/Python314/python.exe",
+          "-I",
+          "-B",
+          "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\entry-v2.py",
+          "--phase",
+          "installed-controls",
+          "--attempt",
+          "installed-v2-a1"
+        ],
+        "counts": null,
+        "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1",
+        "exit_code": -1,
+        "limit_seconds": 80.0,
+        "manifest_sha256": "fb0ba21e23ff20c95eb83fbb181827543160b20b63697b8387b649c51e6040e0",
+        "owned_child_exited": true,
+        "parent_peak_sampled_working_set_bytes": 88657920,
+        "phase": "installed-controls",
+        "primary_error": null,
+        "process_wall_seconds": 78.0437588,
+        "started": true,
+        "status": "timeout"
+      }
+    },
+    {
+      "path": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\installed-v3-a1",
+      "receipt": {
+        "command": [
+          "C:/Python/Python314/python.exe",
+          "-I",
+          "-B",
+          "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1\\entry-v3.py",
+          "--phase",
+          "installed-controls",
+          "--attempt",
+          "installed-v3-a1"
+        ],
+        "cwd": "C:\\Github\\ANYfem\\.worktrees\\experimental-ge-panel-consumer\\.development\\distributing-displacement-consumer-common-main-20261008-v1",
+        "phase": "installed-controls",
+        "attempt": "installed-v3-a1",
+        "manifest_sha256": "f5911481de3530395dede8e2a38c300495c4d19a8ed671242eb8f57905a7a1f8",
+        "authority_sha256": "5bf16511ebc5ada397d27328e552b2ee91bd3655890329d6ba405af0724686e2",
+        "candidate_commit": "345db0cb73e7e7683872188b2a5ee4df0fd84b86",
+        "status": "timeout",
+        "started": true,
+        "owned_child_exited": true,
+        "exit_code": -1,
+        "process_wall_seconds": 40.0053873,
+        "limit_seconds": 41.956241199999994,
+        "cleanup_reserve_seconds": 2.0,
+        "parent_peak_sampled_working_set_bytes": 195743744,
+        "counts": null,
+        "primary_error": null,
+        "cleanup_error": null
+      }
+    }
+  ],
+  "remaining_seconds": 121.9508539,
+  "reserve_seconds": 60,
+  "status": "APPROVED",
+  "total_seconds": 240,
+  "used_seconds": 118.0491461,
+  "in_flight": null
+}
