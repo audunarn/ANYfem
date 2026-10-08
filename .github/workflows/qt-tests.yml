@@ -66,8 +66,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Same verified static-stream prerequisite as the headless matrix.
-          ref: d109511ea953e5e5946d72ea6b163cc347b89417
+          # Same reviewed static-stream and modal repair as the headless matrix.
+          ref: 7a0e166742e0db9beb678d1d55b4ad2ceae0489f
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:

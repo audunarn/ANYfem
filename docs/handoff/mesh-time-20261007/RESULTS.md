@@ -650,3 +650,167 @@ Final acceptance still requires all 13 Linux/Windows, Qt and wheel checks on
 the pushed PR head. The authorized 30-minute follow-up records later CI and
 merge status in PR12 and `final-dependency-delivery.json`, without another
 documentation-only commit that restarts the full matrix.
+
+### Authorized modal investigation, 2026-10-08
+
+User authorized a focused ANYsolver/modal investigation after Windows Python
+3.14 CI reported five rigid-body modes instead of six. This grants investigation,
+not production fixes, tolerance changes or bypass of the merge gate.
+Question: is a rigid eigenvector absent, or does the legacy classifier reject a
+returned vector because it uses one basis coefficient of a mass-normalized mode?
+Competing explanation: near-zero eigenvalue rounding crosses the frequency
+threshold even when the rigid subspace is complete.
+Bounded diagnostic: one original free-plate solve with the frozen CI owner
+sources, capture matrices/basis/modes without modifying the solver, then compare
+its first eight eigenpairs to a dense symmetric generalized eigenproblem on the
+same matrices and calculate subspace projections and nullspace residuals.
+Use one 90-second attempt charged to the existing closure ledger, retaining
+552.095465 seconds remaining before the attempt. No performance claims.
+A separate Mistral Read review examines the exact solver commit without runs.
+If the subspace is complete and the classifier is basis/normalization dependent,
+report a concrete owner repair proposal; if a physical mode is missing, preserve
+the pencil and identify that separate solver issue. Production changes require
+an explicit follow-on scope decision. Automatic merge remains paused.
+
+### Modal investigation result: classification defect demonstrated
+
+No production source was changed. Mistral's read-only review inspected exact
+solver commit d109511ea953e5e5946d72ea6b163cc347b89417; full report is
+modal-read-review.log. It identified both the legacy classification expression
+and a possible singular zero-shift inverse sensitivity. Its suggestion that a
+rigid eigenpair might be missing remains a hypothesis, not an observed result.
+
+The completed diagnostic (closure-checks/modal-investigation-03) used Windows
+Python 3.13, NumPy 2.4.3, SciPy 1.16.3, frozen CI owner sources and one BLAS
+thread. It returned six rigid modes through sparse_scipy_eigsh, with a
+486-by-486 pencil and six admissible rigid basis columns. Dense generalized
+eigenanalysis of the same pencil also found six near-zero modes. The relative
+stiffness residual of the rigid basis was 3.64e-18. Thus the local run did not
+reproduce the Windows Python 3.14/SciPy CI failure, and cannot establish whether
+that CI result omitted or mislabeled a mode. Matrices and exact per-mode values
+are preserved in modal-investigation-01/pencil.npz and result.json.
+
+A discriminating saved-matrix check does establish an owner classifier defect.
+The mass-normalized sum of two pure rigid basis vectors has legacy correlation
+0.718278196 (below 0.90), mass-subspace fraction 1.0000000000000009, and relative
+stiffness residual 5.38e-18. More directly, actual returned mode 5 has frequency
+7.390134669750902e-5 Hz and legacy correlation 0.9360164381000541.
+An orthogonal change of the rigid basis, leaving that mode, frequency and
+subspace unchanged, changes correlation to 0.5460776647191065 and flips its
+classification from true to false. The basis rotation's orthogonality error
+is 4.09e-16. Evidence: modal-investigation-01/basis-check.json and
+basis-rotation-check.json; checked under labels modal-basis-check-01 and
+modal-basis-rotation-01. This is stronger evidence for a classification repair
+than for adopting an eigensolver change; the latter is not justified yet.
+
+Proposed next scope: a bounded ANYsolver repair replacing the legacy
+single-coefficient classifier with a normalized whole-rigid-subspace measure,
+with explicit basis-rotation, vector/mass scaling and flexible-mode regressions.
+Keep frequency tolerance, mesh, physical parameters, eigenvalues and the
+six-mode admission assertion unchanged. Review compatibility of the deliberately
+preserved legacy metric and test the original consumer case on Windows Python
+3.14 before accepting it as the CI remedy. Do not adopt deflation, change the
+eigensolver or loosen thresholds merely on the speculative shift-invert theory.
+The user authorized investigation only; product repair awaits a scope decision.
+
+The first two disposable attempts failed: the diagnostic imported the material
+owner factory instead of ANYfem's material specification factory, then observed
+the public wrapper instead of _solve_free_vibration_under_lease. Both failures
+are preserved and charged; neither is a product failure. All investigation
+attempts together used 27.728995 process seconds, within the prospective
+90-second diagnostic allowance. Closure ledger now totals 675.633530 of 1200
+seconds, leaving 524.366470; no execution authority was renewed.
+Automatic delivery remains paused; PR12 remains unmerged.
+
+### Authorized modal repair scope
+
+User approved the bounded ANYsolver classification repair and regression tests.
+Implementation starts from the exact CI-pinned solver d109511e in isolated
+worktrees/ANYsolver, branch codex/modal-rigid-classification. Its modal.py is
+byte-equivalent to current local main cff55d95 by Git diff, allowing a narrow
+forward integration without adopting unrelated changes in ANYfem's owner pin.
+Mistral owns modal.py and focused modal regressions; Astra owns contract
+adoption, independent review, installed/consumer verification and delivery.
+Adopt a normalized whole-rigid-subspace classification measure with unchanged
+frequency/0.90 thresholds. Preserve descriptor semantics, solver eigenpairs,
+physical inputs and freshness/cancellation. No eigensolver/deflation changes.
+Use existing remaining 524.366470 process seconds, at most180 for worker checks;
+reserve the balance for independent consumer/installed checks. No new campaign.
+
+### Modal repair implemented and independently checked
+
+Mistral implemented the authorized classifier repair in isolated solver
+src/anysolver/modal.py (14 lines added, 14 removed). The legacy path now shares
+the descriptor path's normalized mass-orthogonal projection onto the entire
+admissible rigid subspace: Q (Q^T M Q)^+ Q^T M v. Its reported correlation is the
+square root of projected modal mass divided by total modal mass, clamped to
+[0,1]. This changes the previously unbounded legacy correlation diagnostic to
+a normalized quantity. The 0.90 and 1e-6 Hz classification thresholds,
+eigenpairs, normalization, residual computation and descriptor arithmetic are
+unchanged. Supported components retain the owner's existing empty-basis
+eligibility and frequency-only classification.
+
+Seven new integrated regressions in tests/test_modal_rigid_classification.py
+cover free rigid modes, orthogonal basis rotation, density scaling, eigensolver
+vector scaling, elastic exclusion, supported/pinned components and empty bases.
+The focused source run had seven new plus two existing checks: 9 passed in
+5.806415 process seconds (modal-repair-worker-01-run2). The two complete existing
+mass/modal and S3 modal test files passed 32 tests in 22.944303 process seconds
+(modal-repair-worker-01-run3). These counts overlap and are not additive unique
+test totals. The initial fixture failure is preserved in modal-repair-worker-01:
+it incorrectly expected a partial supported-component rigid basis. The fixture
+was aligned with established owner eligibility; assembly behavior was unchanged.
+
+Independent parent regression: running the new basis-rotation test against the
+unchanged pinned solver fails before rotation because that solver labels eight
+beam modes rigid instead of six. This demonstrates an additional false-positive
+classification case, not a reproduction of the exact five-mode CI failure.
+Evidence modal-regression-parent-01 (5.932047 process seconds). No pass was
+claimed for this expected red check.
+
+Astra reviewed the complete product/test delta and built a fresh isolated
+ANYsolver wheel from recorded d109511e plus the modal.py overlay, without
+modifying shared packages or binaries. Import paths and source SHA256 were
+asserted. Installed verification passed 42 tests: seven new, 32 existing solver
+checks and three original ANYfem modal cases, including the failing free-free
+plate test. Evidence modal-installed-acceptance-01 (27.369479 process seconds);
+artifact/source identities artifacts/modal-repair-wheel/manifest.json.
+
+Windows Python 3.14.2 / NumPy 2.4.6 / SciPy 1.17.1 local consumer checks refused
+before the modal solver due to the existing qualified-Q4 preflight namespace
+guard (ABC.__annotate_func__, ABC.__annotations_cache__). Preserve the three
+failures in modal-repair-consumer-py314-01 (8.529188 process seconds); no guard
+was bypassed or loosened. CI uses Python 3.14.7 and different numerical package
+versions, so this local failure does not reproduce its modal failure and does
+not establish exact-environment acceptance. Fresh final CI remains required.
+
+Worker implementation is complete. Its bounded follow-up ended without the
+requested written handoff; Astra reconstructed actual check results from
+result.json/stdout, reviewed the edits and completed this record. No worker
+launcher status was treated as test evidence. No active worker remains.
+Ledger: 764.662370 of 1200 process seconds used; 435.337630 remaining.
+No numerical authority was renewed.
+
+Local repair is ready for Git delivery review: solver branch
+codex/modal-rigid-classification, product file plus one new regression file.
+No solver commit, push, release, ANYfem dependency-pin change or PR merge has
+been made for this repair. The original automatic-delivery job remains paused.
+A separate solver PR and exact-head ANYfem repin/CI are the proposed delivery
+step; this extends publication to the newly authorized solver repair.
+
+### Modal repair Git delivery authorized
+
+The user authorized publishing the solver repair and updating ANYfem's exact
+solver pin. Solver PR64 is published at
+7a0e166742e0db9beb678d1d55b4ad2ceae0489f (one commit atop the previously pinned
+d109511e; only modal.py and the new regression file). ANYfem's headless, wheel
+and Qt owner references now point at this exact reviewed commit.
+The pinned runtime does not adopt unrelated newer solver-main changes.
+The 42-test installed-artifact result remains scoped to the recorded identical
+source overlay; no numerical test or budget was restarted by publication.
+
+Solver PR64 and ANYfem PR12 must pass their applicable CI before dependency-order
+merge. Exact Windows Python 3.14.7 acceptance remains pending. The restored
+follow-up records final results and merge identities in the delivery audit and
+PR descriptions; no additional status-only documentation commit is needed.
+No version bump, tag or package release is authorized.
