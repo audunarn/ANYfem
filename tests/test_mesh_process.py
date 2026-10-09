@@ -152,3 +152,219 @@ def test_executor_selection(monkeypatch):
     assert MeshTaskManager().executor == "process" and MeshTaskManager(executor="thread").executor == "thread"
     with pytest.raises(ValueError, match="unknown job executor"):
         MeshTaskManager(executor="gpu")
+
+
+def _fake_parallel_api(monkeypatch):
+    # Hermetic containment route: no installed ANYmesh is probed, so the
+    # registration/shutdown interleavings below never mesh anything.
+    monkeypatch.setattr(
+        "anyfem.mesh_execution.parallel_mesh_api",
+        lambda: (lambda model, **parameters: None, object, "mesh"),
+    )
+
+
+def test_a_worker_registered_after_shutdown_is_stopped_and_refused(monkeypatch):
+    import threading
+
+    from anyfem import mesh_jobs
+    from anyfem.job_process import WorkerProcessError
+
+    entered = threading.Event()
+    release = threading.Event()
+    stopped = []
+    refused = []
+
+    class LateWorker:
+        def is_alive(self):
+            return True
+
+        def terminate(self):
+            stopped.append(True)
+
+    def fake_run(**kwargs):
+        entered.set()
+        assert release.wait(10.0), "shutdown never ran"
+        try:
+            kwargs["on_process"](LateWorker())
+        except RuntimeError as error:
+            refused.append(str(error))
+        raise WorkerProcessError("the worker was never dispatched")
+
+    monkeypatch.setattr(mesh_jobs, "run_in_worker_process", fake_run)
+    _fake_parallel_api(monkeypatch)
+    manager = MeshTaskManager(executor="process")
+    future = manager.submit(
+        "late",
+        DocumentSession(plate_project()).snapshot(),
+        MeshSettings.create(0.25, element_order="linear"),
+    )
+    assert entered.wait(10.0), "the spawn never began"
+    manager.shutdown()
+    release.set()
+    future.result(timeout=10.0)
+    events = manager.poll()
+    assert stopped == [True], "a worker registered after shutdown must be stopped at once"
+    assert refused and "closing" in refused[0]
+    assert any(e.kind == "cancelled" for e in events), (
+        "the cancelled token must report the job as cancelled"
+    )
+
+
+def test_shutdown_stops_the_fallback_worker_not_the_refused_attempt_tree(monkeypatch):
+    import threading
+
+    from anyfem import mesh_jobs
+    from anyfem.job_process import WorkerProcessError
+
+    fallback_registered = threading.Event()
+    release = threading.Event()
+    calls = []
+    order = []
+
+    class FakeTree:
+        def terminate(self):
+            order.append("tree.terminate")
+
+    class FakeWorker:
+        def __init__(self, name):
+            self._name = name
+
+        def is_alive(self):
+            order.append(f"{self._name}.is_alive")
+            return True
+
+        def terminate(self):
+            order.append(f"{self._name}.terminate")
+
+    def fake_run(**kwargs):
+        calls.append(bool(kwargs.get("containment")))
+        if kwargs.get("containment"):
+            contained = FakeWorker("contained")
+            kwargs["on_process"](contained)
+            kwargs["on_tree"](contained, FakeTree())
+            raise WorkerProcessError(
+                "the contained mesh worker could not be dispatched",
+                remote_type="ContainmentUnavailable",
+            )
+        fallback = FakeWorker("fallback")
+        kwargs["on_process"](fallback)
+        fallback_registered.set()
+        assert release.wait(10.0), "shutdown never ran"
+        raise WorkerProcessError("the fallback worker was stopped by shutdown")
+
+    monkeypatch.setattr(mesh_jobs, "run_in_worker_process", fake_run)
+    _fake_parallel_api(monkeypatch)
+    manager = MeshTaskManager(executor="process")
+    future = manager.submit(
+        "fallback-race",
+        DocumentSession(plate_project()).snapshot(),
+        MeshSettings.create(0.25, element_order="linear"),
+    )
+    assert fallback_registered.wait(10.0), "the fallback worker was never registered"
+    manager.shutdown()
+    release.set()
+    future.result(timeout=10.0)
+    assert calls == [True, False], "exactly one serial fallback may be dispatched"
+    assert "fallback.terminate" in order, (
+        "shutdown must stop the live fallback worker"
+    )
+    assert "tree.terminate" not in order, (
+        "the refused attempt's closed tree must not mask the live fallback worker"
+    )
+
+
+def test_a_worker_that_outlives_its_spawn_stays_reachable_by_shutdown(monkeypatch):
+    import threading
+
+    from anyfem import mesh_jobs
+    from anyfem.job_process import WorkerProcessError
+
+    registered = threading.Event()
+    release = threading.Event()
+    order = []
+
+    class Survivor:
+        def is_alive(self):
+            order.append("survivor.is_alive")
+            return True
+
+        def terminate(self):
+            order.append("survivor.terminate")
+
+    def fake_run(**kwargs):
+        kwargs["on_process"](Survivor())
+        registered.set()
+        assert release.wait(10.0), "the spawn never ended"
+        raise WorkerProcessError(
+            "the worker tree could not be retired",
+            remote_type="WorkerCleanupFailed",
+        )
+
+    monkeypatch.setattr(mesh_jobs, "run_in_worker_process", fake_run)
+    _fake_parallel_api(monkeypatch)
+    manager = MeshTaskManager(executor="process")
+    future = manager.submit(
+        "survivor",
+        DocumentSession(plate_project()).snapshot(),
+        MeshSettings.create(0.25, element_order="linear"),
+    )
+    assert registered.wait(10.0), "the worker was never registered"
+    release.set()
+    future.result(timeout=10.0)
+    events = manager.poll()
+    assert any(e.kind == "failed" for e in events), "a cleanup failure must fail the job"
+    manager.shutdown()
+    assert "survivor.terminate" in order, (
+        "a worker that outlived its bounded cleanup must stay reachable by shutdown"
+    )
+
+
+def test_a_live_cleanup_survivor_refuses_new_submissions_until_shutdown_stops_it(monkeypatch):
+    import threading
+
+    from anyfem import mesh_jobs
+    from anyfem.job_process import WorkerProcessError
+
+    registered = threading.Event()
+    release = threading.Event()
+    stopped = []
+
+    class Survivor:
+        def is_alive(self):
+            return True
+
+        def terminate(self):
+            stopped.append(True)
+
+    def fake_run(**kwargs):
+        kwargs["on_process"](Survivor())
+        registered.set()
+        assert release.wait(10.0), "the spawn never ended"
+        raise WorkerProcessError(
+            "the worker tree could not be retired",
+            remote_type="WorkerCleanupFailed",
+        )
+
+    monkeypatch.setattr(mesh_jobs, "run_in_worker_process", fake_run)
+    _fake_parallel_api(monkeypatch)
+    manager = MeshTaskManager(executor="process")
+    future = manager.submit(
+        "survivor",
+        DocumentSession(plate_project()).snapshot(),
+        MeshSettings.create(0.25, element_order="linear"),
+    )
+    assert registered.wait(10.0), "the worker was never registered"
+    release.set()
+    future.result(timeout=10.0)
+    events = manager.poll()
+    assert any(e.kind == "failed" for e in events), "a cleanup failure must fail the job"
+    with pytest.raises(RuntimeError, match="still running"):
+        manager.submit(
+            "replacement",
+            DocumentSession(plate_project()).snapshot(),
+            MeshSettings.create(0.25, element_order="linear"),
+        )
+    manager.shutdown()
+    assert stopped == [True], (
+        "shutdown must still stop the survivor a refused submission never replaced"
+    )

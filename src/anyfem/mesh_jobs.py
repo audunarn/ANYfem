@@ -451,6 +451,14 @@ class MeshTaskManager:
                 raise RuntimeError("mesh task manager is closed")
             if self._active is not None:
                 raise ValueError("a mesh is already being generated")
+            if self._process is not None and self._process.is_alive():
+                # A worker that outlived its bounded cleanup stays registered
+                # so shutdown can still stop it.  A new submission must not
+                # replace that live registration and lose shutdown reachability.
+                raise RuntimeError(
+                    "a previous mesh worker is still running; shutdown must "
+                    "stop it before a new mesh may start"
+                )
             # Freeze the effective default/environment choice before deciding
             # whether the submitted job needs owned process containment.
             from .mesh_execution import resolve_policy
@@ -610,23 +618,37 @@ class MeshTaskManager:
         recorded -- unless the manager is closing, in which case nothing is
         dispatched at all, or the refusal carries cleanup failures, in which
         case the job fails rather than spawn any further worker.  A failure
-        after execution begins is never retried serially.
+        after execution begins is never retried serially.  Registration is
+        published and retracted per spawn attempt, so shutdown always
+        observes one consistent worker/tree pair.
         """
 
         def forward(value: Any) -> None:
             if isinstance(value, MeshProgress):
                 progress(value.stage, value.message, value.fraction)
 
+        # The spawn attempt that currently owns the registration slots.
+        # Ownership is published and retracted per attempt, so shutdown
+        # never observes a stale tree from a refused contained attempt
+        # beside a live fallback worker, and never observes empty slots
+        # while a worker that outlived its bounded cleanup still runs.
+        attempt: list[Any] = []
+
         def register(process: Any) -> None:
             with self._lock:
                 if self._closing:
                     # shutdown() already ran: refuse ownership so no worker
-                    # may run (or keep running) after shutdown.  The caller
-                    # tears the worker down; the cancelled token reports the
-                    # job as cancelled.
+                    # may run (or keep running) after shutdown.  The late
+                    # worker is also stopped here, under the same lock: the
+                    # caller's teardown is bounded and joins first, so a
+                    # bare refusal could let it run a whole mesh first.
+                    # The cancelled token reports the job as cancelled.
+                    if process.is_alive():
+                        process.terminate()
                     raise RuntimeError(
                         "mesh task manager is closing; no mesh worker may start"
                     )
+                attempt[:] = [process, None]
                 self._process = process
 
         def register_tree(process: Any, tree: Any) -> None:
@@ -639,7 +661,50 @@ class MeshTaskManager:
                         "mesh task manager is closing; no parallel mesh tree may "
                         "be registered"
                     )
+                if attempt and attempt[0] is process:
+                    attempt[1] = tree
                 self._tree = tree
+
+
+        def retract() -> None:
+            """Retract the finished attempt's registration, atomically.
+
+            A worker confirmed dead is unregistered, exactly as before.  A
+            worker that outlived its bounded cleanup stays registered, with
+            its closed tree dropped so shutdown's standalone branch can
+            stop the survivor: nothing may keep running after shutdown,
+            and no later attempt may inherit a stale tree.
+            """
+
+            with self._lock:
+                if attempt:
+                    process, tree = attempt
+                else:
+                    process = tree = None
+                attempt[:] = []
+                if tree is not None and self._tree is tree:
+                    self._tree = None
+                if (
+                    process is not None
+                    and self._process is process
+                    and not process.is_alive()
+                ):
+                    self._process = None
+
+
+        def spawn(worker_settings: Any, contained_worker: bool) -> Any:
+            try:
+                return self._spawn_worker(
+                    snapshot,
+                    worker_settings,
+                    cancellation,
+                    forward,
+                    contained_worker,
+                    register,
+                    register_tree,
+                )
+            finally:
+                retract()
 
         policy = settings.execution_policy
         contained = False
@@ -659,9 +724,7 @@ class MeshTaskManager:
                     0.15,
                 )
         try:
-            transport = self._spawn_worker(
-                snapshot, settings, cancellation, forward, contained, register, register_tree
-            )
+            transport = spawn(settings, contained)
         except WorkerProcessError as error:
             if not contained or error.remote_type != "ContainmentUnavailable":
                 raise
@@ -688,24 +751,12 @@ class MeshTaskManager:
             serial_settings = replace(
                 settings, execution_policy=MeshExecutionPolicy.off()
             )
-            transport = self._spawn_worker(
-                snapshot,
-                serial_settings,
-                cancellation,
-                forward,
-                False,
-                register,
-                register_tree,
-            )
+            transport = spawn(serial_settings, False)
             execution = dict(transport.execution)
             execution["route"] = "serial"
             execution["workers"] = None
             execution["reason"] = reason
             transport = replace(transport, execution=execution)
-        finally:
-            with self._lock:
-                self._process = None
-                self._tree = None
         from anymesher.serialize import mesh_from_dict
 
         return MeshJobResult(
@@ -737,7 +788,6 @@ class MeshTaskManager:
             containment=contained,
             on_tree=register_tree if contained else None,
         )
-
 
 
 def run_mesh_job(
