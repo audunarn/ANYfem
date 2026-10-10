@@ -636,3 +636,72 @@ ANYfem (S4c-1):
   | 48 | -0.182 % | +0.057 % | +0.058 % |
 
   The child's change between the two sources is 0.13 % of `pR^2/(Et)`.
+
+## 13. Slice: cutting the child from the parent (S4a cut carry-over)
+
+`submodel_cut.cut_submodel(snapshot, volume, *, source, policy, target_size, name=, child_case=,
+tolerances=) -> CutSubmodel(definition, report)` builds a ready `SubmodelDefinition` from a
+committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only read
+(`snapshot.thaw()`); the definition is registered with `add_submodel`.
+
+- **Cut**: ANYgeometry's `plan_volume_cut` and `apply_volume_cut` (volume-cut contract section 9)
+  on the thawed parent's geometry. Members none of whose edges carries a beam section are not
+  meshed and are declared droppable: those reaching the box are left out and reported
+  (`report.notes`, `dropped_outside["unassigned_members"]`); a beam-assigned edge reaching the
+  box refuses (`CUT_BEAMS_UNSUPPORTED`, attached stiffeners are slice S4b). Every ANYgeometry
+  refusal is re-raised as a `SubmodelError` with its `VOLUME_*` code.
+- **Child**: a detached `Project` on the extracted geometry, with the parent's units,
+  coordinate systems, element order, shell formulation policy, native meshing settings, the
+  materials and plate sections (section ids preserved), and `target_size`.
+- **Lineage** (`SubmodelDefinition.source_faces`, `cut_faces`): child face to parent faces from
+  the cut's lineage; cut faces are the artificial cut edges grouped by box side. A box that
+  creates no artificial cut refuses (`CUT_NO_CUT_EDGES`).
+- **Carry-over** (contract section 4). Records resolve their scope through the parent's regions
+  exactly as the model build does (`CUT_REGION_UNRESOLVED`, `CUT_REGION_UNSUPPORTED` for mesh
+  scopes), then map through the lineage. Records whose values are intensities (supports,
+  pressures, surface tractions, line loads) become one child record per mapped child entity.
+  Point loads and masses are totals or per-target values over a scope, so each becomes **one**
+  child record whose scope is a hidden manual region of the mapped child entities (the build then
+  weights and deduplicates shared nodes exactly as for the parent, and a `total_distributed`
+  total is preserved). A parent record with no child entity is dropped and counted
+  (`report.dropped_outside`: supports, masses, loads by kind, wet surfaces, connections,
+  refinements, seeding overrides); a load case that fails part-way contributes nothing to the
+  counters. The cut's `unresolved` entities (extracted entities with neither a source nor a cut
+  origin) refuse the whole cut before any carry-over (`CUT_LINEAGE_UNRESOLVED`), so a missing
+  lineage entry is never read as "outside".
+
+  | Attribute | Rule here |
+  |---|---|
+  | Plate sections | Every child face needs exactly one parent section (`CUT_SECTION_UNRESOLVED`, `CUT_SECTION_AMBIGUOUS`) |
+  | Supports | Carried to child entities, including on the cut |
+  | Pressure, surface traction, line load | Same intensity, side and frame |
+  | Point load | Carried when its points are inside; `total_distributed` only when its whole scope is inside; a point on the artificial cut refuses the case |
+  | Mass | Same, but a mass that is clipped or on the artificial cut refuses the cut (`CUT_MASS_CLIPPED`, `CUT_MASS_ON_CUT`) |
+
+  "On the artificial cut" means an end point or control vertex of an artificial cut edge (or such
+  an edge), not a box plane: a vertex on a retained physical boundary that happens to lie in a
+  box plane is not on the cut.
+  | Gravity, follower pressure | Re-applied |
+  | Wet surfaces, connections touching the child | Refuse (`CUT_WET_UNSUPPORTED`, `CUT_CONNECTIONS_UNSUPPORTED`) |
+  | Imperfections | Refuse (`CUT_IMPERFECTIONS_UNSUPPORTED`) |
+  | Load series, envelopes, wet pressures, connection loads | The load case is skipped and reported in `report.skipped_cases`; it refuses (`CUT_LOAD_UNSUPPORTED`) only if it is the chosen `child_case` |
+  | Combinations | Carried when every case they use is carried |
+  | Refinements, seeding | Kept when their zone overlaps the box or their entity maps into it |
+
+- **Checks of the definition**: `child_case` must exist in the child (`CUT_CASE_MISSING`); the
+  source job must exist in the parent (`CUT_SOURCE_JOB_MISSING`); the definition is validated as
+  detached and serializable.
+- **Evidence** (`tests/test_submodel_cut.py`): a box over a 3 x 3 plate grid is cut, run through
+  the S4a-2 job source and compared with the parent at every non-driven node (translations to
+  1e-12, rotations to 1e-10, free-body ratios below 1e-12); boxes on existing edges and inside one
+  face; supports, masses, point loads on a vertex group and line loads carried with assembled
+  force and mass totals checked against the child's own build (including a `total_distributed`
+  load over two points and masses sharing nodes); a retained physical boundary vertex; the report
+  reconciled with the returned child; unresolved lineage; every refusal and skipped case; a cylinder parent (the structural-cylinder generator, whose four unassigned
+  seam members are left out) cut across a seam and solved under both policies, the child's radial
+  displacement within 0.5 % of `pR^2/(Et)`; the parent project and session revision are
+  unchanged by a cut.
+- **Finding**: ANYfem's default plate (`add_face` without a surface) is a topology-backed
+  `CoonsSurface`, not a `Plane`; S2a first refused it. The volume cut now accepts a Coons patch
+  with straight coplanar boundaries (the support ANYgeometry's own intersection planning
+  accepts).
