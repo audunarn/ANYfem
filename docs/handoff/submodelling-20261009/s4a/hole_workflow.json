@@ -1,0 +1,24 @@
+{
+  "anyfem": "C:\\ANYworkspaceWork\\sm4\\src\\anyfem\\__init__.py",
+  "anysolver": "C:\\ANYworkspaceWork\\sm1\\src\\anysolver\\__init__.py",
+  "anymesher": "C:\\ANYworkspaceWork\\sm3\\src\\anymesher\\__init__.py",
+  "drive_all": {
+    "kt": 3.094009607115444,
+    "free_body_force_ratio": 5.590501929388608e-14,
+    "free_body_moment_ratio": 4.884385044305782e-15,
+    "driven_nodes": 64,
+    "corners": 4,
+    "max_transfer_allowance": 1.5047870820935677e-11,
+    "equilibrium_ratio": 0.0009384741080000176
+  },
+  "release_normal_rotation": {
+    "kt": 3.0940252101606958,
+    "free_body_force_ratio": 2.1455137947396302e-14,
+    "free_body_moment_ratio": 5.2923704262222875e-15,
+    "driven_nodes": 64,
+    "corners": 4,
+    "max_transfer_allowance": 1.5047870820935677e-11,
+    "equilibrium_ratio": 0.0010018498747691562
+  },
+  "s0_reference_kt_global8_boxA_sub16": 3.09401
+}

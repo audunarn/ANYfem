@@ -1,0 +1,176 @@
+{
+  "environment": {
+    "anyfem": "0.4.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfem\\src\\anyfem\\__init__.py",
+    "anygeometry": "0.4.5 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYgeometry\\src\\anygeometry\\__init__.py",
+    "anymesher": "0.5.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmesh\\src\\anymesher\\__init__.py",
+    "anysolver": "0.4.7 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYsolver\\src\\anysolver\\__init__.py",
+    "anymaterial": "0.2.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmaterial\\src\\anymaterial\\__init__.py",
+    "anyfileio": "0.3.2 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfileIO\\src\\anyfileio\\__init__.py",
+    "anyloads": "0.1.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYloads\\src\\anyloads\\__init__.py",
+    "NATIVE_CPP_AVAILABLE": "True",
+    "python": "3.14.2",
+    "identity": "ANYfem f74812d9b2757f40d586f3cbded0d638ffb35909\nANYgeometry a534b0d3782af9007b71edb30b923fc96232be67\nANYmesh d7e74147658e097871de1f4f45d0fe0774987927\nANYsolver da1ba2e96b035d329f046ae33c99acbfd70aa637\nANYmaterial d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2\nANYfileIO db73950018e1c87dab0ca618c25c965030ba08ce\nANYloads 28a15c09eff75037dedf62c66ca09ea21221c5af\n814b947123a6ca6f8738e40625c0df4738c47fd5c2ce985a83bd9f47bbd2922f */c/Users/AUDUNA~1/AppData/Local/Temp/claude/C--Github/59147d03-c123-4596-a0d0-f6053be6be25/scratchpad/s0-snap/ANYmesh/src/anymesher/_native.cp314-win_amd64.pyd"
+  },
+  "global": {
+    "elements": 100,
+    "nodes": 121,
+    "backward_error": 2.776857428602606e-17,
+    "kappa1": 6763569.031683179,
+    "kappa1_scaled": 194588.70425360755,
+    "u_inf": 0.007020897220054589
+  },
+  "inside": {
+    "elements": 16,
+    "driven_nodes": 16,
+    "elements_coincide": true
+  },
+  "transfer_vs_direct_max_abs": 1.5607417011229615e-18,
+  "policies": {
+    "P2": {
+      "interior": {
+        "max_abs_translation_error": 4.683753385137379e-17,
+        "max_abs_rotation_error": 5.854691731421724e-16,
+        "rel_translation_error": 2.2181058477937954e-14,
+        "rel_rotation_error": 3.049507278464789e-13,
+        "translation_scale": 0.0021116004855205634,
+        "rotation_scale": 0.001919881212537767,
+        "per_component_max_abs": [
+          1.3552527156068805e-20,
+          5.082197683525802e-21,
+          4.683753385137379e-17,
+          5.854691731421724e-16,
+          4.568827954853916e-16,
+          1.1858461261560205e-19
+        ]
+      },
+      "backward_error": 4.772427069425165e-17,
+      "kappa1": 430823.505274296,
+      "kappa1_scaled": 2085.079400050446,
+      "norm1_K": 10569230769.230772,
+      "u_inf": 0.003750442073820768,
+      "free_body_resultant_of_cut_forces": [
+        1.6370904631912708e-11,
+        -1.5916157281026244e-11,
+        -1599.9999999995941,
+        1.6087575716028368e-10,
+        -1.8381740574113792e-10,
+        7.048583938740194e-12
+      ],
+      "pressure_resultant_magnitude": 1600.0
+    },
+    "P1": {
+      "interior": {
+        "max_abs_translation_error": 8.054306299756515e-09,
+        "max_abs_rotation_error": 4.873714981681152e-07,
+        "rel_translation_error": 3.81431352899643e-06,
+        "rel_rotation_error": 0.0002538550275846964,
+        "translation_scale": 0.0021116004855205634,
+        "rotation_scale": 0.001919881212537767,
+        "per_component_max_abs": [
+          8.054306299756515e-09,
+          5.4293605767809154e-09,
+          4.683753385137379e-17,
+          5.854691731421724e-16,
+          4.568827954853916e-16,
+          4.873714981681152e-07
+        ]
+      },
+      "backward_error": 4.772427069425165e-17,
+      "kappa1": 1035996.5906579839,
+      "kappa1_scaled": 2085.079400050446,
+      "norm1_K": 10569230769.230772,
+      "u_inf": 0.003750442073820768,
+      "free_body_resultant_of_cut_forces": [
+        1.4551915228366852e-11,
+        -5.115907697472721e-13,
+        -1599.9999999995941,
+        1.6087575716028368e-10,
+        -1.8381740574113792e-10,
+        -4.774847184307873e-12
+      ],
+      "pressure_resultant_magnitude": 1600.0
+    }
+  },
+  "outside_interior": {
+    "max_abs_translation_error": 3.5670251474773096e-17,
+    "max_abs_rotation_error": 5.611830444784971e-16,
+    "rel_translation_error": 2.795510277321514e-14,
+    "rel_rotation_error": 7.993038879354707e-14,
+    "translation_scale": 0.001275983557068162,
+    "rotation_scale": 0.007020897220054589,
+    "per_component_max_abs": [
+      1.0842021724855044e-19,
+      6.437450399132683e-20,
+      3.5670251474773096e-17,
+      4.423544863740858e-16,
+      5.611830444784971e-16,
+      6.708500942254059e-19
+    ]
+  },
+  "newton_max_force": 1.279445882573782e-09,
+  "newton_max_moment": 8.384404281969182e-11,
+  "max_cut_force_component": 12001.820081723092,
+  "per_edge": {
+    "1": {
+      "midpoint": [
+        0.5,
+        0.3,
+        0.0
+      ],
+      "resultant_excluding_corners": [
+        2091.5788940056896,
+        -692.6973920725036,
+        -302.4808323792762,
+        123.69935356824831,
+        6.52162768233211e-11,
+        46.275125580789435
+      ]
+    },
+    "2": {
+      "midpoint": [
+        0.5,
+        0.7,
+        0.0
+      ],
+      "resultant_excluding_corners": [
+        487.23586181003117,
+        1010.5072682679051,
+        -302.48083237781117,
+        -123.69935356839792,
+        -1.5845369460976144e-10,
+        -56.52349676282806
+      ]
+    },
+    "3": {
+      "midpoint": [
+        0.3,
+        0.5,
+        0.0
+      ],
+      "resultant_excluding_corners": [
+        -33556.968292032194,
+        1156.3958108084034,
+        -302.4808323776016,
+        -9.036327242029074e-12,
+        -123.69935356838829,
+        163.25074109224033
+      ]
+    },
+    "4": {
+      "midpoint": [
+        0.7,
+        0.5,
+        0.0
+      ],
+      "resultant_excluding_corners": [
+        31214.438360099804,
+        -1554.080695922688,
+        -302.48083237761045,
+        2.8975932764296886e-11,
+        123.69935356830467,
+        -57.079053661361854
+      ]
+    }
+  },
+  "rotation_sign_correlation_thetay_vs_minus_dwdx": 0.9999954897921977
+}

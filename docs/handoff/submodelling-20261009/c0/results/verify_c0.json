@@ -1,0 +1,115 @@
+{
+  "environment": {
+    "anyfem": "0.4.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfem\\src\\anyfem\\__init__.py",
+    "anygeometry": "0.4.5 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYgeometry\\src\\anygeometry\\__init__.py",
+    "anymesher": "0.5.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmesh\\src\\anymesher\\__init__.py",
+    "anysolver": "0.4.7 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYsolver\\src\\anysolver\\__init__.py",
+    "anymaterial": "0.2.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmaterial\\src\\anymaterial\\__init__.py",
+    "anyfileio": "0.3.2 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfileIO\\src\\anyfileio\\__init__.py",
+    "anyloads": "0.1.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYloads\\src\\anyloads\\__init__.py",
+    "NATIVE_CPP_AVAILABLE": "True",
+    "python": "3.14.2",
+    "identity": "ANYfem f74812d9b2757f40d586f3cbded0d638ffb35909\nANYgeometry a534b0d3782af9007b71edb30b923fc96232be67\nANYmesh d7e74147658e097871de1f4f45d0fe0774987927\nANYsolver da1ba2e96b035d329f046ae33c99acbfd70aa637\nANYmaterial d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2\nANYfileIO db73950018e1c87dab0ca618c25c965030ba08ce\nANYloads 28a15c09eff75037dedf62c66ca09ea21221c5af\n814b947123a6ca6f8738e40625c0df4738c47fd5c2ce985a83bd9f47bbd2922f */c/Users/AUDUNA~1/AppData/Local/Temp/claude/C--Github/59147d03-c123-4596-a0d0-f6053be6be25/scratchpad/s0-snap/ANYmesh/src/anymesher/_native.cp314-win_amd64.pyd"
+  },
+  "part1": {
+    "nodes": {
+      "s": 4,
+      "m1": 15,
+      "m2": 11
+    },
+    "audit_issues": [],
+    "duplicate_support_warnings": 15,
+    "u_sx_minus_gs": 1.3552527156068805e-20,
+    "u_m1x_minus_g": 0.0,
+    "u_m2x_minus_expected": 0.0,
+    "mpc_residual": 0.0,
+    "max_free_equilibrium_residual": 2.3283064365386963e-10,
+    "lambda_m1x": -58801.942928160715,
+    "lambda_sx": 8309.887040467998,
+    "raw_r_m1x": -50706.93060058432,
+    "raw_r_sx": -7880.137614684801,
+    "raw_r_m2x": 8095.0123275764,
+    "free_body_x": 9.604264050722122e-10,
+    "free_body_y": 1.9281287677586079e-10,
+    "applied": [
+      200000.0,
+      30000.0
+    ],
+    "backward_error": 8.337587723423716e-17
+  },
+  "part2": {
+    "slave_prescribed": {
+      "audit": [
+        [
+          "CONSTRAINT005",
+          "error",
+          "Equation is inconsistent after affine reduction (remaining rhs -5e-06)."
+        ]
+      ],
+      "duplicate_support_warnings": 15,
+      "outcome": "ValueError: Invalid constraint system: CONSTRAINT005: Equation is inconsistent after affine reduction (remaining rhs -5e-06)."
+    },
+    "slave_prescribed_equal": {
+      "audit": [
+        [
+          "CONSTRAINT007",
+          "warning",
+          "Equation is redundant after affine reduction."
+        ]
+      ],
+      "duplicate_support_warnings": 15,
+      "outcome": "solved, u_s - u_m = 0.00e+00"
+    },
+    "redundant": {
+      "audit": [
+        [
+          "CONSTRAINT007",
+          "warning",
+          "Equation is redundant after affine reduction."
+        ]
+      ],
+      "duplicate_support_warnings": 15,
+      "outcome": "solved, u_s - u_m = 0.00e+00"
+    },
+    "inconsistent": {
+      "audit": [
+        [
+          "CONSTRAINT005",
+          "error",
+          "Equation is inconsistent after affine reduction (remaining rhs 1e-05)."
+        ]
+      ],
+      "duplicate_support_warnings": 15,
+      "outcome": "ValueError: Invalid constraint system: CONSTRAINT005: Equation is inconsistent after affine reduction (remaining rhs 1e-05)."
+    }
+  },
+  "part2b": {
+    "beam_node_prescribed": "ValueError: Invalid constraint system: CONSTRAINT002: DOF 150 has multiple dependent definitions (support:trace_beam, mpc:17:interp_beam_shell_ux_17).; CONSTRAINT002: DOF 151 has multiple dependent definitions (s",
+    "beam_node_follows": "solved, beam node vs u + theta x e: 0.00e+00"
+  },
+  "part3_a1": {
+    "global": {
+      "eta_s": 8.845414415982009e-17,
+      "kappa_s": 194588.7042536075,
+      "reconstruction": 8.673617379884035e-19,
+      "eta_reported_unscaled": 2.776857428602606e-17
+    },
+    "inside": {
+      "eta_s": 9.315940555714119e-17,
+      "kappa_s": 2085.079400050446,
+      "reconstruction": 2.168404344971009e-19,
+      "eta_reported_unscaled": 4.7724270694251994e-17
+    },
+    "interior_error_over_allowance_max_translation": 0.001722669074899575,
+    "interior_error_over_allowance_max_rotation": 0.0007756154314800151,
+    "newton_over_allowance_max": 0.0014088312536811214,
+    "boundary_dy_note": 1.5397998772160423e-09,
+    "propagation_norm_inv": 507.79052820365564
+  },
+  "part3_rigid": {
+    "max_force": 2.2935182641958818e-09,
+    "force_over_allowance_max": 0.0007324488016626465,
+    "eta_s": 7.671875352301938e-17,
+    "kappa_s": 6754.372674066065
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "anysolver": "C:\\ANYworkspaceWork\\sm1\\src\\anysolver\\__init__.py",
+  "anymesher": "C:\\ANYworkspaceWork\\sm3\\src\\anymesher\\__init__.py",
+  "drive_all": {
+    "kept_rows": 96,
+    "redundant_rows": 0,
+    "interior_error_over_allowance": 0.0016365014549072586,
+    "max_abs_interior_translation_error": 5.984795992119984e-17,
+    "max_abs_interior_rotation_error": 7.624109676918067e-16,
+    "cut_force_total_z_plus_pressure": 1.0163603292312473e-10,
+    "equilibrium_residual": 9.027587566379225e-10,
+    "incident_faces_max": 1,
+    "inconclusive": false
+  },
+  "release_normal_rotation": {
+    "kept_rows": 80,
+    "redundant_rows": 0,
+    "interior_error_over_allowance": 577415.2225138503,
+    "max_abs_interior_translation_error": 8.054306299749739e-09,
+    "max_abs_interior_rotation_error": 4.873714981665872e-07,
+    "cut_force_total_z_plus_pressure": 1.0163603292312473e-10,
+    "equilibrium_residual": 9.027587566379225e-10,
+    "incident_faces_max": 1,
+    "inconclusive": false
+  },
+  "newton": {
+    "max_abs": 1.5288605936802924e-09,
+    "over_allowance": 0.0017676492546559808
+  }
+}
