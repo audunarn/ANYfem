@@ -320,7 +320,7 @@ Order is by dependency; no duration estimates are given.
 | **S4a** (S4a-1 and S4a-2 done 2026-10-10, workflow contract sections 10-11) | ANYfem | Planar shell-only headless end to end | A1-A4 runnable; format 12 round trip (formats 9-11 were taken); staleness tests. The cut itself waits for S2a |
 | **S2b** | ANYgeometry | G1b attached-member partitioning | Stiffened panel cut through two stiffeners; attachments and junctions remapped with lineage |
 | **S4b** | ANYfem + ANYsolver | Attached stiffeners with constraint-aware driven set | A5 |
-| **S3b/S4c** | ANYmesher, ANYgeometry, ANYfem | Cylinders: curved correspondence, conservative bounds, transport rule | A6 and rigid-motion tests on cylinders |
+| **S3b/S4c** (S3b and the cut-independent S4c-1 done 2026-10-10, workflow contract section 12) | ANYmesher, ANYgeometry, ANYfem | Cylinders: curved correspondence, conservative bounds, transport rule | A6 and rigid-motion tests on cylinders. The cylinder cut waits for S2a |
 | **S5** | ANYfem | Qt GUI | Packaged-artifact smoke test |
 | **S6** | all | Level B assessment | Independent assessor named before the run; frozen cases, normalisations, resource limits |
 

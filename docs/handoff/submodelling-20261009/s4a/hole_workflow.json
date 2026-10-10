@@ -9,7 +9,7 @@
     "driven_nodes": 64,
     "corners": 4,
     "max_transfer_allowance": 1.5047870820935677e-11,
-    "equilibrium_ratio": 0.0009384741080000176
+    "equilibrium_ratio": 0.0009556164217055267
   },
   "release_normal_rotation": {
     "kt": 3.0940252101606958,
