@@ -1,0 +1,46 @@
+{
+  "environment": {
+    "anyfem": "0.4.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfem\\src\\anyfem\\__init__.py",
+    "anygeometry": "0.4.5 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYgeometry\\src\\anygeometry\\__init__.py",
+    "anymesher": "0.5.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmesh\\src\\anymesher\\__init__.py",
+    "anysolver": "0.4.7 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYsolver\\src\\anysolver\\__init__.py",
+    "anymaterial": "0.2.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmaterial\\src\\anymaterial\\__init__.py",
+    "anyfileio": "0.3.2 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfileIO\\src\\anyfileio\\__init__.py",
+    "anyloads": "0.1.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYloads\\src\\anyloads\\__init__.py",
+    "NATIVE_CPP_AVAILABLE": "True",
+    "python": "3.14.2",
+    "identity": "ANYfem f74812d9b2757f40d586f3cbded0d638ffb35909\nANYgeometry a534b0d3782af9007b71edb30b923fc96232be67\nANYmesh d7e74147658e097871de1f4f45d0fe0774987927\nANYsolver da1ba2e96b035d329f046ae33c99acbfd70aa637\nANYmaterial d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2\nANYfileIO db73950018e1c87dab0ca618c25c965030ba08ce\nANYloads 28a15c09eff75037dedf62c66ca09ea21221c5af\n814b947123a6ca6f8738e40625c0df4738c47fd5c2ce985a83bd9f47bbd2922f */c/Users/AUDUNA~1/AppData/Local/Temp/claude/C--Github/59147d03-c123-4596-a0d0-f6053be6be25/scratchpad/s0-snap/ANYmesh/src/anymesher/_native.cp314-win_amd64.pyd"
+  },
+  "rows": [
+    {
+      "label": "butterfly, 3 faces",
+      "size": 0.05,
+      "result": "ProjectError: structural preparation failed: cannot prepare structural intersection batch: face 3 has no qualified analytic or bilinear support"
+    },
+    {
+      "label": "neutral trimmed hole, 1 face",
+      "size": 0.125,
+      "result": "S3RepairError: bounded qualified-S3 repair did not satisfy the admission contract"
+    },
+    {
+      "label": "neutral trimmed hole, 1 face",
+      "size": 0.05,
+      "result": "S3RepairError: bounded qualified-S3 repair did not satisfy the admission contract"
+    },
+    {
+      "label": "neutral trimmed hole, 1 face",
+      "size": 0.02,
+      "result": "S3RepairError: bounded qualified-S3 repair did not satisfy the admission contract"
+    },
+    {
+      "label": "hand-built O-grid on Plane, unpinned",
+      "size": 0.05,
+      "result": "StructuredQualityRejected: structured mesh violates quality_v2 (maximum_aspect_ratio=44); poor element IDs (7, 14, 21, 28, 35, 42, 49, 56, 63, 70, 77, 84, 91, 98, 105, 112); automatic native fallback also rejected: structured mesh violates quality_v2 (maximum_aspect_ratio=44); poor element IDs (7, 14, 21, 28, 35, 42, 49, 56, 63, 70, 77, 84, 91, 98, 105, 112); declared-junction transition repair did not produce an accepted candidate"
+    },
+    {
+      "label": "hand-built O-grid on Plane, arcs+spokes pinned to 8",
+      "size": 0.0625,
+      "result": "ok: 448 quads, 0 triangles"
+    }
+  ]
+}

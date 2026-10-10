@@ -1,0 +1,385 @@
+{
+  "environment": {
+    "anyfem": "0.4.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfem\\src\\anyfem\\__init__.py",
+    "anygeometry": "0.4.5 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYgeometry\\src\\anygeometry\\__init__.py",
+    "anymesher": "0.5.1 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmesh\\src\\anymesher\\__init__.py",
+    "anysolver": "0.4.7 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYsolver\\src\\anysolver\\__init__.py",
+    "anymaterial": "0.2.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYmaterial\\src\\anymaterial\\__init__.py",
+    "anyfileio": "0.3.2 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYfileIO\\src\\anyfileio\\__init__.py",
+    "anyloads": "0.1.0 C:\\Users\\AudunArnesenNyhus\\AppData\\Local\\Temp\\claude\\C--Github\\59147d03-c123-4596-a0d0-f6053be6be25\\scratchpad\\s0-snap\\ANYloads\\src\\anyloads\\__init__.py",
+    "NATIVE_CPP_AVAILABLE": "True",
+    "python": "3.14.2",
+    "identity": "ANYfem f74812d9b2757f40d586f3cbded0d638ffb35909\nANYgeometry a534b0d3782af9007b71edb30b923fc96232be67\nANYmesh d7e74147658e097871de1f4f45d0fe0774987927\nANYsolver da1ba2e96b035d329f046ae33c99acbfd70aa637\nANYmaterial d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2\nANYfileIO db73950018e1c87dab0ca618c25c965030ba08ce\nANYloads 28a15c09eff75037dedf62c66ca09ea21221c5af\n814b947123a6ca6f8738e40625c0df4738c47fd5c2ce985a83bd9f47bbd2922f */c/Users/AUDUNA~1/AppData/Local/Temp/claude/C--Github/59147d03-c123-4596-a0d0-f6053be6be25/scratchpad/s0-snap/ANYmesh/src/anymesher/_native.cp314-win_amd64.pyd"
+  },
+  "reference": [
+    {
+      "n": 2,
+      "elements": 48,
+      "quads": 48,
+      "tris": 0,
+      "kt": 1.608216582103408,
+      "peak": {
+        "top": {
+          "node": 22,
+          "distance": 2.459150264903696e-17,
+          "sxx": 160821658.2103412
+        },
+        "bottom": {
+          "node": 15,
+          "distance": 2.459150264903696e-17,
+          "sxx": 160821658.21034038
+        },
+        "skipped_elements": 0,
+        "kt": 1.608216582103408
+      },
+      "backward_error": 7.337635026417161e-17,
+      "seconds": 0.6826213000022108
+    },
+    {
+      "n": 4,
+      "elements": 128,
+      "quads": 128,
+      "tris": 0,
+      "kt": 2.2864949393414835,
+      "peak": {
+        "top": {
+          "node": 41,
+          "distance": 2.459150264903696e-17,
+          "sxx": 228649493.93414968
+        },
+        "bottom": {
+          "node": 20,
+          "distance": 2.459150264903696e-17,
+          "sxx": 228649493.934147
+        },
+        "skipped_elements": 0,
+        "kt": 2.2864949393414835
+      },
+      "backward_error": 1.0155314146385968e-16,
+      "seconds": 1.7799395999973058
+    },
+    {
+      "n": 8,
+      "elements": 448,
+      "quads": 448,
+      "tris": 0,
+      "kt": 2.824991790032896,
+      "peak": {
+        "top": {
+          "node": 79,
+          "distance": 2.459150264903696e-17,
+          "sxx": 282499179.0032875
+        },
+        "bottom": {
+          "node": 30,
+          "distance": 2.459150264903696e-17,
+          "sxx": 282499179.0032916
+        },
+        "skipped_elements": 0,
+        "kt": 2.824991790032896
+      },
+      "backward_error": 1.0619897643043644e-16,
+      "seconds": 6.180650800000876
+    },
+    {
+      "n": 16,
+      "elements": 1792,
+      "quads": 1792,
+      "tris": 0,
+      "kt": 3.0857630472421276,
+      "peak": {
+        "top": {
+          "node": 155,
+          "distance": 2.459150264903696e-17,
+          "sxx": 308576304.72421694
+        },
+        "bottom": {
+          "node": 50,
+          "distance": 2.459150264903696e-17,
+          "sxx": 308576304.7242086
+        },
+        "skipped_elements": 0,
+        "kt": 3.0857630472421276
+      },
+      "backward_error": 3.360887797612371e-16,
+      "seconds": 22.929020800002036
+    },
+    {
+      "n": 32,
+      "elements": 7168,
+      "quads": 7168,
+      "tris": 0,
+      "kt": 3.1586896078037228,
+      "peak": {
+        "top": {
+          "node": 307,
+          "distance": 2.459150264903696e-17,
+          "sxx": 315868960.7803731
+        },
+        "bottom": {
+          "node": 90,
+          "distance": 2.459150264903696e-17,
+          "sxx": 315868960.7803715
+        },
+        "skipped_elements": 0,
+        "kt": 3.1586896078037228
+      },
+      "backward_error": 1.1795364230621783e-16,
+      "seconds": 82.42487599999731
+    },
+    {
+      "n": 64,
+      "elements": 28672,
+      "quads": 28672,
+      "tris": 0,
+      "kt": 3.16778253337638,
+      "peak": {
+        "top": {
+          "node": 611,
+          "distance": 2.459150264903696e-17,
+          "sxx": 316778253.3376188
+        },
+        "bottom": {
+          "node": 170,
+          "distance": 2.459150264903696e-17,
+          "sxx": 316778253.3376571
+        },
+        "skipped_elements": 0,
+        "kt": 3.16778253337638
+      },
+      "backward_error": 1.0342547621904802e-16,
+      "seconds": 278.8017942000006
+    }
+  ],
+  "submodel": [
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 2,
+      "sub_n": 8,
+      "elements": 256,
+      "driven": 32,
+      "kt": 2.8391122074955297,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 1.6676908319582986e-16,
+      "seconds": 3.702404600000591
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 2,
+      "sub_n": 16,
+      "elements": 1024,
+      "driven": 64,
+      "kt": 2.968254746643758,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 1.3874586284853723e-16,
+      "seconds": 10.8493099000043
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 2,
+      "sub_n": 32,
+      "elements": 4096,
+      "driven": 128,
+      "kt": 2.9917062050327003,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 8.531274074381353e-17,
+      "seconds": 38.80747070000507
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 4,
+      "sub_n": 8,
+      "elements": 256,
+      "driven": 32,
+      "kt": 2.8947117739629213,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 1.1522237179903715e-16,
+      "seconds": 2.6592048999955296
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 4,
+      "sub_n": 16,
+      "elements": 1024,
+      "driven": 64,
+      "kt": 3.02758410811747,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 2.8386060454887084e-16,
+      "seconds": 8.611058200003754
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 4,
+      "sub_n": 32,
+      "elements": 4096,
+      "driven": 128,
+      "kt": 3.0520464607827784,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 7.103398476713693e-17,
+      "seconds": 35.181192900003225
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 8,
+      "sub_n": 8,
+      "elements": 256,
+      "driven": 32,
+      "kt": 2.9554081474503184,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 1.3379851811324604e-16,
+      "seconds": 2.4744349000029615
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 8,
+      "sub_n": 16,
+      "elements": 1024,
+      "driven": 64,
+      "kt": 3.0940096071154333,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 1.4718927756920175e-16,
+      "seconds": 9.238362600000983
+    },
+    {
+      "box": "A",
+      "half": [
+        0.2,
+        0.17500000000000002
+      ],
+      "global_n": 8,
+      "sub_n": 32,
+      "elements": 4096,
+      "driven": 128,
+      "kt": 3.1200985434332726,
+      "ambiguous_nodes": 0,
+      "hits_max": 4,
+      "backward_error": 7.879195348251136e-17,
+      "seconds": 35.13853289999679
+    },
+    {
+      "box": "B",
+      "half": [
+        0.125,
+        0.125
+      ],
+      "global_n": 4,
+      "sub_n": 8,
+      "elements": 256,
+      "driven": 32,
+      "kt": 2.971685558642096,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 1.9306194352484871e-16,
+      "seconds": 2.5829517999954987
+    },
+    {
+      "box": "B",
+      "half": [
+        0.125,
+        0.125
+      ],
+      "global_n": 4,
+      "sub_n": 16,
+      "elements": 1024,
+      "driven": 64,
+      "kt": 3.028107496380633,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 2.5184384587790463e-16,
+      "seconds": 9.827685600001132
+    },
+    {
+      "box": "B",
+      "half": [
+        0.125,
+        0.125
+      ],
+      "global_n": 4,
+      "sub_n": 32,
+      "elements": 4096,
+      "driven": 128,
+      "kt": 3.0346360367573486,
+      "ambiguous_nodes": 0,
+      "hits_max": 2,
+      "backward_error": 1.0069896106615535e-16,
+      "seconds": 35.1347728000037
+    }
+  ],
+  "reference_richardson": {
+    "order": 3.0036279045378893,
+    "extrapolated": 3.169077795591734,
+    "estimated_error_finest": 0.0012952622153541587
+  },
+  "submodel_richardson": [
+    {
+      "box": "A",
+      "global_n": 2,
+      "order": 2.461214749836096,
+      "extrapolated": 2.996909774686992,
+      "estimated_error_finest": 0.0052035696542915835
+    },
+    {
+      "box": "A",
+      "global_n": 4,
+      "order": 2.4414056801941233,
+      "extrapolated": 3.0575663095061296,
+      "estimated_error_finest": 0.005519848723351229
+    },
+    {
+      "box": "A",
+      "global_n": 8,
+      "order": 2.409432421342836,
+      "extrapolated": 3.126147937562453,
+      "estimated_error_finest": 0.006049394129180376
+    },
+    {
+      "box": "B",
+      "global_n": 4,
+      "order": 3.111423832954626,
+      "extrapolated": 3.035490294869726,
+      "estimated_error_finest": 0.0008542581123774414
+    }
+  ],
+  "heywood_gross_kt": 3.1399999999999997,
+  "howland_gross_kt_provisional": 3.14
+}

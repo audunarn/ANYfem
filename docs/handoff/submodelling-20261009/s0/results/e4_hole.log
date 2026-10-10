@@ -1,0 +1,25 @@
+global n=  2 elems     48 (tris 0) Kt 1.60822 (node dist 2.5e-17, skipped 0)  0.7s
+global n=  4 elems    128 (tris 0) Kt 2.28649 (node dist 2.5e-17, skipped 0)  1.8s
+global n=  8 elems    448 (tris 0) Kt 2.82499 (node dist 2.5e-17, skipped 0)  6.2s
+global n= 16 elems   1792 (tris 0) Kt 3.08576 (node dist 2.5e-17, skipped 0)  22.9s
+global n= 32 elems   7168 (tris 0) Kt 3.15869 (node dist 2.5e-17, skipped 0)  82.4s
+global n= 64 elems  28672 (tris 0) Kt 3.16778 (node dist 2.5e-17, skipped 0)  278.8s
+reference Richardson {'order': 3.0036279045378893, 'extrapolated': 3.169077795591734, 'estimated_error_finest': 0.0012952622153541587}
+box A global n=2 sub n=  8 elems   256 Kt 2.83911 amb 0 hits<= 2  3.7s
+box A global n=2 sub n= 16 elems  1024 Kt 2.96825 amb 0 hits<= 2  10.8s
+box A global n=2 sub n= 32 elems  4096 Kt 2.99171 amb 0 hits<= 2  38.8s
+   box A global n=2 Richardson {'order': 2.461214749836096, 'extrapolated': 2.996909774686992, 'estimated_error_finest': 0.0052035696542915835}
+box A global n=4 sub n=  8 elems   256 Kt 2.89471 amb 0 hits<= 4  2.7s
+box A global n=4 sub n= 16 elems  1024 Kt 3.02758 amb 0 hits<= 4  8.6s
+box A global n=4 sub n= 32 elems  4096 Kt 3.05205 amb 0 hits<= 4  35.2s
+   box A global n=4 Richardson {'order': 2.4414056801941233, 'extrapolated': 3.0575663095061296, 'estimated_error_finest': 0.005519848723351229}
+box A global n=8 sub n=  8 elems   256 Kt 2.95541 amb 0 hits<= 4  2.5s
+box A global n=8 sub n= 16 elems  1024 Kt 3.09401 amb 0 hits<= 4  9.2s
+box A global n=8 sub n= 32 elems  4096 Kt 3.12010 amb 0 hits<= 4  35.1s
+   box A global n=8 Richardson {'order': 2.409432421342836, 'extrapolated': 3.126147937562453, 'estimated_error_finest': 0.006049394129180376}
+box B global n=4 sub n=  8 elems   256 Kt 2.97169 amb 0 hits<= 2  2.6s
+box B global n=4 sub n= 16 elems  1024 Kt 3.02811 amb 0 hits<= 2  9.8s
+box B global n=4 sub n= 32 elems  4096 Kt 3.03464 amb 0 hits<= 2  35.1s
+   box B global n=4 Richardson {'order': 3.111423832954626, 'extrapolated': 3.035490294869726, 'estimated_error_finest': 0.0008542581123774414}
+Heywood gross 3.1399999999999997
+saved C:\Github\ANYfem\docs\handoff\submodelling-20261009\s0\results\e4_hole.json

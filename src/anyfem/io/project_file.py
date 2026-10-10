@@ -78,7 +78,10 @@ CONNECTIONS_FORMAT = 10
 # Load series definitions and load envelopes (a window and a factor over time)
 # are format 11, again only when used.
 ENVELOPES_FORMAT = 11
-MAX_READ_FORMAT = ENVELOPES_FORMAT
+# Submodel definitions and runs are format 12, again only when a project has
+# them.
+SUBMODELS_FORMAT = 12
+MAX_READ_FORMAT = SUBMODELS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -191,7 +194,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "anyfem": {
             "schema": "anyfem.project",
             "format": (
-                ENVELOPES_FORMAT
+                SUBMODELS_FORMAT
+                if project.submodels or project.submodel_runs
+                else ENVELOPES_FORMAT
                 if _uses_envelopes(project)
                 else CONNECTIONS_FORMAT
                 if _uses_connections(project)
@@ -409,6 +414,16 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             item.to_dict()
             for item in sorted(project.artifacts.values(), key=lambda value: value.id)
         ],
+        **({
+            "submodels": [
+                item.to_dict()
+                for item in sorted(project.submodels.values(), key=lambda value: value.id)
+            ],
+            "submodel_runs": [
+                item.to_dict()
+                for item in sorted(project.submodel_runs.values(), key=lambda value: value.id)
+            ],
+        } if project.submodels or project.submodel_runs else {}),
     }
 
 
@@ -1066,8 +1081,41 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             raise ProjectFileError(
                 "imported_semantics_artifact_id must name a mesh artifact"
             )
+    _read_submodels(project, data, version)
     _finalize_compatibility_recovery(project)
     return project
+
+
+def _read_submodels(project: Project, data: Mapping[str, Any], version: int) -> None:
+    """Submodel definitions and runs (format 12).
+
+    A structurally valid run is kept even when its definition or an artifact it
+    names is gone: its manifest stays readable and staleness reports it.
+    """
+
+    from ..model.submodels import SubmodelDefinition, SubmodelRecordError, SubmodelRun
+
+    if version < SUBMODELS_FORMAT:
+        if "submodels" in data or "submodel_runs" in data:
+            raise ProjectFileError(
+                f"format {version} files cannot hold submodels (format {SUBMODELS_FORMAT})"
+            )
+        return
+    for key, record_type, registry in (
+        ("submodels", SubmodelDefinition, project.submodels),
+        ("submodel_runs", SubmodelRun, project.submodel_runs),
+    ):
+        entries = data.get(key, [])
+        if not isinstance(entries, list):
+            raise ProjectFileError(f"{key} must be a list")
+        for index, entry in enumerate(entries):
+            try:
+                record = record_type.from_dict(entry, f"{key}[{index}]")
+            except (SubmodelRecordError, ProjectFileError) as error:
+                raise ProjectFileError(f"{key}[{index}]: {error}") from None
+            if record.id in registry:
+                raise ProjectFileError(f"{key}[{index}]: duplicate id {record.id!r}")
+            registry[record.id] = record
 
 
 def _recover_detached_feature_corruption(
