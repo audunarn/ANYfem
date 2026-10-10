@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -391,6 +391,66 @@ def _face_normal(project: Any, mesh: Any, face_id: int) -> np.ndarray:
     return normal
 
 
+@dataclass(frozen=True)
+class _Surface:
+    """A face's surface class (workflow contract 12.1)."""
+
+    kind: str  # "planar" or "cylinder"
+    origin: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    axis: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+    radius: float = 0.0
+
+
+def _planar_nodes(project: Any, mesh: Any, face_id: int) -> bool:
+    try:
+        _face_normal(project, mesh, face_id)
+    except SubmodelError as error:
+        if error.args and "FACE_NOT_PLANAR" in str(error):
+            return False
+        raise
+    return True
+
+
+def _classify(project: Any, mesh: Any, face_id: int, which: str) -> _Surface:
+    from anygeometry.surfaces import Cylinder, Plane
+
+    surface = getattr(project.geometry.faces[int(face_id)], "surface", None)
+    if isinstance(surface, Cylinder):
+        return _Surface("cylinder", tuple(float(v) for v in surface.origin), tuple(float(v) for v in surface.axis),
+                        float(surface.radius))
+    if isinstance(surface, Plane) or _planar_nodes(project, mesh, face_id):
+        return _Surface("planar")
+    raise SubmodelError("SUBMODEL_SURFACE_UNSUPPORTED",
+                        f"{which} face {face_id} is neither planar nor an analytic cylinder")
+
+
+def _same_cylinder(a: _Surface, b: _Surface, tolerance: float) -> bool:
+    """Same cylinder up to axis sign, origin shift along the axis and parameterization.
+
+    Symmetric: the axes are parallel within 1e-9 (cross product), and each origin
+    lies within ``tolerance`` of the other's axis line.
+    """
+
+    if a.kind != "cylinder" or b.kind != "cylinder" or abs(a.radius - b.radius) > tolerance:
+        return False
+    axis_a, axis_b = np.asarray(a.axis), np.asarray(b.axis)
+    if float(np.linalg.norm(np.cross(axis_a, axis_b))) > 1.0e-9:
+        return False
+    offset = np.asarray(b.origin) - np.asarray(a.origin)
+    return (float(np.linalg.norm(offset - (offset @ axis_a) * axis_a)) <= tolerance
+            and float(np.linalg.norm(offset - (offset @ axis_b) * axis_b)) <= tolerance)
+
+
+def _radial(surface: _Surface, point: np.ndarray) -> Tuple[float, np.ndarray]:
+    """Distance from the axis and the unit radial direction at ``point``."""
+
+    axis = np.asarray(surface.axis)
+    offset = np.asarray(point, dtype=float) - np.asarray(surface.origin)
+    radial = offset - (offset @ axis) * axis
+    length = float(np.linalg.norm(radial))
+    return length, radial / length if length > 0.0 else radial
+
+
 def _node_faces(mesh: Any) -> Dict[int, set]:
     shells = mesh.shells
     out: Dict[int, set] = {}
@@ -454,6 +514,36 @@ def solve_submodel(
         if not edges:
             raise SubmodelError("LINEAGE_EMPTY_CUT_FACE", f"cut face {group!r} has no edges")
 
+    # Surface classes (contract 12.1): every child face and the source faces its
+    # lineage names; a cylindrical child must sit on the same cylinder as its sources.
+    source_positions = np.array([np.asarray(x, dtype=float) for x in source_mesh.nodes.values()])
+    source_extent = float(np.linalg.norm(np.ptp(source_positions, axis=0))) if len(source_positions) else 1.0
+    source_classes: Dict[int, _Surface] = {}
+    child_classes: Dict[int, _Surface] = {}
+    for face_id in sub_mesh.elements_of_face:
+        child_class = child_classes[int(face_id)] = _classify(sub_project, sub_mesh, int(face_id), "child")
+        for source_face in lineage.source_faces[int(face_id)]:
+            if int(source_face) not in source_classes:
+                source_classes[int(source_face)] = _classify(source_project, source_mesh, int(source_face), "source")
+            source_class = source_classes[int(source_face)]
+            tolerance = 1.0e-9 * max(child_class.radius, source_extent)
+            if child_class.kind != source_class.kind or (
+                    child_class.kind == "cylinder" and not _same_cylinder(child_class, source_class, tolerance)):
+                raise SubmodelError(
+                    "SUBMODEL_SURFACE_MISMATCH",
+                    f"child face {face_id} ({child_class.kind}) and source face {source_face} ({source_class.kind}) "
+                    "are not the same surface",
+                )
+        if child_class.kind == "cylinder":
+            tolerance = 1.0e-9 * max(child_class.radius, source_extent)
+            for node in sub_mesh.nodes_on(sub_project.face(int(face_id))):
+                distance, _direction = _radial(child_class, sub_mesh.nodes[node])
+                if abs(distance - child_class.radius) > tolerance:
+                    raise SubmodelError(
+                        "SUBMODEL_OFF_SURFACE",
+                        f"child node {node} is {abs(distance - child_class.radius):.3e} m off its cylinder",
+                    )
+
     # Driven nodes; candidates from every submodel face meeting the node (target
     # connectivity), through their lineage, restricted to elements of the solved operator.
     node_faces = _node_faces(sub_mesh)
@@ -474,12 +564,48 @@ def solve_submodel(
         candidates[node] = allowed & solved_elements
     points = {node: np.asarray(sub_mesh.nodes[node], dtype=float) for node in groups_of_node}
 
+    # One surface per driven node (contract 12.4): its incident child faces must be
+    # all planar, or all on one cylinder.
+    node_surface: Dict[int, _Surface] = {}
+    for node in groups_of_node:
+        classes = [child_classes[int(face)] for face in sorted(node_faces.get(node, ()))]
+        if not classes:
+            raise SubmodelError("SUBMODEL_NO_SHELL", f"driven node {node} belongs to no child shell face")
+        first = classes[0]
+        tolerance = 1.0e-9 * max(first.radius, source_extent)
+        if any(c.kind != first.kind or (c.kind == "cylinder" and not _same_cylinder(first, c, tolerance))
+               for c in classes[1:]):
+            raise SubmodelError("SUBMODEL_SURFACE_JUNCTION",
+                                f"driven node {node} joins faces of different surfaces; not supported in this slice")
+        node_surface[node] = first
+    groups: Dict[Any, List[int]] = {}
+    for node, surface in node_surface.items():
+        key = None if surface.kind == "planar" else surface
+        matched = next((k for k in groups if k is not None and key is not None
+                        and _same_cylinder(k, key, 1.0e-9 * max(key.radius, source_extent))), key)
+        groups.setdefault(matched, []).append(node)
+
     try:
-        hits = locate_for_transfer(
-            source_mesh, points, candidate_elements=candidates,
-            physical_tolerance=settings.physical_tolerance, natural_tolerance=settings.natural_tolerance,
-            weight_tolerance=settings.weight_tolerance,
-        )
+        from anymesher.submodel_correspondence import CylinderFrame
+
+        hits = {}
+        for surface, members in groups.items():
+            subset = {node: points[node] for node in members}
+            if surface is None:
+                hits.update(locate_for_transfer(
+                    source_mesh, subset, candidate_elements={n: candidates[n] for n in members},
+                    physical_tolerance=settings.physical_tolerance, natural_tolerance=settings.natural_tolerance,
+                    weight_tolerance=settings.weight_tolerance,
+                ))
+            else:
+                frame = CylinderFrame(surface.origin, surface.axis, surface.radius,
+                                      1.0e-9 * max(surface.radius, source_extent))
+                hits.update(locate_for_transfer(
+                    source_mesh, subset, candidate_elements={n: candidates[n] for n in members},
+                    natural_tolerance=settings.natural_tolerance, weight_tolerance=settings.weight_tolerance,
+                    cylinder=frame,
+                ))
+        hits = dict(sorted(hits.items()))
         source_allowance = estimate_static_error_allowance(source_built.fe_model, u_source, source_built.load_case)
         if source_allowance.inconclusive:
             raise SubmodelError("SOURCE_INCONCLUSIVE", "the source solve's error allowance is inconclusive")
@@ -499,6 +625,11 @@ def solve_submodel(
             cache: Dict[int, np.ndarray] = {}
             normals = {}
             for node, hit in hits.items():
+                surface = node_surface[node]
+                if surface.kind == "cylinder":
+                    # The analytic normal at x_f, not a facet normal (contract 12.5).
+                    normals[node] = [_radial(surface, points[node])[1]]
+                    continue
                 for face in hit.incident_source_faces:
                     if face not in cache:
                         cache[face] = _face_normal(source_project, source_mesh, face)
@@ -523,6 +654,14 @@ def solve_submodel(
     )))
     result = SubmodelResult(solution, trace, forces, transfer, allowance, binding, identity, hits)
     result.diagnostics = _diagnostics(sub_mesh, built, lineage, groups_of_node, forces, source_allowance, allowance)
+    curved = [hit for node, hit in hits.items() if node_surface[node].kind == "cylinder"]
+    result.diagnostics["cylindrical"] = {
+        "nodes": len(curved),
+        "max_facet_offset": float(max((h.distance for h in curved), default=0.0)),
+        "max_facet_bound": float(max((h.bound for h in curved), default=0.0)),
+        "max_float_allowance": float(max((h.float_allowance for h in curved), default=0.0)),
+        "note": "the source's facet-position error is a modelling error the submodel cannot remove",
+    }
     return result
 
 

@@ -451,3 +451,188 @@ Editing the child stales only its runs; editing the parent stales every run driv
 - Definition identity is computed from the serialized entry (`definition_hash`), so a live
   definition and a snapshot document agree; the child contributes the hash of its model
   payload and of its serialized load cases and combinations.
+
+## 12. Slice S4c-1 with S3b (proposed, revision 4): cylinders, cut-independent part
+
+Scope: source and child faces on analytic cylinders (ANYgeometry `Cylinder` surfaces, as the
+structural-cylinder generator makes them), linear elements (Q4 and T3), both transfer
+policies. Not in scope: the cut (S2a), quadratic elements, cones and other surfaces,
+non-planar Coons faces (`GeometryModel.revolve` makes Coons patches; refused unless planar),
+and driven nodes where different surfaces meet (12.4).
+
+Measured before this design (probe, global R = 1 m, t = 10 mm, coarse 24 facets round, child
+60 degrees by 1 m at 0.05 m, P2 with a widened planar tolerance): coarse facets flat to 1e-15;
+fine cut nodes up to 0.008536 m from the coarse facets against a chord sag of 0.008555 m;
+free-body ratios 1.7e-15; radial displacement under internal pressure -0.86 % of `pR^2/(Et)`
+in the coarse model and +0.18 % in the child (one source mesh; not evidence that the child
+removes the source's geometry error).
+
+### 12.1 Surface classes and cylinder identity
+
+Every source face named in the lineage and every child face is classified once: a `Plane`
+surface is planar; a `Cylinder` surface is cylindrical; any other surface is planar when all
+its mesh nodes are planar by the existing rule (1e-9 of the face size) and otherwise refused
+(`SUBMODEL_SURFACE_UNSUPPORTED`).
+
+Two cylinders are **the same** when their radii agree within `g`, their axis directions are
+parallel up to sign (`|a1 x a2| <= 1e-9`), and each origin lies within `g` of the other's axis
+line (symmetric); origin shifts along the axis, axis sign, start angle, sweep and height do not
+matter. `g = 1e-9 max(R, source extent)` is the geometry tolerance.
+
+A cylindrical child face must have only cylindrical source faces, all the same cylinder as the
+child's; a planar child face must have only planar source faces. Otherwise
+`SUBMODEL_SURFACE_MISMATCH`. Every mesh node of a cylindrical child face, and every node of every
+source element a cylindrical candidate set contains, must lie on that cylinder within `g`
+(`SUBMODEL_OFF_SURFACE`). `SubmodelSettings.physical_tolerance` affects only the planar route's
+distance check; it never bypasses a classification, identity or surface refusal.
+
+### 12.2 Correspondence on a cylinder: parameter space (ANYmesher, S3b)
+
+`locate_for_transfer` gains an optional `cylinder` argument (`CylinderFrame(origin, axis,
+radius, surface_tolerance)`). Without it the planar route of S3a is unchanged. With it every
+point and every candidate element is mapped to the cylinder's unwrapped parameter plane
+`p = (s, z)`, `s = R theta` (arc length) and `z` the axial coordinate:
+
+- **Surface check.** The point and every node of a candidate element lie on the cylinder within
+  `surface_tolerance` (`CORRESPONDENCE_OFF_SURFACE`).
+- **Search.** The cylindrical route does not use the 3D facet BVH or the planar
+  `physical_tolerance`. Every lineage-allowed candidate element is mapped once to the parameter
+  plane, and a vectorized prefilter keeps the elements whose box contains the point in any of
+  the periodic branches `s, s +- 2 pi R`. The box is that of the image of the element's
+  **expanded** natural domain, the region the inside test admits: for T3 the affine image of the
+  triangle with vertices `(-t, -t)`, `(1 + 2t, -t)`, `(-t, 1 + 2t)`; for Q4 the bilinear image of
+  the square `[-1 - t, 1 + t]^2`, which lies in the convex hull of its four corner images
+  (the bilinear map restricted to that square is the bilinear interpolation of those corners),
+  with `t = natural_tolerance`; plus a numerical pad of `64 eps` times the parameter scale. Every
+  point the inside test admits therefore survives the prefilter. Only the kept elements are
+  inverted.
+- **Unwrapping.** An element's node angles are unwrapped about its first node; the angular span
+  `dtheta_e` must be below `pi/2` (`CORRESPONDENCE_FACET_TOO_COARSE`). The point's angle is taken
+  in the branch nearest the element's mean angle, so seams and the angle wrap need no special
+  case.
+- **Inverse map in the parameter plane.** The element's parametric polygon (its nodes' `p_i`) is
+  inverted exactly as S3a inverts a planar element in its own plane: T3 affine, Q4 bilinear
+  Newton, degenerate, folded and non-converged refusals as before. The natural coordinates `xi`
+  satisfy `sum N_i(xi) p_i = p` exactly, with `N_i >= 0` inside.
+- **Conformity.** A conforming source mesh on the cylinder tiles the parameter plane: shared
+  edges are the same straight parametric segments and Q4 and T3 edge interpolation is linear
+  along them, so several hits share nodes and agree in weights exactly. The S3a support and
+  weight-agreement rules are kept unchanged; they now hold for conforming curved meshes (the
+  two-triangle counterexample of the round-1 review lies on the shared parametric edge).
+- **Facet bound (computed per hit).** `distance = |x_f - x_p|` with `x_f` the **actual** target
+  point (S1 transports to it) and `x_p = sum N_i x_i` the element's own map at the hit's natural
+  coordinates, built from the **actual** source nodes. Let `p'` be the parameter point the
+  weights reproduce exactly (`sum N_i p_i = p'`, `sum N_i = 1`), `r = |p - p'|` the inverse
+  residual in the parameter plane (recomputed from the weights actually used, which must sum to
+  one), `X` the cylinder map (1-Lipschitz in `(s, z)` because `s` is
+  arc length), `X(p)` the cylinder point at the target's parameters and `X(p_i)` those at the
+  source nodes' parameters. Then
+  `|x_f - x_p| <= |x_f - X(p)| + |X(p) - X(p')| + |X(p') - sum N_i X(p_i)| + sum |N_i| |X(p_i) - x_i|`
+  and, by Taylor's theorem with `sum N_i (p_i - p') = 0`,
+  `|X(p') - sum N_i X(p_i)| <= (R/2) sum |N_i| (theta_i - theta')^2`. The locator computes
+  `bound = d_f + r + (R/2) sum |N_i| (theta_i - theta')^2 + sum |N_i| d_i`, with `d_f` and `d_i`
+  the measured radial deviations of the target and of the source nodes (each at most
+  `surface_tolerance`). The comparison adds a floating-point allowance
+  `a = 64 eps (|x_f| + max_i |x_i| + |o| + R)`, with `o` the cylinder origin (positions are
+  stored and combined in global coordinates, so the rounding scale is global): the inequality is exact arithmetic, while `x_p`, the angles, deviations
+  and the distance are computed. A hit with `distance > bound + a` refuses
+  (`CORRESPONDENCE_FACET_BOUND`; it would mean a defect, not a geometry). Hits report `bound`
+  and `a` separately. Negative weights are only those the inside test's
+  `natural_tolerance` slack admits, and they enter through `|N_i|`. For an interior point of an
+  exactly cylindrical element (`d = r = 0`, `N_i >= 0`) the bound reduces to the a-priori
+  `R dtheta_e^2 / 8` (weighted variance of the `theta_i` at most a quarter of their range
+  squared). Hits report `distance`, `bound` and `R dtheta_e^2/8`. Points outside an element's
+  parametric domain (beyond the slack) are not hits of that element, so the round-1 axial
+  counterexample is not admitted.
+- **Hits** carry `x_p`, `distance`, the bound and `parametric=True`.
+
+### 12.3 ANYfem use
+
+For a driven node whose incident child faces are all cylindrical on one cylinder, ANYfem calls
+the locator with that `CylinderFrame` and the node's lineage candidates (all on that cylinder by
+12.1). Nodes whose incident child faces are all planar use the planar route unchanged. The S1
+transport `u(x_f) = u(x_p) + theta x (x_f - x_p)` carries the facet offset; rigid motion is
+reproduced exactly.
+
+### 12.4 Junctions between surfaces
+
+A driven node whose incident child faces are of different classes, or on different cylinders,
+refuses in this slice (`SUBMODEL_SURFACE_JUNCTION`). Planar junctions (two planes) keep the S4a-1
+rule. A seam between two patches of the same cylinder is not a junction.
+
+A driven node that belongs to no child shell face (for example on a beam-only cut edge) refuses
+(`SUBMODEL_NO_SHELL`).
+
+### 12.5 P1 normals on cylinders
+
+For a cylindrical face the normal at a driven node is the analytic surface normal at `x_f` (the
+unit radial direction perpendicular to the axis), not the facet normal; planar faces keep their
+face normal. A node on a seam between two patches of one cylinder therefore has one normal
+(rank 1), not two a facet kink apart.
+
+### 12.6 Diagnostics
+
+The diagnostic adds, for cylindrical nodes, the largest facet offset `max |x_f - x_p|` and the
+largest facet bound used. The source's facet-position error (coarse facets against the true
+cylinder) is a modelling error the diagnostic exposes and the submodel cannot remove.
+
+### 12.7 Tests planned
+
+ANYmesher (S3b): the round-1 two-triangle mesh (conforming, located on the shared edge with
+equal weights); the round-1 axial point (not located); points near T3 vertices with two
+negative weights and Q4 corner extrapolation within the slack (the prefilter keeps every point
+the inside test admits); hits on generator edges, very small angular spans and far-translated
+rotated cylinders survive roundoff, while an injected discrepancy larger than the allowance
+refuses; with `physical_tolerance=None`, targets
+near arc midpoints whose sag is far above `surface_tolerance`, including across the angle wrap
+(located); opposite radial deviations of source nodes and target near the surface tolerance
+(distance within the computed bound, which exceeds the a-priori one); points just inside and just
+outside an edge within the natural-coordinate slack; a rigid-motion-free geometric check that
+`|x_f - x_p|` stays within the bound over random interior points of random flat Q4 and T3 on the
+cylinder; rotated and translated cylinders; an element straddling the angle wrap; non-matching
+triangulations (a T3 source under a Q4 target layout); off-surface point and element node;
+too-coarse span; degenerate parametric element; planar route unchanged.
+
+ANYfem (S4c-1):
+- Rigid motion (translation plus a rotation not about the axis): transferred values at all cut
+  nodes equal `a + w x x_f` and `w` to roundoff, with facet offsets present; P2 and P1.
+- A6 variant: open tube, internal pressure, axially free, ends far from the patch,
+  `w = pR^2/(Et)`, with two source refinements (24 and 48 facets round). Pass criteria: the
+  child's radial displacement at the patch centre within 0.5 % of `pR^2/(Et)` for both sources
+  and both policies; the child's change between the two sources within 0.5 % of `pR^2/(Et)`;
+  free-body ratios
+  below 1e-12. The coarse errors are reported separately (no claim that the child removes the
+  source's error).
+- A seam node between two source patches of one cylinder: one normal, normal rotation released.
+- A child patch crossing the angle wrap of its source cylinder (start angle near pi).
+- Refusals: a non-planar Coons source face and a non-planar Coons child face; a child patch of
+  radius `1.001 R`; a cylindrical child face over planar source faces; a driven node shared by a
+  plane and a cylinder (an actual junction node); `physical_tolerance` set huge does not bypass
+  them.
+
+### 12.8 Implementation notes (S3b and S4c-1)
+
+- ANYmesher: `CylinderFrame` and the cylindrical route in `locate_for_transfer`
+  (`claude/submodel-s3b`). ANYfem: surface classes, cylinder identity, junction refusal, a
+  locator call per surface group, analytic P1 normals and the `cylindrical` diagnostic in
+  `src/anyfem/submodel.py` (`claude/submodel-s4c`); tests in `tests/test_submodel_cylinder.py`.
+- The hit's `inverse_residual` is converted by ANYmesher to a physical position uncertainty,
+  because ANYsolver's interpolation allowance reads it as one: the parameter residual times
+  `max |J_phys| / min sigma_min(J_param)` over the slack-expanded natural domain. Both Jacobians
+  are affine in the natural coordinates (constant for T3), so `F(a) - F(b) = J_F(mid)(a - b)`
+  exactly; `max |J_phys|` is attained at a corner and `sigma_min(J_param)` is bounded below by
+  Weyl's inequality about the centre. A non-positive lower bound refuses as degenerate; a
+  residual larger than `natural_tolerance` times that bound refuses as not converged; the facet bound keeps the parameter residual (the cylinder map is
+  1-Lipschitz in arc length).
+- The floating-point allowance uses global magnitudes (`|x_f| + max |x_i| + |o| + R`): a first
+  version with origin-relative magnitudes refused a valid hit on a cylinder translated about
+  2e3 m (4.7e-13 m against 1.4e-13 m).
+- A6 variant results (open tube, R = 1 m, t = 10 mm, child 60 degrees by 1 m at 0.05 m, radial
+  displacement at the patch centre against `pR^2/(Et)`):
+
+  | Source (facets round) | Coarse error | Child error P2 | Child error P1 |
+  |---|---|---|---|
+  | 24 | -0.856 % | +0.182 % | +0.184 % |
+  | 48 | -0.182 % | +0.057 % | +0.058 % |
+
+  The child's change between the two sources is 0.13 % of `pR^2/(Et)`.
