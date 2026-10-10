@@ -128,6 +128,10 @@ class Project:
     mesh_records: Dict[str, MeshRecord] = field(default_factory=dict)
     jobs: Dict[str, JobRecord] = field(default_factory=dict)
     artifacts: Dict[str, ArtifactRef] = field(default_factory=dict)
+    # Submodel definitions and runs (``anyfem.model.submodels``).  Outside the
+    # numerical model hash: adding or editing one stales no job of this model.
+    submodels: Dict[str, Any] = field(default_factory=dict)
+    submodel_runs: Dict[str, Any] = field(default_factory=dict)
     target_size: float | None = None
     seeding_overrides: Dict[int, int] = field(default_factory=dict)
     native_mesh_settings: NativeMeshSettings | None = None

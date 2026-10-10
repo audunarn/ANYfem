@@ -317,7 +317,7 @@ Order is by dependency; no duration estimates are given.
 | **S1** (done 2026-10-10, s1s3/README.md) | ANYsolver | G2a-G2e, G5 | A0 including the D5 MPC example; A2-exact and A2-bend; drilling decision tests (D3) with the outcome recorded, inconclusive included; interface-force tests with known resultants; distinct `u0` per case with operator reuse shown in session diagnostics; refusal of unadmitted formulations |
 | **S2a** | ANYgeometry | G1a, G1c for planar shells without members | Plate, plate with hole, T-junction cuts; inside verification; strict audit passes; typed refusals |
 | **S3a** (done 2026-10-10, s1s3/README.md) | ANYmesher | G3a for planar faces | Lineage-restricted locate; disconnected coincident sheets refused; conforming shared edges agree to roundoff |
-| **S4a** | ANYfem | Planar shell-only headless end to end | A1-A4 runnable; format 9 round trip; staleness tests |
+| **S4a** (S4a-1 and S4a-2 done 2026-10-10, workflow contract sections 10-11) | ANYfem | Planar shell-only headless end to end | A1-A4 runnable; format 12 round trip (formats 9-11 were taken); staleness tests. The cut itself waits for S2a |
 | **S2b** | ANYgeometry | G1b attached-member partitioning | Stiffened panel cut through two stiffeners; attachments and junctions remapped with lineage |
 | **S4b** | ANYfem + ANYsolver | Attached stiffeners with constraint-aware driven set | A5 |
 | **S3b/S4c** | ANYmesher, ANYgeometry, ANYfem | Cylinders: curved correspondence, conservative bounds, transport rule | A6 and rigid-motion tests on cylinders |

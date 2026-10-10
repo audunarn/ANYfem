@@ -27,4 +27,4 @@ os.chdir(WORKTREE)
 
 import pytest  # noqa: E402
 
-sys.exit(pytest.main(["-q", "tests/test_submodel_workflow.py", *sys.argv[1:]]))
+sys.exit(pytest.main(["-q", *(sys.argv[1:] or ["tests/test_submodel_workflow.py", "tests/test_submodel_jobs.py"])]))
