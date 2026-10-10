@@ -8,6 +8,10 @@ node set -- happens here through the mesh association map.
 
 from __future__ import annotations
 
+import builtins as _builtins
+import os
+import sys
+import types
 from dataclasses import dataclass, field
 from itertools import permutations
 import warnings
@@ -46,6 +50,7 @@ from ..model.connections import (
     rigid_equations,
 )
 from ..model.wetfield import WetFieldError, field_pressure, fluid_sign
+from ..model import wetfield as _wetfield
 from ..model.formulations import ShellFormulationPolicy
 from ..model.project import Project, ProjectError
 from ..model.regions import ElementFaceRef, MeshEntityRef, RegionRef
@@ -1416,6 +1421,220 @@ def wet_element_pressures(
     ``limit`` keeps an evenly spread subset of that many elements per wet
     pressure, for drawing; the solver always takes every element.
     """
+    accumulated = _wet_pressure_accumulation(
+        project, mesh, case, limit=limit, _load_context=_load_context
+    )
+    made = []
+    for key in sorted(accumulated):
+        pressure, centroid, normal, shared = accumulated[key]
+        if shared:
+            # M31b: records own fresh writable arrays, as on the uncached path.
+            centroid, normal = centroid.copy(), normal.copy()
+        made.append(WetElementPressure(key, pressure, centroid, normal))
+    return made
+
+
+# M31d: NumPy's default error state as an immutable value.
+_DEFAULT_ERROR_ITEMS = (("divide", "warn"), ("invalid", "warn"), ("over", "warn"), ("under", "ignore"))
+
+
+def _sign_producers() -> tuple:
+    """M31b/M31c: everything that computes an element's fluid side on the uncached
+    path, for comparison by identity: the two function bindings on the call path,
+    their code, defaults and closures, and for every name their code uses the
+    module or builtin binding and, for a module, its attributes of those names."""
+    made = []
+    builtin_names = vars(_builtins)
+    for function in (fluid_sign, getattr(_wetfield, "_fluid_sign", None)):
+        code = getattr(function, "__code__", None)
+        names = getattr(function, "__globals__", None) or {}
+        kwdefaults = getattr(function, "__kwdefaults__", None) or {}
+        made.extend((function, code, getattr(function, "__defaults__", None),
+                     getattr(function, "__closure__", None)))
+        made.extend(sorted(kwdefaults))
+        made.extend(kwdefaults[key] for key in sorted(kwdefaults))
+        if code is None:
+            continue
+        for name in code.co_names:
+            value = names[name] if name in names else builtin_names.get(name)
+            made.append(value)
+            if isinstance(value, types.ModuleType):
+                made.extend(vars(value).get(attribute) for attribute in code.co_names)
+    return tuple(made)
+
+
+def _same_producers(left, right) -> bool:
+    return left is not None and len(left) == len(right) and all(a is b for a, b in zip(left, right))
+
+
+def _library_own(value, package: str) -> bool:
+    module = getattr(value, "__module__", None)
+    return type(value) is np.ufunc or (type(module) is str and module.split(".")[0] == package)
+
+
+def _capture_sign_chain():
+    """M31c/M31d: the fluid-side chain as loaded, if it is the libraries' own: each
+    function is the one its module defines (no closure, compiled from that module's
+    file) and the module attributes its code names belong to that module's package;
+    otherwise None, and no side is ever reused."""
+    expected = ((fluid_sign, _wetfield, "fluid_sign"),
+                (getattr(_wetfield, "_fluid_sign", None), sys.modules.get("anyloads.fluid"), "fluid_sign"))
+    for function, module, name in expected:
+        if type(function) is not types.FunctionType or module is None or function.__closure__ is not None:
+            return None
+        if function.__module__ != module.__name__ or vars(module).get(name) is not function:
+            return None
+        source = getattr(module, "__file__", None)
+        if type(source) is not str or os.path.normcase(os.path.abspath(function.__code__.co_filename)) \
+                != os.path.normcase(os.path.abspath(source)):
+            return None
+        for global_name in function.__code__.co_names:
+            value = function.__globals__.get(global_name)
+            if isinstance(value, types.ModuleType):
+                package = value.__name__.split(".")[0]
+                for attribute in function.__code__.co_names:
+                    found = vars(value).get(attribute)
+                    if found is not None and not _library_own(found, package):
+                        return None
+    return _sign_producers()
+
+
+# M31c/M31d: the fluid-side functions as loaded (trust root: import time, the model of
+# the solver's response authority). A side is reused only while everything that
+# computes it is this original; a replaced function is called every time. M31e (owner
+# decision): replacing library or module functions after import is outside the
+# supported contract; these checks are defence in depth. M31f: hardware
+# floating-point exception traps stay masked (the probe below rounds).
+_SIGN_CHAIN = _capture_sign_chain()
+# M31e: the two bindings themselves, compared before anything of them is read.
+_SIGN_FUNCTIONS = (fluid_sign, vars(_wetfield).get("_fluid_sign"))
+# M31d: the NumPy functions the reuse guard itself calls, as loaded.
+_GUARD_NAMES = ("geterr", "errstate", "asarray", "isfinite", "all", "abs")
+_GUARD_ORIGINALS = tuple((name, vars(np).get(name)) for name in _GUARD_NAMES
+                         if _library_own(vars(np).get(name), "numpy"))
+
+_ONE, _THREE_QUARTER_ULP = np.float64(1.0), np.float64(3.0 * 2.0 ** -54)
+_SMALLEST_NORMAL, _SMALLEST_SUBNORMAL, _HALF = np.float64(2.0 ** -1022), np.float64(2.0 ** -1074), np.float64(0.5)
+
+
+def _standard_float_environment() -> bool:
+    """M31c: round to nearest, no flush-to-zero and no denormals-are-zero in this
+    thread, checked at run time (each probe is exact or differs between the modes)."""
+    with np.errstate(all="ignore"):
+        up = _ONE + _THREE_QUARTER_ULP
+        down = -_ONE - _THREE_QUARTER_ULP
+        halved = _SMALLEST_NORMAL * _HALF
+        kept = _SMALLEST_SUBNORMAL * _ONE
+    return bool(up != _ONE and down != -_ONE and halved != 0.0 and kept != 0.0)
+
+
+_SURFACE_FIELDS = frozenset(("ref", "name", "region", "fluid_side", "interior_point", "id"))
+_FLOAT64_DTYPE = np.dtype(np.float64)
+_REF_FIELDS, _REGION_FIELDS = frozenset(("kind", "id")), frozenset(("id",))
+
+
+def _plain_fields(record, names):
+    """M31g: the instance dictionary of a record when it holds exactly these fields
+    under plain str keys; read without attribute lookup, so nothing of the record
+    runs and nothing raises (None for anything else)."""
+    fields = getattr(record, "__dict__", None)
+    if type(fields) is not dict or len(fields) != len(names):
+        return None
+    for key in fields:
+        if type(key) is not str or key not in names:
+            return None
+    return fields
+
+
+def _wet_surface_state(surface):
+    """M31b/M31d/M31g: every field of a plain wet-surface record as plain values (the
+    interior point as bytes) and the sizes of the record dictionaries, or None for
+    any other record. Only exact types and exactly the fields are accepted and read
+    from the instance dictionaries, so no code of the record runs and nothing
+    raises; a prepared context neither caches nor reuses anything for a selection
+    with such a record, and a kept record that grew (a larger value, an attribute
+    added, or a dictionary enlarged and emptied again) no longer matches the
+    fingerprint it was charged with."""
+    if type(surface) is not WetSurface:
+        return None
+    fields = _plain_fields(surface, _SURFACE_FIELDS)
+    if fields is None:
+        return None
+    ref, region, point = fields["ref"], fields["region"], fields["interior_point"]
+    name, side, identity = fields["name"], fields["fluid_side"], fields["id"]
+    if type(name) is not str or type(side) is not str or type(identity) is not str:
+        return None
+    if type(ref) is not EntityRef:
+        return None
+    ref_fields = _plain_fields(ref, _REF_FIELDS)
+    if ref_fields is None or type(ref_fields["kind"]) is not str or type(ref_fields["id"]) is not int:
+        return None
+    region_fields = None
+    if region is not None:
+        if type(region) is not RegionRef:
+            return None
+        region_fields = _plain_fields(region, _REGION_FIELDS)
+        if region_fields is None or type(region_fields["id"]) is not str:
+            return None
+    # M31h: NumPy's own float64 dtype object (a dtype with metadata compares equal
+    # but can hold any payload).
+    if point is not None and (type(point) is not np.ndarray or point.dtype is not _FLOAT64_DTYPE
+                              or point.shape != (3,) or point.base is not None):
+        return None
+    return (identity, name, ref_fields["kind"], ref_fields["id"],
+            None if region_fields is None else region_fields["id"], side,
+            None if point is None else point.tobytes(),
+            sys.getsizeof(fields), sys.getsizeof(ref_fields),
+            None if region_fields is None else sys.getsizeof(region_fields))
+
+
+def _bounded(values) -> bool:
+    """M31b: all values finite and below 1e150 in size (no comparison with a
+    non-finite value is made)."""
+    made = np.asarray(values, dtype=float)
+    return bool(np.all(np.isfinite(made))) and bool(np.all(np.abs(made) < 1e150))
+
+
+def _signs_reusable(selected, cached) -> bool:
+    """M31b/M31c/M31d: a fluid side may be reused only where computing it again would
+    run no other code and could not give another value, warn or raise: the guard's
+    own NumPy functions and the fluid-side chain as loaded (_GUARD_ORIGINALS,
+    _SIGN_CHAIN), NumPy's default error state in the standard floating-point
+    environment, plain surface records whose state is still the one the kept entry
+    was built (and charged) for, and centroids, normals and interior points finite
+    and below 1e150 in size (the difference and the dot product of the rule cannot
+    overflow; underflow is not reported in that state)."""
+    names = vars(np)
+    if len(_GUARD_ORIGINALS) != len(_GUARD_NAMES) or any(names.get(name) is not value
+                                                           for name, value in _GUARD_ORIGINALS):
+        return False
+    if not cached["bounded"] or tuple(sorted(np.geterr().items())) != _DEFAULT_ERROR_ITEMS:
+        return False
+    if _SIGN_CHAIN is None or fluid_sign is not _SIGN_FUNCTIONS[0] \
+            or vars(_wetfield).get("_fluid_sign") is not _SIGN_FUNCTIONS[1]:
+        return False                 # M31e: a replacement is rejected before it is inspected
+    if not _standard_float_environment() or not _same_producers(_SIGN_CHAIN, _sign_producers()):
+        return False
+    states = tuple(_wet_surface_state(surface) for surface in selected)
+    if any(state is None for state in states) or states != cached["state"]:
+        return False
+    for surface in selected:
+        if surface.interior_point is not None and not _bounded(surface.interior_point):
+            return False
+    return True
+
+
+def _wet_pressure_accumulation(
+    project: Project,
+    mesh: Mesh,
+    case: LoadCase,
+    *,
+    limit: int | None,
+    _load_context: Any,
+) -> Dict[int, tuple]:
+    """Element id -> (pressure, centroid, normal, shared) for a case's wet
+    pressures; ``shared`` marks geometry held by a prepared context's cache
+    (read-only). The arithmetic and accumulation order of wet_element_pressures."""
 
     if not project.wet_surfaces:
         raise ProjectError(
@@ -1423,7 +1642,7 @@ def wet_element_pressures(
             "wet surfaces"
         )
     by_surface_id = {surface.id: surface for surface in project.wet_surfaces}
-    accumulated: Dict[int, WetElementPressure] = {}
+    accumulated: Dict[int, tuple] = {}  # element id -> (pressure, centroid, normal, shared)
     for load in case.wet_pressures:
         scale = _envelope_factor(case, load)
         if scale == 0.0:
@@ -1443,6 +1662,64 @@ def wet_element_pressures(
             if _load_context is None
             else _load_context.wet_elements(selected)
         )
+        cached = (
+            None
+            if _load_context is None or limit is not None
+            or not hasattr(_load_context, "wet_geometry")
+            else _load_context.wet_geometry(selected, owner)
+        )
+        if cached is not None:
+            # M31 (prepared contexts): the element ids, centroids and per-element
+            # geometry of this wet set are fixed; the fluid side of an element is
+            # computed on its first non-zero pressure and then reused. Values and
+            # accumulation order are those of the path below.
+            element_ids, centroids = cached["element_ids"], cached["centroids"]
+            geometry, signs = cached["geometry"], cached["signs"]
+            pick = np.arange(len(element_ids))
+            try:
+                # M31e: the pressure source may run caller code; it gets what the path
+                # below gives it, an (n, 3) view of a new array.
+                sampled = (centroids.copy().reshape(-1, 3) if len(element_ids)
+                           else np.array([]).reshape(-1, 3))
+                magnitude = scale * _wet_pressure_values(
+                    case, load, element_ids, by_face, pick, sampled
+                )
+                _load_context.require_unchanged("wet pressure evaluation")
+                # M31c: decided after the pressure source ran (it may run caller code);
+                # from here to the end of the loop only this module's code and, when
+                # sides are reused, the original fluid-side functions run. (M31h:
+                # changing surface records during a request is outside the supported
+                # contract; this check is defence in depth.)
+                # M31g: and only for plain float64 magnitudes, whose iteration below
+                # runs no code (the ANYloads sources return such arrays).
+                reuse = (type(magnitude) is np.ndarray and magnitude.dtype == np.float64
+                         and _signs_reusable(selected, cached))
+                for element_id, value in zip(element_ids, magnitude):
+                    if value == 0.0:
+                        continue
+                    key = int(element_id)
+                    centroid, normal = geometry[key]
+                    if reuse:
+                        sign = signs.get(key)
+                        if sign is None:
+                            sign = fluid_sign(owner[key], centroid, normal)
+                            signs[key] = sign
+                    else:
+                        # As on the path below: the function gets fresh writable
+                        # arrays, which the record then holds.
+                        centroid, normal = centroid.copy(), normal.copy()
+                        sign = fluid_sign(owner[key], centroid, normal)
+                    signed = sign * float(value)
+                    previous = accumulated.get(key)
+                    accumulated[key] = (
+                        signed + (0.0 if previous is None else previous[0]),
+                        centroid,
+                        normal,
+                        reuse,
+                    )
+            except WetFieldError as error:
+                raise ProjectError(str(error)) from None
+            continue
         element_ids = np.array(sorted(owner), dtype=int)
         if limit is None or len(element_ids) <= limit:
             pick = np.arange(len(element_ids))
@@ -1476,15 +1753,15 @@ def wet_element_pressures(
                 signed = fluid_sign(owner[int(element_id)], centroid, normal) * float(value)
                 key = int(element_id)
                 previous = accumulated.get(key)
-                accumulated[key] = WetElementPressure(
-                    key,
-                    signed + (0.0 if previous is None else previous.pressure),
+                accumulated[key] = (
+                    signed + (0.0 if previous is None else previous[0]),
                     centroid,
                     normal,
+                    False,
                 )
         except WetFieldError as error:
             raise ProjectError(str(error)) from None
-    return [accumulated[key] for key in sorted(accumulated)]
+    return accumulated
 
 
 def _accumulate_wet_pressures(
@@ -1498,10 +1775,14 @@ def _accumulate_wet_pressures(
 ) -> None:
     """Add a case's wet pressures to a solver case as element pressures."""
 
-    for item in wet_element_pressures(project, mesh, case, _load_context=_load_context):
-        target.pressure_loads[item.element_id] = (
-            target.pressure_loads.get(item.element_id, 0.0)
-            + factor * item.pressure
+    # M31b: pressures only (no geometry arrays leave the accumulation).
+    accumulated = _wet_pressure_accumulation(
+        project, mesh, case, limit=None, _load_context=_load_context
+    )
+    for key in sorted(accumulated):
+        target.pressure_loads[key] = (
+            target.pressure_loads.get(key, 0.0)
+            + factor * accumulated[key][0]
         )
 
 

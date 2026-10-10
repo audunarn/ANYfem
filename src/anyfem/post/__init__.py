@@ -33,6 +33,7 @@ from .report import (
     write_report,
     write_result_report,
 )
+from .prepared_static import PreparedStaticBlock, PreparedStaticEnvelope
 from .results import (
     BucklingSolution,
     ImpactSolution,
@@ -63,6 +64,8 @@ __all__ = [
     "LinearBatchSolution",
     "LinearSolution",
     "LinearStaticBatchResult",
+    "PreparedStaticBlock",
+    "PreparedStaticEnvelope",
     "ModalSolution",
     "MultiShapeSolution",
     "NonlinearSolution",

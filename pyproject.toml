@@ -30,8 +30,8 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-  "numpy>=1.26",
-  "scipy>=1.11",
+  "numpy>=2.0",
+  "scipy>=1.13",
   "ANYsolver>=0.4.6,<0.5",
   "ANYmaterial>=0.2,<0.3",
   "ANYloads>=0.1,<0.2",
