@@ -1,5 +1,363 @@
 # Meshing speedup — implementation and evidence
 
+## Single-process milestone — completed 2026-10-07
+
+Implemented and accepted for the requested G8/G1 and M1–M6 speedup on the
+recorded frozen workspace inputs. All 54 alternating performance runs passed;
+all six barge pairs were faster, and all seven representative medians improved.
+Every compared mesh and authored-geometry digest matches exactly, without
+coordinate rounding. The complete authored barge project also matches across
+all 12 runs. Loads, materials, tolerances, quality/admission requirements,
+candidate search and execution-policy defaults are unchanged.
+
+The measured source was frozen before delivery on `codex/single-process-speedup` in
+`C:/ANYworkspaceWork/meshing-speedup-next-20261007/worktrees/{ANYgeometry,ANYmesh,ANYfem}`.
+Mistral authored the geometry and mesher slices; Astra supplied contracts,
+independent review, ANYfem integration and acceptance of the recorded campaign.
+Git delivery was subsequently authorized; its current status is recorded below.
+No version bump or package release is included. Earlier delivery below is
+historical. Unrelated source edits in the primary checkouts were preserved.
+
+### Delivered changes
+
+- ANYgeometry: invocation-local conservative planar boundary/curve boxes prune
+  attachment clipping only after cancellation and whole-curve support checks.
+  Expanded bounds round outward; unsupported/curved/ambiguous cases retain
+  exact clipping. Scalar LinePath and private cross products preserve arithmetic,
+  production np.float64 inputs and exceptional numeric behavior.
+- ANYmesh: public BVH construction remains eager and preserves snapshots/errors;
+  the connectivity-only route validates and snapshots shell inputs immediately
+  but builds records/tree only on first lookup. Invocation-local edge screening
+  confirms winners/tolerances with scalar norms and clears/restores caches.
+  Chart queries batch selected faces per unchanged preparation stage, forwarding
+  cancellation/revision controls with older-owner fallback. Native orientation,
+  point-in-polygon and successful linear validity use vectorized checks while
+  retaining scalar/exact fallbacks, original error precedence and Python sum order.
+- ANYfem: outer geometry counters join existing runtime execution diagnostics
+  and survive process jobs. Runtime measurements do not enter solver-affecting
+  hashes. Public APIs and dependency ranges are unchanged.
+
+### Measured performance
+
+Each row is three alternating baseline/candidate pairs (AB, BA, AB), all retained.
+Numbers measure the public meshing call; exact process-wall accounting and stage
+timings are in the attempt records. Improvements are for the combined candidate.
+
+| Workload | Baseline median (range), s | Candidate median (range), s | Reduction |
+|---|---:|---:|---:|
+| Large barge, off | 54.340 (53.836–75.592) | 32.909 (32.418–34.140) | 39.4% |
+| Large barge, auto | 59.958 (59.762–60.083) | 39.200 (38.785–39.273) | 34.6% |
+| Mapped face | 1.254 (1.249–1.275) | 0.170 (0.169–0.174) | 86.4% |
+| Stiffened panel | 1.277 (1.256–1.307) | 0.694 (0.684–0.694) | 45.7% |
+| Crossing grid | 7.786 (7.722–7.807) | 7.162 (7.139–7.187) | 8.0% |
+| Native plates | 3.477 (3.474–3.504) | 2.423 (2.395–2.433) | 30.3% |
+| Plate with hole | 10.368 (10.230–11.628) | 6.312 (6.150–6.535) | 39.1% |
+| Independent structures | 14.653 (14.635–14.661) | 10.705 (10.699–10.914) | 26.9% |
+| Curved cylinder | 0.142 (0.142–0.148) | 0.116 (0.114–0.123) | 18.3% |
+
+The 0.25 m barge retains 12,100 nodes, 8,916 shells, 3,112 beams and 3,500 couplings,
+with four candidates and exactly one final connectivity application in every run.
+Attachment clipping falls from 31,620 to 2,008 calls: 29,612 conservative rejections
+(93.65%). Off-policy median structural preparation is 30.264 → 9.765 s; its nested
+remapping stage is 23.817 → 3.677 s. Connectivity is 7.871 → 7.840 s. These nested
+stage times must not be added together or interpreted as isolated patch effects.
+
+The mapped case has 37,249 nodes and 36,864 shells: unused BVH builds fall from
+one to zero, with zero lookups in both versions. Chart qualification changes from
+33 single queries to one batch for the crossing grid, four to one for native
+plates, and 192 to one for the independent-structure preparation. Selected-face
+qualification counts remain unchanged. No representative exceeded the allowed
+regression threshold; all representative pairs were faster as well.
+
+### Correctness and installed verification
+
+All 72,600 displacement components, 19,032 reaction components, 11,920 element
+stress peaks and 38,344 von Mises samples match exactly under unchanged loads.
+Strain energy is exactly 145467.31573723748 J in both runs; its relative change
+and all recorded maximum response differences are zero. Mesh correspondence is
+verified before comparison. No load calibration, geometry change or tolerance
+adjustment was used.
+
+632 selected installed-artifact tests pass: geometry 104; mesher speedup 273;
+mesher lifecycle/coupling/native contracts 142; ANYfem consumer integration 97;
+analytical/convergence 8; public parallel integration 8. The existing 4/8/16-worker
+routes retain mesh signatures and hashes. The public process-based large-barge
+job matches the same exact mesh digest and four/one lifecycle counts.
+Compiled and genuinely binary-free fallback wheel smokes both pass, including
+the protected curved-cylinder case (408 nodes, 416 elements).
+
+One opt-in experimental prepared-CURRENT-receipt module was skipped; its separate
+execution gate was not bypassed. Broader legacy Python/quadratic schema6 and
+quality-optimization sweeps remain timeout-limited: corresponding bounded parent
+checks also time out. These are preserved limitations, not passing full-suite or
+release-qualification claims. Focused affected contracts and public workloads
+above supply this milestone's acceptance evidence.
+
+### Preserved failures and review repairs
+
+Development fixtures, earlier timeout attempts and worker checkpoints remain on
+disk. Review repaired public BVH eager behavior, cache cleanup, cancellation and
+mutation controls, exact error ordering and extreme-number behavior. The first
+installed multiprocessing test attempt exposed a missing entry-point guard in
+the new verification launcher; the launcher was fixed and the full parallel and
+consumer suites then passed. A serial-adapter mock failed on the parent because
+default auto routing bypassed its interception. The test now explicitly selects
+off and uses a mutable mesh stand-in for runtime diagnostics; it passes on both
+parent and candidate. This post-freeze repair changes only a test, not measured
+runtime source or wheels. Its exact content/hash is retained in final-review.
+
+An early baseline timeout termination was denied by Windows and was completed
+by terminating only the verified owned tree; its full 200.119382 s duration is
+charged. Later jobs use reliable process-tree permissions. pip's owner-only ACLs
+were repaired only within this task's isolated artifact directories, with no byte
+changes. Failed instrumentation preflights are preserved. The automatic approval
+review initially misattributed a separate chat's pause to the parallel check;
+the identical authorized action was approved after clarifying task ownership.
+
+### Reproduction and identity
+
+Evidence root: `C:/ANYworkspaceWork/meshing-speedup-next-20261007`.
+Baseline heads: ANYgeometry `d7a920e107b270377656390772202867c77f4fc8`, ANYmesh
+`2d0afaf34179faf9eedfcc00090ef7ddfb4b740e`, ANYfem
+`2ca462a62d7f754a3c76af5db65201b8dca40b92`. The baseline freezes the existing
+dirty ANYfem/dependency overlays; candidate sources apply only the owned deltas.
+Acceptance is scoped to those explicit snapshots, not an evolving checkout.
+
+- `baseline-manifest.json`, `candidate-manifest.json` and the two
+  `artifacts/*/manifest.json` files retain full source/wheel/install hashes.
+  Both native extensions were independently rebuilt. Baseline native SHA256:
+  `429a6dab690c7d175719d90f0c3ba7bfc0b6780ec2e479b3aa3ecdcb08108c70`;
+  candidate: `b0102a2ab6b1daa56da7a2a11290f114b8cda5fe5e50c377168c3fb8f5adacbc`.
+- `accepted-barge-runs.json`, `accepted-representatives-runs.json` and
+  `performance-summary.json` identify every accepted run, ranges, counts, stages
+  and exact hashes. `measurement-tools/manifest.json` freezes executable probes;
+  `representative-inputs/manifest.json` freezes authored representative models.
+- `response-comparison.json`, both `engineering-*/data` directories and their
+  NPZ files retain the physical response comparison. Installed tests record
+  actual import/native paths; pytest's source-path override is disabled.
+- Python 3.13.9, NumPy 2.4.3 and SciPy 1.16.3 were used. Every timed run records
+  actual BLAS library identity and one numerical thread. `dependency-audit.json`
+  separately records the post-run distribution/hash audit. No shared dependency
+  install or native binary was overwritten.
+- `final-artifact-audit.json` verifies that all recorded baseline/candidate
+  artifact bytes remain unchanged and every candidate installed Python file
+  exactly matches its frozen source. External investigations remain unchanged
+  under `external/` as historical evidence.
+
+Owned timed jobs were sequential and the sustained matrix was coordinated with
+the separate static-batch task. No pending job reservations remain. Exact
+cumulative accounting, including failed and timeout attempts:
+
+- geometry-checks: 421.880434 / 1800 process seconds, 14 preserved attempts.
+- mesher-checks: 1636.447523 / 2400 process seconds, 24 preserved attempts.
+- fem-checks: 457.941720 / 3600 process seconds, 30 preserved attempts.
+- build-checks: 37.375220 / 1800 process seconds, 8 preserved attempts.
+- performance: 945.002466 / 3600 process seconds, 54 preserved attempts.
+
+## Delivery and verification follow-through
+
+The measured changes are committed and pushed as draft pull requests:
+
+- [ANYgeometry #30](https://github.com/audunarn/ANYgeometry/pull/30):
+  `3b98599473d1e795ddbebf94dca539042e0d3628`.
+- [ANYmesh #11](https://github.com/audunarn/ANYmesh/pull/11):
+  `e764c751c471e03aa7005bca8bb47b3e84f33c5a`.
+- [ANYfem #12](https://github.com/audunarn/ANYfem/pull/12):
+  implementation `81090570d351d89dbdd08ef077d85386960eee88`, followed by
+  integration merge `3aa540ccb03d3187dfcfa695795df4ffbd9627ec` of main
+  `3e4eb7f206042931d496b98f39af5e2a40b5951f`. Ninety consumer tests passed
+  against that combined source in 17.222334 process seconds. This integration
+  check does not replace or relabel the frozen performance measurements.
+
+Delivery CI exposed existing main failures. ANYmesh development smoke has the
+same four failing node IDs on main run 37663276646 and candidate run 37690580036:
+finite-hull legality nonconvergence in `test_auto_mixed_faces_share_registry_identity`,
+and three recovery-hint failures against the old pinned geometry. ANYfem's clean
+installed build cannot import `Envelope` from the CI-pinned ANYloads revision, identically on
+main run 37685840570 and candidate run 37690586051. Raw logs are preserved in
+the evidence root as `delivery-*-ci*.log`. No failed gate is waived; draft PR
+delivery is distinct from main integration or release approval.
+
+The user authorized Git delivery followed by investigation of the two preserved
+verification timeouts. The measured implementation is being delivered first as
+three reviewable commits; disposable worker notes and diagnostics stay outside
+the staged change. ANYfem main advanced by three independently delivered commits
+since the frozen campaign. Integration checks will distinguish the newly merged
+source state from the immutable sources that produced the measurements above.
+
+The follow-up question is whether the Python/quadratic schema6 and mesh-quality
+checks are slow but terminating, stuck in fallback refinement, or affected by the
+new fast paths. Inspect the existing output and test/source paths first, then use
+one bounded verbose/stack-reporting run per affected path to identify the active
+stage. Compare baseline only where the result discriminates a cause. Preserve
+all prior failures and cumulative accounting; do not change scientific tolerances,
+mesh-search budgets or example geometry to make these checks pass. No new speedup
+scope is authorized by this follow-through.
+
+### Verification follow-up outcome
+
+The broad mesh-quality timeout is resolved by a separate correctness commit,
+`c1b2115`, after the measured speedup commit. Nonintrusive instrumentation of
+the original rotated-plate test captured a repeated finite-hull state at
+iterations 11 and 13. The four-station regression uses exact binary inputs and
+an independent Fraction determinant: the old in-circle filter returned wrong
+signs in 6 of 24 point orderings. Its error bound used cross products after
+cancellation. Bounding their constituent products instead retains the existing
+Decimal fallback and stops the demonstrated flip cycle. Scientific tolerances,
+candidate search and iteration limits are unchanged.
+
+Mistral's independent read review supports the minimal predicate correction.
+Astra implemented the repair after two bounded worker investigation runs ended
+without a reliable witness or final handoff; their useful checkpoint and failed
+probes remain preserved. The successful witness observes the original function
+without copying it. The earlier worker claim of duplicate automatic recovery
+routes was incorrect: with quad options the routes are quad_first, auto, native.
+
+- Before repair: exact-oracle check **6 failed, 18 passed**.
+- Source repair: **50 passed**, including the complete mesh-quality optimization
+  file and the mixed-face test that also failed in main CI; 40.396385 process s.
+- Fresh independently built repair wheels: **266 passed** across the predicate,
+  mesh-quality, hybrid, recovery and native-validation tests; 43.393396 process s.
+  Artifacts live in `artifacts/verification-repair`, with separate hashes and
+  build inputs. The original baseline/candidate measurement artifacts remain
+  unchanged. No new performance campaign or revised savings claim is implied.
+- One correctness-only barge run with the fresh repair wheels exactly matches
+  the measured candidate mesh/material hash and authored geometry hash, with
+  four candidates, one connectivity application and unchanged operation counts.
+  Evidence: `fem-checks/delivery-repair-barge-equivalence` (35.124834 process s).
+  This was an equivalence check, not a new before/after timing pair.
+- ANYgeometry CI ran **2,883 passing tests and one failing fixture** on both
+  Linux and Windows. NumPy changed its exception wording. Test-only commit
+  `2879048bbe5f779992220ad44c2cd2f4e3edd3cb` compares the wrapper's exception with
+  the installed NumPy oracle; **19 focused tests passed**. Production geometry
+  is unchanged; the CI rerun is pending at this checkpoint.
+- ANYmesh development smoke now pins that verified geometry owner in commit
+  `0f555088b41093cf6b4c2c8532a526fbc525da14`; historical qualification inputs
+  and public dependency ranges remain unchanged. The previous owner pin lacked
+  the contracts required by three existing recovery tests. Both push and PR
+  development smoke checks are now green.
+
+**At the preceding checkpoint (superseded by closure below):** the unchanged schema6 inspection-only test now reaches its own
+120-second recovery budget and raises `MeshRecoveryIncomplete` at triangle
+recombination start (125.737436 process s). A bounded probe observed 1,280
+distinct finite-hull states for 796 points and 1,485 triangles in 33.47 s, without
+a repeated-state witness. This is remaining Python-path work, not proof of a
+second cycle. A local cache experiment matched exact connectivity and callback
+sequences on six reference inputs but did not close the original budget gate
+(125.176489 process s). The cache was removed from delivered source; its patch,
+review and evidence are preserved. No test budget or assertion was relaxed.
+
+The draft PRs therefore deliver the measured improvement and the separately
+verified predicate repair, but do not establish complete verification or main
+merge readiness. The schema6 gate and unrelated ANYfem pinned-dependency CI
+failure remain explicit limitations. No main branch or package release was
+modified by this delivery. Primary local main branches matched their fetched
+GitHub main refs at the delivery inspection.
+
+Evidence: `finite-hull-witness.json`, `mesher-checks/gap-*`,
+`verification-gap-worker-01.log`, `verification-gap-worker-02.log`,
+`verification-gap-review.log`, `verification-gap-cache-review.log`,
+`legality-cache-comparison.json`, and
+`predicate-and-legality-cache-investigation.diff` under the evidence root.
+
+### Authorized integration closure — 2026-10-08
+
+**Delivered:** ANYgeometry PR #30 merged as
+`a534b0d3782af9007b71edb30b923fc96232be67` after all eight CI checks passed.
+ANYmesh PR #11 merged as `2273c61fe1e888302a02b5f376c66fe5ae8edadb` after
+both new-head development smoke checks passed; twelve qualification/release jobs
+were skipped by their existing conditions. Local main checkouts match those
+merges. No version bump or package release occurred.
+
+**The unchanged schema6 gate is closed.** The remaining 849-point candidate
+cycled between states 190 and 192. The captured four binary coordinates form an
+exactly cocircular rectangle, but the old 80-digit Decimal in-circle fallback
+returned nonzero residues in all 24 orders. The before-repair regression recorded
+24 failures and 24 other passes. Ambiguous in-circle evaluations now use exact
+Fraction arithmetic, preserving the filter, tolerances, orientation convention,
+first-two-coordinate behavior and signed-infinity conversion for extreme values.
+The finite-hull loop maintains incidence and a sorted pending queue while
+preserving the first admissible flip, convergence limit and candidate budgets.
+
+Evidence under `C:/ANYworkspaceWork/meshing-speedup-next-20261007`:
+
+- `schema6-cycle-witness.json` / `schema6-cycle-points.npy`: original binary input
+  and repeated-state witness; failed pre-repair runs remain in `closure-checks`.
+- `rational-predicate-review.log`: independent Mistral review confirmed the exact
+  formula and raised the float-overflow compatibility issue, which was repaired.
+- `independent-hull-review-01`: 30 exact differential cases and all five
+  cancellation phases passed against frozen before/after loop implementations.
+- `schema6-rational-gate-01`: unchanged schema6 test plus 53 predicate/hull checks
+  passed, 25.727445 process seconds. This is verification timing, not a new barge
+  speedup measurement.
+- `final-installed-mesher-01`: **323 passed**, 46.404926 process seconds, including
+  all schema6 consumer cases, recovery, hybrid meshing, quality optimization,
+  predicate witnesses, hull differential tests and cancellation.
+- `final-installed-fallback-02`: **73 passed, 5 compiled-only skips**, 2.892482
+  process seconds, in a separate installation with actual extension absence.
+  The first harness attempt incorrectly treated the build-only disable variable
+  as a runtime switch; its failed availability assertion is preserved as
+  `final-installed-fallback-01`. No product failure was hidden.
+- `final-barge-equivalence-01` and `final-process-barge-equivalence-01`: public
+  synchronous/off and process-job/auto routes both completed with exact matching
+  unrounded mesh and authored-geometry hashes. Each retains 12,100 nodes, 8,916
+  shells, 3,112 beams, 3,500 couplings, **four candidates and one connectivity
+  application**. Auto correctly selected serial work for the single component.
+  `closure-barge-comparison.json` records the comparison. The existing fixed-load
+  response evidence remains applicable to this unchanged mesh; no new solver
+  response or performance campaign is claimed.
+
+Fresh final wheels and identities are in `artifacts/verification-closure-final`.
+Original baseline, measured candidate and preceding repair artifacts were not
+overwritten. The source repair is separately reviewable in mesher commit
+`7b16c1e74cefc9bf269f2a28a5689b1ce906b009`.
+
+**ANYloads prerequisite delivered:** the user approved publishing the existing
+five reviewed files on 2026-10-08. ANYloads PR #1 passed all 18 push/PR CI checks
+(Linux/Windows Python 3.11-3.14 and wheel checks) and merged as
+`28a15c09eff75037dedf62c66ca09ea21221c5af`; local main is synchronized. Its source
+matches the snapshot that passed all 64 local owner tests. No load values,
+version or package release changed. The original review and patch remain in
+`loads-envelope-prerequisite-review.md` and `loads-envelope-prerequisite.diff`.
+
+ANYfem PR #12 now pins the published loads commit
+`16b1179de9623fc065bf034b0995b02dd5e47f86`, merged geometry and mesher revisions,
+and solver prerequisite `d109511ea953e5e5946d72ea6b163cc347b89417`. The newer solver
+`b246a985` was not adopted because its Linux/Python 3.14 shard has two unresolved
+qualification-record blob assertions. The selected predecessor's Q4 source blob
+matches the expected `bd6c0dc2cb3661eb73942fc0fea56e527aa8d0b4`; its lack of GitHub
+checks is not called a green CI result. All 120 ANYfem load-series/static-batch
+consumer tests passed against that exact source and the now-published Envelope
+code (`fem-owner-pins-01`, 34.994408 process seconds).
+
+The CI-pin commit is `b70af4ec88dd76a96068f148087a2b42f9926227`. Its initial clean wheel
+build/import gate passed. The full headless and Qt matrices are required for
+delivery. Initial CI run IDs are `37732605062` (headless/build) and
+`37732605060` (Qt); final head-specific check outcomes and merge identity are
+tracked by [ANYfem PR #12](https://github.com/audunarn/ANYfem/pull/12) and the
+retained delivery audit. A running check is never counted as a pass.
+Unrelated dirty work in primary ANYfem remains untouched.
+
+Execution accounting: the user authorized this follow-through after the earlier
+mesher ledger consumed 2,123.838313 of 2,400 seconds. A separate prospective
+closure cap of 1,200 process seconds did not reset earlier authority. The first
+Mistral allocation was 300/900 worker/parent, later 500/700 within the same total.
+Two useful but incomplete worker runs exhausted their turn limits before final
+handoff. After inspecting their source, tests and failed outputs, Astra took over
+because repeated turn exhaustion prevented reliable delivery; unspent worker
+allocation returned to the same total reserve. Failed diagnostics and harness
+attempts are included. The current ledger records 23 completed attempts,
+**536.471040 seconds consumed / 663.528960 remaining**; there are no active
+owned numerical jobs. The original schema6 120-second budget, assertions,
+scientific tolerances, fallback order and quality gates were never changed.
+
+Delivery contract: merge ANYfem #12 only after its applicable CI gates pass,
+then synchronize local main while preserving unrelated dirty work. Final Git
+identities and check outcomes belong to the PR and delivery audit referenced
+above. No new optimization milestone is opened.
+
+## Earlier milestone and main delivery — historical
+
 ## Outcome and scope
 
 Accepted for the authorized performance milestone on 2026-10-07. Implementation,
@@ -199,3 +557,260 @@ The large-barge timing and engineering measurements above remain scoped to the
 recorded frozen dirty-source identities; they are not new clean-main measurements.
 The delivery snapshot preserves all outstanding files and hashes under
 main-delivery/preserved and main-delivery/before.json.
+
+## CI thread/process semantic mesh hash mismatch - investigation 2026-10-08
+
+Prospective record before the diagnostic batch (owned by this task; Astra owns
+review/acceptance).
+
+**Question.** Why does
+`tests/test_mesh_process.py::test_worker_process_gives_the_same_mesh_and_the_same_progress`
+fail only on the Linux Python 3.14 full suite (run 113167844298, 1822 tests,
+1 failure) with equal node/element counts but different `mesh_hash`, while the
+same semantic hash is asserted to survive the thread/process codec?
+
+**Competing explanations.**
+
+1. Runtime execution diagnostics (timings, counters, route metadata) leak into
+   the semantic hash payload (`structural_preparation` or mesh
+   `hybrid_diagnostics`) and differ between the thread executor (forced
+   serial) and the worker process (contained/auto route).
+2. The mesh itself or its serialization differs between executors (actual mesh
+   variation), with equal counts.
+3. A resolved-input difference (e.g. `native_triangulation_backend` or
+   resolved controls after thaw) changes `mesh_input_hash` in one route only.
+4. The root cause lies in a sibling owner (ANYmesher/ANYgeometry) whose
+   diagnostics block is not fully runtime-free on Python 3.14/Linux.
+
+**Bounded check.** Run the single failing test through the shared harness on
+Windows Python 3.13 first (label `ci-hash-worker-01`); if it passes locally,
+add a focused diagnostic that dumps the canonical hash payload components
+(model hash, semantic input hash, preparation, mesh payload) for both
+executors and diff them, run through the same harness. No broad suites, no
+tolerance changes; at most 200 process seconds of the remaining 663.528960.
+
+**Next-action decision.** If the diff isolates a leaking runtime key, exclude
+exactly that key in `mesh_semantic_hash` (or stop recording it in the hashed
+block) with a focused regression; if the mesh payload itself differs, compare
+against the sibling owner contract and report the counterexample for Astra
+rather than editing siblings.
+
+### CI repair outcome and independent acceptance
+
+The same failure subsequently appeared in Linux Python 3.11. A bounded Windows
+Python 3.13.9 reproduction and payload comparison isolated the difference to
+the execution-route record: a process job records
+`hybrid_diagnostics.parallel = {used: false, route: serial, reason: ...}`,
+whereas the thread executor forces policy off and has no such record. Mesh
+coordinates, connectivity, quality and canonical preparation were unchanged.
+The hash implementation and its old route-metadata test predated this PR and
+contradicted the execution-only contract in `mesh_execution.py`.
+
+Mistral implemented the repair in `src/anyfem/mesh_jobs.py`: exclude the seven
+known owner route-diagnostic keys, dropping an empty parallel block. Unknown
+keys remain hashed. Materialized nodes, elements, associations, couplings,
+preparation and admission data remain part of the semantic identity.
+`tests/test_mesh_task_parallel_lifecycle.py` now checks route invariance,
+absent-block equivalence, unknown-field sensitivity and mesh/admission
+sensitivity. `tests/test_mesh_process.py` retains exact mesh-hash, quality and
+canonical-preparation comparisons; it compares meshing-stage sequences exactly
+and checks route-specific execution notices explicitly.
+
+Focused source validation passed **24 tests**, including the CI failure, in
+**23.141770 process seconds** (`closure-checks/ci-hash-fix-01`).
+Real public parallel integration passed **8 tests**, including worker-count
+hash equality, in **22.323844 process seconds**
+(`closure-checks/ci-hash-parallel-01`).
+Astra reviewed the complete diff against the ANYmesh owner records, verified
+those outputs, built a fresh isolated ANYfem wheel, checked its imported path
+and source hash, and passed the same **24 focused tests** against the installed
+artifact in **23.387816 process seconds**
+(`closure-checks/ci-hash-installed-01`). Artifact identity and hashes are under
+`artifacts/ci-hash-wheel`; no shared binary was overwritten.
+
+Preserved failures: `ci-hash-worker-01` exposed a missing main guard in the
+new disposable pytest runner; it is a harness failure, not a product failure.
+The guarded runner reproduced the product hash discrepancy in
+`ci-hash-worker-02`. The diagnostic source and successful comparison remain
+at `ci-hash-diagnostic-source.py` and `closure-checks/ci-hash-diag-01`.
+The diagnostic-only test was removed from the shipped tree after preservation.
+Full failed Linux CI reports remain at `ci-evidence-linux314-113167844298`
+and `ci-evidence-linux311-113167844360`.
+
+The bounded worker runs delivered code and actual check results but exhausted
+their turn limits before final documentation/handoff. Astra reconstructed the
+handoff from their logs and completed this integration record; no claimed
+worker checks were inferred from launcher status. All numerical attempts,
+including failures, remain charged to the existing 1,200-second closure ledger:
+**647.904535 seconds used, 552.095465 seconds remaining** at this checkpoint.
+No performance campaign or budget was restarted. The measured speedup above is
+unchanged; this is a correctness repair, not a new speed measurement.
+
+Final acceptance still requires all 13 Linux/Windows, Qt and wheel checks on
+the pushed PR head. The authorized 30-minute follow-up records later CI and
+merge status in PR12 and `final-dependency-delivery.json`, without another
+documentation-only commit that restarts the full matrix.
+
+### Authorized modal investigation, 2026-10-08
+
+User authorized a focused ANYsolver/modal investigation after Windows Python
+3.14 CI reported five rigid-body modes instead of six. This grants investigation,
+not production fixes, tolerance changes or bypass of the merge gate.
+Question: is a rigid eigenvector absent, or does the legacy classifier reject a
+returned vector because it uses one basis coefficient of a mass-normalized mode?
+Competing explanation: near-zero eigenvalue rounding crosses the frequency
+threshold even when the rigid subspace is complete.
+Bounded diagnostic: one original free-plate solve with the frozen CI owner
+sources, capture matrices/basis/modes without modifying the solver, then compare
+its first eight eigenpairs to a dense symmetric generalized eigenproblem on the
+same matrices and calculate subspace projections and nullspace residuals.
+Use one 90-second attempt charged to the existing closure ledger, retaining
+552.095465 seconds remaining before the attempt. No performance claims.
+A separate Mistral Read review examines the exact solver commit without runs.
+If the subspace is complete and the classifier is basis/normalization dependent,
+report a concrete owner repair proposal; if a physical mode is missing, preserve
+the pencil and identify that separate solver issue. Production changes require
+an explicit follow-on scope decision. Automatic merge remains paused.
+
+### Modal investigation result: classification defect demonstrated
+
+No production source was changed. Mistral's read-only review inspected exact
+solver commit d109511ea953e5e5946d72ea6b163cc347b89417; full report is
+modal-read-review.log. It identified both the legacy classification expression
+and a possible singular zero-shift inverse sensitivity. Its suggestion that a
+rigid eigenpair might be missing remains a hypothesis, not an observed result.
+
+The completed diagnostic (closure-checks/modal-investigation-03) used Windows
+Python 3.13, NumPy 2.4.3, SciPy 1.16.3, frozen CI owner sources and one BLAS
+thread. It returned six rigid modes through sparse_scipy_eigsh, with a
+486-by-486 pencil and six admissible rigid basis columns. Dense generalized
+eigenanalysis of the same pencil also found six near-zero modes. The relative
+stiffness residual of the rigid basis was 3.64e-18. Thus the local run did not
+reproduce the Windows Python 3.14/SciPy CI failure, and cannot establish whether
+that CI result omitted or mislabeled a mode. Matrices and exact per-mode values
+are preserved in modal-investigation-01/pencil.npz and result.json.
+
+A discriminating saved-matrix check does establish an owner classifier defect.
+The mass-normalized sum of two pure rigid basis vectors has legacy correlation
+0.718278196 (below 0.90), mass-subspace fraction 1.0000000000000009, and relative
+stiffness residual 5.38e-18. More directly, actual returned mode 5 has frequency
+7.390134669750902e-5 Hz and legacy correlation 0.9360164381000541.
+An orthogonal change of the rigid basis, leaving that mode, frequency and
+subspace unchanged, changes correlation to 0.5460776647191065 and flips its
+classification from true to false. The basis rotation's orthogonality error
+is 4.09e-16. Evidence: modal-investigation-01/basis-check.json and
+basis-rotation-check.json; checked under labels modal-basis-check-01 and
+modal-basis-rotation-01. This is stronger evidence for a classification repair
+than for adopting an eigensolver change; the latter is not justified yet.
+
+Proposed next scope: a bounded ANYsolver repair replacing the legacy
+single-coefficient classifier with a normalized whole-rigid-subspace measure,
+with explicit basis-rotation, vector/mass scaling and flexible-mode regressions.
+Keep frequency tolerance, mesh, physical parameters, eigenvalues and the
+six-mode admission assertion unchanged. Review compatibility of the deliberately
+preserved legacy metric and test the original consumer case on Windows Python
+3.14 before accepting it as the CI remedy. Do not adopt deflation, change the
+eigensolver or loosen thresholds merely on the speculative shift-invert theory.
+The user authorized investigation only; product repair awaits a scope decision.
+
+The first two disposable attempts failed: the diagnostic imported the material
+owner factory instead of ANYfem's material specification factory, then observed
+the public wrapper instead of _solve_free_vibration_under_lease. Both failures
+are preserved and charged; neither is a product failure. All investigation
+attempts together used 27.728995 process seconds, within the prospective
+90-second diagnostic allowance. Closure ledger now totals 675.633530 of 1200
+seconds, leaving 524.366470; no execution authority was renewed.
+Automatic delivery remains paused; PR12 remains unmerged.
+
+### Authorized modal repair scope
+
+User approved the bounded ANYsolver classification repair and regression tests.
+Implementation starts from the exact CI-pinned solver d109511e in isolated
+worktrees/ANYsolver, branch codex/modal-rigid-classification. Its modal.py is
+byte-equivalent to current local main cff55d95 by Git diff, allowing a narrow
+forward integration without adopting unrelated changes in ANYfem's owner pin.
+Mistral owns modal.py and focused modal regressions; Astra owns contract
+adoption, independent review, installed/consumer verification and delivery.
+Adopt a normalized whole-rigid-subspace classification measure with unchanged
+frequency/0.90 thresholds. Preserve descriptor semantics, solver eigenpairs,
+physical inputs and freshness/cancellation. No eigensolver/deflation changes.
+Use existing remaining 524.366470 process seconds, at most180 for worker checks;
+reserve the balance for independent consumer/installed checks. No new campaign.
+
+### Modal repair implemented and independently checked
+
+Mistral implemented the authorized classifier repair in isolated solver
+src/anysolver/modal.py (14 lines added, 14 removed). The legacy path now shares
+the descriptor path's normalized mass-orthogonal projection onto the entire
+admissible rigid subspace: Q (Q^T M Q)^+ Q^T M v. Its reported correlation is the
+square root of projected modal mass divided by total modal mass, clamped to
+[0,1]. This changes the previously unbounded legacy correlation diagnostic to
+a normalized quantity. The 0.90 and 1e-6 Hz classification thresholds,
+eigenpairs, normalization, residual computation and descriptor arithmetic are
+unchanged. Supported components retain the owner's existing empty-basis
+eligibility and frequency-only classification.
+
+Seven new integrated regressions in tests/test_modal_rigid_classification.py
+cover free rigid modes, orthogonal basis rotation, density scaling, eigensolver
+vector scaling, elastic exclusion, supported/pinned components and empty bases.
+The focused source run had seven new plus two existing checks: 9 passed in
+5.806415 process seconds (modal-repair-worker-01-run2). The two complete existing
+mass/modal and S3 modal test files passed 32 tests in 22.944303 process seconds
+(modal-repair-worker-01-run3). These counts overlap and are not additive unique
+test totals. The initial fixture failure is preserved in modal-repair-worker-01:
+it incorrectly expected a partial supported-component rigid basis. The fixture
+was aligned with established owner eligibility; assembly behavior was unchanged.
+
+Independent parent regression: running the new basis-rotation test against the
+unchanged pinned solver fails before rotation because that solver labels eight
+beam modes rigid instead of six. This demonstrates an additional false-positive
+classification case, not a reproduction of the exact five-mode CI failure.
+Evidence modal-regression-parent-01 (5.932047 process seconds). No pass was
+claimed for this expected red check.
+
+Astra reviewed the complete product/test delta and built a fresh isolated
+ANYsolver wheel from recorded d109511e plus the modal.py overlay, without
+modifying shared packages or binaries. Import paths and source SHA256 were
+asserted. Installed verification passed 42 tests: seven new, 32 existing solver
+checks and three original ANYfem modal cases, including the failing free-free
+plate test. Evidence modal-installed-acceptance-01 (27.369479 process seconds);
+artifact/source identities artifacts/modal-repair-wheel/manifest.json.
+
+Windows Python 3.14.2 / NumPy 2.4.6 / SciPy 1.17.1 local consumer checks refused
+before the modal solver due to the existing qualified-Q4 preflight namespace
+guard (ABC.__annotate_func__, ABC.__annotations_cache__). Preserve the three
+failures in modal-repair-consumer-py314-01 (8.529188 process seconds); no guard
+was bypassed or loosened. CI uses Python 3.14.7 and different numerical package
+versions, so this local failure does not reproduce its modal failure and does
+not establish exact-environment acceptance. Fresh final CI remains required.
+
+Worker implementation is complete. Its bounded follow-up ended without the
+requested written handoff; Astra reconstructed actual check results from
+result.json/stdout, reviewed the edits and completed this record. No worker
+launcher status was treated as test evidence. No active worker remains.
+Ledger: 764.662370 of 1200 process seconds used; 435.337630 remaining.
+No numerical authority was renewed.
+
+Local repair is ready for Git delivery review: solver branch
+codex/modal-rigid-classification, product file plus one new regression file.
+No solver commit, push, release, ANYfem dependency-pin change or PR merge has
+been made for this repair. The original automatic-delivery job remains paused.
+A separate solver PR and exact-head ANYfem repin/CI are the proposed delivery
+step; this extends publication to the newly authorized solver repair.
+
+### Modal repair Git delivery authorized
+
+The user authorized publishing the solver repair and updating ANYfem's exact
+solver pin. Solver PR64 is published at
+7a0e166742e0db9beb678d1d55b4ad2ceae0489f (one commit atop the previously pinned
+d109511e; only modal.py and the new regression file). ANYfem's headless, wheel
+and Qt owner references now point at this exact reviewed commit.
+The pinned runtime does not adopt unrelated newer solver-main changes.
+The 42-test installed-artifact result remains scoped to the recorded identical
+source overlay; no numerical test or budget was restarted by publication.
+
+Solver PR64 and ANYfem PR12 must pass their applicable CI before dependency-order
+merge. Exact Windows Python 3.14.7 acceptance remains pending. The restored
+follow-up records final results and merge identities in the delivery audit and
+PR descriptions; no additional status-only documentation commit is needed.
+No version bump, tag or package release is authorized.

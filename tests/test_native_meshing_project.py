@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import anyfem.model.project as project_module
 import pytest
 
@@ -15,6 +17,7 @@ from anyfem.io.project_file import (
 )
 from anyfem.model.formulations import ShellFormulationPolicy
 from anyfem.model.project import Project, ProjectError
+from anyfem.mesh_execution import MeshExecutionPolicy
 from anyfem.native_meshing import ControlScope, NativeMeshControl, NativeMeshSettings
 
 
@@ -215,7 +218,8 @@ def test_project_runtime_forwards_one_explicit_backend(monkeypatch) -> None:
     project.target_size = 0.3
     project.set_native_triangulation_backend("python")
     captured = {}
-    expected = object()
+    # A mesh stand-in must accept execution diagnostics from the adapter.
+    expected = SimpleNamespace(hybrid_diagnostics={})
 
     def fake_generate(_geometry, **kwargs):
         captured.update(kwargs)
@@ -223,7 +227,9 @@ def test_project_runtime_forwards_one_explicit_backend(monkeypatch) -> None:
 
     monkeypatch.setattr(project_module, "generate_hybrid_mesh", fake_generate)
 
-    assert project.generate_mesh() is expected
+    # This fixture intercepts the serial adapter; auto may enter the public
+    # component router before selecting a serial execution route.
+    assert project.generate_mesh(execution_policy=MeshExecutionPolicy.off()) is expected
     assert captured["native_backend"] == "python"
     assert captured["structural_preparation"] == {
         "automatic_face_connections": False,

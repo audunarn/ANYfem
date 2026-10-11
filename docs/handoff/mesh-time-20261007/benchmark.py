@@ -24,7 +24,10 @@ PACKAGES = ("anyfem", "anymesher", "anygeometry", "anysolver", "anyloads",
 
 def configure(tree, evidence):
     paths = []
+    artifact = evidence / "artifacts" / tree / "installed"
     for name in REPOSITORIES:
+        if artifact.is_dir() and name in REPOSITORIES[:3]:
+            continue
         if tree == "installed" and name in REPOSITORIES[:3]:
             continue
         if tree == "live" and name in REPOSITORIES[:3]:
@@ -34,6 +37,8 @@ def configure(tree, evidence):
         paths.append(str(root / name / "src"))
     if tree == "installed":
         paths.insert(0, str(evidence / "installed"))
+    elif artifact.is_dir():
+        paths.insert(0, str(artifact))
     sys.path[:0] = paths
     os.environ["PYTHONPATH"] = os.pathsep.join(paths)
     os.environ["OMP_NUM_THREADS"] = "1"
@@ -81,7 +86,27 @@ class Timings:
 
     def install(self):
         from anygeometry import GeometryModel
+        import anygeometry.attachment_remapping as attachment_remapping
         from anymesher.structural_pipeline import StructuralMeshingPipeline
+        from anymesher.mesh_bvh import MeshElementBVH
+        self.calls.update({'bvh_builds': 0, 'bvh_lookups': 0})
+        if hasattr(MeshElementBVH, '_ensure_built'):
+            original_build = MeshElementBVH._ensure_built
+            measured_build = self.wrap(original_build, 'bvh_builds')
+            def ensure_built(bvh):
+                return (measured_build(bvh) if bvh._records is None
+                        else original_build(bvh))
+            MeshElementBVH._ensure_built = ensure_built
+        else:
+            MeshElementBVH.__init__ = self.wrap(MeshElementBVH.__init__, 'bvh_builds')
+        lookup_name = ('_candidate_ids' if hasattr(MeshElementBVH, '_candidate_ids')
+                       else 'candidates')
+        setattr(MeshElementBVH, lookup_name, self.wrap(
+            getattr(MeshElementBVH, lookup_name), 'bvh_lookups'))
+        # This alias is specific to attachment remapping: do not count unrelated
+        # arrangement clips through every module sharing the original function.
+        attachment_remapping._clip_intervals = self.wrap(
+            attachment_remapping._clip_intervals, "attachment_clip_calls")
         original_bounds = GeometryModel.bounds
         measured_bounds = self.wrap(original_bounds, "planner_bounds")
 
@@ -97,6 +122,8 @@ class Timings:
             ("anyfem.structural_preparation", "prepare_structural_connectivity"),
             ("anygeometry.component_partition", "plan_independent_components"),
             ("anygeometry.attachment_remapping", "remap_face_attachments"),
+            ("anygeometry.trimmed_charts", "query_trimmed_surface_charts"),
+            ("anygeometry.trimmed_charts", "query_trimmed_surface_charts_by_face"),
             ("anymesher.hybrid", "generate_hybrid_mesh_result"),
         ):
             original = getattr(importlib.import_module(module), name)
@@ -186,6 +213,12 @@ def main():
     if manifest.exists():
         identity["source_manifest"] = {"path": str(manifest),
                                        "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest()}
+    artifact_manifest = args.evidence / "artifacts" / args.tree / "manifest.json"
+    if artifact_manifest.exists():
+        identity["artifact_manifest"] = {
+            "path": str(artifact_manifest),
+            "sha256": hashlib.sha256(artifact_manifest.read_bytes()).hexdigest(),
+        }
     try:
         from threadpoolctl import threadpool_info
         identity["threadpools"] = threadpool_info()
@@ -201,6 +234,8 @@ def main():
         return
     project = project_from_dict(json.loads(args.project.read_text())) if args.project else make_project(args.case)
     dump(args.output / "project.json", project_to_dict(project))
+    from anygeometry import to_dict as geometry_to_dict
+    authored_geometry = geometry_to_dict(project.geometry)
     timing = Timings()
     timing.install()
     policy = MeshExecutionPolicy.off() if args.policy == "off" else MeshExecutionPolicy.auto()
@@ -231,6 +266,8 @@ def main():
         mesh = project.generate_mesh(project.target_size, order="linear", execution_policy=policy)
         execution = dict(project._last_mesh_execution)
     elapsed = time.perf_counter() - started
+    if geometry_to_dict(project.geometry) != authored_geometry:
+        raise RuntimeError("public meshing mutated authored geometry")
     payload = mesh_to_dict(mesh)
     material = {key: value for key, value in payload.items() if key not in
                 ("geometry_model_id", "geometry_revision", "structural_preparation", "hybrid_diagnostics")}
@@ -240,7 +277,10 @@ def main():
               "nodes": len(mesh.nodes), "shells": len(mesh.shells), "beams": len(mesh.beams),
               "couplings": len(mesh.couplings), "execution": execution,
               "seconds": dict(timing.seconds), "calls": dict(timing.calls),
-              "material_hash": material_hash, "runtime": mesh.hybrid_diagnostics.get("runtime", {})}
+              "material_hash": material_hash,
+              "source_geometry_hash": hashlib.sha256(json.dumps(
+                  authored_geometry, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest(),
+              "runtime": mesh.hybrid_diagnostics.get("runtime", {})}
     dump(args.output / "measurement.json", result)
     if args.save_mesh:
         dump(args.output / "mesh.json", payload)
