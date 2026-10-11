@@ -770,3 +770,61 @@ def test_an_archived_parent_with_a_flipped_beam_along_a_box_side_refuses(tmp_pat
     parent.register(cut.definition)
     with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*source mesh"):
         stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+
+
+def test_a_source_segment_in_a_side_of_a_rotated_box_is_checked_at_both_ends():
+    """Review S4b round 10: rotated 0.5 rad about z and moved to (10, -3, 2), a beam lying in the side
+    local y = 0.3 comes back at local y = 0.2999999999999999; it must still be kept whole."""
+
+    from anyfem.submodel_jobs import _clip_segment
+
+    c, s = np.cos(0.5), np.sin(0.5)
+    transform = ((c, -s, 0.0, 10.0), (s, c, 0.0, -3.0), (0.0, 0.0, 1.0, 2.0), (0.0, 0.0, 0.0, 1.0))
+    box = BoxVolume((0.0, 0.3, -0.1), (1.0, 0.8, 0.1), transform=transform)
+    a, b = box.world(np.array([0.2, 0.3, 0.0]))[0], box.world(np.array([0.9, 0.3, 0.0]))[0]
+    assert _clip_segment(box, a, b, 1e-9) == (0.0, 1.0)
+
+
+def test_source_segment_clipping_matches_dense_sampling():
+    """Review S4b rounds 8-10: random boxes (general bounds, rotated, far from the origin) and segments
+    (general, in a side, along an edge, after a world round trip).  A part longer than 1e-3 inside the
+    box is checked at both of its ends, within the sampling step; every checked point is in the box."""
+
+    from anyfem.submodel_jobs import _clip_segment
+
+    rng = np.random.default_rng(11)
+    for trial in range(3000):
+        lower = rng.uniform(-2, 2, 3)
+        upper = lower + rng.uniform(0.05, 3, 3)
+        transform = None
+        if trial % 3:
+            quaternion = rng.normal(size=4)
+            w, x, y, z = quaternion / np.linalg.norm(quaternion)
+            rotation = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                                 [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                                 [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+            matrix = np.eye(4)
+            matrix[:3, :3], matrix[:3, 3] = rotation, rng.uniform(-50, 50, 3)
+            transform = matrix.tolist()
+        box = BoxVolume(tuple(lower), tuple(upper), transform=transform)
+        q = rng.uniform(lower - 0.5, upper + 0.5, (2, 3))
+        if trial % 4 >= 2:
+            axis = rng.integers(3)
+            q[:, axis] = rng.choice([lower[axis], upper[axis]])
+            if trial % 4 == 3:
+                other = (axis + 1) % 3
+                q[:, other] = rng.choice([lower[other], upper[other]])
+        a, b = box.world(q[0])[0], box.world(q[1])[0]
+        got = _clip_segment(box, a, b, 1e-9)
+        local_a, local_b = box.local(a)[0], box.local(b)[0]
+        for t in got:
+            point = local_a + t * (local_b - local_a)
+            assert np.linalg.norm(np.maximum(np.maximum(lower - point, point - upper), 0.0)) <= 1e-8
+        ts = np.linspace(0.0, 1.0, 1001)
+        inside = np.all((q[0] + ts[:, None] * (q[1] - q[0]) >= lower - 1e-12)
+                        & (q[0] + ts[:, None] * (q[1] - q[0]) <= upper + 1e-12), axis=1)
+        if inside.any() and (ts[inside].max() - ts[inside].min()) * np.linalg.norm(q[1] - q[0]) > 1e-3:
+            assert len(got) == 2, (trial, got)
+            assert abs(got[0] - ts[inside].min()) <= 2e-3 and abs(got[1] - ts[inside].max()) <= 2e-3, (trial, got)
+        elif inside.any():
+            assert got, trial

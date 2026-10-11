@@ -593,7 +593,11 @@ def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -
 
     The part of the segment in the closed box (a side included, so a beam lying
     along a box side is kept whole) is checked at both of its ends when it is
-    longer than ``tolerance``.  A shorter contact -- the segment touches the box,
+    longer than ``tolerance``.  Along a box axis on which the segment moves by no
+    more than ``tolerance`` (it runs parallel to those sides) a point within
+    tolerance of a side counts as on it, as the cut classifies it, so roundoff in
+    a rotated box frame cannot drop a beam lying in a side; along the axes it
+    crosses, the sides are exact.  A shorter contact -- the segment touches the box,
     reaches into it by less than the tolerance, or passes within tolerance of it
     -- is checked at one point: its end station within tolerance of the box (the
     nearer one), else its point nearest the box; never further out, toward an
@@ -602,7 +606,7 @@ def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -
 
     start, end = volume.local(np.asarray(a, dtype=float))[0], volume.local(np.asarray(b, dtype=float))[0]
     length = float(np.linalg.norm(end - start))
-    run = _slab(volume, a, b, 0.0)
+    run = _slab(volume, a, b, 0.0, parallel_tolerance=tolerance)
     if run is not None and (run[1] - run[0]) * length > tolerance:
         return run
     touch = _slab(volume, a, b, tolerance)
@@ -629,16 +633,24 @@ def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -
     return (0.5 * (low + high),)
 
 
-def _slab(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Optional[Tuple[float, float]]:
-    """The parameter interval of segment ``a``-``b`` inside the box enlarged by ``tolerance``, or None."""
+def _slab(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float, *,
+          parallel_tolerance: float = 0.0) -> Optional[Tuple[float, float]]:
+    """The parameter interval of segment ``a``-``b`` inside the box enlarged by ``tolerance``, or None.
+
+    On an axis along which the segment moves by no more than ``parallel_tolerance``
+    the box is enlarged by ``max(tolerance, parallel_tolerance)`` instead, and the
+    whole segment must lie within it.
+    """
 
     start, end = volume.local(np.asarray(a, dtype=float))[0], volume.local(np.asarray(b, dtype=float))[0]
     lower, upper = np.asarray(volume.lower) - tolerance, np.asarray(volume.upper) + tolerance
     t0, t1 = 0.0, 1.0
     for axis in range(3):
         step = end[axis] - start[axis]
-        if step == 0.0:
-            if start[axis] < lower[axis] or start[axis] > upper[axis]:
+        if abs(step) <= parallel_tolerance or step == 0.0:
+            band = max(tolerance, parallel_tolerance)
+            if (min(start[axis], end[axis]) < volume.lower[axis] - band
+                    or max(start[axis], end[axis]) > volume.upper[axis] + band):
                 return None
             continue
         near, far = (lower[axis] - start[axis]) / step, (upper[axis] - start[axis]) / step
