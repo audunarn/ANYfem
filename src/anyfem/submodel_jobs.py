@@ -518,14 +518,18 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
     So the actual offsets are checked in both meshes: the parent's on its beam
     edges near the box (``definition`` given), the child's on all of its beams.
     Edges whose plates are not flat with one normal are not checked here: the cut
-    carries no scalar offset from them.
+    carries no scalar offset from them.  In the source mesh only stations inside
+    or on the box are checked: those are what the child models.  Outside it the
+    parent's nodal normal may rightly tilt where another plate meets the beam (a
+    stiffener ending at a bulkhead), which the cut's own check does not see either.
     """
 
     from anygeometry.surfaces import Plane
-    from anygeometry.volume_cut import BoxVolume, _edge_extent, _planar_coons
+    from anygeometry.volume_cut import OUTSIDE, BoxVolume, _edge_extent, _planar_coons
 
     geometry = project.geometry
     edges = sorted(project.edge_sections)
+    volume = None
     if definition is not None:
         volume = BoxVolume(**{k: definition.volume[k] for k in ("lower", "upper", "transform")})
         tolerance = geometry.tolerance.effective_length(volume.diagonal)
@@ -544,10 +548,15 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
         if any(float(np.max(np.abs(n - normals[0]))) > 1e-9 for n in normals[1:]):
             continue
         expected = float(offset) * normals[0]
-        stations = list(zip(mesh.nodes_of_edge.get(edge, ()), mesh.offset_nodes_of_edge.get(edge, ())))
-        if not stations:
-            raise SubmodelError("SUBMODEL_OFFSET_SIDE", f"beam edge {edge} has a scalar offset but no offset nodes "
+        bases, stood_nodes = mesh.nodes_of_edge.get(edge, ()), mesh.offset_nodes_of_edge.get(edge, ())
+        if not stood_nodes or len(stood_nodes) != len(bases):
+            raise SubmodelError("SUBMODEL_OFFSET_SIDE", f"beam edge {edge} has a scalar offset but "
+                                                        f"{len(stood_nodes)} offset nodes for {len(bases)} stations "
                                                         f"in the {'source' if definition is not None else 'child'} mesh")
+        stations = list(zip(bases, stood_nodes, strict=True))
+        if volume is not None:
+            stations = [(base, stood) for base, stood in stations
+                        if volume.classify(np.asarray(mesh.nodes[base], dtype=float), tolerance) != OUTSIDE]
         for base, stood in stations:
             actual = np.asarray(mesh.nodes[stood], dtype=float) - np.asarray(mesh.nodes[base], dtype=float)
             if float(np.max(np.abs(actual - expected))) > 1e-9 * max(1.0, abs(float(offset))):

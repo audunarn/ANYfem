@@ -638,3 +638,74 @@ def test_an_archived_parent_mesh_with_the_old_offset_side_refuses_the_run(tmp_pa
     parent.register(cut.definition)
     with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*source mesh"):
         stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+
+
+def planar_global_project(monkeypatch):
+    """``global_project`` with explicit planes: a deck prepared against an inclined or vertical
+    plate needs analytic surfaces (the structural intersection batch cannot evaluate a
+    topology Coons deck)."""
+
+    from anyfem import Project, steel
+    from anygeometry.surfaces import Plane
+    import test_submodel_workflow as W
+
+    def grid(name, xs, ys, *, skip=()):
+        project = Project(name=name)
+        project.add_material(steel("S355", 0.01))
+        project.add_plate_section("plate", thickness=0.01, material="S355")
+        g = project.geometry
+        vid = {(i, j): g.add_point(float(x), float(y), 0.0) for j, y in enumerate(ys) for i, x in enumerate(xs)}
+        h = {(i, j): g.add_line(vid[i, j], vid[i + 1, j]) for j in range(len(ys)) for i in range(len(xs) - 1)}
+        v = {(i, j): g.add_line(vid[i, j], vid[i, j + 1]) for j in range(len(ys) - 1) for i in range(len(xs))}
+        faces = {}
+        for j in range(len(ys) - 1):
+            for i in range(len(xs) - 1):
+                face = g.add_face([h[i, j], v[i + 1, j], h[i, j + 1], v[i, j]],
+                                  surface=Plane((xs[i], ys[j], 0.0), (xs[i + 1] - xs[i], 0.0, 0.0),
+                                                (0.0, ys[j + 1] - ys[j], 0.0)))
+                project.assign_plate(face, "plate")
+                faces[i, j] = face
+        return project, faces
+
+    monkeypatch.setattr(W, "grid_project", grid)
+    return W.global_project()
+
+
+def test_a_stiffener_ending_at_a_wall_outside_the_box_runs(tmp_path, monkeypatch):
+    """Review S4b round 5: the parent's nodal normal tilts where a wall meets the stiffener's end
+    outside the box; only stations the child models (inside or on the box) are checked."""
+
+    from anyfem.model import BeamSection
+    from anygeometry.surfaces import Plane
+
+    project, gfaces = planar_global_project(monkeypatch)
+    g = project.geometry
+    top = {round(float(g.vertex_position(v)[1]), 6): v for v in g.vertices
+           if abs(g.vertex_position(v)[0] - 1.0) < 1e-12 and abs(g.vertex_position(v)[2]) < 1e-12}
+    ys = sorted(top)
+    low = {y: g.add_point(1.0, y, -0.3) for y in ys}
+
+    def line(a, b):
+        found = [e for e, edge in g.edges.items() if {edge.start, edge.end} == {a, b}]
+        return found[0] if found else g.add_line(a, b)
+
+    for y0, y1 in zip(ys, ys[1:]):
+        wall = g.add_face([line(top[y0], top[y1]), line(top[y1], low[y1]), line(low[y1], low[y0]),
+                           line(low[y0], top[y0])], surface=Plane((1.0, y0, -0.3), (0.0, y1 - y0, 0.0), (0.0, 0.0, 0.3)))
+        project.assign_plate(wall, "plate")
+    project.add_beam_section(BeamSection("flat bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
+                                         **SCALAR))
+    stiffeners = [e for e, edge in g.edges.items()
+                  if all(abs(g.vertex_position(v)[1] - 0.3) < 1e-12 and abs(g.vertex_position(v)[2]) < 1e-12
+                         for v in (edge.start, edge.end))]
+    assert len(stiffeners) == 3
+    project.assign_beams(stiffeners, "flat bar")
+    parent = Parent(tmp_path, project, gfaces)
+    mesh = parent.mesh
+    tilted = [n for e in stiffeners for b, n in zip(mesh.nodes_of_edge[e], mesh.offset_nodes_of_edge[e])
+              if abs(mesh.nodes[n][0] - mesh.nodes[b][0]) > 1e-9]
+    assert tilted  # the parent's offset at the wall (x = 1, outside the box) is tilted
+    cut = parent.cut()
+    parent.register(cut.definition)
+    staged = stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+    discard_staged_run(staged)
