@@ -567,3 +567,49 @@ def test_a_scalar_offset_on_curved_plating_refuses(tmp_path):
         project.assign_beams(seam, "seam bar")
     with pytest.raises(SubmodelError, match="CUT_BEAM_OFFSET.*curved"):
         parent.cut(BoxVolume((0.5, -0.5, 1.5), (1.5, 0.5, 2.5)), target_size=0.05)
+
+
+def l_deck(points):
+    """An L-shaped deck on an explicit +z plane with a scalar-offset stiffener along x = 0."""
+
+    from anyfem import Project, steel
+    from anyfem.model import BeamSection
+    from anygeometry.surfaces import Plane
+
+    project = Project(name="L deck")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("plate", thickness=0.01, material="S355")
+    project.add_beam_section(BeamSection("flat bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
+                                         **SCALAR))
+    g = project.geometry
+    vertices = g.add_points(points)
+    edges = [g.add_line(vertices[i], vertices[(i + 1) % len(vertices)]) for i in range(len(vertices))]
+    face = g.add_face(edges, surface=Plane((0, 0, 0), (1, 0, 0), (0, 1, 0)))
+    project.assign_plate(face, "plate")
+    case = project.load_case()
+    case.add_pressure(project.face(face), PRESSURE)
+    for edge in edges:
+        ends = [np.asarray(g.vertex_position(v)) for v in (g.edges[edge].start, g.edges[edge].end)]
+        if all(abs(p[0]) < 1e-12 for p in ends):
+            project.assign_beam(edge, "flat bar")  # free edge: a support would fight the offset coupling
+        else:
+            project.add_support(pinned(project.edge(edge)))
+    return project, face
+
+
+L_CW = [(0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0.6, 0), (0.6, 0.6, 0), (0.6, 0, 0)]
+L_BOX = BoxVolume((-0.1, 0.2, -0.1), (0.4, 0.8, 0.1))
+
+
+def test_a_clockwise_deck_whose_cut_piece_would_turn_refuses(tmp_path):
+    """Review S4b round 3: the imprint rebuilds the cut piece's plane from its clockwise loop (-z).
+
+    That the scalar offset itself stands off on the face-normal side whatever the meshing route
+    is tested in ANYmesh (tests/test_scalar_offset_side.py); ANYfem's default meshing rejects the
+    counter-clockwise L at the sizes tried (structured quality or S3 admission), so no end-to-end
+    L-deck run is made here.
+    """
+
+    project, face = l_deck(L_CW)
+    with pytest.raises(SubmodelError, match="VOLUME_ORIENTATION"):
+        Parent(tmp_path, project, {"deck": face}).cut(L_BOX)

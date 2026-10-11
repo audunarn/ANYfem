@@ -276,7 +276,7 @@ def cut_submodel(
     for child_edge, sources in sorted(edge_sources.items()):
         _require_same_beam_frame(parent, child, sources[0], child_edge)
         if child_edge in scalar_offsets:
-            _require_same_offset_normals(cut, child, child_edge, volume, tolerance)
+            _require_same_offset_normals(parent, cut, child_edge)
 
     def child_ref(entity: Tuple[str, int]):
         return child.geometry.entity_ref(entity[0], entity[1])
@@ -413,50 +413,60 @@ def _require_same_beam_frame(parent: Project, child: Project, parent_edge: int, 
                 f"child beam edge {child_edge} would not keep the section frame or offset of parent edge {parent_edge}")
 
 
-def _require_same_offset_normals(cut: Any, child: Project, child_edge: int, volume: Any, tolerance: float) -> None:
+def _require_same_offset_normals(parent: Project, cut: Any, child_edge: int) -> None:
     """A scalar beam offset is carried only where it cannot turn.
 
     The mesher stands a scalar-offset beam node off along the nodal normal: the
-    average of the normals of the shell *elements* at that node (triangles may be
-    left out, with a fallback to the attached face normal).  That average depends
-    on the mesh, so a remeshed child can change it, at the cut and inside the box
-    alike: where plates at an angle meet along the beam (element counts per plate
-    change), on curved plating (facets change), and where the cut removes plating.
+    average of the shell element normals at that node, each aligned with its
+    owner face's normal (ANYmesh ``_owner_normals_around``), or the attached faces'
+    normal where no shell is.  The average depends on the mesh, so a remeshed
+    child can change it, at the cut and inside the box alike: where plates at an
+    angle meet along the beam (element counts per plate change), on curved
+    plating (facets change), and where the cut removes plating.
 
-    It cannot change when every plate touching the beam line is flat and all of
-    them share one signed normal: then every element normal at every station of
-    the line, mid-side nodes included, is that normal, in the parent and in the
-    child.  The plates checked are those of the parent after the imprint (the
-    working model, cutting faces excluded) that use the beam edge or meet either
-    of its end vertices; the child's are a subset of them.  Anything else refuses;
-    an explicit offset vector (automatic, back-side or rotated attachment) is
-    carried exactly and checked by :func:`_require_same_beam_frame` instead.
-
-    This relies on the mesher winding each element with its face's normal; the
-    A5 regression checks every child offset against ``eccentricity * normal``.
+    It cannot change when every parent plate the beam line touches is flat and all
+    of them share one signed normal: then every element normal at every station,
+    mid-side nodes included, is that normal, in the parent mesh and in the child's
+    (whose faces keep their source normals: the volume cut refuses a turned face).
+    The plates are the parent's faces using the beam's source edges or meeting its
+    source end vertices, and the faces the mesher would fall back to through
+    attachments of the members on those edges.  Anything else refuses; an explicit
+    offset vector (automatic, back-side or rotated attachment) is carried exactly
+    and checked by :func:`_require_same_beam_frame` instead.
     """
 
+    from anygeometry.structural import AttachmentTargetKind
     from anygeometry.surfaces import Plane
     from anygeometry.volume_cut import _planar_coons
 
-    work = cut.working_model
-    cutting = set(cut.cutting_faces)
-    to_work = {target.key: source.key for target, source in cut.closure.work_to_source.items()}
-    work_edge = to_work[("edge", int(child_edge))][1]
-    edge = work.edges[work_edge]
-    faces = set(work.faces_using_edge(work_edge))
+    geometry = parent.geometry
+    child_geometry = cut.closure.working_model
+    edge = child_geometry.edges[child_edge]
+    source_edges = set(cut.lineage.get(("edge", int(child_edge)), ()))
+    faces = {f for e in source_edges for f in geometry.faces_using_edge(e)}
     for vertex in (edge.start, edge.end):
-        faces.update(f for e in work.topological_edges_using_vertex(vertex) for f in work.faces_using_edge(e))
-    faces -= cutting
+        for source_vertex in cut.lineage.get(("vertex", int(vertex)), ()):
+            faces.update(f for e in geometry.topological_edges_using_vertex(source_vertex)
+                         for f in geometry.faces_using_edge(e))
+    members = {m for e in source_edges for m in geometry.members_using_edge(e)}
+    for attachment in geometry.attachments.values():
+        if attachment.member_id is None or int(attachment.member_id) not in members:
+            continue
+        if attachment.target_kind is AttachmentTargetKind.FACE:
+            faces.add(int(attachment.target_id))
+        elif attachment.target_kind is AttachmentTargetKind.EDGE:
+            faces.update(geometry.faces_using_edge(attachment.target_id))
+        elif attachment.target_kind is AttachmentTargetKind.SHEET:
+            faces.update(geometry.face_uses[u].face_id for u in geometry.sheets[int(attachment.target_id)].face_use_ids)
     normals = []
     for face_id in sorted(faces):
-        surface = getattr(work.faces[face_id], "surface", None)
-        if not (isinstance(surface, Plane) or _planar_coons(work, face_id, surface)):
+        surface = getattr(geometry.faces[face_id], "surface", None)
+        if not (isinstance(surface, Plane) or _planar_coons(geometry, face_id, surface)):
             _refuse("CUT_BEAM_OFFSET",
                     f"beam edge {child_edge} has a scalar offset along the plate normal and touches the curved plate "
                     f"{face_id}, where the remeshed child could turn it; give the section an explicit offset vector "
                     "(automatic, back side or rotated attachment)")
-        normals.append(np.asarray(work.face_normal_many(face_id, [(0.5, 0.5)])[0], dtype=float))
+        normals.append(np.asarray(geometry.face_normal_many(face_id, [(0.5, 0.5)])[0], dtype=float))
     if not normals or any(float(np.max(np.abs(n - normals[0]))) > 1e-9 for n in normals[1:]):
         _refuse("CUT_BEAM_OFFSET",
                 f"beam edge {child_edge} has a scalar offset along the plate normal where plates with different normals "

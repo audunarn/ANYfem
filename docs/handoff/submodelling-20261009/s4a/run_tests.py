@@ -1,7 +1,8 @@
 """Run the S4a workflow tests against the S1/S3a branches and HEAD snapshots.
 
 ANYfem: this worktree (pytest adds ``src``).  ANYsolver and ANYmesher: detached
-checkouts of their mains (8d6e64d2 and 5e6d97c, which contain S1 and S3a).  ANYgeometry:
+checkout of main 8d6e64d2 (S1) and the ANYmesh worktree sm7 (main 5e6d97c, which has S3a,
+plus the scalar-offset side fix).  ANYgeometry:
 the S2b worktree (main 9db03bb plus seam-member partitioning) when present, else the
 snapshot.  ANYmaterial, ANYfileIO, ANYloads: the S0 git-archive snapshots of HEAD.
 Paths can be overridden with S4A_ANYSOLVER, S4A_ANYMESH, S4A_ANYGEOMETRY and S0_SNAP.
@@ -18,7 +19,8 @@ SNAP = Path(os.environ.get("S0_SNAP", r"C:\Users\AUDUNA~1\AppData\Local\Temp\cla
                                       r"\59147d03-c123-4596-a0d0-f6053be6be25\scratchpad\s0-snap"))
 paths = [
     os.environ.get("S4A_ANYSOLVER", r"C:\ANYworkspaceWork\sv-8d6e64d2\src"),
-    os.environ.get("S4A_ANYMESH", r"C:\ANYworkspaceWork\mh-5e6d97c\src"),
+    # ANYmesh: main 5e6d97c plus the scalar-offset side fix (branch claude/offset-normal-sign).
+    os.environ.get("S4A_ANYMESH", r"C:\ANYworkspaceWork\sm7\src"),
     # ANYgeometry: the S2b worktree when present, else the S0 snapshot.
     os.environ.get("S4A_ANYGEOMETRY", r"C:\ANYworkspaceWork\sm5\src"
                    if Path(r"C:\ANYworkspaceWork\sm5\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
