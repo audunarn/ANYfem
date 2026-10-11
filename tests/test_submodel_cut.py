@@ -380,7 +380,10 @@ def test_a_skipped_case_leaves_no_orphaned_scope_region(tmp_path):
 # ----------------------------------------------------------------------
 # stiffeners (slices S2b and S4b)
 # ----------------------------------------------------------------------
-def stiffened_project(*, free_beam=False):
+SCALAR = dict(offset_mode="manual", eccentricity=0.05)  # passed to the mesher as a scalar along the nodal normal
+
+
+def stiffened_project(*, free_beam=False, offset=None):
     """The global plate with flat-bar stiffeners along y = 0.3 and x = 0.7 (plate seams).
 
     The section follows the plate normal and carries its automatic neutral-axis offset,
@@ -392,7 +395,7 @@ def stiffened_project(*, free_beam=False):
 
     project, gfaces = global_project()
     project.add_beam_section(BeamSection("flat bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
-                                         offset_mode="automatic"))
+                                         **(offset or dict(offset_mode="automatic"))))
     g = project.geometry
     stiffeners = []
     for edge_id, edge in g.edges.items():
@@ -409,8 +412,16 @@ def stiffened_project(*, free_beam=False):
     return project, gfaces, stiffeners
 
 
-def test_a5_stiffeners_are_carried_and_the_child_reproduces_the_parent(tmp_path):
-    project, gfaces, stiffeners = stiffened_project()
+@pytest.mark.parametrize("offset", [None, SCALAR], ids=["vector-offset", "scalar-offset"])
+def test_a5_stiffeners_are_carried_and_the_child_reproduces_the_parent(tmp_path, offset):
+    """A5 regression (Level A): discrete carry-over against the parent on the same mesh.
+
+    Every child node, offset beam nodes included, must coincide with a parent node, so a
+    stiffener whose offset direction changed in the child fails here.  The discretisation
+    error budget of acceptance A5 is reported separately (s4b/a5_stiffened_budget.py).
+    """
+
+    project, gfaces, stiffeners = stiffened_project(offset=offset)
     parent = Parent(tmp_path, project, gfaces)
     cut = parent.cut()
     definition, report = cut.definition, cut.report
@@ -480,3 +491,35 @@ def test_a_beam_whose_frame_would_change_refuses(tmp_path):
     child.beam_sections["flat bar"] = replaced(child.beam_sections["flat bar"], attachment_side="back")
     with pytest.raises(SubmodelError, match="CUT_BEAM_FRAME"):
         _require_same_beam_frame(project, child, source, child_edge)
+
+
+def test_a_scalar_offset_where_the_cut_removes_inclined_plating_refuses(tmp_path):
+    """Review S4b round 1: an inclined plate meets the stiffener where the box cuts it.
+
+    The parent's nodal normal there averages the deck and the inclined plate; the child
+    keeps only the deck, so the scalar offset would turn.  The cut refuses.  (The flap is
+    added after the source job: meshing it needs the structural preparation of a Coons
+    deck against an inclined plane, which is outside this test; the cut only reads the
+    committed geometry and the job's presence.)
+    """
+
+    from anygeometry.surfaces import Plane
+
+    project, gfaces, _stiffeners = stiffened_project(offset=SCALAR)
+    parent = Parent(tmp_path, project, gfaces)
+    g = project.geometry
+    (hinge,) = [e for e, edge in g.edges.items()
+                if all(abs(np.asarray(g.vertex_position(v))[0] - 0.3) < 1e-12
+                       and 0.3 - 1e-12 <= np.asarray(g.vertex_position(v))[1] <= 0.7 + 1e-12
+                       for v in (edge.start, edge.end))]
+    with parent.session.transaction("flap"):
+        a, b = g.edges[hinge].start, g.edges[hinge].end
+        pa, pb = (np.asarray(g.vertex_position(v)) for v in (a, b))
+        c, d = g.add_point(0.1, pb[1], -0.2), g.add_point(0.1, pa[1], -0.2)
+        flap = g.add_face([hinge, g.add_line(b, c), g.add_line(c, d), g.add_line(d, a)],
+                          surface=Plane(pa, pb - pa, np.asarray(g.vertex_position(d)) - pa))
+        project.assign_plate(flap, "plate")
+    with pytest.raises(SubmodelError, match="CUT_BEAM_OFFSET"):
+        parent.cut(BoxVolume((0.3, 0.2, -0.1), (0.8, 0.8, 0.1)))
+    cut = parent.cut(BoxVolume((0.4, 0.2, -0.1), (0.8, 0.8, 0.1)))
+    assert cut.definition.child.edge_sections  # away from the flap the same stiffeners are carried

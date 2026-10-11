@@ -675,7 +675,7 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
   | Attribute | Rule here |
   |---|---|
   | Plate sections | Every child face needs exactly one parent section (`CUT_SECTION_UNRESOLVED`, `CUT_SECTION_AMBIGUOUS`) |
-  | Beam sections (S4b) | All beam sections are copied. Every child edge descending from a beam edge takes that edge's section (`CUT_SECTION_AMBIGUOUS` if its sources disagree); beam edges with no child are counted in `dropped_outside["beam_assignments"]`. Each carried beam must keep its parent's section frame (axis, local y, local z) and neutral-axis offset vector to 1e-9, since the frame follows the first plate using the line and the child's plates are new entities (`CUT_BEAM_FRAME`) |
+  | Beam sections (S4b) | All beam sections are copied. Every child edge descending from a beam edge takes that edge's section (`CUT_SECTION_AMBIGUOUS` if its sources disagree); beam edges with no child are counted in `dropped_outside["beam_assignments"]`. Each carried beam must keep its parent's section frame (axis, local y, local z) and neutral-axis offset vector to 1e-9, since the frame follows the first plate using the line and the child's plates are new entities (`CUT_BEAM_FRAME`). A scalar offset (manual, front, unrotated) is stood off along the mesher's nodal normal, the average over the plates at a node: at a beam end on the box boundary every parent plate there (after the imprint) must have the same normal, or the cut refuses (`CUT_BEAM_OFFSET`) |
   | Supports | Carried to child entities, including on the cut |
   | Pressure, surface traction, line load | Same intensity, side and frame |
   | Point load | Carried when its points are inside; `total_distributed` only when its whole scope is inside; a point on the artificial cut refuses the case |
@@ -704,7 +704,7 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
   seam members are left out) cut across a seam and solved under both policies, the child's radial
   displacement within 0.5 % of `pR^2/(Et)`; the parent project and session revision are
   unchanged by a cut.
-- **Evidence for stiffeners (S4b, acceptance A5)**:
+- **Evidence for stiffeners (S4b; A5 regression, Level A)**:
   - The parent is the same plate grid under pressure, with flat-bar stiffeners on the seams
     y = 0.3 and x = 0.7. Their section follows the plate normal and has an automatic offset,
     so each beam node is an offset node coupled to a plate node.
@@ -716,6 +716,17 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
     displacement, and the free-body ratios are below 1e-12. The run is then published.
   - A free-standing beam across the box refuses. Stiffeners outside the box are counted as
     dropped. A changed frame (back-side attachment) refuses with `CUT_BEAM_FRAME`.
+  - The same regression runs with a scalar offset (manual eccentricity 0.05): offset nodes are
+    matched to the parent's positions, so a turned offset would fail it. An inclined plate
+    hinged on x = 0.3 where a box side cuts the stiffener refuses with `CUT_BEAM_OFFSET`; a box
+    clear of it carries the same stiffeners (review round 1).
+  - This is discrete carry-over on one mesh, not acceptance A5. The A5 error budget (full
+    models h = 0.1 to 0.0125 with Richardson reference, children hc = 0.05 to 0.0125, parents
+    h = 0.1 to 0.025) is reported in `docs/handoff/submodelling-20261009/s4b/RESULTS.md`: the
+    child total follows its driver's error (deflections 2.8-3.0 % from an h = 0.1 parent, 1.2 %
+    from h = 0.025; the transfer error falls about 2.2-2.6x per parent halving), but the full
+    reference is not asymptotic (observed order 0.5, 0.2 for rotations), so acceptance with a
+    justified limit stays with S6.
 - **Finding**: ANYfem's default plate (`add_face` without a surface) is a topology-backed
   `CoonsSurface`, not a `Plane`; S2a first refused it. The volume cut now accepts a Coons patch
   with straight coplanar boundaries (the support ANYgeometry's own intersection planning

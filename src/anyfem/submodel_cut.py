@@ -272,8 +272,11 @@ def cut_submodel(
         child.assign_beam(child_edge, next(iter(names)))
         count(carried, "beam_assignments")
     child.resolve_section_assignments(strict=True)
+    scalar_offsets = {e for e, offset in child.beam_offsets.items() if not isinstance(offset, tuple)}
     for child_edge, sources in sorted(edge_sources.items()):
         _require_same_beam_frame(parent, child, sources[0], child_edge)
+        if child_edge in scalar_offsets:
+            _require_same_offset_normals(cut, child, child_edge, volume, tolerance)
 
     def child_ref(entity: Tuple[str, int]):
         return child.geometry.entity_ref(entity[0], entity[1])
@@ -408,6 +411,40 @@ def _require_same_beam_frame(parent: Project, child: Project, parent_edge: int, 
             or float(np.max(np.abs(offsets[0] - offsets[1]))) > 1e-9 * scale):
         _refuse("CUT_BEAM_FRAME",
                 f"child beam edge {child_edge} would not keep the section frame or offset of parent edge {parent_edge}")
+
+
+def _require_same_offset_normals(cut: Any, child: Project, child_edge: int, volume: Any, tolerance: float) -> None:
+    """A scalar beam offset keeps its direction where the cut removed plating.
+
+    The mesher stands a scalar-offset beam node off along the nodal normal, the
+    average over the plates meeting at the node.  Inside the box every plate at a
+    node is kept; at an end of the beam on the box boundary the cut removed the
+    outside plates, so the average could change.  It cannot when every plate at
+    that point in the parent (the working model after the imprint, cutting faces
+    excluded) has the same normal: the child's plates there are a subset.
+    Otherwise the cut refuses.
+    """
+
+    from anygeometry.volume_cut import ON
+
+    work = cut.working_model
+    cutting = set(cut.cutting_faces)
+    to_work = {target.key: source.key for target, source in cut.closure.work_to_source.items()}
+    edge = child.geometry.edges[child_edge]
+    for vertex in (edge.start, edge.end):
+        point = np.asarray(child.geometry.vertex_position(vertex), dtype=float)
+        if volume.classify(point, tolerance) != ON:
+            continue
+        work_vertex = to_work[("vertex", int(vertex))][1]
+        faces = sorted({f for e in work.topological_edges_using_vertex(work_vertex)
+                        for f in work.faces_using_edge(e)} - cutting)
+        normals = [np.asarray(work.face_normal_many(f, [work.project_to_face(f, point)[1]])[0], dtype=float)
+                   for f in faces]
+        if not normals or any(float(np.max(np.abs(n - normals[0]))) > 1e-9 for n in normals[1:]):
+            _refuse("CUT_BEAM_OFFSET",
+                    f"beam edge {child_edge} has a scalar offset along the plate normal at {point.tolist()}, where the "
+                    "cut removes plating with a different normal; give the section an explicit offset vector "
+                    "(automatic, back side or rotated attachment) or move the box")
 
 
 # ----------------------------------------------------------------------
