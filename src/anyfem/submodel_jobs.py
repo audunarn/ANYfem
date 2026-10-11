@@ -518,12 +518,12 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
     So the actual offsets are checked in both meshes: the parent's on its beam
     edges near the box (``definition`` given), the child's on all of its beams.
     Edges whose plates are not flat with one normal are not checked here: the cut
-    carries no scalar offset from them.  In the source mesh only stations inside
-    or on the box are checked, as the stations of every beam segment that meets the
-    box (closed, with the cut tolerance), so a box between two stations still checks
-    both: those are what the child models.  Outside it the parent's nodal normal may
-    rightly tilt where another plate meets the beam (a stiffener ending at a
-    bulkhead), which the cut's own check does not see either.
+    carries no scalar offset from them.  In the source mesh the offset is checked
+    only over the beam inside the box, which is what the child models: at the ends
+    of each segment's clipped part (exact, the offset being linear along a straight
+    element).  Outside the box the parent's nodal normal may rightly tilt where
+    another plate meets the beam (a stiffener ending at a bulkhead), which the cut's
+    own check does not see either.
     """
 
     from anygeometry.surfaces import Plane
@@ -556,32 +556,55 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
                                                         f"{len(stood_nodes)} offset nodes for {len(bases)} stations "
                                                         f"in the {'source' if definition is not None else 'child'} mesh")
         stations = list(zip(bases, stood_nodes, strict=True))
-        if volume is not None:
-            # Every station of a beam segment (between consecutive stations, mid-sides
-            # included) that meets the box: the child's beam lies along those segments,
-            # even when the box falls between two stations.
-            points = [np.asarray(mesh.nodes[base], dtype=float) for base, _stood in stations]
-            keep = set()
+        points = [np.asarray(mesh.nodes[base], dtype=float) for base, _stood in stations]
+        offsets_at = [np.asarray(mesh.nodes[stood], dtype=float) - points[i] for i, (_b, stood) in enumerate(stations)]
+        if volume is None:
+            checks = list(zip(points, offsets_at))
+        else:
+            # The parent beam between consecutive stations (mid-sides included) is a
+            # straight element whose offset varies linearly; the child models it only
+            # where it is inside the box.  So the offset is checked at the two ends of
+            # each segment's clipped part, which is exact for a linear field: a box
+            # between two stations still checks that segment, and a segment that only
+            # touches the box is checked at the contact point, not at its outside end.
+            checks = []
             for index in range(len(stations) - 1):
-                if _segment_meets_box(volume, points[index], points[index + 1], tolerance):
-                    keep.update((index, index + 1))
+                span = _clip_segment(volume, points[index], points[index + 1], tolerance)
+                for t in span:
+                    checks.append((points[index] + t * (points[index + 1] - points[index]),
+                                   (1.0 - t) * offsets_at[index] + t * offsets_at[index + 1]))
             if len(stations) == 1 and volume.classify(points[0], tolerance) != OUTSIDE:
-                keep.add(0)
-            stations = [stations[index] for index in sorted(keep)]
-        for base, stood in stations:
-            actual = np.asarray(mesh.nodes[stood], dtype=float) - np.asarray(mesh.nodes[base], dtype=float)
+                checks.append((points[0], offsets_at[0]))
+        for point, actual in checks:
             if float(np.max(np.abs(actual - expected))) > 1e-9 * max(1.0, abs(float(offset))):
                 which = "source" if definition is not None else "child"
                 raise SubmodelError(
                     "SUBMODEL_OFFSET_SIDE",
-                    f"the {which} mesh stands beam edge {edge} off by {np.round(actual, 9).tolist()}, not "
-                    f"{np.round(expected, 9).tolist()} (eccentricity along the plate normal); "
-                    + ("remesh and re-solve the parent with the current mesher" if definition is not None
+                    f"the {which} mesh stands beam edge {edge} off by {np.round(actual, 9).tolist()} at "
+                    f"{np.round(point, 9).tolist()}, not {np.round(expected, 9).tolist()} (eccentricity along the "
+                    "plate normal); "
+                    + ("the parent was meshed with an older mesher (remesh and re-solve it), or the box ends "
+                       "within a parent element of a plate meeting the beam (move the box)" if definition is not None
                        else "the mesher does not follow the plate-normal convention"))
 
 
-def _segment_meets_box(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> bool:
-    """Whether the straight segment ``a``-``b`` meets the box enlarged by ``tolerance`` (slab test)."""
+def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Tuple[float, ...]:
+    """Parameters ``t`` in [0, 1] bounding the part of segment ``a``-``b`` inside the box.
+
+    ``(t0, t1)`` for a part of positive length inside the box itself; a single
+    parameter (the middle of the contact) when the segment only touches the box
+    within ``tolerance``; ``()`` when it misses.
+    """
+
+    span = _slab(volume, a, b, 0.0)
+    if span is not None and span[1] > span[0]:
+        return span
+    touch = _slab(volume, a, b, tolerance)
+    return () if touch is None else (0.5 * (touch[0] + touch[1]),)
+
+
+def _slab(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Optional[Tuple[float, float]]:
+    """The parameter interval of segment ``a``-``b`` inside the box enlarged by ``tolerance``, or None."""
 
     start, end = volume.local(np.asarray(a, dtype=float))[0], volume.local(np.asarray(b, dtype=float))[0]
     lower, upper = np.asarray(volume.lower) - tolerance, np.asarray(volume.upper) + tolerance
@@ -590,15 +613,15 @@ def _segment_meets_box(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: flo
         step = end[axis] - start[axis]
         if step == 0.0:
             if start[axis] < lower[axis] or start[axis] > upper[axis]:
-                return False
+                return None
             continue
         near, far = (lower[axis] - start[axis]) / step, (upper[axis] - start[axis]) / step
         if near > far:
             near, far = far, near
         t0, t1 = max(t0, near), min(t1, far)
         if t0 > t1:
-            return False
-    return True
+            return None
+    return t0, t1
 
 
 def _remove(paths: Sequence[Path]) -> None:

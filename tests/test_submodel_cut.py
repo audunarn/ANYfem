@@ -673,9 +673,15 @@ def planar_global_project(monkeypatch):
     return W.global_project()
 
 
-def test_a_stiffener_ending_at_a_wall_outside_the_box_runs(tmp_path, monkeypatch):
-    """Review S4b round 5: the parent's nodal normal tilts where a wall meets the stiffener's end
-    outside the box; only stations the child models (inside or on the box) are checked."""
+@pytest.mark.parametrize("upper", [0.8, 0.9, 0.95])
+def test_a_stiffener_ending_at_a_wall_outside_the_box_runs(tmp_path, monkeypatch, upper):
+    """Review S4b rounds 5 and 7: the parent's nodal normal tilts where a wall meets the stiffener's
+    end (x = 1) outside the box; the parent offset is checked only over the beam inside the box.
+
+    Box to 0.8: clear of the wall's element.  To 0.9: the box touches that element at its station
+    only (round 7), so it is checked there.  To 0.95: the box reaches into the element whose far
+    station tilts, so the parent beam inside the box is really tilted and the run refuses.
+    """
 
     from anyfem.model import BeamSection
     from anygeometry.surfaces import Plane
@@ -707,7 +713,11 @@ def test_a_stiffener_ending_at_a_wall_outside_the_box_runs(tmp_path, monkeypatch
     tilted = [n for e in stiffeners for b, n in zip(mesh.nodes_of_edge[e], mesh.offset_nodes_of_edge[e])
               if abs(mesh.nodes[n][0] - mesh.nodes[b][0]) > 1e-9]
     assert tilted  # the parent's offset at the wall (x = 1, outside the box) is tilted
-    cut = parent.cut()
+    cut = parent.cut(BoxVolume((0.2, 0.2, -0.1), (upper, 0.8, 0.1)))
     parent.register(cut.definition)
+    if upper > 0.9:
+        with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*move the box"):
+            stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+        return
     staged = stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
     discard_staged_run(staged)
