@@ -721,3 +721,22 @@ def test_a_stiffener_ending_at_a_wall_outside_the_box_runs(tmp_path, monkeypatch
         return
     staged = stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
     discard_staged_run(staged)
+
+
+@pytest.mark.parametrize("gap", [0.0, 4e-10, -4e-10], ids=["on", "just-outside", "just-inside"])
+def test_a_touching_source_segment_is_checked_at_its_station(gap):
+    """Review S4b round 8: a source segment whose station lies on a box side (or within the cut
+    tolerance of it, either way) is checked at that station, not tol/2 further out toward a station
+    that may rightly differ.  With a 0.005 station spacing the old midpoint sample read a
+    45-degree wall tilt as a 3.5e-9 error and refused."""
+
+    from anyfem.submodel_jobs import _clip_segment
+
+    box = BoxVolume((0.2, 0.2, -0.1), (0.995, 0.8, 0.1))
+    station, wall = np.array([0.995 + gap, 0.3, 0.0]), np.array([1.0, 0.3, 0.0])
+    assert _clip_segment(box, station, wall, 1e-9) == (0.0,)
+    assert _clip_segment(box, wall, station, 1e-9) == (1.0,)
+    # Crossing the box keeps the clipped part; a segment clear of it is not checked.
+    t0, t1 = _clip_segment(box, np.array([0.99, 0.3, 0.0]), wall, 1e-9)
+    assert t0 == 0.0 and abs(t1 - (0.995 - 1e-9 - 0.99) / 0.01) < 1e-9
+    assert _clip_segment(box, np.array([1.0 + 1e-6, 0.3, 0.0]), np.array([1.01, 0.3, 0.0]), 1e-9) == ()

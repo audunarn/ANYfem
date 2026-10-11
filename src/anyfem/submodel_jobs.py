@@ -589,18 +589,40 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
 
 
 def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Tuple[float, ...]:
-    """Parameters ``t`` in [0, 1] bounding the part of segment ``a``-``b`` inside the box.
+    """Parameters ``t`` in [0, 1] where the source offset along segment ``a``-``b`` is checked.
 
-    ``(t0, t1)`` for a part of positive length inside the box itself; a single
-    parameter (the middle of the contact) when the segment only touches the box
-    within ``tolerance``; ``()`` when it misses.
+    Points within ``tolerance`` of a box side count as on it.  ``(t0, t1)`` bounds
+    the part of positive length inside the box shrunk by ``tolerance``.  A segment
+    that otherwise comes within ``tolerance`` of the box only touches it and is
+    checked at one point: its end station when that station is within tolerance of
+    the box, else its point nearest the box -- never further out, toward an outside
+    station whose offset may rightly differ.  ``()`` when it misses.
     """
 
-    span = _slab(volume, a, b, 0.0)
+    span = _slab(volume, a, b, -tolerance)
     if span is not None and span[1] > span[0]:
         return span
     touch = _slab(volume, a, b, tolerance)
-    return () if touch is None else (0.5 * (touch[0] + touch[1]),)
+    if touch is None:
+        return ()
+    start, end = volume.local(np.asarray(a, dtype=float))[0], volume.local(np.asarray(b, dtype=float))[0]
+    lower, upper = np.asarray(volume.lower), np.asarray(volume.upper)
+
+    def distance(t: float) -> float:  # to the box itself; convex along the segment
+        q = start + t * (end - start)
+        return float(np.linalg.norm(np.maximum(np.maximum(lower - q, q - upper), 0.0)))
+
+    ends = [t for t in (0.0, 1.0) if distance(t) <= tolerance]
+    if ends:
+        return (min(ends, key=distance),)
+    low, high = touch
+    for _ in range(100):
+        third = (high - low) / 3.0
+        if distance(low + third) <= distance(high - third):
+            high -= third
+        else:
+            low += third
+    return (0.5 * (low + high),)
 
 
 def _slab(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Optional[Tuple[float, float]]:
