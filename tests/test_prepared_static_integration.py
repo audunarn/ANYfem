@@ -151,21 +151,30 @@ def test_combinations_and_time_overrides_match_the_live_stream():
             _assert_recovery_equal(prepared_block.reactions(index), live_block.reactions(index))
 
 
+def _release_watch(solver_module):
+    """Observe the evaluator's release finalizer without replacing any function
+    (replacing module functions after import is outside the supported contract and
+    is refused by the source response authority check)."""
+    import weakref
+    seen = {}
+    def scan():
+        for finalizer, info in list(weakref.finalize._registry.items()):
+            if info.func is solver_module._release_owned_resources:
+                seen[id(finalizer)] = finalizer
+    return seen, scan
+
+
 @pytest.mark.parametrize("cancel_stage", ["prepared_static.prepare.stiffness",
                                         "prepared_static.factorization"])
-def test_preparation_cancellation_releases_actual_solver_owner(cancel_stage, monkeypatch):
+def test_preparation_cancellation_releases_actual_solver_owner(cancel_stage):
     from anysolver.control import CancellationToken, SolveCancelled
     import anysolver.prepared_static as solver_module
     token = CancellationToken()
-    released = []
-    original_release = solver_module._release_owned_resources
-    def release(cache, backend):
-        released.append(True)
-        original_release(cache, backend)
-    monkeypatch.setattr(solver_module, "_release_owned_resources", release)
+    owners, scan = _release_watch(solver_module)
     events = []
     messages = []
     def progress(event):
+        scan()
         events.append(event)
         if event.get("stage") == cancel_stage:
             token.cancel("cancel during preparation")
@@ -173,29 +182,25 @@ def test_preparation_cancellation_releases_actual_solver_owner(cancel_stage, mon
     with pytest.raises(SolveCancelled, match="cancel during preparation"):
         prepare_linear_static_evaluator(project, mesh=project.generate_mesh(1.0),
             cancellation_token=token, progress=messages.append, progress_callback=progress)
-    assert released == [True]
+    assert len(owners) == 1 and not any(f.alive for f in owners.values())
     stages = [event.get("stage") for event in events]
     assert cancel_stage in stages
     assert len(stages) == len(set(stages))
 
 
-def test_preparation_progress_mutation_of_app_definition_refused(monkeypatch):
+def test_preparation_progress_mutation_of_app_definition_refused():
     from anyfem.model import ProjectError
     import anysolver.prepared_static as solver_module
     project, series, points, _ = _fixture_project()
-    released = []
-    original_release = solver_module._release_owned_resources
-    def release(cache, backend):
-        released.append(True)
-        original_release(cache, backend)
-    monkeypatch.setattr(solver_module, "_release_owned_resources", release)
+    owners, scan = _release_watch(solver_module)
     def progress(event):
+        scan()
         if event.get("stage") == "prepared_static.prepare.stiffness":
             series.add_point_load(project.point(points[1]), force=(10, 0, 0))
     with pytest.raises(ProjectError, match="changed during prepared static capture"):
         prepare_linear_static_evaluator(project, mesh=project.generate_mesh(1.0),
             progress_callback=progress)
-    assert released == [True]
+    assert len(owners) == 1 and not any(f.alive for f in owners.values())
 
 
 def test_balanced_free_free_nonproportional_public_history_recovery_parity():
