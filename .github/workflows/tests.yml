@@ -27,7 +27,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 550c927a5929ae5bdfb6668df50e202190969c51
+          ref: 8d6e64d229b02ab6b59ce217c0c8f60b23359778
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -126,7 +126,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 550c927a5929ae5bdfb6668df50e202190969c51
+          ref: 8d6e64d229b02ab6b59ce217c0c8f60b23359778
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
