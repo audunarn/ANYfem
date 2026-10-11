@@ -613,3 +613,28 @@ def test_a_clockwise_deck_whose_cut_piece_would_turn_refuses(tmp_path):
     project, face = l_deck(L_CW)
     with pytest.raises(SubmodelError, match="VOLUME_ORIENTATION"):
         Parent(tmp_path, project, {"deck": face}).cut(L_BOX)
+
+
+def test_an_archived_parent_mesh_with_the_old_offset_side_refuses_the_run(tmp_path):
+    """Review S4b round 4: a parent meshed before the ANYmesh offset-side fix.
+
+    The older mapped route stood a scalar offset off on the face loop's side, which can be
+    the opposite of the plate normal.  Such an archived mesh is simulated by mirroring the
+    offset nodes and couplings; the run refuses instead of driving a child whose stiffener
+    sits on the other side.
+    """
+
+    from dataclasses import replace as replaced
+
+    project, gfaces, _stiffeners = stiffened_project(offset=SCALAR)
+    mesh = project.generate_mesh(SIZE)
+    for edge, stations in mesh.offset_nodes_of_edge.items():
+        for base, stood in zip(mesh.nodes_of_edge[edge], stations):
+            mesh.nodes[stood] = 2.0 * np.asarray(mesh.nodes[base]) - np.asarray(mesh.nodes[stood])
+    for key, coupling in list(mesh.couplings.items()):
+        mesh.couplings[key] = replaced(coupling, eccentricity=tuple(-np.asarray(coupling.eccentricity, dtype=float)))
+    parent = Parent(tmp_path, project, gfaces, mesh=mesh)
+    cut = parent.cut()
+    parent.register(cut.definition)
+    with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*source mesh"):
+        stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)

@@ -455,6 +455,8 @@ def stage_submodel_run(snap: SubmodelSnapshot, definition_id: str, store: Any, *
     child = definition.child
     _check_cancelled(cancellation_token, "child meshing")
     child_mesh = child.generate_mesh(definition.target_size)
+    _require_scalar_offset_sides(parent, source.solution.built.mesh, definition)
+    _require_scalar_offset_sides(child, child_mesh, None)
     _check_cancelled(cancellation_token, "submodel solve")
     result = solve_submodel(
         source.solution, binding, child, child_mesh,
@@ -503,6 +505,59 @@ def stage_submodel_run(snap: SubmodelSnapshot, definition_id: str, store: Any, *
         raise
     return StagedRun(run, (mesh_ref, result_ref), snapshot.revision.id, snap.thread_id, destinations, store,
                      parent.document_id, result)
+
+
+def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> None:
+    """Scalar beam offsets in a mesh stand off by ``eccentricity * plate normal``.
+
+    The cut carries a scalar offset only where every plate at the beam is flat with
+    one signed normal (``submodel_cut._require_same_offset_normals``), and the mesher
+    stands it off along that normal.  An archived parent mesh made by an older
+    mesher may have put it on the other side (the side followed the face loop on
+    the mapped route), and the child would then model the stiffener elsewhere.
+    So the actual offsets are checked in both meshes: the parent's on its beam
+    edges near the box (``definition`` given), the child's on all of its beams.
+    Edges whose plates are not flat with one normal are not checked here: the cut
+    carries no scalar offset from them.
+    """
+
+    from anygeometry.surfaces import Plane
+    from anygeometry.volume_cut import BoxVolume, _edge_extent, _planar_coons
+
+    geometry = project.geometry
+    edges = sorted(project.edge_sections)
+    if definition is not None:
+        volume = BoxVolume(**{k: definition.volume[k] for k in ("lower", "upper", "transform")})
+        tolerance = geometry.tolerance.effective_length(volume.diagonal)
+        edges = [e for e in edges if e in geometry.edges and volume.reaches(_edge_extent(geometry, e, volume), tolerance)]
+    offsets = project.beam_offsets
+    for edge in edges:
+        offset = offsets.get(edge)
+        if offset is None or isinstance(offset, tuple):
+            continue
+        faces = sorted(geometry.faces_using_edge(edge))
+        if not faces or not all(isinstance(getattr(geometry.faces[f], "surface", None), Plane)
+                                or _planar_coons(geometry, f, getattr(geometry.faces[f], "surface", None))
+                                for f in faces):
+            continue
+        normals = [np.asarray(geometry.face_normal_many(f, [(0.5, 0.5)])[0], dtype=float) for f in faces]
+        if any(float(np.max(np.abs(n - normals[0]))) > 1e-9 for n in normals[1:]):
+            continue
+        expected = float(offset) * normals[0]
+        stations = list(zip(mesh.nodes_of_edge.get(edge, ()), mesh.offset_nodes_of_edge.get(edge, ())))
+        if not stations:
+            raise SubmodelError("SUBMODEL_OFFSET_SIDE", f"beam edge {edge} has a scalar offset but no offset nodes "
+                                                        f"in the {'source' if definition is not None else 'child'} mesh")
+        for base, stood in stations:
+            actual = np.asarray(mesh.nodes[stood], dtype=float) - np.asarray(mesh.nodes[base], dtype=float)
+            if float(np.max(np.abs(actual - expected))) > 1e-9 * max(1.0, abs(float(offset))):
+                which = "source" if definition is not None else "child"
+                raise SubmodelError(
+                    "SUBMODEL_OFFSET_SIDE",
+                    f"the {which} mesh stands beam edge {edge} off by {np.round(actual, 9).tolist()}, not "
+                    f"{np.round(expected, 9).tolist()} (eccentricity along the plate normal); "
+                    + ("remesh and re-solve the parent with the current mesher" if definition is not None
+                       else "the mesher does not follow the plate-normal convention"))
 
 
 def _remove(paths: Sequence[Path]) -> None:
