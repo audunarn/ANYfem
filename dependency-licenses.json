@@ -132,7 +132,7 @@
       "bundled": false,
       "license_expression": "BSD-3-Clause AND bundled-component-licenses",
       "name": "numpy",
-      "requirement": "numpy>=1.26",
+      "requirement": "numpy>=2.0",
       "scope": "runtime",
       "upstream": "https://numpy.org/"
     },
@@ -196,7 +196,7 @@
       "bundled": false,
       "license_expression": "BSD-3-Clause AND bundled-component-licenses",
       "name": "scipy",
-      "requirement": "scipy>=1.11",
+      "requirement": "scipy>=1.13",
       "scope": "runtime",
       "upstream": "https://scipy.org/"
     },
