@@ -63,6 +63,10 @@ jobs:
           repository: audunarn/ANY3dView
           ref: ${{ inputs.viewer_ref || 'd8b82686e477920cb485a7d32e6f04699b6f4d6f' }}
           path: .ecosystem/ANY3dView
+      # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
+      - name: Allow long paths on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver

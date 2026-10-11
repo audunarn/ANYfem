@@ -23,6 +23,10 @@ jobs:
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
       # until normal versioned installation can replace these checkouts.
+      # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
+      - name: Allow long paths on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
