@@ -738,5 +738,35 @@ def test_a_touching_source_segment_is_checked_at_its_station(gap):
     assert _clip_segment(box, wall, station, 1e-9) == (1.0,)
     # Crossing the box keeps the clipped part; a segment clear of it is not checked.
     t0, t1 = _clip_segment(box, np.array([0.99, 0.3, 0.0]), wall, 1e-9)
-    assert t0 == 0.0 and abs(t1 - (0.995 - 1e-9 - 0.99) / 0.01) < 1e-9
+    assert t0 == 0.0 and abs(t1 - 0.5) < 1e-12  # clipped at the box side itself
     assert _clip_segment(box, np.array([1.0 + 1e-6, 0.3, 0.0]), np.array([1.01, 0.3, 0.0]), 1e-9) == ()
+
+
+@pytest.mark.parametrize("y, z", [(0.2, 0.0), (0.2, 0.1)], ids=["along-a-side", "along-an-edge"])
+def test_a_source_segment_along_a_box_side_is_checked_at_both_ends(y, z):
+    """Review S4b round 9: a beam lying in a box side (or along a box edge) is kept whole by the cut,
+    so both of its stations are checked; round 8 checked only the first."""
+
+    from anyfem.submodel_jobs import _clip_segment
+
+    box = BoxVolume((0.2, 0.2, -0.1), (0.8, 0.8, 0.1))
+    assert _clip_segment(box, np.array([0.3, y, z]), np.array([0.4, y, z]), 1e-9) == (0.0, 1.0)
+
+
+def test_an_archived_parent_with_a_flipped_beam_along_a_box_side_refuses(tmp_path):
+    """Review S4b round 9: the stiffener on y = 0.3 lies in the box side y = 0.3.  The archived parent
+    has its offset mirrored at the station x = 0.7, just outside the box (x <= 0.65); the parent beam
+    between 0.6 and 0.65 lies along the side, inside the cut, and is already partly mirrored."""
+
+    project, gfaces, _stiffeners = stiffened_project(offset=SCALAR)
+    mesh = project.generate_mesh(SIZE)
+    flipped = {(base, stood) for edge, stations in mesh.offset_nodes_of_edge.items()
+               for base, stood in zip(mesh.nodes_of_edge[edge], stations)
+               if np.allclose(mesh.nodes[base], (0.7, 0.3, 0.0))}  # shared by the four stiffener edges there
+    for base, stood in flipped:
+        mesh.nodes[stood] = 2.0 * np.asarray(mesh.nodes[base]) - np.asarray(mesh.nodes[stood])
+    parent = Parent(tmp_path, project, gfaces, mesh=mesh)
+    cut = parent.cut(BoxVolume((0.2, 0.3, -0.1), (0.65, 0.8, 0.1)))
+    parent.register(cut.definition)
+    with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*source mesh"):
+        stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
