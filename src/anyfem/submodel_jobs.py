@@ -519,9 +519,11 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
     edges near the box (``definition`` given), the child's on all of its beams.
     Edges whose plates are not flat with one normal are not checked here: the cut
     carries no scalar offset from them.  In the source mesh only stations inside
-    or on the box are checked: those are what the child models.  Outside it the
-    parent's nodal normal may rightly tilt where another plate meets the beam (a
-    stiffener ending at a bulkhead), which the cut's own check does not see either.
+    or on the box are checked, as the stations of every beam segment that meets the
+    box (closed, with the cut tolerance), so a box between two stations still checks
+    both: those are what the child models.  Outside it the parent's nodal normal may
+    rightly tilt where another plate meets the beam (a stiffener ending at a
+    bulkhead), which the cut's own check does not see either.
     """
 
     from anygeometry.surfaces import Plane
@@ -555,8 +557,17 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
                                                         f"in the {'source' if definition is not None else 'child'} mesh")
         stations = list(zip(bases, stood_nodes, strict=True))
         if volume is not None:
-            stations = [(base, stood) for base, stood in stations
-                        if volume.classify(np.asarray(mesh.nodes[base], dtype=float), tolerance) != OUTSIDE]
+            # Every station of a beam segment (between consecutive stations, mid-sides
+            # included) that meets the box: the child's beam lies along those segments,
+            # even when the box falls between two stations.
+            points = [np.asarray(mesh.nodes[base], dtype=float) for base, _stood in stations]
+            keep = set()
+            for index in range(len(stations) - 1):
+                if _segment_meets_box(volume, points[index], points[index + 1], tolerance):
+                    keep.update((index, index + 1))
+            if len(stations) == 1 and volume.classify(points[0], tolerance) != OUTSIDE:
+                keep.add(0)
+            stations = [stations[index] for index in sorted(keep)]
         for base, stood in stations:
             actual = np.asarray(mesh.nodes[stood], dtype=float) - np.asarray(mesh.nodes[base], dtype=float)
             if float(np.max(np.abs(actual - expected))) > 1e-9 * max(1.0, abs(float(offset))):
@@ -567,6 +578,27 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
                     f"{np.round(expected, 9).tolist()} (eccentricity along the plate normal); "
                     + ("remesh and re-solve the parent with the current mesher" if definition is not None
                        else "the mesher does not follow the plate-normal convention"))
+
+
+def _segment_meets_box(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> bool:
+    """Whether the straight segment ``a``-``b`` meets the box enlarged by ``tolerance`` (slab test)."""
+
+    start, end = volume.local(np.asarray(a, dtype=float))[0], volume.local(np.asarray(b, dtype=float))[0]
+    lower, upper = np.asarray(volume.lower) - tolerance, np.asarray(volume.upper) + tolerance
+    t0, t1 = 0.0, 1.0
+    for axis in range(3):
+        step = end[axis] - start[axis]
+        if step == 0.0:
+            if start[axis] < lower[axis] or start[axis] > upper[axis]:
+                return False
+            continue
+        near, far = (lower[axis] - start[axis]) / step, (upper[axis] - start[axis]) / step
+        if near > far:
+            near, far = far, near
+        t0, t1 = max(t0, near), min(t1, far)
+        if t0 > t1:
+            return False
+    return True
 
 
 def _remove(paths: Sequence[Path]) -> None:

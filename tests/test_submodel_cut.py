@@ -615,13 +615,15 @@ def test_a_clockwise_deck_whose_cut_piece_would_turn_refuses(tmp_path):
         Parent(tmp_path, project, {"deck": face}).cut(L_BOX)
 
 
-def test_an_archived_parent_mesh_with_the_old_offset_side_refuses_the_run(tmp_path):
+@pytest.mark.parametrize("box", [BOX, BoxVolume((0.42, 0.2, -0.1), (0.48, 0.8, 0.1))], ids=["box", "between-stations"])
+def test_an_archived_parent_mesh_with_the_old_offset_side_refuses_the_run(tmp_path, box):
     """Review S4b round 4: a parent meshed before the ANYmesh offset-side fix.
 
     The older mapped route stood a scalar offset off on the face loop's side, which can be
     the opposite of the plate normal.  Such an archived mesh is simulated by mirroring the
     offset nodes and couplings; the run refuses instead of driving a child whose stiffener
-    sits on the other side.
+    sits on the other side.  With the narrow box no parent station of the y = 0.3 stiffener lies
+    inside it (they are 0.1 apart); the parent segment crossing it is still checked (round 6).
     """
 
     from dataclasses import replace as replaced
@@ -634,7 +636,7 @@ def test_an_archived_parent_mesh_with_the_old_offset_side_refuses_the_run(tmp_pa
     for key, coupling in list(mesh.couplings.items()):
         mesh.couplings[key] = replaced(coupling, eccentricity=tuple(-np.asarray(coupling.eccentricity, dtype=float)))
     parent = Parent(tmp_path, project, gfaces, mesh=mesh)
-    cut = parent.cut()
+    cut = parent.cut(box)
     parent.register(cut.definition)
     with pytest.raises(SubmodelError, match="SUBMODEL_OFFSET_SIDE.*source mesh"):
         stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
