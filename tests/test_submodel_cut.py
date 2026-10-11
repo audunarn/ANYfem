@@ -375,3 +375,108 @@ def test_a_skipped_case_leaves_no_orphaned_scope_region(tmp_path):
     cut = parent.cut(BoxVolume((0.3, 0.3, -0.1), (0.7, 0.7, 0.1)))  # (0.3, 0.7) is on the cut
     assert set(cut.report.skipped_cases) == {"late_failure"}
     assert not [r for r in cut.definition.child.regions if "selection" in r.name]
+
+
+# ----------------------------------------------------------------------
+# stiffeners (slices S2b and S4b)
+# ----------------------------------------------------------------------
+def stiffened_project(*, free_beam=False):
+    """The global plate with flat-bar stiffeners along y = 0.3 and x = 0.7 (plate seams).
+
+    The section follows the plate normal and carries its automatic neutral-axis offset,
+    so a stiffener that lost its frame or offset in the child would change the answer.
+    With ``free_beam`` a beam also runs free above the plate, across the box.
+    """
+
+    from anyfem.model import BeamSection
+
+    project, gfaces = global_project()
+    project.add_beam_section(BeamSection("flat bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
+                                         offset_mode="automatic"))
+    g = project.geometry
+    stiffeners = []
+    for edge_id, edge in g.edges.items():
+        a, b = (np.asarray(g.vertex_position(v)) for v in (edge.start, edge.end))
+        if (abs(a[1] - 0.3) < 1e-12 and abs(b[1] - 0.3) < 1e-12) or (abs(a[0] - 0.7) < 1e-12 and abs(b[0] - 0.7) < 1e-12):
+            stiffeners.append(edge_id)
+    assert len(stiffeners) == 6
+    project.assign_beams(stiffeners, "flat bar")
+    if free_beam:
+        project.add_beam_section(BeamSection("free bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
+                                             offset_mode="centerline"))
+        line = g.add_line(g.add_point(0.0, 0.5, 0.05), g.add_point(1.0, 0.5, 0.05))
+        project.assign_beam(line, "free bar")
+    return project, gfaces, stiffeners
+
+
+def test_a5_stiffeners_are_carried_and_the_child_reproduces_the_parent(tmp_path):
+    project, gfaces, stiffeners = stiffened_project()
+    parent = Parent(tmp_path, project, gfaces)
+    cut = parent.cut()
+    definition, report = cut.definition, cut.report
+    child = definition.child
+    # Each stiffener line has three parent edges; the box keeps a piece of each (0.2-0.3, 0.3-0.7, 0.7-0.8).
+    assert report.carried["beam_assignments"] == 6 and "beam_assignments" not in report.dropped_outside
+    assert len(child.edge_sections) == 6 and set(child.edge_sections.values()) == {"flat bar"}
+    # assign_beams owns each line by its own member; every one is partitioned, none dropped.
+    assert len(child.geometry.members) == 6 and not cut.report.cut.dropped_members
+    for child_edge in child.edge_sections:
+        (source,) = cut.report.cut.lineage[("edge", child_edge)]
+        assert source in stiffeners
+        assert np.allclose(child.beam_offset_vector(child_edge), project.beam_offset_vector(source))
+
+    parent.register(definition)
+    staged = stage_submodel_run(submodel_snapshot(parent.session), definition.id, parent.store)
+    try:
+        result = staged.result
+        mesh = result.solution.built.mesh
+        # 0.1 elements: 2 x 10 stiffener beams in the parent, the 0.6 inside each line in the child
+        assert (len(parent.mesh.beams), len(mesh.beams)) == (20, 12)
+        match = node_match(mesh, parent.mesh)
+        driven = set(result.transfer)
+        # Slave/master structure at the cut: each stiffener end on the cut is an offset beam node
+        # coupled to a driven plate node; the plate node is driven, the beam node follows it.
+        at_cut = [c for c in mesh.couplings.values() if set(c.plate_nodes) <= driven]
+        assert len(at_cut) == 4 and not {c.beam_node for c in at_cut} & driven
+        assert not {c.beam_node for c in mesh.couplings.values()} & driven
+        errors = np.array([np.abs(result.solution.node_displacement(n) - parent.solution.node_displacement(match[n]))
+                           for n in set(mesh.nodes) - driven])
+        worst = errors.max(axis=0)
+        scale = max(np.abs(parent.solution.node_displacement(m)).max() for m in parent.mesh.nodes)
+        assert np.max(worst) < 1e-9 * max(scale, 1e-12)
+        body = result.diagnostics["free_body"]
+        assert body["force_ratio"] < 1e-12 and body["moment_ratio"] < 1e-12
+        published = publish_submodel_run(parent.session, staged)
+    except BaseException:
+        discard_staged_run(staged)
+        raise
+    assert published.notification_error is None
+
+
+def test_a_free_standing_beam_across_the_box_refuses(tmp_path):
+    project, gfaces, _stiffeners = stiffened_project(free_beam=True)
+    with pytest.raises(SubmodelError, match="CUT_BEAMS_UNSUPPORTED"):
+        Parent(tmp_path, project, gfaces).cut()
+
+
+def test_a_beam_outside_the_box_is_reported_not_carried(tmp_path):
+    project, gfaces, _stiffeners = stiffened_project()
+    cut = Parent(tmp_path, project, gfaces).cut(BoxVolume((0.0, 0.5, -0.1), (0.5, 1.0, 0.1)))
+    assert not cut.definition.child.edge_sections and not cut.definition.child.geometry.members
+    assert cut.report.dropped_outside["beam_assignments"] == 6
+
+
+def test_a_beam_whose_frame_would_change_refuses(tmp_path):
+    from dataclasses import replace as replaced
+
+    from anyfem.submodel_cut import _require_same_beam_frame
+
+    project, gfaces, _stiffeners = stiffened_project()
+    cut = Parent(tmp_path, project, gfaces).cut()
+    child = cut.definition.child
+    child_edge = next(iter(child.edge_sections))
+    (source,) = cut.report.cut.lineage[("edge", child_edge)]
+    _require_same_beam_frame(project, child, source, child_edge)  # as carried
+    child.beam_sections["flat bar"] = replaced(child.beam_sections["flat bar"], attachment_side="back")
+    with pytest.raises(SubmodelError, match="CUT_BEAM_FRAME"):
+        _require_same_beam_frame(project, child, source, child_edge)

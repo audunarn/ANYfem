@@ -647,9 +647,11 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
 - **Cut**: ANYgeometry's `plan_volume_cut` and `apply_volume_cut` (volume-cut contract section 9)
   on the thawed parent's geometry. Members none of whose edges carries a beam section are not
   meshed and are declared droppable: those reaching the box are left out and reported
-  (`report.notes`, `dropped_outside["unassigned_members"]`); a beam-assigned edge reaching the
-  box refuses (`CUT_BEAMS_UNSUPPORTED`, attached stiffeners are slice S4b). Every ANYgeometry
-  refusal is re-raised as a `SubmodelError` with its `VOLUME_*` code.
+  (`report.notes`, `dropped_outside["unassigned_members"]`). Beams on plate edges
+  (stiffeners) are partitioned at the box with their plates (volume-cut contract section 10,
+  slice S4b); a free-standing beam edge (no plate uses it) reaching the box refuses
+  (`CUT_BEAMS_UNSUPPORTED`). Every ANYgeometry refusal is re-raised as a `SubmodelError` with
+  its `VOLUME_*` code.
 - **Child**: a detached `Project` on the extracted geometry, with the parent's units,
   coordinate systems, element order, shell formulation policy, native meshing settings, the
   materials and plate sections (section ids preserved), and `target_size`.
@@ -673,6 +675,7 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
   | Attribute | Rule here |
   |---|---|
   | Plate sections | Every child face needs exactly one parent section (`CUT_SECTION_UNRESOLVED`, `CUT_SECTION_AMBIGUOUS`) |
+  | Beam sections (S4b) | All beam sections are copied. Every child edge descending from a beam edge takes that edge's section (`CUT_SECTION_AMBIGUOUS` if its sources disagree); beam edges with no child are counted in `dropped_outside["beam_assignments"]`. Each carried beam must keep its parent's section frame (axis, local y, local z) and neutral-axis offset vector to 1e-9, since the frame follows the first plate using the line and the child's plates are new entities (`CUT_BEAM_FRAME`) |
   | Supports | Carried to child entities, including on the cut |
   | Pressure, surface traction, line load | Same intensity, side and frame |
   | Point load | Carried when its points are inside; `total_distributed` only when its whole scope is inside; a point on the artificial cut refuses the case |
@@ -701,6 +704,18 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
   seam members are left out) cut across a seam and solved under both policies, the child's radial
   displacement within 0.5 % of `pR^2/(Et)`; the parent project and session revision are
   unchanged by a cut.
+- **Evidence for stiffeners (S4b, acceptance A5)**:
+  - The parent is the same plate grid under pressure, with flat-bar stiffeners on the seams
+    y = 0.3 and x = 0.7. Their section follows the plate normal and has an automatic offset,
+    so each beam node is an offset node coupled to a plate node.
+  - The box cuts both stiffeners. The child carries 6 beam pieces and their 6 members, each
+    with the parent's offset vector, and meshes 12 of the parent's 20 beam elements.
+  - Slave/master structure: the 4 stiffener ends on the cut are couplings whose plate nodes are
+    driven. No beam node is driven; it follows its plate node.
+  - Agreement with the parent: every non-driven node agrees to 1e-9 of the parent's largest
+    displacement, and the free-body ratios are below 1e-12. The run is then published.
+  - A free-standing beam across the box refuses. Stiffeners outside the box are counted as
+    dropped. A changed frame (back-side attachment) refuses with `CUT_BEAM_FRAME`.
 - **Finding**: ANYfem's default plate (`add_face` without a surface) is a topology-backed
   `CoonsSurface`, not a `Plane`; S2a first refused it. The volume cut now accepts a Coons patch
   with straight coplanar boundaries (the support ANYgeometry's own intersection planning

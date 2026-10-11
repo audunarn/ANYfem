@@ -1,15 +1,17 @@
 """Create a submodel definition by cutting a box out of a parent project.
 
 Implements workflow contract section 4 (attribute carry-over) and section 5
-(identity map) on top of ANYgeometry's volume cut (slice S2a).  Given a committed
-snapshot of the parent, a box and the source reference, :func:`cut_submodel`
+(identity map) on top of ANYgeometry's volume cut (slices S2a and S2b).  Given a
+committed snapshot of the parent, a box and the source reference, :func:`cut_submodel`
 
-* cuts the parent's geometry on a detached clone (planes and cylinders, no
-  members in or across the box),
+* cuts the parent's geometry on a detached clone (planes and cylinders; beams on
+  plate edges, such as stiffeners, are partitioned at the box with their plates;
+  free-standing beams near the box refuse),
 * builds a detached child :class:`Project` on the extracted geometry and carries
-  materials, plate sections, supports, loads, masses and refinements through the
-  cut's lineage; anything that cannot be carried refuses with a typed code and
-  nothing is dropped silently,
+  materials, plate and beam sections, supports, loads, masses and refinements
+  through the cut's lineage; anything that cannot be carried refuses with a typed
+  code and nothing is dropped silently.  Every carried beam keeps its parent's
+  section frame and neutral-axis offset (checked, slice S4b),
 * returns a ready :class:`SubmodelDefinition`: the child, its lineage (child face
   to parent faces) and the artificial cut faces (one group per box side).
 
@@ -189,9 +191,11 @@ def cut_submodel(
         _refuse("CUT_SOURCE_JOB_MISSING", f"the source job {source.job_id!r} is not in the parent project")
     child_case = source.case if child_case is None else child_case
     tolerance = parent.geometry.tolerance.effective_length(volume.diagonal)
-    for edge_id in parent.edge_sections:  # beam members: stiffeners are slice S2b/S4b
-        if edge_id in parent.geometry.edges and volume.reaches(_edge_extent(parent.geometry, edge_id, volume), tolerance):
-            _refuse("CUT_BEAMS_UNSUPPORTED", f"beam edge {edge_id} reaches the box (attached stiffeners are slice S4b)")
+    for edge_id in sorted(parent.edge_sections):  # beams on plate edges are partitioned with their plates
+        if (edge_id in parent.geometry.edges and not parent.geometry.faces_using_edge(edge_id)
+                and volume.reaches(_edge_extent(parent.geometry, edge_id, volume), tolerance)):
+            _refuse("CUT_BEAMS_UNSUPPORTED",
+                    f"free-standing beam edge {edge_id} reaches the box (only beams on plate edges are carried)")
 
     # ---- the cut.  Members none of whose edges carries a beam section are not meshed
     # as beams and carry no structure: they may be left out of the child (reported).
@@ -250,6 +254,26 @@ def cut_submodel(
             _refuse("CUT_SECTION_AMBIGUOUS", f"child face {child_face} descends from faces with sections {sorted(names)}")
         child.assign_plate(child_face, next(iter(names)))
         count(carried, "plate_assignments")
+
+    # beams: every child edge descending from a beam edge takes that edge's section
+    for section in parent.beam_sections.values():
+        child.add_beam_section(section)
+    edge_sources: Dict[int, List[int]] = {}
+    for parent_edge in sorted(parent.edge_sections):
+        children = lineage.inverse["edge"].get(int(parent_edge), [])
+        if not children:
+            count(dropped, "beam_assignments")
+        for child_edge in children:
+            edge_sources.setdefault(child_edge, []).append(int(parent_edge))
+    for child_edge, sources in sorted(edge_sources.items()):
+        names = {parent.edge_sections[s] for s in sources}
+        if len(names) > 1:
+            _refuse("CUT_SECTION_AMBIGUOUS", f"child edge {child_edge} descends from beams with sections {sorted(names)}")
+        child.assign_beam(child_edge, next(iter(names)))
+        count(carried, "beam_assignments")
+    child.resolve_section_assignments(strict=True)
+    for child_edge, sources in sorted(edge_sources.items()):
+        _require_same_beam_frame(parent, child, sources[0], child_edge)
 
     def child_ref(entity: Tuple[str, int]):
         return child.geometry.entity_ref(entity[0], entity[1])
@@ -360,6 +384,30 @@ def cut_submodel(
         original_boundary_edges=len(cut.original_boundary_edges), notes=tuple(notes), cut=cut,
     )
     return CutSubmodel(definition, report)
+
+
+def _require_same_beam_frame(parent: Project, child: Project, parent_edge: int, child_edge: int) -> None:
+    """A carried beam keeps its section frame and neutral-axis offset.
+
+    The frame follows the first plate using the line unless the section prescribes
+    a web direction; the child's plates are new entities, so the frame is checked
+    rather than assumed.
+    """
+
+    from .model.project import ProjectError
+
+    try:
+        expected = [np.asarray(v, dtype=float) for v in parent.beam_section_frame(parent_edge)]
+        found = [np.asarray(v, dtype=float) for v in child.beam_section_frame(child_edge)]
+        offsets = (np.asarray(parent.beam_offset_vector(parent_edge), dtype=float),
+                   np.asarray(child.beam_offset_vector(child_edge), dtype=float))
+    except ProjectError as error:
+        raise SubmodelError("CUT_BEAM_FRAME", f"beam edge {child_edge}: {error}") from error
+    scale = max(1.0, float(np.max(np.abs(offsets[0]))))
+    if (any(float(np.max(np.abs(a - b))) > 1e-9 for a, b in zip(expected, found))
+            or float(np.max(np.abs(offsets[0] - offsets[1]))) > 1e-9 * scale):
+        _refuse("CUT_BEAM_FRAME",
+                f"child beam edge {child_edge} would not keep the section frame or offset of parent edge {parent_edge}")
 
 
 # ----------------------------------------------------------------------
