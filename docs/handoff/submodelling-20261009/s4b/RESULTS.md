@@ -97,8 +97,8 @@ follows the parent's error at the cut.
   - The rx child at hc = 0.05 reads -1.98 % only because a +1.58 % transfer error and a -3.57 %
     discretisation error cancel; its `within_limit` flag is not evidence.
 - **What is missing for acceptance:**
-  - This is a Level A evidence record, not acceptance A5. The budget's dominant term is a
-    reference that is not in its asymptotic range.
+  - This is a Level A evidence record, not acceptance A5. The reference error remains
+    unquantified, and asymptotic convergence has not been established.
   - A defensible acceptance needs either a case with a smooth reference (supports and stiffener
     ends away from singular corners) or an independent oracle.
   - The proposed 3 % limit still has to be justified in writing before the run.
