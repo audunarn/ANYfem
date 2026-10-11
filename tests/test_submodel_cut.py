@@ -418,7 +418,8 @@ def test_a5_stiffeners_are_carried_and_the_child_reproduces_the_parent(tmp_path,
 
     Every child node, offset beam nodes included, must coincide with a parent node, so a
     stiffener whose offset direction changed in the child fails here.  The discretisation
-    error budget of acceptance A5 is reported separately (s4b/a5_stiffened_budget.py).
+    error budget of acceptance A5 is reported separately
+    (docs/handoff/submodelling-20261009/s4b/test_a5_budget.py and RESULTS.md).
     """
 
     project, gfaces, stiffeners = stiffened_project(offset=offset)
@@ -449,6 +450,12 @@ def test_a5_stiffeners_are_carried_and_the_child_reproduces_the_parent(tmp_path,
         # coupled to a driven plate node; the plate node is driven, the beam node follows it.
         at_cut = [c for c in mesh.couplings.values() if set(c.plate_nodes) <= driven]
         assert len(at_cut) == 4 and not {c.beam_node for c in at_cut} & driven
+        # Every stiffener station stands off by the section's offset along the plate normal (+z here),
+        # which is what the scalar-offset guard relies on (the mesher winds elements with the face normal).
+        for child_edge in child.edge_sections:
+            expected = np.asarray(child.beam_offset_vector(child_edge)) if offset is None else np.array((0, 0, 0.05))
+            for base, stood in zip(mesh.nodes_of_edge[child_edge], mesh.offset_nodes_of_edge[child_edge]):
+                assert np.allclose(np.asarray(mesh.nodes[stood]) - mesh.nodes[base], expected, rtol=0, atol=1e-12)
         assert not {c.beam_node for c in mesh.couplings.values()} & driven
         errors = np.array([np.abs(result.solution.node_displacement(n) - parent.solution.node_displacement(match[n]))
                            for n in set(mesh.nodes) - driven])
@@ -493,14 +500,12 @@ def test_a_beam_whose_frame_would_change_refuses(tmp_path):
         _require_same_beam_frame(project, child, source, child_edge)
 
 
-def test_a_scalar_offset_where_the_cut_removes_inclined_plating_refuses(tmp_path):
-    """Review S4b round 1: an inclined plate meets the stiffener where the box cuts it.
+def flap_parent(tmp_path):
+    """A scalar-offset stiffened parent with an inclined flap hinged on x = 0.3, 0.3 <= y <= 0.7.
 
-    The parent's nodal normal there averages the deck and the inclined plate; the child
-    keeps only the deck, so the scalar offset would turn.  The cut refuses.  (The flap is
-    added after the source job: meshing it needs the structural preparation of a Coons
-    deck against an inclined plane, which is outside this test; the cut only reads the
-    committed geometry and the job's presence.)
+    The flap is added after the source job: meshing it needs the structural preparation of a
+    Coons deck against an inclined plane, which is outside these tests; the cut only reads the
+    committed geometry and the job's presence.
     """
 
     from anygeometry.surfaces import Plane
@@ -519,7 +524,46 @@ def test_a_scalar_offset_where_the_cut_removes_inclined_plating_refuses(tmp_path
         flap = g.add_face([hinge, g.add_line(b, c), g.add_line(c, d), g.add_line(d, a)],
                           surface=Plane(pa, pb - pa, np.asarray(g.vertex_position(d)) - pa))
         project.assign_plate(flap, "plate")
+    return parent
+
+
+def test_a_scalar_offset_where_the_cut_removes_inclined_plating_refuses(tmp_path):
+    """Review S4b round 1: the box side cuts the stiffener where an inclined flap meets it."""
+
     with pytest.raises(SubmodelError, match="CUT_BEAM_OFFSET"):
-        parent.cut(BoxVolume((0.3, 0.2, -0.1), (0.8, 0.8, 0.1)))
+        flap_parent(tmp_path).cut(BoxVolume((0.3, 0.2, -0.1), (0.8, 0.8, 0.1)))
+
+
+def test_a_scalar_offset_where_inclined_plating_meets_inside_the_box_refuses(tmp_path):
+    """Review S4b round 2: the flap meets the stiffener strictly inside the box.
+
+    The nodal normal there averages deck and flap elements by count; a remeshed child can
+    change the count, so the offset could turn although no plate there is removed.
+    """
+
+    parent = flap_parent(tmp_path)
+    with pytest.raises(SubmodelError, match="CUT_BEAM_OFFSET.*different normals"):
+        parent.cut(BoxVolume((0.2, 0.2, -0.1), (0.8, 0.8, 0.1)))
     cut = parent.cut(BoxVolume((0.4, 0.2, -0.1), (0.8, 0.8, 0.1)))
     assert cut.definition.child.edge_sections  # away from the flap the same stiffeners are carried
+
+
+def test_a_scalar_offset_on_curved_plating_refuses(tmp_path):
+    """Review S4b round 2: on a cylinder the facets, so the nodal normals, change with the child mesh."""
+
+    from anyfem.model import BeamSection
+    from test_submodel_cylinder import tube
+
+    project = tube(0.25)[0]
+    parent = Parent(tmp_path, project, {}, mesh=project.generate_mesh(0.25))
+    g = project.geometry
+    seam = [e for e, edge in g.edges.items() if g.faces_using_edge(e) and all(
+        abs(np.asarray(g.vertex_position(v))[1]) < 1e-9 and np.asarray(g.vertex_position(v))[0] > 0
+        for v in (edge.start, edge.end))]
+    assert seam
+    with parent.session.transaction("stiffener"):
+        project.add_beam_section(BeamSection("seam bar", "Flatbar", "S355", flange_width=0.08, flange_thickness=0.01,
+                                             web_direction=(1.0, 0.0, 0.0), eccentricity=0.05))
+        project.assign_beams(seam, "seam bar")
+    with pytest.raises(SubmodelError, match="CUT_BEAM_OFFSET.*curved"):
+        parent.cut(BoxVolume((0.5, -0.5, 1.5), (1.5, 0.5, 2.5)), target_size=0.05)

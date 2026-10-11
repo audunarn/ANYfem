@@ -20,8 +20,9 @@ panel; the full model shares ANYsolver's element mathematics and is comparative
 evidence only.  The engineering limit (3 %, proposed in PLAN.md for A3) is reported,
 not asserted: the acceptance decision belongs to S6.
 
-Run: ``python ../s4a/run_tests.py docs/handoff/submodelling-20261009/s4b/test_a5_budget.py -s``
-from the worktree root.  Writes ``a5_budget.json`` next to this file.
+Run from the worktree root (not collected by default: pytest's testpaths is ``tests``):
+``python docs/handoff/submodelling-20261009/s4a/run_tests.py docs/handoff/submodelling-20261009/s4b/test_a5_budget.py -s --basetemp=<writable dir>``.
+Writes ``a5_budget.json`` next to this file.
 """
 
 from __future__ import annotations

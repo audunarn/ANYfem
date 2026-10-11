@@ -34,11 +34,16 @@ All errors below are relative to the Richardson reference.
 | w stiffener | 0.50 | 1.3975e-3 | -0.82 % | -2.43 % |
 | rx stiffener | 0.19 | 3.0143e-3 | -2.73 % | -3.73 % |
 
-The full model is **not** in its asymptotic range:
-- The observed order is about 0.5 for the deflections and 0.2 for the rotation. Q4 would give 2
-  for a smooth solution.
-- So the Richardson reference carries an uncertainty of the order of the last correction (0.8 %,
-  and 2.7 % for rx). It is not a converged value.
+An asymptotic range has **not** been demonstrated for the full model:
+- The observed order is about 0.5 for the deflections and 0.2 for the rotation; Q4 would give 2
+  for a smooth solution. A low order alone does not prove the levels are pre-asymptotic, and it
+  does not prove they are asymptotic either.
+- For rx the increments between levels (4.95e-6, 1.34e-5, 1.17e-5) are not monotone, so its
+  order and reference are not reliable; with p = 0.19 the extrapolation factor 1/(2^p - 1) is
+  about 7.
+- The Richardson correction (0.8 % for the deflections, 2.7 % for rx) is an **exploratory error
+  scale** only. The true error of the reference is not quantified, and every percentage below
+  is relative to this unverified reference.
 - Likely causes are not investigated here: the pinned-to-roller support corners, and stiffener
   ends at supported edges.
 
@@ -82,12 +87,15 @@ follows the parent's error at the cut.
 - **Every child run is in equilibrium:** free-body ratios are below 1e-10. The same-mesh A5
   regression in `tests/test_submodel_cut.py` reproduces the parent exactly (1e-9) for vector
   and scalar offsets.
-- **The submodel is no better than its driver.** With an h = 0.1 parent:
-  - the deflections are within 3 % of the reference (2.8 % and 3.0 %);
-  - the rotation is not (3.7 %).
-
-  Against the proposed 3 % limit, rx needs an h ≤ 0.025 parent, where it reaches 3.05 %, still
-  borderline. The reference itself is uncertain by about 2.7 % for rx.
+- **The submodel is no better than its driver.** The firm finding is relative: the child's
+  total error follows its parent's error at the cut, and the transfer part shrinks with parent
+  refinement. Against the unverified reference, with an h = 0.1 parent:
+  - the deflections come out at 2.8 % and 3.0 %, at the proposed 3 % limit, with a reference
+    whose error is not quantified;
+  - the rotation comes out at 3.7 %, and at 3.05 % with the finest tested parent (h = 0.025): it
+    exceeds the proposed limit at every tested parent.
+  - The rx child at hc = 0.05 reads -1.98 % only because a +1.58 % transfer error and a -3.57 %
+    discretisation error cancel; its `within_limit` flag is not evidence.
 - **What is missing for acceptance:**
   - This is a Level A evidence record, not acceptance A5. The budget's dominant term is a
     reference that is not in its asymptotic range.
