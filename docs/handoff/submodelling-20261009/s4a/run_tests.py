@@ -1,8 +1,9 @@
 """Run the S4a workflow tests against the S1/S3a branches and HEAD snapshots.
 
-ANYfem: this worktree (pytest adds ``src``).  ANYsolver and ANYmesher: the S1 and
-S3a worktrees.  ANYmaterial, ANYfileIO, ANYloads: the S0 git-archive snapshots of HEAD;
-ANYgeometry: the S2a worktree (main plus the volume cut) when present, else the snapshot.
+ANYfem: this worktree (pytest adds ``src``).  ANYsolver and ANYmesher: detached
+checkouts of their mains (8d6e64d2 and 5e6d97c, which contain S1 and S3a).  ANYgeometry:
+the S2b worktree (main 9db03bb plus seam-member partitioning) when present, else the
+snapshot.  ANYmaterial, ANYfileIO, ANYloads: the S0 git-archive snapshots of HEAD.
 Paths can be overridden with S4A_ANYSOLVER, S4A_ANYMESH, S4A_ANYGEOMETRY and S0_SNAP.
 """
 
@@ -16,11 +17,11 @@ WORKTREE = Path(__file__).resolve().parents[4]
 SNAP = Path(os.environ.get("S0_SNAP", r"C:\Users\AUDUNA~1\AppData\Local\Temp\claude\C--Github"
                                       r"\59147d03-c123-4596-a0d0-f6053be6be25\scratchpad\s0-snap"))
 paths = [
-    os.environ.get("S4A_ANYSOLVER", r"C:\ANYworkspaceWork\sm1\src"),
-    os.environ.get("S4A_ANYMESH", r"C:\ANYworkspaceWork\sm3\src"),
-    # ANYgeometry: the S2a worktree (HEAD plus the volume cut) when present, else the S0 snapshot.
-    os.environ.get("S4A_ANYGEOMETRY", r"C:\ANYworkspaceWork\sm2\src"
-                   if Path(r"C:\ANYworkspaceWork\sm2\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
+    os.environ.get("S4A_ANYSOLVER", r"C:\ANYworkspaceWork\sv-8d6e64d2\src"),
+    os.environ.get("S4A_ANYMESH", r"C:\ANYworkspaceWork\mh-5e6d97c\src"),
+    # ANYgeometry: the S2b worktree when present, else the S0 snapshot.
+    os.environ.get("S4A_ANYGEOMETRY", r"C:\ANYworkspaceWork\sm5\src"
+                   if Path(r"C:\ANYworkspaceWork\sm5\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
     *(str(SNAP / repo / "src") for repo in ("ANYmaterial", "ANYfileIO", "ANYloads")),
 ]
 for path in reversed(paths):
@@ -30,4 +31,5 @@ os.chdir(WORKTREE)
 
 import pytest  # noqa: E402
 
-sys.exit(pytest.main(["-q", *(sys.argv[1:] or ["tests/test_submodel_workflow.py", "tests/test_submodel_jobs.py"])]))
+sys.exit(pytest.main(["-q", *(sys.argv[1:] or ["tests/test_submodel_workflow.py", "tests/test_submodel_jobs.py",
+                                         "tests/test_submodel_cut.py", "tests/test_submodel_cylinder.py"])]))
