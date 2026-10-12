@@ -31,7 +31,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 8d6e64d229b02ab6b59ce217c0c8f60b23359778
+          ref: d85b5ad57ec946a03c21df757782a313ee8a423c
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -46,12 +46,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 9db03bbacbc10c04b25fc22f665e0c756da83180
+          ref: 0a3a602af7880d73d2cdac140f3ae3040b744421
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 5e6d97ce2c14379ec0b418d50e7f2dc120be1b0f
+          ref: d7e1e7ee65a52d6c354ee2143579e080fb1e19e3
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -130,7 +130,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 8d6e64d229b02ab6b59ce217c0c8f60b23359778
+          ref: d85b5ad57ec946a03c21df757782a313ee8a423c
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -145,12 +145,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 9db03bbacbc10c04b25fc22f665e0c756da83180
+          ref: 0a3a602af7880d73d2cdac140f3ae3040b744421
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 5e6d97ce2c14379ec0b418d50e7f2dc120be1b0f
+          ref: d7e1e7ee65a52d6c354ee2143579e080fb1e19e3
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

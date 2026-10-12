@@ -18,12 +18,12 @@ WORKTREE = Path(__file__).resolve().parents[4]
 SNAP = Path(os.environ.get("S0_SNAP", r"C:\Users\AUDUNA~1\AppData\Local\Temp\claude\C--Github"
                                       r"\59147d03-c123-4596-a0d0-f6053be6be25\scratchpad\s0-snap"))
 paths = [
-    os.environ.get("S4A_ANYSOLVER", r"C:\ANYworkspaceWork\sv-8d6e64d2\src"),
-    # ANYmesh: main 5e6d97c plus the scalar-offset side fix (branch claude/offset-normal-sign).
-    os.environ.get("S4A_ANYMESH", r"C:\ANYworkspaceWork\sm7\src"),
-    # ANYgeometry: the S2b worktree when present, else the S0 snapshot.
-    os.environ.get("S4A_ANYGEOMETRY", r"C:\ANYworkspaceWork\sm5\src"
-                   if Path(r"C:\ANYworkspaceWork\sm5\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
+    os.environ.get("S4A_ANYSOLVER", r"C:\Github\ANYsolver\src"),
+    # ANYmesh main (includes the scalar-offset side fix d7e1e7e).
+    os.environ.get("S4A_ANYMESH", r"C:\Github\ANYmesh\src"),
+    # ANYgeometry main (includes S2b) when present, else the S0 snapshot.
+    os.environ.get("S4A_ANYGEOMETRY", r"C:\Github\ANYgeometry\src"
+                   if Path(r"C:\Github\ANYgeometry\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
     *(str(SNAP / repo / "src") for repo in ("ANYmaterial", "ANYfileIO", "ANYloads")),
 ]
 for path in reversed(paths):
