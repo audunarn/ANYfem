@@ -71,7 +71,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main, same as the headless matrix.
-          ref: d85b5ad57ec946a03c21df757782a313ee8a423c
+          ref: 436457c86d1a30b951086aa195748ca590f253e4
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
