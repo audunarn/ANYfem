@@ -20,6 +20,24 @@ import numpy as np
 __all__ = ["lazy_field_to_csv", "pillow_available", "save_gif", "save_png"]
 
 
+def write_client_export(path, text, cancel_event=None, *, source=''):
+    """Atomic client transport; committed output survives later supersession."""
+    from ..application.result_requests import CommittedResult
+    from anypost.errors import RequestCancelled
+    def check():
+        if cancel_event is not None and cancel_event.is_set():raise RequestCancelled('export cancelled before commit')
+    destination=Path(path);check();destination.parent.mkdir(parents=True,exist_ok=True)
+    descriptor,temporary=tempfile.mkstemp(prefix='.'+destination.name+'.',suffix='.tmp',dir=destination.parent)
+    try:
+        with os.fdopen(descriptor,'w',encoding='utf-8',newline='\n') as stream:
+            for start in range(0,len(text),65536):check();stream.write(text[start:start+65536])
+            stream.flush();os.fsync(stream.fileno())
+        check();os.replace(temporary,destination)
+        return CommittedResult(destination,source)
+    finally:
+        if os.path.exists(temporary):os.unlink(temporary)
+
+
 def pillow_available() -> bool:
     """Whether bitmap export support is installed."""
 

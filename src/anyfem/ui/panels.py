@@ -5821,11 +5821,11 @@ class ResultsPanel(StagePanel):
         if path is None:
             status = str(getattr(solution, "status", "available"))
             self._outcome_status.configure(
-                text=status.replace("_", " ").upper(), foreground="#2e7d32"
+                text=status.replace("_", " ").upper(), foreground="#b71c1c" if status.lower() not in {"ok","complete","completed","success","converged"} else "#2e7d32"
             )
             for value in self._outcome_values.values():
                 value.set("—")
-            self._outcome_progress.configure(value=100.0)
+            self._outcome_progress.configure(value=0.0 if status.lower() not in {"ok","complete","completed","success","converged"} else 100.0)
             self._outcome_progress_text.configure(text="")
             self._outcome_reason.configure(
                 text="This analysis has no nonlinear equilibrium path.",
@@ -5994,36 +5994,31 @@ class ResultsPanel(StagePanel):
         shape = self._require_solution()
         items = self.require_selection(self.app.selection.mode)
         engineering = self.display_units() == ENGINEERING_DISPLAY
-        readouts = [
-            probe(shape, ref).text(
-                length_scale=1000.0 if engineering else 1.0,
-                length_unit="mm" if engineering else "m",
-                stress_scale=1.0e-6 if engineering else 1.0,
-                stress_unit="MPa" if engineering else "Pa",
-            )
-            for ref in items
-        ]
-        self.write((chr(10) * 2).join(readouts))
-        self.app.set_status(f"probed {len(items)} entity(ies)")
+        def load(cancel):
+            readouts = [
+                probe(shape, ref).text(
+                    length_scale=1000.0 if engineering else 1.0,
+                    length_unit="mm" if engineering else "m",
+                    stress_scale=1.0e-6 if engineering else 1.0,
+                    stress_unit="MPa" if engineering else "Pa",
+                )
+                for ref in items
+            ]
+            return (chr(10)*2).join(readouts)
+        def publish(text):
+            self.write(text);self.app.set_status(f"probed {len(items)} entity(ies)")
+        self.app._request_result(load,publish,channel="inspection")
 
     def _along_line(self) -> None:
         shape = self._require_solution()
         edges = self.require_selection("edge", 1)
-        result = along_line(shape, edges[0], self.field_name())
-        distance_scale, distance_unit = unit_transform("m", self.display_units())
-        value_scale, value_unit = unit_transform(result.unit, self.display_units())
-        lines = [
-            f"{self.field_name()} along {edges[0]}  "
-            f"({result.length * distance_scale:.4g} {distance_unit})",
-            f"{'distance [' + distance_unit + ']':>16}  "
-            f"{('value [' + value_unit + ']') if value_unit else 'value':>18}",
-        ]
-        for distance, value in zip(result.distances, result.values):
-            lines.append(
-                f"{distance * distance_scale:16.5g}  {value * value_scale:18.6g}"
-            )
-        self.write(chr(10).join(lines))
-        self.app.set_status(f"sampled {len(result)} points along {edges[0]}")
+        name,units=self.field_name(),self.display_units()
+        def load(cancel):
+            result=along_line(shape,edges[0],name)
+            xs,xunit=unit_transform("m",units);ys,yunit=unit_transform(result.unit,units)
+            return (f"{name} along {edges[0]} [{xunit}, {yunit}]\n"+
+                    "\n".join(f"{x*xs:.6g}, {y*ys:.6g}" for x,y in zip(result.distances,result.values)))
+        self.app._request_result(load,lambda text:self.write(text),channel="inspection")
 
     def _export_report(self) -> None:
         active_job_id = getattr(self.app, "active_job_id", None)
@@ -6046,30 +6041,36 @@ class ResultsPanel(StagePanel):
         )
         if not path:
             return
-        if dataset is None:
-            if str(path).casefold().endswith((".html", ".htm")):
-                raise ValueError(
-                    "HTML reporting requires the retained result artifact; "
-                    "save the project and retry when result persistence completes"
+        project,session=self.app.project,self.app.session
+        stale_method=getattr(self.app,"_job_is_stale",None)
+        job=getattr(project,"jobs",{}).get(active_job_id)
+        stale=stale_method(job) if callable(stale_method) and job is not None else None
+        revision=getattr(session,"revision",None)
+        document_hash=str(getattr(revision,"document_hash",""))
+        def load(cancel):
+            if dataset is None:
+                if str(path).casefold().endswith((".html", ".htm")):
+                    raise ValueError(
+                        "HTML reporting requires the retained result artifact; "
+                        "save the project and retry when result persistence completes"
+                    )
+                from ..post.report import report_markdown
+                from .result_export import write_client_export
+                written = write_client_export(path,report_markdown(solution),cancel,source=str(active_job_id or "current solved source"))
+            else:
+                context = result_report_context(
+                    dataset,
+                    project=project,
+                    job=job,
+                    current_document_hash=document_hash,
+                    stale=stale,
                 )
-            written = write_report(solution, path)
-        else:
-            job = getattr(self.app.project, "jobs", {}).get(active_job_id)
-            stale_method = getattr(self.app, "_job_is_stale", None)
-            stale = stale_method(job) if callable(stale_method) and job is not None else None
-            session = getattr(self.app, "session", None)
-            revision = getattr(session, "revision", None)
-            context = result_report_context(
-                dataset,
-                project=self.app.project,
-                job=job,
-                current_document_hash=str(
-                    getattr(revision, "document_hash", "")
-                ),
-                stale=stale,
-            )
-            written = write_result_report(dataset, path, context=context)
-        self.app.set_status(f"report written to {written}")
+                from ..post.report import result_report_markdown,result_report_html
+                from .result_export import write_client_export
+                text=(result_report_html if str(path).casefold().endswith((".html",".htm")) else result_report_markdown)(dataset,context=context)
+                written = write_client_export(path,text,cancel,source=str(active_job_id))
+            return written
+        self.app._request_result(load,lambda written:None,dataset=dataset,channel="export",ordered=True)
 
     def _export_field(self) -> None:
         dataset = None
@@ -6084,15 +6085,13 @@ class ResultsPanel(StagePanel):
         )
         if not path:
             return
-        if dataset is not None:
-            key = self.field_name()
-            if key not in dataset.field_keys:
-                raise ValueError(f"retained result has no field {key!r}")
-            text = lazy_field_to_csv(dataset, key, frame=self.app.shape_index)
-        else:
-            text = field_to_csv(shape, self.field_name())
-        written = write_csv(text, path)
-        self.app.set_status(f"field written to {written}")
+        key,frame=self.field_name(),self.app.shape_index
+        job_id=self.app.active_job_id
+        def load(cancel):
+            text=lazy_field_to_csv(dataset,key,frame=dataset.field(key).root_frame_index(frame)) if dataset is not None else field_to_csv(shape,key)
+            from .result_export import write_client_export
+            return write_client_export(path,text,cancel,source=str(job_id or "current solved source"))
+        self.app._request_result(load,lambda written:None,dataset=dataset,channel="export",ordered=True)
 
     def _require_result_set(self) -> None:
         if self.app.solution is not None:
@@ -6123,12 +6122,12 @@ class ResultsPanel(StagePanel):
                 "export it as CSV instead"
             )
 
-    def _render_result_frame(self, index: int) -> None:
+    def _render_result_frame(self, index: int, *, on_ready=None, on_cancel=None) -> None:
         self.app.shape_index = int(index)
         if self.app.solution is None:
-            self._show()
+            self._show(on_ready=on_ready,on_cancel=on_cancel)
         else:
-            self.app.show_results()
+            self.app.show_results(on_ready=on_ready,on_cancel=on_cancel)
 
     def _export_png(self) -> None:
         self._require_capturable_result()
@@ -6141,12 +6140,10 @@ class ResultsPanel(StagePanel):
         )
         if not path:
             return
-        self._render_result_frame(self.app.shape_index)
-        try:
-            written = self.app.viewport.capture_png(path)
-        except RuntimeError as error:
-            raise ValueError(str(error)) from None
-        self.app.set_status(f"viewport image written to {written}")
+        def capture():
+            written=self.app.viewport.capture_png(path)
+            self.app.set_status(f"viewport image written to {written}")
+        self._render_result_frame(self.app.shape_index,on_ready=capture)
 
     def _export_gif(self) -> None:
         """Capture result shapes incrementally so Tk remains responsive."""
@@ -6189,17 +6186,14 @@ class ResultsPanel(StagePanel):
             if index >= count:
                 self._finish_gif_capture()
                 return
-            self._render_result_frame(index)
-            self.update_idletasks()
-            state["images"].append(self.app.viewport.capture_image())
-            state["index"] = index + 1
-            if index + 1 >= count:
-                self.after_idle(self._capture_gif_frame)
-            else:
-                self.app.set_status(
-                    f"capturing GIF frame {index + 2} of {count}"
-                )
-                self.after(1, self._capture_gif_frame)
+            def capture():
+                if self._gif_export is not state:return
+                try:
+                    state["images"].append(self.app.viewport.capture_image())
+                    state["index"]=index+1
+                    self.after(1,self._capture_gif_frame)
+                except Exception as error:self._abort_gif_capture(error)
+            self._render_result_frame(index,on_ready=capture,on_cancel=lambda:self._abort_gif_capture(RuntimeError("capture request cancelled")))
         except Exception as error:  # asynchronous callbacks cannot use guarded()
             self._abort_gif_capture(error)
 
@@ -6266,16 +6260,16 @@ class ResultsPanel(StagePanel):
         if solution is None:
             raise ValueError("run a solve first")
         points = self.require_selection("vertex", count=1)
-        node = self.app.mesh.node_of_vertex.get(points[0].id)
+        node = self.app.current_shape().built.mesh.node_of_vertex.get(points[0].id)
         if node is None:
             raise ValueError(f"{points[0]} has no node in the mesh")
-        series = history_series(solution, probe=node, component=self.field_name()
-                                if self.field_name() in DOF_NAMES else "uz")
-        if not series:
-            raise ValueError("this result has no history to plot")
-        self.plot.show(converted_series(series, self.display_units()))
-        self._readout_tabs.select(0)
-        self.app.set_status(f"plotting at node {node}")
+        name=self.field_name() if self.field_name() in DOF_NAMES else "uz"
+        units=self.display_units()
+        def publish(series):
+            if not series:raise ValueError("this result has no history to plot")
+            self.plot.show(series);self._readout_tabs.select(0)
+            self.app.set_status(f"plotting at node {node}")
+        self.app._request_result(lambda cancel:converted_series(history_series(solution,probe=node,component=name),units),publish,channel="history")
 
     def refresh(self) -> None:
         records = list(getattr(self.app.project, "jobs", {}).values())
@@ -6310,6 +6304,7 @@ class ResultsPanel(StagePanel):
         solution = self.app.solution
         if solution is None:
             dataset = self.app.result_datasets.get(active_id)
+            if dataset is not None and self.app.prepare_result_dataset(dataset):return
             if dataset is not None:
                 keys = dataset.field_keys
                 self._field_box.configure(values=keys)
@@ -6342,11 +6337,11 @@ class ResultsPanel(StagePanel):
                 self._summary.configure(text=f"{text}\n{deformation}")
                 status = str(summary.get("status", "persisted result"))
                 self._outcome_status.configure(
-                    text=status.replace("_", " ").upper(), foreground="#2e7d32"
+                    text=status.replace("_", " ").upper(), foreground="#b71c1c" if dataset.identity.get("partial",False) or status.lower() not in {"ok","complete","completed","success","converged"} else "#2e7d32"
                 )
                 for value in self._outcome_values.values():
                     value.set("—")
-                self._outcome_progress.configure(value=100.0)
+                self._outcome_progress.configure(value=0.0 if dataset.identity.get("partial",False) or status.casefold() not in {"ok","complete","completed","success","converged"} else 100.0)
                 self._outcome_progress_text.configure(
                     text=f"{len(frames)} saved frame(s)" if len(frames) else "static"
                 )
@@ -6372,9 +6367,8 @@ class ResultsPanel(StagePanel):
         # The plot follows the result: a transient or an incremental solve has
         # a history, a linear static does not, and an empty plot says so rather
         # than keeping the previous result's curve on screen.
-        self.plot.show(
-            converted_series(history_series(solution), self.display_units())
-        )
+        units=self.display_units()
+        self.app._request_result(lambda cancel:converted_series(history_series(solution),units),self.plot.show,channel="history")
         self._update_outcome(solution)
 
         # An imported result names its own fields, which are the file's, not
@@ -6394,14 +6388,8 @@ class ResultsPanel(StagePanel):
         self._update_frame_details()
 
         shape = self.app.current_shape()
-        try:
-            node, magnitude = shape.max_translation()
-            scale, unit = unit_transform("m", self.display_units())
-            displacement_text = (
-                f"max translation {magnitude * scale:.6g} {unit} at node {node}"
-            )
-        except KeyError:
-            displacement_text = "deformation unavailable (undeformed display)"
+        # Summary refresh must not scan every nodal DOF on the owner thread.
+        displacement_text = "Translation statistics load with the requested result field."
         constitutive = self._constitutive_summary(shape)
         self._summary.configure(
             text=(
@@ -6458,11 +6446,9 @@ class ResultsPanel(StagePanel):
                     values=(descriptor.location, descriptor.unit),
                 )
             return
-        from ..post.solver_data import available_solution_quantities
+        from ..post.solver_data import solution_quantity_descriptors
 
-        descriptors = tuple(
-            item.descriptor for item in available_solution_quantities(solution)
-        )
+        descriptors = solution_quantity_descriptors(solution)
         if not descriptors:
             fields = getattr(solution, "available_fields", None)
             values = fields() if callable(fields) else available_fields()
@@ -6612,25 +6598,28 @@ class ResultsPanel(StagePanel):
     def component(self) -> str:
         return self._component.get()
 
-    def _show(self) -> None:
+    def _show(self, *, on_ready=None,on_cancel=None) -> None:
         if self.app.solution is None:
             if self.app.active_job_id not in self.app.result_datasets:
                 raise ValueError("run a solve first")
             dataset = self.app.result_datasets[self.app.active_job_id]
             key = self._component.get()
+            if self.app.prepare_result_dataset(dataset,on_ready=lambda:self._show(on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
             stored = dataset.field(key)
             descriptor = stored.descriptor
             if descriptor.location in ("global", "history", "support", "contact"):
-                frame = min(max(self.app.shape_index, 0), stored.shape[0] - 1)
+                frame = stored.root_frame_index(self.app.shape_index)
                 value_scale, display_unit = unit_transform(
                     descriptor.unit, self.display_units()
                 )
-                values = np.asarray(stored.read(frame)) * value_scale
-                self.write(
-                    f"{descriptor.label} [{display_unit}]\n"
-                    + np.array2string(values, precision=7, threshold=200)
-                )
-                self.app.set_status(f"showing {descriptor.label} as a result table")
+                def load(cancel):
+                    values=np.asarray(stored.read(frame))*value_scale
+                    return f"{descriptor.label} [{display_unit}]\n"+np.array2string(values,precision=7,threshold=200)
+                def publish(text):
+                    self.write(text)
+                    self.app.set_status(f"showing {descriptor.label} as a result table")
+                    if on_ready is not None:on_ready()
+                self.app._request_result(load,publish,dataset=dataset,on_cancel=on_cancel)
                 return
             scale_text = self._scale.get().strip().lower()
             scale = (
@@ -6643,10 +6632,11 @@ class ResultsPanel(StagePanel):
                 frame=self.app.shape_index,
                 scale=scale,
                 limits=self.colour_limits(),
+                on_ready=on_ready,on_cancel=on_cancel,
             )
             self.app.details.set_hint("Result contour")
             return
-        self.app.show_results()
+        self.app.show_results(on_ready=on_ready,on_cancel=on_cancel)
         self.app.details.set_hint("Result contour")
 
     def destroy(self) -> None:

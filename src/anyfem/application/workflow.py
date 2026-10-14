@@ -83,6 +83,17 @@ class _WorkbenchField:
             raise AttributeError(
                 f"workbench is not initialized; cannot set {self.field!r}"
             )
+        if self.field == "result_datasets":
+            previous=getattr(workbench,"result_datasets",{})
+            from queue import SimpleQueue
+            retired=instance.__dict__.setdefault("_retired_result_datasets",SimpleQueue())
+            instance.__dict__["_result_dataset_snapshot"]=tuple(value.values())
+            for dataset in previous.values():
+                if not any(dataset is current for current in value.values()):retired.put(dataset)
+        if self.field in {"solution", "project", "mesh", "result_datasets", "active_model_hash", "shape_index", "active_job_id"}:
+            invalidate = getattr(instance, "invalidate_result_requests", None)
+            if invalidate is not None:
+                if self.field != "result_datasets":invalidate(source=self.field in {"solution","project","mesh","active_model_hash"},reads=self.field=="active_job_id")
         workbench.update(self.field, value)
 
 
@@ -256,13 +267,13 @@ class WorkbenchWorkflow:
 
     def _on_revision_changed(self, revision) -> None:
         """Invalidate derived data and expose dirty/stale state immediately."""
-
         model_changed = revision.model_hash != self._active_model_hash
         self._active_model_hash = revision.model_hash
         loading_hash = _loading_hash(self.project)
         loading_changed = loading_hash != getattr(self, "_active_loading_hash", loading_hash)
         self._active_loading_hash = loading_hash
         if model_changed or loading_changed:
+            self.invalidate_result_requests(source=True)
             # Mesh-native documents have no editable generating geometry.
             # Attribute/region changes invalidate solves, not their source mesh.
             if model_changed:
@@ -681,14 +692,14 @@ class WorkbenchWorkflow:
         if inspection_only:
             self._inspection_mesh = created_mesh
             self.show_inspection_mesh()
-            self.set_status("Mesh created — inspection only; solver admission is blocked")
+            self.set_status("Mesh created â€” inspection only; solver admission is blocked")
         else:
             self.mesh = created_mesh
             self._inspection_mesh = None
             self.solution = None
             self.mesh_record_id = record.id
             self.set_status(
-                f"Mesh created — ready to solve: {created_mesh.num_nodes} nodes, "
+                f"Mesh created â€” ready to solve: {created_mesh.num_nodes} nodes, "
                 f"{created_mesh.num_elements} elements; "
                 f"{getattr(created_mesh, 'automatic_intersections', 0)} plate "
                 "intersection(s) imprinted; "
@@ -963,7 +974,7 @@ class WorkbenchWorkflow:
                         self._inspection_mesh = result.mesh
                         self.show_inspection_mesh()
                         self.set_status(
-                            "Mesh created — inspection only; solver admission is blocked"
+                            "Mesh created â€” inspection only; solver admission is blocked"
                         )
                     else:
                         self._inspection_mesh = None
@@ -978,7 +989,7 @@ class WorkbenchWorkflow:
                             if used_method is not None else ""
                         )
                         self.set_status(
-                            f"Mesh created — ready to solve: {result.mesh.num_nodes} nodes, "
+                            f"Mesh created â€” ready to solve: {result.mesh.num_nodes} nodes, "
                             f"{result.mesh.num_elements} elements{method_note}; "
                             f"{getattr(result.mesh, 'automatic_intersections', 0)} "
                             "plate intersection(s) imprinted; "
@@ -1421,9 +1432,10 @@ class WorkbenchWorkflow:
             self.project.jobs[job_id].result_artifact_id = artifact.id
             self.project.artifacts[artifact.id] = artifact
         try:
-            self.result_datasets[job_id] = ArtifactStore(destination).open_result(
-                artifact
+            dataset = ArtifactStore(destination).open_result(
+                artifact,defer=True
             )
+            self.result_datasets=dict(self.result_datasets,**{job_id:dataset})
         except (OSError, ValueError):
             pass
 
@@ -1692,6 +1704,15 @@ class WorkbenchWorkflow:
         self._update_view_label()
 
 
+    def prepare_result_dataset(self,dataset,*,on_ready=None,on_cancel=None):
+        if getattr(dataset,"metadata_ready",True):return False
+        self.set_status("Preparing result metadata...")
+        def prepared(value):
+            self.refresh_panels()
+            if on_ready is not None:on_ready()
+        self._request_result(lambda cancel:dataset.prepare_metadata(),prepared,dataset=dataset,on_cancel=on_cancel)
+        return True
+
     def show_persisted_result(
         self,
         field_key: str,
@@ -1700,42 +1721,152 @@ class WorkbenchWorkflow:
         component: str | None = None,
         scale: float = 1.0,
         limits=None,
+        on_ready=None,
+        on_cancel=None,
     ) -> None:
         if self.active_job_id is None:
             raise ValueError("this persisted result has no available mesh")
         dataset = self.result_datasets.get(self.active_job_id)
         if dataset is None:
             raise ValueError("the result artifact is unavailable")
-        result_mesh=self.retained_result_mesh(self.active_job_id)
+        if self.prepare_result_dataset(dataset,on_ready=lambda:self.show_persisted_result(
+                field_key,frame=frame,scale=scale,component=component,limits=limits,on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
         job=self.project.jobs.get(self.active_job_id)
         stale=job is not None and self._job_is_stale(job)
-        scene = build_persisted_result_scene(
-            self.project,
-            result_mesh,
-            dataset,
-            field_key,
-            frame=frame,
-            component=component,
-            scale=scale,
-            limits=limits,
-            colormap=self.panels["Results"].colormap(),
-            display_units=self.panels["Results"].display_units(),
-            show_nodes=self.panels["Results"].show_result_nodes(),
-            show_beam_sections=self.viewport.visualization.show_beam_sections and not stale,
-        )
         panel = self.panels["Results"]
-        scene = scene if stale else self._with_attributes(
-            scene,
-            mesh=result_mesh,
-            show_supports=panel.show_result_supports(),
-            show_loads=panel.show_result_loads(),
-            show_masses=panel.show_result_masses(),
-            show_imperfections=panel.show_imperfect_reference(),
-        )
-        self._view_mode = "results"
-        self.viewport.show(scene)
-        self._update_view_label()
-        if stale:self.set_status("Stale retained result on its submitted mesh; current sections and model attributes are omitted")
+        cancel_pending=getattr(panel,"cancel_pending_display",None)
+        if callable(cancel_pending):cancel_pending()
+        options = dict(colormap=panel.colormap(), display_units=panel.display_units(),
+                       show_nodes=panel.show_result_nodes(),
+                       show_beam_sections=self.viewport.visualization.show_beam_sections and not stale)
+        geometry_key=(getattr(self,"_result_revision",0),id(dataset),self.active_job_id,frame if scale else None,
+                      scale,repr(self.viewport.visualization),self._show_attributes.get(),stale,
+                      options["show_nodes"],panel.show_result_supports(),panel.show_result_loads(),
+                      panel.show_result_masses(),panel.show_imperfect_reference())
+        warm=(geometry_key==getattr(self,"_persisted_geometry_key",None) and
+              getattr(self.viewport,'active_backend',None)=='gpu' and
+              getattr(self.viewport,'_retained_result',None) is not None)
+        def load(cancel):
+            if warm:
+                from ..ui.scene import read_persisted_display_field
+                field,descriptor=read_persisted_display_field(dataset,field_key,frame=frame,component=component)
+                return field,descriptor
+            result_mesh=self.retained_result_mesh(self.active_job_id)
+            scene = build_persisted_result_scene(
+                self.project,
+                result_mesh,
+                dataset,
+                field_key,
+                frame=frame,
+                component=component,
+                scale=scale,
+                limits=limits,
+                colormap=options["colormap"],
+                display_units=options["display_units"],
+                show_nodes=options["show_nodes"],
+                show_beam_sections=options["show_beam_sections"],
+            )
+            return scene
+        def apply(scene):
+            panel = self.panels["Results"]
+            access=getattr(self,"_live_result_access",None)
+            field=scene[0] if warm else scene.result_field
+            scalar_bytes=0
+            retained=getattr(self.viewport,"_retained_result",None)
+            if warm and retained:scalar_bytes=sum(handle.mesh.element_scalars.nbytes for handle in retained[1])
+            from ..presentation.retained_results import prepared_publication_bytes
+            reservation=access.reserve_publication(field,prepared_publication_bytes(field,getattr(self.viewport,"_scene",None) if warm else scene,scalar_bytes)) if access is not None else None
+            if warm:
+                from ..ui.scene import persisted_display_metadata
+                field,descriptor=scene
+                range_,palette,legend=persisted_display_metadata(field,descriptor,component,limits=limits,display_units=options["display_units"],colormap=options["colormap"])
+                if self.viewport.update_result_field(field,scalar_range=range_,colormap=palette,legend=legend):
+                    if reservation is not None:access.commit_publication(reservation)
+                    self._result_geometry_key=None
+                    self._warn_persisted_status(dataset,stale)
+                    self._update_view_label()
+                    if on_ready is not None:on_ready()
+                    return
+                self._persisted_geometry_key=None
+                if access is not None:access.discard_publication()
+                self.show_persisted_result(field_key,frame=frame,component=component,scale=scale,limits=limits,on_ready=on_ready,on_cancel=on_cancel)
+                return
+            result_mesh=scene.result_mesh
+            scene = scene if stale else self._with_attributes(
+                scene,
+                mesh=result_mesh,
+                show_supports=panel.show_result_supports(),
+                show_loads=panel.show_result_loads(),
+                show_masses=panel.show_result_masses(),
+                show_imperfections=panel.show_imperfect_reference(),
+            )
+            self._view_mode = "results"
+            if access is not None and getattr(self.viewport,"active_backend",None)=="gpu":
+                from ..presentation.retained_results import prepare
+                prepared=prepare(self.viewport,scene)
+                if prepared is not None:
+                    access.discard_publication()
+                    reservation=access.reserve_publication(field,prepared_publication_bytes(field,scene,sum(mesh.element_scalars.nbytes for mesh,options in prepared[1])))
+                    scene._prepared_result_batches=prepared
+            self.viewport.show(scene)
+            from ..presentation.retained_results import discard_prepared_field
+            discard_prepared_field(field)
+            if reservation is not None:access.commit_publication(reservation)
+            self._result_geometry_key=None
+            self._persisted_geometry_key=geometry_key
+            if on_ready is not None:on_ready()
+            self._update_view_label()
+            if stale:self.set_status("Stale retained result on its submitted mesh; current sections and model attributes are omitted")
+            self._warn_persisted_status(dataset,stale)
+        def publish(scene):
+            try:return apply(scene)
+            except BaseException:
+                access=getattr(self,"_live_result_access",None)
+                if access is not None:access.discard_publication()
+                raise
+        return self._request_result(load, publish,dataset=dataset,on_cancel=on_cancel,display_options=dict(limits=limits,display_units=options["display_units"],colormap=options["colormap"]))
+
+    def _set_result_warning(self,text=None,*,error=False):
+        previous=getattr(self,'_result_warning_stamp',None)
+        current=WorkbenchWorkflow._result_status_stamp(self)
+        if text:
+            self.set_status(text,error=error);self._result_warning_text=text
+            self._result_warning_stamp=WorkbenchWorkflow._result_status_stamp(self)
+        elif previous and current==previous:
+            self.set_status('Results ready');self._result_warning_text=None;self._result_warning_stamp=None
+
+    def _result_status_stamp(self):
+        return (getattr(self,'_status_revision',0),WorkbenchWorkflow._result_status_text(self))
+
+    def _result_export_notice(self,message,request_status,*,error=False):
+        outcomes=self.__dict__.setdefault('_result_export_outcomes',[])
+        outcomes.append(message);del outcomes[:-10]
+        if WorkbenchWorkflow._result_status_stamp(self)==request_status:
+            self.set_status(message,error=error)
+        else:
+            log=getattr(self,'log',None)
+            if hasattr(log,'appendPlainText'):log.appendPlainText(message)
+            elif hasattr(log,'insert'):log.insert('end',message+'\n')
+            else:
+                solve=getattr(self,'panels',{}).get('Solve')
+                if hasattr(solve,'append_report'):solve.append_report(message)
+            if error:
+                from ..diagnostics import ErrorDiagnostic
+                diagnostics=self.__dict__.setdefault('_result_export_diagnostics',[])
+                diagnostics.append(ErrorDiagnostic.capture(message));del diagnostics[:-10]
+
+    def _result_status_text(self):
+        status=getattr(self,'_status',None)
+        if hasattr(status,'get'):return status.get()
+        if hasattr(status,'cget'):return status.cget('text')
+        return None
+
+    def _warn_persisted_status(self,dataset,stale=False):
+        warnings=[]
+        if getattr(dataset,"identity",{}).get("partial",False):warnings.append("Partial analysis: explicit stored values; no completed-analysis or portable certification claim")
+        if stale:warnings.append("Stale retained result shown on its submitted mesh")
+        WorkbenchWorkflow._set_result_warning(self,"; ".join(warnings) if warnings else None,error=bool(warnings))
+
 
 
     def _with_attributes(
@@ -1797,20 +1928,316 @@ class WorkbenchWorkflow:
             self.show_geometry()
 
 
-    def show_results(self) -> None:
+    def invalidate_result_requests(self, *, source=False, reads=False):
+        self._result_revision = getattr(self, "_result_revision", 0) + 1
+        if source:self._result_source_epoch=getattr(self,'_result_source_epoch',0)+1
+        loader=getattr(self,"_result_loader",None)
+        if loader is not None:
+            loader.invalidate(source=source,reads=reads)
+
+    def close_result_access(self):
+        """Owner returns immediately; the SAME worker retires query resources."""
+        self.invalidate_result_requests(source=True)
+        loader=getattr(self,'_result_loader',None)
+        self._result_loader=None
+        access=getattr(self,'_live_result_access',None)
+        datasets=tuple(getattr(self,'result_datasets',{}).values())+self._take_retired_result_datasets()
+        def finalizer():
+            current=getattr(self,'_live_result_access',None)
+            self._live_result_access=None
+            unique=[]
+            for resource in (current,access)+datasets:
+                if resource is None or any(resource is previous for previous in unique):continue
+                unique.append(resource)
+                try:resource.close()
+                except BaseException as error:
+                    import logging
+                    logging.getLogger(__name__).exception('Result resource retirement failed')
+                    errors=self.__dict__.setdefault('_result_retirement_errors',[])
+                    errors.append(f'{type(error).__name__}: {error}')
+                    del errors[:-10]
+        if loader is not None:
+            self._result_completed_exports=loader.outcomes
+            self._result_failed_exports=loader.failures
+            self._retired_result_loader=loader
+            self._retiring_result_access=True
+            try:self._result_retirement=loader.retire(finalizer,report_pending=not self._closing)
+            finally:self._retiring_result_access=False
+        elif getattr(self,'_retired_result_loader',None) is not None:
+            self._result_retirement=self._retired_result_loader.retire(finalizer,report_pending=not self._closing)
+        elif getattr(self,'_result_retirement',None) is None:
+            # No worker means no source recovery can be using these readers.
+            finalizer()
+        retired=getattr(self,'_retired_result_loader',None)
+        if retired is not None:
+            pending_future=self._result_retirement
+            def report_retired_exports():
+                from queue import Empty
+                finished=pending_future.done()
+                while True:
+                    try:callback=retired.retirement_reports.get_nowait()
+                    except Empty:break
+                    if not self._closing:
+                        try:callback()
+                        except Exception:
+                            import logging
+                            logging.getLogger(__name__).exception('Retired export report failed')
+                if not self._closing and not finished:self.scheduler.call_later(5,report_retired_exports)
+            report_retired_exports()
+        from queue import Empty
+        queue=getattr(self,'_result_queue',None)
+        if queue is not None:
+            while True:
+                try:callback=queue.get_nowait()
+                except Empty:break
+                callback()  # already-settled delivery releases its payload only
+
+    def _take_retired_result_datasets(self):
+        from queue import Empty
+        queue=self.__dict__.get("_retired_result_datasets")
+        if queue is None:return ()
+        datasets=[]
+        while True:
+            try:datasets.append(queue.get_nowait())
+            except Empty:return tuple(datasets)
+
+    def _request_result(self, load, publish, *, dataset=None, channel="display", ordered=False, on_cancel=None, display_options=None, _retry_id=None, _status_stamp=None, _source_epoch=None):
+        request_status=WorkbenchWorkflow._result_status_stamp(self) if _status_stamp is None else _status_stamp
+        source_epoch=getattr(self,'_result_source_epoch',0) if _source_epoch is None else _source_epoch
+        if getattr(self,'_retiring_result_access',False):
+            if on_cancel is not None:on_cancel()
+            return None
+        retirement=getattr(self,'_result_retirement',None)
+        if retirement is not None:
+            if not retirement.done():
+                pending=self.__dict__.setdefault('_result_retry_tokens',{})
+                token=object() if _retry_id is None else _retry_id
+                if not ordered and _retry_id is None:pending[channel]=token
+                owner=(self.solution,self.project,self.mesh,self.active_job_id)
+                def retry():
+                    current=(self.solution,self.project,self.mesh,self.active_job_id)
+                    valid=(all(a is b for a,b in zip(owner[:3],current[:3])) and
+                           (ordered or owner[3]==current[3]) and source_epoch==getattr(self,'_result_source_epoch',0))
+                    if self._closing or not valid or (not ordered and pending.get(channel) is not token):
+                        if on_cancel is not None:on_cancel()
+                        if ordered and channel=='export' and not valid and not self._closing:
+                            WorkbenchWorkflow._result_export_notice(self,'Export cancelled before publication',request_status)
+                        return
+                    self._request_result(load,publish,dataset=dataset,channel=channel,ordered=ordered,on_cancel=on_cancel,display_options=display_options,_retry_id=token,_status_stamp=request_status,_source_epoch=source_epoch)
+                if not self._closing:self.scheduler.call_later(5,retry)
+                elif on_cancel is not None:on_cancel()
+                return None
+            self._result_retirement=None
+            retired_loader=self.__dict__.pop('_retired_result_loader',None)
+            if retired_loader is not None:retired_loader.shutdown()
+            try:retirement.result()
+            except BaseException as error:
+                import logging
+                logging.getLogger(__name__).exception('Result retirement failed: %s',error)
+        from queue import SimpleQueue, Empty
+        from .result_requests import ResultRequests
+        if getattr(self, "_result_loader", None) is None:
+            self._result_queue = SimpleQueue()
+            self._result_loader = ResultRequests(self._result_queue.put)
+            drain_loader=self._result_loader
+            def drain():
+                if self._closing or getattr(self,"_result_loader",None) is not drain_loader:
+                    return
+                try:
+                    while True:
+                        self._result_queue.get_nowait()()
+                except Empty:
+                    pass
+                finally:
+                    if not self._closing:self.scheduler.call_later(5, drain)
+            self.scheduler.call_later(0, drain)
+        revision = getattr(self, "_result_revision", 0)
+        solution, project, mesh = self.solution, self.project, self.mesh
+        display_scene=getattr(self.viewport,"_scene",None) if hasattr(self,"viewport") else None
+        retained=getattr(self.viewport,"_retained_result",None) if hasattr(self,"viewport") else None
+        panel=getattr(self,"panels",{}).get("Results")
+        if display_options is None and channel=="display" and retained is not None and display_scene is not None and panel is not None:
+            display_options=dict(limits=panel.colour_limits(),display_units=panel.display_units(),colormap=panel.colormap())
+        datasets=tuple(getattr(self,"result_datasets",{}).values())
+        cleanup_settled=False
+        def cancel_capture():
+            nonlocal cleanup_settled
+            if not cleanup_settled:
+                cleanup_settled=True
+                if on_cancel is not None:on_cancel()
+        def completed(result):
+            if result.pending:
+                cancel_capture()
+                return
+            if result.committed:
+                if not self._closing:
+                    publish(result.value)
+                    message=f"Export completed from {result.source}: {result.value}" if result.source else f"Export completed: {result.value}"
+                    WorkbenchWorkflow._result_export_notice(self,message,request_status)
+                else:
+                    cancel_capture()
+                    import logging
+                    logging.getLogger(__name__).info('Export completed from %s: %s',result.source,result.value)
+                return
+            if ordered and result.error is not None and not result.cancelled:
+                cancel_capture()
+                if not self._closing:
+                    WorkbenchWorkflow._result_export_notice(self,f'Export failed: {type(result.error).__name__}: {result.error}',request_status,error=True)
+                return
+            if self._closing or result.cancelled or self.solution is not solution or self.project is not project or self.mesh is not mesh:
+                cancel_capture()
+                if ordered and channel=='export' and not self._closing:
+                    message='Export cancelled before publication'
+                    WorkbenchWorkflow._result_export_notice(self,message,request_status)
+                return
+            if result.error is not None:
+                cancel_capture()
+                self.set_status(f"Result query failed: {result.error}",error=True)
+                return
+            try:publish(result.value)
+            except Exception as error:
+                access=getattr(self,"_live_result_access",None)
+                if access is not None:access.discard_publication()
+                cancel_capture()
+                self.set_status(f"Result publication refused: {error}",error=True)
+        def run(cancel):
+            for other in datasets:
+                if other is not dataset:
+                    release=getattr(other,"release_reader",None) or other.close
+                    release()
+            for retired_dataset in self._take_retired_result_datasets():
+                if not any(retired_dataset is current for current in getattr(self,"_result_dataset_snapshot",datasets)):retired_dataset.close()
+            from ..post.access import LiveResultAccess,result_access_scope
+            access=getattr(self,"_live_result_access",None)
+            accepted_bytes=getattr(access,"_publication_bytes",0)
+            if dataset is not None and access is not None:
+                access.close();access=None
+            if access is None or getattr(self,"_live_access_revision",None)!=revision:
+                if access is not None:access.close()
+                access=self._live_result_access=LiveResultAccess(analysis_status=getattr(solution,"status",None))
+                access.commit_publication(accepted_bytes)
+                self._live_access_revision=revision
+            with result_access_scope(access):
+                value=load(cancel)
+                field=getattr(value,"field",value[0] if isinstance(value,tuple) and value else value)
+                if display_options is not None and retained is not None and display_scene is not None and hasattr(field,"node_values") and not cancel.is_set():
+                    from ..presentation.retained_results import prepare_warm_field
+                    prepare_warm_field(field,display_scene,retained,working_bytes=access.working_bytes,**display_options)
+                return value
+        return self._result_loader.request(run, completed,channel=channel,ordered=ordered)
+
+    def _result_scale_text(self,panel):
+        widget=getattr(panel,"scale",getattr(panel,"_scale",None))
+        if widget is None:return None
+        return widget.text() if hasattr(widget,"text") else widget.get()
+
+    def show_results(self, *, on_ready=None, on_cancel=None) -> None:
         if self.solution is None:
+            self.invalidate_result_requests()
             self.show_mesh()
             return
         panel = self.panels["Results"]
+        cancel_pending=getattr(panel,'cancel_pending_display',None)
+        if callable(cancel_pending):cancel_pending()
+        panel.ensure_compatible_field()
+        shape, solution, name = self.current_shape(), self.solution, panel.field_name()
+        checkbox = getattr(panel, "envelope", getattr(panel, "_envelope", None))
+        use_envelope = checkbox is not None and (checkbox.isChecked() if hasattr(checkbox, "isChecked") else checkbox.get())
+        revision = getattr(self, "_result_revision", 0)
+        scale_text=self._result_scale_text(panel)
+        def load(cancel):
+            from ..post.access import LiveResultAccess
+            access = getattr(self, "_live_result_access", None)
+            scale_key=(revision,id(shape),scale_text)
+            if scale_text is not None and getattr(self,"_prepared_result_scale",(None,))[0] != scale_key:
+                from ..presentation.result_display import deformation_scale
+                if str(scale_text).strip().lower() in {"","auto"}:
+                    try:
+                        magnitude=access.field(shape,"magnitude",cancel_event=cancel)
+                        from types import SimpleNamespace
+                        proxy=SimpleNamespace(built=shape.built,max_translation=magnitude.extreme)
+                        value=deformation_scale(scale_text,self.project,proxy)
+                    except KeyError:value=0.0
+                else:value=deformation_scale(scale_text,self.project,shape)
+                self._prepared_result_scale=(scale_key,value)
+            if use_envelope:
+                from ..post.access import evaluate_envelope
+                return evaluate_envelope(solution, name,cancel_event=cancel)
+            return access.field(shape, name, cancel_event=cancel)
+        def publish(field):
+            coverage=field if hasattr(field,"admitted_case_ids") else None
+            if coverage is not None:field=coverage.field
+            accepted=self._publish_results_field(field)
+            if accepted and coverage is not None:
+                WorkbenchWorkflow._set_result_warning(self,f"Envelope coverage: {coverage.admitted_count}/{coverage.shape_count} admitted; {coverage.failed_count} failed {coverage.failed_case_ids}",error=bool(coverage.failed_count))
+            if accepted is False:
+                if self.solution is not None:self.show_results(on_ready=on_ready,on_cancel=on_cancel)
+            elif on_ready is not None:on_ready()
+        return self._request_result(load,publish,on_cancel=on_cancel)
+
+    def _publish_results_field(self, result_field) -> bool:
+        try:return WorkbenchWorkflow._apply_results_field(self,result_field)
+        except BaseException:
+            access=getattr(self,"_live_result_access",None)
+            if access is not None:access.discard_publication()
+            raise
+
+    def _apply_results_field(self, result_field) -> bool:
+        if self.solution is None:
+            self.show_mesh()
+            return False
+        panel = self.panels["Results"]
         panel.ensure_compatible_field()
         shape = self.current_shape()
+        if result_field.name not in {panel.field_name(),panel.field_name()+" envelope"}:
+            raise ValueError("returned result field does not match the requested component")
         self._view_mode = "results"
+        from ..post.access import source_case_metadata
+        status=source_case_metadata(shape,getattr(self.solution,"status",None))["status"]
+        if not result_field.name.endswith(" envelope") and status not in {"ok","complete","completed","success","succeeded","converged"}:
+            WorkbenchWorkflow._set_result_warning(self,f"Stored source snapshot from {status}; no accepted-state or portable certification claim",error=True)
+        elif not result_field.name.endswith(" envelope"):WorkbenchWorkflow._set_result_warning(self,)
+        scale_text=self._result_scale_text(panel)
+        if scale_text is None:scale=panel.scale_value(shape)
+        else:
+            key=(getattr(self,"_result_revision",0),id(shape),scale_text)
+            prepared=getattr(self,"_prepared_result_scale",(None,None))
+            if prepared[0] != key:
+                return False
+            scale=prepared[1]
+        geometry_key = (getattr(self,"_result_revision",0),id(shape),scale,
+                        panel.show_result_nodes(),repr(self.viewport.visualization),
+                        panel.show_result_supports(),panel.show_result_loads(),
+                        panel.show_result_masses(),panel.show_imperfect_reference(),
+                        self._show_attributes.get(),self._result_case_name(shape))
+        access=getattr(self,"_live_result_access",None)
+        reservation=None
+        if access is not None:
+            retained=getattr(self.viewport,"_retained_result",None)
+            scalar_bytes=0
+            if retained and geometry_key == getattr(self,"_result_geometry_key",None):
+                for handle in retained[1]:
+                    mesh=handle.mesh
+                    scalar_bytes += mesh.element_scalars.nbytes
+            from ..presentation.retained_results import prepared_publication_bytes
+            candidate_scene=getattr(self.viewport,"_scene",None)
+            reservation=access.reserve_publication(result_field,scalar_bytes if candidate_scene is None else prepared_publication_bytes(result_field,candidate_scene,scalar_bytes))
+        if geometry_key == getattr(self,"_result_geometry_key",None):
+            from ..ui.scene import result_display_metadata
+            range_,palette,legend=result_display_metadata(result_field,limits=panel.colour_limits(),
+                                                          display_units=panel.display_units(),colormap=panel.colormap())
+            if self.viewport.update_result_field(result_field,scalar_range=range_,colormap=palette,legend=legend):
+                if reservation is not None:access.commit_publication(reservation)
+                self._update_view_label()
+                return True
+        from ..presentation.retained_results import discard_prepared_field
+        discard_prepared_field(result_field)
         scene = build_result_scene(
             shape,
             field=panel.field_name(),
-            scale=panel.scale_value(shape),
+            scale=scale,
             limits=panel.colour_limits(),
-            values=panel.field_values(),
+            values=result_field,
             colormap=panel.colormap(),
             display_units=panel.display_units(),
             show_nodes=panel.show_result_nodes(),
@@ -1828,8 +2255,26 @@ class WorkbenchWorkflow:
         )
         if getattr(self.solution, "sphere_positions", None) is not None:
             scene.merge(build_collision_overlay(self.solution, self.shape_index))
+        if access is not None and getattr(self.viewport,"active_backend",None)=="gpu":
+            from ..presentation.retained_results import prepare
+            prepared=prepare(self.viewport,scene)
+            if prepared is not None:
+                scalar_bytes=sum(mesh.element_scalars.nbytes for mesh,options in prepared[1])
+                access.discard_publication()
+                reservation=access.reserve_publication(result_field,scalar_bytes+getattr(result_field,"_display_buffer_bytes",0))
+                scene._prepared_result_batches=prepared
+        from ..presentation.retained_results import prepared_publication_bytes,discard_prepared_field
+        if access is not None and reservation is None:reservation=access.reserve_publication(result_field,prepared_publication_bytes(result_field,scene,0))
+        if access is not None:
+            access.discard_publication()
+            reservation=access.reserve_publication(result_field,prepared_publication_bytes(result_field,scene,scalar_bytes))
         self.viewport.show(scene)
+        discard_prepared_field(result_field)
+        self._persisted_geometry_key=None
+        self._result_geometry_key = geometry_key
+        if reservation is not None:access.commit_publication(reservation)
         self._update_view_label()
+        return True
 
 
     def _fit(self) -> None:
@@ -2535,7 +2980,7 @@ class WorkbenchWorkflow:
                 if artifact is None:
                     continue
                 try:
-                    self.result_datasets[job_id] = store.open_result(artifact)
+                    self.result_datasets=dict(self.result_datasets,**{job_id:store.open_result(artifact,defer=True)})
                 except (OSError, ValueError) as error:
                     record.diagnostics.append(
                         {

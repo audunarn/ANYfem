@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ANYfem"
-version = "0.4.1"
+version = "0.4.2"
 description = "Shell and beam finite-element application with native hybrid meshing, solving and postprocessing"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,28 +33,31 @@ dependencies = [
   "numpy>=2.0",
   "scipy>=1.13",
   "ANYsolver>=0.4.6,<0.5",
+    "ANYpost>=0.1.2,<0.2",
+  "ANYsolver-results>=2.1.1,<3",
   "ANYmaterial>=0.2,<0.3",
   "ANYloads>=0.1,<0.2",
   "ANYgeometry[planar]>=0.4.3,<0.5",
-  "ANYmesher>=0.5,<0.6",
+  "ANYmesher>=0.5.1,<0.6",
   "ANYfileio>=0.3.2,<0.4",
   "h5py>=3.15,<4",
   "platformdirs>=4.5,<5",
 ]
 
 [project.optional-dependencies]
+post = ["ANYpost[results]>=0.1,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [
   "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a",
-  "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f",
-  "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0",
+  "ANY3dView[gpu,qt]>=0.5.6,<0.6",
+  "ANYmesher>=0.5.1,<0.6",
   "Pillow>=10,<13",
   "PySide6>=6.10.1,<6.11",
 ]
-tk = ["ANY3dView[gpu]>=0.5.5,<0.6", "ANYtk3D>=0.5.5,<0.6", "Pillow>=10,<13"]
+tk = ["ANY3dView[gpu]>=0.5.6,<0.6", "ANYtk3D>=0.5.5,<0.6", "Pillow>=10,<13"]
 # Source development uses an editable sibling viewer instead of the release pin.
-qt = ["ANY3dView[gpu,qt]>=0.5.5,<0.6", "Pillow>=10,<13", "PySide6>=6.10.1,<6.11"]
+qt = ["ANY3dView[gpu,qt]>=0.5.6,<0.6", "Pillow>=10,<13", "PySide6>=6.10.1,<6.11"]
 # Excel (.xlsx) pressure tables; CSV/TSV/text need nothing extra.
 excel = ["ANYloads[excel]>=0.1,<0.2"]
 # Optional standard beam-section library (ANYsection); ANYfem runs without it.
@@ -72,6 +75,7 @@ anyfem-qt = "anyfem.ui.qt:main"
 anyfem-tk = "anyfem.ui.tk:main"
 
 [project.scripts]
+anyfem-archive = "anyfem.post.archive:main"
 anyfem-verify = "anyfem.verification:main"
 anyfem-parity = "anyfem.parity:main"
 anyfem-gate = "anyfem.migration:main"

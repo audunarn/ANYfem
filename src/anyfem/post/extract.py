@@ -276,6 +276,14 @@ class Envelope:
     mode: str
     shape_of: Dict[int, int] = dataclass_field(default_factory=dict)
     shape_count: int = 0
+    admitted_case_ids: tuple[str,...] = ()
+    failed_case_ids: tuple[str,...] = ()
+
+    @property
+    def admitted_count(self):return len(self.admitted_case_ids)
+
+    @property
+    def failed_count(self):return len(self.failed_case_ids)
 
     @property
     def name(self) -> str:
@@ -306,40 +314,8 @@ def envelope(
             f"unknown envelope mode {mode!r}; expected max_abs, max or min"
         )
 
-    shapes = getattr(solution, "shapes", None)
-    if not shapes:
-        # A single-shape result envelopes to itself, which keeps callers from
-        # having to special-case a static run.
-        shapes = [solution]
-
-    combined: Dict[int, float] = {}
-    origin: Dict[int, int] = {}
-    unit = field_unit(name)
-    per_element = False
-
-    for index, shape in enumerate(shapes):
-        field = evaluate_field(shape, name, reduction=reduction)
-        per_element = field.per_element
-        unit = field.unit
-        for key, value in field.values.items():
-            current = combined.get(key)
-            if current is None or _is_worse(value, current, mode):
-                combined[key] = value
-                origin[key] = index
-
-    envelope_field = Field(
-        name=f"{name} envelope",
-        unit=unit,
-        node_values={} if per_element else combined,
-        element_values=combined if per_element else {},
-        reduction=reduction,
-    )
-    return Envelope(
-        field=envelope_field,
-        mode=mode,
-        shape_of=origin,
-        shape_count=len(shapes),
-    )
+    from .access import evaluate_envelope
+    return evaluate_envelope(solution, name, mode=mode, reduction=reduction)
 
 
 def _is_worse(candidate: float, current: float, mode: str) -> bool:

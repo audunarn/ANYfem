@@ -118,7 +118,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu,qt]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[qt,tk]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu,qt]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYsolver\packages\results" -e "C:\Github\ANYpost" -e "C:\Github\ANYfem[qt,tk]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
@@ -958,3 +958,16 @@ terms that applied when they were published. Original project documentation
 is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
 third-party components retain their own terms as recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Native archive preparation prefers ANYpost's bounded `metadata_summary()` on its
+I/O worker. Small complete pool-free records remain prefetched; pooled records
+use summaries. `ArchiveSession.cases()` preserves detailed original values and
+loads them only when explicitly requested; `case_metadata(case_id)` loads one
+record and `case_summaries()` serves compact listing. The demo case selector and
+`--list` use summary APIs, avoiding implicit expansion of shared reaction ID lists.
+Legacy/providers lacking these APIs keep their existing metadata fallback.
+PreparedArchive's four positional arguments remain compatible. Oversized pooled
+whole-detail queries raise the reader's `WorkingSetError`; no incomplete details
+are substituted into the old API. Source certification/field rendering is unchanged.
+
+Native archive sample maps read associations cooperatively on the loader without holding their state lock. Geometry/header proofs are cached at attachment. Counts/diagnostics for cached maps stay responsive; uncached synchronous selectors refuse while worker I/O is active, directing callers to `request_native_sample`. Only the latest generation installs a sample map.

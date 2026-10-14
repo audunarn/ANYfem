@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from importlib import metadata
+from importlib.machinery import PathFinder
 from pathlib import Path
 import runpy
+import sys
 
 import pytest
 
@@ -22,11 +24,13 @@ def _versions() -> dict[str, str]:
         "ANYloads": "0.1.0",
         "ANYgeometry": "0.4.3",
         "ANYfileio": "0.3.2",
-        "ANYmesher": "0.5.0",
-        "ANY3dView": "0.5.5",
+        "ANYmesher": "0.5.1",
+        "ANY3dView": "0.5.6",
+        "ANYpost": "0.1.2",
+        "ANYsolver-results": "2.1.1",
         "ANYtk3D": "0.5.5",
         "ANYsolver": "0.4.6",
-        "ANYfem": "0.4.0",
+        "ANYfem": "0.4.2",
     }
 
 
@@ -53,6 +57,23 @@ def test_launcher_recognizes_hosted_ecosystem_checkout_layout(monkeypatch):
     assert namespace["_ANY3DVIEW_PROJECT"] == ecosystem / "ANY3dView"
     assert namespace["_ANYTK3D_PROJECT"] == ecosystem / "ANYtk3D"
     assert namespace["_ANYSOLVER_PROJECT"] == ecosystem / "ANYsolver"
+
+
+def test_existing_editable_paths_are_promoted_ahead_of_installed_packages(monkeypatch, tmp_path):
+    namespace = _namespace()
+    sources = list(dict.fromkeys(source for _dist, _module, source in namespace["_SOURCE_PROJECTS"] if source.is_dir()))
+    installed = tmp_path / "site-packages"
+    package = installed / "anymaterial"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    # An editable .pth can already expose all siblings after an installed wheel.
+    # Use alternate separators to also exercise equivalent Windows path strings.
+    monkeypatch.setattr(sys, "path", [str(installed), *sys.path, *(p.as_posix() for p in sources)])
+    assert PathFinder.find_spec("anymaterial", sys.path).origin == str(package / "__init__.py")
+    namespace = _namespace()
+    assert sys.path[:len(sources)] == [str(source) for source in sources]
+    material = next(source for _dist, module, source in namespace["_SOURCE_PROJECTS"] if module == "anymaterial")
+    assert PathFinder.find_spec("anymaterial", sys.path).origin == str(material / "anymaterial" / "__init__.py")
 
 
 def test_latest_sources_and_metadata_pass_without_importing_tk():
@@ -92,7 +113,26 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
     assert f'-e "{project}"' in namespace["editable_repair_command"]()
 
 
-@pytest.mark.parametrize("source_version", ["0.5.0", "0.5.1", "1.0.0"])
+def test_mesher_selector_skips_below_floor_checkout(tmp_path,monkeypatch):
+    namespace=_namespace();select=namespace['_qualified_anymesher_project']
+    for relative,version in [('ANYmesh','0.5.0'),('ANYsolver/.compat_anymesher_025','0.5.1')]:
+        path=tmp_path/relative;path.mkdir(parents=True)
+        (path/'pyproject.toml').write_text('[project]\nversion = "'+version+'"\n')
+    monkeypatch.delenv('ANYMESHER_SOURCE',raising=False);monkeypatch.delenv('ANYMESHER_025_SOURCE',raising=False)
+    monkeypatch.setitem(select.__globals__,'_ECOSYSTEM_WORKSPACE',tmp_path)
+    assert select()==tmp_path/'ANYsolver/.compat_anymesher_025'
+
+
+def test_runtime_source_version_and_origin_are_separately_checked(monkeypatch):
+    namespace=_namespace();read=namespace['_active_distribution_version']
+    monkeypatch.setattr(namespace['metadata'],'version',lambda name:'2.0.0')
+    declared=namespace['_declared_project_version'](namespace['_ANYSOLVER_PROJECT']/'packages/results')
+    assert read('ANYsolver-results')==declared
+    origins=_origins(namespace);origins['anysolver_results']='C:/unrelated/site-packages/anysolver_results/__init__.py'
+    assert any('anysolver_results' in error for error in namespace['ecosystem_origin_problems'](origins.__getitem__))
+
+
+@pytest.mark.parametrize("source_version", ["0.5.1", "0.5.2", "1.0.0"])
 def test_launcher_uses_selected_source_version_when_metadata_is_stale(
     monkeypatch, tmp_path, source_version,
 ):
@@ -163,6 +203,9 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
     assert command.index(f'-e "{solver_project}"') < command.index(
         f'-e "{ROOT}[qt,tk]"'
     )
+    runtime_project=str(namespace["_ANYSOLVER_PROJECT"] / "packages" / "results")
+    assert command.index(f'-e "{solver_project}"') < command.index(runtime_project)
+    assert command.index(runtime_project) < command.index("ANYpost")
 
 
 def test_wrong_module_origin_is_rejected_before_gui_import():

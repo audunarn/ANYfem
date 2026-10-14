@@ -325,16 +325,65 @@ class SceneViewport:
     def _render_scene(self, scene: Scene, *, reset_view: bool = False) -> None:
         """Draw one retained scene while retaining ``self._scene`` as source."""
 
+        from .retained_results import prepare
+        retained = None
+        if self.active_backend == "gpu" and scene.result_field is not None and hasattr(self.canvas, "add_mesh_arrays"):
+            retained = getattr(scene,"_prepared_result_batches",None)
+            if retained is None:retained = prepare(self, scene)
+        scene.__dict__.pop("_prepared_result_batches",None)
+        previous = getattr(self, "_retained_result", None)
+        if retained is not None and previous is not None and previous[0] == retained[0]:
+            for handle, (mesh, options) in zip(previous[1], retained[1]):
+                handle.update_scalar_fields(element_scalars=mesh.element_scalars)
+                handle.update_appearance(scalar_range=scene.result_scalar_range, colormap=scene.result_colormap)
+            self._draw_legend(scene)
+            self._apply_highlight()
+            self.canvas.redraw()
+            if reset_view:self.canvas.fit_to_scene()
+            return
+        self._retained_result = None
         self._marker_size = 0.012 * scene.characteristic_size()
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
-        self._draw(scene)
+        if retained is None:
+            self._draw(scene)
+        else:
+            handles = [self.canvas.add_mesh_arrays(mesh, **options) for mesh, options in retained[1]]
+            self._retained_result = (retained[0], handles, tuple(mesh.element_ids for mesh, options in retained[1]), scene.result_mesh)
+            self._draw(retained[2])
         self._draw_construction_overlay()
         if reset_view:
             self.canvas.fit_to_scene()
         self._apply_highlight()
         self.canvas.redraw()
 
+
+    def update_result_field(self, field, *, scalar_range, colormap, legend):
+        """Update scalars/appearance using retained entity maps only."""
+        retained = getattr(self, "_retained_result", None)
+        if retained is None or self.active_backend != "gpu":
+            return False
+        prepared=getattr(field,"_display_buffers",None)
+        valid=prepared is not None and prepared[0]==retained[0]
+        from dataclasses import replace
+        if not valid:
+            from .retained_results import prepare_warm_field
+            prepare_warm_field(field,self._scene,retained,colormap=colormap,limits=scalar_range)
+            prepared=field._display_buffers
+        scene=self._scene.copy()
+        scene.result_field=field;scene.result_scalar_range=scalar_range;scene.result_colormap=colormap;scene.legend=legend
+        faces,lines=prepared[2]
+        for index,colors in faces:scene.faces[index]=replace(scene.faces[index],colors=colors)
+        for index,color in lines:scene.lines[index]=replace(scene.lines[index],color=color)
+        for handle, values in zip(retained[1],prepared[1]):
+            handle.update_scalar_fields(element_scalars=values)
+            handle.update_appearance(scalar_range=scalar_range,colormap=colormap)
+        self._scene=scene
+        from .retained_results import discard_prepared_field
+        discard_prepared_field(field)
+        self._draw_legend(self._scene)
+        self.canvas.redraw()
+        return True
 
     def _cancel_interaction_restore(self) -> None:
         handle = self._interaction_restore_after_id
@@ -908,6 +957,9 @@ class SceneViewport:
                 point3d(*arrow.start), point3d(*arrow.end), color=arrow.color
             )
 
+        self._draw_legend(scene)
+
+    def _draw_legend(self, scene):
         if scene.legend and self._visualization.show_legend:
             self.canvas.set_thickness_legend(
                 scene.legend.get("levels", []),

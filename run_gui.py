@@ -75,7 +75,7 @@ def _qualified_anymesher_project() -> Path:
     ]
     for candidate in candidates:
         version = _declared_project_version(candidate)
-        if version is not None and _version_at_least(version, "0.5.0"):
+        if version is not None and _version_at_least(version, "0.5.1"):
             return candidate
     return Path(override) if override else release_checkout
 
@@ -109,6 +109,8 @@ _SOURCE_PROJECTS = (
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
     ("ANYsolver", "anysolver", _ANYSOLVER_PROJECT / "src"),
+    ("ANYsolver-results", "anysolver_results", _ANYSOLVER_PROJECT / "src"),
+    ("ANYpost", "anypost", _ECOSYSTEM_WORKSPACE / "ANYpost" / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
 
@@ -122,6 +124,9 @@ def _active_distribution_version(distribution: str) -> str:
     be evaluated against those source trees rather than stale dist-info.
     """
 
+    if distribution == "ANYsolver-results":
+        declared=_declared_project_version(_ANYSOLVER_PROJECT / "packages" / "results")
+        if declared is not None:return declared
     for candidate_distribution, _module, source in _SOURCE_PROJECTS:
         if candidate_distribution != distribution:
             continue
@@ -138,15 +143,26 @@ def _active_distribution_version(distribution: str) -> str:
 _OPTIONAL_SOURCE_PROJECTS = (
     ("ANYsection", "anysection", _ECOSYSTEM_WORKSPACE / "ANYsection" / "src"),
 )
+
+
+def _prioritize_source(source: Path) -> None:
+    """Promote a checkout even when an editable .pth already exposes it."""
+    if not source.is_dir():
+        return
+    path = str(source)
+    canonical = os.path.normcase(os.path.abspath(path))
+    sys.path[:] = [entry for entry in sys.path
+                   if os.path.normcase(os.path.abspath(entry)) != canonical]
+    sys.path.insert(0, path)
+
+
 for _distribution, _module, _source in _OPTIONAL_SOURCE_PROJECTS:
-    if _source.is_dir() and str(_source) not in sys.path:
-        sys.path.insert(0, str(_source))
+    _prioritize_source(_source)
 
 # Insert in reverse so ANYfem itself remains first and every module inspected
 # below is the sibling checkout that the launcher is about to execute.
 for _distribution, _module, _source in reversed(_SOURCE_PROJECTS):
-    if _source.is_dir() and str(_source) not in sys.path:
-        sys.path.insert(0, str(_source))
+    _prioritize_source(_source)
 
 
 ECOSYSTEM_REQUIREMENTS = (
@@ -154,10 +170,12 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYloads", "ANYloads>=0.1,<0.2", "0.1.0"),
     ("ANYgeometry", "ANYgeometry[planar]>=0.4.3,<0.5", "0.4.3"),
     ("ANYfileio", "ANYfileio>=0.3.2,<0.4", "0.3.2"),
-    ("ANYmesher", "ANYmesher>=0.5,<0.6", "0.5.0"),
-    ("ANY3dView", "ANY3dView[gpu]>=0.5.5,<0.6", "0.5.5"),
+    ("ANYmesher", "ANYmesher>=0.5.1,<0.6", "0.5.1"),
+    ("ANY3dView", "ANY3dView[gpu]>=0.5.6,<0.6", "0.5.6"),
     ("ANYtk3D", "ANYtk3D>=0.5.5,<0.6", "0.5.5"),
     ("ANYsolver", "ANYsolver>=0.4.6,<0.5", "0.4.6"),
+    ("ANYpost", "ANYpost>=0.1.2,<0.2", "0.1.2"),
+    ("ANYsolver-results", "ANYsolver-results>=2.1.1,<3", "2.1.1"),
     ("ANYfem", "ANYfem>=0.4,<0.5", "0.4.0"),
 )
 
@@ -166,7 +184,11 @@ def ecosystem_compatibility_problems(
     version_reader: Callable[[str], str] | None = None,
     *, frontend: str = "tk",
 ) -> tuple[str, ...]:
-    """Return missing or out-of-range distribution metadata."""
+    """Return missing metadata or generations below the source-launch floor.
+
+    Package upper bounds govern dependency resolution; this local launcher also
+    admits newer source generations after explicit capability/origin checks.
+    """
 
     read_version = (
         _active_distribution_version
@@ -234,6 +256,8 @@ def editable_repair_command() -> str:
         str(_ANY3DVIEW_PROJECT) + "[gpu,qt]",
         str(_ANYTK3D_PROJECT),
         str(_ANYSOLVER_PROJECT),
+        str(_ANYSOLVER_PROJECT / "packages" / "results"),
+        str(_ECOSYSTEM_WORKSPACE / "ANYpost"),
         str(_ROOT) + "[qt,tk]",
     )
     editables = " ".join(f'-e "{project}"' for project in projects)
@@ -251,9 +275,26 @@ def require_compatible_ecosystem(
         *ecosystem_compatibility_problems(version_reader, frontend=frontend),
         *ecosystem_origin_problems(origin_reader, frontend=frontend),
     )
+    if version_reader is None and origin_reader is None:
+        from importlib import import_module
+        try:
+            post = import_module("anypost")
+            runtime = import_module("anysolver_results")
+            viewer = import_module("any3dview")
+            if not callable(getattr(post, "open_memory_results", None)):
+                problems += ("ANYpost: open_memory_results capability is missing",)
+            if not callable(getattr(runtime, "shell_surface_component", None)):
+                problems += ("ANYsolver-results: shell_surface_component capability is missing",)
+            for method in ("read_stored_field","resize_cache"):
+                if not callable(getattr(getattr(post,"MemoryResultsReader",None),method,None)):
+                    problems += (f"ANYpost: MemoryResultsReader.{method} capability is missing",)
+            if not callable(getattr(getattr(viewer,"MeshHandle",None),"update_appearance",None)):
+                problems += ("ANY3dView: retained update_appearance capability is missing",)
+        except ImportError as error:
+            problems += (f"result engine import failed: {error}",)
     if problems:
         raise RuntimeError(
-            "ANYfem 0.4.1 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.4.2 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

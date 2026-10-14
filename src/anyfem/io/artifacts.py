@@ -399,7 +399,12 @@ class ArtifactStore:
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
             raise ArtifactError(f"cannot read job log {path}: {error}") from None
 
-    def open_result(self, artifact: ArtifactRef | str) -> "LazyResultDataset":
+    def open_result(self, artifact: ArtifactRef | str, *, defer=False) -> "LazyResultDataset":
+        if defer:
+            from copy import deepcopy
+            snapshot=deepcopy(artifact)
+            uri=snapshot.uri if isinstance(snapshot,ArtifactRef) else snapshot
+            return LazyResultDataset(self.resolve(uri),validator=lambda:self._path_for_read(snapshot,"result"))
         dataset = LazyResultDataset(self._path_for_read(artifact, "result"))
         dataset.validate()
         return dataset
@@ -496,10 +501,13 @@ class ResultField:
 
     @property
     def descriptor(self) -> ResultQuantityDescriptor:
-        h5py = _h5py()
-        with h5py.File(self.dataset.path, "r") as handle:
-            group = handle[f"fields/{self.key}"]
-            attributes = dict(group.attrs)
+        if self.dataset._header is not None:
+            attributes=dict(self.dataset._header["originals"][self.key])
+        else:
+            h5py = _h5py()
+            with h5py.File(self.dataset.path, "r") as handle:
+                group = handle[f"fields/{self.key}"]
+                attributes = dict(group.attrs)
         def decoded(name: str, default):
             value = attributes.get(name, default)
             if isinstance(value, bytes):
@@ -523,20 +531,112 @@ class ResultField:
 
     @property
     def shape(self) -> tuple[int, ...]:
+        if self.dataset._header is not None:return tuple(self.dataset._header["descriptors"][self.key]["stored_shape"])
         h5py = _h5py()
         with h5py.File(self.dataset.path, "r") as handle:
             return tuple(handle[f"fields/{self.key}/values"].shape)
 
+    def read_component(self, component, frame=0):
+        reader=self.dataset.result_reader()
+        descriptor=next(d for d in reader.components(self.key) if d["component"]==component)
+        cases=descriptor.get("case_ids",tuple(c["case_id"] for c in reader.cases()))
+        index=0 if frame is None else int(frame)
+        if index<0 or index>=len(cases):raise IndexError("quantity-local frame is unavailable")
+        values=reader.read_stored_field(cases[index],self.key,component)
+        return np.asarray(values).reshape(tuple(descriptor["component_shape"]))
+
+    def root_frame_index(self,index):
+        """Resolve a GUI root frame to a proved quantity-local row."""
+        from anypost.errors import UnavailableFieldError
+        root=tuple(self.dataset.frames);index=int(index)
+        if index<0 or (root and index>=len(root)):raise UnavailableFieldError("requested root frame is unavailable")
+        descriptor=self.descriptor
+        frames=tuple(descriptor.frames)
+        if descriptor.provenance.get("frame_policy")=="envelope":
+            return 0  # explicitly synthetic quantity; never a different source frame
+        if frames:
+            if not root:
+                if index>=len(frames):raise UnavailableFieldError("requested quantity frame is unavailable")
+                return index
+            # A whole matching sequence proves row identity even when modal
+            # frequencies or load factors repeat. Do not infer ambiguous subsets.
+            if len(frames)==len(root) and np.array_equal(np.asarray(frames),np.asarray(root),equal_nan=True):return index
+            value=root[index]
+            matches=[i for i,current in enumerate(frames) if current==value]
+            if len(matches)!=1:raise UnavailableFieldError(f"{self.key}: no quantity row at root frame {index}")
+            return matches[0]
+        transport=self.dataset.result_reader().components(self.key)[0]
+        if len(self.shape)==1 and tuple(transport["component_shape"])==self.shape:
+            if len(root)>1:raise UnavailableFieldError(f"{self.key}: source frame association is undeclared")
+            return None
+        cases=tuple(transport.get("case_ids",tuple(c["case_id"] for c in self.dataset.result_reader().cases())))
+        if str(index) not in cases:raise UnavailableFieldError(f"{self.key}: no proven row at root frame {index}")
+        return cases.index(str(index))
+
     def read(self, frame: int | slice | None = None) -> np.ndarray:
-        h5py = _h5py()
-        with h5py.File(self.dataset.path, "r") as handle:
-            values = handle[f"fields/{self.key}/values"]
-            return np.asarray(values[:] if frame is None else values[frame])
+        from ..post.access import read_sidecar_field
+        return read_sidecar_field(self.dataset.path, self.key, self.shape, frame, reader=self.dataset.result_reader())
+
 
 
 class LazyResultDataset:
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+    def __init__(self, path: str | Path, *, validator=None) -> None:
+        self._path = Path(path)
+        self._validator=validator
+        self._header=None
+        from threading import RLock
+        self._reader_lock = RLock()
+        self._post_reader = None
+        self._closed = False
+
+    @property
+    def path(self):
+        if self._validator is not None:
+            validated=self._validator()
+            self._path=Path(validated)
+            self._validator=None
+        return self._path
+
+    def result_reader(self):
+        from anypost import open_results
+        from ..post.access import CACHE_BYTES, WORKING_BYTES
+        with self._reader_lock:
+            if self._closed:
+                from anypost.errors import ClosedReaderError
+                raise ClosedReaderError("result dataset is retired")
+            if self._post_reader is None:
+                if self._validator is not None:
+                    self.path  # validates and retains the admitted path
+                # One active desktop reader leaves room for old/new published
+                # Field/scalar buffers, each admitted by the query-work cap.
+                self._post_reader = open_results(self.path,cache_bytes=CACHE_BYTES-WORKING_BYTES,working_bytes=WORKING_BYTES)
+            return self._post_reader
+
+    @property
+    def metadata_ready(self):return self._header is not None
+
+    def prepare_metadata(self):
+        """Open/verify and snapshot source headers on the caller's I/O worker."""
+        reader=self.result_reader()
+        metadata=reader.metadata()
+        identity=self.identity
+        self._header=dict(identity=identity,metadata=metadata,fields=tuple(sorted({d["quantity_id"] for d in reader.components()})),
+                          descriptors={d["quantity_id"]:d for d in reader.components()},
+                          originals={d["source_key"]:d for d in metadata.get("original_descriptors",())},
+                          frames=reader.frames(),tables=reader.table_keys())
+        return self
+
+    def close(self):
+        with self._reader_lock:
+            self._closed=True
+            self.release_reader()
+
+    def release_reader(self):
+        """Evict an inactive transport cache without retiring the dataset."""
+        with self._reader_lock:
+            if self._post_reader is not None:
+                self._post_reader.close()
+                self._post_reader=None
 
     def validate(self) -> None:
         h5py = _h5py()
@@ -553,6 +653,7 @@ class LazyResultDataset:
 
     @property
     def field_keys(self) -> tuple[str, ...]:
+        if self._header is not None:return self._header["fields"]
         h5py = _h5py()
         with h5py.File(self.path, "r") as handle:
             return tuple(sorted(handle["fields"].keys()))
@@ -564,6 +665,7 @@ class LazyResultDataset:
 
     @property
     def frames(self) -> np.ndarray:
+        if self._header is not None:return self._header["frames"]
         h5py = _h5py()
         with h5py.File(self.path, "r") as handle:
             return np.asarray(handle["frames/values"], dtype=float)
@@ -578,6 +680,7 @@ class LazyResultDataset:
         metadata while still allowing them to reproduce the exact submission.
         """
 
+        if self._header is not None:return dict(self._header["identity"])
         h5py = _h5py()
         try:
             with h5py.File(self.path, "r") as handle:
@@ -622,21 +725,14 @@ class LazyResultDataset:
     def history(
         self, key: str, rows: int | slice | None = None
     ) -> tuple[np.ndarray, np.ndarray]:
-        h5py = _h5py()
-        try:
-            with h5py.File(self.path, "r") as handle:
-                group = handle[f"histories/{key}"]
-                selection = slice(None) if rows is None else rows
-                return (
-                    np.asarray(group["x"][selection]),
-                    np.asarray(group["y"][selection]),
-                )
-        except (OSError, KeyError, TypeError, ValueError) as error:
-            raise ArtifactError(
-                f"cannot read result history {key!r}: {error}"
-            ) from None
+        from anypost import open_results
+        from ..post.access import CACHE_BYTES, WORKING_BYTES
+        return self.result_reader().read_history(key, rows=rows)
 
     def history_shape(self, key: str) -> tuple[int, ...]:
+        if self._header is not None:
+            try:return tuple(self._header["metadata"]["history_shapes"][key])
+            except (KeyError,TypeError,ValueError) as error:raise ArtifactError(f"cannot inspect result history {key!r}: {error}") from None
         h5py = _h5py()
         try:
             with h5py.File(self.path, "r") as handle:
@@ -658,17 +754,19 @@ class LazyResultDataset:
 
     @property
     def history_keys(self) -> tuple[str, ...]:
+        if self._header is not None:return tuple(self._header["metadata"].get("history_keys",()))
         h5py = _h5py()
         with h5py.File(self.path, "r") as handle:
             return tuple(sorted(handle["histories"].keys()))
 
     @property
     def table_keys(self) -> tuple[str, ...]:
+        if self._header is not None:return self._header["tables"]
         h5py = _h5py()
         with h5py.File(self.path, "r") as handle:
             return tuple(sorted(handle["tables"].keys()))
 
-    def table(self, key: str, rows: int | slice | None = None) -> Any:
+    def _source_table(self, key: str, rows: int | slice | None = None) -> Any:
         h5py = _h5py()
         try:
             with h5py.File(self.path, "r") as handle:
@@ -693,7 +791,15 @@ class LazyResultDataset:
                 ) from None
         return np.asarray(raw)
 
+    def table(self, key: str, rows: int | slice | None = None) -> Any:
+        from anypost import open_results
+        from ..post.access import CACHE_BYTES, WORKING_BYTES
+        return self.result_reader().table(key, rows)
+
     def table_shape(self, key: str) -> tuple[int, ...]:
+        if self._header is not None:
+            try:return tuple(self._header["metadata"]["table_shapes"][key])
+            except (KeyError,TypeError,ValueError) as error:raise ArtifactError(f"cannot inspect result table {key!r}: {error}") from None
         h5py = _h5py()
         try:
             with h5py.File(self.path, "r") as handle:
@@ -704,6 +810,9 @@ class LazyResultDataset:
             ) from None
 
     def metadata(self, name: str) -> Any:
+        if self._header is not None:
+            try:return self._header["metadata"]["provenance"][name]
+            except (KeyError,TypeError,ValueError) as error:raise ArtifactError(f"cannot read result metadata {name!r}: {error}") from None
         h5py = _h5py()
         try:
             with h5py.File(self.path, "r") as handle:

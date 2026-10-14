@@ -538,6 +538,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         inspector=FileInspector(self,path);inspector.show();return inspector
 
     def set_status(self,text,*,error=False,diagnostic=None):
+        self._status_revision=getattr(self,'_status_revision',0)+1
         self._status.set(text)
         self.statusBar().showMessage(text)
         if hasattr(self,"log"):self.log.appendPlainText(("Error: " if error else "")+text)
@@ -595,6 +596,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Solve"].graph_timer.stop()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()
+        self.close_result_access()
         self.scheduler.close()
         self.worker.stop();self.workbench.close()
         self.workbench.remove_listener(self._on_workbench_event)

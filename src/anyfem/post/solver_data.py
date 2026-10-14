@@ -41,13 +41,15 @@ def _safe_getattr(value: Any, name: str, default: Any = None) -> Any:
         return default
 
 
-def _wrapper_carrier(solution: Any) -> Any:
+def _wrapper_carrier(solution: Any, *, quantity_id=None) -> Any:
     """Expose wrapper-only arrays through the solver's attribute contract."""
 
     info = _safe_getattr(solution, "info")
     info = info if isinstance(info, Mapping) else {}
     shapes = tuple(_safe_getattr(solution, "shapes", ()) or ())
-    if shapes:
+    if quantity_id is not None and quantity_id not in {"displacement", "mode_shape"}:
+        displacements = None
+    elif shapes:
         vectors = [_safe_getattr(shape, "displacements") for shape in shapes]
         if vectors and all(value is not None for value in vectors):
             displacements = np.stack(
@@ -100,11 +102,14 @@ def resolve_solution_quantity(
     from anysolver import QuantityUnavailableError, resolve_result_quantity
 
     key = str(quantity_id)
-    for candidate in solver_result_candidates(solution, recovered=recovered):
-        try:
-            return resolve_result_quantity(candidate, key)
-        except QuantityUnavailableError:
-            continue
+    info=_safe_getattr(solution,"info")
+    raw=info.get("raw") if isinstance(info,Mapping) else None
+    direct=_safe_getattr(solution,"raw_result")
+    for candidate in _unique((recovered,raw,_safe_getattr(raw,"nonlinear_result"),direct,_safe_getattr(direct,"nonlinear_result"))):
+        try:return resolve_result_quantity(candidate,key)
+        except QuantityUnavailableError:continue
+    try:return resolve_result_quantity(_wrapper_carrier(solution,quantity_id=key),key)
+    except QuantityUnavailableError:pass
     raise QuantityUnavailableError(
         f"canonical quantity {key!r} is unavailable on "
         f"{type(solution).__name__}"
@@ -132,3 +137,22 @@ def available_solution_quantities(
         except QuantityUnavailableError:
             continue
     return tuple(available)
+
+
+def solution_quantity_descriptors(solution):
+    """Source-owned descriptor discovery without resolving every quantity.
+
+    No stress recovery is launched and no multishape displacement stack is
+    assembled merely to populate the browser.
+    """
+    from anysolver import describe_result_quantities
+    info=_safe_getattr(solution,"info")
+    raw=info.get("raw") if isinstance(info,Mapping) else None
+    direct=_safe_getattr(solution,"raw_result")
+    shapes=tuple(_safe_getattr(solution,"shapes",()) or ())
+    candidates=_unique((raw,direct,_safe_getattr(solution,"_stress"),shapes[0] if shapes else solution))
+    found={}
+    for candidate in candidates:
+        for descriptor in describe_result_quantities(candidate):
+            found.setdefault(descriptor.quantity_id,descriptor)
+    return tuple(found.values())

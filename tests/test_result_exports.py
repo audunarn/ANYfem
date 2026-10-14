@@ -28,6 +28,11 @@ class StoredField:
             frames=(0.0, 1.0),
         )
 
+    def root_frame_index(self, frame):
+        # This fixture declares the whole two-row root axis.
+        if not 0 <= int(frame) < len(self.descriptor.frames):raise IndexError(frame)
+        return int(frame)
+
     def read(self, frame=None):
         self.reads.append(frame)
         return self.values if frame is None else self.values[frame]
@@ -177,6 +182,7 @@ def test_results_panel_exports_the_selected_lazy_frame(monkeypatch, tmp_path: Pa
     )
     destination = tmp_path / "field.csv"
     messages = []
+    pending = []
     panel = ResultsPanel.__new__(ResultsPanel)
     panel._component = SimpleNamespace(get=lambda: "displacement")
     panel.app = SimpleNamespace(
@@ -186,6 +192,7 @@ def test_results_panel_exports_the_selected_lazy_frame(monkeypatch, tmp_path: Pa
         shape_index=1,
         project=SimpleNamespace(name="demo"),
         set_status=lambda message, **_kwargs: messages.append(message),
+        _request_result=lambda load,publish,**kwargs:pending.append((load,publish)),
     )
     monkeypatch.setattr(
         "anyfem.ui.panels.filedialog.asksaveasfilename",
@@ -193,12 +200,20 @@ def test_results_panel_exports_the_selected_lazy_frame(monkeypatch, tmp_path: Pa
     )
 
     panel._export_field()
+    assert not destination.exists() and stored.reads == []
+    load,publish=pending.pop()
+    from anyfem.application.result_requests import CommittedResult
+    result=load(None)
+    assert isinstance(result,CommittedResult) and result.value==destination and result.source=='job'
+    publish(result.value)
 
     assert stored.reads == [1]
     assert destination.read_text(encoding="utf-8").splitlines()[-1] == (
         "1,1,42,1,2,3"
     )
-    assert messages == [f"field written to {destination}"]
+    # This fixture runs only the panel callback. The real coordinator owns
+    # revision-aware commit reporting, covered by the session readiness tests.
+    assert messages == []
 
 
 def test_results_panel_refuses_to_capture_a_nonspatial_lazy_table():

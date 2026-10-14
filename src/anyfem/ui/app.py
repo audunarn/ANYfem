@@ -105,27 +105,7 @@ _RENDERER_LABELS = {
 _RENDERER_BACKENDS = {label: backend for backend, label in _RENDERER_LABELS.items()}
 
 
-class _WorkbenchField:
-    """Data descriptor keeping legacy ``app.field`` access controller-owned."""
-
-    def __init__(self, field: str) -> None:
-        self.field = field
-
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            return self
-        workbench = instance.__dict__.get("workbench")
-        if workbench is None:
-            raise AttributeError(self.field)
-        return getattr(workbench, self.field)
-
-    def __set__(self, instance, value) -> None:
-        workbench = instance.__dict__.get("workbench")
-        if workbench is None:
-            raise AttributeError(
-                f"workbench is not initialized; cannot set {self.field!r}"
-            )
-        workbench.update(self.field, value)
+from ..application.workflow import _WorkbenchField
 
 
 class AnyFemApp(WorkbenchWorkflow, ttk.Frame):
@@ -727,6 +707,7 @@ class AnyFemApp(WorkbenchWorkflow, ttk.Frame):
         *,
         diagnostic: Any = None,
     ) -> None:
+        self._status_revision=getattr(self,'_status_revision',0)+1
         self._status.configure(
             text=text, foreground="#b00020" if error else "#222222"
         )
@@ -767,6 +748,7 @@ class AnyFemApp(WorkbenchWorkflow, ttk.Frame):
                 except tk.TclError:
                     pass
                 self._job_poll = None
+            self.close_result_access()
             self.worker.stop()
             self.workbench.close()
             self.selection.remove_listener(self._on_selection_changed)

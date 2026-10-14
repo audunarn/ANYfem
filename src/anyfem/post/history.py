@@ -110,7 +110,7 @@ def has_history(solution: Any) -> bool:
     return bool(history_series(solution))
 
 
-def history_series(
+def _source_history_series(
     solution: Any,
     *,
     probe: Optional[int] = -1,
@@ -249,3 +249,21 @@ def history_series(
                 )
 
     return series
+
+
+def history_series(solution, *, probe=-1, component="uz"):
+    """Read source history through the default ANYpost provider boundary."""
+    from anypost import open_memory_results
+    from .access import WORKING_BYTES
+    # The source owns history extraction. Its prepared arrays are measured,
+    # rather than assigning an arbitrary fraction of the transport budget.
+    prepared=_source_history_series(solution,probe=probe,component=component)
+    actual_bytes=sum(item.x.nbytes+item.y.nbytes for item in prepared)
+    class HistoryProvider:
+        provider_work_bytes = actual_bytes
+        def metadata(self):
+            return {"model_identity": f"anyfem-history:{id(solution)}", "cases": (), "descriptors": ()}
+        def read_history(self):
+            return [dict(item.__dict__) for item in prepared]
+    with open_memory_results(HistoryProvider(), cache_bytes=0, working_bytes=WORKING_BYTES) as reader:
+        return [Series(**item) for item in reader.read_history()]

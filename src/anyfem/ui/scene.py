@@ -254,6 +254,10 @@ class Scene:
     arrows: List["Arrow"] = field(default_factory=list)
     spheres: List["Sphere"] = field(default_factory=list)
     legend: Optional[Dict[str, object]] = None
+    result_field: object = None
+    result_mesh: object = None
+    result_colormap: object = None
+    result_scalar_range: object = None
 
     def copy(self) -> "Scene":
         """Return independent draw lists while sharing coordinate payloads.
@@ -270,6 +274,8 @@ class Scene:
             arrows=list(self.arrows),
             spheres=list(self.spheres),
             legend=None if self.legend is None else dict(self.legend),
+            result_field=self.result_field, result_mesh=self.result_mesh,
+            result_colormap=self.result_colormap, result_scalar_range=self.result_scalar_range,
         )
 
     def tags(self) -> List[str]:
@@ -1093,7 +1099,53 @@ def build_result_scene(
         ),
         "colors": legend_colors,
     }
+    scene.result_field, scene.result_mesh = resolved, mesh
+    if not resolved.per_element:
+        scene.legend["title"] += " · element mean for display"
+    scene.result_colormap = tuple(colormap or _DEFAULT_RAMP)
+    scene.result_scalar_range = (low / value_scale, high / value_scale)
     return scene
+
+
+def read_persisted_display_field(dataset,field_key,*,frame=0,component=None):
+    from ..post.fields import Field
+    stored = dataset.field(field_key)
+    descriptor = stored.descriptor
+    local_frame=_persisted_frame(stored,frame)
+    if component is not None and component not in descriptor.components:
+        raise ValueError(f"{descriptor.label} has no saved component {component!r}")
+    if component is not None:
+        values = stored.read_component(component,local_frame)
+        scalar = _artifact_scalar_rows(values,(),None,descriptor.provenance.get("scalar_sample_axes"))
+    else:
+        values = stored.read(local_frame)
+        scalar = _artifact_scalar_rows(values,descriptor.components,None,descriptor.provenance.get("scalar_sample_axes"))
+    location = descriptor.location
+    if location not in ("node", "element", "integration_point"):
+        raise ValueError(f"{descriptor.label} is not a spatial contour quantity")
+    table_kind = "node" if location == "node" else "element"
+    table_key = f"{field_key}_{table_kind}_ids"
+    if table_key not in dataset.table_keys:
+        raise ValueError(f"{descriptor.label} has no persisted {table_kind} association")
+    identifiers = np.asarray(dataset.table(table_key), dtype=int).reshape(-1)
+    if len(scalar) != len(identifiers):
+        raise ValueError(
+            f"{descriptor.label} has {len(scalar)} values for {len(identifiers)} IDs"
+        )
+    mapping = {
+        int(identifier): float(value)
+        for identifier, value in zip(identifiers, scalar)
+        if np.isfinite(value)
+    }
+    field = Field(
+        name=field_key,
+        unit=descriptor.unit,
+        node_values=mapping if table_kind == "node" else {},
+        element_values=mapping if table_kind == "element" else {},
+        reduction="absolute single component" if component is None and len(descriptor.components)==1 and values.ndim>1 else descriptor.reduction,
+    )
+
+    return field,descriptor
 
 
 def build_persisted_result_scene(
@@ -1115,40 +1167,7 @@ def build_persisted_result_scene(
 
     from ..post.fields import Field
 
-    stored = dataset.field(field_key)
-    descriptor = stored.descriptor
-    if component is not None and component not in descriptor.components:
-        raise ValueError(f"{descriptor.label} has no saved component {component!r}")
-    values = stored.read(_artifact_frame(stored.shape, frame))
-    location = descriptor.location
-    if location not in ("node", "element", "element_face", "integration_point"):
-        raise ValueError(f"{descriptor.label} is not a spatial contour quantity")
-    table_kind = "node" if location == "node" else "element"
-    table_key = f"{field_key}_{table_kind}_ids"
-    if table_key not in dataset.table_keys:
-        raise ValueError(f"{descriptor.label} has no persisted {table_kind} association")
-    identifiers = np.asarray(dataset.table(table_key), dtype=int).reshape(-1)
-    scalar = _artifact_scalar_rows(
-        values, descriptor.components, component,
-        descriptor.provenance.get("scalar_sample_axes"),
-    )
-    if len(scalar) != len(identifiers):
-        raise ValueError(
-            f"{descriptor.label} has {len(scalar)} values for {len(identifiers)} IDs"
-        )
-    mapping = {
-        int(identifier): float(value)
-        for identifier, value in zip(identifiers, scalar)
-        if np.isfinite(value)
-    }
-    field = Field(
-        name=field_key,
-        unit=descriptor.unit,
-        node_values=mapping if table_kind == "node" else {},
-        element_values=mapping if table_kind == "element" else {},
-        reduction=descriptor.reduction,
-    )
-
+    field,descriptor = read_persisted_display_field(dataset,field_key,frame=frame,component=component)
     ordered_nodes = sorted(mesh.nodes)
     positions = np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
     if "displacement" in dataset.field_keys and scale != 0.0:
@@ -1156,15 +1175,17 @@ def build_persisted_result_scene(
         displacement_key = "displacement_node_ids"
         if displacement_key in dataset.table_keys:
             displacement_values = np.asarray(
-                displacement.read(_artifact_frame(displacement.shape, frame)),
+                displacement.read(_persisted_frame(displacement,frame)),
                 dtype=float,
             )
             displacement_ids = np.asarray(
                 dataset.table(displacement_key), dtype=int
             ).reshape(-1)
-            if displacement_values.ndim >= 2 and displacement_values.shape[-1] >= 3:
+            labels=tuple(displacement.descriptor.components)
+            if displacement_values.ndim >= 2 and {"ux","uy","uz"}<=set(labels):
+                translation_indices=[labels.index(label) for label in ("ux","uy","uz")]
                 by_node = {
-                    int(node): np.asarray(row[..., :3], dtype=float).reshape(-1, 3)[0]
+                    int(node): np.take(row,translation_indices,axis=-1).reshape(-1, 3)[0]
                     for node, row in zip(displacement_ids, displacement_values)
                 }
                 positions = np.asarray(
@@ -1191,9 +1212,7 @@ def build_persisted_result_scene(
         show_nodes=show_nodes,
         show_beam_sections=show_beam_sections,
     )
-    if component is not None and scene.legend is not None:
-        unavailable=" (unavailable)" if "unavailable" in str(scene.legend["title"]) else ""
-        scene.legend["title"]=f"{descriptor.label} · {component}{unavailable}"
+    _,_,scene.legend=persisted_display_metadata(field,descriptor,component,limits=limits,display_units=display_units,colormap=colormap)
     return scene
 
 
@@ -1202,30 +1221,51 @@ def _artifact_frame(shape: Sequence[int], frame: int) -> int | None:
         return None
     return min(max(int(frame), 0), int(shape[0]) - 1)
 
+def _persisted_frame(stored,frame):
+    resolver=getattr(stored,"root_frame_index",None)
+    return resolver(frame) if callable(resolver) else _artifact_frame(stored.shape,frame)
 
-def _artifact_scalar_rows(
-    values: np.ndarray, components: Sequence[str], component: str | None,
-    sample_axes: Optional[Sequence[int]] = None,
-) -> np.ndarray:
+
+def _artifact_scalar_rows(values, components, component, sample_axes=None):
+    from anypost import vector_magnitude, absolute_sample_max
     array = np.asarray(values, dtype=float)
-    if array.ndim == 0:
-        return array.reshape(1)
-    if array.ndim == 1:
-        return array
-    if sample_axes is not None:
-        # Scalar sample layout: the trailing axes are per-element samples of
-        # one already-selected component, never a component axis.
-        while array.ndim > 1:
-            array = np.nanmax(np.abs(array), axis=-1)
-        return array
+    if array.ndim <= 1:
+        return array.reshape(-1)
     if component and component in components:
         array = np.take(array, components.index(component), axis=-1)
     elif components and array.shape[-1] == len(components):
-        translation_count = 3 if set(("ux", "uy", "uz")) <= set(components) else len(components)
-        array = np.linalg.norm(array[..., :translation_count], axis=-1)
-    while array.ndim > 1:
-        array = np.nanmax(np.abs(array), axis=-1)
-    return array
+        labels=("ux","uy","uz") if {"ux","uy","uz"}<=set(components) else tuple(components)
+        indices=[components.index(label) for label in labels]
+        array = vector_magnitude(np.take(array,indices,axis=-1), components=labels)
+    return absolute_sample_max(array,nan_policy="omit") if array.ndim > 1 else array
+
+
+def result_display_metadata(field, *, limits=None, display_units="SI (m / Pa)", colormap=None):
+    """Legend/range only; no geometry or owner reconstruction."""
+    from .result_display import unit_transform
+    factor, unit = unit_transform(field.unit, display_units)
+    values = np.asarray(list(field.values.values()),dtype=float)
+    finite = values[np.isfinite(values)]
+    if limits is None:
+        raw_low,raw_high=(float(finite.min()),float(finite.max())) if len(finite) else (0.,1.)
+        if raw_high<=raw_low:raw_high=raw_low+1.
+        low,high=raw_low*factor,raw_high*factor
+    else:low,high=limits
+    if high <= low:high=low+1.
+    palette=tuple(colormap or _DEFAULT_RAMP)
+    levels=list(np.linspace(low,high,5)) if len(finite) else []
+    colors=[_ramp_color((v-low)/(high-low),palette) for v in levels]
+    title=_component_title(field.name)+( " (unavailable)" if not len(finite) else "")
+    if not field.per_element:title+=" · element mean for display"
+    return (low/factor,high/factor),palette,dict(levels=levels,colors=colors,unit=unit or field.unit,title=title)
+
+def persisted_display_metadata(field,descriptor,component=None,**options):
+    range_,palette,legend=result_display_metadata(field,**options)
+    suffix=f" · {component}" if component is not None else " · absolute scalar" if field.reduction=="absolute single component" else ""
+    unavailable=" (unavailable)" if not any(np.isfinite(v) for v in field.values.values()) else ""
+    legend["title"]=descriptor.label+suffix+unavailable
+    if not field.per_element:legend["title"]+=" · element mean for display"
+    return range_,palette,legend
 
 
 def _nodal_values(solution, component: str) -> np.ndarray:

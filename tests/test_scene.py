@@ -451,7 +451,7 @@ def test_result_scene_carries_a_legend(plate_project):
     scene = build_result_scene(solution, component="uz")
 
     assert scene.legend is not None
-    assert scene.legend["title"] == "Displacement Z"
+    assert scene.legend["title"] == "Displacement Z \u00b7 element mean for display"
     assert len(scene.legend["levels"]) == 5
 
 

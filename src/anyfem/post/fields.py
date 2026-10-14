@@ -150,35 +150,17 @@ class Field:
         )
 
 
-def _reduce(values: Any, reduction: str) -> float:
-    array = np.atleast_1d(np.asarray(values, dtype=float))
-    if array.size == 0:
-        return 0.0
-    if reduction == "mean":
-        return float(array.mean())
-    if reduction == "max_abs":
-        flat = array.reshape(-1)
-        return float(flat[int(np.argmax(np.abs(flat)))])
-    if reduction == "min":
-        return float(array.min())
-    if reduction == "max":
-        return float(array.max())
-    raise ValueError(
-        f"unknown reduction {reduction!r}; expected one of {', '.join(REDUCTIONS)}"
-    )
+def _reduce(values, reduction):
+    from anypost import reduce_samples
+    array=np.asarray(values,dtype=float).reshape(1,-1)
+    return float(reduce_samples(array,reduction,nan_policy="propagate",empty_policy="zero")[0])
 
 
-def _surface_value(stress: Dict[str, Any], name: str) -> Optional[Any]:
-    """Top and bottom surface stress, from membrane plus or minus bending."""
-
-    side, _, component = name.partition("_")
-    membrane = stress.get(f"membrane_{component}")
-    bending = stress.get(f"bending_{component}")
-    if membrane is None or bending is None:
-        return None
-    membrane = np.asarray(membrane, dtype=float)
-    bending = np.asarray(bending, dtype=float)
-    return membrane + bending if side == "top" else membrane - bending
+def _surface_value(stress,name):
+    side,_,component=name.partition("_")
+    if stress.get("membrane_"+component) is None or stress.get("bending_"+component) is None:return None
+    from anysolver_results import shell_surface_component
+    return shell_surface_component(stress,side,component)
 
 
 def evaluate_field(
@@ -205,43 +187,11 @@ def evaluate_field(
     # there is no displacement field here complete enough to recover from, and
     # recomputing would silently replace the imported answer with this layer's
     # opinion of it.
-    imported = getattr(shape, "fields", None)
-    if isinstance(imported, dict) and name in imported:
-        return imported[name]
-
-    if name in DISPLACEMENT_FIELDS:
-        from .solver_data import resolve_solution_quantity
-        from .results import ImportedSolution
-        # External files enforce their own component availability; absent
-        # rotations stay NaN and component() refuses them. They are not raw
-        # ANYsolver datasets and must not be resolved as one.
-        if not isinstance(shape, ImportedSolution):
-            resolve_solution_quantity(shape, "displacement")
-        return _displacement_field(shape, name)
-    if name in PLASTICITY_FIELDS:
-        return _plasticity_field(shape, name)
-    if isinstance(imported, dict) and imported:
-        raise ValueError(
-            f"unknown field {name!r} for an imported result; it carries "
-            f"{', '.join(sorted(imported))}"
-        )
-    if name in STRESS_FIELDS:
-        return _stress_field(shape, name, reduction=reduction, stresses=stresses)
-
-    recovered = recover(shape) if stresses is None else stresses
-    from .solver_data import resolve_solution_quantity
-
-    resolve_solution_quantity(shape, "stress", recovered=recovered)
-    reported = reported_fields(recovered, shape)
-    if name in reported:
-        return _stress_field(
-            shape, name, reduction=reduction, stresses=recovered
-        )
-    raise ValueError(
-        f"unknown field {name!r}: neither ANYfem nor the solver's recovery "
-        f"reports it. ANYfem names {', '.join(available_fields())}; this "
-        f"result carries {', '.join(reported) or 'no stress components'}."
-    )
+    from .access import evaluate_shape_field, _RESULT_ACCESS
+    access=_RESULT_ACCESS.get()
+    if access is not None and stresses is None:
+        return access.field(shape,name,reduction=reduction)
+    return evaluate_shape_field(shape, name, reduction=reduction, stresses=stresses)
 
 
 def reported_fields(stresses: Any, shape: Any) -> List[str]:
@@ -281,59 +231,14 @@ def _is_numeric(value: Any) -> bool:
     return True
 
 
-def _displacement_field(shape, name: str) -> Field:
-    mesh = shape.built.mesh
-    node_ids = sorted(mesh.nodes)
-    if name == "magnitude":
-        values = np.linalg.norm(shape.translations(), axis=1)
-    else:
-        values = shape.component(name)
-    return Field(
-        name=name,
-        unit=field_unit(name),
-        node_values={
-            node_id: float(value) for node_id, value in zip(node_ids, values)
-        },
-    )
+def _displacement_field(shape,name):
+    from .access import evaluate_shape_field
+    return evaluate_shape_field(shape,name)
 
 
-def _stress_field(
-    shape, name: str, *, reduction: str, stresses: Any = None
-) -> Field:
-    if stresses is None:
-        stresses = recover(shape)
-
-    from .solver_data import resolve_solution_quantity
-
-    resolve_solution_quantity(shape, "stress", recovered=stresses)
-
-    values: Dict[int, float] = {}
-    missing: List[int] = []
-    for element_id in sorted(shape.built.mesh.shells) + sorted(
-        shape.built.mesh.beams
-    ):
-        stress = stresses.element_stresses.get(element_id)
-        if stress is None:
-            missing.append(element_id)
-            continue
-        raw = stress.get(name)
-        if raw is None and name in _SURFACE_COMPONENTS:
-            raw = _surface_value(stress, name)
-        if raw is None:
-            # A beam has no membrane stress and a shell has no torsion; an
-            # element that cannot carry this component is left out rather than
-            # reported as zero.
-            missing.append(element_id)
-            continue
-        values[element_id] = _reduce(raw, reduction)
-
-    return Field(
-        name=name,
-        unit=field_unit(name),
-        element_values=values,
-        reduction=reduction,
-        missing=tuple(missing),
-    )
+def _stress_field(shape,name,*,reduction,stresses=None):
+    from .access import evaluate_shape_field
+    return evaluate_shape_field(shape,name,reduction=reduction,stresses=stresses)
 
 
 def recover(shape, **kwargs: Any):
@@ -364,45 +269,9 @@ def recover(shape, **kwargs: Any):
     return result
 
 
-def _plasticity_field(shape, name: str) -> Field:
-    """Recover element PEEQ from committed constitutive state, never elastically."""
-
-    from anysolver import QuantityUnavailableError
-
-    from .solver_data import resolve_solution_quantity
-
-    try:
-        resolved = resolve_solution_quantity(shape, "equivalent_plastic_strain")
-    except QuantityUnavailableError as error:
-        raise ValueError(
-            f"field {name!r} is unavailable: this result carries no committed "
-            "equivalent-plastic-strain state"
-        ) from error
-    if not isinstance(resolved.data, Mapping) or not resolved.data:
-        raise ValueError(
-            f"field {name!r} is unavailable: the canonical solver quantity "
-            "contains no element values"
-        )
-    values = {
-        int(element_id): float(value)
-        for element_id, value in resolved.data.items()
-        if np.isfinite(float(value))
-    }
-    if not values:
-        raise ValueError(
-            f"field {name!r} is unavailable: the canonical solver quantity "
-            "contains no finite element values"
-        )
-    return Field(
-        name=name,
-        unit=str(resolved.descriptor.unit or field_unit(name)),
-        element_values=values,
-        reduction=str(
-            resolved.descriptor.metadata.get(
-                "reduction", "max integration point/layer/fibre"
-            )
-        ),
-    )
+def _plasticity_field(shape,name):
+    from .access import evaluate_shape_field
+    return evaluate_shape_field(shape,name)
 
 
 def element_centroids(mesh) -> Dict[int, np.ndarray]:
