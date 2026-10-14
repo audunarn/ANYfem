@@ -16,6 +16,7 @@ from ...application.worker import JobWorkerFacade
 from ...diagnostics import ErrorDiagnostic
 from ...scripting import ScriptRunner
 from .ports import QtSchedulerPort, QtDialogPort, QtClipboardPort, QtStatusPort
+from .runtime_diagnostics import extend_report_with_qt_runtime
 from .viewport import QtViewport
 from .editors import CommandEditor,GeometryTask
 from .tree import QtModelTree
@@ -368,6 +369,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action=self._action(examples,"Floating barge section — 15 m with bulkhead openings…",lambda:self.open_barge_example("large"))
         action.setToolTip("Three times the length: two bulkheads with three access openings each, a flat bar FB 120×10 along every opening edge, same bending load")
         action.setStatusTip(action.toolTip())
+        help_menu=self.menuBar().addMenu("Help")
+        action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)
+        action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
+        action.setStatusTip(action.toolTip())
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
         toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         icons={"New":QStyle.SP_FileIcon,"Open":QStyle.SP_DirOpenIcon,"Save":QStyle.SP_DialogSaveButton,
@@ -581,6 +586,15 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._viewer_backend=backend
         self.set_status(f"Renderer: {active}"+(f" · {'; '.join(self.viewport.backend_diagnostics)}" if self.viewport.backend_diagnostics else ""))
         return active
+
+    def diagnostic_report(self, *, recent_commands=()):
+        """The toolkit-neutral report plus one on-demand Qt runtime snapshot."""
+        report=super().diagnostic_report(recent_commands=recent_commands)
+        return extend_report_with_qt_runtime(report,self)
+
+    def copy_diagnosis(self):
+        """Help-menu route: the Scripts panel owns the shared copy behaviour."""
+        self.panels["Scripts"].copy_diagnosis()
 
     def show_command_palette(self):
         choices=list(self._actions)+list(self.panels)

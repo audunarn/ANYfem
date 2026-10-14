@@ -175,6 +175,7 @@ def test_transient_buffers_do_not_pin_scene_and_cpu_copy_stays_truthful():
     assert field._display_buffers[0]==b'geometry' and field._display_buffers[2][1]==[(0,'#ff0000')]
     charge=prepared_publication_bytes(field,scene,4)
     view=SimpleNamespace(_scene=scene,_retained_result=retained,active_backend='gpu',_draw_legend=lambda scene:None,canvas=SimpleNamespace(redraw=lambda:None))
+    view._retained_result_canvas = view.canvas
     assert SceneViewport.update_result_field(view,field,scalar_range=(0.,1.),colormap=((0.,'#0000ff'),(1.,'#ff0000')),legend={})
     assert scene.lines[0].color=='#0000ff' and view._scene.lines[0].color=='#ff0000'
     assert not hasattr(field,'_display_buffers') and prepared_publication_bytes(field,view._scene,4)==charge
@@ -233,6 +234,7 @@ def test_conversion_refusal_before_gpu_mutation_preserves_cpu_and_legend(monkeyp
     handle=SimpleNamespace(update_scalar_fields=lambda **kw:mutations.append('scalar'),update_appearance=lambda **kw:mutations.append('appearance'))
     field=Field('ux',node_values={1:1.});field._display_buffers=(b'obsolete',(),())
     view=SimpleNamespace(_scene=old,_retained_result=(b'current',[handle],(np.array([1]),),object()),active_backend='gpu')
+    view.canvas = view._retained_result_canvas = SimpleNamespace()
     def refuse(*args,**kwargs):raise WorkingSetError('cap')
     monkeypatch.setattr(retained_results,'prepare_warm_field',refuse)
     with pytest.raises(WorkingSetError):SceneViewport.update_result_field(view,field,scalar_range=(0,1),colormap=(),legend={'title':'new'})

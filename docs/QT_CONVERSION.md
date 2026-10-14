@@ -1676,3 +1676,38 @@ PR review/CI and solver-main integration remain with its owner; no source pin,
 launcher override, package release or solver-main mutation is adopted here.
 Complete user-visible S3 contours on the default runtime remain pending that
 integration and a fresh solve; the ANYfem storage/display repair is delivered.
+
+### 2026-10-14 — result viewer ownership and recurrence diagnostics
+
+A converged result could become undisplayable after GPU-to-GPU replacement:
+retained mesh handles were reused by geometry identity, then their old viewer
+was destroyed. The cache now records its owning canvas and requires live
+handles before reuse. Replacement uploads to the new viewer; failed candidates
+restore the old cache, and clear/close invalidate it. Numerical/result data and
+validation are unchanged. Eight ownership regressions and two existing result
+conversion/memory-contract checks pass without a widget, GPU or solver run.
+Independent caller review found no blocking issue, including the added failed
+replacement and close coverage. Baseline deleted-surface failure is preserved
+in reports/qt-lag-20261014/retained-owner-baseline-1.
+
+Help > Copy diagnosis now includes an on-demand Qt runtime snapshot: process
+identity, boot uptime, Qt versions, backend/surface details and optional cached
+viewer diagnostics. It installs no timers or rendering probes. Twenty-two
+fake/headless report checks pass; errors, existing report contents and toolkit
+import boundaries remain protected. Source inspection found and repaired wrong
+viewer lookup, an unbounded object scan and 32-bit uptime truncation.
+
+The user reported that a full computer reboot cleared recurrent whole-system
+lag. Old and new application/viewer snapshots were both affected before reboot.
+The cause and prevention remain unresolved; this cache repair does not establish
+that the reboot-related freeze is fixed. Viewer context cleanup is separately
+owned and unpublished. No native rendering experiment, numerical campaign,
+package release or physical Linux GPU acceptance was performed for this slice.
+
+Final main integration:32 focused checks passed against published ANY3dView
+7335aecd, then25 passed/7 Qt-only skips with optional toolkit imports blocked.
+Wheel build/install, MPL metadata and installed headless imports passed; initial
+sandbox temporary-directory failure retained, repaired with repository-local
+temp path. No package publication. Commands, exact wall receipts and source/
+wheel hashes: reports/qt-lag-20261014/main-integration-1, main-headless-boundary-1,
+artifact-1/2 and main-source-manifest.json. No native rendering retest.

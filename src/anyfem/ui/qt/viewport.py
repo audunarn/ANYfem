@@ -251,6 +251,8 @@ class QtViewport(SceneViewport):
         # fail. Otherwise failed creation leaves sampled picking data behind.
         self._restore_full_scene()
         old = self.canvas
+        old_retained = (getattr(self, "_retained_result", None),
+                        getattr(self, "_retained_result_canvas", None))
         state = old.export_view_state()
         candidate = create_viewer(self.widget, backend=backend, host=QtViewerHostAdapter())
         try:
@@ -262,6 +264,7 @@ class QtViewport(SceneViewport):
             candidate.event_widget.installEventFilter(self._keys)
         except BaseException:
             self.canvas = old
+            self._retained_result, self._retained_result_canvas = old_retained
             candidate.destroy()
             raise
         self.layout.replaceWidget(old, candidate)
@@ -275,6 +278,7 @@ class QtViewport(SceneViewport):
     def close(self):
         self.cancel_plate()
         self._closed=True
+        self._retained_result = self._retained_result_canvas = None
         self.selection.remove_listener(self._apply_highlight)
         self._cancel_interaction_restore()
         self.canvas.destroy()

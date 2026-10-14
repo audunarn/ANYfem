@@ -138,6 +138,8 @@ class SceneViewport:
         self._interaction_scene: Optional[Scene] = None
         self._interaction_scene_active = False
         self._interaction_restore_after_id: object | None = None
+        self._retained_result = None
+        self._retained_result_canvas = None
         self._on_pick: Optional[Callable[[Optional[object]], None]] = None
         self._on_hover: Optional[Callable[[Optional[object]], None]] = None
         self._on_frame_selection: Optional[Callable[[List[object]], Any]] = None
@@ -332,7 +334,10 @@ class SceneViewport:
             if retained is None:retained = prepare(self, scene)
         scene.__dict__.pop("_prepared_result_batches",None)
         previous = getattr(self, "_retained_result", None)
-        if retained is not None and previous is not None and previous[0] == retained[0]:
+        if (retained is not None and previous is not None
+                and previous[0] == retained[0]
+                and len(previous[1]) == len(retained[1])
+                and SceneViewport._retained_result_is_current(self, previous)):
             for handle, (mesh, options) in zip(previous[1], retained[1]):
                 handle.update_scalar_fields(element_scalars=mesh.element_scalars)
                 handle.update_appearance(scalar_range=scene.result_scalar_range, colormap=scene.result_colormap)
@@ -342,6 +347,7 @@ class SceneViewport:
             if reset_view:self.canvas.fit_to_scene()
             return
         self._retained_result = None
+        self._retained_result_canvas = None
         self._marker_size = 0.012 * scene.characteristic_size()
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
@@ -350,6 +356,7 @@ class SceneViewport:
         else:
             handles = [self.canvas.add_mesh_arrays(mesh, **options) for mesh, options in retained[1]]
             self._retained_result = (retained[0], handles, tuple(mesh.element_ids for mesh, options in retained[1]), scene.result_mesh)
+            self._retained_result_canvas = self.canvas
             self._draw(retained[2])
         self._draw_construction_overlay()
         if reset_view:
@@ -358,10 +365,16 @@ class SceneViewport:
         self.canvas.redraw()
 
 
+    def _retained_result_is_current(self, retained):
+        """Geometry equality cannot transfer handles between viewer instances."""
+        return (getattr(self, "_retained_result_canvas", None) is self.canvas
+                and all(not getattr(handle, "removed", False) for handle in retained[1]))
+
     def update_result_field(self, field, *, scalar_range, colormap, legend):
         """Update scalars/appearance using retained entity maps only."""
         retained = getattr(self, "_retained_result", None)
-        if retained is None or self.active_backend != "gpu":
+        if (retained is None or self.active_backend != "gpu"
+                or not SceneViewport._retained_result_is_current(self, retained)):
             return False
         prepared=getattr(field,"_display_buffers",None)
         valid=prepared is not None and prepared[0]==retained[0]
@@ -446,6 +459,7 @@ class SceneViewport:
 
     def clear(self) -> None:
         self._cancel_interaction_restore()
+        self._retained_result = self._retained_result_canvas = None
         self._scene = None
         self._interaction_scene = None
         self._interaction_scene_active = False
