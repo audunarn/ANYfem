@@ -86,7 +86,9 @@ def prepare(viewport, scene):
         options = dict(owners=PackedOwnerTable.from_owners(**{ "triangles" if key[0]=="face" else "lines":bindings}),scalar_range=scene.result_scalar_range)
         options["colormap"] = scene.result_colormap
         if key[0]=="face":
-            options.update(outline=key[1],opacity=key[2],lit=key[3],width=viewport.visualization.edge_width)
+            # Shells represent surfaces, not closed solids. Their selected
+            # result field must remain visible from either viewing direction.
+            options.update(outline=key[1],opacity=key[2],lit=key[3],width=viewport.visualization.edge_width,cull_backface=False)
             mesh = MeshArrays(positions,indices,triangle_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values)
         else:
             options.update(line_width=key[1],draw_overlay=key[2],layer=30)

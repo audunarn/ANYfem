@@ -1711,3 +1711,30 @@ sandbox temporary-directory failure retained, repaired with repository-local
 temp path. No package publication. Commands, exact wall receipts and source/
 wheel hashes: reports/qt-lag-20261014/main-integration-1, main-headless-boundary-1,
 artifact-1/2 and main-source-manifest.json. No native rendering retest.
+
+### 2026-10-14: plate result contours visible from both sides
+
+The retained GPU result upload omitted the mesh API's back-face policy, whose
+default hides rear-facing triangles. Result face batches now explicitly disable
+back-face culling. Both sides display the currently selected field and colormap;
+viewing direction does not select a different top/bottom stress component.
+Geometry, numerical stresses, element identity and result formats are unchanged.
+This is a focused consumer-side fix using the published viewer contract, so the
+application owner implemented it directly without changing the shared viewer.
+
+Four production-upload/field-switch regression cases passed for mixed S3/S4,
+opposite normals, reversed winding, shaded modes, scalar values and precise
+triangle owner mapping. Eight existing retained viewer ownership tests also
+passed. Exact test invocation: the recorded pytest entry with `-q
+tests/test_result_surface_sides.py`; ownership tests ran alongside its initial
+attempt. Two initial failures were incomplete test doubles (selection API and
+immutable MeshArrays), repaired without changing product behaviour. Full logs,
+commands, source hashes and precise wall receipts are retained in
+`reports/qt-lag-20261014/result-sides-1`, `result-sides-2`, `result-sides-3` and
+`final-check-ledger.json`.
+
+Independent viewer-owner Read review found no blocking issue in published
+7335aecd or current source: rendering and GPU picking honour the flag, scalar
+colours apply on both sides, and warm field updates retain the policy. Tests
+exercise caller submissions rather than rendered pixels or actual picking.
+No native GPU window, numerical run or package publication was performed.
