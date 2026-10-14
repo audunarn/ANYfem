@@ -2553,7 +2553,7 @@ class WorkbenchWorkflow:
                     )
                     return
                 prefix, identifier = key.split(":", 1)
-                if prefix in {"support", "mass", "wet_surface", "imperfection", "load"}:
+                if prefix in {"support", "mass", "wet_surface", "connection", "imperfection", "load"}:
                     categories.add("attribute")
                     if key.endswith(":gravity"):
                         self.set_status(
@@ -3672,6 +3672,13 @@ def _submitted_input_report(
                     or case.series is not None
                     else {}
                 ),
+                **(
+                    {"connection_loads": _record_settings(case.connection_loads)}
+                    if case.connection_loads
+                    else {}
+                ),
+                **({"times": list(case.times)} if case.times is not None else {}),
+                **({"parent": case.parent} if case.parent is not None else {}),
             }
         )
     support_inputs = []
@@ -3746,6 +3753,11 @@ def _submitted_input_report(
         **(
             {"wet_surfaces": _record_settings(project.wet_surfaces)}
             if project.wet_surfaces
+            else {}
+        ),
+        **(
+            {"connections": _record_settings(project.connections)}
+            if project.connections
             else {}
         ),
         "load_cases": load_cases,

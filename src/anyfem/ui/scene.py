@@ -1715,20 +1715,147 @@ def build_attribute_overlay(
                 )
         scene.points.extend(_limited(markers))
 
+    if show_supports and project.connections and not isinstance(geometry, _MeshOverlayGeometry):
+        _draw_connections(scene, project, geometry, symbol)
+
     if show_loads:
         _draw_wet_surfaces(scene, project, geometry)
+    if show_loads and case_name is not None and project.connections and not isinstance(geometry, _MeshOverlayGeometry):
+        case = _display_case(project, case_name)
+        if case is not None and case.connection_loads:
+            _draw_connection_loads(scene, project, case, arrow_length)
     if show_loads and case_name is not None:
-        case = project.load_cases.get(case_name)
+        case = _display_case(project, case_name)
         if case is not None and case.wet_pressures:
             _draw_wet_pressures(scene, project, geometry, case, mesh, arrow_length)
     if show_loads and case_name is not None:
-        case = project.load_cases.get(case_name)
+        case = _display_case(project, case_name)
         if case is not None:
             display_case = SimpleNamespace(**{name: _display_attributes(project, getattr(case, name))
                 for name in ("point_loads", "pressures", "line_loads", "surface_tractions")}, gravity=case.gravity)
             _draw_loads(scene, geometry, display_case, arrow_length)
 
     return scene
+
+
+COLOR_CONNECTION = "#00695c"
+
+
+def _display_case(project, case_name):
+    """The case to draw: a step shows its definition's loads, a definition its first step.
+
+    Loads whose envelope has them switched off at that step are left out, so the
+    picture shows what acts in the step being looked at.
+    """
+
+    from copy import copy
+
+    case = project.load_cases.get(case_name)
+    if case is None:
+        return None
+    try:
+        if case.times is not None:
+            steps = project.series_children(case.name)
+            if not steps:
+                return None
+            case = steps[0]
+        case = project.resolve_case(case)
+    except Exception:  # an orphaned step: validation reports it, nothing to draw
+        return None
+    if case is project.load_cases.get(case_name) and case.parent is None and case.times is None:
+        view = copy(case)
+    else:
+        view = case
+    for name in ("point_loads", "pressures", "line_loads", "surface_tractions",
+                 "wet_pressures", "connection_loads"):
+        kept = []
+        for load in getattr(case, name):
+            try:
+                acting = case.envelope_factor(getattr(load, "envelope", None)) != 0.0
+            except Exception:
+                acting = True
+            if acting:
+                kept.append(load)
+        setattr(view, name, kept)
+    return view
+
+
+def _connection_reference(project, connection):
+    try:
+        return project.connection_reference_point(connection)
+    except Exception:  # unresolved scope: validation reports it, nothing to draw
+        return None
+
+
+def _draw_connections(scene: Scene, project, geometry, symbol: float) -> None:
+    """A marker at each reference point with a spoke to every tied entity.
+
+    The spokes are untagged annotations, so they never steal a click from the
+    plate or line underneath.
+    """
+
+    markers: List[PointMarker] = []
+    spokes: List[Polyline] = []
+    for connection in _budgeted_assignments(list(project.connections)):
+        reference = _connection_reference(project, connection)
+        if reference is None:
+            continue
+        markers.append(
+            PointMarker(
+                ref=None, position=reference, color=COLOR_CONNECTION,
+                size=1.8 * symbol,
+            )
+        )
+        try:
+            targets = project.connection_targets(connection)
+        except Exception:
+            continue
+        for target in _limited(list(targets), 24):
+            samples = entity_sample_points(geometry, target)
+            if not samples:
+                continue
+            centre = np.mean(np.asarray(samples, dtype=float), axis=0)
+            spokes.append(
+                Polyline(
+                    ref=None,
+                    points=np.vstack([reference, centre]),
+                    color=COLOR_CONNECTION,
+                    width=1 if connection.kind == "distributing" else 2,
+                    annotation=True,
+                )
+            )
+    scene.points.extend(_limited(markers))
+    scene.lines.extend(_limited(spokes))
+
+
+def _draw_connection_loads(scene: Scene, project, case, arrow_length: float) -> None:
+    for load in _limited(list(case.connection_loads)):
+        connection = next((item for item in project.connections if item.id == load.connection), None)
+        if connection is None:
+            continue
+        reference = _connection_reference(project, connection)
+        if reference is None:
+            continue
+        force = _unit(load.force)
+        if force is not None:
+            scene.arrows.append(
+                Arrow(start=reference - arrow_length * force, end=reference)
+            )
+        moment = _unit(load.moment)
+        if moment is not None:
+            scene.arrows.append(
+                Arrow(
+                    start=reference - 0.5 * arrow_length * moment,
+                    end=reference + 0.5 * arrow_length * moment,
+                    color=COLOR_MOMENT,
+                )
+            )
+            scene.points.append(
+                PointMarker(
+                    ref=None, position=reference, color=COLOR_MOMENT,
+                    size=0.25 * arrow_length,
+                )
+            )
 
 
 def _draw_wet_surfaces(scene: Scene, project, geometry) -> None:

@@ -143,7 +143,8 @@ class MeshTask(QWidget):
         self.options.setPlainText("{}")
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
         from ...quad_first import effective_quad_options
-        parameters={} if settings is None else dict(settings.parameters)
+        # to_dict thaws nested values; raw parameters hold quad_options as a frozen object
+        parameters={} if settings is None else settings.to_dict()["parameters"]
         self.quality_controls.set_values(MeshQualityPolicy.create({key.removeprefix("mesh_quality_"):value for key,value in parameters.items() if key.startswith("mesh_quality_")}).to_dict())
         self.quad_controls.set_values(asdict(effective_quad_options(parameters.get("quad_options"))))
         self.automation_controls.set_values(asdict(MeshAutomationOptions()))

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QComboBox, QFormLayout, QLabel, QLineEdit, QCheck
     QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ... import commands
+from anyloads import Envelope
 from ...model.attributes import PressureTable, Support
 from ...model.materials import MaterialSpec
 from ...model.sections import PlateSection, BeamSection
@@ -151,6 +152,8 @@ class CommandEditor(QWidget):
             field.setText(default if isinstance(default,str) else json.dumps(default,default=lambda value:value.tolist() if hasattr(value,"tolist") else str(value)))
         if name=="code":
             field.setPlaceholderText(PRESSURE_CODE_HINT)
+        elif "Envelope" in annotation:
+            field.setPlaceholderText('When it acts, e.g. {"start": 20, "stop": 300, "by": "number", "expression": "sin(omega * t)"}; empty = always')
         elif "EntityRef" in annotation:
             field.setPlaceholderText("Selection, vertex:1 / edge:1 / face:1, or group:name")
         elif "Sequence" in annotation:
@@ -206,7 +209,8 @@ class CommandEditor(QWidget):
         converters={"SketchDefinition":SketchDefinition.from_parameters,
                     "Region":region_from_dict,"OutputRequest":OutputRequest.from_dict,
                     "UnitProfile":UnitProfile.from_dict,
-                    "PressureTable":lambda data:PressureTable(**data)}
+                    "PressureTable":lambda data:PressureTable(**data),
+                    "Envelope":Envelope.from_dict}
         converter=converters.get(annotation.split(" | ")[0])
         return converter(value) if converter is not None else value
 
@@ -214,7 +218,7 @@ class CommandEditor(QWidget):
     def dimension(name,owner):
         if name in {"plane_point", "axis_point", "spacing"}:return "length"
         if name=="vector" and owner=="Extrude":return "length"
-        if name in {"x","y","z","origin","centre","center","position","translation","offset","eccentricity","radius","radius_start","radius_end","height","length","width","thickness","web_height","web_thickness","flange_width","flange_thickness","longitudinal_spacing","ring_spacing","transverse_spacing","extrusion","amplitude","target_size"}:return "length"
+        if name in {"x","y","z","origin","centre","center","position","translation","reference_point","offset","eccentricity","radius","radius_start","radius_end","height","length","width","thickness","web_height","web_thickness","flange_width","flange_thickness","longitudinal_spacing","ring_spacing","transverse_spacing","extrusion","amplitude","target_size"}:return "length"
         if name in {"angle","angle_step"}:return "angle"
         if name=="rotation_deg":return "angle_degrees"
         if name=="force":return "force"

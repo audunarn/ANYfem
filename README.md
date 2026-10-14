@@ -533,6 +533,142 @@ of a case rather than of one load, because that is how the solver models it;
 combining a follower case with a dead one is refused rather than quietly
 resolved.
 
+### Load series and envelopes: one load for a whole time history
+
+A load case per time step, each holding its own copy of the loads, does not scale to hundreds of
+steps. A **load series** is a load case that spans a time history: add loads to it once, and
+every step derives them at its own time.
+
+```python
+stack.run(commands.AddLoadSeries("Seaway", duration=60, step=0.1,          # 600 steps, 0 ... 59.9 s
+                                 parameters={"omega": 1.047, "swing": 0.4}))
+stack.run(commands.AddConnectionLoad(
+    "End section", moment=(0, 41.5e6, 0), case="Seaway",
+    envelope={"by": "time", "start": 10, "stop": 50,                       # acts 10 s ... 50 s
+              "expression": "min(1, tau / 4) * (0.3 + swing * sin(omega * t))"}))
+```
+
+The steps (`Seaway_000` ... ) are derived cases: they are what is solved, hold no loads, are never
+edited and are written to the project file only as a regenerated list (the file stores the
+series once, with its times and loads). The series itself is a definition and is not solvable;
+asking for it says so and names its steps. In the model tree the steps hang under their series.
+
+Every load type (`point`, `line`, `pressure`, `surface traction`, `wet pressure`, `connection
+load`) may carry an **envelope** (the [ANYloads](https://github.com/audunarn/ANYloads) `Envelope`):
+
+- a **window**, `start` and `stop`, both inclusive and either optional, counted in load case
+  numbers (`by="number"`: from case 20 to case 300) or in case time (`by="time"`);
+- a **factor** inside the window: 1 by default, an `expression` of `t` (case time), `number`,
+  `k` (steps since the window opened), `tau` (seconds since it opened) and the case parameters,
+  or `points` as `(time, factor)` pairs, linear between them and held at the ends, for a ramp in,
+  a plateau and a ramp out.
+
+**Solving many steps fast.** The stiffness is the same for every step; only the loads change, and the
+response is linear in them. `solve_linear_static_many` (the *Batch linear static* analysis) therefore
+does not solve every step. It takes each step's loads (a pressure per element, a force per node),
+finds the few dominant step-to-step patterns of the *nodal forces* with a singular value
+decomposition, solves one real load case per pattern through the solver (one factorization, every
+solver check kept), and recombines every step from those solutions. Accuracy is judged on
+displacements: two real steps (the largest load and the middle one) are also solved in full, and if
+the recombined result disagrees by more than `max(10 * load_tolerance, 1e-8)` of the largest step's
+displacement the next tier of patterns is added (reusing everything already solved) until they
+agree. If compressing would not pay, or there are fewer than 8 steps, gravity, follower pressure or
+prescribed non-zero motion, every step is solved in full. `load_tolerance` (default `1e-6`) is the
+first tier's cut-off on the singular values; `0` or `None` always solves every step. What was done is
+in `batch.info["load_compression"]` (shapes solved, solver calls, dropped load norm, check error).
+On the 600-step barge seaway it solves 46 patterns in two calls; the two checks agree to 3e-6 and the
+rotations match the full solve to 3e-9 of the peak. Measured on an otherwise idle machine, all 600
+cases take 1933 s with ANYsolver at git 1a0ae901 (about 3 s of per-case load-vector guard work each)
+and 142 s once those guards are amortised per lease; the compressed solve takes 185 s and 42 s
+respectively. The gain grows with the cost of each case and shrinks for rough, high-rank loads.
+
+Loads add, so a load that spans the whole record, a ramped one from case 20 and a pulse between
+12 s and 14 s need no knowledge of each other. A load with no envelope acts in every step.
+Gravity or acceleration on a series is constant for all steps. Files that use series or envelopes
+are format 11, written only then. The older `add_load_case_series(template=..., builder=...)`
+still creates real cases that carry copies of their loads, which is fine for a handful; they
+are grouped under the series name in the tree.
+
+### Connections: one moment on several lines
+
+A bending moment is one action, not a pair of line loads. A *connection* ties
+the selected points, lines or plates to a reference point (by default the
+length-weighted geometric centre of the selection), and a load — force and
+moment — is applied at that point. The reference point is a hidden solver node;
+its displacement and rotation are read back with `solution.connection_motion(name)`.
+
+```python
+from anyfem import commands
+
+stack = commands.CommandStack(project)
+stack.run(commands.AddConnection(
+    refs=(project.edge(deck_end), project.edge(bottom_end)),
+    name="End section", kind="rigid", dofs="full"))            # or "distributing"
+stack.run(commands.AddConnectionLoad("End section", moment=(0, 41.5e6, 0)))
+solution = solve_linear_static(project)
+print(solution.connection_motion("End section")["rotation"])   # section rotation
+```
+
+Three behaviours are offered, as in other finite-element packages:
+
+| `kind` | Also known as | What it does |
+|---|---|---|
+| `rigid` | Nastran RBE2, Abaqus kinematic coupling, Ansys rigid remote point | The tied nodes move with the reference point as one rigid body. It **adds stiffness** and holds the section plane; use it for a stiff diaphragm, flange or crane base. |
+| `distributing` | Nastran RBE3, Abaqus distributing coupling, Ansys deformable remote point | The reference point follows the weighted average motion of the nodes. It **adds no stiffness**; a load at the point is spread over the nodes, in proportion to their weight and distance from the point (a linear distribution across the selection, like a beam section). Use it to apply a resultant. |
+
+| `spring` | Abaqus connector / Ansys spring or bushing at a remote point | A **flexible link**. The selection is tied (`tie="rigid"` or `"distributing"`) to an inner section point, and the loaded point is joined to it by six springs: `stiffness` is six numbers — ux, uy, uz in N/m and rx, ry, rz in N·m/rad — or two (translational, rotational). Use it for a compliant pedestal, bearing or support of known stiffness; a very large stiffness approaches the rigid case. A component with zero stiffness carries no load. `connection_motion` reports the section point (`section_displacement`, `section_rotation`) next to the loaded point; their difference is the spring deformation. |
+
+```python
+stack.run(commands.AddConnection(
+    refs=(project.edge(deck_end), project.edge(bottom_end)), name="Pedestal",
+    kind="spring", tie="distributing", stiffness=(5e8, 2e9)))
+```
+
+`dofs` chooses which motions are tied, in global axes: `full` (all six), `translations`
+(a pin-like ball joint), `plane_section_x` / `_y` / `_z` (one translation, so a plane
+section stays plane while the section may still warp and contract in its own plane),
+or a list such as `"ux, uy, rz"`. The reference point is the `centroid` of the
+selection (lines by length, plates by area, points evenly), the centre of its
+`bounding_box`, or an explicit `point`. Distributing weights are the tributary length
+or area of each node (`weighting="tributary"`, mesh independent) or one per node
+(`"uniform"`). Moving the reference point off the centre makes a force there also
+load the section with the moment of the offset.
+
+A connection is stated by what it cannot do. A load component on a degree of freedom the
+connection does not tie is refused, and a distributing connection over geometry that
+cannot carry a moment (a moment about the axis of one straight line has no force couple)
+refuses that moment rather than losing part of it. A rigid connection may not tie a
+degree of freedom that a support also holds, and a node belongs to one rigid connection;
+distributing connections may share nodes with supports and with each other. Constraints
+are linear in the small-rotation sense, which is what the linear solvers use. Connection
+files are format 10, written only when connections are used.
+
+For the barge example, `floating_barge_section("distributing")` applies the end moment once
+at the centre of the deck and bottom end lines; it reproduces the two-line-load result
+(200.000 MPa peak, the same displacement field) because both put the same nodal forces on
+the model. `floating_barge_section("rigid")` is the same moment on a rigid end section; on
+the default 700 mm mesh it measures a 213.6 MPa peak and a 5.4 mm maximum displacement
+(against 200.0 MPa and 18.7 mm), because holding the deck and bottom end lines plane stops
+their local end deformation.
+
+`floating_barge_large()` is the same barge at three times the length (15 m) with two bulkheads, three
+access openings with rounded corners in each, a flat bar FB 120×10 on every opening edge and vertical
+T-bar stiffeners on the bulkheads between the openings; `floating_barge_section` takes `length`,
+`bulkheads`, `girders`, `openings` (`BulkheadOpening`, with a corner `radius`) and `bulkhead_stiffener`
+to build other variants. Its default mesh target is 250 mm (about 15 500 elements; meshing takes a
+couple of minutes) because the mesher's divisions per stiffener bay depend on the model size.
+
+`floating_barge_seaway()` is the expanded example, built on a load series (below): the barge in a
+regular head sea as a quasi-static time history, **600 steps over 60 s at 0.1 s** by default,
+defined by **one** series `Seaway` that stores two loads once. A wave travels along X and presses
+on the bottom and both sides (three wet surfaces, `rho * g * max(0, draft + amp * sin(omega * t -
+kw * x) - z)`), fading in over the first 6 s (an envelope of points); the bending moment on a
+**rigid** end connection acts only from 10 s to 50 s (a window by time), ramped in over 4 s, as
+`mean + swing * sin(omega * t - lag)` of the calibration moment. Choose *Batch linear static* in
+the Solve task to solve the steps `Seaway_000` ... `Seaway_599` with one factorization, and read
+the reference point through the record with `batch.connection_history("End section X = 5 m")`.
+It is also in the Examples menu.
+
 ### Wet surfaces, fluid pressure and load-case series
 
 Plates that carry fluid pressure are marked as *wet surfaces*; a *wet pressure*
@@ -958,6 +1094,7 @@ terms that applied when they were published. Original project documentation
 is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
 third-party components retain their own terms as recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 
 Native archive preparation prefers ANYpost's bounded `metadata_summary()` on its
 I/O worker. Small complete pool-free records remain prefetched; pooled records

@@ -243,6 +243,19 @@ def test_a_change_to_the_series_definition_makes_its_steps_stale():
              analysis_hash(single, None, document=project_to_dict(project)))
     assert after[0] != before[0] and after[1] != before[1]
 
+
+def test_the_viewport_shows_the_loads_acting_in_the_chosen_step():
+    from anyfem.ui.scene import build_attribute_overlay
+
+    project, edges, face, stack = _series()
+    stack.run(cmd.AddPressure(project.face(face), 5.0, case="S", envelope={"start": 5, "stop": 6}))
+    steps = [s.name for s in project.series_children("S")]
+    quiet = build_attribute_overlay(project, case_name=steps[0])
+    active = build_attribute_overlay(project, case_name=steps[4])
+    assert len(active.arrows) > len(quiet.arrows)
+    assert len(build_attribute_overlay(project, case_name="S").arrows) == len(quiet.arrows)  # first step
+
+
 # ----------------------------------------------------------------------
 # a long history is solved through a few load shapes
 # ----------------------------------------------------------------------

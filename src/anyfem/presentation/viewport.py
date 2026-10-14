@@ -401,13 +401,20 @@ class SceneViewport:
 
 
     def _begin_interaction_scene(self, _event: object | None = None) -> None:
-        """Temporarily draw the pre-built low-detail scene for camera motion."""
+        """Temporarily draw the pre-built low-detail scene for camera motion.
+
+        Only the CPU painter needs it.  The GPU backend keeps retained buffers
+        and re-projects them per frame, so orbiting the complete scene is cheap;
+        swapping in a sampled scene would show a handful of isolated elements
+        and rebuild every buffer at the start and end of each gesture.
+        """
 
         self._cancel_interaction_restore()
         if (
             self._interaction_scene_active
             or self._scene is None
             or self._interaction_scene is None
+            or self.active_backend == "gpu"
         ):
             return
         self._interaction_scene_active = True

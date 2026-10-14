@@ -357,6 +357,17 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action=self._action(examples,"Floating barge section…",self.open_barge_example)
         action.setToolTip("Create an S355 barge section: 700 mm stiffeners, 4000 mm girders, fixed end and bending load for approximately 200 MPa")
         action.setStatusTip(action.toolTip())
+        for kind,label in (("distributing","Floating barge section — end moment on a distributing connection…"),
+                           ("rigid","Floating barge section — end moment on a rigid connection…")):
+            action=self._action(examples,label,lambda kind=kind:self.open_barge_example(kind))
+            action.setToolTip(f"The same barge, with the bending moment applied once at the centre of the deck and bottom end lines through a {kind} connection")
+            action.setStatusTip(action.toolTip())
+        action=self._action(examples,"Floating barge section — seaway time history (600 load cases)…",lambda:self.open_barge_example("seaway"))
+        action.setToolTip("The barge in a travelling wave: wave pressure on the hull and a time-varying moment on a rigid end connection, 600 load cases over 60 s")
+        action.setStatusTip(action.toolTip())
+        action=self._action(examples,"Floating barge section — 15 m with bulkhead openings…",lambda:self.open_barge_example("large"))
+        action.setToolTip("Three times the length: two bulkheads with three access openings each, a flat bar FB 120×10 along every opening edge, same bending load")
+        action.setStatusTip(action.toolTip())
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
         toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         icons={"New":QStyle.SP_FileIcon,"Open":QStyle.SP_DirOpenIcon,"Save":QStyle.SP_DialogSaveButton,
@@ -508,18 +519,24 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def _update_window_title(self):
         self.setWindowTitle(f"{'*' if self.session.dirty else ''}{self.project.name} — ANYfem (Qt){' [read-only]' if self.session.read_only else ''}")
 
-    def open_barge_example(self):
+    def open_barge_example(self,end_loading="line_loads"):
         from PySide6.QtWidgets import QMessageBox
-        from ...application.examples import BARGE_DESCRIPTION, floating_barge_section
-        answer=QMessageBox.question(self,"Floating barge section",BARGE_DESCRIPTION+"\n\nCreate this example as a new project?",
+        from ...application.examples import (BARGE_CONNECTION_DESCRIPTION, BARGE_DESCRIPTION, BARGE_LARGE_DESCRIPTION,
+            barge_seaway_description, floating_barge_large, floating_barge_seaway, floating_barge_section)
+        large=end_loading=="large"
+        extra="" if large else barge_seaway_description() if end_loading=="seaway" else BARGE_CONNECTION_DESCRIPTION.format(kind=end_loading)
+        description=BARGE_LARGE_DESCRIPTION if large else BARGE_DESCRIPTION+("" if end_loading=="line_loads" else "\n\n"+extra)
+        answer=QMessageBox.question(self,"Floating barge section",description+"\n\nCreate this example as a new project?",
                                    QMessageBox.Ok|QMessageBox.Cancel,QMessageBox.Cancel)
         if answer!=QMessageBox.Ok or not self._confirm_discard():return
-        project=floating_barge_section()
+        project=floating_barge_large() if large else floating_barge_seaway() if end_loading=="seaway" else floating_barge_section(end_loading)
         self._set_project(project)
         self.session.dirty=True
         self.refresh_all()
         self.show_geometry(reset_view=True)
-        self.set_status("S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
+        self.set_status("S355 barge in a seaway: 600 load cases over 60 s; generate mesh, then Batch linear static" if end_loading=="seaway"
+                        else "S355 barge, 15 m: bulkhead openings with FB 120×10 edges; fixed X=0; My at X=15; generate mesh (250 mm), then solve" if large
+                        else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
         self._schedule_autosave()
 
     def _update_view_label(self):pass

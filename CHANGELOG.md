@@ -2,6 +2,81 @@
 
 ## Unreleased
 
+- Larger barge example with detail. `floating_barge_large()` (Examples menu: "Floating barge
+  section — 15 m with bulkhead openings…") is the barge at three times the length: 15 m, girders
+  every 4 m (X = 0, 4, 8, 12), two transverse bulkheads (X = 5 and 10 m), each with three
+  1.4 m × 1.1 m openings with 250 mm corner radii trimmed into the plate (on the 700 mm stiffener
+  grid: Y = -3.4, 0.1, 3.6 m), a flat bar FB 120×10 along every opening edge (48 beams: straight
+  sides and corner arcs, attached to their bulkhead like the stiffeners, standing off along +X) and
+  vertical T150×6/75×8 stiffeners on every grid line of the bulkheads between the openings (6 per
+  bulkhead, meeting the deck and bottom stiffeners). It is built by `floating_barge_section(...,
+  length=, bulkheads=, girders=, openings=, opening_bar=, bulkhead_stiffener=, stress_scale=,
+  target_size=)`, whose defaults still build the 5 m example unchanged. Its default mesh target is
+  250 mm: at 700 mm the mesher picks 2 divisions per stiffener bay on this longer model (3 on the
+  5 m one), so 250 mm keeps the 0.23 m elements (12 100 nodes, 8 916 shells, 3 112 beams; about
+  2.1 min to mesh with the compiled mesher (2.4 min on the pure-Python fallback) and 40 s to solve). The end moment is calibrated to a 200 MPa peak (a side girder
+  at X = 12 m) on that mesh; the opening flat bars peak near 158 MPa (at the rounded corners, where
+  they follow the plate's edge strain) and the bulkhead plates near 50 MPa.
+
+- Fast multi-load solves. `solve_linear_static_many` (Batch linear static) no longer
+  solves every step of a long time history: the dominant step-to-step patterns of the steps'
+  nodal forces (pressure per element lumped to its nodes, plus nodal loads) are found by singular
+  value decomposition, one real load case per pattern is solved (one factorization, all solver
+  guards kept) and every step is recombined from them. Accuracy is judged on displacements: two
+  real steps are solved in full as a check, and the next tier of patterns is added, reusing what
+  is solved, until they agree to max(10 * load_tolerance, 1e-8) of the largest step. `load_tolerance`
+  (default 1e-6, `None` or 0 disables) is the first tier's cut-off. Few cases, gravity, follower
+  pressure, prescribed non-zero motion, or compression that would not pay solve every case.
+  `batch.info["load_compression"]` records what was done. On the 600-step barge seaway: 46 patterns
+  in two calls; 185 s against 1933 s for all steps on ANYsolver 1a0ae901, 42 s against 142 s with
+  its load-vector guards amortised per lease. Element centroids and
+  normals of wet pressures are cached per mesh.
+
+- Load series and load envelopes. `AddLoadSeries(name, duration, step)` (or explicit
+  `times`) makes one load case that spans a time history; loads added to it are stored
+  once and each derived step (`name_000` ...) evaluates them at its own time, so a
+  600-step history is one definition, not 600 copies. Every load type takes an
+  `envelope` (ANYloads): a start/stop window by load case number or by time, and a
+  factor from an equation of `t`, `number`, `k`, `tau` and the case parameters, or from
+  piecewise-linear `(time, factor)` points. Loads add. Series definitions are not
+  solvable and say which steps to solve; loads cannot be added to a step; deleting a
+  series deletes its steps; `SetLoadSeriesTimes` re-derives them. The model tree groups
+  steps under their series (and copy-style `series` cases under the series name); the
+  active case in the Loads task never defaults to a definition or template, which is what
+  made a seaway "Linear static" fail with "unknown name 't'". Files with series or
+  envelopes are format 11. `LinearBatchSolution.connection_history(name)` returns a
+  connection's reference motion across the cases. `floating_barge_seaway()` now uses one
+  series with two stored loads (wave pressure fading in, a rigid-end moment windowed
+  10-50 s).
+
+- Spring connections and a seaway barge example. `AddConnection(kind="spring",
+  stiffness=..., tie="rigid"|"distributing")` ties the selection to an inner section
+  point and joins the loaded reference point to it with six linear springs (six
+  numbers, or translational and rotational); a component without stiffness carries
+  no load, and `connection_motion` also returns the section point's motion. The
+  spring is ANYfem's own `SpringConnectorElement` (no solver change; elastic, no mass,
+  no stress). `floating_barge_seaway()` (and an Examples menu entry) builds the barge
+  with a travelling wave on three wet surfaces and a time-varying moment on a rigid
+  end connection: 600 load cases over 60 s at 0.1 s, solved as one batch.
+
+- Add connections for moments and forces on several lines, points or plates. A
+  `Connection` ties the selection to a reference point (the length-/area-weighted
+  centroid by default, or the bounding-box centre, or an explicit point) and a
+  `ConnectionLoad` in a load case applies a force and moment there. `rigid`
+  (Nastran RBE2 / Abaqus kinematic coupling) moves the tied nodes as one rigid body;
+  `distributing` (RBE3 / distributing coupling) spreads the load over them with
+  tributary-length or -area weights and adds no stiffness. `dofs` selects the tied
+  motions (full, translations, plane section about x/y/z, or a list). The reference
+  point is a hidden solver node with chained affine constraint equations; unused
+  reference DOFs are held, a load on one is refused, and a moment a distributing
+  connection cannot carry (about the axis of a straight line) is refused rather than
+  dropped. A rigid connection may not tie a DOF a support holds. New commands
+  `AddConnection` and `AddConnectionLoad`, `solution.connection_motion(name)`, Qt
+  Loads task forms, a Connections tree group and a viewport marker with spokes and
+  load arrows. Barge example: `floating_barge_section("distributing" | "rigid")` and
+  two Examples menu entries; the distributing version reproduces the two line loads
+  exactly (200.000 MPa). Files using connections are format 10.
+
 - Load definition and evaluation moved to the new ANYloads package (ANYfem now
   depends on `ANYloads>=0.1,<0.2`): the equation evaluator, trusted Python code
   and its per-user trust list, the CSV/Excel `PressureTable`, and the fluid-side

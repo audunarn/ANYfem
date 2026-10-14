@@ -76,6 +76,35 @@ def test_camera_drag_reduces_detail_and_release_restores_full_owner_scene(viewpo
     assert len(view._scene.faces[1].polygons) == 600
 
 
+def test_gpu_orbit_keeps_drawing_the_complete_scene(tmp_path, monkeypatch):
+    if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
+        pytest.skip("opt-in Qt widgets")
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtWidgets import QApplication
+    from anyfem.ui.qt.app import QtFemWindow
+    from anyfem.io import recovery
+    monkeypatch.setattr(recovery, "default_recovery_root", lambda: tmp_path / "recovery")
+    app = QApplication.instance() or QApplication([])
+    window = QtFemWindow(viewer_backend="gpu")
+    try:
+        window.show()
+        view = window.viewport
+        if view.active_backend != "gpu":
+            pytest.skip("no OpenGL 3.3 context")
+        view.show(dense_scene(), reset_view=True)
+        app.processEvents()
+        surface = view.canvas.event_widget
+        send(surface, QEvent.MouseButtonPress, Qt.RightButton, Qt.RightButton)
+        send(surface, QEvent.MouseMove, Qt.NoButton, Qt.RightButton, (100., 50.))
+        assert not view._interaction_scene_active
+        assert len(view._scene.faces[1].polygons) == 600
+        send(surface, QEvent.MouseButtonRelease, Qt.RightButton, Qt.NoButton, (100., 50.))
+    finally:
+        window.session.mark_saved()
+        window.close()
+        app.processEvents()
+
+
 def test_selection_press_restores_full_detail_before_picking(viewport):
     from PySide6.QtCore import QEvent, Qt
     view, app = viewport

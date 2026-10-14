@@ -118,7 +118,10 @@ def _project_summary(project: Any) -> dict[str, Any]:
     load_count = sum(
         len(getattr(case, name, ()))
         for case in project.load_cases.values()
-        for name in ("point_loads", "pressures", "line_loads", "surface_tractions")
+        for name in (
+            "point_loads", "pressures", "line_loads", "surface_tractions",
+            "connection_loads",
+        )
     )
     settings = getattr(project, "native_mesh_settings", None)
     return {

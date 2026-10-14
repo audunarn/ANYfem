@@ -85,7 +85,7 @@ class LoadTask(CommandEditor):
         commands.AddLineLoad:"edge",commands.AddSurfaceTraction:"face",commands.AddMass:None,
         commands.AddWetSurface:"face"}
     def __init__(self,app):
-        super().__init__(app,["AddPointLoad","AddPressure","AddSupport","AddLineLoad","AddSurfaceTraction","AddWetSurface","AddWetPressure","AddWetPressureTable","AddMass","SetAcceleration","SetFollowerPressure","AddLoadCase","AddLoadCaseSeries","AddLoadCasesFromTable","DeleteLoadCase","AddCombination","EditAttribute","DeleteAttribute"])
+        super().__init__(app,["AddPointLoad","AddPressure","AddSupport","AddLineLoad","AddSurfaceTraction","AddConnection","AddConnectionLoad","AddWetSurface","AddWetPressure","AddWetPressureTable","AddMass","SetAcceleration","SetFollowerPressure","AddLoadCase","AddLoadSeries","SetLoadSeriesTimes","AddLoadCaseSeries","AddLoadCasesFromTable","DeleteLoadCase","AddCombination","EditAttribute","DeleteAttribute"])
         form=QFormLayout();self.layout().addLayout(form)
         self.case=QComboBox();form.addRow("Active load case",self.case)
         self.case.currentTextChanged.connect(self.case_changed)
@@ -123,7 +123,10 @@ class LoadTask(CommandEditor):
         super().refresh()
         current=self.case.currentText();choices=list(self.app.project.load_cases)
         if choices!=[self.case.itemText(i) for i in range(self.case.count())]:
-            self.case.clear();self.case.addItems(choices);self.case.setCurrentText(current if current in choices else "default")
+            # Never fall back to a series definition or template: it cannot be solved.
+            solvable=[name for name in choices if not self.app.project.load_cases[name].is_template]
+            fallback="default" if "default" in solvable else (solvable[0] if solvable else (choices[0] if choices else "default"))
+            self.case.clear();self.case.addItems(choices);self.case.setCurrentText(current if current in choices else fallback)
 
     def case_name(self):return self.case.currentText() or "default"
 

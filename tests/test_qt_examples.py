@@ -54,3 +54,22 @@ def test_example_cancel_and_discard_declined(window, monkeypatch):
     monkeypatch.setattr(window, "_confirm_discard", lambda: False)
     window.open_barge_example()
     assert window.project is original
+
+
+def test_examples_menu_creates_large_barge_with_bulkhead_openings(window, qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    action = window._actions["Floating barge section — 15 m with bulkhead openings…"]
+    assert action.toolTip()
+    action.trigger(); qapp.processEvents()
+    assert len(window.project.geometry.faces) == 6
+    assert sum(len(face.holes) for face in window.project.geometry.faces.values()) == 6
+    assert len(window.project.edge_sections) == 436
+    assert window.project.target_size == .25
+    assert window.session.dirty and window.viewport._scene.faces
+    path = tmp_path/"barge15.anyfem"
+    window.save_project(path=str(path))
+    window.new_project(); window.open_project(str(path))
+    assert len(window.project.geometry.faces) == 6
+    assert sum(len(face.holes) for face in window.project.geometry.faces.values()) == 6
+    assert len(window.project.edge_sections) == 436

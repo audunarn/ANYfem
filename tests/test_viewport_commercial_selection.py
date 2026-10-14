@@ -601,6 +601,25 @@ def test_pan_orbit_uses_low_detail_scene_then_restores_full_scene(
     assert len(viewport.canvas.face_calls[-1][0]) == 2
 
 
+def test_gpu_backend_never_swaps_in_the_sampled_camera_scene(monkeypatch) -> None:
+    """Retained GPU buffers orbit the complete scene; sampling would show confetti."""
+
+    viewport = _viewport(monkeypatch, Selection("face"))
+    viewport.canvas.backend_name = "gpu"
+    polygon = np.asarray([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=float)
+
+    def made_scene(count):
+        return Scene(faces=[FacePatch(EntityRef("face", 1), [polygon] * count, ["#7799bb"] * count)])
+
+    viewport.show(made_scene(50), interaction_scene=made_scene(1))
+    drawn = len(viewport.canvas.face_calls)
+    viewport._begin_interaction_scene()
+    viewport._schedule_full_scene()
+
+    assert not viewport._interaction_scene_active
+    assert len(viewport.canvas.face_calls) == drawn  # no clear/redraw round trip either
+
+
 def test_mesh_domain_filter_and_owner_are_forward_compatible(monkeypatch) -> None:
     selection = Selection("node")
     viewport = _viewport(monkeypatch, selection)
