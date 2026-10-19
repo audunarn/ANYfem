@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QMainWindow
     QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle)
 
 from ...application.controller import WorkbenchController, default_project
-from ...application.workflow import WorkbenchWorkflow
+from ...application.workflow import WorkbenchWorkflow,_job_progress_text
 from ...application.worker import JobWorkerFacade
 from ...diagnostics import ErrorDiagnostic
 from ...scripting import ScriptRunner
@@ -198,6 +198,7 @@ class ScriptTask(QWidget):
 
 class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     """One window, one workbench controller, no Tk runtime."""
+    JOB_EVENT_BATCH_LIMIT=100
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
         self.workbench=WorkbenchController(project if project is not None else default_project(),
@@ -213,6 +214,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._status=_Value("")
         self._refreshing=False
         self._refresh_pending=False
+        self._last_refreshed_revision=None
         from .theme import apply_theme
         apply_theme(self)
         self.resize(1400,900)
@@ -454,6 +456,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def refresh_all(self):
         if self._closing or self._refresh_suspended or self._refreshing:return
+        revision=(self.session,self.session.revision.id)
+        if self.session._transaction_depth and not getattr(self,"_committed_refresh",False):
+            # Stack notifications precede commit. A successful revision refresh
+            # consumes this request; rollback still gets a queued refresh.
+            self._queue_refresh()
+            return
         self._refreshing=True
         try:
             self.run_monitor.bind_document()
@@ -461,7 +469,16 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             self._actions["Undo"].setEnabled(self.commands.can_undo and not self.session.read_only)
             self._actions["Redo"].setEnabled(self.commands.can_redo and not self.session.read_only)
             self._update_window_title()
+            self._last_refreshed_revision=revision
+            self._refresh_pending=False
         finally:self._refreshing=False
+
+    def _on_revision_changed(self,revision):
+        self._committed_refresh=True
+        try:
+            super()._on_revision_changed(revision)
+            self.refresh_all()
+        finally:self._committed_refresh=False
 
     def refresh_panels(self):
         for panel in self.panels.values():panel.refresh()
@@ -474,9 +491,16 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if switching:self.resizeDocks([self._workspace_docks[0]],[370],Qt.Horizontal)
 
     def _on_workbench_event(self,event):
+        if (event.kind in {"command_executed","commands_executed"}
+                and self._last_refreshed_revision==(self.session,event.snapshot.revision.id)):
+            return
+        self._queue_refresh()
+
+    def _queue_refresh(self):
         if self._closing or self._refresh_pending:return
         self._refresh_pending=True
         def refresh():
+            if not self._refresh_pending:return
             self._refresh_pending=False
             self.refresh_all()
         self.scheduler.call_later(0,refresh)
@@ -569,12 +593,25 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
                 project_id=str(getattr(self.project,"document_id","")),view=self._view_mode))
             del self._error_diagnostics[:-10]
 
+    def _on_progress_batch(self,events):
+        entries=[(_job_progress_text(event.message,event.payload),event.payload) for event in events]
+        if not entries:return
+        # Keep the complete ordered messages, while changing live labels once.
+        if len(entries)>1:self.log.appendPlainText("\n".join(text for text,_ in entries[:-1]))
+        self.set_status(entries[-1][0])
+        panel=self.panels.get("Solve")
+        if panel is not None:
+            panel.show_progress(entries[-1][0])
+            panel.append_progress_batch(entries)
+
     def _set_project(self,*args,**kwargs):
         self.viewport.cancel_plate()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()
         self.panels["Solve"].reset()
         super()._set_project(*args,**kwargs)
+        self.tree.cancel_pending_search()
+        self.tree.search_edit.setText(self.tree.query)
         self.refresh_all()
 
     def switch_viewer_backend(self,backend):
@@ -617,10 +654,16 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def closeEvent(self,event):
         if self._closing:event.accept();return
         if not self._confirm_discard():event.ignore();return
+        try:
+            self.flush_project_writes()
+        except Exception as error:
+            self.set_status(f"Cannot close: recovery snapshot failed: {error}", error=True)
+            event.ignore()
+            return
+        self.tree.cancel_pending_search()
         self.geometry_actions.close()
         settings=QSettings("ANY","ANYfem-Qt")
         settings.setValue("geometry",self.saveGeometry());settings.setValue("docks",self.saveState())
-        self.flush_project_writes()
         self._closing=True
         self.run_monitor.stop()
         self.button_help.close()

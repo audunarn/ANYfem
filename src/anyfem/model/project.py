@@ -242,7 +242,7 @@ class Project:
             _restore_attributes(self, after_attributes)
         return report
 
-    def _regenerate_geometry_features_detached(self, registry=None):
+    def _regenerate_geometry_features_detached(self, registry=None, *, appended_feature_ids=()):
         """Regenerate an already-detached project without another clone.
 
         Command staging owns the surrounding project clone. Keeping that fact
@@ -256,7 +256,12 @@ class Project:
             from ..geometry_features import anyfem_feature_registry
 
             registry = anyfem_feature_registry()
-        report = self.geometry.regenerate_features(registry)
+        # This project belongs to command staging; any failure discards it.
+        # Only explicitly identified new additive features may consume its
+        # topology directly. Existing edits keep ANYgeometry's atomic path.
+        report = self.geometry.regenerate_features_detached(
+            registry,appended_feature_ids=appended_feature_ids
+        )
         if not report.success:
             return report
         try:

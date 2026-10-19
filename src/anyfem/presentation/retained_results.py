@@ -121,16 +121,33 @@ def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI
     # Scalar outputs, temporary mean rows and retained colour strings/lists.
     estimate=count*128+sum(len(ids)*32 for ids in retained[2])+16384
     if estimate>working_bytes:raise WorkingSetError('retained display conversion exceeds working cap')
-    scalars=tuple(scalar_values(field,retained[3],ids) for ids in retained[2])
+    # Share full-precision means across GPU batches and software primitives.
+    # This is call-local: fields/connectivity may mutate between preparations.
+    # Reserve conservative dict/key/value overhead within the existing estimate's
+    # headroom. A tight cap keeps the original uncached conversion admissible.
+    cache_slots=max(0,(working_bytes-estimate-1024)//256)
+    gpu_means={}
+    cpu_means=gpu_means if retained[3] is scene.result_mesh else {}
+    per_element=field.per_element
+    def element_mean(eid,mesh,means):
+        nonlocal cache_slots
+        eid=int(eid)
+        if eid in means:return means[eid]
+        nodes=mesh.shells[eid] if eid in mesh.shells else mesh.beams.get(eid,())
+        samples=[field.node_values.get(node,np.nan) for node in nodes]
+        value=float(np.mean(samples)) if samples and np.isfinite(samples).all() else np.nan
+        if cache_slots:
+            means[eid]=value
+            cache_slots-=1
+        return value
+    if per_element:
+        scalars=tuple(scalar_values(field,retained[3],ids) for ids in retained[2])
+    else:
+        scalars=tuple(np.asarray([element_mean(eid,retained[3],gpu_means) for eid in ids],dtype=np.float32) for ids in retained[2])
     range_,palette,legend=result_display_metadata(field,limits=limits,display_units=display_units,colormap=colormap)
     low,high=range_
     def color(eid,fallback):
-        if field.per_element:value=field.element_values.get(eid,np.nan)
-        else:
-            mesh=scene.result_mesh
-            nodes=mesh.shells[eid] if eid in mesh.shells else mesh.beams.get(eid,())
-            samples=[field.node_values.get(node,np.nan) for node in nodes]
-            value=float(np.mean(samples)) if samples and np.isfinite(samples).all() else np.nan
+        value=field.element_values.get(eid,np.nan) if per_element else element_mean(eid,scene.result_mesh,cpu_means)
         return _ramp_color((float(value)-low)/(high-low),palette) if np.isfinite(value) else fallback
     faces=[];lines=[]
     for patch in scene.faces:

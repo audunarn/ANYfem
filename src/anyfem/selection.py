@@ -534,12 +534,14 @@ class Selection:
         resolved_operation = SelectionOperation(operation)
         supplied = list(refs)
         accepted: list[SelectableRef] = []
+        seen: set[SelectableRef] = set()
         rejected: list[SelectionRejection] = []
         for ref in supplied:
             reason = self._filter.explain_rejection(ref)
             if reason is not None:
                 rejected.append(SelectionRejection(ref, reason))
-            elif ref not in accepted:
+            elif ref not in seen:
+                seen.add(ref)
                 accepted.append(ref)
         self._last_rejection = rejected[-1].reason if rejected else None
         before = tuple(self._items)
@@ -752,21 +754,22 @@ def _apply_operation(
 ) -> list[SelectableRef]:
     if operation == SelectionOperation.REPLACE:
         return list(supplied)
-    updated = list(current)
+    # Dict insertion order preserves the existing ordered-set contract while
+    # avoiding repeated linear scans for large box/lasso selections.
+    updated = dict.fromkeys(current)
     if operation == SelectionOperation.ADD:
         for ref in supplied:
-            if ref not in updated:
-                updated.append(ref)
+            updated.setdefault(ref, None)
     elif operation == SelectionOperation.TOGGLE:
         for ref in supplied:
             if ref in updated:
-                updated.remove(ref)
+                del updated[ref]
             else:
-                updated.append(ref)
+                updated[ref] = None
     elif operation == SelectionOperation.REMOVE:
         remove = set(supplied)
-        updated = [ref for ref in updated if ref not in remove]
-    return updated
+        return [ref for ref in updated if ref not in remove]
+    return list(updated)
 
 
 def _plural_label(kind: str) -> str:

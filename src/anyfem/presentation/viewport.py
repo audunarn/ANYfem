@@ -140,6 +140,7 @@ class SceneViewport:
         self._interaction_restore_after_id: object | None = None
         self._retained_result = None
         self._retained_result_canvas = None
+        self._retained_scene = None
         self._on_pick: Optional[Callable[[Optional[object]], None]] = None
         self._on_hover: Optional[Callable[[Optional[object]], None]] = None
         self._on_frame_selection: Optional[Callable[[List[object]], Any]] = None
@@ -327,6 +328,18 @@ class SceneViewport:
     def _render_scene(self, scene: Scene, *, reset_view: bool = False) -> None:
         """Draw one retained scene while retaining ``self._scene`` as source."""
 
+        from .retained_scene import lifetime_guard, scene_key
+        key = scene_key(self, scene)
+        cached = getattr(self, "_retained_scene", None)
+        if (key is not None and cached is not None
+                and cached[0] is self.canvas and cached[1] == key
+                and not cached[2].removed):
+            if reset_view:
+                self.canvas.fit_to_scene()
+            self._apply_highlight()
+            self.canvas.redraw()
+            return
+        self._retained_scene = None
         from .retained_results import prepare
         retained = None
         if self.active_backend == "gpu" and scene.result_field is not None and hasattr(self.canvas, "add_mesh_arrays"):
@@ -359,6 +372,10 @@ class SceneViewport:
             self._retained_result_canvas = self.canvas
             self._draw(retained[2])
         self._draw_construction_overlay()
+        if key is not None:
+            guard = lifetime_guard(self.canvas)
+            if guard is not None:
+                self._retained_scene = (self.canvas, key, guard)
         if reset_view:
             self.canvas.fit_to_scene()
         self._apply_highlight()
@@ -430,6 +447,17 @@ class SceneViewport:
             or self.active_backend == "gpu"
         ):
             return
+        from .retained_scene import scene_key
+        cached = getattr(self, "_retained_scene", None)
+        if (cached is not None and cached[0] is self.canvas
+                and not cached[2].removed
+                and scene_key(self, self._interaction_scene) == cached[1]):
+            # Sampling a small scene often changes no displayed data at all.
+            # Keep the existing submissions and complete picking maps alive.
+            # Mark the gesture active so subsequent move events do not hash
+            # even this unchanged scene again. Restoration verifies it once.
+            self._interaction_scene_active = True
+            return
         self._interaction_scene_active = True
         self._render_scene(self._interaction_scene)
 
@@ -460,6 +488,7 @@ class SceneViewport:
     def clear(self) -> None:
         self._cancel_interaction_restore()
         self._retained_result = self._retained_result_canvas = None
+        self._retained_scene = None
         self._scene = None
         self._interaction_scene = None
         self._interaction_scene_active = False
@@ -1286,6 +1315,7 @@ class SceneViewport:
 
     def _event_refs(self, event) -> List[object]:
         refs: List[object] = []
+        seen = set()
         for hit in getattr(event, "hits", ()):
             ref = owner_to_ref(getattr(hit, "owner", hit))
             if ref is None:
@@ -1298,7 +1328,8 @@ class SceneViewport:
                 if ref is not None and selection_filter is not None
                 else ref is not None and ref.kind == self.selection.mode
             )
-            if accepted and ref not in refs:
+            if accepted and ref not in seen:
+                seen.add(ref)
                 refs.append(ref)
         return refs
 
@@ -1314,7 +1345,6 @@ class SceneViewport:
         if self._selection_tool == "single" and gesture != "click":
             return
 
-        refs = self._event_refs(event)
         owners = [
             getattr(hit, "owner", hit) for hit in getattr(event, "hits", ())
         ]
@@ -1336,6 +1366,7 @@ class SceneViewport:
             change = self.selection.apply_owners(owners, operation)
             refs = list(change.accepted)
         else:  # pragma: no cover - compatibility with ANYfem < 0.0.1
+            refs = self._event_refs(event)
             current = self.selection.items
             if operation == "replace":
                 updated = refs
@@ -1375,7 +1406,11 @@ class SceneViewport:
         self._hover_key = (
             None if ref is None else str(getattr(hit, "key", "")) or None
         )
-        if hasattr(self.canvas, "set_preselection"):
+        # Current viewers apply hit preselection before this callback. Repeating
+        # the public setter loses their hit-local ownership cache. Older viewers
+        # still need the setter, as does a hit rejected by the application filter.
+        if (hasattr(self.canvas, "set_preselection")
+                and getattr(self.canvas, "preselected_key", object()) != self._hover_key):
             self.canvas.set_preselection(self._hover_key)
         if self._on_hover is not None:
             self._on_hover(ref)
@@ -1490,8 +1525,13 @@ class SceneViewport:
         self.fit()
 
 
+    def _highlight_tags(self):
+        """Return the final selection/overlay tags for one viewer update."""
+        return self.selection.tags()
+
+
     def _apply_highlight(self) -> None:
-        self.canvas.set_highlight(self.selection.tags())
+        self.canvas.set_highlight(self._highlight_tags())
         if self._commercial_selection:
             # The filter follows geometry Point/Line/Plate mode immediately.
             config = self._selection_config()

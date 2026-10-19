@@ -1,5 +1,6 @@
 """Focused real-widget regressions for existing-vertex boundary drafts."""
 import os
+import numpy as np
 import pytest
 if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1", allow_module_level=True)
@@ -29,6 +30,25 @@ def test_selection_fields_preserve_manual_edit_and_switch(window):
     assert editor.fields["edge_ids"][0].text() == ""
     editor.choice.setCurrentIndex(editor.choice.findData("AddPolyline"))
     assert editor.fields["vertex_ids"][0].text() == ", ".join(map(str, ids[:3]))
+
+
+def test_selected_three_points_create_a_triangle_in_viewport(window, qapp):
+    coordinates = ((0, 0, 0), (2, 0, 0), (2, 1, 0))
+    ids, refs = vertices(window, coordinates)
+    editor = window.panels["Geometry"]
+    window.selection.set_mode("vertex")
+    window.selection.restore(refs)
+    editor.choice.setCurrentIndex(editor.choice.findData("AddPlate"))
+    assert editor.fields["vertex_ids"][0].text() == ", ".join(map(str, ids))
+
+    editor.apply.click()
+    qapp.processEvents()
+
+    face_id = next(iter(window.project.geometry.faces))
+    patch = next(patch for patch in window.viewport._scene.faces
+                 if patch.ref == window.project.geometry.entity_ref("face", face_id))
+    assert len(patch.polygons) == 1
+    np.testing.assert_allclose(patch.polygons[0], coordinates)
 
 
 def test_draft_preview_validation_commit_undo(window):

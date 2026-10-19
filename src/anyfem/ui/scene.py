@@ -375,6 +375,21 @@ def face_display_polygons(
     """
 
     face = geometry.faces[face_id]
+    if (
+        isinstance(face.surface, Plane)
+        and face.parameterization is None
+        and not face.holes
+        and len(face.loop) == 3
+        and all(isinstance(geometry.edges[item.edge].curve, Straight) for item in face.loop)
+    ):
+        # A Plane describes the support beyond the face boundary.  Sampling
+        # its square UV domain would draw the missing half of this triangle.
+        return [
+            np.asarray([
+                geometry.vertex_position(geometry.oriented_start_vertex(item))
+                for item in face.loop
+            ])
+        ]
     if not face.corners and face.surface is None and face.parameterization is None and not face.holes and len(face.loop) == 4 and all(isinstance(geometry.edges[item.edge].curve, Straight) for item in face.loop):
         from shapely.geometry import Polygon
         from shapely.ops import triangulate

@@ -283,13 +283,18 @@ class DocumentSession:
 
 
 def _document_payload(document: Mapping[str, Any]) -> dict[str, Any]:
-    payload = deepcopy(dict(document))
+    # Hashing only removes bookkeeping fields. Copy the containers we edit,
+    # rather than duplicating all coordinates and feature baseline arrays.
+    # The remaining values are read synchronously by canonical_hash.
+    payload = dict(document)
     header = payload.get("anyfem")
     if isinstance(header, dict):
+        header = payload["anyfem"] = dict(header)
         header.pop("revision", None)
         header.pop("artifact_root", None)
     geometry = payload.get("geometry")
     if isinstance(geometry, dict):
+        geometry = payload["geometry"] = dict(geometry)
         _normalize_geometry_hash_payload(geometry, include_feature_intent=True)
     return payload
 
@@ -314,12 +319,16 @@ def _normalize_geometry_hash_payload(
         return
     if not isinstance(features, dict):
         return
+    features = geometry["features"] = dict(features)
     features.pop("next_id", None)
     baseline = features.get("baseline")
     if isinstance(baseline, dict):
+        baseline = features["baseline"] = dict(baseline)
         _normalize_geometry_hash_payload(
             baseline, include_feature_intent=False
         )
+    if "records" in features:
+        features["records"] = _copy_hash_records(features["records"])
     for record in features.get("records", ()):
         if not isinstance(record, dict):
             continue
@@ -330,6 +339,12 @@ def _normalize_geometry_hash_payload(
             "materialization_checksum",
         ):
             record.pop(key, None)
+
+
+def _copy_hash_records(records):
+    """Detach only record mappings whose display fields will be removed."""
+
+    return [dict(item) if isinstance(item, dict) else item for item in records]
 
 
 def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -354,7 +369,23 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         "regions",
         "coordinate_systems",
     )
-    payload = {key: deepcopy(document[key]) for key in keys if key in document}
+    payload = {key: document[key] for key in keys if key in document}
+    for key in (
+        "materials", "plate_sections", "beam_sections", "coordinate_systems",
+        "regions", "supports", "masses", "wet_surfaces", "connections",
+        "imperfections",
+    ):
+        if key in payload:
+            payload[key] = _copy_hash_records(payload[key])
+    for key, records_key in (
+        ("assignments", "sections"), ("ownership", "sheet_joins"),
+        ("meshing", "refinements"),
+    ):
+        values = payload.get(key)
+        if isinstance(values, dict):
+            values = payload[key] = dict(values)
+            if records_key in values:
+                values[records_key] = _copy_hash_records(values[records_key])
 
     # Stable UUIDs and editable labels are provenance/navigation identity, not
     # numerical input.  Keep relationship-bearing IDs (region IDs and topology
@@ -423,5 +454,6 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
                 item.pop("name", None)
     geometry = payload.get("geometry")
     if isinstance(geometry, dict):
+        geometry = payload["geometry"] = dict(geometry)
         _normalize_geometry_hash_payload(geometry, include_feature_intent=False)
     return payload

@@ -2560,3 +2560,17 @@ def test_workbench_event_during_refresh_is_not_discarded(window, qapp, monkeypat
     for _ in range(4):
         qapp.processEvents()
     assert len(calls) == 2
+
+
+def test_close_refuses_failed_recovery_flush_before_cleanup(window, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+    original = window.flush_project_writes
+    def fail():
+        raise ValueError("invalid deferred snapshot")
+    monkeypatch.setattr(window, "flush_project_writes", fail)
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert not event.isAccepted()
+    assert not window._closing
+    assert window.isVisible()
+    monkeypatch.setattr(window, "flush_project_writes", original)

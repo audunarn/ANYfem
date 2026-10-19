@@ -42,7 +42,7 @@ def test_shared_poll_routes_both_run_types_without_consuming_twice(window,qapp,m
     solve=[JobEvent('run','started','Factorizing'),JobEvent('run','progress','Assembling',ProgressEvent('stage','assembly',completed=2,total=4))]
     mesh=[MeshJobEvent('mesh','started','Meshing'),MeshJobEvent('mesh','progress','Generating',MeshProgress('generation','Generating',.2))]
     def poll(items):result=list(items);items.clear();return result
-    monkeypatch.setattr(window.job_manager,'poll',lambda:poll(solve))
+    monkeypatch.setattr(window.job_manager,'poll',lambda limit=None:poll(solve))
     monkeypatch.setattr(window.mesh_task_manager,'poll',lambda:poll(mesh))
     window._poll_jobs();window.run_monitor.refresh();qapp.processEvents()
     assert not solve and not mesh and len(window.run_monitor.catalog.runs)==2
@@ -121,7 +121,7 @@ def test_cancel_routes_exact_selected_job_and_resets_on_project_replacement(wind
 
 def test_monitor_failure_does_not_stop_existing_poll_workflow(window,qapp,monkeypatch):
     record(window);events=[JobEvent('run','progress','Factorizing')]
-    monkeypatch.setattr(window.job_manager,'poll',lambda:events.copy() if events else [])
+    monkeypatch.setattr(window.job_manager,'poll',lambda limit=None:events.copy() if events else [])
     monkeypatch.setattr(window.run_monitor,'observe',lambda *a,**k:(_ for _ in ()).throw(ValueError('monitor defect')))
     window._poll_jobs();events.clear()
     assert 'Factorizing' in window.panels['Solve'].transcript.toPlainText()

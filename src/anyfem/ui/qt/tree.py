@@ -1,5 +1,5 @@
 """Qt model/view representation of project records and persistent entity references."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QTimer
 from PySide6.QtGui import QStandardItem, QStandardItemModel, QColor, QBrush
 from PySide6.QtWidgets import QTreeView,QHeaderView,QMenu,QLineEdit,QVBoxLayout,QWidget,QPushButton
 from anygeometry import feature_entity_owners
@@ -9,6 +9,7 @@ from .geometry_actions import is_geometry_set,set_references
 
 
 LOAD_CASE_CHILD_LIMIT=200  # steps listed under a series; the rest are summarised
+SEARCH_DEBOUNCE_MS=150
 
 class QtModelTree(QTreeView):
     def __init__(self, app):
@@ -17,6 +18,11 @@ class QtModelTree(QTreeView):
         self.project=app.project
         self.exploded_feature_ids=frozenset()
         self.query=""
+        self._pending_query=None
+        self._search_timer=QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._apply_pending_search)
         self._model=QStandardItemModel()
         self._model.setHorizontalHeaderLabels(["Model", "State"])
         self.setModel(self._model)
@@ -29,6 +35,13 @@ class QtModelTree(QTreeView):
         self._refreshing=False
         self._groups={}
         self._rows={}
+        self._ref_rows={}
+        self._beam_refs={}
+        self._ref_beams={}
+        self._visibility_rows={}
+        self._visibility_keys={}
+        self._hidden_keys=frozenset()
+        self._row_order={}
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
 
@@ -61,13 +74,29 @@ class QtModelTree(QTreeView):
         finally:self._refreshing=prior
 
     def search(self,text):
+        self.cancel_pending_search()
         self.query=text
         self.refresh()
+
+    def schedule_search(self,text):
+        self._pending_query=(self.app.session,str(text))
+        self._search_timer.start()
+
+    def cancel_pending_search(self):
+        self._search_timer.stop()
+        self._pending_query=None
+
+    def _apply_pending_search(self):
+        pending=self._pending_query
+        self.cancel_pending_search()
+        if pending is not None and pending[0] is self.app.session and not self.app._closing:
+            self.search(pending[1])
 
     def panel(self):
         panel=QWidget(self.app);layout=QVBoxLayout(panel)
         search=QLineEdit(panel);search.setPlaceholderText("Find topology by entity ID")
-        search.textChanged.connect(self.search)
+        search.textEdited.connect(self.schedule_search)
+        self.search_edit=search
         layout.addWidget(search);layout.addWidget(self)
         create=QPushButton("Create set from selection…",panel)
         create.clicked.connect(lambda:self.app.guarded(self.app.geometry_actions.new_set)())
@@ -140,6 +169,8 @@ class QtModelTree(QTreeView):
                     status=str(getattr(state,"value",state))
                     if attribute=="jobs" and self.app._job_is_stale(value):
                         status += " (stale)"
+                    if attribute=="mesh_records" and value.source_model_hash!=self.app.session.revision.model_hash:
+                        status += " (stale)"
                     if attribute=="load_cases" and value.times is not None:
                         children_of[key]=self.project.series_children(value.name)
                         status=f"series, {len(children_of[key])} steps"
@@ -175,7 +206,8 @@ class QtModelTree(QTreeView):
                         loads.append((value.id,label,"",("load",value.id)))
             self._sync_group("Loads",loads)
             self._sync_group("Results",[(job.result_artifact_id,job.name,"stale" if self.app._job_is_stale(job) else "",("result",job.result_artifact_id)) for job in self.project.jobs.values() if job.result_artifact_id])
-            self.refresh_visibility()
+            self._index_rows(owners)
+            self.refresh_visibility(rebuild=True)
             self.sync_from_selection()
         finally:
             self._refreshing=False
@@ -205,27 +237,54 @@ class QtModelTree(QTreeView):
             return () if connection is None else tuple(self.project.connection_targets(connection))
         return ()
 
-    def refresh_visibility(self):
-        """Dim hidden topology in every occurrence without changing selection."""
-        owners=self.generated_entity_owners()
+    def _index_rows(self,owners):
+        """Rebuild indexes after structural edits, including duplicate refs."""
+        self._ref_rows={};self._beam_refs={};self._ref_beams={}
+        self._visibility_rows={};self._visibility_keys={}
+        self._row_order={}
         feature_refs={}
         for ref,identifier in owners.items():feature_refs.setdefault(identifier,[]).append(ref)
         def visit(parent):
             for row in range(parent.rowCount()):
                 item=parent.child(row);value=item.data(Qt.UserRole);refs=()
-                if hasattr(value,"kind"):refs=(value,)
+                self._row_order[item.index()]=len(self._row_order)
+                if hasattr(value,"kind"):
+                    refs=(value,)
+                    self._ref_rows.setdefault(value,[]).append(item)
                 elif isinstance(value,(tuple,list)):
                     if value[0]=="geometry":refs=feature_refs.get(value[1],())
-                    elif value[0]=="members":refs=self.beam_references(value[1])
+                    elif value[0]=="members":
+                        refs=self.beam_references(value[1])
+                        self._beam_refs[value[1]]=frozenset(refs)
+                        for ref in refs:self._ref_beams.setdefault(ref,set()).add(value[1])
                     elif value[0] in {"sets","wet_surfaces","connections"}:
                         try:refs=self.collection_references(value)
                         except (ValueError,KeyError):pass
-                count=sum(self.app.viewport.visibility.is_hidden(ref) for ref in refs)
-                hidden=bool(refs) and count==len(refs)
-                item.setForeground(QBrush(QColor("#8794a6")) if hidden else QBrush())
-                item.setToolTip("Hidden in viewport" if hidden else "Partly hidden in viewport" if count else "")
+                keys=frozenset(self.app.viewport.visibility.key(ref) for ref in refs)
+                if keys or item.toolTip():
+                    token=id(item)
+                    self._visibility_rows[token]=(item,keys)
+                    for key in keys:self._visibility_keys.setdefault(key,set()).add(token)
                 visit(item)
         visit(self._model.invisibleRootItem())
+
+    def refresh_visibility(self,*,rebuild=False):
+        """Update only rows affected by visibility changes, in every occurrence."""
+        hidden=frozenset(self.app.viewport.visibility.hidden)
+        if rebuild:affected=self._visibility_rows
+        else:
+            affected=set()
+            for key in hidden ^ self._hidden_keys:
+                affected.update(self._visibility_keys.get(key,()))
+        for token in affected:
+            item,keys=self._visibility_rows[token]
+            count=len(keys & hidden)
+            fully_hidden=bool(keys) and count==len(keys)
+            tooltip="Hidden in viewport" if fully_hidden else "Partly hidden in viewport" if count else ""
+            brush=QBrush(QColor("#8794a6")) if fully_hidden else QBrush()
+            if item.foreground()!=brush:item.setForeground(brush)
+            if item.toolTip()!=tooltip:item.setToolTip(tooltip)
+        self._hidden_keys=hidden
 
     def _sync_group(self,label,rows):
         parent=self._groups.get(label)
@@ -359,32 +418,53 @@ class QtModelTree(QTreeView):
 
     def sync_from_selection(self):
         if getattr(self,"_tree_driven",False):return
-        from PySide6.QtCore import QItemSelectionModel
+        from PySide6.QtCore import QItemSelection,QItemSelectionModel
         prior=self._refreshing;self._refreshing=True
         try:
-            records=[index for index in self.selectionModel().selectedRows() if isinstance(index.data(Qt.UserRole),(tuple,list)) and index.data(Qt.UserRole)[0]!="members"]
-            self.clearSelection()
-            for index in records:self.selectionModel().select(index,QItemSelectionModel.Select|QItemSelectionModel.Rows)
+            selected=self.selectionModel().selectedRows()
+            wanted={index for index in selected if isinstance(index.data(Qt.UserRole),(tuple,list)) and index.data(Qt.UserRole)[0]!="members"}
             refs=set(self.app.selection.items)
-            def descendants(parent):
-                for child in range(parent.rowCount()):
-                    item=parent.child(child)
-                    yield item
-                    yield from descendants(item)
-            for row in range(self._model.rowCount()):
-                for item in descendants(self._model.item(row)):
-                    ref=item.data(Qt.UserRole)
-                    selected = hasattr(ref,"kind") and ref in refs
-                    if isinstance(ref,(tuple,list)) and ref[0]=="members":
-                        beam_refs = set(self.beam_references(ref[1]))
-                        selected = bool(beam_refs) and beam_refs <= refs
-                    if selected:
-                        self.selectionModel().select(item.index(),QItemSelectionModel.Select|QItemSelectionModel.Rows)
+            beams=set()
+            for ref in refs:
+                wanted.update(item.index() for item in self._ref_rows.get(ref,()))
+                beams.update(self._ref_beams.get(ref,()))
+            for identifier in beams:
+                if self._beam_refs[identifier] <= refs:
+                    wanted.add(self._rows["Beams"][identifier][0].index())
+            current=set(selected)
+            for indices,flag in ((current-wanted,QItemSelectionModel.Deselect),(wanted-current,QItemSelectionModel.Select)):
+                if not indices:continue
+                changes=QItemSelection()
+                for index in sorted(indices,key=lambda index:self._row_order.get(index,-1)):changes.select(index,index)
+                self.selectionModel().select(changes,flag|QItemSelectionModel.Rows)
         finally:
             self._refreshing=prior
 
     def refresh_job_states(self):
-        self.refresh()
+        """Synchronize job/result rows without traversing geometry."""
+        self.project=self.app.project
+        jobs=[];results=[]
+        for job in self.project.jobs.values():
+            stale=self.app._job_is_stale(job)
+            state=str(getattr(job.status,"value",job.status))+(" (stale)" if stale else "")
+            jobs.append((job.id,job.name,state,("jobs",job.id)))
+            if job.result_artifact_id:
+                results.append((job.result_artifact_id,job.name,"stale" if stale else "",("result",job.result_artifact_id)))
+        self._sync_state_groups((("Jobs",jobs),("Results",results)))
 
     def refresh_mesh_states(self):
-        self.refresh()
+        """Synchronize the small mesh branch without rebuilding topology."""
+        self.project=self.app.project
+        rows=[]
+        for mesh in self.project.mesh_records.values():
+            state=getattr(mesh,"status","")
+            state=str(getattr(state,"value",state))
+            if mesh.source_model_hash!=self.app.session.revision.model_hash:state += " (stale)"
+            rows.append((mesh.id,mesh.name,state,("mesh_records",mesh.id)))
+        self._sync_state_groups((("Meshes",rows),))
+
+    def _sync_state_groups(self,groups):
+        prior=self._refreshing;self._refreshing=True
+        try:
+            for label,rows in groups:self._sync_group(label,rows)
+        finally:self._refreshing=prior

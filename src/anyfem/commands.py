@@ -425,7 +425,9 @@ class FeatureCommand(Command):
         self._before_attributes = _attribute_snapshot(project)
         working_project = _stage_feature_project(project)
         feature_id = int(self.change(working_project))
-        report = working_project._regenerate_geometry_features_detached()
+        previous_ids={record.feature_id for record in self._before["features"]["records"]}
+        appended_ids=(feature_id,) if feature_id not in previous_ids else ()
+        report = working_project._regenerate_geometry_features_detached(appended_feature_ids=appended_ids)
         if not report.success:
             raise GeometryError(
                 report.diagnostic or f"feature {feature_id} failed to regenerate"
@@ -884,7 +886,9 @@ class GeometryCommand(Command):
                     parameters=parameters,
                     inputs=inputs,
                 )
-                report = working_project._regenerate_geometry_features_detached()
+                report = working_project._regenerate_geometry_features_detached(
+                    appended_feature_ids=(pending.feature_id,)
+                )
                 if not report.success:
                     raise GeometryError(
                         report.diagnostic

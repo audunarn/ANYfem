@@ -117,6 +117,25 @@ def test_flat_geometry_uses_native_display_complexity(plate_project):
     )
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_three_point_plate_scene_uses_its_triangular_boundary(reverse):
+    project = Project()
+    stack = cmd.CommandStack(project)
+    coordinates = [(2.0, -1.0, 3.0), (5.0, 0.0, 4.0), (1.0, 3.0, 5.0)]
+    if reverse:
+        coordinates.reverse()
+    points = [stack.run(cmd.AddPoint(*point)) for point in coordinates]
+    face_id = stack.run(cmd.AddPlate(points))
+
+    assert len(project.geometry.faces[face_id].loop) == 3
+    scene = build_geometry_scene(project)
+    patch = next(patch for patch in scene.faces if patch.ref == EntityRef("face", face_id))
+    assert len(patch.polygons) == 1
+    polygon = patch.polygons[0]
+    assert polygon.shape == (3, 3)
+    np.testing.assert_allclose(polygon, coordinates)
+
+
 def test_trimmed_face_tessellation_does_not_fill_its_hole(plate_project):
     project, face, _edges, _points = plate_project
     centre = np.asarray((1.0, 0.5, 0.0))

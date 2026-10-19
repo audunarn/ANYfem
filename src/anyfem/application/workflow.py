@@ -102,6 +102,7 @@ class WorkbenchWorkflow:
 
     Hooks format views and dialogs; document and engineering operations stay here.
     """
+    JOB_EVENT_BATCH_LIMIT = None
     project = _WorkbenchField("project")
     selection = _WorkbenchField("selection")
     session = _WorkbenchField("session")
@@ -149,7 +150,7 @@ class WorkbenchWorkflow:
         self._autosave_hard_after = None
         self._recovery_future: Future | None = None
         self._recovery_future_epoch = 0
-        self._recovery_pending: tuple[int, dict[str, Any], dict[str, Any]] | None = None
+        self._recovery_pending: int | None = None
         self._recovery_epoch = 0
         self._recent_paths = self._load_recent_paths()
         self._error_diagnostics: list[ErrorDiagnostic] = []
@@ -1242,11 +1243,31 @@ class WorkbenchWorkflow:
     def _poll_jobs(self) -> None:
         if self._closing:
             return
-        for event in self.job_manager.poll():
+        limit=self.JOB_EVENT_BATCH_LIMIT
+        scheduled=getattr(self,"_job_poll",None)
+        if limit is not None and scheduled is not None:
+            self.scheduler.cancel_call(scheduled)
+            self._job_poll=None
+        manager=self.job_manager
+        events=manager.poll() if limit is None else manager.poll(limit=limit)
+        progress=[]
+        def flush_progress():
+            pending=tuple(progress)
+            progress.clear()
+            if pending and manager is self.job_manager and not self._closing:
+                self._on_progress_batch(pending)
+        for event in events:
+            if manager is not self.job_manager or self._closing:
+                break
+            if limit is not None and event.job_id not in self.project.jobs:
+                continue  # A removed run must not update the current document.
+            if event.kind not in ("queued", "started", "progress", "status"):
+                flush_progress()
             if event.job_id in self.project.jobs:
                 self._observe_run_event("solve", event)
             if event.kind in ("queued", "started", "progress", "status"):
-                self._on_progress(event.message, event.payload)
+                if limit is None:self._on_progress(event.message,event.payload)
+                else:progress.append(event)
             elif event.kind == "completed":
                 try:
                     self._on_solved(event.payload, event.job_id)
@@ -1318,6 +1339,9 @@ class WorkbenchWorkflow:
                 if self.path is not None:
                     self._schedule_job_log_artifact(event.job_id, self.path)
                 self.refresh_panels()
+        flush_progress()
+        if self._closing:
+            return
         if hasattr(self, "job_status"):
             self.job_status.refresh()
         self._poll_result_artifacts()
@@ -1325,7 +1349,8 @@ class WorkbenchWorkflow:
         self._poll_mesh_jobs()
         self._poll_recovery_write()
         self._job_poll = self.scheduler.call_later(
-            self.worker.POLL_MS, self._poll_jobs
+            0 if limit is not None and len(events)==limit else self.worker.POLL_MS,
+            self._poll_jobs,
         )
 
 
@@ -2292,6 +2317,11 @@ class WorkbenchWorkflow:
             panel.show_progress(line)
             panel.append_progress(line, payload=payload)
 
+    def _on_progress_batch(self, events) -> None:
+        """Legacy frontends retain their per-event presentation behavior."""
+        for event in events:
+            self._on_progress(event.message,event.payload)
+
 
     def _on_pick(self, ref) -> None:
         if ref is None:
@@ -2710,7 +2740,7 @@ class WorkbenchWorkflow:
 
 
     def _write_recovery(self) -> None:
-        """Capture recovery state on the UI thread, then queue file I/O."""
+        """Coalesce demand before UI-thread capture, then queue file I/O."""
 
         for attribute in ("_autosave_after", "_autosave_hard_after"):
             identifier = getattr(self, attribute, None)
@@ -2721,6 +2751,15 @@ class WorkbenchWorkflow:
                     pass
                 setattr(self, attribute, None)
         if not getattr(self, "session", None) or not self.session.dirty:
+            self._recovery_pending = None
+            return
+        if self._recovery_future is not None:
+            # Keep only the document epoch, not an expensive snapshot that a
+            # subsequent completion would replace before it could be written.
+            self._recovery_pending = self._recovery_epoch
+            self._autosave_hard_after = self.scheduler.call_later(
+                300_000, self._write_recovery
+            )
             return
         snapshot = self.session.snapshot()
         request = (
@@ -2741,12 +2780,8 @@ class WorkbenchWorkflow:
                 ),
             },
         )
-        if self._recovery_future is None:
-            self._start_recovery_write(request)
-        else:
-            # Only the newest dirty revision matters while the preceding
-            # atomic bundle finishes.
-            self._recovery_pending = request
+        self._start_recovery_write(request)
+        self._recovery_pending = None
         if self.session.dirty:
             self._autosave_hard_after = self.scheduler.call_later(
                 300_000, self._write_recovery
@@ -2779,9 +2814,18 @@ class WorkbenchWorkflow:
                 self.set_status("autosaved recovery snapshot")
 
         pending = self._recovery_pending
-        self._recovery_pending = None
-        if pending is not None and pending[0] == self._recovery_epoch:
-            self._start_recovery_write(pending)
+        if pending is not None and pending == self._recovery_epoch:
+            try:
+                # Capture the latest revision AND any artifacts added while
+                # the preceding write was active. Never read live state in
+                # the I/O worker. Clear demand only after successful capture
+                # and submission, so a failed capture remains retryable.
+                self._write_recovery()
+            except Exception as error:
+                self.set_status(f"autosave snapshot failed: {error}", error=True)
+                self._schedule_autosave()
+        else:
+            self._recovery_pending = None
 
 
     def recover_autosave(self) -> None:
@@ -3363,7 +3407,17 @@ class WorkbenchWorkflow:
                     pass  # Pollers retain the failure on the owning job.
         self._poll_result_artifacts()
         self._poll_job_log_artifacts()
-        while self._recovery_future is not None:
+        while self._recovery_future is not None or self._recovery_pending is not None:
+            if self._recovery_future is None:
+                if self._recovery_pending != self._recovery_epoch:
+                    self._recovery_pending = None
+                    break
+                # A failed deferred capture must not silently relinquish the
+                # document lock on replacement/close. Retry here and let a
+                # validation/submission failure reach the existing caller.
+                self._write_recovery()
+                if self._recovery_future is None:
+                    break  # The document was saved while demand was pending.
             try:
                 self._recovery_future.result()
             except Exception:

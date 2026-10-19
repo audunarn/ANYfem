@@ -131,7 +131,9 @@ class QtViewport(SceneViewport):
         QTimer.singleShot(0,self.widget,initialize)
 
     def set_feature_highlight(self,identifiers):
-        self._feature_ids=frozenset(identifiers)
+        identifiers=frozenset(identifiers)
+        if identifiers == self._feature_ids:return
+        self._feature_ids=identifiers
         self._apply_highlight()
 
     def show(self, scene, *, interaction_scene=None, reset_view=False):
@@ -217,26 +219,29 @@ class QtViewport(SceneViewport):
             self.canvas.add_text(self._point3d(*point), str(index+1), color="#1565c0", layer=47, draw_overlay=True)
 
     def set_collection_highlight(self,references):
-        self._collection_refs=frozenset(references)
+        references=frozenset(references)
+        if references == self._collection_refs:return
+        self._collection_refs=references
         self._apply_highlight()
 
     def dismiss_feature_highlight(self):
+        changed=bool(self._feature_ids or self._collection_refs)
         self._collection_refs=frozenset()
-        self.set_feature_highlight(())
+        self._feature_ids=frozenset()
+        if changed:self._apply_highlight()
         tree=getattr(self._window,"tree",None)
         if tree is not None:tree.dismiss_feature_selection()
 
-    def _apply_highlight(self):
-        super()._apply_highlight()
+    def _highlight_tags(self):
+        tags=set(super()._highlight_tags())
         if (self._feature_ids or self._collection_refs) and self._scene is not None:
             from anygeometry import feature_entity_owners
-            owners=feature_entity_owners(self._window.project.geometry)
-            tags=set(self.selection.tags())
+            owners=feature_entity_owners(self._window.project.geometry) if self._feature_ids else {}
             for group in (self._scene.faces,self._scene.lines,self._scene.points):
                 for item in group:
                     refs=item.owners or (() if item.ref is None else (item.ref,))
                     if any(ref in self._collection_refs or owners.get(ref) in self._feature_ids for ref in refs):tags.add(item.tag)
-            self.canvas.set_highlight(sorted(tags))
+        return sorted(tags)
 
     def _watch_backend(self,parent):
         self.canvas.render_error.connect(lambda message:parent.set_status(message,error=True))
@@ -253,6 +258,7 @@ class QtViewport(SceneViewport):
         old = self.canvas
         old_retained = (getattr(self, "_retained_result", None),
                         getattr(self, "_retained_result_canvas", None))
+        old_retained_scene = getattr(self, "_retained_scene", None)
         state = old.export_view_state()
         candidate = create_viewer(self.widget, backend=backend, host=QtViewerHostAdapter())
         try:
@@ -265,9 +271,12 @@ class QtViewport(SceneViewport):
         except BaseException:
             self.canvas = old
             self._retained_result, self._retained_result_canvas = old_retained
+            self._retained_scene = old_retained_scene
             candidate.destroy()
             raise
         self.layout.replaceWidget(old, candidate)
+        if old_retained_scene is not None and not old_retained_scene[2].removed:
+            old_retained_scene[2].remove()
         old.destroy()
         candidate.show()
         candidate.redraw()
@@ -279,6 +288,10 @@ class QtViewport(SceneViewport):
         self.cancel_plate()
         self._closed=True
         self._retained_result = self._retained_result_canvas = None
+        cached = getattr(self, "_retained_scene", None)
+        if cached is not None and not cached[2].removed:
+            cached[2].remove()
+        self._retained_scene = None
         self.selection.remove_listener(self._apply_highlight)
         self._cancel_interaction_restore()
         self.canvas.destroy()

@@ -278,8 +278,15 @@ class SolveTask(QWidget):
         self.transcript.setPlainText(f"{name}\nJob {job_id}\n{report}")
 
     def append_progress(self,text,payload=None):
-        self.transcript.appendPlainText(text)
-        if self.progress_data.ingest(text,payload) and not self.graph_timer.isActive():self.graph_timer.start()
+        self.append_progress_batch(((text,payload),))
+
+    def append_progress_batch(self,entries):
+        if not entries:return
+        self.transcript.appendPlainText("\n".join(text for text,_ in entries))
+        changed=False
+        for text,payload in entries:
+            changed=self.progress_data.ingest(text,payload) or changed
+        if changed and not self.graph_timer.isActive():self.graph_timer.start()
 
     def update_graph(self,*_):
         choice=self.graph.currentText();choices=self.progress_data.graph_choices
