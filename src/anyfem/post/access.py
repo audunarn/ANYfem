@@ -134,7 +134,12 @@ class ShapeProvider:
                 if raw is None:
                     missing.append(eid)
                     continue
-                count=int(np.prod(source_shape(raw)))
+                # Exact native arrays/scalars expose their sample count
+                # directly; custom shapes retain the original inspection and
+                # NumPy product path before workspace admission/conversion.
+                count=(raw.size if type(raw) is np.ndarray else 1
+                       if type(raw) is float or type(raw) is np.float64
+                       else int(np.prod(source_shape(raw))))
                 next_width=max(width,count)
                 admit(len(all_ids)*64+row_bytes+(len(rows)+1)*(max(next_width,1)*16+128)+count*16)
                 row = np.asarray(raw, dtype=np.float64).reshape(-1)
@@ -260,17 +265,40 @@ def retained_recovery_bytes(shape):
     root = getattr(shape,"_stress",None)
     seen=set()
     def size(value):
-        if id(value) in seen:return 0
-        seen.add(id(value))
+        identity=id(value)
+        if identity in seen:return 0
+        seen.add(identity)
         if isinstance(value,np.ndarray):
             base=value
             while isinstance(base.base,np.ndarray):base=base.base
             if base is not value:return sys.getsizeof(value)+size(base)
             return sys.getsizeof(value)+(0 if value.flags.owndata else value.nbytes)
+        # Native recovery records dominate this graph. Traverse their current
+        # contents on every call, without Mapping ABC dispatch or a generator
+        # frame per container. Subclasses/custom carriers keep the general path.
+        kind=type(value)
+        if kind is dict:
+            total=sys.getsizeof(value)
+            for key,item in value.items():total+=size(key)+size(item)
+            return total
+        if kind is list or kind is tuple:
+            total=sys.getsizeof(value)
+            for item in value:total+=size(item)
+            return total
+        if kind is str or kind is int or kind is float or kind is bool or kind is bytes:
+            return sys.getsizeof(value)
+        if value is None:return 0
         if isinstance(value,Mapping):return sys.getsizeof(value)+sum(size(k)+size(v) for k,v in value.items())
         if isinstance(value,(tuple,list)):return sys.getsizeof(value)+sum(size(v) for v in value)
         if hasattr(value,"__dict__"):
-            return sys.getsizeof(value)+size({k:v for k,v in vars(value).items() if k not in {"model","mesh","built","fe_model"}})
+            total=sys.getsizeof(value)
+            attributes={k:v for k,v in vars(value).items() if k not in {"model","mesh","built","fe_model"}}
+            # This projection is temporary, not a source graph identity. Its id
+            # can be recycled for a later projection after return; recording it
+            # in seen would incorrectly omit that later object's attributes.
+            total+=sys.getsizeof(attributes)
+            for key,item in attributes.items():total+=size(key)+size(item)
+            return total
         return sys.getsizeof(value) if value is not None else 0
     return size(root)
 

@@ -4,7 +4,13 @@ Nodal fields retain the historical, explicit element-mean display reduction.
 The source Field remains unchanged for probes and export.
 """
 import hashlib
+import math
 import numpy as np
+from ..ui.scene import _ramp_color as _REFERENCE_RAMP_COLOR, _blend as _REFERENCE_BLEND
+
+_REFERENCE_RAMP_CODE = _REFERENCE_RAMP_COLOR.__code__
+_REFERENCE_BLEND_CODE = _REFERENCE_BLEND.__code__
+_REFERENCE_ARRAY, _REFERENCE_CLIP = np.array, np.clip
 
 
 def _digest_value(digest, value):
@@ -31,7 +37,44 @@ def _digest_value(digest, value):
 
 
 def element_id(owners):
-    return next((int(owner.id) for owner in owners if getattr(owner,"kind",None)=="element"), None)
+    for owner in owners:
+        if getattr(owner,"kind",None)=="element":return int(owner.id)
+    return None
+
+
+def _decoded_ramp(palette):
+    """Call-local native RGB stops; unusual palettes retain scene conversion."""
+    from ..ui import scene
+    if (scene._ramp_color is not _REFERENCE_RAMP_COLOR or scene._blend is not _REFERENCE_BLEND
+            or _REFERENCE_RAMP_COLOR.__code__ is not _REFERENCE_RAMP_CODE
+            or _REFERENCE_BLEND.__code__ is not _REFERENCE_BLEND_CODE
+            or scene.np is not np
+            or np.array is not _REFERENCE_ARRAY or np.clip is not _REFERENCE_CLIP):return None
+    if type(palette) is not tuple or not 2<=len(palette)<=32:return None
+    stops=[]
+    for stop in palette:
+        if type(stop) is not tuple or len(stop)!=2:return None
+        position,color=stop
+        if type(position) is not float or not math.isfinite(position):return None
+        if type(color) is not str or len(color)!=7 or color[0]!='#':return None
+        if any(c not in '0123456789abcdefABCDEF' for c in color[1:]):return None
+        if stops and position<=stops[-1][0]:return None
+        stops.append((position,tuple(float(int(color[i:i+2],16)) for i in (1,3,5))))
+    if stops[0][0]!=0. or stops[-1][0]!=1.:return None
+    segments=[]
+    for (low,start),(high,end) in zip(stops,stops[1:]):
+        segments.append((low,high,high-low,start,tuple(b-a for a,b in zip(start,end))))
+    return segments
+
+
+def _decoded_color(position, segments):
+    # Same float64 subtract/divide/multiply/add order as _ramp_color/_blend.
+    value=min(max(float(position),0.),1.)
+    for low,high,span,start,delta in segments:
+        if value<=high:
+            local=(value-low)/span
+            channels=[int(min(max(a+d*local,0.),255.)) for a,d in zip(start,delta)]
+            return '#{:02x}{:02x}{:02x}'.format(*channels)
 
 
 def prepare(viewport, scene):
@@ -125,15 +168,35 @@ def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI
     # This is call-local: fields/connectivity may mutate between preparations.
     # Reserve conservative dict/key/value overhead within the existing estimate's
     # headroom. A tight cap keeps the original uncached conversion admissible.
-    cache_slots=max(0,(working_bytes-estimate-1024)//256)
+    # Reserve decoded palette workspace before means/colors consume headroom.
+    # At most 32 stops, including construction temporaries, fit this allowance.
+    color_workspace=32768 if working_bytes-estimate>=32768 else 0
+    cache_slots=max(0,(working_bytes-estimate-color_workspace-1024)//256)
     gpu_means={}
     cpu_means=gpu_means if retained[3] is scene.result_mesh else {}
+    cpu_colors={}
     per_element=field.per_element
-    def element_mean(eid,mesh,means):
+    def connectivity(mesh):
+        # Mesh.shells rebuilds {**quads, **tris} on every access. Its exact
+        # native facade permits equivalent live dictionary lookups without a
+        # copied map. Keep custom mesh/property behavior on the original path.
+        from anymesher import Mesh
+        if type(mesh) is Mesh and all(type(value) is dict for value in (mesh.tris,mesh.quads,mesh.beams)):
+            return mesh.tris,mesh.quads,mesh.beams
+        return None
+    gpu_connectivity=None if per_element else connectivity(retained[3])
+    cpu_connectivity=gpu_connectivity
+    if retained[3] is not scene.result_mesh and not per_element:
+        cpu_connectivity=connectivity(scene.result_mesh)
+    def element_mean(eid,mesh,means,native_connectivity):
         nonlocal cache_slots
         eid=int(eid)
         if eid in means:return means[eid]
-        nodes=mesh.shells[eid] if eid in mesh.shells else mesh.beams.get(eid,())
+        if native_connectivity is None:
+            nodes=mesh.shells[eid] if eid in mesh.shells else mesh.beams.get(eid,())
+        else:
+            tris,quads,beams=native_connectivity
+            nodes=tris[eid] if eid in tris else quads[eid] if eid in quads else beams.get(eid,())
         samples=[field.node_values.get(node,np.nan) for node in nodes]
         value=float(np.mean(samples)) if samples and np.isfinite(samples).all() else np.nan
         if cache_slots:
@@ -143,12 +206,29 @@ def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI
     if per_element:
         scalars=tuple(scalar_values(field,retained[3],ids) for ids in retained[2])
     else:
-        scalars=tuple(np.asarray([element_mean(eid,retained[3],gpu_means) for eid in ids],dtype=np.float32) for ids in retained[2])
+        scalars=tuple(np.asarray([element_mean(eid,retained[3],gpu_means,gpu_connectivity) for eid in ids],dtype=np.float32) for ids in retained[2])
     range_,palette,legend=result_display_metadata(field,limits=limits,display_units=display_units,colormap=colormap)
     low,high=range_
+    decoded=None
+    if color_workspace and type(low) is float and type(high) is float:
+        decoded=_decoded_ramp(palette)
     def color(eid,fallback):
-        value=field.element_values.get(eid,np.nan) if per_element else element_mean(eid,scene.result_mesh,cpu_means)
-        return _ramp_color((float(value)-low)/(high-low),palette) if np.isfinite(value) else fallback
+        nonlocal cache_slots
+        if eid in cpu_colors:
+            cached=cpu_colors[eid]
+            return fallback if cached is None else cached
+        value=field.element_values.get(eid,np.nan) if per_element else element_mean(eid,scene.result_mesh,cpu_means,cpu_connectivity)
+        # Keep software colours at full precision, independently of the float32
+        # GPU scalars. None preserves each primitive's distinct missing colour.
+        if np.isfinite(value):
+            position=(float(value)-low)/(high-low)
+            cached=(_decoded_color(position,decoded) if decoded is not None and math.isfinite(position)
+                    else _ramp_color(position,palette))
+        else:cached=None
+        if cache_slots:
+            cpu_colors[eid]=cached
+            cache_slots-=1
+        return fallback if cached is None else cached
     faces=[];lines=[]
     for patch in scene.faces:
         colors=list(patch.colors)
