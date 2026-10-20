@@ -10,18 +10,19 @@ geometry entity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
 from anygeometry.curves import Straight
-from anygeometry.entities import EntityRef
+from anygeometry.entities import Edge, EntityRef, Vertex
 from anygeometry.model import GeometryModel
 from anygeometry.operations import surface_point
 from anygeometry.surfaces import Plane
 
 from ..mesh.mapped import Mesh
 from ..model.project import Project
+from ..model.sections import BeamSection
 from ..selection import MeshEntityRef, entity_tag
 
 __all__ = [
@@ -510,6 +511,113 @@ def _flat_four_edge_polygon(
     return corners if float(np.max(distances)) <= 1.0e-9 * scale else None
 
 
+_BEAM_PROJECT_METHODS = {
+    name: getattr(Project, name) for name in ("beam_section_of", "beam_section_frame")
+}
+_BEAM_GEOMETRY_METHODS = {
+    name: getattr(GeometryModel, name) for name in (
+        "sample_edge", "faces_using_edge", "face_normal",
+        "project_to_face", "conservative_face_bounds", "face_point",
+        "_sample_edge_object", "_require_edge",
+    )
+}
+_BEAM_PROFILE_METHODS = {
+    name: getattr(BeamSection, name) for name in (
+        "centered_profile_rectangles", "centroid_from_attachment", "profile_rectangles",
+    )
+}
+
+
+def _can_prepare_mesh_beam_edge(project, mesh, edge_id, element_ids):
+    """Admit ordinary owner data only; custom callbacks keep per-element calls."""
+    if (np.geterr() != {"divide": "warn", "over": "warn", "under": "ignore", "invalid": "warn"}
+            or type(edge_id) is not int
+            or type(project) is not Project or type(project.geometry) is not GeometryModel
+            or type(mesh) is not Mesh or type(element_ids) not in (list, tuple)
+            or any(type(mapping) is not dict for mapping in (
+                project.edge_sections, project.beam_sections, mesh.beams, mesh.nodes))
+            or any(type(mapping) is not MappingProxyType for mapping in (
+                project.geometry.edges, project.geometry.vertices))
+            or any(getattr(getattr(project, name), "__func__", None) is not method
+                   for name, method in _BEAM_PROJECT_METHODS.items())
+            or any(getattr(getattr(project.geometry, name), "__func__", None) is not method
+                   for name, method in _BEAM_GEOMETRY_METHODS.items())):
+        return False
+    if type(project.edge_sections.get(edge_id)) is not str:
+        return False
+    edge = project.geometry.edges.get(edge_id)
+    if type(edge) is not Edge or type(edge.curve) is not Straight:
+        return False
+    if any(type(project.geometry.vertices.get(node)) is not Vertex
+           for node in (edge.start, edge.end)):
+        return False
+    for element_id in element_ids:
+        if type(element_id) is not int:
+            return False
+        span = mesh.beams.get(element_id)
+        if span is None:
+            continue
+        if type(span) not in (tuple, list):
+            return False
+        for node in span:
+            if type(node) is not int:
+                return False
+            point = mesh.nodes.get(node)
+            if not (type(point) is np.ndarray and point.shape == (3,)
+                    and point.dtype.kind in "biuf"):
+                return False
+    return True
+
+
+def _can_prepare_beam_section(section):
+    return (
+        type(section) is BeamSection
+        and all(getattr(getattr(section, name), "__func__", None) is method
+                for name, method in _BEAM_PROFILE_METHODS.items())
+        and type(section.profile) is str and type(section.attachment_side) is str
+        and all(type(getattr(section, name)) in (int, float, np.float64)
+                for name in ("web_height", "web_thickness", "flange_width",
+                             "flange_thickness", "rotation_deg"))
+        and type(section.web_direction) is tuple and len(section.web_direction) == 3
+        and all(type(value) in (int, float, np.float64) for value in section.web_direction)
+    )
+
+
+_BEAM_FACE_INDICES = np.array(((0, 1, 2, 3), (7, 6, 5, 4),
+                              (0, 1, 5, 4), (1, 2, 6, 5),
+                              (2, 3, 7, 6), (3, 0, 4, 7)), dtype=np.intp)
+_BEAM_FACE_INDICES.flags.writeable = False
+
+
+class _PreparedBeamSection:
+    """Build-local immutable profile preparation; no persistent scene cache."""
+
+    def __init__(self, section):
+        self.section = section
+        self.corners = None
+
+    def polygons(self, start, end, local_y, local_z):
+        if self.corners is None:
+            corners = []
+            for y, z, width, height in self.section.centered_profile_rectangles():
+                if width <= 0.0 or height <= 0.0:
+                    continue
+                corners.append(((y - width / 2.0, z - height / 2.0),
+                                (y + width / 2.0, z - height / 2.0),
+                                (y + width / 2.0, z + height / 2.0),
+                                (y - width / 2.0, z + height / 2.0)))
+            self.corners = np.asarray(corners, dtype=float).reshape((-1, 4, 2))
+        if not len(self.corners):
+            return []
+        offsets = (self.corners[:, :, 0, None] * local_y
+                   + self.corners[:, :, 1, None] * local_z)
+        first, last = start + offsets, end + offsets
+        vertices = np.concatenate((first, last), axis=1)
+        faces = vertices[:, _BEAM_FACE_INDICES, :].reshape((-1, 4, 3))
+        # Each public polygon keeps independently owned, mutable storage.
+        return [face.copy() for face in faces]
+
+
 def _beam_section_polygons(section, points, reference_z) -> List[np.ndarray]:
     """Sweep the actual idealized section rectangles along a beam polyline."""
 
@@ -531,6 +639,9 @@ def _beam_section_polygons(section, points, reference_z) -> List[np.ndarray]:
         local_z /= z_length
         local_y = np.cross(local_z, axis)
         local_y /= float(np.linalg.norm(local_y))
+        if type(section) is _PreparedBeamSection:
+            polygons.extend(section.polygons(start, end, local_y, local_z))
+            continue
         for y, z, width, height in section.centered_profile_rectangles():
             if width <= 0.0 or height <= 0.0:
                 continue
@@ -790,8 +901,20 @@ def build_mesh_scene(
             )
         )
 
+    # A dict's stored subclass keys can execute equality callbacks even when
+    # the lookup key is native. Check keys once before eligibility performs
+    # any lookups; those mappings retain the original call/exception order.
+    native_section_keys = (
+        show_beam_sections and type(project) is Project
+        and type(project.edge_sections) is dict and type(project.beam_sections) is dict
+        and all(type(key) is int for key in project.edge_sections)
+        and all(type(key) is str for key in project.beam_sections)
+    )
     grouped_beams: set[int] = set()
     for edge_id, element_ids in sorted(mesh.elements_of_edge.items()):
+        prepare_edge = (native_section_keys
+                        and _can_prepare_mesh_beam_edge(project, mesh, edge_id, element_ids))
+        prepared_section = None
         for element_id in element_ids:
             if element_id not in mesh.beams:
                 continue
@@ -813,8 +936,13 @@ def build_mesh_scene(
             )
             rendered_section = False
             if show_beam_sections and edge_id in project.edge_sections:
-                section = project.beam_section_of(edge_id)
-                _axis, _local_y, local_z = project.beam_section_frame(edge_id)
+                if prepared_section is None:
+                    section = project.beam_section_of(edge_id)
+                    _axis, _local_y, local_z = project.beam_section_frame(edge_id)
+                    if prepare_edge and _can_prepare_beam_section(section):
+                        prepared_section = (_PreparedBeamSection(section), local_z.copy())
+                if prepared_section is not None:
+                    section, local_z = prepared_section
                 rendered_section = _add_beam_section_patch(
                     scene,
                     section,
