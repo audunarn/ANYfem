@@ -27,6 +27,53 @@ _IDENTITY_FIELDS = {
 _NUMPY_SCALARS = frozenset(np.sctypeDict.values())
 
 
+def _polygon_identity(polygons):
+    """Hash every polygon byte without serializing each tiny array separately.
+
+    Blocks are transient and bounded to 8 MiB (a larger single polygon is
+    hashed directly). Array subclasses stay on the conservative refusal path.
+    This is content identity, never an identity-only cache of mutable arrays.
+    """
+    if type(polygons) not in (list, tuple):
+        raise TypeError("unsupported polygon sequence")
+    blocks = []
+    start = 0
+    while start < len(polygons):
+        first = polygons[start]
+        if type(first) is not np.ndarray or first.dtype.hasobject:
+            raise TypeError("unsupported polygon array")
+        dtype, shape = first.dtype, first.shape
+        if (dtype.kind not in "biuf" or dtype.fields is not None
+                or dtype.subdtype is not None or dtype.itemsize > 8):
+            # Structured and extended-precision arrays may contain padding
+            # that concatenation need not preserve. Keep the original
+            # per-array reducer and its complete byte identity for this field.
+            return polygons
+        limit = max(1, min(4096, (8 * 1024 * 1024) // max(1, first.nbytes)))
+        stop = start + 1
+        while stop < min(len(polygons), start + limit):
+            item = polygons[stop]
+            if (type(item) is not np.ndarray or item.dtype != dtype
+                    or item.shape != shape):
+                break
+            stop += 1
+        if stop == start + 1 or not shape:
+            # Scalar arrays cannot concatenate along axis zero.
+            data = np.ascontiguousarray(first)
+            stop = start + 1
+        else:
+            # Concatenate may otherwise preserve Fortran layout, which cannot
+            # be exposed as one byte memoryview. Allocate the bounded block
+            # explicitly in C order, avoiding a second normalization copy.
+            data = np.empty((shape[0] * (stop - start), *shape[1:]), dtype=dtype)
+            np.concatenate(polygons[start:stop], axis=0, out=data)
+        raw = memoryview(data).cast("B") if data.size else b""
+        blocks.append((dtype.descr, shape, stop - start,
+                       hashlib.sha256(raw).digest()))
+        start = stop
+    return ("polygon-array-blocks", type(polygons).__name__, tuple(blocks))
+
+
 class _IdentityPickler(pickle.Pickler):
     """Serialize known draw data, never trust an external object's reducer."""
 
@@ -41,7 +88,13 @@ class _IdentityPickler(pickle.Pickler):
         identity = _IDENTITY_FIELDS.get(cls)
         if identity is not None:
             name, attributes = identity
-            return tuple, ((name, tuple(getattr(value, field) for field in attributes)),)
+            payload = tuple(
+                _polygon_identity(value.polygons)
+                if cls is FacePatch and field == "polygons"
+                else getattr(value, field)
+                for field in attributes
+            )
+            return tuple, ((name, payload),)
         if cls in _NUMPY_SCALARS and not value.dtype.hasobject:
             return tuple, (("scalar", value.dtype.descr, value.tobytes()),)
         if value is tuple:

@@ -1113,7 +1113,14 @@ class SceneViewport:
                     else None
                 )
                 for index, polygon in enumerate(patch.polygons):
-                    polygons.append(polygon.tolist())
+                    # Snapshot values at the former tolist boundary, before
+                    # owner/color callbacks. Custom arrays retain tolist.
+                    polygons.append(
+                        polygon.copy() if (type(polygon) is np.ndarray
+                                    and polygon.ndim == 2 and polygon.shape[1] == 3
+                                    and polygon.dtype.kind in "biuf")
+                        else polygon.tolist()
+                    )
                     colors.append(patch.colors[index])
                     bindings.append(
                         shared_binding
