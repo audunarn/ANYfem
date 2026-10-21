@@ -36,7 +36,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYgeometry",
-      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@266f8720bcff4e4a2798abbe118c922b81861abd",
+      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@dda8c70a1f6205ae601e8288a1624f52aa76e24a",
       "scope": "optional:gui",
       "upstream": "https://github.com/audunarn/ANYgeometry"
     },

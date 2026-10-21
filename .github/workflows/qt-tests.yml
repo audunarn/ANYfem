@@ -24,17 +24,17 @@ on:
         description: Exact ANY3dView candidate commit containing the Qt host
         required: true
         type: string
-        default: d8b82686e477920cb485a7d32e6f04699b6f4d6f
+        default: 245fe3e0d70c559da06879546a5738a1863a7e52
       geometry_ref:
         description: Exact ANYgeometry commit with component planning and binding contracts
         required: true
         type: string
-        default: 266f8720bcff4e4a2798abbe118c922b81861abd
+        default: dda8c70a1f6205ae601e8288a1624f52aa76e24a
       mesher_ref:
         description: Exact ANYmesh commit with opt-in component parallel meshing and pool lifecycle
         required: true
         type: string
-        default: ee3b194d740f03bbd590512677d188670fd207f3
+        default: 246aeb227687f268b9046073c5ef79409f6382cf
       schema6_fixtures:
         description: Run owner-generated schema-6 consumer checks with the selected geometry/mesher candidates
         required: true
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: ${{ inputs.viewer_ref || 'd8b82686e477920cb485a7d32e6f04699b6f4d6f' }}
+          ref: ${{ inputs.viewer_ref || '245fe3e0d70c559da06879546a5738a1863a7e52' }}
           path: .ecosystem/ANY3dView
       # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
       - name: Allow long paths on Windows
@@ -91,12 +91,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: ${{ inputs.geometry_ref || '266f8720bcff4e4a2798abbe118c922b81861abd' }}
+          ref: ${{ inputs.geometry_ref || 'dda8c70a1f6205ae601e8288a1624f52aa76e24a' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'ee3b194d740f03bbd590512677d188670fd207f3' }}
+          ref: ${{ inputs.mesher_ref || '246aeb227687f268b9046073c5ef79409f6382cf' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
