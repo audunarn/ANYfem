@@ -642,7 +642,8 @@ def _implied_zero_clamp_nodes(project: Project, mesh: Mesh) -> set[int]:
     for coupling in mesh.couplings.values():
         if hasattr(coupling, "beam_node"):
             beam_node = int(coupling.beam_node)
-            masters = [int(node) for node,weight in zip(coupling.plate_nodes,coupling.weights) if weight != 0.]
+            masters = [int(node) for node,weight in zip(coupling.plate_nodes,coupling.weights)
+                       if abs(float(weight)) > 1.0e-12]
         else:
             beam_node, shell_node = coupling
             masters = [int(shell_node)]

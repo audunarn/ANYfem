@@ -1,11 +1,12 @@
 """Mesh, analysis and results adapters for the shared application workflow."""
 import json
 import inspect
+from .theme import overlay
 from dataclasses import replace, fields,asdict
 
 from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
     QListWidget, QListWidgetItem, QAbstractItemView, QSlider)
 
@@ -15,6 +16,7 @@ from ...presentation.visualization import VisualizationStyle
 from ...presentation.scene import RESULT_COLORMAPS
 from ...presentation.live_progress import LiveProgressData, GRAPH_CHOICES
 from ...presentation.result_display import converted_series
+from ..numeric_input import parse_numeric_sequence
 from .plot import HistoryPlot
 from .forms import OptionForm
 from .table import ResultTable
@@ -23,6 +25,7 @@ from .table import ResultTable
 class MeshTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
+        from .widgets import Collapsible,section_label
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
         self.size=QLineEdit(str(app.project.target_size or 0.25));form.addRow("Target size (m)",self.size)
         self.size.setToolTip("Typical element edge length in metres.")
@@ -40,8 +43,8 @@ class MeshTask(QWidget):
         self.strategy.setItemData(4,"SmartMapped",Qt.AccessibleTextRole)
         from anymesher.structured import StructurePreference
         self.preference=QComboBox();self.preference.addItems([item.value for item in StructurePreference]);form.addRow("Structure preference",self.preference)
-        self.options=QPlainTextEdit("{}")
-        form.addRow("Additional mesh options",self.options)
+        self.options=QPlainTextEdit("{}");self.options.setMaximumHeight(90)
+        self.options.setToolTip("Extra keyword options as a JSON object. Leave {} unless instructed.")
         from ...mesh_controls import MeshControls,StructuredMeshControls
         self.native_controls=OptionForm.record(MeshControls,MeshControls.display_values(app.project.native_mesh_settings))
         self.structured_controls=OptionForm.record(StructuredMeshControls)
@@ -51,9 +54,20 @@ class MeshTask(QWidget):
         self.quality_controls=OptionForm.record(MeshQualityPolicy)
         self.quad_controls=OptionForm.record(QuadMeshingOptions,asdict(sg1_quad_options()))
         self.automation_controls=OptionForm.record(MeshAutomationOptions)
-        self.backend=QComboBox();self.backend.addItems(["auto","python","native"]);self.backend.setCurrentText(app.project.native_triangulation_backend);form.addRow("Triangulation backend",self.backend)
         self.order=QComboBox();self.order.addItems(["linear","quadratic"]);self.order.setCurrentText(app.project.element_order);form.addRow("Element order",self.order)
-        self.layout_policy=QComboBox();self.layout_policy.addItems(["existing","adaptive"]);form.addRow("Quad-first layout policy",self.layout_policy)
+        actions=QHBoxLayout();actions.setSpacing(6)
+        self.generate=QPushButton("Generate mesh");self.generate.setProperty("primary",True)
+        self.generate.clicked.connect(app.guarded(self.start));actions.addWidget(self.generate,1)
+        cancel=QPushButton("Cancel mesh")
+        cancel.clicked.connect(app.guarded(app.cancel_mesh));actions.addWidget(cancel)
+        layout.addLayout(actions)
+        self.summary=QLabel();self.summary.setObjectName("Hint");self.summary.setWordWrap(True);layout.addWidget(self.summary)
+        advanced=QFormLayout()
+        self.backend=QComboBox();self.backend.addItems(["auto","python","native"]);self.backend.setCurrentText(app.project.native_triangulation_backend);advanced.addRow("Triangulation backend",self.backend)
+        self.layout_policy=QComboBox();self.layout_policy.addItems(["existing","adaptive"]);advanced.addRow("Quad-first layout policy",self.layout_policy)
+        self.t3_minimum_angle=QLineEdit("15");advanced.addRow("Triangle minimum angle (deg)",self.t3_minimum_angle)
+        self.t3_angle_action=QComboBox();self.t3_angle_action.addItems(["error","warning"]);advanced.addRow("Below-angle action",self.t3_angle_action)
+        self.t3_angle_action.setToolTip("Warning retains thin triangles and records their count and minimum angle; strict certification still refuses this mode.")
         self.execution=QComboBox();self.execution.addItems(["Off","Automatic","Custom count"])
         self.execution.setCurrentText("Automatic")
         self.execution.setToolTip("Component-parallel meshing through ANYmesh's public parallel API.\n"
@@ -63,21 +77,36 @@ class MeshTask(QWidget):
         self.workers=QSpinBox();self.workers.setRange(1,61);self.workers.setValue(4);self.workers.setEnabled(False)
         self.workers.setToolTip("Worker count for 'Custom count' parallel meshing (execution-only; never affects the mesh hash).")
         self.execution.currentTextChanged.connect(lambda text:self.workers.setEnabled(text=="Custom count"))
-        form.addRow("Parallel meshing",self.execution)
-        form.addRow("Mesh workers",self.workers)
-        layout.addWidget(QLabel("Native meshing controls"));layout.addWidget(self.native_controls)
-        layout.addWidget(QLabel("Structured layout controls"));layout.addWidget(self.structured_controls)
-        for label,widget in [("Element quality policy",self.quality_controls),("Quad-first controls",self.quad_controls),("Mesh recovery policy",self.automation_controls)]:layout.addWidget(QLabel(label));layout.addWidget(widget)
-        self.divisions=QSpinBox();self.divisions.setRange(1,100000);self.divisions.setValue(4);form.addRow("Selected line divisions",self.divisions)
+        advanced.addRow("Parallel meshing",self.execution)
+        advanced.addRow("Mesh workers",self.workers)
+        def buttons(section,entries):
+            for label,callback in entries:
+                button=QPushButton(label);button.clicked.connect(app.guarded(callback));section.addWidget(button)
+        seeding=Collapsible("Seeding and local refinement",hint="Fix divisions on selected lines or refine around selected geometry.")
+        seeding_form=QFormLayout();seeding.addLayout(seeding_form)
+        self.divisions=QSpinBox();self.divisions.setRange(1,100000);self.divisions.setValue(4);seeding_form.addRow("Selected line divisions",self.divisions)
         self.refine_size=QLineEdit("0.1");self.refine_radius=QLineEdit("0.5")
-        form.addRow("Refinement size (m)",self.refine_size);form.addRow("Refinement radius (m)",self.refine_radius)
-        for label,callback in [("Pin selected lines",self.pin),("Clear seeding pins",self.clear_pins),("Refine around selection",self.refine),("Clear refinements",self.clear_refinements),("Discard layout preview",app.clear_mesh_layout_preview),("Copy mesh diagnosis",self.copy_diagnosis),("Open standalone ANYmesher",self.open_mesher)]:
-            button=QPushButton(label);button.clicked.connect(app.guarded(callback));layout.addWidget(button)
-        self.generate=QPushButton("Generate mesh");self.generate.clicked.connect(app.guarded(self.start));layout.addWidget(self.generate)
-        cancel=QPushButton("Cancel mesh");cancel.clicked.connect(app.guarded(app.cancel_mesh));layout.addWidget(cancel)
-        preview=QPushButton("Preview layout");preview.clicked.connect(app.guarded(self.preview));layout.addWidget(preview)
-        commit=QPushButton("Commit layout preview");commit.clicked.connect(app.guarded(app.commit_mesh_layout_preview));layout.addWidget(commit)
-        self.summary=QLabel();self.summary.setWordWrap(True);layout.addWidget(self.summary);layout.addStretch()
+        seeding_form.addRow("Refinement size (m)",self.refine_size);seeding_form.addRow("Refinement radius (m)",self.refine_radius)
+        buttons(seeding,[("Pin selected lines",self.pin),("Clear seeding pins",self.clear_pins),
+                         ("Refine around selection",self.refine),("Clear refinements",self.clear_refinements)])
+        layout.addWidget(seeding)
+        preview_section=Collapsible("Layout preview",hint="Preview the structured layout before meshing.")
+        buttons(preview_section,[("Preview layout",self.preview),("Commit layout preview",app.commit_mesh_layout_preview),
+                                 ("Discard layout preview",app.clear_mesh_layout_preview)])
+        layout.addWidget(preview_section)
+        settings=Collapsible("Advanced settings",hint="Backend, quality, quad-first and recovery controls. Defaults suit most models.")
+        settings.addLayout(advanced)
+        for label,widget in [("Native meshing controls",self.native_controls),("Structured layout controls",self.structured_controls),
+                             ("Element quality policy",self.quality_controls),("Quad-first controls",self.quad_controls),
+                             ("Mesh recovery policy",self.automation_controls)]:
+            settings.addWidget(section_label(label));settings.addWidget(widget)
+        settings.addWidget(section_label("Additional mesh options"));settings.addWidget(self.options)
+        layout.addWidget(settings)
+        tools=Collapsible("Diagnostics and tools")
+        buttons(tools,[("Copy mesh diagnosis",self.copy_diagnosis),("Open standalone ANYmesher",self.open_mesher)])
+        layout.addWidget(tools)
+        self.sections={"seeding":seeding,"preview":preview_section,"advanced":settings,"tools":tools}
+        layout.addStretch()
 
     def strategy_token(self):
         """The strategy token behind the visible label (SmartMapped -> smart_mapped)."""
@@ -112,6 +141,8 @@ class MeshTask(QWidget):
             values=self.quad_controls.values()
             if values["line_search"]=="off":values["max_local_optimizations"]=0
             options.setdefault("quad_options",QuadMeshingOptions(**values));options.setdefault("layout_policy",self.layout_policy.currentText())
+            options.setdefault("quad_t3_minimum_angle",float(self.t3_minimum_angle.text()))
+            options.setdefault("quad_t3_angle_action",self.t3_angle_action.currentText())
         from ...mesh_execution import MeshExecutionPolicy
         mode=self.execution.currentText()
         options["execution_policy"]=(MeshExecutionPolicy.off() if mode=="Off"
@@ -180,6 +211,8 @@ class MeshTask(QWidget):
         self.backend.setCurrentText(self.app.project.native_triangulation_backend)
         self.order.setCurrentText(self.app.project.element_order)
         self.layout_policy.setCurrentText(parameters.get("layout_policy","existing"))
+        self.t3_minimum_angle.setText(str(parameters.get("quad_t3_minimum_angle",15.0)))
+        self.t3_angle_action.setCurrentText(parameters.get("quad_t3_angle_action","error"))
         self.execution.setCurrentText("Automatic");self.workers.setValue(4)
 
     def refresh(self):
@@ -213,34 +246,52 @@ class MeshTask(QWidget):
 class SolveTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
+        from .widgets import Collapsible,section_label
         layout=QVBoxLayout(self)
         form=QFormLayout();layout.addLayout(form)
         self.analysis=QComboBox();self.analysis.addItems(list(ANALYSES));form.addRow("Analysis",self.analysis)
-        self.case=QComboBox();form.addRow("Load case or combination",self.case)
-        self.output_requests=QListWidget()
-        self.output_requests.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        form.addRow("Output requests",self.output_requests)
-        self._output_request_signature=None
-        self.options=QPlainTextEdit("{}");form.addRow("Advanced analysis options",self.options)
+        self.case=QComboBox();form.addRow("Load case",self.case)
+        self.case.setToolTip("Load case or load combination to solve")
         self.controls_layout=QVBoxLayout();layout.addLayout(self.controls_layout)
         self.controls=None;self.record_controls={}
-        self.analysis.currentTextChanged.connect(self.rebuild_controls);self.rebuild_controls()
+        actions=QHBoxLayout();actions.setSpacing(6)
+        self.submit=QPushButton("Solve");self.submit.setProperty("primary",True)
+        self.submit.clicked.connect(app.guarded(self.start));actions.addWidget(self.submit,1)
+        cancel=QPushButton("Cancel solve");cancel.clicked.connect(app.cancel_solve);actions.addWidget(cancel)
+        layout.addLayout(actions)
+        self.submit_hint=QLabel("Generate a mesh first; Solve runs on the current mesh.");self.submit_hint.setObjectName("Hint")
+        self.submit_hint.setWordWrap(True);layout.addWidget(self.submit_hint)
+        self.progress=QLabel();self.progress.setWordWrap(True);layout.addWidget(self.progress)
+        self.material_response=QLabel();self.material_response.setWordWrap(True);layout.addWidget(self.material_response)
+        self.output_section=Collapsible("Output requests",hint="Select stored output requests to include in this run.")
+        self.output_requests=QListWidget();self.output_requests.setMaximumHeight(140)
+        self.output_requests.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.output_requests.itemSelectionChanged.connect(self._update_output_title)
+        self.output_section.addWidget(self.output_requests);layout.addWidget(self.output_section)
+        self._output_request_signature=None
+        resources=Collapsible("Solver resources",hint="Thread limits for the native solver.")
         from anysolver import ResourceConfig
-        self.use_resources=QCheckBox("Use explicit solver resource policy");layout.addWidget(self.use_resources)
+        self.use_resources=QCheckBox("Use explicit solver resource policy");resources.addWidget(self.use_resources)
         import os
         gui_threads=min(2,max(1,(os.cpu_count() or 2)-1))
         self.use_resources.setChecked(True)
-        self.resources=OptionForm.record(ResourceConfig,exclude=("metadata",));layout.addWidget(self.resources)
+        self.resources=OptionForm.record(ResourceConfig,exclude=("metadata",));resources.addWidget(self.resources)
         self.resources.set_values({"solver_threads":gui_threads})
         self.use_resources.setToolTip("Default native solver thread limit keeps CPU capacity available for the workbench. Adjust it here or disable the limit.")
-        self.submit=QPushButton("Solve");self.submit.clicked.connect(app.guarded(self.start));layout.addWidget(self.submit)
-        cancel=QPushButton("Cancel solve");cancel.clicked.connect(app.cancel_solve);layout.addWidget(cancel)
-        self.progress=QLabel();self.progress.setWordWrap(True);layout.addWidget(self.progress)
-        self.material_response=QLabel();self.material_response.setWordWrap(True);layout.addWidget(self.material_response)
+        layout.addWidget(resources)
+        advanced=Collapsible("Advanced analysis options",hint="Extra keyword options as a JSON object. Leave {} unless instructed.")
+        self.options=QPlainTextEdit("{}");self.options.setMaximumHeight(90);advanced.addWidget(self.options)
+        layout.addWidget(advanced)
+        self.sections={"outputs":self.output_section,"resources":resources,"advanced":advanced}
+        self.analysis.currentTextChanged.connect(self.rebuild_controls);self.rebuild_controls()
         self.analysis.currentTextChanged.connect(self.refresh)
+        layout.addWidget(section_label("Run log"))
         self.transcript=QPlainTextEdit();self.transcript.setReadOnly(True);layout.addWidget(self.transcript)
+        self.transcript.setPlaceholderText("Progress and solver messages appear here while a job runs.")
+        self.transcript.setMinimumHeight(120)
         self.transcript.document().setMaximumBlockCount(1500)
         self.progress_data=LiveProgressData()
+        layout.addWidget(section_label("Convergence"))
         self.graph=QComboBox();self.graph.addItems(list(GRAPH_CHOICES));layout.addWidget(self.graph)
         self.plot=HistoryPlot();layout.addWidget(self.plot)
         self.graph.currentTextChanged.connect(self.update_graph)
@@ -316,11 +367,18 @@ class SolveTask(QWidget):
                 self.output_requests.addItem(item)
                 item.setSelected(request.id in selected)
             self._output_request_signature=signature
+            self._update_output_title()
         current=self.case.currentText();choices=list(self.app.project.load_cases)+["combination: "+name for name in self.app.project.combinations]
         if [self.case.itemText(i) for i in range(self.case.count())]!=choices:
             self.case.clear();self.case.addItems(choices)
             if current in choices:self.case.setCurrentText(current)
         self.submit.setEnabled(self.app.mesh is not None and not self.app.session.read_only)
+        self.submit_hint.setVisible(self.app.mesh is None)
+
+    def _update_output_title(self):
+        total=self.output_requests.count()
+        selected=len(self.output_requests.selectedItems())
+        self.output_section.toggle.setText(f"Output requests ({selected} of {total} selected)" if total else "Output requests (none defined)")
 
     def begin_job(self,name,job_id,report):
         self.graph_timer.stop()
@@ -383,34 +441,47 @@ class ResultsTask(QWidget):
         form.addRow("Component",self.component)
         for combo in (self.field,self.units,self.colors,self.component):
             combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon);combo.setMinimumContentsLength(8)
+        from PySide6.QtWidgets import QGridLayout
+        from .widgets import Collapsible,section_label
+        def button_grid(entries):
+            grid=QGridLayout();grid.setSpacing(6)
+            for index,(label,callback) in enumerate(entries):
+                button=QPushButton(label);button.clicked.connect(app.guarded(callback));grid.addWidget(button,index//2,index%2)
+            layout.addLayout(grid)
         self.selection_details=QLabel();self.selection_details.setWordWrap(True);layout.addWidget(self.selection_details)
         self.envelope=QCheckBox("Envelope of retained frames");layout.addWidget(self.envelope)
-        show=QPushButton("Show results");show.clicked.connect(app.guarded(self.show_results));layout.addWidget(show)
-        play=QPushButton("Play retained frames");play.clicked.connect(app.guarded(self.play));layout.addWidget(play)
-        stop=QPushButton("Stop playback");stop.clicked.connect(lambda:app.viewport.canvas.stop_animation());layout.addWidget(stop)
-        self.report=QPlainTextEdit();self.report.setReadOnly(True);layout.addWidget(self.report)
+        show=QPushButton("Show results");show.setProperty("primary",True);show.clicked.connect(app.guarded(self.show_results));layout.addWidget(show)
+        playback=QHBoxLayout();playback.setSpacing(6)
+        play=QPushButton("Play retained frames");play.clicked.connect(app.guarded(self.play));playback.addWidget(play)
+        stop=QPushButton("Stop playback");stop.clicked.connect(lambda:app.viewport.canvas.stop_animation());playback.addWidget(stop)
+        layout.addLayout(playback)
         self.outcome=QLabel();self.outcome.setWordWrap(True);layout.addWidget(self.outcome)
         self.frame_details=QLabel();self.frame_details.setWordWrap(True);layout.addWidget(self.frame_details)
-        self.submitted_inputs=QPlainTextEdit();self.submitted_inputs.setReadOnly(True)
-        layout.addWidget(QLabel("Submitted inputs"));layout.addWidget(self.submitted_inputs)
-        self.quantities=QComboBox();layout.addWidget(self.quantities)
-        self.table=ResultTable();layout.addWidget(self.table)
-        inspect_quantity=QPushButton("Inspect quantity / table");inspect_quantity.clicked.connect(app.guarded(self.inspect_quantity));layout.addWidget(inspect_quantity)
-        export_quantity=QPushButton("Export quantity field CSV")
-        export_quantity.clicked.connect(app.guarded(self.export_quantity_csv));layout.addWidget(export_quantity)
-        self.plot=HistoryPlot();layout.addWidget(self.plot)
+        self.report=QPlainTextEdit();self.report.setReadOnly(True);layout.addWidget(self.report)
+        self.report.setPlaceholderText("Result summaries, probes and quantity details appear here.")
+        layout.addWidget(section_label("Inspect"))
+        self.quantities=QComboBox();self.quantities.setToolTip("Saved quantity to inspect");layout.addWidget(self.quantities)
         self._gif_capture=None
         self._preview_owner=None
-        for label,callback in [("Probe selection",self._probe),("Sample along selected line",self.along_line),("Plot history",self.history),("Plot at selected point",self.history_at_selection),("Export field CSV",self.export_csv),("Export report",self.export_report),("Export GIF",self.export_gif)]:
-            button=QPushButton(label);button.clicked.connect(app.guarded(callback));layout.addWidget(button)
+        button_grid([("Inspect quantity / table",self.inspect_quantity),("Probe selection",self._probe),
+                     ("Sample along selected line",self.along_line),("Plot history",self.history),
+                     ("Plot at selected point",self.history_at_selection)])
+        self.table=ResultTable();layout.addWidget(self.table)
+        self.plot=HistoryPlot();layout.addWidget(self.plot)
+        layout.addWidget(section_label("Export"))
+        button_grid([("Export field CSV",self.export_csv),("Export quantity field CSV",self.export_quantity_csv),
+                     ("Export report",self.export_report),("Export GIF",self.export_gif)])
+        inputs=Collapsible("Submitted inputs",hint="The exact inputs recorded with the selected job.")
+        self.submitted_inputs=QPlainTextEdit();self.submitted_inputs.setReadOnly(True);inputs.addWidget(self.submitted_inputs)
+        layout.addWidget(inputs)
         self.frame.valueChanged.connect(self._frame_changed)
         self.field.currentTextChanged.connect(self._field_changed)
         self.component.currentTextChanged.connect(self._controls_changed)
-        self.units.currentTextChanged.connect(self._controls_changed)
-        self.colors.currentTextChanged.connect(self._controls_changed)
+        self.units.currentTextChanged.connect(self._appearance_changed)
+        self.colors.currentTextChanged.connect(self._appearance_changed)
         self.scale.editingFinished.connect(self._controls_changed)
-        self.minimum.editingFinished.connect(self._controls_changed)
-        self.maximum.editingFinished.connect(self._controls_changed)
+        self.minimum.editingFinished.connect(self._appearance_changed)
+        self.maximum.editingFinished.connect(self._appearance_changed)
         self.quantities.currentIndexChanged.connect(lambda *_:setattr(self,"_quantity_component",None))
 
     def activate_job(self,job_id):
@@ -468,9 +539,37 @@ class ResultsTask(QWidget):
         self.component.setText(previous if previous in components else "")
         self.component.setEnabled(bool(components));del blocker
 
-    def _controls_changed(self,*_):
+    def _display_selection(self):
+        """Value edits cannot turn an old displayed snapshot into a new result."""
+        from ...presentation.retained_results import geometry_style_key
+        return (id(self.app.session),self.app.project.document_id,self.app.active_job_id,
+                id(self.app.solution),id(self.app.result_datasets.get(self.app.active_job_id)),
+                getattr(self.app,'_result_revision',0),getattr(self.app,'_result_source_epoch',0),
+                self.use_retained(),self.field_name(),self.component.text(),self.frame.value(),
+                self.scale.text(),self.envelope.isChecked(),self._selected_entry,
+                geometry_style_key(self.app.viewport.visualization))
+
+    def _appearance_changed(self,*_):
+        self._controls_changed(appearance_only=True)
+
+    def _update_display_appearance(self):
+        if (getattr(self,'_displayed_selection',None)!=self._display_selection()
+                or self.app._view_mode!='results'):return False
+        applied=self.app.viewport.update_result_appearance(limits=self.colour_limits(),
+                    display_units=self.display_units(),colormap=self.colormap(),
+                    colormap_name=self.colors.currentText())
+        if applied:
+            visual=getattr(self.app,'panels',{}).get('Visualization')
+            if visual is not None:visual.sync_from_viewport()
+        return applied
+
+    def _controls_changed(self,*_,appearance_only=False):
         inspection=self._selected_entry is not None and self._selected_entry[0] in {"field_table","live","history","table"}
-        if self._syncing_controls or (self.app._view_mode!="results" and not inspection) or self._display_pending:return
+        if self._syncing_controls or (self.app._view_mode!="results" and not inspection):return
+        if self._display_pending:
+            self._display_appearance_only=getattr(self,'_display_appearance_only',False) and appearance_only
+            return
+        self._display_appearance_only=appearance_only
         canvas=self.app.viewport.canvas
         if canvas.is_playing_animation:canvas.stop_animation()
         self._display_pending=True
@@ -480,8 +579,11 @@ class ResultsTask(QWidget):
             self._display_pending=False
             current=(id(self.app.session),self.app.project.document_id,self.app.active_job_id,id(self.app.solution),id(self.app.result_datasets.get(self.app.active_job_id)))
             if not self.app._closing and owner==current:
-                if inspection:self.app.guarded(self.inspect_quantity)()
-                elif self.app._view_mode=="results":self.app.guarded(self.show_results)()
+                def draw():
+                    if self._display_appearance_only and self._update_display_appearance():return
+                    if inspection:self.inspect_quantity()
+                    elif self.app._view_mode=="results":self.show_results()
+                self.app.guarded(draw)()
         QTimer.singleShot(0,self,display)
 
     def cancel_pending_display(self):
@@ -530,6 +632,12 @@ class ResultsTask(QWidget):
         elif dataset is None:
             self.report.clear();self.table.show_rows([],[]);self.plot.show_series([])
         self.refresh_details()
+        self.refresh_quantities()
+
+    def refresh_quantities(self, *, descriptors=None):
+        """Publish request-local inventory, or discover current mutable sources."""
+        solution=self.app.solution
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
         choices=[];self._live_quantity_descriptors=()
         if dataset is not None:
             choices.extend(((f"Output: {dataset.field(key).descriptor.label}" if key.startswith("request_") else f"Field: {key}"),("field",key)) for key in dataset.field_keys)
@@ -537,7 +645,8 @@ class ResultsTask(QWidget):
             choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys)
         elif solution is not None:
             from ...post.solver_data import solution_quantity_descriptors
-            self._live_quantity_descriptors=solution_quantity_descriptors(solution)
+            self._live_quantity_descriptors=(solution_quantity_descriptors(solution)
+                if descriptors is None else descriptors)
             choices.extend((item.label,("live",item.quantity_id)) for item in self._live_quantity_descriptors)
         else:self._live_quantity_descriptors=()
         if choices!=[(self.quantities.itemText(i),tuple(self.quantities.itemData(i)) if self.quantities.itemData(i) is not None else None) for i in range(self.quantities.count())]:
@@ -562,7 +671,7 @@ class ResultsTask(QWidget):
             summary=dataset.metadata("summary") if dataset is not None else {}
             status=summary.get("status")
             self.outcome.setText(f"Retained result · stored status: {status}" if status is not None else "Retained result · stored status unavailable" if dataset is not None else "Run an analysis to see its outcome.")
-            self.outcome.setStyleSheet("color: #555555")
+            self.outcome.setStyleSheet(f"color: {overlay('outcome')}")
             if dataset is not None and self.field_name() in dataset.field_keys:
                 descriptor=dataset.field(self.field_name()).descriptor
                 values=descriptor.frames or dataset.frames
@@ -857,6 +966,12 @@ class ResultsTask(QWidget):
         return None
 
     def show_results(self, *, on_ready=None, on_cancel=None):
+        selection=self._display_selection()
+        ready=on_ready
+        def published():
+            if selection==self._display_selection():self._displayed_selection=selection
+            if ready is not None:ready()
+        on_ready=published
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         if self.use_retained() and dataset is not None and self.app.prepare_result_dataset(
                 dataset,on_ready=lambda:self.show_results(on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
@@ -945,10 +1060,12 @@ class VisualizationTask(QWidget):
         form.addRow("Transparency",slider_row)
         self.appearance={}
         from ...presentation.visualization import GEOMETRY_DETAILS
-        ordered=sorted(fields(VisualizationStyle),key=lambda field:0 if field.name in {"show_model_lines","show_beam_sections"} else 1)
+        ordered=sorted(fields(VisualizationStyle),key=lambda field:0 if field.name in {"show_model_lines","show_beam_sections","show_mesh_nodes"} else 1)
         labels={"show_model_lines":"Show model lines / beam axes","show_beam_sections":"Show beam section shapes",
+                "show_mesh_nodes":"Show mesh nodes",
                 "edge_color":"Surface edge colour","edge_width":"Surface edge width"}
         help_text={"show_model_lines":"Show or hide CAD curves and beam centre lines. Surface outlines, beam section shapes, loads and supports are separate.",
+                   "show_mesh_nodes":"Show node dots in mesh and inspection views. Enable to pick nodes in the viewport. Result nodes have a separate setting.",
                    "show_beam_sections":"Draw the physical cross-section shapes of beams. Turn off for a simpler model; their axes use the model-lines switch.",
                    "geometry_detail":"Display tessellation of curved CAD surfaces only. Does not change the engineering mesh.",
                    "edge_color":"Colour of surface outlines in Shaded with edges or Wireframe. Does not recolour model lines.",
@@ -962,16 +1079,31 @@ class VisualizationTask(QWidget):
                 widget=QComboBox();widget.addItems(GEOMETRY_DETAILS if field.name=="geometry_detail" else list(RESULT_COLORMAPS));widget.setCurrentText(value)
             else:widget=QLineEdit(str(value))
             widget.setToolTip(help_text.get(field.name,field.name.replace("_"," ").capitalize()+" appearance setting."))
-            self.appearance[field.name]=widget;form.addRow(labels.get(field.name,field.name.replace("_"," ").capitalize()),widget)
+            self.appearance[field.name]=widget
+            label=labels.get(field.name,field.name.replace("_"," ").capitalize())
             if field.name in {"background","edge_color"}:
-                button=QPushButton("Choose colour");button.clicked.connect(lambda checked=False,widget=widget:self.choose_colour(widget));form.addRow(button)
-        self.plane=QLineEdit("1, 0, 0");form.addRow("Section plane normal",self.plane)
-        self.offset=QLineEdit("0");form.addRow("Section offset (m)",self.offset)
-        apply=QPushButton("Apply appearance");apply.clicked.connect(app.guarded(self.apply));layout.addWidget(apply)
-        reset=QPushButton("Reset appearance");reset.clicked.connect(app.guarded(self.reset));layout.addWidget(reset)
+                row=QWidget();row_layout=QHBoxLayout(row);row_layout.setContentsMargins(0,0,0,0);row_layout.setSpacing(6)
+                row_layout.addWidget(widget,1)
+                button=QPushButton("Choose colour");button.clicked.connect(lambda checked=False,widget=widget:self.choose_colour(widget));row_layout.addWidget(button)
+                form.addRow(label,row)
+            else:form.addRow(label,widget)
+        from .widgets import section_label
+        def row(*buttons):
+            line=QHBoxLayout();line.setSpacing(6)
+            for button in buttons:line.addWidget(button)
+            layout.addLayout(line)
+        apply=QPushButton("Apply appearance");apply.setProperty("primary",True);apply.clicked.connect(app.guarded(self.apply))
+        reset=QPushButton("Reset appearance");reset.clicked.connect(app.guarded(self.reset))
+        row(apply,reset)
         sync=QPushButton("Load viewport appearance");sync.clicked.connect(self.sync_from_viewport);layout.addWidget(sync)
-        section=QPushButton("Enable section plane");section.clicked.connect(app.guarded(self.section));layout.addWidget(section)
-        clear=QPushButton("Clear section plane");clear.clicked.connect(app.viewport.clear_section_plane);layout.addWidget(clear)
+        layout.addWidget(section_label("Section plane"))
+        plane_form=QFormLayout();layout.addLayout(plane_form)
+        self.plane=QLineEdit("1, 0, 0");plane_form.addRow("Section plane normal",self.plane)
+        self.offset=QLineEdit("0");plane_form.addRow("Section offset (m)",self.offset)
+        section=QPushButton("Enable section plane");section.clicked.connect(app.guarded(self.section))
+        clear=QPushButton("Clear section plane");clear.clicked.connect(app.viewport.clear_section_plane)
+        row(section,clear)
+        layout.addWidget(section_label("Image"))
         capture=QPushButton("Save viewport image");capture.clicked.connect(app.guarded(self.capture));layout.addWidget(capture);layout.addStretch()
         self.sync_from_viewport()
         self.render.currentTextChanged.connect(app.guarded(self.apply))
@@ -1004,11 +1136,11 @@ class VisualizationTask(QWidget):
         mode=self.app._view_mode
         geometry_changed=any(getattr(old_style,key)!=getattr(style,key) for key in ("show_beam_sections","geometry_detail"))
         if geometry_changed and mode=="geometry":self.app.show_geometry()
-        elif geometry_changed and mode=="mesh":self.app.show_mesh()
-        elif geometry_changed and mode=="inspection_mesh":self.app.show_inspection_mesh()
+        elif (geometry_changed or old_style.show_mesh_nodes!=style.show_mesh_nodes) and mode=="mesh":self.app.show_mesh()
+        elif (geometry_changed or old_style.show_mesh_nodes!=style.show_mesh_nodes) and mode=="inspection_mesh":self.app.show_inspection_mesh()
         elif mode=="results" and results is not None and style!=old_style:
             scene_fields=("result_colormap","show_result_nodes","show_result_supports","show_result_loads","show_result_masses","show_imperfect_reference","show_beam_sections")
-            if any(getattr(old_style,key)!=getattr(style,key) for key in scene_fields):results.show_results()
+            if any(getattr(old_style,key)!=getattr(style,key) for key in scene_fields if key!='result_colormap'):results.show_results()
 
     def choose_colour(self,widget):
         colour=QColorDialog.getColor(QColor(widget.text()),self,"Viewport colour")
@@ -1030,7 +1162,7 @@ class VisualizationTask(QWidget):
             else:widget.setText(str(value))
 
     def section(self):
-        self.app.viewport.set_section_plane(normal=tuple(float(x) for x in self.plane.text().split(",")),offset=float(self.offset.text()))
+        self.app.viewport.set_section_plane(normal=parse_numeric_sequence(self.plane.text()),offset=float(self.offset.text()))
 
     def capture(self):
         path=self.app.dialogs.save_file(filetypes=[("PNG image","*.png")],defaultextension=".png")

@@ -4,6 +4,7 @@ import os
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
+from ..presentation.retained_results import geometry_style_key
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Sequence
 
@@ -1775,6 +1776,7 @@ class WorkbenchWorkflow:
             self.project,
             self.mesh,
             show_beam_sections=self.viewport.visualization.show_beam_sections,
+            show_nodes=self.viewport.visualization.show_mesh_nodes,
         )
         self.viewport.show(self._with_attributes(scene))
         self._update_view_label()
@@ -1789,6 +1791,7 @@ class WorkbenchWorkflow:
         scene = build_mesh_scene(
             self.project, self._inspection_mesh,
             show_beam_sections=self.viewport.visualization.show_beam_sections,
+            show_nodes=self.viewport.visualization.show_mesh_nodes,
         )
         details = self._inspection_mesh.hybrid_diagnostics.get("automation", {})
         problem_ids = {
@@ -1847,7 +1850,7 @@ class WorkbenchWorkflow:
                        show_nodes=panel.show_result_nodes(),
                        show_beam_sections=self.viewport.visualization.show_beam_sections and not stale)
         geometry_key=(getattr(self,"_result_revision",0),id(dataset),self.active_job_id,frame if scale else None,
-                      scale,repr(self.viewport.visualization),self._show_attributes.get(),stale,
+                      scale,geometry_style_key(self.viewport.visualization),self._show_attributes.get(),stale,
                       options["show_nodes"],panel.show_result_supports(),panel.show_result_loads(),
                       panel.show_result_masses(),panel.show_imperfect_reference())
         warm=(geometry_key==getattr(self,"_persisted_geometry_key",None) and
@@ -2031,6 +2034,8 @@ class WorkbenchWorkflow:
             self.show_results()
         elif self._view_mode == "mesh":
             self.show_mesh()
+        elif self._view_mode == "inspection_mesh":
+            self.show_inspection_mesh()
         else:
             self.show_geometry()
 
@@ -2109,6 +2114,8 @@ class WorkbenchWorkflow:
             except Empty:return tuple(datasets)
 
     def _request_result(self, load, publish, *, dataset=None, channel="display", ordered=False, on_cancel=None, display_options=None, _retry_id=None, _status_stamp=None, _source_epoch=None):
+        if channel == "display" and _retry_id is None:
+            self._result_inventory_token = object()
         request_status=WorkbenchWorkflow._result_status_stamp(self) if _status_stamp is None else _status_stamp
         source_epoch=getattr(self,'_result_source_epoch',0) if _source_epoch is None else _source_epoch
         if getattr(self,'_retiring_result_access',False):
@@ -2163,6 +2170,11 @@ class WorkbenchWorkflow:
         display_scene=getattr(self.viewport,"_scene",None) if hasattr(self,"viewport") else None
         retained=getattr(self.viewport,"_retained_result",None) if hasattr(self,"viewport") else None
         panel=getattr(self,"panels",{}).get("Results")
+        appearance_stamp=lambda:tuple(getattr(panel,name)() for name in ('colour_limits','display_units','colormap'))
+        appearance_guard=(channel=='display' and panel is not None
+                          and all(callable(getattr(panel,name,None)) for name in ('colour_limits','display_units','colormap')))
+        requested_appearance=appearance_stamp() if appearance_guard else None
+        requested_selection=panel._display_selection() if channel=='display' and callable(getattr(panel,'_display_selection',None)) else None
         if display_options is None and channel=="display" and retained is not None and display_scene is not None and panel is not None:
             display_options=dict(limits=panel.colour_limits(),display_units=panel.display_units(),colormap=panel.colormap())
         datasets=tuple(getattr(self,"result_datasets",{}).values())
@@ -2201,7 +2213,15 @@ class WorkbenchWorkflow:
                 cancel_capture()
                 self.set_status(f"Result query failed: {result.error}",error=True)
                 return
-            try:publish(result.value)
+            try:
+                if appearance_guard and appearance_stamp()!=requested_appearance:
+                    # An in-flight request owns its captured palette/CPU
+                    # colours. Replace it with the current controls rather
+                    # than publishing mismatched colours or accepting its
+                    # old selection as the newly displayed result.
+                    cancel_capture();panel.show_results();return
+                publish(result.value)
+                if requested_selection is not None:panel._displayed_selection=requested_selection
             except Exception as error:
                 access=getattr(self,"_live_result_access",None)
                 if access is not None:access.discard_publication()
@@ -2269,8 +2289,10 @@ class WorkbenchWorkflow:
                 self._prepared_result_scale=(scale_key,value)
             if use_envelope:
                 from ..post.access import evaluate_envelope
-                return evaluate_envelope(solution, name,cancel_event=cancel)
-            return access.field(shape, name, cancel_event=cancel)
+                value = evaluate_envelope(solution, name,cancel_event=cancel)
+            else:
+                value = access.field(shape, name, cancel_event=cancel)
+            return value
         def publish(field):
             coverage=field if hasattr(field,"admitted_case_ids") else None
             if coverage is not None:field=coverage.field
@@ -2279,8 +2301,40 @@ class WorkbenchWorkflow:
                 WorkbenchWorkflow._set_result_warning(self,f"Envelope coverage: {coverage.admitted_count}/{coverage.shape_count} admitted; {coverage.failed_count} failed {coverage.failed_case_ids}",error=bool(coverage.failed_count))
             if accepted is False:
                 if self.solution is not None:self.show_results(on_ready=on_ready,on_cancel=on_cancel)
-            elif on_ready is not None:on_ready()
+            else:
+                token = getattr(self, "_result_inventory_token", None)
+                source_epoch = getattr(self, "_result_source_epoch", 0)
+                if on_ready is not None:on_ready()
+                if callable(getattr(panel, "refresh_quantities", None)):
+                    WorkbenchWorkflow._schedule_result_inventory(
+                        self, solution, panel, token, revision, source_epoch)
         return self._request_result(load,publish,on_cancel=on_cancel)
+
+    def _schedule_result_inventory(self, solution, panel, token, revision, source_epoch):
+        """Discover ancillary menus after publication, retaining canonical checks.
+
+        The serial result worker still owns source access. Debouncing coalesces
+        rapid component changes; an already-running canonical scan can finish
+        but its inventory is discarded when a newer request takes ownership.
+        """
+        def current():
+            return (not self._closing and self.solution is solution
+                    and getattr(self, "_result_inventory_token", None) is token
+                    and getattr(self, "_result_revision", 0) == revision
+                    and getattr(self, "_result_source_epoch", 0) == source_epoch)
+        def load(cancel):
+            if cancel.is_set() or not current():return None
+            from ..post.solver_data import solution_quantity_descriptors
+            descriptors = solution_quantity_descriptors(solution)
+            return descriptors if not cancel.is_set() and current() else None
+        def publish(descriptors):
+            if descriptors is None or not current():return
+            panel.refresh_quantities(descriptors=descriptors)
+            browser = getattr(self, "result_browser", None)
+            if browser is not None:browser.refresh()
+        def start():
+            if current():self._request_result(load, publish, channel="inventory")
+        self.scheduler.call_later(200, start)
 
     def _publish_results_field(self, result_field) -> bool:
         try:return WorkbenchWorkflow._apply_results_field(self,result_field)
@@ -2298,7 +2352,9 @@ class WorkbenchWorkflow:
         shape = self.current_shape()
         if result_field.name not in {panel.field_name(),panel.field_name()+" envelope"}:
             raise ValueError("returned result field does not match the requested component")
-        self._view_mode = "results"
+        # Identical mode notifications queue a full workbench refresh.
+        if self._view_mode != "results":
+            self._view_mode = "results"
         from ..post.access import source_case_metadata
         status=source_case_metadata(shape,getattr(self.solution,"status",None))["status"]
         if not result_field.name.endswith(" envelope") and status not in {"ok","complete","completed","success","succeeded","converged"}:
@@ -2313,7 +2369,7 @@ class WorkbenchWorkflow:
                 return False
             scale=prepared[1]
         geometry_key = (getattr(self,"_result_revision",0),id(shape),scale,
-                        panel.show_result_nodes(),repr(self.viewport.visualization),
+                        panel.show_result_nodes(),geometry_style_key(self.viewport.visualization),
                         panel.show_result_supports(),panel.show_result_loads(),
                         panel.show_result_masses(),panel.show_imperfect_reference(),
                         self._show_attributes.get(),self._result_case_name(shape))

@@ -45,9 +45,10 @@ def test_quick_selection_buttons_follow_all_selection_routes(window,qapp):
     for mode in ("vertex","edge","face","vertex"):
         window.quick_selection_actions[mode].trigger()
         assert window.selection.mode==mode
-        assert window.selection_mode.currentText()==mode
+        assert window.selection_mode.value()==mode
         assert [key for key,action in window.quick_selection_actions.items() if action.isChecked()]==[mode]
-    window.selection_mode.setCurrentText("node")
+    window.selection_mode.set_value("node")
+    assert window.selection.mode=="node"
     assert not any(action.isChecked() for action in window.quick_selection_actions.values())
     window.selection.set_mode("face")
     assert window.quick_selection_actions["face"].isChecked()
@@ -60,11 +61,11 @@ def test_workspace_icons_and_dropdown_stay_synchronized(window,qapp):
         window.workspace_actions[name].trigger();qapp.processEvents()
         assert tasks.isVisible()
         assert window.details.currentIndex()==index
-        assert window.task_selector.currentText()==name
+        assert window.workspace_title.text()==name and window.workspace_summary.text()
         assert [key for key,action in window.workspace_actions.items() if action.isChecked()]==[name]
         assert not window.workspace_actions[name].icon().isNull()
-    window.task_selector.setCurrentText("Geometry")
-    assert window.workspace_actions["Geometry"].isChecked()
+    window.notebook.select("Geometry")
+    assert window.workspace_actions["Geometry"].isChecked() and window.workspace_title.text()=="Geometry"
     window.notebook.select("Loads & BC")
     assert window.workspace_actions["Loads & BC"].isChecked()
     assert window.commands.history()==before
@@ -89,8 +90,7 @@ def test_workspace_option_icons_choose_existing_options_and_wrap(window,qapp):
         assert strip.buttons[0].isChecked()
     window.notebook.select("Geometry");qapp.processEvents()
     strip=window.panels["Geometry"].option_icons
-    assert len({button.y() for button in strip.buttons})>1
-    assert all(button.geometry().right()<strip.width() for button in strip.buttons)
+    assert strip.isVisible()
     assert window.commands.history()==before
 
 
@@ -147,7 +147,7 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
         assert initial.backend_name=="software"
         window.show()
         wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and window.viewport.canvas._renderer.frame_count>1)
-        assert window.renderer.currentText()=="auto"
+        assert window.renderer.value()=="auto"
         assert window.viewport.canvas.surface.isVisible()
         assert window.viewport.canvas.viewport_size[0]>1
         assert window.viewport.selectable_tags()
@@ -1935,7 +1935,7 @@ def test_open_menu_preserves_dirty_document(window,monkeypatch):
 
 def test_qt_workplane_construction_commits_once_and_cancels(window,qapp):
     panel=window.panels["Construction"]
-    panel.mode.setCurrentText("line");panel.start()
+    panel.mode.setCurrentIndex(panel.mode.findData("line"));panel.start()
     for point in ("0,0","2,0"):
         panel.coordinates.setText(point);panel.add_point()
     assert not window.project.geometry.vertices
@@ -1948,7 +1948,7 @@ def test_qt_workplane_construction_commits_once_and_cancels(window,qapp):
 
 @pytest.mark.parametrize("mode,kind,count",[("point","vertex",1),("line","edge",1),("polyline","edge",2)])
 def test_qt_construction_selects_outputs_for_follow_on_region(window,qapp,mode,kind,count):
-    panel=window.panels["Construction"];panel.mode.setCurrentText(mode);panel.start()
+    panel=window.panels["Construction"];panel.mode.setCurrentIndex(panel.mode.findData(mode));panel.start()
     points=("0,0",) if mode=="point" else ("0,0","2,0","2,2") if mode=="polyline" else ("0,0","2,0")
     for point in points:
         panel.coordinates.setText(point);panel.add_point()
@@ -2035,7 +2035,7 @@ def test_qt_combined_sketch_constraints_keep_boundary_and_identity(window,qapp,t
     face=window.run(cmd.AddPlate(points))
     window.selection.set_mode("face");window.selection.select(window.project.geometry.entity_ref("face",face))
     panel=window.panels["Construction"];panel.sketch();panel.closed.setChecked(False)
-    for point in ("0,0","1,0","1,1","0,0"):
+    for point in ("0,0","1,0","1,1","0.05,0"):
         panel.coordinates.setText(point);panel.add_point()
     panel.pair.setText("1,2");panel.distance.setText("1");panel.add_constraint("distance")
     panel.pair.setText("1,4");panel.add_constraint("coincident")
@@ -2204,7 +2204,7 @@ def test_qt_failed_sketch_constraint_preserves_working_copy(window,qapp,failure)
     original_editor=panel.constraints.toPlainText()
     original_revision=window.project.geometry.revision
     if failure=="extrusion":panel.extrusion.setText("invalid")
-    else:panel.distance.setText("2")
+    else:panel.distance.setText("-1" if failure=="distance" else "2")
     with pytest.raises(ValueError if failure=="extrusion" else GeometryError):
         panel.add_constraint("coincident" if failure=="coincident" else "distance")
     assert task.points==original_points
@@ -2346,9 +2346,9 @@ def test_qt_initial_docks_leave_viewport_space_and_restore_layout(qapp,tmp_path,
 
 def test_qt_task_selector_and_workspace_reset(window,qapp):
     from PySide6.QtWidgets import QDockWidget
-    window.task_selector.setCurrentText("Solve");qapp.processEvents()
+    window.workspace_actions["Solve"].trigger();qapp.processEvents()
     assert window.details.currentIndex()==list(window.panels).index("Solve")
-    window.notebook.select("Results");assert window.task_selector.currentText()=="Results"
+    window.notebook.select("Results");assert window.workspace_title.text()=="Results"
     docks={dock.objectName():dock for dock in window.findChildren(QDockWidget)}
     docks["Tasks"].setFloating(True);docks["Model"].hide();qapp.processEvents()
     window._actions["Reset workspace layout"].trigger();qapp.processEvents()

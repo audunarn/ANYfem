@@ -259,6 +259,7 @@ class GeometryActions:
         from .plate_construction import PlateDraft
         if self.app.session.read_only or self.app.project.read_only_reason:raise PermissionError("This project is read-only")
         if any(ref.kind != "vertex" for ref in refs):raise ValueError("Select vertices for a plate boundary.")
+        self.app._begin_modelling()
         self.app.viewport.cancel_plate()
         self.app.viewport.cancel_construction()
         self.app.selection.set_mode("vertex")

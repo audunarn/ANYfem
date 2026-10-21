@@ -66,6 +66,7 @@ from ..post.report import (
 )
 from ..selection import SELECTION_MODES, mode_label
 from .plot import HistoryPlot
+from .numeric_input import parse_numeric_sequence
 from .live_progress import GRAPH_CHOICES, LiveProgressData
 from .result_display import (
     DISPLAY_UNIT_SYSTEMS,
@@ -1305,7 +1306,7 @@ class GeometryPanel(StagePanel):
 
     def _sketch_pair(self, task: FaceSketchTask) -> tuple[int, int]:
         try:
-            values = tuple(int(item) - 1 for item in self._face_sketch_pair.get().replace(",", " ").split())
+            values = tuple(item - 1 for item in parse_numeric_sequence(self._face_sketch_pair.get(), int))
         except ValueError as error:
             raise ValueError("point numbers must contain two whole numbers") from error
         if len(values) != 2 or values[0] == values[1]:
@@ -1545,7 +1546,7 @@ class GeometryPanel(StagePanel):
     def _set_corners(self) -> None:
         faces = self.require_selection("face", 1)
         try:
-            corners = [int(part) for part in self._corners.get().split()]
+            corners = list(parse_numeric_sequence(self._corners.get(), int))
         except ValueError:
             raise ValueError(
                 "corners must be four whole numbers, e.g. 0 1 2 3"
@@ -3543,7 +3544,7 @@ class SectionPanel(StagePanel):
             self.number(self._imperfection_amplitude, "amplitude") / 1000.0
         )
         try:
-            waves = tuple(int(part) for part in self._waves.get().split())
+            waves = parse_numeric_sequence(self._waves.get(), int)
         except ValueError:
             raise ValueError("waves must be two whole numbers, e.g. 1 1") from None
         if len(waves) != 2:
@@ -4674,13 +4675,13 @@ class SolvePanel(StagePanel):
     # ------------------------------------------------------------------
     @staticmethod
     def _triple(variable: tk.StringVar, label: str) -> tuple:
-        parts = variable.get().replace(",", " ").split()
-        if len(parts) != 3:
-            raise ValueError(f"{label} needs three numbers, e.g. '0 0 -1'")
         try:
-            return tuple(float(part) for part in parts)
+            parts = parse_numeric_sequence(variable.get())
         except ValueError:
             raise ValueError(f"{label} must be three numbers") from None
+        if len(parts) != 3:
+            raise ValueError(f"{label} needs three numbers, e.g. '0 0 -1'")
+        return parts
 
     def _target_kwargs(self) -> dict:
         choice = self._target.get()
@@ -5076,6 +5077,7 @@ class VisualizationPanel(StagePanel):
             result_style, "legend width [px]", str(style.legend_width)
         )
         self._show_legend = tk.BooleanVar(value=style.show_legend)
+        self._show_mesh_nodes = tk.BooleanVar(value=style.show_mesh_nodes)
         self._show_result_nodes = tk.BooleanVar(value=style.show_result_nodes)
         self._show_result_supports = tk.BooleanVar(value=style.show_result_supports)
         self._show_result_loads = tk.BooleanVar(value=style.show_result_loads)
@@ -5087,6 +5089,7 @@ class VisualizationPanel(StagePanel):
         for text, variable in (
             ("Show contour legend", self._show_legend),
             ("Render assigned beam sections in 3D", self._show_beam_sections),
+            ("Show mesh nodes (enable to pick them in the viewport)", self._show_mesh_nodes),
             ("Show FE nodes", self._show_result_nodes),
             ("Show supports", self._show_result_supports),
             ("Show loads", self._show_result_loads),
@@ -5178,6 +5181,7 @@ class VisualizationPanel(StagePanel):
             legend_font_size=legend_font_size,
             legend_width=legend_width,
             result_colormap=self._result_colormap.get(),
+            show_mesh_nodes=bool(self._show_mesh_nodes.get()),
             show_result_nodes=bool(self._show_result_nodes.get()),
             show_result_supports=bool(self._show_result_supports.get()),
             show_result_loads=bool(self._show_result_loads.get()),
@@ -5197,6 +5201,7 @@ class VisualizationPanel(StagePanel):
         self._background_color.set(style.background)
         self._edge_color.set(style.edge_color)
         self._show_legend.set(style.show_legend)
+        self._show_mesh_nodes.set(style.show_mesh_nodes)
         self._legend_font_size.set(str(style.legend_font_size))
         self._legend_width.set(str(style.legend_width))
         self._result_colormap.set(style.result_colormap)
@@ -5709,6 +5714,7 @@ class ResultsPanel(StagePanel):
             legend_font_size=self.app.viewport.visualization.legend_font_size,
             legend_width=self.app.viewport.visualization.legend_width,
             result_colormap=self._colormap.get(),
+            show_mesh_nodes=self.app.viewport.visualization.show_mesh_nodes,
             show_result_nodes=bool(self._show_result_nodes.get()),
             show_result_supports=bool(self._show_result_supports.get()),
             show_result_loads=bool(self._show_result_loads.get()),
@@ -5778,16 +5784,15 @@ class ResultsPanel(StagePanel):
         text = self._limits.get().strip().lower()
         if text in ("", "auto"):
             return None
-        parts = text.replace(",", " ").split()
+        try:
+            parts = parse_numeric_sequence(text)
+        except ValueError:
+            raise ValueError(f"colour range {text!r} is not two numbers") from None
         if len(parts) != 2:
             raise ValueError(
                 "colour range must be 'auto' or two numbers, e.g. '0 30e6'"
             )
-        try:
-            low, high = float(parts[0]), float(parts[1])
-        except ValueError:
-            raise ValueError(f"colour range {text!r} is not two numbers") from None
-        return low, high
+        return parts
 
     def field_values(self):
         """The Field to colour by: this shape, or the envelope of all of them."""

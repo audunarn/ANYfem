@@ -391,6 +391,41 @@ def face_display_polygons(
                 for item in face.loop
             ])
         ]
+    if (
+        isinstance(face.surface, Plane)
+        and face.parameterization is None
+        and not face.holes
+        and len(face.loop) > 4
+        and all(isinstance(geometry.edges[item.edge].curve, Straight) for item in face.loop)
+    ):
+        # The support plane extends beyond the ordered boundary. Triangulate
+        # the actual polygon, including concavities, instead of displaying
+        # the plane's rectangular parameter domain.
+        from anymesher.triangulation import triangulate_polygon
+
+        points = np.asarray([
+            geometry.vertex_position(geometry.oriented_start_vertex(item))
+            for item in face.loop
+        ])
+        origin = points[0]
+        _, _, axes = np.linalg.svd(points - origin)
+        scale = max(float(np.linalg.norm(points - origin, axis=1).max()), 1e-12)
+        if float(np.abs((points - origin) @ axes[2]).max()) > 1e-9 * scale:
+            raise ValueError(f"face {face_id} boundary is not planar")
+        projected = (points - origin) @ axes[:2].T
+        triangulation = triangulate_polygon(projected, backend="python")
+        boundary = {tuple(uv): point for uv, point in zip(projected, points)}
+        normal = np.sum(np.cross(points - origin, np.roll(points - origin, -1, axis=0)), axis=0)
+        polygons = []
+        for triangle in triangulation.triangles:
+            vertices = np.asarray([
+                boundary.get(tuple(uv), origin + uv @ axes[:2])
+                for uv in triangulation.points[triangle]
+            ])
+            if np.dot(np.cross(vertices[1] - vertices[0], vertices[2] - vertices[0]), normal) < 0:
+                vertices = vertices[::-1]
+            polygons.append(vertices)
+        return polygons
     if not face.corners and face.surface is None and face.parameterization is None and not face.holes and len(face.loop) == 4 and all(isinstance(geometry.edges[item.edge].curve, Straight) for item in face.loop):
         from shapely.geometry import Polygon
         from shapely.ops import triangulate
@@ -716,6 +751,12 @@ def build_geometry_scene(
 
         entity_owners = feature_entity_owners(geometry)
     exposed = {int(identifier) for identifier in exposed_feature_ids}
+    sketch_profiles = {
+        ref.id for record in geometry.features.records
+        if record.kind in {"geometry.sketch.plane", "geometry.sketch.extrude"}
+        for key, ref in record.outputs.items()
+        if key.startswith(("profile/edge/", "entity/")) and ref.kind == "edge"
+    }
 
     collapsed_face_patches: dict[int, FacePatch] = {}
     collapsed_face_owners: dict[int, list[EntityRef]] = {}
@@ -768,7 +809,8 @@ def build_geometry_scene(
     for edge_id in sorted(geometry.edges):
         is_beam = edge_id in project.edge_sections
         feature_id = entity_owners.get(EntityRef("edge", edge_id))
-        if feature_id is not None and feature_id not in exposed and not is_beam:
+        is_sketch = edge_id in sketch_profiles
+        if feature_id is not None and feature_id not in exposed and not is_beam and not is_sketch:
             continue
         samples = (
             2
@@ -795,9 +837,9 @@ def build_geometry_scene(
             Polyline(
                 ref=EntityRef("edge", edge_id),
                 points=points,
-                color=COLOR_BEAM if is_beam else COLOR_LINE,
+                color=COLOR_BEAM if is_beam else "#1565c0" if is_sketch else COLOR_LINE,
                 width=(3 if rendered_section else 4) if is_beam else 2,
-                draw_overlay=is_beam,
+                draw_overlay=is_beam or is_sketch,
             )
         )
 
@@ -821,15 +863,17 @@ def build_geometry_scene(
 # mesh
 # ----------------------------------------------------------------------
 def build_mesh_scene(
-    project: Project, mesh: Mesh, *, show_beam_sections: bool = True
+    project: Project, mesh: Mesh, *, show_beam_sections: bool = True,
+    show_nodes: bool | None = None,
 ) -> Scene:
     """Draw a retained mesh with geometry and FE ownership in one scene.
 
     Shells remain batched by their owning geometry plate for rendering and
     legacy tag picking.  Each polygon nevertheless carries its own mesh
     element and element-face references for the commercial selection index.
-    Nodes are emitted as marker data and the viewport submits all of them via
-    one :meth:`ANYtk3D.add_markers` call.
+    When requested, nodes are emitted as marker data and the viewport submits
+    them in one marker batch. The default preserves the legacy user-point
+    filter; explicit True shows all mesh nodes and False hides them.
     """
 
     scene = Scene()
@@ -976,34 +1020,35 @@ def build_mesh_scene(
             )
         )
 
-    vertex_of_node = {
-        int(node_id): int(vertex_id)
-        for vertex_id, node_id in mesh.node_of_vertex.items()
-        if vertex_id in project.geometry.vertices
-    }
-    from ..presentation.points import USER_POINT_GROUP, displayed_geometry_point_ids
-    point_ids = displayed_geometry_point_ids(project.geometry) if USER_POINT_GROUP in project.geometry.groups else None
-    for node_id in sorted(mesh.nodes):
-        vertex_id = vertex_of_node.get(int(node_id))
-        # An explicit user-point policy also omits generated FE-node markers;
-        # the mesh elements remain rendered and selectable as before.
-        if point_ids is not None and vertex_id not in point_ids:
-            continue
-        geometry_ref = (
-            None if vertex_id is None else EntityRef("vertex", vertex_id)
-        )
-        mesh_ref = MeshEntityRef("node", int(node_id))
-        scene.points.append(
-            PointMarker(
-                ref=mesh_ref,
-                position=np.asarray(mesh.nodes[node_id], dtype=float),
-                owners=tuple(
-                    owner
-                    for owner in (geometry_ref, mesh_ref)
-                    if owner is not None
-                ),
+    if show_nodes is not False:
+        vertex_of_node = {
+            int(node_id): int(vertex_id)
+            for vertex_id, node_id in mesh.node_of_vertex.items()
+            if vertex_id in project.geometry.vertices
+        }
+        from ..presentation.points import USER_POINT_GROUP, displayed_geometry_point_ids
+        point_ids = displayed_geometry_point_ids(project.geometry) if show_nodes is None and USER_POINT_GROUP in project.geometry.groups else None
+        for node_id in sorted(mesh.nodes):
+            vertex_id = vertex_of_node.get(int(node_id))
+            # An explicit user-point policy also omits generated FE-node markers;
+            # the mesh elements remain rendered and selectable as before.
+            if point_ids is not None and vertex_id not in point_ids:
+                continue
+            geometry_ref = (
+                None if vertex_id is None else EntityRef("vertex", vertex_id)
             )
-        )
+            mesh_ref = MeshEntityRef("node", int(node_id))
+            scene.points.append(
+                PointMarker(
+                    ref=mesh_ref,
+                    position=np.asarray(mesh.nodes[node_id], dtype=float),
+                    owners=tuple(
+                        owner
+                        for owner in (geometry_ref, mesh_ref)
+                        if owner is not None
+                    ),
+                )
+            )
 
     return scene
 

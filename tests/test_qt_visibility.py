@@ -33,12 +33,12 @@ def geometry(window):
                  (('vertex',vertices[0]),('edge',edge),('face',face)))
 
 
-def shortcut(window,qapp,key):
+def shortcut(window,qapp,key,modifiers=Qt.ControlModifier):
     window.raise_();window.activateWindow()
     assert QTest.qWaitForWindowActive(window,2000)
     widget=window.viewport.canvas.event_widget;widget.setFocus();qapp.processEvents()
     assert widget.hasFocus()
-    QTest.keyClick(widget,key,Qt.ControlModifier);qapp.processEvents()
+    QTest.keyClick(widget,key,modifiers);qapp.processEvents()
     if window.viewport._requested_backend=='gpu':
         QTest.qWait(20)
         assert window.viewport.active_backend=='gpu'
@@ -54,10 +54,11 @@ def test_shortcut_retains_selection_and_dims_each_entity(window,qapp,index,group
     assert item.toolTip()=='Hidden in viewport' and item.foreground().color().name()=='#8794a6'
     assert not any(ref in (entry.owners or (entry.ref,)) for entries in
                    (window.viewport._scene.faces,window.viewport._scene.lines,window.viewport._scene.points) for entry in entries)
-    shortcut(window,qapp,Qt.Key_S)
+    shortcut(window,qapp,Qt.Key_H,Qt.ControlModifier|Qt.ShiftModifier)
     assert not window.viewport.visibility.is_hidden(ref) and item.toolTip()==''
     assert window.commands.history()==history and window.project.geometry.revision==revision
-    assert window._actions['Save'].shortcut().toString()=='Ctrl+Alt+S'
+    assert window._actions['Save'].shortcut().toString()=='Ctrl+S'
+    assert window._actions['Show selected'].shortcut().toString()=='Ctrl+Shift+H'
     assert window._actions['Save as'].shortcut().toString()=='Ctrl+Shift+S'
 
 
@@ -69,7 +70,7 @@ def test_mixed_set_children_hide_show_and_partial_feedback(window,qapp):
     assert all(window.viewport.visibility.is_hidden(ref) for ref in refs)
     assert item.toolTip()=='Hidden in viewport'
     assert all(item.child(i).toolTip()=='Hidden in viewport' for i in range(item.rowCount()))
-    shortcut(window,qapp,Qt.Key_S)
+    shortcut(window,qapp,Qt.Key_H,Qt.ControlModifier|Qt.ShiftModifier)
     assert not window.viewport.visibility.hidden and item.toolTip()==''
     window.viewport.visibility.set_hidden([refs[0]]);window.tree.refresh_visibility()
     assert item.toolTip()=='Partly hidden in viewport'
@@ -84,7 +85,7 @@ def test_feature_visibility_survives_refresh_and_renderer_change_but_not_new_pro
     assert item.toolTip()=='Hidden in viewport' and not window.viewport._scene.faces
     window.show_geometry();window.tree.refresh();window.viewport.switch_backend('software')
     assert not window.viewport._scene.faces and window.viewport.visibility.hidden
-    shortcut(window,qapp,Qt.Key_S)
+    shortcut(window,qapp,Qt.Key_H,Qt.ControlModifier|Qt.ShiftModifier)
     assert window.viewport._scene.faces
     shortcut(window,qapp,Qt.Key_H);window.new_project();qapp.processEvents()
     assert not window.viewport.visibility.hidden
@@ -114,7 +115,7 @@ def test_partial_collapsed_cylinder_retains_visible_siblings_and_restores(window
     assert all(refs[0] not in patch.owners for patch in window.viewport._scene.faces)
     window.viewport._begin_interaction_scene();window.viewport._restore_full_scene()
     assert sum(len(patch.polygons) for patch in window.viewport._scene.faces)==after
-    shortcut(window,qapp,Qt.Key_S)
+    shortcut(window,qapp,Qt.Key_H,Qt.ControlModifier|Qt.ShiftModifier)
     assert sum(len(patch.polygons) for patch in window.viewport._scene.faces)==before
     assert sum(len(patch.polygons) for patch in source.faces)==before
 

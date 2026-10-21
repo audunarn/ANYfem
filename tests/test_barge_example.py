@@ -1,7 +1,7 @@
 """The menu's example is a connected, editable and persistable section."""
 import numpy as np
 
-from anyfem.application.examples import floating_barge_section
+from anyfem.application.examples import drawing_barge_60m, floating_barge_section
 from anyfem.io.project_file import project_from_dict, project_to_dict
 
 
@@ -14,6 +14,7 @@ def test_barge_section_roundtrip():
     restored = project_from_dict(project_to_dict(project))
     assert restored.face_sections == project.face_sections
     assert restored.edge_sections == project.edge_sections
+    assert restored.native_mesh_settings == project.native_mesh_settings
     assert restored.geometry.attachments == project.geometry.attachments
     assert restored.supports == project.supports
     assert {key: value.name for key,value in restored.analyses.items()} == {
@@ -30,6 +31,36 @@ def test_barge_section_roundtrip():
     assert restored.plate_sections["Deck 12 mm"].thickness == .012
     assert restored.plate_sections["Hull 10 mm"].thickness == .010
     assert restored.plate_sections["Bulkhead 8 mm"].thickness == .008
+
+
+def test_drawing_barge_60m_geometry_load_and_roundtrip():
+    project = drawing_barge_60m()
+    geometry = project.geometry
+    positions = np.array([geometry.vertex_position(identifier) for identifier in geometry.vertices])
+    np.testing.assert_allclose(positions.max(axis=0) - positions.min(axis=0), (60., 5., 6.))
+    assert len(geometry.faces) == len(project.face_sections) == 18
+    assert "Centreline bulkhead" in {region.name for region in project.regions}
+    assert not geometry.validate_topology()
+    assert project.plate_sections["Deck 6 mm"].thickness == .006
+    assert project.plate_sections["Bulkhead 6 mm"].thickness == .006
+    assert project.materials["S235"].density == 7850.
+    assert len(project.edge_sections) > 1000
+    assert project.target_size == .5
+    assert project.native_mesh_settings is not None
+    assert project.native_mesh_settings.backend.value == "quad_first"
+    assert project.native_mesh_settings.element_order == "quadratic"
+    assert project.native_mesh_settings.to_dict()["parameters"] == {
+        "layout_policy": "adaptive", "quad_t3_angle_action": "warning",
+    }
+    loads = project.load_case().line_loads
+    assert len(loads) == 2
+    np.testing.assert_allclose(sum(load.force_per_length[0] for load in loads), 0.)
+    assert next(iter(project.analyses.values())).type == "linear_static"
+    project.validate()
+    restored = project_from_dict(project_to_dict(project))
+    assert len(restored.geometry.faces) == 18
+    assert restored.face_sections == project.face_sections
+    assert restored.edge_sections == project.edge_sections
 
 
 def test_beam_spacing_shared_topology_and_orientation():

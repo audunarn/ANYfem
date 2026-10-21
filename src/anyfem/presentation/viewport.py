@@ -140,6 +140,8 @@ class SceneViewport:
         self._interaction_restore_after_id: object | None = None
         self._retained_result = None
         self._retained_result_canvas = None
+        self._retained_styles = None
+        self._retained_opacity = None
         self._retained_scene = None
         self._on_pick: Optional[Callable[[Optional[object]], None]] = None
         self._on_hover: Optional[Callable[[Optional[object]], None]] = None
@@ -354,6 +356,8 @@ class SceneViewport:
             for handle, (mesh, options) in zip(previous[1], retained[1]):
                 handle.update_scalar_fields(element_scalars=mesh.element_scalars)
                 handle.update_appearance(scalar_range=scene.result_scalar_range, colormap=scene.result_colormap)
+            from .retained_results import snapshot_appearance_field
+            scene._appearance_field=snapshot_appearance_field(scene.result_field)
             self._draw_legend(scene)
             self._apply_highlight()
             self.canvas.redraw()
@@ -362,6 +366,8 @@ class SceneViewport:
         self._retained_result = None
         self._retained_result_canvas = None
         self._marker_size = 0.012 * scene.characteristic_size()
+        self._retained_styles = None
+        self._retained_opacity = None
         self.canvas.clear(keep_canvas=True)
         self._clear_hover_state()
         if retained is None:
@@ -370,6 +376,25 @@ class SceneViewport:
             handles = [self.canvas.add_mesh_arrays(mesh, **options) for mesh, options in retained[1]]
             self._retained_result = (retained[0], handles, tuple(mesh.element_ids for mesh, options in retained[1]), scene.result_mesh)
             self._retained_result_canvas = self.canvas
+            surfaces=tuple(handle for handle, (_, options) in zip(handles, retained[1]) if 'opacity' in options)
+            lines=tuple(handle for handle, (_, options) in zip(handles, retained[1]) if 'opacity' not in options)
+            style_api=callable(getattr(self.canvas,'set_mesh_style',None))
+            edges=tuple(self.canvas.add_mesh_arrays(mesh, color=self.visualization.edge_color,
+                        line_color=self.visualization.edge_color,line_width=self.visualization.edge_width,
+                        pickable=False) for mesh in (retained[3] if style_api and len(retained)>3 else ()))
+            for handle in edges:handle.set_visible(self.visualization.render_mode!='Shaded')
+            if style_api:
+                for handle in lines:handle.set_visible(self.visualization.show_model_lines)
+                self._retained_styles=(self._retained_result,surfaces,lines,edges,
+                    not retained[2].faces and not any(not line.annotation and any(
+                        getattr(owner,'kind',None) in {'edge','element'} for owner in line.pick_owners)
+                        for line in retained[2].lines))
+            from .retained_results import snapshot_appearance_field
+            scene._appearance_field=snapshot_appearance_field(scene.result_field)
+            if not retained[2].faces:
+                self._retained_opacity = (self._retained_result,
+                    tuple(handle for handle, (_, options) in zip(handles, retained[1])
+                          if 'opacity' in options))
             self._draw(retained[2])
         self._draw_construction_overlay()
         if key is not None:
@@ -384,8 +409,10 @@ class SceneViewport:
 
     def _retained_result_is_current(self, retained):
         """Geometry equality cannot transfer handles between viewer instances."""
+        prepared=getattr(self,'_retained_styles',None)
+        edges=prepared[3] if prepared is not None and prepared[0] is retained else ()
         return (getattr(self, "_retained_result_canvas", None) is self.canvas
-                and all(not getattr(handle, "removed", False) for handle in retained[1]))
+                and all(not getattr(handle, "removed", False) for handle in (*retained[1],*edges)))
 
     def update_result_field(self, field, *, scalar_range, colormap, legend):
         """Update scalars/appearance using retained entity maps only."""
@@ -409,6 +436,11 @@ class SceneViewport:
             handle.update_scalar_fields(element_scalars=values)
             handle.update_appearance(scalar_range=scalar_range,colormap=colormap)
         self._scene=scene
+        from .retained_results import snapshot_appearance_field
+        scene._appearance_field=snapshot_appearance_field(field)
+        if (hasattr(self, '_visibility_scene')
+                and not getattr(getattr(self, 'visibility', None), 'hidden', ())):
+            self._visibility_scene = scene
         from .retained_results import discard_prepared_field
         discard_prepared_field(field)
         self._draw_legend(self._scene)
@@ -488,6 +520,8 @@ class SceneViewport:
     def clear(self) -> None:
         self._cancel_interaction_restore()
         self._retained_result = self._retained_result_canvas = None
+        self._retained_opacity = None
+        self._retained_styles = None
         self._retained_scene = None
         self._scene = None
         self._interaction_scene = None
@@ -523,6 +557,8 @@ class SceneViewport:
                     colour_check(colour)
                 except Exception as error:
                     raise ValueError(f"invalid {label} colour {colour!r}") from error
+        if SceneViewport._update_result_style(self, style) or SceneViewport._update_result_opacity(self, style):
+            return
         self._visualization = style
         setter = getattr(self.canvas, "set_background", None)
         if callable(setter):
@@ -531,6 +567,148 @@ class SceneViewport:
             widget.configure(background=style.background)
         if getattr(self, "_scene", None) is not None:
             self._refresh_visualization_scene()
+
+    def _update_result_style(self, style):
+        """Update retained result appearance, keeping GPU geometry/scalars intact."""
+        from .retained_results import geometry_style_key
+        old=self.visualization; retained=getattr(self,'_retained_result',None)
+        prepared=getattr(self,'_retained_styles',None)
+        setter=getattr(self.canvas,'set_mesh_style',None)
+        if (self.active_backend!='gpu' or retained is None or prepared is None
+                or prepared[0] is not retained or not prepared[4] or not callable(setter)
+                or not SceneViewport._retained_result_is_current(self,retained)
+                or any(getattr(handle,'removed',False) for handle in prepared[3])
+                or geometry_style_key(old)!=geometry_style_key(style)
+                or getattr(self,'_interaction_scene_active',False)
+                or getattr(getattr(self,'visibility',None),'hidden',())
+                or getattr(self,'_plane_preview',None) is not None
+                or getattr(self,'_construction_task',None) is not None):return False
+        def apply(value):
+            for handle in prepared[1]:
+                setter(handle,opacity=0. if value.render_mode=='Wireframe' else value.surface_opacity,
+                       lit=value.render_mode!='Wireframe',width=value.edge_width)
+            for handle in prepared[2]:handle.set_visible(value.show_model_lines)
+            for handle in prepared[3]:
+                setter(handle,outline=value.edge_color,width=value.edge_width)
+                handle.set_visible(value.render_mode!='Shaded')
+            self.canvas.set_background(value.background)
+        palette=None
+        if old.result_colormap!=style.result_colormap:
+            from ..ui.scene import RESULT_COLORMAPS
+            if style.result_colormap not in RESULT_COLORMAPS:raise ValueError('unknown result colour map')
+            palette=RESULT_COLORMAPS[style.result_colormap]
+        previous_scene=self._scene
+        try:
+            apply(style);self._visualization=style
+            if palette is not None:
+                from ..ui.result_display import unit_transform, ENGINEERING_DISPLAY, SI_DISPLAY
+                units=ENGINEERING_DISPLAY if (self._scene.legend or {}).get('unit') in {'mm','MPa'} else SI_DISPLAY
+                factor,_=unit_transform(self._scene._appearance_field.unit,units)
+                if not self.update_result_appearance(limits=tuple(v*factor for v in self._scene.result_scalar_range),
+                        display_units=units,colormap=palette):raise RuntimeError('retained palette unavailable')
+            self._draw_legend(self._scene);self.canvas.redraw()
+        except BaseException:
+            self._visualization=old
+            self._scene=previous_scene
+            if hasattr(self,'_visibility_scene'):self._visibility_scene=previous_scene
+            try:
+                apply(old)
+                if palette is not None:
+                    for handle in retained[1]:handle.update_appearance(scalar_range=previous_scene.result_scalar_range,colormap=previous_scene.result_colormap)
+                self._draw_legend(self._scene)
+            except BaseException:
+                # A backend that also refuses rollback cannot safely retain
+                # these handles. Preserve the original failure for the caller.
+                self._retained_styles=self._retained_opacity=None
+                self._retained_result=self._retained_result_canvas=None
+            raise
+        return True
+
+    def update_result_appearance(self, *, limits=None, display_units='SI (m / Pa)', colormap=None, colormap_name=None):
+        """Recolour the published snapshot without loading or replacing scalars."""
+        if colormap_name is not None:
+            from ..ui.scene import RESULT_COLORMAPS
+            if colormap_name not in RESULT_COLORMAPS:raise ValueError('unknown result colour map')
+            named=RESULT_COLORMAPS[colormap_name]
+            if colormap is not None and tuple(colormap)!=tuple(named):raise ValueError('result colour map name and palette differ')
+            colormap=named
+        if limits is not None:
+            low,high=limits
+            if not np.isfinite([low,high]).all() or low>=high:
+                raise ValueError('Color limits need finite minimum < maximum')
+        retained=getattr(self,'_retained_result',None);scene=getattr(self,'_scene',None)
+        field=getattr(scene,'_appearance_field',None)
+        if (retained is None or field is None or self.active_backend!='gpu'
+                or not SceneViewport._retained_result_is_current(self,retained)
+                or getattr(self,'_interaction_scene_active',False)
+                or getattr(getattr(self,'visibility',None),'hidden',())):return False
+        from .retained_results import element_id
+        if any(line.annotation and element_id(line.pick_owners) is not None for line in scene.lines):return False
+        from dataclasses import replace
+        from .retained_results import prepare_warm_field, discard_prepared_field
+        from ..ui.scene import result_display_metadata
+        range_,palette,legend=result_display_metadata(field,limits=limits,display_units=display_units,colormap=colormap)
+        # Keep persisted descriptor/component wording as published.
+        legend['title']=(scene.legend or {}).get('title',legend['title'])
+        prepare_warm_field(field,scene,retained,limits=limits,display_units=display_units,
+                           colormap=colormap,include_scalars=False)
+        faces,lines=field._display_buffers[2]
+        candidate=scene.copy()
+        for index,colors in faces:candidate.faces[index]=replace(candidate.faces[index],colors=colors)
+        for index,color in lines:candidate.lines[index]=replace(candidate.lines[index],color=color)
+        candidate.result_scalar_range=range_;candidate.result_colormap=palette;candidate.legend=legend
+        candidate._appearance_field=field
+        discard_prepared_field(field)
+        changed=[]
+        try:
+            for handle in retained[1]:
+                handle.update_appearance(scalar_range=range_,colormap=palette);changed.append(handle)
+            self._scene=candidate;self._draw_legend(candidate);self.canvas.redraw()
+        except BaseException:
+            self._scene=scene
+            try:
+                for handle in reversed(changed):handle.update_appearance(scalar_range=scene.result_scalar_range,colormap=scene.result_colormap)
+                self._draw_legend(scene)
+            except BaseException:
+                self._retained_styles=self._retained_opacity=None
+                self._retained_result=self._retained_result_canvas=None
+            raise
+        if hasattr(self,'_visibility_scene'):self._visibility_scene=candidate
+        if colormap_name is not None:self._visualization=replace(self._visualization,result_colormap=colormap_name)
+        return True
+
+    def _update_result_opacity(self, style):
+        """Change only current result surfaces through the public viewer API."""
+        from dataclasses import replace
+        old = self.visualization
+        retained = getattr(self, '_retained_result', None)
+        prepared = getattr(self, '_retained_opacity', None)
+        setter = getattr(self.canvas, 'set_mesh_opacity', None)
+        if (old.surface_opacity == style.surface_opacity
+                or replace(style, surface_opacity=old.surface_opacity) != old
+                or self.active_backend != 'gpu' or retained is None
+                or prepared is None or prepared[0] is not retained
+                or not callable(setter)
+                or not SceneViewport._retained_result_is_current(self, retained)
+                or getattr(self, '_interaction_scene_active', False)
+                or getattr(getattr(self, 'visibility', None), 'hidden', ())):
+            return False
+        opacity = 0.0 if style.render_mode == 'Wireframe' else float(style.surface_opacity)
+        previous = 0.0 if old.render_mode == 'Wireframe' else float(old.surface_opacity)
+        changed = []
+        try:
+            for handle in prepared[1]:
+                setter(handle, opacity)
+                changed.append(handle)
+            self.canvas.redraw()
+        except BaseException:
+            for handle in reversed(changed):setter(handle, previous)
+            raise
+        self._visualization = style
+        # Both software redraws and Qt Show must retain the latest field scene.
+        if hasattr(self, '_visibility_scene'):
+            self._visibility_scene = self._scene
+        return True
 
     def _refresh_visualization_scene(self) -> None:
         self.show(self._scene, interaction_scene=self._interaction_scene)
@@ -720,7 +898,21 @@ class SceneViewport:
         engine = self._construction_snap_engine
         if task is None or workplane is None or systems is None or engine is None:
             return None
+        if getattr(task,'tool',None) in ('select','dimension','fillet'):
+            picker=getattr(self,'sketch_point_at',None)
+            key=picker(x,y) if picker else None
+            task.select(key)
+            self.refresh_construction_overlay()
+            if self._on_construction_update is not None:self._on_construction_update(task,None)
+            return None
         if not task.accepts_more:
+            return None
+        picker=getattr(self,'sketch_point_at',None)
+        existing=picker(x,y) if picker else None
+        if existing is not None:
+            task.add(task.points[task.point_keys.index(existing)])
+            self.refresh_construction_overlay()
+            if self._on_construction_update is not None:self._on_construction_update(task,None)
             return None
         point = self.project_to_workplane(x, y, workplane, systems)
         if point is None:

@@ -1,8 +1,9 @@
 """UI-thread run dashboard; workers retain computation and cancellation."""
 import numpy as np
+from .theme import overlay
 from PySide6.QtCore import QTimer, QSignalBlocker, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
-    QLabel, QProgressBar, QPlainTextEdit, QPushButton, QCheckBox, QSplitter, QTabWidget)
+    QLabel, QProgressBar, QPlainTextEdit, QPushButton, QCheckBox, QSplitter, QTabWidget, QScrollArea, QSizePolicy)
 from ...presentation.run_progress import RunProgressCatalog, PROGRESS_GRAPH, duration
 from .plot import HistoryPlot
 
@@ -30,7 +31,13 @@ class QtRunMonitor(QWidget):
         self.cancel = QPushButton('Cancel run'); self.cancel.clicked.connect(self.cancel_selected); header.addWidget(self.cancel)
         self.jobs.currentIndexChanged.connect(self.select_run)
         self.jobs.activated.connect(lambda *_: self.follow.setChecked(False))
-        splitter = QSplitter(Qt.Horizontal); layout.addWidget(splitter)
+        splitter = QSplitter(Qt.Horizontal)
+        self.content_scroll=QScrollArea()
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setMinimumHeight(0)
+        self.content_scroll.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Ignored)
+        self.content_scroll.setWidget(splitter)
+        layout.addWidget(self.content_scroll,1)
         summary = QWidget(); details = QVBoxLayout(summary)
         self.state = QLabel('No runs yet'); self.state.setStyleSheet('font-weight: 600; font-size: 14px;')
         self.stage = QLabel('Start a mesh or analysis to see live progress.'); self.stage.setWordWrap(True)
@@ -74,7 +81,7 @@ class QtRunMonitor(QWidget):
         self.graph.clear();self._manual_graph=False
         self.transcript.clear(); self.plot.show_series([]); self.latest.clear()
         self.state.setText('No runs yet'); self.stage.setText('Start a mesh or analysis to see live progress.')
-        self.state.setStyleSheet('font-weight: 600; font-size: 14px; color: #64748b;')
+        self.state.setStyleSheet(f'font-weight: 600; font-size: 14px; color: {overlay("idle")};')
         self.message.clear(); self.timing.clear(); self.metrics.clear(); self.identity.clear()
         self.bar.setRange(0,1000); self.bar.setValue(0); self.cancel.setEnabled(False)
         self.bar.setFormat('No run')
@@ -130,7 +137,7 @@ class QtRunMonitor(QWidget):
             self.plot.show_series([]);self.latest.setText('Graph updates paused.' if self.pause.isChecked() else '')
         now = self.catalog.clock()
         self.state.setText(f'{run.state.capitalize()}' + (' · inputs changed' if run.stale else ''))
-        color={'completed':'#15803d','failed':'#b91c1c','partial':'#a16207','cancelled':'#64748b'}.get(run.state,'#2563eb')
+        color=overlay({'completed':'ok','failed':'fail','partial':'warn','cancelled':'idle'}.get(run.state,'run'))
         self.state.setStyleSheet(f'font-weight: 600; font-size: 14px; color: {color};')
         self.stage.setText(run.stage); self.message.setText(run.message[:400]+('…' if len(run.message)>400 else ''))
         self.identity.setText(f'{run.kind.capitalize()} · {run.name}\nJob {run.job_id}')

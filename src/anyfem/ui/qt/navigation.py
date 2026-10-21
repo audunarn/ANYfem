@@ -9,6 +9,11 @@ from PySide6.QtWidgets import QFormLayout, QGridLayout, QLayout, QSizePolicy, QT
 
 
 _DRAWINGS={
+    "theme_dark": '<path d="M24 20A11 11 0 0 1 12 5 11 11 0 1 0 24 20Z" fill="#dbeafe"/><path d="M22 5V9 M20 7H24" opacity=".7"/>',
+    "theme_light": '<circle cx="16" cy="16" r="6" fill="#ffe08a"/><path d="M16 3V7 M16 25V29 M3 16H7 M25 16H29 M6.8 6.8 9.6 9.6 M22.4 22.4 25.2 25.2 M6.8 25.2 9.6 22.4 M22.4 9.6 25.2 6.8"/>',
+    "mode_model": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z" fill="#dbeafe"/><path d="M5 10 16 16 27 10 M16 16V29"/><path d="M5 10 16 16V29 5 23Z" fill="#b9d0f0"/>',
+    "mode_mesh": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z M5 10 16 16 27 10 M16 16V29 M10.5 7 21.5 13 M21.5 7 10.5 13 M10.5 19.5 10.5 26 M21.5 19.5 21.5 26 M5 16.5 16 22.5 27 16.5"/>',
+    "mode_results": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z" fill="#7fb2f0"/><path d="M16 4 27 10 27 23 16 16Z" fill="#f2c14e"/><path d="M27 10 27 23 21.5 26 21.5 13Z" fill="#e8604c"/><path d="M5 10 16 16 27 10 M16 16V29"/>',
     "geometry": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z M5 10 16 16 27 10 M16 16V29 M16 4V16"/>',
     "construction": '<path d="M4 8H23 M4 16H23 M8 4V25 M16 4V25 M13 26 26 13 29 16 16 29Z"/>',
     "generators": '<ellipse cx="14" cy="7" rx="9" ry="4"/><path d="M5 7V24C5 30 23 30 23 24V7 M23 18H30 M26 15V21"/>',
@@ -28,6 +33,7 @@ _DRAWINGS={
     "cylinder": '<ellipse cx="16" cy="7" rx="10" ry="4"/><path d="M6 7V25C6 31 26 31 26 25V7 M6 25C6 19 26 19 26 25"/>',
     "cone": '<path d="M16 3 5 25C5 31 27 31 27 25Z"/><path d="M5 25C5 19 27 19 27 25"/>',
     "sketch": '<path d="M4 7H22V28H4Z M10 23 25 8 29 12 14 27Z M22 11 26 15"/>',
+    "plane": '<path d="M3 23 10 12 28 16 21 28Z" fill="#dbeafe"/><path d="M16 20V3 M12 8 16 3 20 8"/>',
     "material": '<path d="M5 6H27V27H5Z M5 15H27 M15 6V27 M5 22 12 15 M16 12 22 6 M19 27 27 19"/>',
     "support": '<path d="M16 5V15 M16 15 5 26H27Z M4 30H28"/>',
     "pressure": '<path d="M3 26H29 M7 4V22 M3 17 7 22 11 17 M16 4V22 M12 17 16 22 20 17 M25 4V22 M21 17 25 22 29 17"/>',
@@ -52,6 +58,7 @@ def _symbol(name):
     if key=="loadsbc":return "loads"
     if key in _DRAWINGS:return key
     for words,symbol in (
+        (("constructionplane",),"plane"),
         (("pointload","acceleration"),"loads"), (("pressure","traction"),"pressure"),
         (("coordinate","workplane"),"coordinate"), (("support","constraint"),"support"),
         (("material",),"material"), (("section","beam","girder","stiffener","frame"),"sections"),
@@ -78,7 +85,7 @@ def _symbol(name):
 def navigation_icon(name):
     """Own SVG artwork rasterized at several sizes for Qt's high-DPI icon engine."""
     from .field_icons import field_drawing
-    body=field_drawing(name)
+    body=_DRAWINGS.get(name) or field_drawing(name)
     if body is None:body=_DRAWINGS[_symbol(name)]
     key=str(name).lower()
     if key.startswith("add"):
@@ -96,9 +103,15 @@ def navigation_icon(name):
 
 
 class OptionIcons(QWidget):
-    """Wrapping square buttons that select the existing combo, never execute edits."""
-    def __init__(self,combo,parent=None):
+    """Wrapping square buttons that select the existing combo, never execute edits.
+
+    Optional ``groups`` [(heading, keys), ...] show the buttons under small headings;
+    button order and indices still follow the combo exactly.
+    """
+    groups=();headings=();sections=None
+    def __init__(self,combo,parent=None,groups=None):
         super().__init__(parent);self.combo=combo;self.buttons=[];self._pending=False;self._columns=0
+        self.groups=tuple(groups or ());self.headings=[]
         self.setObjectName("WorkspaceOptionIcons")
         self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Minimum)
         self.grid=QGridLayout(self);self.grid.setContentsMargins(0,2,0,2);self.grid.setSpacing(4)
@@ -115,17 +128,34 @@ class OptionIcons(QWidget):
     def rebuild(self):
         self._pending=False
         for button in self.buttons:self.grid.removeWidget(button);button.deleteLater()
-        self.buttons=[];self._columns=0
+        for heading in self.headings:self.grid.removeWidget(heading);heading.deleteLater()
+        self.buttons=[];self.headings=[];self._columns=0
         for index in range(self.combo.count()):
             button=QToolButton(self);button.setCheckable(True);button.setFixedSize(36,36);button.setIconSize(QSize(24,24))
             label=self.combo.itemText(index);key=self.combo.itemData(index) or label
             button.setIcon(navigation_icon(str(key)));button.setToolTip(f"Select {label} in this workspace.");button.setAccessibleName(label)
             button.clicked.connect(lambda checked=False,index=index:self.choose(index))
             self.buttons.append(button)
+        self.sections=self._sections()
+        for title,_ in self.sections:
+            if title:
+                from .widgets import section_label
+                self.headings.append(section_label(title,self))
         self.reflow();self.sync()
 
+    def _sections(self):
+        if not self.groups:return [("",list(range(len(self.buttons))))]
+        keys=[str(self.combo.itemData(index) or self.combo.itemText(index)) for index in range(self.combo.count())]
+        sections=[];placed=set()
+        for title,members in self.groups:
+            indices=[index for index,key in enumerate(keys) if key in members and index not in placed]
+            if indices:sections.append((title,indices));placed.update(indices)
+        rest=[index for index in range(len(keys)) if index not in placed]
+        if rest:sections.append(("Other",rest))
+        return sections
+
     def choose(self,index):
-        self.combo.setCurrentIndex(index);self.sync()
+        self.combo.setCurrentIndex(index);self.combo.activated.emit(index);self.sync()
 
     def sync(self,*_):
         for index,button in enumerate(self.buttons):
@@ -135,9 +165,17 @@ class OptionIcons(QWidget):
         columns=max(1,self.width()//40)
         if columns==self._columns:return
         self._columns=columns
-        for index,button in enumerate(self.buttons):
-            self.grid.removeWidget(button);self.grid.addWidget(button,index//columns,index%columns)
-        self.setMinimumHeight(((len(self.buttons)+columns-1)//columns)*40+4)
+        sections=getattr(self,"sections",None) or [("",list(range(len(self.buttons))))]
+        headings=iter(self.headings);row=0;height=4
+        for title,indices in sections:
+            if title:
+                heading=next(headings);self.grid.removeWidget(heading)
+                self.grid.addWidget(heading,row,0,1,columns);row+=1;height+=24
+            for position,index in enumerate(indices):
+                button=self.buttons[index]
+                self.grid.removeWidget(button);self.grid.addWidget(button,row+position//columns,position%columns)
+            rows=(len(indices)+columns-1)//columns;row+=rows;height+=rows*40
+        self.setMinimumHeight(height)
 
     def resizeEvent(self,event):
         super().resizeEvent(event);self.reflow()
@@ -167,16 +205,24 @@ class ActionIcons(OptionIcons):
         for source,button in zip(self.sources,self.buttons):button.setEnabled(source.isEnabled())
 
 
-def install_option_icons(panel,combo):
-    strip=OptionIcons(combo,panel)
+def install_option_icons(panel,combo,groups=None):
+    strip=OptionIcons(combo,panel,groups=groups)
+    placed=strip
+    if groups:
+        # A long grouped palette can be folded away so the operation's fields sit near the top.
+        from .widgets import Collapsible
+        placed=Collapsible("All operations",panel,expanded=True,hint="Every operation in this workspace, grouped by purpose.")
+        placed.addWidget(strip);panel.option_palette=placed
     def insert(layout):
         if isinstance(layout,QFormLayout):
             row,role=layout.getWidgetPosition(combo)
-            if row>=0:layout.insertRow(row+1,strip);return True
+            if row>=0:layout.insertRow(row+1,placed);return True
         for index in range(layout.count()):
             item=layout.itemAt(index)
-            if item.widget() is combo:layout.insertWidget(index+1,strip);return True
+            if item.widget() is combo:layout.insertWidget(index+1,placed);return True
             if item.layout() is not None and insert(item.layout()):return True
+            widget=item.widget()
+            if widget is not None and widget is not placed and widget.layout() is not None and insert(widget.layout()):return True
         return False
     if not insert(panel.layout()):raise ValueError("workspace selector has no layout")
     panel.option_icons=strip

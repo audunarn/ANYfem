@@ -3,6 +3,7 @@ import numpy as np
 from PySide6.QtCore import QPointF, Qt, QRectF
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget, QToolTip
+from .theme import is_dark
 
 
 def label(text,unit):
@@ -21,14 +22,14 @@ class HistoryPlot(QWidget):
         self.series=list(series);self._samples=[];self.update()
 
     def paintEvent(self,event):
-        painter=QPainter(self);painter.fillRect(self.rect(),QColor('#ffffff'))
+        painter=QPainter(self);painter.fillRect(self.rect(),QColor('#232a35' if is_dark() else '#ffffff'))
         painter.setRenderHint(QPainter.Antialiasing);self._samples=[]
         curves=[]
         for item in self.series:
             finite=np.isfinite(item.x)&np.isfinite(item.y)
             if finite.any():curves.append((item,finite))
         if not curves:
-            painter.setPen(QColor('#64748b'))
+            painter.setPen(QColor('#93a0b3' if is_dark() else '#64748b'))
             painter.drawText(self.rect().adjusted(12,12,-12,-12),Qt.AlignCenter|Qt.TextWordWrap,self.empty_text)
             return
         xmin=min(float(item.x[finite].min()) for item,finite in curves)
@@ -44,14 +45,14 @@ class HistoryPlot(QWidget):
         def project(x,y):return QPointF(left+(float(x)-xmin)/(xmax-xmin)*(right-left),bottom-(float(y)-ymin)/(ymax-ymin)*(bottom-top))
         for fraction in np.linspace(0,1,5):
             x=left+fraction*(right-left);y=bottom-fraction*(bottom-top)
-            painter.setPen(QPen(QColor('#e8edf4'),1))
+            painter.setPen(QPen(QColor('#323b49' if is_dark() else '#e8edf4'),1))
             painter.drawLine(QPointF(x,top),QPointF(x,bottom));painter.drawLine(QPointF(left,y),QPointF(right,y))
-            painter.setPen(QColor('#64748b'))
+            painter.setPen(QColor('#93a0b3' if is_dark() else '#64748b'))
             painter.drawText(QRectF(x-30,bottom+4,60,18),Qt.AlignCenter,f'{xmin+fraction*(xmax-xmin):.3g}')
             painter.drawText(QRectF(2,y-9,66,18),Qt.AlignRight|Qt.AlignVCenter,f'{ymin+fraction*(ymax-ymin):.3g}')
-        painter.setPen(QPen(QColor('#94a3b8'),1));painter.drawLine(left,bottom,right,bottom);painter.drawLine(left,top,left,bottom)
+        painter.setPen(QPen(QColor('#4a5567' if is_dark() else '#94a3b8'),1));painter.drawLine(left,bottom,right,bottom);painter.drawLine(left,top,left,bottom)
         for index,(item,finite) in enumerate(curves):
-            color=QColor(['#2563eb','#dc2626','#059669','#7c3aed'][index%4])
+            color=QColor((['#5b9cec','#f07178','#34d399','#a78bfa'] if is_dark() else ['#2563eb','#dc2626','#059669','#7c3aed'])[index%4])
             painter.setPen(QPen(color,1.8))
             # Draw each contiguous finite run separately; never bridge absent data.
             indices=np.flatnonzero(finite)
@@ -66,7 +67,7 @@ class HistoryPlot(QWidget):
             painter.drawText(QRectF(left+column*width,4+row*18,width-10,18),Qt.AlignLeft|Qt.AlignVCenter,
                              painter.fontMetrics().elidedText(legend,Qt.ElideRight,int(width-10)))
             self._samples.extend((project(item.x[i],item.y[i]),item,i) for i in indices)
-        painter.setPen(QColor('#475569'))
+        painter.setPen(QColor('#b8c4d6' if is_dark() else '#475569'))
         first=curves[0][0]
         painter.drawText(QRectF(left,bottom+25,right-left,20),Qt.AlignCenter,label(first.x_label,first.x_unit))
         painter.save();painter.translate(14,(top+bottom)/2);painter.rotate(-90)

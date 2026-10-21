@@ -41,6 +41,7 @@ class VisualizationStyle:
     show_beam_sections: bool = True
     geometry_detail: str = "Auto"
     show_model_lines: bool = True
+    show_mesh_nodes: bool = False
 
     def __post_init__(self) -> None:
         if self.render_mode not in RENDER_MODES:

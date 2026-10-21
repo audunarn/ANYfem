@@ -82,6 +82,53 @@ def test_project_retains_owner_runtime_after_source_remapping(monkeypatch):
     assert project._last_mesh_execution["meshing"] == runtime
 
 
+def test_structural_preparation_cache_reuses_only_unchanged_geometry(monkeypatch):
+    from anyfem.model import project as project_module
+
+    project = Project("preparation-cache")
+    vertices = project.geometry.add_points(
+        ((0., 0., 0.), (1., 0., 0.), (1., 1., 0.), (0., 1., 0.))
+    )
+    project.geometry.add_plate(vertices)
+    original = project_module.prepare_structural_connectivity
+    calls = []
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(project_module, "prepare_structural_connectivity", counted)
+    first = project.generate_mesh(.5, order="linear", execution_policy=MeshExecutionPolicy.off())
+    assert project._last_mesh_execution["preparation_cache_hit"] is False
+    second = project.generate_mesh(.5, order="linear", execution_policy=MeshExecutionPolicy.off())
+    assert project._last_mesh_execution["preparation_cache_hit"] is True
+    assert len(calls) == 1
+    assert second.nodes.keys() == first.nodes.keys()
+    assert second.quads == first.quads
+    project.geometry.add_points(((2., 2., 0.),))
+    project.generate_mesh(.5, order="linear", execution_policy=MeshExecutionPolicy.off())
+    assert project._last_mesh_execution["preparation_cache_hit"] is False
+    assert len(calls) == 2
+
+
+def test_cached_structural_preparation_still_honors_cancellation():
+    project = Project("preparation-cache-cancel")
+    vertices = project.geometry.add_points(
+        ((0., 0., 0.), (1., 0., 0.), (1., 1., 0.), (0., 1., 0.))
+    )
+    project.geometry.add_plate(vertices)
+    project.generate_mesh(.5, order="linear", execution_policy=MeshExecutionPolicy.off())
+
+    def cancelled(phase):
+        if phase == "cached structural preparation":
+            raise RuntimeError("cancelled")
+
+    import pytest
+    with pytest.raises(RuntimeError, match="cancelled"):
+        project.generate_mesh(.5, order="linear", execution_policy=MeshExecutionPolicy.off(),
+                              cancellation_check=cancelled)
+
+
 def test_outer_geometry_counts_merge_without_changing_semantics():
     from anyfem._meshing_runtime import merge_geometry_runtime
 

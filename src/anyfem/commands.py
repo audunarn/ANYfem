@@ -111,8 +111,10 @@ __all__ = [
     "AddWetPressureTable",
     "AddWetSurface",
     "AddCoordinateSystem",
+    "AddConstructionPlane",
     "AddStiffenedPanel",
     "AddSketch",
+    "AddPlaneSketch",
     "AssignBeam",
     "AssignPlate",
     "ButterflyHoleDecomposition",
@@ -535,6 +537,119 @@ class AddSketch(FeatureCommand):
 
 
 @dataclass(eq=False)
+class AddPlaneSketch(FeatureCommand):
+    """Create an editable constrained sketch on a persisted construction plane."""
+
+    definition: SketchDefinition
+    origin: Sequence[float]
+    normal: Sequence[float]
+    x_axis: Sequence[float]
+    name: str = "Plane sketch"
+    label: str = "add plane sketch"
+
+    def __post_init__(self) -> None:
+        FeatureCommand.__init__(self)
+        # Validate the frame at command construction, leaving no invalid undo entry.
+        CoordinateSystem(
+            "Sketch plane", origin=self.origin, axis=self.normal, reference=self.x_axis,
+        )
+
+    def change(self, project: Project) -> int:
+        geometry = project.geometry
+        geometry.features.capture_baseline(geometry)
+        record = geometry.features.append(
+            "geometry.sketch.plane",
+            name=self.name,
+            parameters={
+                **self.definition.to_parameters(),
+                "plane": {
+                    "origin": [float(item) for item in self.origin],
+                    "normal": [float(item) for item in self.normal],
+                    "x_axis": [float(item) for item in self.x_axis],
+                },
+            },
+        )
+        return record.feature_id
+
+
+def _sketch_cut_profile(geometry, sketch_feature_id, wire_ids=(), *, definition=None):
+    """Bind a cut to ordered, stable contour slots rather than current edge IDs."""
+    from anygeometry import SketchDefinition, sketch_wire_edge_keys
+    from anygeometry.features import FeatureOutputRef
+
+    source = geometry.features.get(int(sketch_feature_id))
+    if source.kind not in {"geometry.sketch.plane", "geometry.sketch.extrude"}:
+        raise GeometryError("Select a sketch to cut the plate")
+    if source.suppressed:
+        raise GeometryError("Resume the source sketch before cutting the plate")
+    if definition is None:
+        definition = SketchDefinition.from_parameters(source.parameters)
+    keys = sketch_wire_edge_keys(definition, tuple(wire_ids))
+    profile = tuple(
+        FeatureOutputRef(source.feature_id, key, "edge")
+        for wire in keys for key in wire
+    )
+    if not profile:
+        raise GeometryError("The sketch has no closed contours to cut")
+    return source, profile, tuple(len(wire) for wire in keys)
+
+
+def _active_sketch_cuts(geometry, sketch_feature_id):
+    return tuple(
+        record for record in geometry.features.records
+        if record.kind == "geometry.sketch.cut" and not record.suppressed
+        and int(record.parameters.get("sketch_feature_id", -1)) == int(sketch_feature_id)
+    )
+
+
+def _protect_sketch_cuts(geometry, sketch_feature_id):
+    cuts = _active_sketch_cuts(geometry, sketch_feature_id)
+    if cuts:
+        names = ", ".join(record.name or f"Cut {record.feature_id}" for record in cuts)
+        raise GeometryError(f"Remove the dependent plate cuts first: {names}")
+
+
+@dataclass(eq=False)
+class CutPlateWithSketch(FeatureCommand):
+    """Create a replayable plate opening driven by stable sketch contours."""
+
+    target_face: EntityRef
+    sketch_feature_id: int
+    wire_ids: Sequence[str] = ()
+    name: str = "Plate cut"
+    label: str = "cut plate with sketch"
+
+    def __post_init__(self) -> None:
+        FeatureCommand.__init__(self)
+        if self.target_face.kind != "face":
+            raise GeometryError("Select a plate face to cut")
+        self.wire_ids = tuple(str(item) for item in self.wire_ids)
+
+    def change(self, project: Project) -> int:
+        from anygeometry import SketchDefinition, upgrade_sketch
+
+        geometry = project.geometry
+        geometry.features.capture_baseline(geometry)
+        source = geometry.features.get(int(self.sketch_feature_id))
+        definition = upgrade_sketch(SketchDefinition.from_parameters(source.parameters))
+        selected = self.wire_ids or tuple(wire.id for wire in definition.wires if wire.closed)
+        if not selected:
+            raise GeometryError("The sketch has no closed contours to cut")
+        source, profile, sizes = _sketch_cut_profile(
+            geometry, self.sketch_feature_id, selected
+        )
+        target = _feature_anchor(geometry, self.target_face)
+        record = geometry.features.append(
+            "geometry.sketch.cut", name=self.name,
+            parameters={"sketch_feature_id": source.feature_id,
+                        "wire_ids": list(selected), "wire_sizes": list(sizes)},
+            inputs={"target": (target,), "profile": profile},
+            dependencies=(source.feature_id,),
+        )
+        return record.feature_id
+
+
+@dataclass(eq=False)
 class FragmentPlateOverlaps(FeatureCommand):
     """Partition coplanar selected plates into non-overlapping geometry cells.
 
@@ -581,6 +696,7 @@ class DeleteFeature(FeatureCommand):
 
     def do(self, project: Project) -> int:
         geometry = project.geometry
+        _protect_sketch_cuts(geometry, self.feature_id)
         self._before = geometry.design_snapshot()
         working_project = copy(project)
         working_project.geometry = geometry.clone(include_features=True)
@@ -777,6 +893,23 @@ class EditFeature(FeatureCommand):
             inputs=self.inputs,
             dependencies=self.dependencies,
         )
+        record = project.geometry.features.get(self.feature_id)
+        if record.kind in {"geometry.sketch.plane", "geometry.sketch.extrude"}:
+            # A curve insertion or fillet can change the number of edge pieces
+            # in a contour. Rebind all cut inputs in this same staged edit.
+            for cut in tuple(project.geometry.features.records):
+                if (cut.kind != "geometry.sketch.cut"
+                        or int(cut.parameters.get("sketch_feature_id", -1)) != self.feature_id):
+                    continue
+                _source, profile, sizes = _sketch_cut_profile(
+                    project.geometry, self.feature_id,
+                    tuple(cut.parameters.get("wire_ids", ())),
+                )
+                project.geometry.features.update(
+                    cut.feature_id,
+                    parameters={**cut.parameters, "wire_sizes": list(sizes)},
+                    inputs={**cut.inputs, "profile": profile},
+                )
         return self.feature_id
 
 
@@ -815,6 +948,8 @@ class SuppressFeature(FeatureCommand):
             self.label = "resume feature"
 
     def change(self, project: Project) -> int:
+        if self.suppressed:
+            _protect_sketch_cuts(project.geometry, self.feature_id)
         project.geometry.features.set_suppressed(
             self.feature_id, self.suppressed
         )
@@ -3866,6 +4001,30 @@ class AddCoordinateSystem(Command):
         if self.system.id == "global":
             raise ProjectError("the reserved Global coordinate system cannot be removed")
         project.coordinate_systems.pop(self.system.id)
+
+
+@dataclass(eq=False)
+class AddConstructionPlane(Command):
+    """Save a named Cartesian frame whose local XY plane supports sketching."""
+
+    name: str = "Plane"
+    origin: Sequence[float] = (0.0, 0.0, 0.0)
+    normal: Sequence[float] = (0.0, 0.0, 1.0)
+    x_direction: Sequence[float] = (1.0, 0.0, 0.0)
+    label: str = "create construction plane"
+    _system: CoordinateSystem = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._system = CoordinateSystem(
+            name=self.name.strip(), origin=self.origin,
+            axis=self.normal, reference=self.x_direction,
+        )
+
+    def do(self, project: Project) -> CoordinateSystem:
+        return project.add_coordinate_system(self._system)
+
+    def undo(self, project: Project) -> None:
+        project.coordinate_systems.pop(self._system.id)
 
 
 @dataclass(eq=False)

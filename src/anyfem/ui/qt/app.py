@@ -4,11 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import Qt, QSettings, QSize
-from PySide6.QtGui import QAction, QActionGroup, QStandardItemModel, QStandardItem
-from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QMainWindow,
-    QPlainTextEdit, QPushButton, QTabWidget, QTableView, QVBoxLayout, QWidget,
-    QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle)
+from PySide6.QtCore import Qt, QSettings, QSize, QObject, QEvent, QPoint, QTimer
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QStandardItemModel, QStandardItem
+from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QHBoxLayout, QMainWindow,
+    QPlainTextEdit, QPushButton, QTabWidget, QTabBar, QTableView, QVBoxLayout, QWidget,
+    QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle, QToolButton)
 
 from ...application.controller import WorkbenchController, default_project
 from ...application.workflow import WorkbenchWorkflow,_job_progress_text
@@ -49,16 +49,75 @@ class _Value:
     def set(self,value):self.value=value
 
 
+class _DockFooter(QObject):
+    """Share the native bottom tab row without taking ownership of its tab bar."""
+
+    def __init__(self,window,status):
+        super().__init__(window)
+        self.window=window;self.status=status;self.tab_bar=None
+        self._busy=False;self.in_tab_row=False;self._watched=set()
+        status.setObjectName("DockFooter")
+        status.setSizeGripEnabled(False)
+        window.installEventFilter(self)
+        self.sync()
+
+    def eventFilter(self,watched,event):
+        if event.type() in {QEvent.Show,QEvent.Hide,QEvent.Resize,QEvent.Move,QEvent.LayoutRequest,QEvent.ChildAdded}:
+            self.sync()
+        return False
+
+    def sync(self):
+        if self._busy or self.window._closing:return
+        self._busy=True
+        try:
+            names={dock.windowTitle() for dock in self.window._workspace_docks[2:]
+                   if not dock.isFloating() and self.window.dockWidgetArea(dock)==Qt.BottomDockWidgetArea}
+            bars=[bar for bar in self.window.findChildren(QTabBar)
+                  if bar.parentWidget() is self.window]
+            for bar in bars:
+                if bar not in self._watched:
+                    bar.installEventFilter(self);self._watched.add(bar)
+            bar=next((bar for bar in bars if bar.isVisible()
+                      and any(bar.tabText(i) in names for i in range(bar.count()))),None)
+            self.tab_bar=bar
+            if bar is None:
+                if self.in_tab_row:
+                    QMainWindow.setStatusBar(self.window,self.status)
+                    self.in_tab_row=False
+                self.status.show()
+                return
+            if not self.in_tab_row:
+                # Reparenting removes the status bar from QMainWindow's layout.
+                # Keep it owned by the window: Qt can destroy/recreate dock bars.
+                self.status.setParent(None)
+                self.status.setParent(self.window)
+                self.in_tab_row=True
+            right=max((bar.tabRect(i).right()+1 for i in range(bar.count())),default=0)
+            origin=bar.mapTo(self.window,QPoint(min(right+8,bar.width()),0))
+            self.status.setGeometry(origin.x(),origin.y(),max(0,bar.width()-right-8),bar.height())
+            self.status.show();self.status.raise_()
+        finally:self._busy=False
+
+
 class _Workspace(QTabWidget):
     def __init__(self):
-        super().__init__();self.panels={};self.setUsesScrollButtons(True)
+        super().__init__();self.panels={};self.on_reselect=None;self.setUsesScrollButtons(True)
     def select(self,page):
         panel=self.panels[page] if isinstance(page,str) else page
         for index in range(self.count()):
             widget=self.widget(index)
-            if widget is panel or isinstance(widget,QScrollArea) and widget.widget() is panel:self.setCurrentIndex(index);return
+            if widget is panel or isinstance(widget,QScrollArea) and widget.widget() is panel:
+                same=self.currentIndex()==index
+                self.setCurrentIndex(index)
+                if same and self.on_reselect is not None:self.on_reselect(index)
+                return
 
     def addTab(self,panel,name):
+        layout=panel.layout()
+        if (isinstance(layout,QVBoxLayout) and not getattr(panel,"FILLS_HEIGHT",False)
+                and (layout.count()==0 or layout.itemAt(layout.count()-1).spacerItem() is None)):
+            # Keep controls at their natural height and collect spare room at the bottom.
+            layout.addStretch()
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(panel)
         return super().addTab(scroll,name)
     def set_hint(self,text):self.setToolTip(text)
@@ -71,6 +130,8 @@ class _JobView(QTableView):
         self._model.setHorizontalHeaderLabels(["Job","Status","Inputs"])
         self.setModel(self._model)
         self.setEditTriggers(self.EditTrigger.NoEditTriggers)
+        self.setSelectionBehavior(self.SelectionBehavior.SelectRows)
+        self.verticalHeader().hide();self.horizontalHeader().setStretchLastSection(True)
         self._rows={};self.doubleClicked.connect(self.open_result)
         self.setContextMenuPolicy(Qt.CustomContextMenu);self.customContextMenuRequested.connect(self.context_menu)
 
@@ -93,6 +154,16 @@ class _JobView(QTableView):
                 for item,value in zip(self._rows[job.id],values):
                     if item.text()!=value:item.setText(value)
         self.resizeColumnsToContents()
+
+    EMPTY_TEXT="No analysis jobs yet. Generate a mesh, then choose Solve. Double-click a finished job to open its results."
+
+    def paintEvent(self,event):
+        super().paintEvent(event)
+        if self._model.rowCount():return
+        from PySide6.QtGui import QPainter,QColor
+        painter=QPainter(self.viewport());from .theme import overlay;painter.setPen(QColor(overlay("muted")))
+        painter.drawText(self.viewport().rect().adjusted(16,8,-16,-8),Qt.AlignLeft|Qt.AlignVCenter|Qt.TextWordWrap,self.EMPTY_TEXT)
+        painter.end()
 
     def open_result(self,index):
         job_id=index.siblingAtColumn(0).data(Qt.UserRole)
@@ -117,6 +188,7 @@ class _JobView(QTableView):
 
 
 class ScriptTask(QWidget):
+    FILLS_HEIGHT=True
     def __init__(self,app):
         super().__init__();self.app=app;self.runner=None;self.task=None
         layout=QVBoxLayout(self)
@@ -198,7 +270,40 @@ class ScriptTask(QWidget):
 
 class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     """One window, one workbench controller, no Tk runtime."""
+
+    def statusBar(self):
+        # The native status-bar slot is empty while the dock tabs host it.
+        status=getattr(self,"_footer_statusbar",None)
+        return super().statusBar() if status is None else status
+
     JOB_EVENT_BATCH_LIMIT=100
+    # Geometry operations in the order shown, under these headings.
+    GEOMETRY_GROUPS=(
+        ("Create",("AddPoint","AddLine","AddPolyline","AddArc","AddPlate","AddFace",
+                   "AddCylinder","AddCone","AddStiffenedPanel")),
+        ("Sketch and planes",("AddSketch","AddConstructionPlane")),
+        ("Move, copy and pattern",("MovePoint","CopyEntities","LinearPattern","CircularPattern",
+                                   "MirrorEntities","Extrude","Revolve","ReverseEntity")),
+        ("Split and repair",("SplitEdge","SplitFace","StripFace","SetFaceCorners","JoinSheet",
+                             "FragmentPlateOverlaps","TriangleToQuads","ButterflyHoleDecomposition","NeutralTrimHole")),
+        ("Features and delete",("EditFeature","SuppressFeature","DeleteFeature","DeleteEntity")),
+        ("Inspect",("MeasureGeometry",)),
+    )
+    # Workflow order: model, properties, analysis, tools.
+    WORKSPACE_GROUP_STARTS=frozenset({"Sections","Mesh","Scripts"})
+    WORKSPACE_SUMMARIES={
+        "Geometry":"Create and edit points, lines, plates and features.",
+        "Construction":"Sketch profiles on construction planes or flat faces.",
+        "Generators":"Create editable parametric structures such as panels and hulls.",
+        "Sections":"Assign materials, plate thicknesses and beam profiles.",
+        "Loads & BC":"Apply loads, supports, masses and load cases.",
+        "Mesh":"Set the element size and generate the finite element mesh.",
+        "Solve":"Choose an analysis and run it on the current mesh.",
+        "Results":"Inspect, animate and export solved fields.",
+        "Visualization":"Adjust colours, transparency, section planes and images.",
+        "Scripts":"Run Python commands as one undoable edit.",
+        "Definitions":"Regions, unit profile and other project definitions.",
+    }
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
         self.workbench=WorkbenchController(project if project is not None else default_project(),
@@ -215,10 +320,15 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._refreshing=False
         self._refresh_pending=False
         self._last_refreshed_revision=None
-        from .theme import apply_theme
+        from .theme import apply_theme, saved_dark, _state
+        _state["dark"]=saved_dark()
         apply_theme(self)
         self.resize(1400,900)
         self.viewport=QtViewport(self,self.selection,backend=viewer_backend)
+        from .theme import sync_viewport
+        sync_viewport(self)
+        from .wordmark import Wordmark
+        self._wordmark=Wordmark(self.viewport.widget)
         self.setCentralWidget(self.viewport.widget)
         self.viewport.set_pick_handler(self._on_pick)
         self.tree=QtModelTree(self)
@@ -234,7 +344,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         from .generators import GeneratorTask
         from .engineering import SectionTask,LoadTask
         self.panels={
-            "Geometry":GeometryTask(self,["AddPoint","MovePoint","AddLine","AddPlate","AddFace","AddArc","AddPolyline","AddFeature","AddCylinder","AddCone","AddStiffenedPanel","AddSketch","EditFeature","SuppressFeature","DeleteFeature","DeleteEntity","CopyEntities","LinearPattern","CircularPattern","MirrorEntities","Extrude","Revolve","ReverseEntity","SplitEdge","SplitFace","StripFace","SetFaceCorners","JoinSheet","FragmentPlateOverlaps","TriangleToQuads","ButterflyHoleDecomposition","NeutralTrimHole","MeasureGeometry"]),
+            "Geometry":GeometryTask(self,[name for _,names in self.GEOMETRY_GROUPS for name in names]),
             "Construction":ConstructionPanel(self),
             "Generators":GeneratorTask(self),
             "Sections":SectionTask(self),
@@ -249,19 +359,30 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         selectors={"Geometry":"choice","Construction":"mode","Generators":"kind","Sections":"choice",
                    "Loads & BC":"choice","Mesh":"strategy","Solve":"analysis","Results":"field",
                    "Visualization":"render","Definitions":"choice"}
-        for name,attribute in selectors.items():install_option_icons(self.panels[name],getattr(self.panels[name],attribute))
+        for name,attribute in selectors.items():
+            install_option_icons(self.panels[name],getattr(self.panels[name],attribute),
+                                 groups=self.GEOMETRY_GROUPS if name=="Geometry" else None)
+        # The grouped palette is tall: keep the chosen operation's fields and Apply directly
+        # under the operation list, with the palette below them.
+        geometry=self.panels["Geometry"];palette=geometry.option_palette;layout=geometry.layout()
+        layout.removeWidget(palette);layout.insertWidget(layout.indexOf(geometry.apply)+1,palette)
         scripts=self.panels["Scripts"]
         scripts.option_icons=ActionIcons(scripts.findChildren(QPushButton),scripts)
         scripts.layout().insertWidget(1,scripts.option_icons)
         self.details.panels=self.panels
         for name,panel in self.panels.items():self.details.addTab(panel,name)
         task_workspace=QWidget();task_workspace.setObjectName("TaskWorkspace")
-        task_layout=QVBoxLayout(task_workspace);task_layout.setContentsMargins(10,10,10,10);task_layout.setSpacing(8)
-        heading=QLabel("WORKSPACE");heading.setObjectName("WorkspaceHeading");task_layout.addWidget(heading)
-        self.task_selector=QComboBox();self.task_selector.addItems(list(self.panels));task_layout.addWidget(self.task_selector)
+        task_layout=QVBoxLayout(task_workspace);task_layout.setContentsMargins(12,10,12,10);task_layout.setSpacing(2)
+        self.workspace_title=QLabel();self.workspace_title.setObjectName("WorkspaceTitle");task_layout.addWidget(self.workspace_title)
+        self.workspace_summary=QLabel();self.workspace_summary.setObjectName("WorkspaceSummary");self.workspace_summary.setWordWrap(True)
+        task_layout.addWidget(self.workspace_summary);task_layout.addSpacing(6)
         self.details.tabBar().hide();task_layout.addWidget(self.details)
-        self.task_selector.currentIndexChanged.connect(self.details.setCurrentIndex)
-        self.details.currentChanged.connect(self.task_selector.setCurrentIndex)
+        self.details.currentChanged.connect(self._update_workspace_heading)
+        self._update_workspace_heading(self.details.currentIndex())
+        self.details.currentChanged.connect(self._workspace_changed)
+        self.details.on_reselect=self._workspace_changed
+        for name, selector in (("Geometry", "choice"), ("Construction", "mode"), ("Generators", "kind")):
+            getattr(self.panels[name], selector).activated.connect(self._begin_modelling)
         tasks_dock=self._dock("Tasks",task_workspace,Qt.RightDockWidgetArea)
         self.job_status=_JobView(self)
         jobs_dock=self._dock("Jobs",self.job_status,Qt.BottomDockWidgetArea)
@@ -274,7 +395,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.tabifyDockWidget(jobs_dock,self.run_dock)
         self.run_dock.hide();jobs_dock.raise_()
         self._workspace_docks=(model_dock,tasks_dock,jobs_dock,messages_dock,self.run_dock)
-        self.resizeDocks([model_dock,tasks_dock],[260,360],Qt.Horizontal)
+        self.resizeDocks([model_dock,tasks_dock],[280,380],Qt.Horizontal)
         self.resizeDocks([jobs_dock,messages_dock],[140,140],Qt.Vertical)
         self._actions={}
         self._menus()
@@ -301,7 +422,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def reset_workspace_layout(self):
         self.restoreState(self._default_workspace_state)
         model,tasks,jobs,messages,run=self._workspace_docks
-        self.resizeDocks([model,tasks],[260,390],Qt.Horizontal)
+        self.resizeDocks([model,tasks],[280,390],Qt.Horizontal)
         self.resizeDocks([jobs],[150],Qt.Vertical)
         jobs.raise_()
 
@@ -317,7 +438,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(file,"New",lambda:self.new_project(confirm=True),"Ctrl+N")
         self._action(file,"Open",lambda:self.open_project(confirm=True),"Ctrl+O")
         self._recent_menu=file.addMenu("Recent projects");self._refresh_recent_menu()
-        self._action(file,"Save",self.save_project,"Ctrl+Alt+S")
+        self._action(file,"Save",self.save_project,"Ctrl+S")
         self._action(file,"Save as",lambda:self.save_project(ask=True),"Ctrl+Shift+S")
         self._action(file,"Recover autosave",self.recover_autosave)
         self._action(file,"Open file inspector",self.open_file_inspector)
@@ -329,6 +450,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         edit=self.menuBar().addMenu("Edit")
         self._action(edit,"Undo",self.undo,"Ctrl+Z")
         self._action(edit,"Redo",self.redo,"Ctrl+Y")
+        self._action(edit,"Cut plate with sketch…",self.cut_plate_with_sketch)
         self._action(edit,"Select all",self._select_all,"Ctrl+A")
         self._action(edit,"Delete selected",self._delete_selection,"Delete")
         self._action(edit,"Create geometry set…",self.geometry_actions.new_set,"Ctrl+G")
@@ -339,7 +461,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Commands",self.show_command_palette,"Ctrl+P")
         view=self.menuBar().addMenu("View")
         self._action(view,"Hide selected",lambda:self.set_selection_hidden(True),"Ctrl+H")
-        self._action(view,"Show selected",lambda:self.set_selection_hidden(False),"Ctrl+S")
+        self._action(view,"Show selected",lambda:self.set_selection_hidden(False),"Ctrl+Shift+H")
         self._action(view,"Show all",self.show_all_items)
         self.canvas_action_menu=self._action(view,"Actions on canvas right-click",lambda:None)
         self.canvas_action_menu.setCheckable(True);self.canvas_action_menu.setChecked(True)
@@ -351,6 +473,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         for name in ["iso","top","front","side"]:
             self._action(view,name.capitalize(),lambda name=name:self.viewport.set_view(name))
         view.addSeparator()
+        from .theme import is_dark, set_dark
+        dark_mode=self._action(view,"Dark mode",lambda:set_dark(self,dark_mode.isChecked()),"Ctrl+Shift+D")
+        dark_mode.setCheckable(True);dark_mode.setChecked(is_dark());self._dark_mode_action=dark_mode
         for dock in self.findChildren(QDockWidget):view.addAction(dock.toggleViewAction())
         self._action(view,"Reset workspace layout",self.reset_workspace_layout)
         analysis=self.menuBar().addMenu("Analysis")
@@ -371,21 +496,64 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action=self._action(examples,"Floating barge section — 15 m with bulkhead openings…",lambda:self.open_barge_example("large"))
         action.setToolTip("Three times the length: two bulkheads with three access openings each, a flat bar FB 120×10 along every opening edge, same bending load")
         action.setStatusTip(action.toolTip())
+        action=self._action(examples,"Drawing barge — 60 m structural example…",lambda:self.open_barge_example("drawing60"))
+        action.setToolTip("60 m hull with centreline and transverse bulkheads, framed end structures to 6 m, and an illustrative linear-static load")
+        action.setStatusTip(action.toolTip())
         help_menu=self.menuBar().addMenu("Help")
         action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)
         action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
         action.setStatusTip(action.toolTip())
+        for action in self._actions.values():
+            if not action.shortcut().isEmpty() and not action.toolTip().endswith(")"):
+                action.setToolTip(f"{action.text()} ({action.shortcut().toString(QKeySequence.NativeText)})")
         toolbar=self.addToolBar("Workbench");toolbar.setObjectName("Workbench")
-        toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toolbar.setIconSize(QSize(20,20));toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
         icons={"New":QStyle.SP_FileIcon,"Open":QStyle.SP_DirOpenIcon,"Save":QStyle.SP_DialogSaveButton,
             "Undo":QStyle.SP_ArrowBack,"Redo":QStyle.SP_ArrowForward,"Fit":QStyle.SP_TitleBarMaxButton,
             "Generate mesh":QStyle.SP_FileDialogDetailedView,"Solve":QStyle.SP_MediaPlay}
-        for name in ["New","Open","Save","Undo","Redo","Fit","Generate mesh","Solve"]:
-            if name in {"Undo","Fit","Generate mesh"}:toolbar.addSeparator()
-            action=self._actions[name];action.setIcon(self.style().standardIcon(icons[name]));action.setToolTip(name)
-            toolbar.addAction(action)
+        for name in icons:self._actions[name].setIcon(self.style().standardIcon(icons[name]))
+        for name in ["New","Open","Save","Undo","Redo"]:
+            if name=="Undo":toolbar.addSeparator()
+            toolbar.addAction(self._actions[name])
+        toolbar.addSeparator()
+        for name in ["Generate mesh","Solve"]:
+            toolbar.addAction(self._actions[name])
+            toolbar.widgetForAction(self._actions[name]).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toolbar.widgetForAction(self._actions["Solve"]).setObjectName("PrimaryToolButton")
+        from .navigation import navigation_icon
+        workspaces=self.addToolBar("Workspaces");workspaces.setObjectName("Workspaces")
+        workspaces.setIconSize(QSize(22,22));workspaces.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        workspace_menu=self.menuBar().insertMenu(self.menuBar().actions()[-1],QMenu("Workspace",self)).menu()
+        self.workspace_actions={};self.workspace_action_group=QActionGroup(self)
+        for index,name in enumerate(self.panels):
+            if name in self.WORKSPACE_GROUP_STARTS:workspaces.addSeparator();workspace_menu.addSeparator()
+            action=QAction(navigation_icon(name),name.replace("&","&&"),self);action.setCheckable(True)
+            action.setChecked(index==self.details.currentIndex())
+            if index<9:action.setShortcut(f"Ctrl+{index+1}")
+            shortcut=f" ({action.shortcut().toString(QKeySequence.NativeText)})" if index<9 else ""
+            action.setToolTip(f"{name}{shortcut}: {self.WORKSPACE_SUMMARIES.get(name,'')}".rstrip(": "))
+            action.setStatusTip(self.WORKSPACE_SUMMARIES.get(name,""))
+            action.triggered.connect(lambda checked=False,index=index:self._select_workspace(index))
+            self.workspace_action_group.addAction(action);workspaces.addAction(action);workspace_menu.addAction(action)
+            button=workspaces.widgetForAction(action);button.setMinimumWidth(64);button.setAccessibleName(name+" workspace")
+            self.workspace_actions[name]=action
+        from PySide6.QtWidgets import QWidget, QSizePolicy
+        spacer=QWidget();spacer.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred);workspaces.addWidget(spacer)
+        from .navigation import navigation_icon as _icon
+        dark_toggle=QAction(self);self._dark_toggle=dark_toggle
+        def sync_dark_toggle(*_):
+            dark=self._dark_mode_action.isChecked()
+            dark_toggle.setText("Light mode" if dark else "Dark mode");dark_toggle.setIcon(_icon("theme_light" if dark else "theme_dark"))
+            dark_toggle.setToolTip(("Switch to light appearance" if dark else "Switch to dark appearance")+" (Ctrl+Shift+D)")
+        dark_toggle.triggered.connect(lambda checked=False:self._dark_mode_action.trigger())
+        self._dark_mode_action.toggled.connect(sync_dark_toggle);sync_dark_toggle()
+        workspaces.addAction(dark_toggle)
+        dark_button=workspaces.widgetForAction(dark_toggle);dark_button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        dark_button.setObjectName("DarkModeButton");dark_button.setAccessibleName("Dark mode toggle");dark_button.setMinimumWidth(64)
+        self.details.currentChanged.connect(self._sync_workspace_icons)
         self.addToolBarBreak()
         toolbar=self.addToolBar("Selection and renderer");toolbar.setObjectName("Selection and renderer")
+        heading=QLabel("Select");heading.setObjectName("ToolbarLabel");toolbar.addWidget(heading)
         self.quick_selection_actions={}
         self.quick_selection_group=QActionGroup(self);self.quick_selection_group.setExclusive(False)
         for label,mode in (("Point","vertex"),("Line","edge"),("Face","face")):
@@ -394,55 +562,129 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             action.triggered.connect(lambda checked=False,mode=mode:self._quick_select(mode))
             self.quick_selection_group.addAction(action);toolbar.addAction(action)
             self.quick_selection_actions[mode]=action
+        self.plane_menu=QMenu(self)
+        self.plane_menu.aboutToShow.connect(self._refresh_plane_menu)
+        plane_action=QAction("Plane",self)
+        plane_action.setToolTip("Select a construction plane to display and use for sketching, or create a new plane.")
+        plane_action.setMenu(self.plane_menu)
+        toolbar.addAction(plane_action)
+        toolbar.widgetForAction(plane_action).setPopupMode(QToolButton.InstantPopup)
+        self.quick_selection_actions["plane"]=plane_action
         toolbar.addSeparator()
-        self.selection_mode=QComboBox();self.selection_mode.addItems(["vertex","edge","face","node","element"])
-        self.selection_mode.currentTextChanged.connect(self.selection.set_mode);toolbar.addWidget(self.selection_mode)
-        self.selection_tool=QComboBox();self.selection_tool.addItems(["box","single","lasso"])
-        self.selection_depth=QComboBox();self.selection_depth.addItems(["visible","through"])
-        self.selection_operation=QComboBox();self.selection_operation.addItems(["replace","add","remove","toggle"])
-        for control in (self.selection_tool,self.selection_depth,self.selection_operation):
-            control.currentTextChanged.connect(self._selection_policy);toolbar.addWidget(control)
-        for control,label in ((self.selection_mode,"Entity type"),(self.selection_tool,"Selection tool"),
-                              (self.selection_depth,"Selection depth"),(self.selection_operation,"Selection operation")):
-            control.setToolTip(label);control.setAccessibleName(label)
-        self.renderer=QComboBox();self.renderer.addItems(["auto","gpu","software"]);self.renderer.setCurrentText(self._viewer_backend)
-        self.renderer.currentTextChanged.connect(lambda backend:self.guarded(lambda:self.switch_viewer_backend(backend))());toolbar.addWidget(self.renderer)
-        self.renderer.setToolTip("Viewport renderer");self.renderer.setAccessibleName("Viewport renderer")
-        from .navigation import navigation_icon
+        from .widgets import ValueCombo
+        self.selection_mode=ValueCombo((("vertex","Points"),("edge","Lines"),("face","Faces"),
+                                        ("node","Mesh nodes"),("element","Mesh elements")))
+        self.selection_mode.currentIndexChanged.connect(lambda _index:self.selection.set_mode(self.selection_mode.value()))
+        self.selection_tool=ValueCombo((("box","Box"),("single","Click"),("lasso","Lasso")))
+        self.selection_depth=ValueCombo((("visible","Visible only"),("through","See-through")))
+        self.selection_operation=ValueCombo((("replace","Replace"),("add","Add"),("remove","Remove"),("toggle","Toggle")))
+        for control,label,tip in ((self.selection_mode,"Pick","What a click or box picks"),
+                                  (self.selection_tool,"Tool","Box drag, single click or freehand lasso"),
+                                  (self.selection_depth,"Depth","Pick only visible items or everything under the cursor"),
+                                  (self.selection_operation,"Mode","How a new pick combines with the current selection")):
+            if control is not self.selection_mode:
+                control.currentIndexChanged.connect(self._selection_policy)
+            caption=QLabel(label);caption.setObjectName("ToolbarCaption");caption.setBuddy(control)
+            toolbar.addWidget(caption);toolbar.addWidget(control)
+            control.setToolTip(tip);control.setAccessibleName({"Pick":"Entity type","Tool":"Selection tool",
+                "Depth":"Selection depth","Mode":"Selection operation"}[label])
         toolbar.addSeparator()
-        self.workspace_actions={};self.workspace_action_group=QActionGroup(self)
-        for index,name in enumerate(self.panels):
-            action=QAction(navigation_icon(name),name,self);action.setCheckable(True)
-            action.setChecked(index==self.details.currentIndex());action.setToolTip(name+" workspace")
-            action.triggered.connect(lambda checked=False,index=index:self._select_workspace(index))
-            self.workspace_action_group.addAction(action);toolbar.addAction(action)
-            button=toolbar.widgetForAction(action);button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-            button.setIconSize(QSize(24,24));button.setFixedSize(36,36);button.setAccessibleName(name+" workspace")
-            self.workspace_actions[name]=action
-        self.details.currentChanged.connect(self._sync_workspace_icons)
+        for name in ["Fit","Iso","Top","Front","Side"]:
+            toolbar.addAction(self._actions[name])
+        toolbar.widgetForAction(self._actions["Fit"]).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._actions["Fit"].setToolTip("Fit the model in the view")
+        for name in ["Iso","Top","Front","Side"]:self._actions[name].setToolTip(f"{name} view")
+        spacer2=QWidget();spacer2.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred);toolbar.addWidget(spacer2)
+        self._build_view_mode_buttons(toolbar)
+        self.renderer=ValueCombo((("auto","Automatic"),("gpu","GPU"),("software","Software")))
+        self.renderer.set_value(self._viewer_backend)
+        self.renderer.currentIndexChanged.connect(lambda _index:self.guarded(lambda:self.switch_viewer_backend(self.renderer.value()))())
+        self.renderer.setToolTip("Viewport renderer. Automatic uses the GPU when available.");self.renderer.setAccessibleName("Viewport renderer")
+        renderer_box=QWidget();renderer_layout=QHBoxLayout(renderer_box);renderer_layout.setContentsMargins(0,0,6,0);renderer_layout.setSpacing(4)
+        caption=QLabel("Renderer");caption.setObjectName("StatusCaption");renderer_layout.addWidget(caption);renderer_layout.addWidget(self.renderer)
+        self._footer_statusbar=super().statusBar()
+        self._footer_statusbar.addPermanentWidget(renderer_box)
+        self._footer_statusbar.showMessage("Ready")
+        self._dock_footer=_DockFooter(self,self._footer_statusbar)
 
     def _select_workspace(self,index):
         self.details.setCurrentIndex(index)
+        self._workspace_changed(index)
         self._workspace_docks[1].show();self._workspace_docks[1].raise_()
+
+    def _update_workspace_heading(self,index):
+        name=self.details.tabText(index)
+        self.workspace_title.setText(name)
+        self.workspace_summary.setText(self.WORKSPACE_SUMMARIES.get(name,""))
+
+    def _workspace_changed(self,index):
+        if self.details.tabText(index) in {"Geometry", "Construction", "Generators"}:
+            self._begin_modelling()
+
+    def _begin_modelling(self, *_):
+        # Imported mesh-only documents have no generating geometry to return to.
+        if self.imported is not None:
+            return
+        if self.mesh is None and self._inspection_mesh is None and self._view_mode not in {"mesh", "inspection_mesh", "results"}:
+            return
+        self._invalidate_downstream()
+        self.selection.set_mode(getattr(self, "_geometry_selection_mode", "face"))
 
     def _sync_workspace_icons(self,index):
         for position,action in enumerate(self.workspace_actions.values()):action.setChecked(position==index)
         if self.details.tabText(index)=="Results":self.show_result_browser()
 
     def _selection_policy(self,*_):
-        self.viewport.configure_selection(tool=self.selection_tool.currentText(),
-            depth=self.selection_depth.currentText(),operation=self.selection_operation.currentText())
+        self.viewport.configure_selection(tool=self.selection_tool.value(),
+            depth=self.selection_depth.value(),operation=self.selection_operation.value())
 
     def _quick_select(self,mode):
         self.viewport.dismiss_feature_highlight()
         self.selection.set_mode(mode)
         self._sync_selection_controls()
 
+    def _refresh_plane_menu(self):
+        self.plane_menu.clear()
+        panel=self.panels["Construction"]
+        current=self.session.active_workplane.coordinate_system_id
+        for identifier,system in panel.coordinate_systems().items():
+            label="XY (Global)" if identifier=="global" else system.name
+            action=self.plane_menu.addAction(label)
+            action.setData(identifier);action.setCheckable(True);action.setChecked(identifier==current)
+            action.setEnabled(not self.viewport.construction_active)
+            action.triggered.connect(lambda checked=False,identifier=identifier:self.guarded(lambda:self._choose_plane(identifier))())
+        self.plane_menu.addSeparator()
+        action=self.plane_menu.addAction("Add construction plane…")
+        action.setEnabled(not self.viewport.construction_active and not self.session.read_only)
+        action.triggered.connect(self._open_plane_construction)
+
+    def _choose_plane(self,identifier):
+        if self.viewport.construction_active:raise ValueError("Finish or cancel the current construction first")
+        panel=self.panels["Construction"]
+        system=panel.coordinate_systems()[identifier]
+        self._begin_modelling()
+        panel.select_plane(system)
+        self.notebook.select("Construction")
+        self.set_status(f"Selected plane {system.name}. Enter starts a sketch on this plane.")
+
+    def cut_plate_with_sketch(self, sketch_feature_id=None):
+        from .sketch_cut import cut_plate_with_sketch
+        return cut_plate_with_sketch(self, sketch_feature_id)
+
+    def _open_plane_construction(self):
+        self.notebook.select("Geometry")
+        panel=self.panels["Geometry"]
+        panel.choice.setCurrentIndex(panel.choice.findData("AddConstructionPlane"))
+        panel.fields["name"][0].setFocus()
+
     def _sync_selection_controls(self):
-        self.selection_mode.blockSignals(True)
-        self.selection_mode.setCurrentText(self.selection.mode)
-        self.selection_mode.blockSignals(False)
-        for mode,action in self.quick_selection_actions.items():action.setChecked(mode==self.selection.mode)
+        index=self.selection_mode.findData(self.selection.mode)
+        if index>=0:
+            self.selection_mode.blockSignals(True)
+            self.selection_mode.setCurrentIndex(index)
+            self.selection_mode.blockSignals(False)
+        for mode,action in self.quick_selection_actions.items():
+            if action.isCheckable():action.setChecked(mode==self.selection.mode)
 
     def _set_show_attributes(self,visible):
         self._show_attributes.set(bool(visible))
@@ -453,6 +695,51 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if self._view_mode=="results" and self.panels["Results"].use_retained() and self.active_job_id in self.result_datasets:
             self.panels["Results"].show_results()
         else:super().refresh_views()
+
+    VIEW_MODES=(("Model","geometry",("geometry","mesh-layout-preview"),"mode_model","Show the geometry model"),
+                ("Mesh","mesh",("mesh","inspection_mesh"),"mode_mesh","Show the mesh"),
+                ("Results","results",("results",),"mode_results","Show solved results"))
+
+    def _build_view_mode_buttons(self,toolbar):
+        from .navigation import navigation_icon
+        self._view_mode_actions={};group=QActionGroup(self);group.setExclusive(True)
+        callbacks={"geometry":lambda:self.show_geometry(),"mesh":lambda:self.show_mesh(),
+                   "results":lambda:self.panels["Results"].show_results()}
+        for label,key,_modes,icon,tip in self.VIEW_MODES:
+            action=QAction(navigation_icon(icon),label,self);action.setCheckable(True);action.setToolTip(tip)
+            action.triggered.connect(lambda checked=False,key=key:(self.guarded(callbacks[key])(),self._sync_view_mode_buttons()))
+            group.addAction(action);toolbar.addAction(action);self._view_mode_actions[key]=action
+            toolbar.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            toolbar.widgetForAction(action).setAccessibleName(f"{label} visualization mode")
+        self._view_mode_timer=QTimer(self);self._view_mode_timer.setInterval(250)
+        self._view_mode_timer.timeout.connect(self._sync_view_mode_buttons);self._view_mode_timer.start()
+        self._sync_view_mode_buttons()
+
+    def _sync_view_mode_buttons(self):
+        self._update_wordmark()
+        mode=getattr(self,"_view_mode",None)
+        for _label,key,modes,_icon,_tip in self.VIEW_MODES:
+            action=self._view_mode_actions.get(key)
+            if action is not None and action.isChecked()!=(mode in modes):action.setChecked(mode in modes)
+
+    def _update_wordmark(self):
+        if self.viewport.construction_active:
+            self._wordmark.set_active(False)
+            return
+        # startup only: once the model gains geometry (or a project is opened) the wordmark is gone for the session
+        if not getattr(self,"_wordmark_done",False):
+            try:empty=len(self.project.geometry.vertices)==0
+            except Exception:empty=False
+            try:
+                viewport=self.viewport
+                busy=(viewport.construction_active or getattr(viewport,"plate_draft",None) is not None
+                      or self.commands.can_undo)
+            except Exception:busy=False
+            empty=empty and not busy
+            self._wordmark_done=not empty
+            self._wordmark.set_active(empty)
+        elif self._wordmark.isVisibleTo(self):
+            self._wordmark.set_active(False)
 
     def refresh_all(self):
         if self._closing or self._refresh_suspended or self._refreshing:return
@@ -469,6 +756,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             self._actions["Undo"].setEnabled(self.commands.can_undo and not self.session.read_only)
             self._actions["Redo"].setEnabled(self.commands.can_redo and not self.session.read_only)
             self._update_window_title()
+            self._update_wordmark()
             self._last_refreshed_revision=revision
             self._refresh_pending=False
         finally:self._refreshing=False
@@ -531,13 +819,19 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def set_selection_hidden(self, hidden):
         refs=tuple(dict.fromkeys((*self.selection.ordered_items,*self.geometry_actions.references())))
-        if not refs:
+        planes={value[1] for index in self.tree.selectionModel().selectedRows()
+                if isinstance(value:=index.data(Qt.UserRole),(tuple,list)) and value[0]=="coordinate_systems"
+                and value[1]!="global" and self.project.coordinate_systems[value[1]].kind=="cartesian"}
+        if not refs and not planes:
             self.set_status("Select items in the canvas or model tree first.")
             return
         self.viewport.visibility.set_hidden(refs,hidden)
+        keys={("plane",identifier) for identifier in planes}
+        if hidden:self.viewport.visibility.hidden.update(keys)
+        else:self.viewport.visibility.hidden.difference_update(keys)
         self.viewport.refresh_visibility()
         self.tree.refresh_visibility()
-        self.set_status(f"{'Hidden' if hidden else 'Shown'} {len(refs)} selected items.")
+        self.set_status(f"{'Hidden' if hidden else 'Shown'} {len(refs)+len(planes)} selected items.")
 
     def show_all_items(self):
         self.viewport.visibility.hidden.clear()
@@ -546,24 +840,29 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.set_status("All items shown.")
 
     def _update_window_title(self):
-        self.setWindowTitle(f"{'*' if self.session.dirty else ''}{self.project.name} — ANYfem (Qt){' [read-only]' if self.session.read_only else ''}")
+        self.setWindowTitle(f"{'*' if self.session.dirty else ''}{self.project.name} — ANYfem{' [read-only]' if self.session.read_only else ''}")
 
     def open_barge_example(self,end_loading="line_loads"):
         from PySide6.QtWidgets import QMessageBox
         from ...application.examples import (BARGE_CONNECTION_DESCRIPTION, BARGE_DESCRIPTION, BARGE_LARGE_DESCRIPTION,
-            barge_seaway_description, floating_barge_large, floating_barge_seaway, floating_barge_section)
+            BARGE_DRAWING_60M_DESCRIPTION, barge_seaway_description, drawing_barge_60m,
+            floating_barge_large, floating_barge_seaway, floating_barge_section)
         large=end_loading=="large"
-        extra="" if large else barge_seaway_description() if end_loading=="seaway" else BARGE_CONNECTION_DESCRIPTION.format(kind=end_loading)
-        description=BARGE_LARGE_DESCRIPTION if large else BARGE_DESCRIPTION+("" if end_loading=="line_loads" else "\n\n"+extra)
+        drawing=end_loading=="drawing60"
+        extra="" if large or drawing else barge_seaway_description() if end_loading=="seaway" else BARGE_CONNECTION_DESCRIPTION.format(kind=end_loading)
+        description=(BARGE_DRAWING_60M_DESCRIPTION if drawing else BARGE_LARGE_DESCRIPTION if large
+                     else BARGE_DESCRIPTION+("" if end_loading=="line_loads" else "\n\n"+extra))
         answer=QMessageBox.question(self,"Floating barge section",description+"\n\nCreate this example as a new project?",
                                    QMessageBox.Ok|QMessageBox.Cancel,QMessageBox.Cancel)
         if answer!=QMessageBox.Ok or not self._confirm_discard():return
-        project=floating_barge_large() if large else floating_barge_seaway() if end_loading=="seaway" else floating_barge_section(end_loading)
+        project=(drawing_barge_60m() if drawing else floating_barge_large() if large
+                 else floating_barge_seaway() if end_loading=="seaway" else floating_barge_section(end_loading))
         self._set_project(project)
         self.session.dirty=True
         self.refresh_all()
         self.show_geometry(reset_view=True)
-        self.set_status("S355 barge in a seaway: 600 load cases over 60 s; generate mesh, then Batch linear static" if end_loading=="seaway"
+        self.set_status("60 m drawing barge: illustrative geometry and load; generate mesh, then solve linear static" if drawing
+                        else "S355 barge in a seaway: 600 load cases over 60 s; generate mesh, then Batch linear static" if end_loading=="seaway"
                         else "S355 barge, 15 m: bulkhead openings with FB 120×10 edges; fixed X=0; My at X=15; generate mesh (250 mm), then solve" if large
                         else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
         self._schedule_autosave()
@@ -618,7 +917,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         try:
             active=self.viewport.switch_backend(backend)
         except BaseException:
-            self.renderer.blockSignals(True);self.renderer.setCurrentText(self._viewer_backend);self.renderer.blockSignals(False)
+            self.renderer.blockSignals(True);self.renderer.set_value(self._viewer_backend);self.renderer.blockSignals(False)
             raise
         self._viewer_backend=backend
         self.set_status(f"Renderer: {active}"+(f" · {'; '.join(self.viewport.backend_diagnostics)}" if self.viewport.backend_diagnostics else ""))

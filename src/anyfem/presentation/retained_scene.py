@@ -108,6 +108,8 @@ def scene_key(viewport, scene):
     # data. Rebuild those overlays normally. GPU result fields have their own
     # retained scalar/appearance update contract and must not enter this cache.
     if (scene.result_field is not None or viewport.construction_active
+            or getattr(viewport, "_plane_preview", None) is not None
+            or getattr(viewport, "_reference_plane_ids", ())
             or getattr(viewport, "plate_draft", None) is not None
             or not hasattr(viewport.canvas, "preselected_key")
             or not callable(getattr(viewport.canvas, "add_mesh_arrays", None))):

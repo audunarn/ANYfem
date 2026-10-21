@@ -51,6 +51,14 @@ def test_zero_weight_master_does_not_block_implied_clamp():
     assert added[0].node_ids == [1]
 
 
+def test_roundoff_weight_master_does_not_block_implied_clamp():
+    project,mesh,model,added = fixture(fixed)
+    mesh.couplings[1].plate_nodes = (1,3)
+    mesh.couplings[1].weights = (1.,8.88e-16)
+    _add_supports(project,mesh,model)
+    assert added[0].node_ids == [1]
+
+
 def test_local_full_zero_clamp_does_not_establish_implication():
     project,mesh,_,_ = fixture(fixed)
     from dataclasses import replace

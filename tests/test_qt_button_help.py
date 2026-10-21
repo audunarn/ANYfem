@@ -64,9 +64,9 @@ def test_hover_help_shows_description_and_apply_follows_operation(window,qapp):
     panel.choice.setCurrentText('Add point'); qapp.processEvents()
     help_event(qapp,panel.apply)
     assert 'Add point' in QToolTip.text() and 'undoable model edit' in QToolTip.text()
-    panel.choice.setCurrentText('Add line'); qapp.processEvents()
+    panel.choice.setCurrentText('Add line / beam axis'); qapp.processEvents()
     help_event(qapp,panel.apply)
-    assert 'Add line' in QToolTip.text() and 'Add point' not in panel.apply.toolTip()
+    assert 'Add line / beam axis' in QToolTip.text() and 'Add point' not in panel.apply.toolTip()
 
 
 def test_option_and_action_icons_describe_existing_controls(window,qapp):

@@ -95,8 +95,8 @@ def test_schema6_visible_qt_pick_highlight_and_reopen(name, qapp, tmp_path, monk
             assert len(colors) > 10, "first visible frame must contain rendered geometry"
             for kind, items in (("edge", window.viewport._scene.lines),
                                 ("face", window.viewport._scene.faces)):
-                window.selection_mode.setCurrentText(kind)
-                window.selection_tool.setCurrentText("single")
+                window.selection_mode.set_value(kind)
+                window.selection_tool.set_value("single")
                 settle(qapp)
                 joints = set(MANIFEST[name]["joint_edge_ids"])
                 picked = pick_rendered_entity(window, qapp, kind, items, joints)

@@ -110,7 +110,7 @@ def test_click_order_and_enter_cancel(window, qapp):
     assert window.viewport.plate_draft is None
 
 
-def test_existing_vertex_click_and_doubleclick_one_command(window, qapp, tmp_path):
+def test_existing_vertex_click_and_close_one_command(window, qapp, tmp_path):
     ids, refs = vertices(window)
     window.viewport.set_view("top");window.viewport.fit();qapp.processEvents()
     draft = window.geometry_actions.start_plate()
@@ -126,7 +126,7 @@ def test_existing_vertex_click_and_doubleclick_one_command(window, qapp, tmp_pat
     window.grab().save(str(Path(__file__).resolve().parents[1]/"reports/qt/plate-construction/live-draft.png"))
     draft.grab().save(str(Path(__file__).resolve().parents[1]/"reports/qt/plate-construction/live-order-review.png"))
     QTest.mouseClick(surface,Qt.LeftButton,pos=position(ids[3]));qapp.processEvents()
-    QTest.mouseDClick(surface,Qt.LeftButton,pos=position(ids[3]));qapp.processEvents()
+    QTest.mouseClick(surface,Qt.LeftButton,pos=position(ids[0]));qapp.processEvents()
     assert len(window.project.geometry.faces) == 1
     window.undo()
     assert not window.project.geometry.faces

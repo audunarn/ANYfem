@@ -52,7 +52,11 @@ def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path):
     project.assign_plate(geometry.add_face(geometry.add_polyline(points, close=True)), "plate")
     saved = {**sg1_quad_options().to_dict(), "max_local_optimizations": 32}
     project.set_native_mesh_settings(NativeMeshSettings.create(
-        0.25, backend="quad_first", parameters={"quad_options": saved},
+        0.25, backend="quad_first", parameters={
+            "quad_options": saved,
+            "quad_t3_minimum_angle": 12.0,
+            "quad_t3_angle_action": "warning",
+        },
     ))
     path = save_project(project, tmp_path / "quad_options.anyfem")
 
@@ -63,3 +67,8 @@ def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path):
     values = window.panels["Mesh"].quad_controls.values()
     assert values["max_local_optimizations"] == 32
     assert values["orientation"] == saved["orientation"]
+    assert window.panels["Mesh"].t3_minimum_angle.text() == "12.0"
+    assert window.panels["Mesh"].t3_angle_action.currentText() == "warning"
+    submitted = window.panels["Mesh"].settings()
+    assert submitted["quad_t3_minimum_angle"] == 12.0
+    assert submitted["quad_t3_angle_action"] == "warning"

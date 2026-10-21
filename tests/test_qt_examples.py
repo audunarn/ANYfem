@@ -73,3 +73,16 @@ def test_examples_menu_creates_large_barge_with_bulkhead_openings(window, qapp, 
     assert len(window.project.geometry.faces) == 6
     assert sum(len(face.holes) for face in window.project.geometry.faces.values()) == 6
     assert len(window.project.edge_sections) == 436
+
+
+def test_examples_menu_creates_drawing_barge_without_source_documents(window, qapp, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    action = window._actions["Drawing barge — 60 m structural example…"]
+    assert action.toolTip()
+    action.trigger()
+    qapp.processEvents()
+    assert len(window.project.geometry.faces) == 18
+    assert len(window.project.edge_sections) > 1000
+    assert window.viewport._scene.faces
+    assert window.session.dirty

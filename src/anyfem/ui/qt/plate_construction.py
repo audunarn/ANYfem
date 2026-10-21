@@ -1,7 +1,9 @@
 """Non-mutating ordered existing-vertex draft; geometry truth stays with its owner."""
+from .theme import overlay
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton
 from ... import commands
+from ..numeric_input import parse_numeric_sequence
 
 
 class PlateDraft(QDialog):
@@ -14,18 +16,20 @@ class PlateDraft(QDialog):
         self.setWindowTitle("Add plate — boundary order")
         self.setObjectName("PlateBoundaryDraft")
         layout = QVBoxLayout(self)
-        guide = QLabel("Review boundary order; box/lasso selection does not establish polygon order. "
-                       "Edit comma-separated vertex IDs, or click existing vertices in the viewport. "
-                       "Enter or double-click applies; Escape cancels. Material and thickness are assigned separately.")
+        guide = QLabel("Click existing points in boundary order, then click the first point again to finish. "
+                       "Use Remove last point or edit the vertex IDs to correct the order. "
+                       "Enter or Apply plate also finishes; Escape cancels. Material and thickness are assigned separately.")
         guide.setWordWrap(True);layout.addWidget(guide)
         self.order = QLineEdit(", ".join(map(str, self.ids)))
         self.order.setObjectName("PlateVertexOrder");layout.addWidget(self.order)
         self.summary = QLabel();layout.addWidget(self.summary)
-        self.feedback = QLabel();self.feedback.setWordWrap(True);layout.addWidget(self.feedback)
+        self.feedback = QLabel();self.feedback.setWordWrap(True);self.feedback.setStyleSheet(f"color: {overlay('error')};");layout.addWidget(self.feedback)
         self.order.textEdited.connect(self.edit_order)
-        for label, callback in (("Apply plate", self.commit), ("Cancel", self.reject)):
+        for label, callback in (("Remove last point", self.remove_last), ("Apply plate", self.commit), ("Cancel", self.reject)):
             button = QPushButton(label)
-            button.setToolTip("Validate this boundary with ANYgeometry and create one undoable geometry face." if label == "Apply plate" else "Discard the uncommitted boundary preview.")
+            if label == "Apply plate":button.setToolTip("Validate this boundary and create one undoable geometry face.")
+            elif label == "Remove last point":button.setToolTip("Remove the most recently selected point from the preview.")
+            else:button.setToolTip("Discard the uncommitted boundary preview.")
             button.clicked.connect(callback);layout.addWidget(button)
         self.finished.connect(self.cleanup)
         self.update_preview()
@@ -37,7 +41,7 @@ class PlateDraft(QDialog):
 
     def edit_order(self, text):
         try:
-            ids = [int(value.strip()) for value in text.split(",") if value.strip()]
+            ids = list(parse_numeric_sequence(text, int))
             self.check_binding()
             for identifier in ids:self.actions.app.project.geometry.entity_ref("vertex", identifier)
             self.ids = ids
@@ -51,11 +55,24 @@ class PlateDraft(QDialog):
     def add_vertex(self, ref):
         try:self.check_binding()
         except (ValueError, PermissionError) as error:
-            self.feedback.setText(str(error));return
+            self.warn(error);return
         if ref is None or ref.kind != "vertex":return
-        if self.ids and self.ids[-1] == ref.id:return
+        if self.ids and self.ids[0] == ref.id:
+            self.commit();return
+        if ref.id in self.ids:
+            self.warn("That point is already in the boundary. Remove points or edit the order to correct it.");return
         self.ids.append(ref.id)
+        self.feedback.clear()
         self.order.setText(", ".join(map(str, self.ids)));self.update_preview()
+
+    def remove_last(self):
+        if not self.ids:return
+        self.ids.pop()
+        self.order.setText(", ".join(map(str, self.ids)))
+        self.feedback.clear();self.update_preview()
+
+    def warn(self, error):
+        self.feedback.setText(f"Warning: {error}")
 
     def update_preview(self):
         self.summary.setText("Boundary preview: " + " → ".join(f"{i+1}: vertex {identifier}" for i, identifier in enumerate(self.ids)))
@@ -68,7 +85,7 @@ class PlateDraft(QDialog):
         try:
             self.check_binding()
             # Reparse even programmatic field edits; never apply a stale preview.
-            ids = [int(value.strip()) for value in self.order.text().split(",") if value.strip()]
+            ids = list(parse_numeric_sequence(self.order.text(), int))
             if len(ids) < 3:raise ValueError("A plate needs at least three boundary vertices.")
             if len(set(ids)) != len(ids):raise ValueError("Each boundary vertex must occur once; omit the repeated closing vertex.")
             geometry = self.actions.app.project.geometry.clone()
@@ -79,7 +96,7 @@ class PlateDraft(QDialog):
             if errors:raise ValueError("Invalid plate boundary: " + "; ".join(errors))
             self.actions.app.run(commands.AddPlate(ids))
         except (ValueError, RuntimeError, KeyError, PermissionError) as error:
-            self.feedback.setText(str(error));return
+            self.warn(error);return
         self.finished_command = True
         self.accept()
 

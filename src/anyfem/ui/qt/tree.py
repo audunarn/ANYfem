@@ -1,5 +1,6 @@
 """Qt model/view representation of project records and persistent entity references."""
 from PySide6.QtCore import Qt,QTimer
+from .theme import overlay as _overlay
 from PySide6.QtGui import QStandardItem, QStandardItemModel, QColor, QBrush
 from PySide6.QtWidgets import QTreeView,QHeaderView,QMenu,QLineEdit,QVBoxLayout,QWidget,QPushButton
 from anygeometry import feature_entity_owners
@@ -26,9 +27,10 @@ class QtModelTree(QTreeView):
         self._model=QStandardItemModel()
         self._model.setHorizontalHeaderLabels(["Model", "State"])
         self.setModel(self._model)
+        self.header().setStretchLastSection(False)
         self.header().setSectionResizeMode(0,QHeaderView.Stretch)
-        self.header().setSectionResizeMode(1,QHeaderView.Interactive)
-        self.header().resizeSection(1,55)
+        self.header().setSectionResizeMode(1,QHeaderView.ResizeToContents)
+        self.setUniformRowHeights(True);self.setAnimated(True)
         self.setSelectionMode(self.SelectionMode.ExtendedSelection)
         self.selectionModel().selectionChanged.connect(self._picked)
         self.doubleClicked.connect(self._activated)
@@ -93,7 +95,7 @@ class QtModelTree(QTreeView):
             self.search(pending[1])
 
     def panel(self):
-        panel=QWidget(self.app);layout=QVBoxLayout(panel)
+        panel=QWidget(self.app);layout=QVBoxLayout(panel);layout.setContentsMargins(8,8,8,8);layout.setSpacing(6)
         search=QLineEdit(panel);search.setPlaceholderText("Find topology by entity ID")
         search.textEdited.connect(self.schedule_search)
         self.search_edit=search
@@ -121,6 +123,16 @@ class QtModelTree(QTreeView):
                                       for identifier in bounded_entity_ids(geometry.members,self.query)])
             for label,kind,items in [("Points","vertex",displayed_geometry_point_ids(geometry)),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
                 self._sync_group(label,[(identifier,f"{kind.capitalize()} {identifier}","",geometry.entity_ref(kind,identifier)) for identifier in bounded_unowned_entity_ids(items,owned[kind],self.query)])
+            self._sync_group("Construction planes",[
+                (identifier,system.name,"",("coordinate_systems",identifier))
+                for identifier,system in self.project.coordinate_systems.items()
+                if identifier!="global" and system.kind=="cartesian"
+            ])
+            self._sync_group("Sketches",[
+                (record.feature_id,record.name,str(getattr(record.state,"value",record.state)),("geometry",record.feature_id))
+                for record in geometry.features.records
+                if record.kind in {"geometry.sketch.plane","geometry.sketch.extrude"}
+            ])
             sets=[region for region in self.project.regions if is_geometry_set(region)]
             contents={}
             unresolved=set()
@@ -261,6 +273,10 @@ class QtModelTree(QTreeView):
                         try:refs=self.collection_references(value)
                         except (ValueError,KeyError):pass
                 keys=frozenset(self.app.viewport.visibility.key(ref) for ref in refs)
+                if isinstance(value,(tuple,list)) and value[0]=="coordinate_systems":
+                    system=self.project.coordinate_systems.get(value[1])
+                    if system is not None and system.kind=="cartesian" and value[1]!="global":
+                        keys=frozenset({("plane",value[1])})
                 if keys or item.toolTip():
                     token=id(item)
                     self._visibility_rows[token]=(item,keys)
@@ -281,7 +297,7 @@ class QtModelTree(QTreeView):
             count=len(keys & hidden)
             fully_hidden=bool(keys) and count==len(keys)
             tooltip="Hidden in viewport" if fully_hidden else "Partly hidden in viewport" if count else ""
-            brush=QBrush(QColor("#8794a6")) if fully_hidden else QBrush()
+            brush=QBrush(QColor(_overlay("muted"))) if fully_hidden else QBrush()
             if item.foreground()!=brush:item.setForeground(brush)
             if item.toolTip()!=tooltip:item.setToolTip(tooltip)
         self._hidden_keys=hidden
@@ -303,6 +319,7 @@ class QtModelTree(QTreeView):
                 badge=QStandardItem(state);badge.setEditable(False)
                 item.setData(data,Qt.UserRole);parent.appendRow([item,badge])
                 existing[key]=(item,badge)
+                if label in {"Construction planes","Sketches"}:self.expand(parent.index())
             else:
                 item,badge=pair
                 if item.text()!=text:item.setText(text)
@@ -313,6 +330,8 @@ class QtModelTree(QTreeView):
         if self._refreshing:
             return
         refs=[index.data(Qt.UserRole) for index in self.selectionModel().selectedRows()]
+        planes=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="coordinate_systems"
+                and ref[1] in self.project.coordinate_systems and self.project.coordinate_systems[ref[1]].kind=="cartesian"]
         features=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="geometry"]
         collections=[]
         for value in refs:
@@ -332,6 +351,13 @@ class QtModelTree(QTreeView):
             self.app.viewport.set_feature_highlight(features)
             self.app.viewport.set_collection_highlight(collections)
         finally:self._tree_driven=False
+        if (not self.app.viewport.construction_active and any(
+                self.project.geometry.features.get(identifier).kind in {"geometry.sketch.plane","geometry.sketch.extrude"}
+                for identifier in features)):
+            self.app._begin_modelling()
+            self.app.show_geometry()
+        if len(planes)==1:
+            self.app.guarded(lambda:self.app._choose_plane(planes[0]))()
 
     def _activated(self,index):
         value=index.data(Qt.UserRole)
@@ -370,6 +396,12 @@ class QtModelTree(QTreeView):
         if isinstance(value,(tuple,list)) and value[0]=="sets":
             menu.addAction("Rename set…",lambda:self.app.guarded(lambda:self.app.geometry_actions.rename_set(value[1]))())
         if all(key.startswith("feature:") for key in keys):
+            if len(keys) == 1:
+                identifier = int(keys[0].split(":", 1)[1])
+                record = self.project.geometry.features.get(identifier)
+                if record.kind in {"geometry.sketch.plane", "geometry.sketch.extrude"}:
+                    menu.addAction("Cut plate with sketch…", lambda checked=False, identifier=identifier:
+                                   self.app.guarded(lambda: self.app.cut_plate_with_sketch(identifier))())
             for label,action in [("Expose / collapse topology","explode"),("Suppress / resume","suppress"),("Rename","rename"),("Dependencies","dependencies")]:
                 menu.addAction(label,lambda checked=False,action=action:self.app.guarded(lambda:self.app._tree_action(action,keys))())
         menu.exec(self.viewport().mapToGlobal(position))
@@ -388,6 +420,8 @@ class QtModelTree(QTreeView):
             return self.app.geometry_actions.properties(self.beam_references(value[1]))
         if not isinstance(value,(tuple,list)):return
         attribute,key=value
+        if attribute=="coordinate_systems" and self.project.coordinate_systems[key].kind=="cartesian":
+            self.app._choose_plane(key);return
         if attribute=="sets":
             self.app.geometry_actions.properties(set_references(self.project,key));return
         if attribute=="geometry":

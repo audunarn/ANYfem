@@ -5,6 +5,9 @@ The source Field remains unchanged for probes and export.
 """
 import hashlib
 import math
+import struct
+from dataclasses import fields, is_dataclass, replace
+from uuid import UUID
 import numpy as np
 from ..ui.scene import _ramp_color as _REFERENCE_RAMP_COLOR, _blend as _REFERENCE_BLEND
 
@@ -15,11 +18,10 @@ _REFERENCE_ARRAY, _REFERENCE_CLIP = np.array, np.clip
 
 def _digest_value(digest, value):
     """Exact scene geometry/style bytes; never NumPy's abbreviated repr."""
-    from dataclasses import fields, is_dataclass
-    import struct
     if isinstance(value, np.ndarray):
         digest.update(b'array'+value.dtype.str.encode()+str(value.shape).encode())
         digest.update(np.ascontiguousarray(value).tobytes())
+    elif isinstance(value, UUID):digest.update(b'uuid:'+value.bytes)
     elif is_dataclass(value):
         digest.update(type(value).__qualname__.encode())
         for item in fields(value):
@@ -34,6 +36,24 @@ def _digest_value(digest, value):
     elif isinstance(value,(float,np.floating)):digest.update(struct.pack('!d',float(value)))
     elif isinstance(value,(str,bytes,int,np.integer,bool,type(None))):digest.update(type(value).__name__.encode()+b":"+repr(value).encode()+b";")
     else:raise TypeError(f'unsupported retained scene identity: {type(value).__name__}')
+
+
+def geometry_style_key(style):
+    """Only controls that change result geometry belong in its workflow key."""
+    return tuple((item.name, getattr(style,item.name)) for item in fields(style)
+                 if item.name not in APPEARANCE_FIELDS)
+
+
+APPEARANCE_FIELDS = frozenset({'background','render_mode','surface_opacity',
+    'edge_color','edge_width','show_legend','legend_font_size','legend_width',
+    'result_colormap','show_model_lines'})
+
+
+def snapshot_appearance_field(field):
+    """Freeze the displayed values, rather than cache a mutable field identity."""
+    from types import MappingProxyType
+    return replace(field, node_values=MappingProxyType(dict(field.node_values)),
+                   element_values=MappingProxyType(dict(field.element_values)))
 
 
 def element_id(owners):
@@ -102,22 +122,25 @@ def prepare(viewport, scene):
             group.append((np.asarray(polygon), element_id(owners), viewport._pick_binding(owners,patch.tag)))
     for line in scene.lines:
         eid = element_id(line.pick_owners)
-        if eid is None or (not viewport.visualization.show_model_lines and not line.annotation):
+        if eid is None or line.annotation:
             remaining.lines.append(line);continue
         group = groups.setdefault(("line",int(line.width),bool(line.draw_overlay)), [])
         binding = viewport._pick_binding(line.pick_owners,line.tag)
         points = np.asarray(line.points)
         for start,end in zip(points,points[1:]):group.append((np.asarray([start,end]),eid,binding))
-    batches = []
+    batches = []; edge_batches = []
     digest = hashlib.sha256()
     _digest_value(digest,viewport.visualization)
     for key, primitives in groups.items():
-        positions, indices, mappings, bindings = [], [], [], []
+        # Preserve original geometry dtype/shape/bytes before mesh conversion.
+        for points, eid, binding in primitives:_digest_value(digest, points)
+        positions, indices, mappings, bindings, edges = [], [], [], [], []
         ids = tuple(dict.fromkeys(eid for points,eid,binding in primitives))
         dense = {eid:i for i,eid in enumerate(ids)}
         for points,eid,binding in primitives:
             offset = len(positions);positions.extend(points)
             if key[0]=="face":
+                edges.extend((offset+i,offset+(i+1)%len(points)) for i in range(len(points)))
                 for index in range(1,len(points)-1):
                     indices.append((offset,offset+index,offset+index+1));mappings.append(dense[eid]);bindings.append(binding)
             else:indices.append((offset,offset+1));mappings.append(dense[eid]);bindings.append(binding)
@@ -125,14 +148,29 @@ def prepare(viewport, scene):
         indices = np.asarray(indices,dtype=np.uint32).reshape(-1,3 if key[0]=="face" else 2)
         mappings = np.asarray(mappings,dtype=np.uint32)
         values = np.asarray([scalar(eid) for eid in ids],dtype=np.float32)
-        _digest_value(digest,(key,ids,bindings));digest.update(positions.tobytes());digest.update(indices.tobytes())
-        options = dict(owners=PackedOwnerTable.from_owners(**{ "triangles" if key[0]=="face" else "lines":bindings}),scalar_range=scene.result_scalar_range)
+        owners = PackedOwnerTable.from_owners(**{ "triangles" if key[0]=="face" else "lines":bindings})
+        # Hash the complete deduplicated table, including document/key/priority
+        # columns and every primitive mapping, rather than recursively hashing
+        # the same binding once per triangulated primitive.
+        _digest_value(digest,(key,ids,owners,positions,indices,mappings))
+        # PickOwner.identity is application metadata outside the packed table.
+        # Preserve its previous conservative identity when supplied by a custom
+        # binding producer, including tuple/list owner sequences.
+        if any(getattr(owner, 'identity', None) is not None
+               for binding in bindings
+               for owner in getattr(binding, 'owners',
+                                    binding if isinstance(binding, (tuple, list)) else ())):
+            # Custom identity metadata may differ even for equal packed owner
+            # keys. Preserve every primitive/owner association in that case.
+            _digest_value(digest, bindings)
+        options = dict(owners=owners,scalar_range=scene.result_scalar_range)
         options["colormap"] = scene.result_colormap
         if key[0]=="face":
             # Shells represent surfaces, not closed solids. Their selected
             # result field must remain visible from either viewing direction.
             options.update(outline=key[1],opacity=key[2],lit=key[3],width=viewport.visualization.edge_width,cull_backface=False)
             mesh = MeshArrays(positions,indices,triangle_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values)
+            edge_batches.append(MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=edges))
         else:
             options.update(line_width=key[1],draw_overlay=key[2],layer=30)
             mesh = MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=indices,line_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values)
@@ -140,7 +178,7 @@ def prepare(viewport, scene):
     # Overlay/style changes require a redraw; component legends do not.
     saved_legend = remaining.legend;remaining.legend=None
     _digest_value(digest,remaining);remaining.legend=saved_legend
-    return digest.digest(),batches,remaining
+    return digest.digest(),batches,remaining,edge_batches
 
 
 def scalar_values(field, source_mesh, ids):
@@ -155,7 +193,7 @@ def scalar_values(field, source_mesh, ids):
     return np.asarray(rows,dtype=np.float32)
 
 
-def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI (m / Pa)', colormap=None, working_bytes=128*1024*1024):
+def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI (m / Pa)', colormap=None, working_bytes=128*1024*1024, include_scalars=True):
     """Worker-side scalar conversion and software fallback colours."""
     import sys
     from anypost.errors import WorkingSetError
@@ -203,7 +241,9 @@ def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI
             means[eid]=value
             cache_slots-=1
         return value
-    if per_element:
+    if not include_scalars:
+        scalars=()
+    elif per_element:
         scalars=tuple(scalar_values(field,retained[3],ids) for ids in retained[2])
     else:
         scalars=tuple(np.asarray([element_mean(eid,retained[3],gpu_means,gpu_connectivity) for eid in ids],dtype=np.float32) for ids in retained[2])
@@ -260,8 +300,14 @@ def cpu_color_bytes(scene,updates=None):
 
 
 def prepared_publication_bytes(field,scene,scalar_bytes):
+    import sys
     prepared=getattr(field,'_display_buffers',None)
-    return int(scalar_bytes)+cpu_color_bytes(scene,None if prepared is None else prepared[2])
+    # Frozen display maps share immutable scalar/key objects with the admitted
+    # source Field, but own dictionary tables. Admit their resident storage
+    # before viewport publication creates them, including small proxy overhead.
+    snapshot_bytes=sum(sys.getsizeof(mapping) if type(mapping) is dict else 64+80*len(mapping)
+                       for mapping in (field.node_values,field.element_values))+512
+    return int(scalar_bytes)+cpu_color_bytes(scene,None if prepared is None else prepared[2])+snapshot_bytes
 
 
 def discard_prepared_field(field):

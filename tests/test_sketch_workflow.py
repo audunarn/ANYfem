@@ -286,3 +286,12 @@ def test_separately_extruded_adjacent_plate_edges_have_acyclic_shell_mpcs():
     assert mesh.automatic_shell_connections == 0
     assert not mesh.couplings
     assert not [issue for issue in report.issues if issue.code == "CONSTRAINT003"]
+
+
+def test_edited_sketch_new_points_do_not_reuse_retired_ids():
+    from anygeometry import plane_sketch_plane
+    plane=plane_sketch_plane((0,0,0),(0,0,1),(1,0,0))
+    original=SketchDefinition(points={'p1':(0,0),'p3':(1,0)},path=('p1','p3'),closed=False)
+    task=FaceSketchTask(plane,0.01,original);task.choose_tool('line')
+    task.add(plane.world((2,0)))
+    assert task.point_keys[-1] not in {'p1','p2','p3'}
