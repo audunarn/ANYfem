@@ -67,7 +67,12 @@ class QtDialogPort:
 
 class QtClipboardPort:
     def copy_text(self, text):
-        QApplication.clipboard().setText(text)
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            raise RuntimeError("Qt clipboard is unavailable")
+        clipboard.setText(text)
+        if clipboard.text() != text:
+            raise RuntimeError("Qt clipboard did not retain the copied text")
 
 
 class QtStatusPort:

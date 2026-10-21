@@ -293,8 +293,31 @@ class NativeProjectMeshingSession:
             "mapped": "mapped",
             "native": "native",
             "quad_first": "native",
+            "smart_mapped": "smart_mapped",
         }[str(backend)]
-        if str(backend) == "quad_first":
+        quad_pipeline = str(backend) in ("quad_first", "smart_mapped")
+        automatic_selection = None
+        if (
+            strategy == "auto"
+            and parameters.get("quad_options") is None
+            and not self._already_structured(geometry, face_ids)
+        ):
+            # One shared owner eligibility call (same helper as Project);
+            # explicit native/quad-first/SmartMapped/mapped never reach here.
+            from .mesh_controls import select_smart_mapped_for_automatic
+
+            automatic_selection = select_smart_mapped_for_automatic(
+                geometry,
+                face_ids=face_ids,
+                target_size=target_size,
+                order=request.settings.element_order,
+                member_ids=member_ids,
+            )
+            if automatic_selection.eligible:
+                strategy = "smart_mapped"
+                quad_pipeline = True
+                parameters["layout_policy"] = "adaptive"
+        if quad_pipeline:
             from .quad_first import effective_quad_options
 
             quad_options = effective_quad_options(
@@ -308,9 +331,11 @@ class NativeProjectMeshingSession:
             for key, value in parameters.items()
             if key in {"recombine", "overlap_policy"}
         }
-        if str(backend) == "quad_first":
+        if quad_pipeline:
             supported["quad_options"] = quad_options
             supported["layout_policy"] = parameters.get("layout_policy", "existing")
+            supported["quad_t3_minimum_angle"] = parameters.get("quad_t3_minimum_angle", 15.0)
+            supported["quad_t3_angle_action"] = parameters.get("quad_t3_angle_action", "error")
         strict = request.certification_mode is CertificationMode.STRICT
         generated = generate_hybrid_mesh_result(
             geometry,
@@ -359,6 +384,13 @@ class NativeProjectMeshingSession:
             f"{preparation.created_count} declared connection(s), "
             f"working revision {preparation.working_revision}"
         )
+        if automatic_selection is not None:
+            record = automatic_selection.to_dict()
+            diagnostics.append(
+                f"automatic selection: {record['selected']} "
+                f"({record['reason']}); owner eligibility evaluated once in "
+                f"{record['selection_seconds']:.6f} s"
+            )
         diagnostics.extend(
             f"face {face_id}: {route}"
             for face_id, route in sorted(generated.strategy_by_face.items())
@@ -369,6 +401,15 @@ class NativeProjectMeshingSession:
             certified=bool(generated.certifiable),
             diagnostics=tuple(diagnostics),
         )
+
+    @staticmethod
+    def _already_structured(geometry: Any, face_ids: Iterable[int]) -> bool:
+        """Whether the component is already mappable (owner fast path/legacy)."""
+
+        # check_mappable permits holes (ok=True), so holes are excluded here.
+        from .mesh_controls import faces_are_untrimmed_mappable
+
+        return faces_are_untrimmed_mappable(geometry, face_ids)
 
     def request_remesh(
         self, components: EntityHandle | Iterable[EntityHandle] | None = None

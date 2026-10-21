@@ -38,6 +38,12 @@ __all__ = [
 ]
 
 
+# Explicit public strategies that share the quad-first pipeline.  The owner's
+# MeshingStrategy enum is not consulted for them, so validation, hashing and
+# reopen do not depend on which ANYmesher revision is installed.
+_QUAD_PIPELINE_STRATEGIES = ("quad_first", "smart_mapped")
+
+
 def clone_mesh_for_job(mesh: Any) -> Any:
     """Return a detached, solver-ready mesh through its public wire format.
 
@@ -91,6 +97,8 @@ class MeshSettings:
     structured_controls: StructuredMeshControls | None = None
     quad_options: object | None = None
     layout_policy: str = "existing"
+    quad_t3_minimum_angle: float = 15.0
+    quad_t3_angle_action: str = "error"
     automation: object | None = None
     # Execution-only: how much parallelism the *submission* asks for.  It is
     # deliberately excluded from ``input_hash`` (a serial and a parallel run of
@@ -121,29 +129,47 @@ class MeshSettings:
             raise TypeError(
                 "structured mesh controls must be StructuredMeshControls"
             )
-        quad_selected = str(self.strategy).strip().lower() == "quad_first"
+        quad_selected = str(self.strategy).strip().lower() in _QUAD_PIPELINE_STRATEGIES
+        if quad_selected or (self.quad_t3_minimum_angle != 15.0 or
+                             self.quad_t3_angle_action != "error"):
+            from anymesher.quad import validate_triangle_angle_rule
+
+            angle, action = validate_triangle_angle_rule(
+                self.quad_t3_minimum_angle, self.quad_t3_angle_action,
+            )
+            object.__setattr__(self, "quad_t3_minimum_angle", angle)
+            object.__setattr__(self, "quad_t3_angle_action", action)
+            if not quad_selected:
+                raise ValueError(
+                    "quad triangle angle controls require strategy='quad_first' or 'smart_mapped'"
+                )
         if quad_selected:
             from .quad_first import effective_quad_options
 
             object.__setattr__(self, "quad_options", effective_quad_options(self.quad_options))
         elif self.quad_options is not None:
-            raise ValueError("quad_options requires strategy='quad_first'")
+            raise ValueError("quad_options requires strategy='quad_first' or 'smart_mapped'")
         if self.layout_policy not in ("existing", "adaptive"):
             raise ValueError("layout_policy must be 'existing' or 'adaptive'")
         if self.layout_policy == "adaptive" and not quad_selected:
-            raise ValueError("adaptive layout requires strategy='quad_first'")
+            raise ValueError("adaptive layout requires strategy='quad_first' or 'smart_mapped'")
         from anymesher.hybrid import MeshingStrategy
         from anymesher.structured import StructurePreference
         from anymesher.structured import MeshQualityPolicy
 
         if self.strategy is not None:
             try:
+                token = str(self.strategy).strip().lower()
                 strategy = (
-                    "quad_first" if str(self.strategy).strip().lower() == "quad_first"
-                    else MeshingStrategy(str(self.strategy).strip().lower()).value
+                    token if token in _QUAD_PIPELINE_STRATEGIES
+                    else MeshingStrategy(token).value
                 )
             except ValueError as error:
-                choices = ", ".join(item.value for item in MeshingStrategy)
+                values = [item.value for item in MeshingStrategy]
+                choices = ", ".join(
+                    values + [item for item in _QUAD_PIPELINE_STRATEGIES
+                              if item not in values]
+                )
                 raise ValueError(
                     f"unknown meshing strategy {self.strategy!r}; expected one of {choices}"
                 ) from error
@@ -180,6 +206,8 @@ class MeshSettings:
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
         layout_policy: str = "existing",
+        quad_t3_minimum_angle: float = 15.0,
+        quad_t3_angle_action: str = "error",
         automation: object | None = None,
         execution_policy: object | None = None,
     ) -> "MeshSettings":
@@ -197,6 +225,8 @@ class MeshSettings:
             structured_controls=structured_controls,
             quad_options=quad_options,
             layout_policy=layout_policy,
+            quad_t3_minimum_angle=quad_t3_minimum_angle,
+            quad_t3_angle_action=quad_t3_angle_action,
             automation=automation,
             structure_preference=structure_preference,
             execution_policy=execution_policy,
@@ -215,7 +245,9 @@ class MeshSettings:
                 "quad_options": (
                     None if self.quad_options is None else self.quad_options.to_dict()
                 ),
-                "layout_policy": self.layout_policy if self.strategy == "quad_first" else None,
+                "layout_policy": (
+                    self.layout_policy if self.strategy in _QUAD_PIPELINE_STRATEGIES else None
+                ),
                 "controls": (None if self.controls is None else
                              self.controls.effective_dict(self.strategy)),
                 "structure_preference": (
@@ -234,6 +266,13 @@ class MeshSettings:
                     or self.structured_controls is None
                     else self.structured_controls.effective_dict()
                 ),
+            }
+        if self.strategy in _QUAD_PIPELINE_STRATEGIES and (
+            self.quad_t3_minimum_angle != 15.0 or self.quad_t3_angle_action != "error"
+        ):
+            payload["quad_t3_angle_rule"] = {
+                "minimum_angle": self.quad_t3_minimum_angle,
+                "action": self.quad_t3_angle_action,
             }
         if self.automation is not None:
             payload["automation"] = self.automation.to_dict()
@@ -827,7 +866,7 @@ def run_mesh_job(
             "native": "native",
         }.get(backend, backend)
     resolved_strategy = (
-        "quad_first" if requested_strategy == "quad_first"
+        requested_strategy if requested_strategy in _QUAD_PIPELINE_STRATEGIES
         else MeshingStrategy(requested_strategy).value
     )
     resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
@@ -874,6 +913,14 @@ def run_mesh_job(
         structured_controls=resolved_structured_controls,
         quad_options=settings.quad_options,
         layout_policy=settings.layout_policy,
+        quad_t3_minimum_angle=(
+            settings.quad_t3_minimum_angle
+            if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None
+        ),
+        quad_t3_angle_action=(
+            settings.quad_t3_angle_action
+            if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None
+        ),
         automation=settings.automation,
         cancellation_check=check_and_report,
         execution_policy=settings.execution_policy,

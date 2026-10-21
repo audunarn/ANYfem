@@ -1,6 +1,121 @@
 """Toolkit-neutral, serializable controls for the public mesher API."""
 
+from __future__ import annotations
+
 from dataclasses import asdict, dataclass
+from time import perf_counter
+from typing import Any, Iterable, Mapping
+
+
+@dataclass(frozen=True)
+class AutomaticSelection:
+    """Outcome of one Automatic -> SmartMapped applicability decision.
+
+    ``eligible`` is applicability, never a promise that meshing succeeds: the
+    owner pipeline still raises its own typed errors for quality/geometry
+    failures after selection.  ``selection_seconds`` is execution-only timing.
+    """
+
+    eligible: bool
+    reason: str
+    verdict: Mapping[str, Any]
+    seconds: float
+
+    def to_dict(self) -> dict:
+        return {
+            # What the user asked for versus what was actually chosen.
+            "requested": "auto",
+            "selected": "smart_mapped" if self.eligible else "legacy_auto",
+            "reason": self.reason,
+            "eligibility": dict(self.verdict),
+            "provenance": (
+                "anymesher.smart_mapped.smart_mapped_eligibility on the detached "
+                "prepared geometry, evaluated once before meshing"
+            ),
+            "selection_seconds": self.seconds,
+        }
+
+
+def faces_are_untrimmed_mappable(geometry: Any, face_ids: Iterable[int]) -> bool:
+    """Whether every face is hole-free *and* owner-mappable (metadata only).
+
+    ``anymesher.check_mappable`` deliberately permits holes and reports
+    ``ok=True`` for them, so ``ok`` alone does not identify an already
+    structured (mapped fast path / legacy Automatic) component.  A face that
+    carries holes is never treated as already structured.  No meshing and no
+    new algorithm: only the face's own hole metadata and the owner check.
+    """
+
+    from anymesher import check_mappable
+
+    faces = tuple(face_ids)
+    if not faces:
+        return False
+    for face_id in faces:
+        face = geometry.faces[face_id]
+        if getattr(face, "holes", None):
+            return False
+        if not check_mappable(geometry, face_id).ok:
+            return False
+    return True
+
+
+def _owner_eligibility():
+    """The owner's public eligibility function (single lookup seam)."""
+    from anymesher.smart_mapped import smart_mapped_eligibility
+
+    return smart_mapped_eligibility
+
+
+def select_smart_mapped_for_automatic(
+    geometry: Any,
+    *,
+    face_ids: Iterable[int] | None,
+    target_size: float | None,
+    order: str,
+    refinements: Iterable[Any] = (),
+    overrides: Mapping[int, int] | None = None,
+    beam_edges: Iterable[int] = (),
+    member_ids: Iterable[int] | None = (),
+    seeding: Any = None,
+) -> AutomaticSelection:
+    """Ask the ANYmesher owner exactly once whether Automatic may use SmartMapped.
+
+    The single reusable application-side selection (project API and headless
+    backend share it); the geometry decision lives entirely in the owner's
+    ``smart_mapped_eligibility``.  An owner without the helper keeps the legacy
+    Automatic route with a recorded reason; any other exception propagates.
+    """
+
+    started = perf_counter()
+    try:
+        smart_mapped_eligibility = _owner_eligibility()
+    except ImportError:
+        return AutomaticSelection(
+            False,
+            "installed ANYmesher has no smart_mapped_eligibility; legacy Automatic kept",
+            {},
+            perf_counter() - started,
+        )
+    verdict = smart_mapped_eligibility(
+        geometry,
+        None if face_ids is None else tuple(face_ids),
+        target_size,
+        order=order,
+        refinements=tuple(refinements),
+        overrides=dict(overrides or {}),
+        beam_edges=tuple(beam_edges),
+        member_ids=None if member_ids is None else tuple(member_ids),
+        seeding=seeding,
+    )
+    payload = dict(verdict.to_dict())
+    eligible = bool(verdict.eligible)
+    reason = str(
+        payload.get("reason")
+        or payload.get("reasons")
+        or ("eligible" if eligible else "not eligible")
+    )
+    return AutomaticSelection(eligible, reason, payload, perf_counter() - started)
 
 
 def native_v2_options_type():

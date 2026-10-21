@@ -167,6 +167,9 @@ class Project:
     _last_mesh_preparation: Dict[str, Any] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    _mesh_preparation_cache: Any = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         self.document_id = str(self.document_id)
@@ -1949,6 +1952,8 @@ class Project:
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
         layout_policy: str | None = None,
+        quad_t3_minimum_angle: float | None = None,
+        quad_t3_angle_action: str | None = None,
         automation: MeshAutomationOptions | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
@@ -2032,10 +2037,21 @@ class Project:
             "mapped": "mapped",
             "native": "native",
             "quad_first": "quad_first",
+            "smart_mapped": "smart_mapped",
         }.get(settings_backend, str(settings_backend))
-        if resolved_strategy == "quad_first":
+        resolved_order = order or (
+            self.element_order if settings is None else settings.element_order
+        )
+        # SmartMapped is an explicit public strategy that shares the quad-first
+        # pipeline (options, layout policy, angle rule, admission); the owner
+        # receives strategy="smart_mapped" instead of the quad-first "native".
+        quad_pipeline_selected = resolved_strategy in ("quad_first", "smart_mapped")
+        smart_mapped_selected = resolved_strategy == "smart_mapped"
+        if quad_pipeline_selected:
             from ..quad_first import effective_quad_options
             from anymesher.quad.public_integration import QuadPublicUnsupported
+            from anygeometry.entities import Face
+            from anygeometry.surfaces import Plane
 
             if quad_options is None and settings is not None:
                 quad_options = settings.to_dict()["parameters"].get("quad_options")
@@ -2051,20 +2067,52 @@ class Project:
                 int(edge_id) for edge_id in self.beam_edges
                 if self.geometry.faces_using_edge(int(edge_id))
             ]
-            if boundary_beams:
+            # Planar (exact Face / exact Plane / no custom parameterization)
+            # shells and their boundary bars share the mesher's canonical
+            # source-edge stations at both linear and quadratic order; the
+            # owner pipeline supplies the shell/beam midside nodes. Other
+            # supports retain their refusal; final connectivity preflight
+            # still validates declared ownership.
+            if boundary_beams and any(
+                type(face) is not Face
+                or type(face.surface) is not Plane
+                or face.parameterization is not None
+                for edge_id in boundary_beams
+                for face_id in self.geometry.faces_using_edge(edge_id)
+                for face in (self.geometry.faces[face_id],)
+            ):
                 raise QuadPublicUnsupported(
                     "quad-first source-boundary edge beam ownership is unsupported: "
                     + ", ".join(str(edge_id) for edge_id in sorted(boundary_beams))
                 )
-            resolved_strategy = "native"
+            resolved_strategy = "smart_mapped" if smart_mapped_selected else "native"
         elif quad_options is not None:
-            raise ProjectError("quad_options requires strategy='quad_first'")
+            raise ProjectError(
+                "quad_options requires strategy='quad_first' or 'smart_mapped'"
+            )
         elif layout_policy not in (None, "existing"):
-            raise ProjectError("adaptive layout requires strategy='quad_first'")
-        resolved_order = order or (
-            self.element_order if settings is None else settings.element_order
-        )
+            raise ProjectError(
+                "adaptive layout requires strategy='quad_first' or 'smart_mapped'"
+            )
         parameters = {} if settings is None else dict(settings.parameters)
+        resolved_t3_angle = (
+            quad_t3_minimum_angle if quad_t3_minimum_angle is not None
+            else parameters.get("quad_t3_minimum_angle", 15.0)
+        )
+        resolved_t3_action = (
+            quad_t3_angle_action if quad_t3_angle_action is not None
+            else parameters.get("quad_t3_angle_action", "error")
+        )
+        # Requested thresholds survive an Automatic -> SmartMapped selection
+        # below; for every other non-quad route they are reset as before.
+        automatic_t3 = (resolved_t3_angle, resolved_t3_action)
+        if quad_options is None:
+            if (quad_t3_minimum_angle is not None or
+                    quad_t3_angle_action is not None):
+                raise ProjectError(
+                    "quad triangle angle controls require strategy='quad_first' or 'smart_mapped'"
+                )
+            resolved_t3_angle, resolved_t3_action = 15.0, "error"
         controls = mesh_controls or MeshControls.from_settings(settings)
         structured_controls = (
             structured_controls
@@ -2128,12 +2176,31 @@ class Project:
                 for identifier in sorted(source_members)
             ]
         )
-        closure = extract_model_closure(
-            source_geometry,
-            closure_handles,
-            include_structural_closure=True,
-            include_features=False,
+        cache_key = (
+            id(source_geometry), str(source_geometry.model_id),
+            int(source_geometry.revision),
+            tuple(sorted(int(face) for face in source_geometry.faces)),
+            tuple(sorted(int(edge) for edge in self.beam_edges)),
+            tuple(sorted(int(member) for member in source_members)),
         )
+        cached = self._mesh_preparation_cache
+        cache_hit = cached is not None and cached[0] == cache_key
+        if cache_hit:
+            if cancellation_check is not None:
+                cancellation_check("cached structural preparation")
+            closure = replace(
+                cached[1],
+                working_model=cached[1].working_model.clone(preserve_identity=True),
+            )
+            preparation = deepcopy(cached[2])
+            preparation_runtime = {}
+        else:
+            closure = extract_model_closure(
+                source_geometry,
+                closure_handles,
+                include_structural_closure=True,
+                include_features=False,
+            )
         working = closure.working_model
         working_member_ids = tuple(
             sorted(
@@ -2147,17 +2214,23 @@ class Project:
         )
         from .._meshing_runtime import collect_geometry_runtime, merge_geometry_runtime
 
-        try:
-            with collect_geometry_runtime() as preparation_runtime:
-                preparation = prepare_structural_connectivity(
-                    working,
-                    source_model_id=str(closure.source_model_id),
-                    source_revision=closure.source_revision,
-                    member_ids=working_member_ids,
-                    cancellation_check=cancellation_check,
-                )
-        except StructuralPreparationError as error:
-            raise ProjectError(f"structural preparation failed: {error}") from None
+        if not cache_hit:
+            try:
+                with collect_geometry_runtime() as preparation_runtime:
+                    preparation = prepare_structural_connectivity(
+                        working,
+                        source_model_id=str(closure.source_model_id),
+                        source_revision=closure.source_revision,
+                        member_ids=working_member_ids,
+                        cancellation_check=cancellation_check,
+                    )
+            except StructuralPreparationError as error:
+                raise ProjectError(f"structural preparation failed: {error}") from None
+            self._mesh_preparation_cache = (
+                cache_key,
+                replace(closure, working_model=working.clone(preserve_identity=True)),
+                deepcopy(preparation),
+            )
         preparation.source_to_working = source_work_mapping(closure)
 
         def descendants(kind: str, identifier: int) -> tuple[EntityRef, ...]:
@@ -2230,9 +2303,12 @@ class Project:
                 replace(refinement, ref=item) for item in made
             )
 
-        already_structured = bool(working.faces) and all(
-            check_mappable(working, face_id).ok
-            for face_id in working.faces
+        # check_mappable deliberately permits holes (ok=True), so a face with
+        # holes is never "already structured"; shared with the headless backend.
+        from ..mesh_controls import faces_are_untrimmed_mappable
+
+        already_structured = faces_are_untrimmed_mappable(
+            working, tuple(working.faces)
         )
 
         working_seeding = seeding
@@ -2250,6 +2326,45 @@ class Project:
                     classes=dict(seeding.classes),
                     size_field=None,
                 )
+
+        # Automatic admission to SmartMapped: one owner eligibility call on the
+        # detached prepared geometry.  Skipped for explicit mapped/native/
+        # quad-first/SmartMapped, explicit quad options and already-structured
+        # (hole-free mappable) models; the mapped fast path / legacy route keep
+        # their behaviour.  A recovery ``automation`` object does NOT block the
+        # selection: the Qt task always supplies one, and the selected strategy
+        # and quad options then travel through generate_automatic_mesh_result
+        # with the recovery policy unchanged.  Eligibility is applicability,
+        # not a success guarantee: the owner pipeline still raises its own
+        # typed errors.
+        automatic_selection = None
+        if (
+            resolved_strategy == "auto"
+            and quad_options is None
+            and not already_structured
+        ):
+            from ..mesh_controls import select_smart_mapped_for_automatic
+
+            automatic_selection = select_smart_mapped_for_automatic(
+                working,
+                face_ids=tuple(sorted(working.faces)),
+                target_size=resolved_size,
+                order=resolved_order,
+                refinements=working_refinements,
+                overrides=working_overrides,
+                beam_edges=working_beam_edges,
+                member_ids=working_member_ids,
+                seeding=working_seeding,
+            )
+            if automatic_selection.eligible:
+                from ..quad_first import effective_quad_options
+
+                resolved_strategy = "smart_mapped"
+                smart_mapped_selected = True
+                quad_options = effective_quad_options(None)
+                layout_policy = "adaptive"
+                resolved_t3_angle, resolved_t3_action = automatic_t3
+                native_backend = "python"
 
         mapped_fast_path = (
             automation is None
@@ -2331,6 +2446,8 @@ class Project:
                 native_backend=native_backend,
                 quad_options=quad_options,
                 layout_policy=layout_policy or "existing",
+                quad_t3_minimum_angle=resolved_t3_angle,
+                quad_t3_angle_action=resolved_t3_action,
                 structural_preparation={
                     "automatic_face_connections": False,
                     "automatic_member_connections": False,
@@ -2349,7 +2466,7 @@ class Project:
                     # so retain the existing topology and let refinement-aware
                     # global seeding solve it.
                     None
-                    if resolved_strategy == "native" or working_refinements
+                    if resolved_strategy in ("native", "smart_mapped") or working_refinements
                     else structure_options
                 ),
                 **supported_parameters,
@@ -2367,7 +2484,11 @@ class Project:
                 probed = parallel_mesh_api() if policy.requests_parallel else None
                 route = resolve_route(
                     policy,
-                    strategy=resolved_strategy,
+                    # SmartMapped runs the serial quad pipeline exactly like
+                    # quad-first (quad_options always forces serial routing).
+                    strategy=(
+                        "native" if smart_mapped_selected else resolved_strategy
+                    ),
                     change_set=change_set,
                     quad_options=quad_options,
                     automation=None,
@@ -2425,6 +2546,7 @@ class Project:
                     **meshing_parameters,
                 ).mesh
         owner_parallel = getattr(mesh, "hybrid_diagnostics", {}).get("parallel")
+        self._last_mesh_execution["preparation_cache_hit"] = cache_hit
         if isinstance(owner_parallel, Mapping) and "used" in owner_parallel:
             used = bool(owner_parallel["used"])
             runtime = owner_parallel.get("runtime", {})
@@ -2466,6 +2588,18 @@ class Project:
                 )
             )
             remap_mesh_to_source(mesh, closure)
+        if automatic_selection is not None:
+            # Recorded after the source remap so the provenance is the final
+            # diagnostic.  A rejected probe stays execution-only (the legacy
+            # mesh and its hash are unchanged); a selected route changes the
+            # mesh semantics and is therefore part of the mesh diagnostics.
+            selection_record = automatic_selection.to_dict()
+            self._last_mesh_execution["automatic_selection"] = selection_record
+            current_diagnostics = getattr(mesh, "hybrid_diagnostics", None)
+            if automatic_selection.eligible and isinstance(current_diagnostics, Mapping):
+                merged_diagnostics = dict(current_diagnostics)
+                merged_diagnostics["automatic_selection"] = selection_record
+                mesh.hybrid_diagnostics = merged_diagnostics
         mesh_preparation = getattr(mesh, "structural_preparation", {})
         preparation_payload = preparation.to_dict()
         if isinstance(mesh_preparation, Mapping) and "qualified_s3" in mesh_preparation:

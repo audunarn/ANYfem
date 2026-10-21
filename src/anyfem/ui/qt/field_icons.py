@@ -2,6 +2,7 @@
 
 MESH_DRAWINGS = {
     "quad_first": '<path d="M3 5H23V27H3Z M3 12H23 M3 20H23 M10 5V27 M17 5V27 M23 5 30 16 23 27 M23 12 30 16 23 20"/>',
+    "smart_mapped": '<path d="M3 5H23V27H3Z M3 12H23 M3 20H23 M10 5V27 M17 5V27 M23 5 30 12 M23 12 30 20 M23 20 30 27"/><path d="M26 2V10 M22 6H30" stroke="#16804a"/>',
     "auto": '<path d="M3 7H19V27H3Z M3 17H19 M11 7V27 M19 17 28 27H19 M19 7 28 17 19 17"/><path d="M26 2V10 M22 6H30 M23 3 29 9 M29 3 23 9" stroke="#16804a"/>',
     "mapped": '<path d="M4 6 24 3 29 26 7 29Z M5 14 26 11 M6 22 28 19 M11 5 14 28 M18 4 22 27"/><path d="M2 2H7 M2 2V7 M25 30H30V25" stroke="#16804a"/>',
     "native": '<path d="M3 6 17 3 29 10 26 28 8 29Z M3 6 12 13 17 3 M12 13 29 10 19 20Z M3 6 8 29 12 13 M8 29 19 20 26 28 M19 20 29 10 26 28"/><circle cx="12" cy="13" r="2" fill="#16804a"/>',

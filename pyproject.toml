@@ -49,7 +49,7 @@ post = ["ANYpost[results]>=0.1,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [
-  "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a",
+  "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@266f8720bcff4e4a2798abbe118c922b81861abd",
   "ANY3dView[gpu,qt]>=0.5.6,<0.6",
   "ANYmesher>=0.5.1,<0.6",
   "Pillow>=10,<13",

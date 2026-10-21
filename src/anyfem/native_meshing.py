@@ -80,6 +80,10 @@ class MeshBackend(StrEnum):
     MAPPED = "mapped"
     NATIVE = "native"
     QUAD_FIRST = "quad_first"
+    # Public label "SmartMapped"; explicit owner strategy sharing the quad-first
+    # pipeline.  Automatic (token "automatic") is unchanged and never selects it
+    # on its own in this module.
+    SMART_MAPPED = "smart_mapped"
 
 
 class ComponentUpdateKind(StrEnum):

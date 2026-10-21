@@ -63,6 +63,11 @@ ANALYSES = {
     "Capacity": solve_capacity,
 }
 
+# Explicit public strategies that share the quad-first pipeline (options,
+# layout policy, triangle-angle rule); SmartMapped only changes the owner token.
+_QUAD_PIPELINE_STRATEGIES = ("quad_first", "smart_mapped")
+
+
 class _WorkbenchField:
     """Data descriptor keeping legacy ``app.field`` access controller-owned."""
 
@@ -430,9 +435,11 @@ class WorkbenchWorkflow:
                 "mapped": "mapped",
                 "native": "native",
                 "quad_first": "quad_first",
+                "smart_mapped": "smart_mapped",
             }.get(backend, backend)
-        if str(requested).strip().lower() == "quad_first":
-            return "quad_first"
+        token = str(requested).strip().lower()
+        if token in _QUAD_PIPELINE_STRATEGIES:
+            return token
         try:
             return MeshingStrategy(str(requested).strip().lower()).value
         except ValueError as error:
@@ -473,6 +480,8 @@ class WorkbenchWorkflow:
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
         layout_policy: str = "existing",
+        quad_t3_minimum_angle: float | None = None,
+        quad_t3_angle_action: str | None = None,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
@@ -480,14 +489,20 @@ class WorkbenchWorkflow:
 
         current = self.project.native_mesh_settings
         parameters = {} if current is None else current.to_dict()["parameters"]
-        if strategy == "quad_first":
+        if strategy in _QUAD_PIPELINE_STRATEGIES:
             from ..quad_first import effective_quad_options
 
             parameters["quad_options"] = effective_quad_options(quad_options).to_dict()
             parameters["layout_policy"] = layout_policy
+            if quad_t3_minimum_angle is not None:
+                parameters["quad_t3_minimum_angle"] = float(quad_t3_minimum_angle)
+            if quad_t3_angle_action is not None:
+                parameters["quad_t3_angle_action"] = quad_t3_angle_action
         else:
             parameters.pop("quad_options", None)
             parameters.pop("layout_policy", None)
+            parameters.pop("quad_t3_minimum_angle", None)
+            parameters.pop("quad_t3_angle_action", None)
         parameters["structure_preference"] = structure_preference
         if mesh_controls is not None:
             parameters.update(mesh_controls.parameters())
@@ -522,6 +537,8 @@ class WorkbenchWorkflow:
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
         layout_policy: str | None = None,
+        quad_t3_minimum_angle: float | None = None,
+        quad_t3_angle_action: str | None = None,
         automation: object | None = None,
         execution_policy: object | None = None,
         pool_lease: object | None = None,
@@ -536,7 +553,7 @@ class WorkbenchWorkflow:
         """
 
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
-        if resolved_strategy == "quad_first":
+        if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
             from ..quad_first import effective_quad_options
 
             if quad_options is None and self.project.native_mesh_settings is not None:
@@ -547,6 +564,14 @@ class WorkbenchWorkflow:
                     self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
                     if self.project.native_mesh_settings is not None else "existing"
                 )
+            stored_quad_parameters = (
+                {} if self.project.native_mesh_settings is None
+                else self.project.native_mesh_settings.to_dict()["parameters"]
+            )
+            if quad_t3_minimum_angle is None:
+                quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
+            if quad_t3_angle_action is None:
+                quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         structured_controls = (
             structured_controls
@@ -562,7 +587,7 @@ class WorkbenchWorkflow:
             self.project.seeding_overrides = dict(self.seeding_overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if resolved_strategy == "quad_first":
+            if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
             if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
@@ -575,6 +600,8 @@ class WorkbenchWorkflow:
                     structured_controls=structured_controls,
                     quad_options=quad_options,
                     layout_policy=layout_policy or "existing",
+                    quad_t3_minimum_angle=quad_t3_minimum_angle,
+                    quad_t3_angle_action=quad_t3_angle_action,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -590,6 +617,8 @@ class WorkbenchWorkflow:
             structured_controls=structured_controls,
             quad_options=quad_options,
             layout_policy=layout_policy,
+            quad_t3_minimum_angle=quad_t3_minimum_angle,
+            quad_t3_angle_action=quad_t3_angle_action,
             automation=automation,
             execution_policy=execution_policy,
             pool_lease=pool_lease,
@@ -607,7 +636,13 @@ class WorkbenchWorkflow:
                 "quad_options": (
                     None if quad_options is None else quad_options.to_dict()
                 ),
-                "layout_policy": layout_policy if resolved_strategy == "quad_first" else None,
+                "layout_policy": layout_policy if resolved_strategy in _QUAD_PIPELINE_STRATEGIES else None,
+                **({"quad_t3_angle_rule": {
+                    "minimum_angle": quad_t3_minimum_angle,
+                    "action": quad_t3_angle_action,
+                }} if resolved_strategy in _QUAD_PIPELINE_STRATEGIES and (
+                    quad_t3_minimum_angle != 15.0 or quad_t3_angle_action != "error"
+                ) else {}),
                 "structure_preference": (
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
@@ -647,7 +682,14 @@ class WorkbenchWorkflow:
                 "quad_options_requested": (
                     None if quad_options is None else quad_options.to_dict()
                 ),
-                "layout_policy_requested": layout_policy if resolved_strategy == "quad_first" else None,
+                "layout_policy_requested": layout_policy if resolved_strategy in _QUAD_PIPELINE_STRATEGIES else None,
+                "quad_t3_angle_rule_requested": (
+                    {"minimum_angle": quad_t3_minimum_angle,
+                     "action": quad_t3_angle_action}
+                    if resolved_strategy in _QUAD_PIPELINE_STRATEGIES else None
+                ),
+                "quad_t3_angle_rule": created_mesh.hybrid_diagnostics.get("t3_angle_rule"),
+                "mesh_quality_certifiable": created_mesh.hybrid_diagnostics.get("certifiable", True),
                 "automation_requested": (
                     None if automation is None else automation.to_dict()
                 ),
@@ -682,6 +724,16 @@ class WorkbenchWorkflow:
                 "automation": dict(automation_result),
                 "execution": dict(
                     getattr(self.project, "_last_mesh_execution", {}) or {}
+                ),
+                "automatic_selection": (
+                    dict(selection)
+                    if isinstance(
+                        selection := (
+                            getattr(self.project, "_last_mesh_execution", {}) or {}
+                        ).get("automatic_selection"),
+                        Mapping,
+                    )
+                    else None
                 ),
                 "solver_admission": "BLOCKED" if inspection_only else "ADMITTED",
             },
@@ -728,6 +780,8 @@ class WorkbenchWorkflow:
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
         layout_policy: str | None = None,
+        quad_t3_minimum_angle: float | None = None,
+        quad_t3_angle_action: str | None = None,
         automation: object | None = None,
         execution_policy: object | None = None,
     ) -> MeshRecord:
@@ -741,7 +795,7 @@ class WorkbenchWorkflow:
         if self.mesh_task_manager.busy:
             raise ValueError("a mesh is already being generated")
         resolved_strategy = self._project_mesh_strategy(self.project, strategy)
-        if resolved_strategy == "quad_first":
+        if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
             from ..quad_first import effective_quad_options
 
             if quad_options is None and self.project.native_mesh_settings is not None:
@@ -752,6 +806,14 @@ class WorkbenchWorkflow:
                     self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
                     if self.project.native_mesh_settings is not None else "existing"
                 )
+            stored_quad_parameters = (
+                {} if self.project.native_mesh_settings is None
+                else self.project.native_mesh_settings.to_dict()["parameters"]
+            )
+            if quad_t3_minimum_angle is None:
+                quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
+            if quad_t3_angle_action is None:
+                quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
         mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
         structured_controls = (
             structured_controls
@@ -773,6 +835,10 @@ class WorkbenchWorkflow:
             structured_controls=structured_controls,
             quad_options=quad_options,
             layout_policy=layout_policy or "existing",
+            quad_t3_minimum_angle=(15.0 if quad_t3_minimum_angle is None
+                                   else quad_t3_minimum_angle),
+            quad_t3_angle_action=("error" if quad_t3_angle_action is None
+                                  else quad_t3_angle_action),
             automation=automation,
             execution_policy=execution_policy,
         )
@@ -781,7 +847,7 @@ class WorkbenchWorkflow:
             self.project.seeding_overrides = dict(settings.overrides)
             if native_backend is not None:
                 self.project.set_native_triangulation_backend(native_backend)
-            if resolved_strategy == "quad_first":
+            if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
             if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
                 self._store_mesh_strategy(
@@ -794,6 +860,8 @@ class WorkbenchWorkflow:
                     structured_controls=structured_controls,
                     quad_options=quad_options,
                     layout_policy=layout_policy or "existing",
+                    quad_t3_minimum_angle=quad_t3_minimum_angle,
+                    quad_t3_angle_action=quad_t3_angle_action,
                 )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
@@ -819,7 +887,12 @@ class WorkbenchWorkflow:
                 "quad_options_requested": (
                     None if settings.quad_options is None else settings.quad_options.to_dict()
                 ),
-                "layout_policy_requested": settings.layout_policy if settings.strategy == "quad_first" else None,
+                "layout_policy_requested": settings.layout_policy if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None,
+                "quad_t3_angle_rule_requested": (
+                    {"minimum_angle": settings.quad_t3_minimum_angle,
+                     "action": settings.quad_t3_angle_action}
+                    if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None
+                ),
                 "automation_requested": (
                     None if settings.automation is None else settings.automation.to_dict()
                 ),
@@ -933,6 +1006,8 @@ class WorkbenchWorkflow:
                             "strict_high_order_status": result.mesh.hybrid_diagnostics.get(
                                 "high_order_geometry", {}
                             ).get("status"),
+                            "quad_t3_angle_rule": result.mesh.hybrid_diagnostics.get("t3_angle_rule"),
+                            "mesh_quality_certifiable": result.mesh.hybrid_diagnostics.get("certifiable", True),
                             "strategy_by_face": self._meshing_strategy_summary(
                                 result.mesh
                             ),
@@ -962,6 +1037,13 @@ class WorkbenchWorkflow:
                             "quality": dict(result.quality),
                             "automation": dict(automation_result),
                             "execution": dict(result.execution),
+                            "automatic_selection": (
+                                dict(result.execution["automatic_selection"])
+                                if isinstance(
+                                    result.execution.get("automatic_selection"), Mapping
+                                )
+                                else None
+                            ),
                             "mesh_validity": "VALID",
                             "solver_admission": (
                                 "BLOCKED" if inspection_only else "ADMITTED"
@@ -3549,6 +3631,78 @@ class WorkbenchWorkflow:
         return build_fe_model(self.project, self.mesh)
 
 
+    def mesh_diagnostic_report(self, *, draft=None) -> str:
+        """Describe mesh submission evidence without consulting toolkit widgets.
+
+        Draft fields are labelled separately: editing them does not change an
+        already generated mesh. Failed/stale jobs never supply active counts.
+        """
+        import sys
+
+        record_id = (getattr(self, "_active_mesh_task_id", None)
+                     or getattr(self, "_mesh_details_record_id", None)
+                     or getattr(self, "mesh_record_id", None))
+        record = self.project.mesh_records.get(record_id or "")
+        if record is None and self.project.mesh_records:
+            record = next(reversed(self.project.mesh_records.values()))
+        settings = self.project.native_mesh_settings
+        mesh = self.mesh
+        extension = sys.modules.get("anymesher._native")
+        evidence = {
+            "project": self.project.name,
+            "draft_not_yet_submitted": draft,
+            "project_target_size": self.project.target_size,
+            "persisted_settings": None if settings is None else {
+                "target_size": settings.target_size,
+                "element_order": settings.element_order,
+                "backend": settings.backend.value,
+                "certification_mode": settings.certification_mode.value,
+                "controls": settings.controls,
+                "parameters": settings.parameters,
+            },
+            "seeding_pins": self.seeding_overrides,
+            "triangulation_backend_requested": self.project.native_triangulation_backend,
+            "runtime": {
+                "scope": "reporting process; worker backend evidence is in selected_job.summary",
+                "python_executable": sys.executable,
+                "mesher_module": getattr(sys.modules.get("anymesher"), "__file__", None),
+                "native_extension_loaded": extension is not None,
+                "native_extension_path": getattr(extension, "__file__", None),
+                "reference_seed_capability_loaded": (
+                    None if extension is None
+                    else callable(getattr(extension, "reference_delaunay", None))
+                ),
+            },
+            "selected_job": None if record is None else {
+                "id": record.id, "name": record.name, "status": record.status,
+                "effective_state": self.mesh_record_state(record),
+                "source_model_hash": record.source_model_hash,
+                "mesh_input_hash": record.mesh_input_hash, "mesh_hash": record.mesh_hash,
+                "summary": record.summary, "diagnostics": record.diagnostics,
+                "structural_preparation": record.structural_preparation,
+            },
+            "active_mesh": None if mesh is None else {
+                "record_id": getattr(self, "mesh_record_id", None),
+                "nodes": mesh.num_nodes,
+                "elements": mesh.num_elements,
+                "shells": len(mesh.shells),
+                "beams": len(mesh.beams),
+                "diagnostics": getattr(mesh, "hybrid_diagnostics", {}),
+            },
+        }
+        evidence = _bounded_mesh_diagnosis(evidence)
+        return ("ANYfem mesh diagnosis\n\n"
+                "Target size is nominal. Local controls, seeding pins, structural "
+                "bay conformity and quality rules can limit size changes.\n"
+                "Draft settings apply only when Generate mesh is submitted. "
+                "Active mesh counts below describe the currently published mesh.\n"
+                "The optional reference-seed capability accelerates quad-first "
+                "seeding; its absence does not mean the native backend is unavailable.\n"
+                "This is a bounded summary. Omission paths/counts are listed; "
+                "full detail remains in mesh diagnostics, project settings and job records.\n\n"
+                + json.dumps(evidence, indent=2, sort_keys=True,
+                             ensure_ascii=False, default=str) + "\n")
+
     def diagnostic_report(self, *, recent_commands=()) -> str:
         """Return the current support report without exposing full model data."""
 
@@ -3582,6 +3736,104 @@ class WorkbenchWorkflow:
             context=context,
             recent_commands=recent_commands,
         )
+
+
+def _bounded_mesh_diagnosis(evidence):
+    """Breadth-first sampling: bounded work/storage, retaining nearby scalars.
+
+    Never materialize a mapping/array or stringify arbitrary objects. Breadth
+    first traversal gives every top-level section a share before table rows.
+    Paths refer to the returned JSON tree; values in the source are untouched.
+    """
+    from collections import deque
+    from itertools import islice
+
+    queue = deque()
+    omissions = []
+    omission_count = 0
+    remaining_nodes, remaining_text = 512, 8192
+
+    def omit(path, reason, total=None, included=0):
+        nonlocal omission_count
+        omission_count += 1
+        if len(omissions) < 64:
+            omissions.append({"path": path[:160], "reason": reason,
+                              "total": total, "included": included})
+
+    def text(value, path, limit=256):
+        nonlocal remaining_text
+        count = min(len(value), limit, remaining_text)
+        remaining_text -= count
+        if count < len(value):
+            omit(path, "string characters", len(value), count)
+        return value[:count]
+
+    def stage(value, path, depth):
+        nonlocal remaining_nodes
+        if remaining_nodes <= 0:
+            omit(path, "node budget")
+            return None
+        remaining_nodes -= 1
+        if value is None or type(value) in (bool, int, float):
+            return value
+        if isinstance(value, str):
+            return text(value, path)
+        if isinstance(value, np.generic):
+            return stage(value.item(), path, depth)
+        if isinstance(value, Mapping):
+            result = {}
+        elif isinstance(value, (tuple, list, np.ndarray)):
+            result = []
+        elif is_dataclass(value) and not isinstance(value, type):
+            result = {}
+        else:
+            omit(path, "unsupported object; type only")
+            return {"type": text(type(value).__name__, path)}
+        queue.append((value, result, path, depth))
+        return result
+
+    result = stage(evidence, "$", 0)
+    while queue:
+        value, target, path, depth = queue.popleft()
+        if is_dataclass(value) and not isinstance(value, type):
+            from dataclasses import fields
+            entries = [(field.name, getattr(value, field.name)) for field in fields(value)]
+            total, limit = len(entries), 16
+        elif isinstance(value, Mapping):
+            total, limit = len(value), 16
+            # Preserve status/quality/backend evidence even in large tables.
+            priority = ("status", "reason", "actual_backend", "selected_backend",
+                        "fallback_reason", "backend", "minimum", "maximum",
+                        "count", "warning_count", "certifiable")
+            keys = [key for key in priority if key in value]
+            keys += [key for key in islice(value, 16) if key not in keys]
+            entries = ((key, value[key]) for key in keys[:limit])
+        else:
+            total, limit = (int(value.size) if isinstance(value, np.ndarray) else len(value)), 4
+            entries = ((index, value.flat[index] if isinstance(value, np.ndarray) else value[index])
+                       for index in range(min(total, limit)))
+        included = 0
+        if depth < 6:
+            for key, item in islice(entries, min(limit, remaining_nodes)):
+                name = key if isinstance(key, str) else str(key) if type(key) is int else type(key).__name__
+                name = text(name, path, 96)
+                child_path = f"{path}.{name}"[:160]
+                rendered = stage(item, child_path, depth + 1)
+                if isinstance(target, dict):
+                    if name in target:
+                        name = f"{name[:80]}#{included}"
+                    target[name] = rendered
+                else:
+                    target.append(rendered)
+                included += 1
+        if included < total:
+            omit(path, "depth limit" if depth >= 6 else "bounded sample", total, included)
+    result["report_limits"] = {"max_nodes": 512, "max_depth": 6,
+        "mapping_sample": 16, "sequence_sample": 4, "string_characters": 256,
+        "omission_count": omission_count, "omission_paths": omissions,
+        "omission_paths_not_listed": omission_count - len(omissions),
+        "full_details": "Original mesh.hybrid_diagnostics, project settings and mesh_records"}
+    return result
 
 
 def _solution_report(solution) -> str:

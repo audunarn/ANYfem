@@ -1613,13 +1613,14 @@ class MeshPanel(StagePanel):
         "mapped": "Mapped quadrilateral",
         "native": "Unstructured / native",
         "quad_first": "Quad-first",
+        "smart_mapped": "SmartMapped",
     }
     _METHOD_VALUES = {label: value for value, label in _METHOD_LABELS.items()}
     _METHOD_HELP = {
         "auto": (
-            "Plans the selected Sheet/component globally: mapped blocks and "
-            "shared seed equations first, then qualified radial/O-grid partitions, "
-            "then explicit metric-aligned native residual regions. Preview is read-only."
+            "Keeps the mapped route for suitable untrimmed plates and checks "
+            "SmartMapped for other supported planar models. Applicability is "
+            "checked without generating trial meshes. Preview is read-only."
         ),
         "mapped": (
             "Uses the transfinite mapped quadrilateral method for every plate. "
@@ -1634,6 +1635,11 @@ class MeshPanel(StagePanel):
         "quad_first": (
             "Explicit quad-first meshing with Python triangulation. Advanced "
             "changes leave the SG1-tested configuration."
+        ),
+        "smart_mapped": (
+            "Preserves regular quadrilaterals on planar plates, adapting local "
+            "elements around holes and angled boundaries. Regular cells stay "
+            "fixed during quality repair. Unsupported inputs are reported."
         ),
     }
     _STRUCTURE_LABELS = {
@@ -1673,7 +1679,7 @@ class MeshPanel(StagePanel):
         self._method_dirty = False
         shortcuts = ttk.Frame(controls)
         shortcuts.pack(fill="x", pady=(2, 3))
-        for value, label in (("auto", "Automatic"), ("mapped", "Mapped"), ("native", "Unstructured"), ("quad_first", "Quad-first")):
+        for value, label in (("auto", "Automatic"), ("mapped", "Mapped"), ("native", "Unstructured"), ("quad_first", "Quad-first"), ("smart_mapped", "SmartMapped")):
             ttk.Radiobutton(
                 shortcuts, text=label, variable=self._method,
                 value=self._METHOD_LABELS[value], command=self._method_changed,
@@ -2264,6 +2270,7 @@ class MeshPanel(StagePanel):
             "mapped": "mapped",
             "native": "native",
             "quad_first": "quad_first",
+            "smart_mapped": "smart_mapped",
         }.get(backend, "auto")
 
     def _structure_preference_value(self) -> str:
@@ -2361,11 +2368,11 @@ class MeshPanel(StagePanel):
             self._structured_disclosure.pack_forget()
             self._advanced_structured.pack_forget()
 
-        if method in ("mapped", "quad_first"):
+        if method in ("mapped", "quad_first", "smart_mapped"):
             self._native_options.pack_forget()
         elif not self._native_options.winfo_manager():
             self._native_options.pack(fill="x", before=self._audit_row)
-        if method == "quad_first":
+        if method in ("quad_first", "smart_mapped"):
             if not self._quad_advanced.winfo_manager():
                 self._quad_advanced.pack(fill="x", before=self._audit_row)
             try:
@@ -2896,7 +2903,7 @@ class MeshPanel(StagePanel):
             "mesh_controls": self._mesh_controls_value(),
             "structured_controls": self._structured_controls_value(),
         }
-        if strategy == "quad_first":
+        if strategy in ("quad_first", "smart_mapped"):
             options["quad_options"] = self._quad_options_value()
             options["layout_policy"] = "adaptive" if self._quad_layout.get() else "existing"
         if quality_policy is not None:

@@ -237,6 +237,8 @@ def test_large_barge_is_three_times_as_long_with_bulkhead_openings_and_flat_bar_
     bars = [(identifier, name) for identifier, name in project.edge_sections.items() if name.startswith("FB")]
     assert len(bars) == 2*3*8
     hole_edges = {item.edge for face in trimmed.values() for hole in face.holes for item in hole}
+    hole_face = {item.edge: face_id for face_id, face in trimmed.items()
+                 for hole in face.holes for item in hole}
     assert {identifier for identifier, _ in bars} == hole_edges
     section = project.beam_sections[bars[0][1]]
     assert section.profile == "Flatbar"
@@ -244,10 +246,22 @@ def test_large_barge_is_three_times_as_long_with_bulkhead_openings_and_flat_bar_
     for identifier, name in bars:
         (member,) = geometry.members_using_edge(identifier)
         (attachment,) = (geometry.attachments[key] for key in geometry.attachments_for_member(member))
-        assert attachment.kind.value == "member_on_face" and attachment.target_id in trimmed
+        assert attachment.kind.value == "member_on_face_boundary"
+        assert attachment.target_kind.value == "edge" and attachment.target_id == identifier
+        assert (attachment.member_range.start, attachment.member_range.end) == (0., 1.)
+        assert len(attachment.target_parameters) == 1
+        target_range, = attachment.target_parameters
+        assert (target_range.start, target_range.end) == (0., 1.)
+        assert attachment.sheet_id in geometry.sheets
+        assert hole_face[identifier] in {
+            geometry.face_uses[use_id].face_id
+            for use_id in geometry.sheets[attachment.sheet_id].face_use_ids}
         edge = geometry.edges[identifier]
         axis = geometry.vertex_position(edge.end) - geometry.vertex_position(edge.start)
         assert abs(np.dot(axis, project.beam_sections[name].web_direction)) < 1.e-12
+    assert any(attachment.kind.value == "member_on_face"
+               and attachment.target_kind.value == "face"
+               for attachment in geometry.attachments.values())
     # Girders every 4 m, stiffeners continue through the bulkheads.
     girders = {round(geometry.vertex_position(geometry.edges[i].start)[0], 6)
                for i, name in project.edge_sections.items() if name.endswith("girders")}

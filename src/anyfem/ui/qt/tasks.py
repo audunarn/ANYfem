@@ -25,7 +25,19 @@ class MeshTask(QWidget):
         super().__init__();self.app=app
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
         self.size=QLineEdit(str(app.project.target_size or 0.25));form.addRow("Target size (m)",self.size)
-        self.strategy=QComboBox();self.strategy.addItems(["quad_first","auto","mapped","native"]);form.addRow("Strategy",self.strategy)
+        self.size.setToolTip("Typical element edge length in metres.")
+        self.strategy=QComboBox();self.strategy.addItems(["quad_first","auto","mapped","native","SmartMapped"]);form.addRow("Strategy",self.strategy)
+        # Visible labels keep the historic tokens; SmartMapped is shown exactly
+        # as "SmartMapped" and maps to the persisted token "smart_mapped".
+        for index,token in enumerate(("quad_first","auto","mapped","native","smart_mapped")):
+            self.strategy.setItemData(index,token,Qt.UserRole)
+        for index,tip in enumerate(("Quadrilaterals first, triangles only where needed.",
+                                    "Chooses a suitable method, including SmartMapped, without generating trial meshes for applicability checks.",
+                                    "Structured quadrilaterals on mappable plates.",
+                                    "Native unstructured triangulation.",
+                                    "Preserves regular quadrilaterals on planar plates, with local transitions around holes and angled boundaries.")):
+            self.strategy.setItemData(index,tip,Qt.ToolTipRole)
+        self.strategy.setItemData(4,"SmartMapped",Qt.AccessibleTextRole)
         from anymesher.structured import StructurePreference
         self.preference=QComboBox();self.preference.addItems([item.value for item in StructurePreference]);form.addRow("Structure preference",self.preference)
         self.options=QPlainTextEdit("{}")
@@ -67,6 +79,15 @@ class MeshTask(QWidget):
         commit=QPushButton("Commit layout preview");commit.clicked.connect(app.guarded(app.commit_mesh_layout_preview));layout.addWidget(commit)
         self.summary=QLabel();self.summary.setWordWrap(True);layout.addWidget(self.summary);layout.addStretch()
 
+    def strategy_token(self):
+        """The strategy token behind the visible label (SmartMapped -> smart_mapped)."""
+        token=self.strategy.currentData(Qt.UserRole)
+        return str(token) if token is not None else self.strategy.currentText()
+
+    def set_strategy(self,token):
+        index=self.strategy.findData(str(token),Qt.UserRole)
+        self.strategy.setCurrentIndex(index) if index>=0 else self.strategy.setCurrentText(str(token))
+
     def open_mesher(self):
         """Launch the owner's standalone tool in its own process."""
         import subprocess,sys
@@ -85,8 +106,8 @@ class MeshTask(QWidget):
         options.setdefault("native_backend",self.backend.currentText())
         raw=options.get("automation")
         options["automation"]=MeshAutomationOptions(**raw) if isinstance(raw,dict) else raw or MeshAutomationOptions(**self.automation_controls.values())
-        if self.strategy.currentText()=="auto":options.setdefault("quality_policy",MeshQualityPolicy(**self.quality_controls.values()).to_dict())
-        if self.strategy.currentText()=="quad_first":
+        if self.strategy_token()=="auto":options.setdefault("quality_policy",MeshQualityPolicy(**self.quality_controls.values()).to_dict())
+        if self.strategy_token() in ("quad_first","smart_mapped"):
             from anymesher.quad.options import QuadMeshingOptions
             values=self.quad_controls.values()
             if values["line_search"]=="off":values["max_local_optimizations"]=0
@@ -96,7 +117,7 @@ class MeshTask(QWidget):
         options["execution_policy"]=(MeshExecutionPolicy.off() if mode=="Off"
             else MeshExecutionPolicy.auto() if mode=="Automatic"
             else MeshExecutionPolicy.explicit(self.workers.value()))
-        return dict(target_size=float(self.size.text()),strategy=self.strategy.currentText(),structure_preference=self.preference.currentText(),**options)
+        return dict(target_size=float(self.size.text()),strategy=self.strategy_token(),structure_preference=self.preference.currentText(),**options)
 
     def start(self):
         options=self.settings()
@@ -130,7 +151,15 @@ class MeshTask(QWidget):
         self.app.run(ClearRefinements())
 
     def copy_diagnosis(self):
-        self.app.clipboard.copy_text(self.app.diagnostic_report())
+        payload=self.app.mesh_diagnostic_report(draft={
+            "target_size_text":self.size.text(),
+            "strategy":self.strategy_token(),
+            "triangulation_backend":self.backend.currentText(),
+            "element_order":self.order.currentText(),
+            "layout_policy":self.layout_policy.currentText(),
+        })
+        self.app.clipboard.copy_text(payload)
+        self.app.set_status(f"Mesh diagnosis copied ({len(payload):,} characters)")
 
     def reset_mesh_drafts(self):
         from ...mesh_controls import MeshControls,StructuredMeshControls
@@ -138,7 +167,7 @@ class MeshTask(QWidget):
         settings=self.app.project.native_mesh_settings
         self.native_controls.set_values(MeshControls.display_values(settings))
         self.structured_controls.set_values(StructuredMeshControls.display_values(settings))
-        self.strategy.setCurrentText(self.app._project_mesh_strategy(self.app.project,None))
+        self.set_strategy(self.app._project_mesh_strategy(self.app.project,None))
         self.preference.setCurrentText(self.app._project_structure_preference(self.app.project,None))
         self.options.setPlainText("{}")
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
@@ -156,7 +185,29 @@ class MeshTask(QWidget):
     def refresh(self):
         self.generate.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only)
         mesh=self.app.mesh
-        self.summary.setText("No active mesh" if mesh is None else f"{mesh.num_nodes} nodes · {mesh.num_elements} elements")
+        if mesh is None:
+            self.summary.setText("No active mesh")
+        else:
+            summary=f"{mesh.num_nodes} nodes · {mesh.num_elements} elements"
+            record=self.app.project.mesh_records.get(getattr(self.app,"mesh_record_id",None))
+            if record is not None:
+                target=record.summary.get("target_size")
+                if target is not None:
+                    import math
+                    try:
+                        usable=type(target) in (int,float) and target > 0 and math.isfinite(target)
+                    except OverflowError:
+                        usable=False
+                    if usable:
+                        summary+=f" · generated target {target:g} m"
+                    else:
+                        summary+=" · generated target unavailable"
+                summary+=f" · {self.app.mesh_record_state(record)}"
+            rule=(getattr(mesh,"hybrid_diagnostics",{}) or {}).get("t3_angle_rule",{})
+            warnings=int(rule.get("warning_count",0)) if isinstance(rule,dict) else 0
+            if warnings:
+                summary+=f" · Warning: {warnings} triangles below {rule['minimum_angle']:g}° (uncertified)"
+            self.summary.setText(summary)
 
 
 class SolveTask(QWidget):
