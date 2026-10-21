@@ -88,4 +88,6 @@ def test_owner_serial_refusal_records_the_effective_route():
     assert not mesh.hybrid_diagnostics["parallel"]["used"]
     assert project._last_mesh_execution["route"] == "serial"
     assert project._last_mesh_execution["workers"] is None
-    assert "component" in project._last_mesh_execution["reason"]
+    reason = project._last_mesh_execution["reason"]
+    assert reason == mesh.hybrid_diagnostics["parallel"]["reason"]
+    assert "partition refused: all units joined" in reason
