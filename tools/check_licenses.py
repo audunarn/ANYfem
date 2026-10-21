@@ -44,6 +44,8 @@ INSTALLED_LICENSE_ALIASES = {
     "anymesher": {"MPL-2.0"},
     "anysection": {"MPL-2.0"},
     "anysolver": {"MPL-2.0"},
+    "anypost": {"MPL-2.0"},
+    "anysolver-results": {"MPL-2.0"},
     "anytk3d": {"MPL-2.0"},
     "build": {"MIT"},
     "h5py": {"BSD-3-Clause", "BSD License"},

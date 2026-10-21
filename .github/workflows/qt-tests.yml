@@ -71,8 +71,13 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Consolidated main, same as the headless matrix.
-          ref: 436457c86d1a30b951086aa195748ca590f253e4
+          ref: 10a67efbedf9faba516109450cccf085bea600f1
           path: .ecosystem/ANYsolver
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYpost
+          ref: 4bcb60f0476bd4278f683653c652a909678308df
+          path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmaterial
@@ -121,7 +126,7 @@ jobs:
           ANYMESHER_REQUIRE_NATIVE: '1'
           ANYMESHER_DISABLE_NATIVE: '0'
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e .ecosystem/ANYsolver/packages/results -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
           python -m pip install -e ".[dev,qt,tk]"
       - name: Default and explicit frontend launcher contracts
         run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q
