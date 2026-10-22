@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 import math
 import queue
@@ -307,8 +307,24 @@ class NativeMeshControl:
     target_size: float | None = None
     backend: MeshBackend | str | None = None
     parameters: tuple[tuple[str, Any], ...] = ()
+    # How ``target_size`` applies.  ``None`` (the default) resolves to
+    # "override" when a target size is given: the control's target is the size
+    # of the entity it is scoped to, finer *or coarser* than the global target.
+    # An explicit "refine" keeps the older can-only-refine (min) meaning.  A
+    # control without a target size (parameters only) is always "refine" and
+    # never touches the size.
+    size_mode: str | None = None
 
     def __post_init__(self) -> None:
+        if self.size_mode is None:
+            object.__setattr__(
+                self, "size_mode",
+                "override" if self.target_size is not None else "refine",
+            )
+        if self.size_mode not in ("refine", "override"):
+            raise ValueError("control size_mode must be 'refine' or 'override'")
+        if self.size_mode == "override" and self.target_size is None:
+            raise ValueError("an override control needs a target size")
         if not isinstance(self.control_id, str) or not self.control_id.strip():
             raise ValueError("control_id must be a non-empty string")
         object.__setattr__(self, "control_id", self.control_id.strip())
@@ -339,6 +355,7 @@ class NativeMeshControl:
         target_size: float | None = None,
         backend: MeshBackend | str | None = None,
         parameters: Mapping[str, Any] | Iterable[tuple[str, Any]] = (),
+        size_mode: str | None = None,
     ) -> "NativeMeshControl":
         return cls(
             control_id,
@@ -346,10 +363,11 @@ class NativeMeshControl:
             target_size,
             backend,
             _parameters(parameters, "control parameters"),
+            size_mode,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema": SCHEMA_VERSION,
             "id": self.control_id,
             "scope": self.scope.to_dict(),
@@ -359,6 +377,15 @@ class NativeMeshControl:
                 key: _thaw_json(value) for key, value in self.parameters
             },
         }
+        if self.target_size is not None and self.size_mode == "refine":
+            # Only the explicit refine-only request is written.  A sized control
+            # without the key (every older file, and every control made without
+            # a mode) means "override": its target size was always offered as
+            # the size of its scope.  The default therefore serializes with the
+            # same bytes as before; a parameters-only control has no size
+            # semantics at all.
+            payload["size_mode"] = "refine"
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NativeMeshControl":
@@ -378,6 +405,7 @@ class NativeMeshControl:
             target_size=payload.get("target_size"),
             backend=payload.get("backend"),
             parameters=payload.get("parameters", {}),
+            size_mode=payload.get("size_mode"),
         )
 
 
@@ -1097,6 +1125,76 @@ class NativeMeshingRuntime:
         return self.control_generation
 
     update_settings = set_settings
+
+    def set_settings_scoped(
+        self,
+        settings: NativeMeshSettings,
+        components: EntityHandle | Iterable[EntityHandle],
+    ) -> tuple[EntityHandle, ...]:
+        """Replace *controls* that matter only to ``components``.
+
+        The public :meth:`set_settings` contract is unchanged (new control
+        generation, every known component remeshed).  This internal-compatible
+        route is for a control change whose effect is limited to the named
+        components: the control generation is kept, so the publications and
+        in-flight jobs of every other component stay valid, while each named
+        known component gets a new component generation - its old pending or
+        running request is cancelled and can never publish the old target - and
+        is rescheduled with the new settings.  Only the controls may differ
+        from the current settings; anything else needs :meth:`set_settings`.
+        Returns the components that were rescheduled.
+        """
+
+        if not isinstance(settings, NativeMeshSettings):
+            raise TypeError("settings must be NativeMeshSettings")
+        if isinstance(components, EntityHandle):
+            handles: tuple[EntityHandle, ...] = (components,)
+        else:
+            handles = _normalise_handles(components)
+        with self._lock:
+            self._require_open_locked()
+            if settings == self._settings:
+                return ()
+            if replace(settings, controls=()) != replace(self._settings, controls=()):
+                raise ValueError(
+                    "a scoped settings update may change only the controls; "
+                    "use set_settings for anything else"
+                )
+            self._settings = settings
+            # A component not yet known simply meshes with the new settings
+            # when it is first scheduled.
+            targets = tuple(item for item in handles if item in self._known_components)
+            # The affected components are invalidated in the SAME critical
+            # section as the settings change.  The control generation stays, so
+            # without this an old affected job could complete and publish in
+            # the gap before scheduling.  Slow snapshot capture still happens
+            # outside the lock, in ``_schedule_components``.
+            reason = "superseded by newer scoped mesh controls"
+            for component in targets:
+                self._component_generations[component] = (
+                    self._component_generations.get(component, 0) + 1
+                )
+                pending = self._pending.pop(component, None)
+                if pending is not None:
+                    pending.cancellation.cancel(reason)
+                    self._emit_locked(
+                        component,
+                        ComponentUpdateKind.STALE,
+                        pending.token,
+                        message="pending component request was coalesced",
+                        retained_previous=component in self._publications,
+                    )
+                active = self._active_job_locked(component)
+                if active is not None:
+                    active.cancellation.cancel(reason)
+        if targets:
+            self._schedule_components(
+                targets,
+                bump_component=False,
+                reason="superseded by newer scoped mesh controls",
+                changes=None,
+            )
+        return targets
 
     def cancel_component(self, component: EntityHandle) -> bool:
         """Cancel pending/running work while retaining its last valid mesh."""

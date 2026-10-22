@@ -43,7 +43,8 @@ def window(qapp, tmp_path, monkeypatch):
     qapp.processEvents()
 
 
-def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path):
+@pytest.mark.parametrize('layout', [None, 'existing', 'adaptive'])
+def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path, layout):
     project = Project(name="quad options")
     project.add_material(steel("S355", 0.010))
     project.add_plate_section("plate", thickness=0.010, material="S355")
@@ -51,12 +52,11 @@ def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path):
     points = geometry.add_points([(0, 0, 0), (2, 0, 0), (2, 1, 0), (0, 1, 0)])
     project.assign_plate(geometry.add_face(geometry.add_polyline(points, close=True)), "plate")
     saved = {**sg1_quad_options().to_dict(), "max_local_optimizations": 32}
+    parameters = {"quad_options": saved, "quad_t3_minimum_angle": 12.0, "quad_t3_angle_action": "warning"}
+    if layout is not None:
+        parameters['layout_policy'] = layout
     project.set_native_mesh_settings(NativeMeshSettings.create(
-        0.25, backend="quad_first", parameters={
-            "quad_options": saved,
-            "quad_t3_minimum_angle": 12.0,
-            "quad_t3_angle_action": "warning",
-        },
+        0.25, backend="quad_first", parameters=parameters,
     ))
     path = save_project(project, tmp_path / "quad_options.anyfem")
 
@@ -67,6 +67,8 @@ def test_saved_quad_options_reopen_into_the_mesh_panel(window, qapp, tmp_path):
     values = window.panels["Mesh"].quad_controls.values()
     assert values["max_local_optimizations"] == 32
     assert values["orientation"] == saved["orientation"]
+    assert window.panels['Mesh'].layout_policy.currentText() == (layout or 'adaptive')
+
     assert window.panels["Mesh"].t3_minimum_angle.text() == "12.0"
     assert window.panels["Mesh"].t3_angle_action.currentText() == "warning"
     submitted = window.panels["Mesh"].settings()

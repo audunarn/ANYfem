@@ -487,6 +487,7 @@ class AddFeature(FeatureCommand):
     kind_version: int = 1
     dependencies: Sequence[int] = ()
     label: str = "add feature"
+    engineering: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         FeatureCommand.__init__(self)
@@ -503,6 +504,9 @@ class AddFeature(FeatureCommand):
             kind_version=self.kind_version,
             dependencies=self.dependencies,
         )
+        if self.engineering:
+            from .generator_properties import properties
+            project.generator_properties[record.feature_id]=properties(self.engineering)
         return record.feature_id
 
 
@@ -698,8 +702,10 @@ class DeleteFeature(FeatureCommand):
         geometry = project.geometry
         _protect_sketch_cuts(geometry, self.feature_id)
         self._before = geometry.design_snapshot()
-        working_project = copy(project)
-        working_project.geometry = geometry.clone(include_features=True)
+        self._before_attributes=_attribute_snapshot(project)
+        working_project=_stage_feature_project(project)
+        from .generator_properties import remove_generator_properties
+        remove_generator_properties(working_project,self.feature_id)
         working_project.geometry.features.remove(
             int(self.feature_id), cascade=False
         )
@@ -709,7 +715,9 @@ class DeleteFeature(FeatureCommand):
                 report.diagnostic
                 or f"feature {self.feature_id} failed to regenerate"
             )
+        self._after_attributes=_attribute_snapshot(working_project)
         geometry.restore_design(working_project.geometry.design_snapshot())
+        _restore_attributes(project,self._after_attributes)
         self._feature_id = int(self.feature_id)
         self._replacements = tuple(report.replacements)
         self._after = geometry.design_snapshot()
@@ -719,11 +727,13 @@ class DeleteFeature(FeatureCommand):
         if self._before is None:
             raise RuntimeError("feature delete has not been applied")
         project.geometry.restore_design(self._before)
+        if self._before_attributes is not None:_restore_attributes(project,self._before_attributes)
 
     def redo(self, project: Project) -> int:
         if self._after is None:
             return self.do(project)
         project.geometry.restore_design(self._after)
+        if self._after_attributes is not None:_restore_attributes(project,self._after_attributes)
         return int(self.feature_id)
 
 
@@ -742,6 +752,11 @@ class AddStiffenedPanel(AddFeature):
         v_direction: Sequence[float] = (0.0, 1.0, 0.0),
         semantic_group: str = "shell",
         name: str = "Stiffened panel",
+        beam_section: str | None = None,
+        plate_section: str | None = None,
+        plate_thickness: float | None = None,
+        material: str | None = None,
+        mesh_size: float | None = None,
     ) -> None:
         parameters: Dict[str, Any] = {
             "length": float(length),
@@ -758,6 +773,7 @@ class AddStiffenedPanel(AddFeature):
             "generator.stiffened_panel",
             name=name,
             parameters=parameters,
+            engineering={key:value for key,value in dict(beam_section=beam_section,plate_section=plate_section,plate_thickness=plate_thickness,material=material,mesh_size=mesh_size).items() if value is not None} or None,
             label="add stiffened panel",
         )
 
@@ -777,6 +793,11 @@ class AddCylinder(AddFeature):
         axis: Sequence[float] = (0.0, 0.0, 1.0),
         radial_direction: Sequence[float] = (1.0, 0.0, 0.0),
         name: str = "Cylinder",
+        beam_section: str | None = None,
+        plate_section: str | None = None,
+        plate_thickness: float | None = None,
+        material: str | None = None,
+        mesh_size: float | None = None,
         **legacy: Any,
     ) -> None:
         recorded_parameters = legacy.pop("parameters", None)
@@ -829,6 +850,7 @@ class AddCylinder(AddFeature):
             "generator.cylinder",
             name=name,
             parameters=parameters,
+            engineering={key:value for key,value in dict(beam_section=beam_section,plate_section=plate_section,plate_thickness=plate_thickness,material=material,mesh_size=mesh_size).items() if value is not None} or None,
             label="add cylinder",
         )
 
@@ -849,6 +871,11 @@ class AddCone(AddFeature):
         axis: Sequence[float] = (0.0, 0.0, 1.0),
         radial_direction: Sequence[float] = (1.0, 0.0, 0.0),
         name: str = "Cone",
+        beam_section: str | None = None,
+        plate_section: str | None = None,
+        plate_thickness: float | None = None,
+        material: str | None = None,
+        mesh_size: float | None = None,
     ) -> None:
         parameters: Dict[str, Any] = {
             "radius_start": float(radius_start),
@@ -867,6 +894,7 @@ class AddCone(AddFeature):
             "generator.cone",
             name=name,
             parameters=parameters,
+            engineering={key:value for key,value in dict(beam_section=beam_section,plate_section=plate_section,plate_thickness=plate_thickness,material=material,mesh_size=mesh_size).items() if value is not None} or None,
             label="add cone",
         )
 
@@ -2677,7 +2705,9 @@ class AddRefinement(Command):
         return project.add_refinement(self.refinement)
 
     def undo(self, project: Project) -> None:
-        project.refinements.remove(self.refinement)
+        index=next((i for i,item in enumerate(project.refinements) if item is self.refinement),None)
+        if index is None:raise ValueError("The applied mesh size is no longer available")
+        project.refinements.pop(index)
 
 
 @dataclass(eq=False)

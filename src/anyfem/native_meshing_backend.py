@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
 from typing import Any, Iterable, Mapping
 
@@ -10,6 +10,7 @@ from anygeometry import EntityHandle, EntityRef, extract_model_closure
 
 from anymesher.hybrid import generate_hybrid_mesh_result
 from anymesher.meshing_view import GeometryMeshingView
+from anymesher.refinement import Refinement
 
 from .native_meshing import (
     CertificationMode,
@@ -17,6 +18,7 @@ from .native_meshing import (
     DirtyComponentResolution,
     MeshBackend,
     MeshGenerationRequest,
+    NativeMeshCancelled,
     NativeMeshResult,
     NativeMeshSettings,
     NativeMeshingRuntime,
@@ -89,11 +91,13 @@ class NativeProjectMeshingSession:
             resolved = NativeMeshSettings.create(
                 float(project.target_size), element_order=project.element_order
             )
+        # The persisted settings never carry the generator-derived controls;
+        # the runtime sees them merged in (see ``_effective_settings``).
         project.set_native_mesh_settings(resolved)
         self._lock = RLock()
         self._audit_reports: dict[int, Any] = {}
         self.runtime = NativeMeshingRuntime(
-            resolved,
+            self._effective_settings(resolved),
             resolve_dirty_components=self.resolve_dirty_components,
             generate_component=self.generate_component,
             capture_component=self.capture_component,
@@ -101,6 +105,99 @@ class NativeProjectMeshingSession:
         )
         self.geometry.add_change_hook(self.on_geometry_change)
         self._closed = False
+
+    # -- generator-owned size controls ----------------------------------
+    def _generator_controls(self) -> tuple[Any, ...]:
+        """Scoped override controls mirroring the project's generator sizes.
+
+        Stable ids (``generator:<feature>:mesh``) and scopes (the generator's
+        own output faces/edges), derived from the live generator properties and
+        never persisted.  A feature that no longer resolves contributes none.
+        """
+
+        from .generator_properties import generator_mesh_controls
+
+        # Absent or suppressed generators contribute nothing (decided inside);
+        # a malformed advertised size raises GeneratorControlError.
+        return generator_mesh_controls(self.project)
+
+    def _effective_settings(self, base: NativeMeshSettings) -> NativeMeshSettings:
+        generated = self._generator_controls()
+        if not generated:
+            return base
+        owned = {control.control_id for control in generated}
+        kept = tuple(item for item in base.controls if item.control_id not in owned)
+        return replace(base, controls=(*kept, *generated))
+
+    def _components_of_controls(
+        self, controls: Iterable[Any]
+    ) -> tuple[EntityHandle, ...]:
+        """Components a control scope can influence (empty scope: all of them)."""
+
+        view = GeometryMeshingView(self.geometry)
+        found: set[EntityHandle] = set()
+        for control in controls:
+            handles = tuple(control.scope.handles)
+            if not handles:
+                return self.all_components()
+            for handle in handles:
+                if handle.model_id != self.geometry.model_id:
+                    raise ValueError("control scope belongs to another geometry model")
+                found.update(self._components_for_key(view, handle.kind, int(handle.id)))
+        return tuple(sorted(found, key=lambda item: (item.kind, item.id)))
+
+    def _refresh_generator_controls(self) -> tuple[EntityHandle, ...]:
+        """Re-derive the generator controls; return the components that changed.
+
+        A change that is only in generator-owned controls goes through the
+        runtime's scoped route: the control generation stays, the publications
+        and jobs of every other component stay valid, and each affected
+        component's old request can never publish the old size.  Any other
+        difference (the persisted settings changed) is a global update.
+        """
+
+        base = self.project.native_mesh_settings
+        if base is None:
+            return ()
+        new = self._effective_settings(base)
+        old = self.runtime.settings
+        if new == old:
+            return ()
+
+        def owned(settings: NativeMeshSettings) -> dict[str, Any]:
+            return {
+                item.control_id: item for item in settings.controls
+                if item.control_id.startswith("generator:")
+            }
+
+        def rest(settings: NativeMeshSettings) -> NativeMeshSettings:
+            return replace(settings, controls=tuple(
+                item for item in settings.controls
+                if not item.control_id.startswith("generator:")
+            ))
+
+        if rest(new) != rest(old):
+            self.runtime.set_settings(new)
+            return self.all_components()
+        before, after = owned(old), owned(new)
+        changed = [
+            item for key in sorted(set(before) | set(after))
+            for item in (before.get(key), after.get(key))
+            if item is not None and before.get(key) != after.get(key)
+        ]
+        affected = self._components_of_controls(changed)
+        return self.runtime.set_settings_scoped(new, affected)
+
+    def refresh_generator_controls(self) -> int:
+        """Re-derive the generator controls; returns the control generation.
+
+        Public contract kept: the return value is the runtime's control
+        generation.  Only the components a changed generator size can reach are
+        remeshed (see :meth:`_refresh_generator_controls`).
+        """
+
+        self._refresh_generator_controls()
+        return self.runtime.control_generation
 
     def _handle(self, kind: str, identifier: int) -> EntityHandle:
         return EntityHandle(self.geometry.model_id, str(kind), int(identifier))
@@ -177,6 +274,8 @@ class NativeProjectMeshingSession:
     def resolve_dirty_components(
         self, changes: CoalescedChangeSet
     ) -> DirtyComponentResolution:
+        # Generator sizes edited since the last flush reach the runtime here.
+        self.refresh_generator_controls()
         view = GeometryMeshingView(self.geometry)
         dirty: set[EntityHandle] = set()
         removed: set[EntityHandle] = set()
@@ -241,6 +340,25 @@ class NativeProjectMeshingSession:
 
     def generate_component(self, request: MeshGenerationRequest) -> NativeMeshResult:
         request.cancellation.raise_if_cancelled("hybrid component start")
+        base = self.project.native_mesh_settings
+        current_generated = {
+            item.control_id: item for item in self._generator_controls()
+        }
+        captured_generated = {
+            item.control_id: item for item in request.settings.controls
+            if item.control_id.startswith("generator:")
+        }
+        if base is not None and current_generated != captured_generated:
+            # A generator size (or the persisted controls) changed after this
+            # request captured its settings.  Publish nothing from the old
+            # sizes: re-issue through the runtime (new control generation,
+            # every known component remeshed) and drop this attempt.
+            affected = self._refresh_generator_controls()
+            if request.component in affected:
+                # Re-issued by the runtime for this component; never publish
+                # from the old size.  A component the change cannot reach
+                # carries on: its own result does not depend on it.
+                raise NativeMeshCancelled("mesh controls changed; request superseded")
         snapshot = request.snapshot
         if not isinstance(snapshot, GeometryComponentSnapshot):
             raise TypeError("native generator requires GeometryComponentSnapshot")
@@ -277,8 +395,49 @@ class NativeProjectMeshingSession:
             raise ValueError(
                 "native_backend is a project-level setting, not a mesh parameter"
             )
-        for control in sorted(request.controls, key=lambda item: item.control_id):
-            if control.target_size is not None:
+        # Entity overrides own the component's size (finer or coarser than the
+        # global target); overlapping overrides resolve to the finest.  Refine
+        # controls keep their established meaning and can still refine below
+        # an override.  Controls with no target size never touch the size.
+        ordered_controls = sorted(request.controls, key=lambda item: item.control_id)
+        override_sizes: list[float] = []
+        entity_refinements: list[Refinement] = []
+        for control in ordered_controls:
+            if (
+                control.target_size is None
+                or getattr(control, "size_mode", "refine") != "override"
+            ):
+                continue
+            handles = tuple(control.scope.handles)
+            if not handles:
+                # Global control: every component's own size.
+                override_sizes.append(float(control.target_size))
+                continue
+            for handle in handles:
+                if handle == snapshot.source_component:
+                    # Scoped to exactly this component.
+                    override_sizes.append(float(control.target_size))
+                elif handle.kind in ("face", "edge"):
+                    # Plate/line scoped: that face or edge keeps its own size
+                    # inside this component; the others stay at the base target.
+                    working = snapshot.source_to_work.get(handle)
+                    if working is not None and working.kind in ("face", "edge"):
+                        entity_refinements.append(
+                            Refinement(
+                                size=float(control.target_size),
+                                ref=EntityRef(working.kind, int(working.id)),
+                                name=control.control_id,
+                                mode="override",
+                            )
+                        )
+                # A sheet/member handle of another component does not apply here.
+        if override_sizes:
+            target_size = min(override_sizes)
+        for control in ordered_controls:
+            if (
+                control.target_size is not None
+                and getattr(control, "size_mode", "refine") != "override"
+            ):
                 target_size = min(target_size, float(control.target_size))
             control_parameters = dict(control.parameters)
             if "native_backend" in control_parameters:
@@ -312,6 +471,7 @@ class NativeProjectMeshingSession:
                 target_size=target_size,
                 order=request.settings.element_order,
                 member_ids=member_ids,
+                refinements=entity_refinements,
             )
             if automatic_selection.eligible:
                 strategy = "smart_mapped"
@@ -333,7 +493,7 @@ class NativeProjectMeshingSession:
         }
         if quad_pipeline:
             supported["quad_options"] = quad_options
-            supported["layout_policy"] = parameters.get("layout_policy", "existing")
+            supported["layout_policy"] = parameters.get("layout_policy", "adaptive")
             supported["quad_t3_minimum_angle"] = parameters.get("quad_t3_minimum_angle", 15.0)
             supported["quad_t3_angle_action"] = parameters.get("quad_t3_angle_action", "error")
         strict = request.certification_mode is CertificationMode.STRICT
@@ -343,6 +503,7 @@ class NativeProjectMeshingSession:
             strategy=strategy,
             face_ids=face_ids,
             member_ids=member_ids,
+            refinements=tuple(entity_refinements),
             order=request.settings.element_order,
             certification_mode="strict" if strict else "none",
             cancellation_check=request.cancellation.raise_if_cancelled,
@@ -414,6 +575,7 @@ class NativeProjectMeshingSession:
     def request_remesh(
         self, components: EntityHandle | Iterable[EntityHandle] | None = None
     ) -> tuple[EntityHandle, ...]:
+        self.refresh_generator_controls()
         selected = self.all_components() if components is None else components
         return self.runtime.request_remesh(selected)
 

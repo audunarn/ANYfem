@@ -1783,7 +1783,7 @@ class MeshPanel(StagePanel):
         self._native_options = ttk.Frame(controls)
         self._native_options.pack(fill="x")
         self._quad_advanced = ttk.LabelFrame(controls, text="Advanced quad-first settings", padding=(4, 2))
-        self._quad_layout = tk.BooleanVar(value=False)
+        self._quad_layout = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             self._quad_advanced, text="Automatic geometry layout",
             variable=self._quad_layout,
@@ -2180,13 +2180,13 @@ class MeshPanel(StagePanel):
         settings = self.app.project.native_mesh_settings
         parameters = {} if settings is None else settings.to_dict()["parameters"]
         quad_token = (project_id, repr(parameters.get("quad_options")),
-                      parameters.get("layout_policy", "existing"))
+                      parameters.get("layout_policy", "adaptive"))
         if (hasattr(self, "_quad_orientation")
                 and getattr(self, "_quad_loaded_token", None) != quad_token):
             from ..quad_first import effective_quad_options
 
             quad = effective_quad_options(parameters.get("quad_options"))
-            self._quad_layout.set(parameters.get("layout_policy", "existing") == "adaptive")
+            self._quad_layout.set(parameters.get("layout_policy", "adaptive") == "adaptive")
             self._quad_orientation.set(quad.orientation)
             self._quad_quality.set(quad.quality_model)
             self._quad_optimization.set(quad.line_search)

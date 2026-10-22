@@ -96,7 +96,7 @@ class MeshSettings:
     controls: MeshControls | None = None
     structured_controls: StructuredMeshControls | None = None
     quad_options: object | None = None
-    layout_policy: str = "existing"
+    layout_policy: str | None = None
     quad_t3_minimum_angle: float = 15.0
     quad_t3_angle_action: str = "error"
     automation: object | None = None
@@ -149,6 +149,8 @@ class MeshSettings:
             object.__setattr__(self, "quad_options", effective_quad_options(self.quad_options))
         elif self.quad_options is not None:
             raise ValueError("quad_options requires strategy='quad_first' or 'smart_mapped'")
+        if self.layout_policy is None:
+            object.__setattr__(self, "layout_policy", "adaptive" if quad_selected else "existing")
         if self.layout_policy not in ("existing", "adaptive"):
             raise ValueError("layout_policy must be 'existing' or 'adaptive'")
         if self.layout_policy == "adaptive" and not quad_selected:
@@ -205,7 +207,7 @@ class MeshSettings:
         controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
-        layout_policy: str = "existing",
+        layout_policy: str | None = None,
         quad_t3_minimum_angle: float = 15.0,
         quad_t3_angle_action: str = "error",
         automation: object | None = None,

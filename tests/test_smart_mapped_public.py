@@ -154,7 +154,9 @@ def test_mesh_settings_validate_hash_and_normalise_smart_mapped():
     auto = MeshSettings.create(.5, element_order='quadratic', strategy='auto')
     assert len({settings.input_hash, quad.input_hash, auto.input_hash}) == 3
     adaptive = MeshSettings.create(.5, element_order='quadratic', strategy='smart_mapped', layout_policy='adaptive')
-    assert adaptive.layout_policy == 'adaptive' and adaptive.input_hash != settings.input_hash
+    assert adaptive.layout_policy == 'adaptive' and adaptive.input_hash == settings.input_hash
+    existing = MeshSettings.create(.5, element_order='quadratic', strategy='smart_mapped', layout_policy='existing')
+    assert existing.input_hash != settings.input_hash
     warned = MeshSettings.create(.5, element_order='linear', strategy='smart_mapped', quad_t3_angle_action='warning')
     plain = MeshSettings.create(.5, element_order='linear', strategy='smart_mapped')
     assert warned.input_hash != plain.input_hash

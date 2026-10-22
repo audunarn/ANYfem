@@ -16,6 +16,9 @@ def _stage_feature_project(project: Project) -> Project:
     for name in ("face_sections", "edge_sections", "face_assignment_ids", "edge_assignment_ids",
                  "section_assignments", "sheet_join_intents", "geometry_attachment_regions"):
         setattr(working_project, name, dict(getattr(project, name)))
+    working_project.plate_sections=dict(project.plate_sections)
+    working_project.beam_sections=dict(project.beam_sections)
+    working_project.generator_properties=deepcopy(project.generator_properties)
     working_project.regions = deepcopy(project.regions)
     working_project._singleton_region_cache = {}
     working_project._singleton_region_cache_size = -1
@@ -36,6 +39,9 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
     """Cheap snapshot of everything attached to geometry."""
 
     return {
+        "plate_sections":dict(project.plate_sections),
+        "beam_sections":dict(project.beam_sections),
+        "generator_properties":deepcopy(project.generator_properties),
         "face_sections": dict(project.face_sections),
         "edge_sections": dict(project.edge_sections),
         "face_assignment_ids": dict(project.face_assignment_ids),
@@ -68,6 +74,8 @@ def _attribute_snapshot(project: Project) -> Dict[str, Any]:
 def _restore_attributes(project: Project, snapshot: Dict[str, Any]) -> None:
     if not snapshot:
         return
+    for key in ("plate_sections","beam_sections","generator_properties"):
+        if key in snapshot:setattr(project,key,deepcopy(snapshot[key]))
     project.face_sections.clear()
     project.face_sections.update(snapshot["face_sections"])
     project.edge_sections.clear()

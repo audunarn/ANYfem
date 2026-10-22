@@ -19,6 +19,14 @@ offset as well as the authored beam offset.
 
 ## Automatic selection
 
+Quad-first and SmartMapped now default to the Adaptive layout in the Mesh task,
+background jobs and headless project calls. Saved explicit layout choices remain
+unchanged. Adaptive quad-first keeps station-conforming rectangular grids aligned
+with plate boundaries and stiffener/intersection edges, including collinear split
+sides when opposite station distributions agree. Regular grids retain their right
+angles through local optimization; holes and angled transitions keep their normal
+quality and coverage checks.
+
 Automatic retains the existing mapped route for suitable untrimmed geometry.
 For other models it asks the mesher once whether SmartMapped is applicable,
 after structural preparation. This reads geometry metadata and planar charts;

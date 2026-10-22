@@ -81,7 +81,13 @@ ENVELOPES_FORMAT = 11
 # Submodel definitions and runs are format 12, again only when a project has
 # them.
 SUBMODELS_FORMAT = 12
-MAX_READ_FORMAT = SUBMODELS_FORMAT
+# Per-entity mesh-size overrides (a plate or beam meshed at its own size, finer
+# or coarser than the global target, as opposed to refine-only zones) are
+# format 13, written only when a project uses them so every other file keeps its
+# format and bytes.  An older reader would treat an override as a refine-only
+# zone and silently clamp a coarse size, so it must refuse the file instead.
+ENTITY_SIZES_FORMAT = 13
+MAX_READ_FORMAT = ENTITY_SIZES_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -194,7 +200,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "anyfem": {
             "schema": "anyfem.project",
             "format": (
-                SUBMODELS_FORMAT
+                ENTITY_SIZES_FORMAT
+                if _uses_entity_sizes(project)
+                else SUBMODELS_FORMAT
                 if project.submodels or project.submodel_runs
                 else ENVELOPES_FORMAT
                 if _uses_envelopes(project)
@@ -277,6 +285,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             }
             for section in _by_name(project.beam_sections)
         ],
+        "generator_properties": {str(k):v for k,v in sorted(project.generator_properties.items())},
         "face_sections": {str(k): v for k, v in sorted(project.face_sections.items())},
         "edge_sections": {str(k): v for k, v in sorted(project.edge_sections.items())},
         "assignment_ids": {
@@ -394,6 +403,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
                     "center": (
                         None if item.center is None else _vector(item.center)
                     ),
+                    # Only written for overrides, so refine-only zones keep
+                    # their historical bytes.
+                    **({"mode": item.mode} if item.mode != "refine" else {}),
                 }
                 for item in project.refinements
             ],
@@ -1046,7 +1058,15 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
                 ),
                 center=None if center is None else tuple(center),
                 name=entry.get("name", "refinement"),
+                # Absent means a refine-only zone: every file written before
+                # entity overrides existed keeps its exact meaning.
+                mode=str(entry.get("mode", "refine")),
             )
+            if refinement.mode != "refine" and version < ENTITY_SIZES_FORMAT:
+                raise ProjectFileError(
+                    f"refinement {refinement.name!r}: entity size overrides "
+                    f"need project format {ENTITY_SIZES_FORMAT}"
+                )
             if project.mesh_only or refinement.ref in project.geometry_attachment_regions:
                 project.refinements.append(refinement)
             else:
@@ -1081,6 +1101,8 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             raise ProjectFileError(
                 "imported_semantics_artifact_id must name a mesh artifact"
             )
+    from ..generator_properties import load_generator_properties
+    load_generator_properties(project,data.get("generator_properties",{}))
     _read_submodels(project, data, version)
     _finalize_compatibility_recovery(project)
     return project
@@ -1283,6 +1305,28 @@ def load_project(path: str | Path) -> Project:
     except json.JSONDecodeError as error:
         raise ProjectFileError(f"{source} is not valid JSON: {error}") from None
     return project_from_dict(data)
+
+
+def _uses_entity_sizes(project: Project) -> bool:
+    """Whether the project holds any per-entity mesh-size override."""
+
+    if any(item.mode != "refine" for item in project.refinements):
+        return True
+    settings = project.native_mesh_settings
+    if settings is not None and any(
+        control.target_size is not None and control.size_mode == "override"
+        for control in settings.controls
+    ):
+        # A sized control means the size of its scope (finer or coarser).  An
+        # older reader would clamp it as a refine-only minimum, so such a
+        # project must be refused there.  Explicit refine-only controls and
+        # parameters-only controls keep the old format.
+        return True
+    return any(
+        isinstance(options, Mapping)
+        and options.get("mesh_size_mode") is not None
+        for options in project.generator_properties.values()
+    )
 
 
 # ----------------------------------------------------------------------

@@ -480,7 +480,7 @@ class WorkbenchWorkflow:
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
-        layout_policy: str = "existing",
+        layout_policy: str = "adaptive",
         quad_t3_minimum_angle: float | None = None,
         quad_t3_angle_action: str | None = None,
     ) -> None:
@@ -562,8 +562,8 @@ class WorkbenchWorkflow:
             quad_options = effective_quad_options(quad_options)
             if layout_policy is None:
                 layout_policy = (
-                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
-                    if self.project.native_mesh_settings is not None else "existing"
+                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "adaptive")
+                    if self.project.native_mesh_settings is not None else "adaptive"
                 )
             stored_quad_parameters = (
                 {} if self.project.native_mesh_settings is None
@@ -804,8 +804,8 @@ class WorkbenchWorkflow:
             quad_options = effective_quad_options(quad_options)
             if layout_policy is None:
                 layout_policy = (
-                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "existing")
-                    if self.project.native_mesh_settings is not None else "existing"
+                    self.project.native_mesh_settings.to_dict()["parameters"].get("layout_policy", "adaptive")
+                    if self.project.native_mesh_settings is not None else "adaptive"
                 )
             stored_quad_parameters = (
                 {} if self.project.native_mesh_settings is None

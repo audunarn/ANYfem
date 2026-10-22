@@ -8,6 +8,7 @@ import pytest
 from anygeometry.model import GeometryModel
 
 from anyfem.io.project_file import (
+    ENTITY_SIZES_FORMAT,
     FORMAT_VERSION,
     ProjectFileError,
     load_project,
@@ -50,7 +51,13 @@ def test_native_settings_and_model_bound_handles_round_trip() -> None:
     payload = project_to_dict(project)
     restored = project_from_dict(payload)
 
-    assert payload["anyfem"]["format"] == FORMAT_VERSION == 8
+    # A sized control means the size of its scope (finer or coarser), so the
+    # project advertises the guarded entity-size format and an older reader
+    # refuses it instead of clamping the target as a refine-only minimum.
+    assert payload["anyfem"]["format"] == ENTITY_SIZES_FORMAT == 13
+    # Files with no entity-size semantics keep the base format.
+    assert FORMAT_VERSION == 8
+    assert project_to_dict(Project("plain"))["anyfem"]["format"] == FORMAT_VERSION
     assert payload["meshing"]["native_backend"] == "auto"
     assert restored.geometry.model_id == project.geometry.model_id
     assert restored.native_triangulation_backend == "auto"

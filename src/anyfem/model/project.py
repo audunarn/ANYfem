@@ -114,6 +114,7 @@ class Project:
     combinations: Dict[str, Combination] = field(default_factory=dict)
     imperfections: List[Imperfection] = field(default_factory=list)
     refinements: List[Refinement] = field(default_factory=list)
+    generator_properties: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     element_order: str = "linear"
     # Document-level registries.  They are additive to the established
     # headless fields above, so existing scripts remain source-compatible.
@@ -268,6 +269,8 @@ class Project:
         if not report.success:
             return report
         try:
+            from ..generator_properties import reapply_generator_properties
+            reapply_generator_properties(self)
             reapply_sheet_join_intents(
                 self.geometry, self.sheet_join_intents.values()
             )
@@ -2058,8 +2061,8 @@ class Project:
             quad_options = effective_quad_options(quad_options)
             if layout_policy is None:
                 layout_policy = (
-                    settings.to_dict()["parameters"].get("layout_policy", "existing")
-                    if settings is not None else "existing"
+                    settings.to_dict()["parameters"].get("layout_policy", "adaptive")
+                    if settings is not None else "adaptive"
                 )
             if layout_policy not in ("existing", "adaptive"):
                 raise ProjectError("layout_policy must be 'existing' or 'adaptive'")
@@ -2292,6 +2295,24 @@ class Project:
         source_refinements = (
             self.refinements if refinements is None else list(refinements)
         )
+        def _override_intentionally_absent(item: Refinement) -> bool:
+            """Only a suppressed generator's own size may have no entity."""
+
+            parts = str(item.name).split(":")
+            if len(parts) != 3 or parts[0] != "generator" or parts[2] != "mesh":
+                return False
+            try:
+                identifier = int(parts[1])
+            except ValueError:
+                return False
+            if identifier not in self.generator_properties:
+                return False
+            try:
+                record = self.geometry.features.get(identifier)
+            except LookupError:
+                return False
+            return bool(record.suppressed)
+
         working_refinements: list[Refinement] = []
         for refinement in source_refinements:
             if refinement.ref is None:
@@ -2299,6 +2320,19 @@ class Project:
                 continue
             made = tuple(dict.fromkeys(target for source in self.resolve_geometry_attachment(refinement.ref)
                                        for target in descendants(source.kind, source.id)))
+            if (
+                getattr(refinement, "mode", "refine") == "override"
+                and not made
+                and not _override_intentionally_absent(refinement)
+            ):
+                # An entity size names a plate or beam that must exist.  Unlike
+                # a spatial zone it can never be dropped silently: the owner
+                # would otherwise mesh the whole selection without it.
+                raise ProjectError(
+                    f"entity size override {refinement.name!r} refers to "
+                    f"{refinement.ref.kind} {refinement.ref.id}, which does not "
+                    "exist in the model"
+                )
             working_refinements.extend(
                 replace(refinement, ref=item) for item in made
             )
