@@ -1632,12 +1632,18 @@ class WorkbenchWorkflow:
         )
         entity_owners = self.tree.generated_entity_owners()
         exposed_features = self.tree.exploded_feature_ids
+        if getattr(self.selection.filter,'flavor','')=='plate_edge':
+            from ..selection import SelectionFilter,plate_boundary_edge_ids
+            self.selection.set_filter(SelectionFilter(kinds=frozenset({'edge'}),flavor='plate_edge',eligible_ids=plate_boundary_edge_ids(self.project,exposed_features)))
+        plate_edges=getattr(self.selection.filter,'eligible_ids',frozenset()) if getattr(self.selection.filter,'flavor','')=='plate_edge' else frozenset()
         cache_key = (
             id(self.project.geometry),
             int(self.project.geometry.revision),
+            self.session.revision.model_hash,
             resolution,
             bool(self.viewport.visualization.show_beam_sections),
             tuple(sorted(exposed_features)),
+            (getattr(self.selection.filter,'flavor',''),tuple(sorted(plate_edges))),
         )
         cached = self._geometry_scene_cache
         if cached is None or cached[0] != cache_key:
@@ -1648,6 +1654,7 @@ class WorkbenchWorkflow:
                 show_beam_sections=self.viewport.visualization.show_beam_sections,
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
+                plate_edges=plate_edges,
             )
             interaction_scene = build_geometry_scene(
                 self.project,
@@ -1656,13 +1663,14 @@ class WorkbenchWorkflow:
                 show_beam_sections=self.viewport.visualization.show_beam_sections,
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
+                plate_edges=plate_edges,
             )
             self._geometry_scene_cache = (cache_key, scene, interaction_scene)
         else:
             _key, scene, interaction_scene = cached
         self.viewport.show(
-            self._with_attributes(scene.copy()),
-            interaction_scene=self._with_attributes(interaction_scene.copy()),
+            self._with_attributes(self._colour_model_scene(scene)),
+            interaction_scene=self._with_attributes(self._colour_model_scene(interaction_scene)),
             reset_view=reset_view,
         )
         self._update_view_label()
@@ -1766,6 +1774,18 @@ class WorkbenchWorkflow:
         self.show_geometry()
 
 
+    def _colour_model_scene(self, scene, *, mesh=None):
+        from ..presentation.colour_modes import colour_scene
+        return colour_scene(scene, self.project, getattr(self, "_model_colour_mode", "default"), mesh=mesh)
+
+    def set_model_colour_mode(self, mode):
+        from ..presentation.colour_modes import MODES
+        if mode not in MODES:raise ValueError("unknown model colour mode")
+        self._model_colour_mode = mode
+        current=getattr(self,"_view_mode",None)
+        if current == "geometry":self.show_geometry()
+        elif current == "mesh":self.show_mesh()
+
     def show_mesh(self) -> None:
         if self.mesh is None:
             if self._inspection_mesh is not None:self.show_inspection_mesh()
@@ -1775,10 +1795,10 @@ class WorkbenchWorkflow:
         scene = build_mesh_scene(
             self.project,
             self.mesh,
-            show_beam_sections=self.viewport.visualization.show_beam_sections,
+            show_beam_sections=self.viewport.visualization.show_beam_sections and not self.project.mesh_only,
             show_nodes=self.viewport.visualization.show_mesh_nodes,
         )
-        self.viewport.show(self._with_attributes(scene))
+        self.viewport.show(self._with_attributes(self._colour_model_scene(scene, mesh=self.mesh)))
         self._update_view_label()
 
 
@@ -1816,11 +1836,50 @@ class WorkbenchWorkflow:
 
     def prepare_result_dataset(self,dataset,*,on_ready=None,on_cancel=None):
         if getattr(dataset,"metadata_ready",True):return False
+        pending=self.__dict__.setdefault("_result_metadata_preparations",{})
+        key=id(dataset)
+        if key in pending:
+            pending[key].append((on_ready,on_cancel))
+            return True
+        waiters=pending[key]=[(on_ready,on_cancel)]
         self.set_status("Preparing result metadata...")
+        settled=set()
+        def notify(index):
+            failure=None
+            for position,callbacks in enumerate(waiters):
+                if position in settled:continue
+                settled.add(position)
+                callback=callbacks[index]
+                if callback is not None:
+                    try:callback()
+                    except Exception as error:
+                        if failure is None:failure=error
+            if failure is not None:raise failure
+        def cancelled():
+            if pending.get(key) is waiters:pending.pop(key)
+            notify(1)
+        def load(cancel):
+            from anypost import ResultsError
+            try:return dataset.prepare_metadata(),None
+            except (OSError,ValueError,ResultsError) as error:return None,error
         def prepared(value):
+            if pending.get(key) is waiters:pending.pop(key)
+            _metadata,error=value
+            if error is not None:
+                for job_id,current in tuple(self.result_datasets.items()):
+                    if current is dataset:
+                        job=self.project.jobs.get(job_id)
+                        if job is not None:job.diagnostics.append({"type":type(error).__name__,"message":f"result artifact unavailable: {error}"})
+                self.result_datasets={job_id:current for job_id,current in self.result_datasets.items() if current is not dataset}
+                cancelled()
+                self.set_status(f"Result artifact unavailable: {error}",error=True)
+                self.refresh_panels()
+                return
             self.refresh_panels()
-            if on_ready is not None:on_ready()
-        self._request_result(lambda cancel:dataset.prepare_metadata(),prepared,dataset=dataset,on_cancel=on_cancel)
+            notify(0)
+        # Header preparation belongs to its source, not to a display selection
+        # that will necessarily change when those headers populate the controls.
+        self._request_result(load,prepared,dataset=dataset,channel="metadata",on_cancel=cancelled)
         return True
 
     def show_persisted_result(
@@ -3760,38 +3819,39 @@ class WorkbenchWorkflow:
                              ensure_ascii=False, default=str) + "\n")
 
     def diagnostic_report(self, *, recent_commands=()) -> str:
-        """Return the current support report without exposing full model data."""
-
-        selection = self.selection
-        mesh_record = self.project.mesh_records.get(
-            str(getattr(self, "mesh_record_id", ""))
-        )
-        context = {
-            "project_path": None if self.path is None else str(self.path),
-            "details_page": getattr(self.details, "_current", None),
-            "view_mode": self._view_mode,
-            "renderer_requested": getattr(self.viewport, "requested_backend", None),
-            "renderer_active": getattr(self.viewport, "active_backend", None),
-            "status_text": self._status.cget("text"),
-            "revision": {
-                "sequence": self.session.revision.sequence,
-                "document_hash": self.session.revision.document_hash,
-                "model_hash": self.session.revision.model_hash,
-            },
-            "selection": {
-                "domain": selection.domain.value,
-                "mode": selection.mode,
-                "allowed_kinds": tuple(sorted(selection.allowed_kinds)),
-                "items": tuple(repr(item) for item in selection.ordered_items),
-            },
-            "active_mesh_record": None if mesh_record is None else mesh_record.to_dict(),
+        """Fresh, bounded current metadata; no model build or artifact access."""
+        from ..diagnostics import _capture
+        from itertools import islice
+        selection=self.selection
+        def selection_snapshot():
+            try:count=len(selection)
+            except TypeError:count=len(selection.ordered_items)
+            sample=tuple(repr(item) for item in islice(selection.ordered_items,20)) if count<=100 else ()
+            return {'domain':selection.domain.value,'mode':selection.mode,'allowed_kinds':tuple(sorted(selection.allowed_kinds)),
+                    'total':count,'included':len(sample),'truncated':count>len(sample),'items':sample}
+        def dataset_snapshot():
+            dataset=getattr(self,'result_datasets',{}).get(getattr(self,'active_job_id',None))
+            return {'status':'not_registered'} if dataset is None else {'status':'registered','type':type(dataset).__name__,'metadata_ready':getattr(dataset,'metadata_ready',None),'contents':'not_opened_by_diagnosis'}
+        def status_text():
+            getter=getattr(self._status,'get',None)
+            return getter() if callable(getter) else self._status.cget('text')
+        context={
+            'project_path':_capture(lambda:None if self.path is None else str(self.path)),
+            'details_page':_capture(lambda:getattr(self.details,'_current',None)),
+            'view_mode':_capture(lambda:self._view_mode),
+            'renderer_requested':_capture(lambda:getattr(self.viewport,'requested_backend',None)),
+            'renderer_active':_capture(lambda:getattr(self.viewport,'active_backend',None)),
+            'status_text':_capture(status_text),
+            'result_dataset':_capture(dataset_snapshot),
+            'dirty':_capture(lambda:getattr(self.session,'dirty',None)),
+            'read_only':_capture(lambda:getattr(self.session,'read_only',None)),
+            'revision':_capture(lambda:{'sequence':self.session.revision.sequence,'document_hash':self.session.revision.document_hash,'model_hash':self.session.revision.model_hash}),
+            'selection':_capture(selection_snapshot),
+            'active_mesh_record':_capture(lambda:self.project.mesh_records.get(str(getattr(self,'mesh_record_id','')))),
+            'submitted_solver_input_reports':_capture(lambda:{'total':len(getattr(self,'submitted_input_reports',{})),'status':'existing reports not expanded; no new solver input was compiled'}),
         }
-        return build_diagnostic_report(
-            self.project,
-            errors=self._error_diagnostics,
-            context=context,
-            recent_commands=recent_commands,
-        )
+        return build_diagnostic_report(self.project,errors=getattr(self,'_error_diagnostics',()),context=context,recent_commands=recent_commands,
+            loaded_mesh=getattr(self,'mesh',None),solution=getattr(self,'solution',None))
 
 
 def _bounded_mesh_diagnosis(evidence):

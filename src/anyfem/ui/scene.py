@@ -140,6 +140,20 @@ RESULT_COLORMAPS: Dict[str, tuple[tuple[float, str], ...]] = {
         (0.00, "#30123b"), (0.20, "#466be3"), (0.40, "#1bcfd4"),
         (0.60, "#71fc6a"), (0.80, "#faba39"), (1.00, "#7a0403"),
     ),
+    "Jet": (
+        (0.000, "#000080"), (0.125, "#0000ff"), (0.375, "#00ffff"),
+        (0.625, "#ffff00"), (0.875, "#ff0000"), (1.000, "#800000"),
+    ),
+    "HSV": (
+        (0.0, "#ff0000"), (1 / 6, "#ffff00"), (2 / 6, "#00ff00"),
+        (0.5, "#00ffff"), (4 / 6, "#0000ff"), (5 / 6, "#ff00ff"),
+        (1.0, "#ff0000"),
+    ),
+    "Inferno": (
+        (0.000, "#000004"), (0.125, "#210c4a"), (0.250, "#57106e"),
+        (0.375, "#8a226a"), (0.500, "#bc3754"), (0.625, "#e45a31"),
+        (0.750, "#f98e09"), (0.875, "#f9cb35"), (1.000, "#fcffa4"),
+    ),
     "Grayscale": ((0.00, "#101010"), (1.00, "#f5f5f5")),
 }
 
@@ -162,8 +176,15 @@ class FacePatch:
     polygon_owners: Optional[List[tuple[SceneOwner, ...]]] = None
     # Per-polygon visibility can differ from collapsed-feature pick ownership.
     polygon_visibility_owners: Optional[List[tuple[SceneOwner, ...]]] = None
+    # Native canvas hits select this visible semantic group. Drawing and
+    # programmatic highlights still use each polygon's actual canonical owner.
+    grouped_pick: bool = False
+    # Optional display-polygon groups suppress artificial tessellation edges.
+    outline_groups: Optional[List[object]] = None
 
     def __post_init__(self) -> None:
+        if self.outline_groups is not None and len(self.outline_groups) != len(self.polygons):
+            raise ValueError("outline_groups must have one entry per face polygon")
         if self.polygon_visibility_owners is not None and len(self.polygon_visibility_owners) != len(self.polygons):
             raise ValueError("polygon_visibility_owners must have one entry per face polygon")
         if self.polygon_owners is not None and len(self.polygon_owners) != len(
@@ -493,6 +514,51 @@ def face_display_polygons(
     return polygons
 
 
+def _curved_sketch_display_polygons(geometry, face_id, divisions):
+    """Adaptive display-only UV grid; all vertices use public exact evaluation.
+
+    Refine each parameter direction independently so a translated profile does
+    not create redundant subdivisions along its straight extrusion direction.
+    The error target is a display approximation, never a geometry tolerance.
+    """
+    face = geometry.faces[face_id]
+    if face.holes or len(face.loop) != 4:
+        return face_display_polygons(geometry, face_id, divisions)
+    parameters = [np.linspace(0., 1., 3), np.array((0., 1.))]
+    samples = geometry.evaluate_face_many(face_id, np.array([(u,v) for u in (0.,.5,1.) for v in (0.,.5,1.)]))
+    scale = max(float(np.linalg.norm(np.ptp(samples, axis=0))), 1e-12)
+    tolerance = .0015 * scale * max(1., (8/max(int(divisions),1))**2)
+    limit = max(8, min(128, int(divisions)*16))
+    for _ in range(7):
+        changed = False
+        for axis in (0,1):
+            values = parameters[axis]
+            if len(values)-1 >= limit:
+                continue
+            other = parameters[1-axis]
+            probes = np.unique(np.r_[other, .5*(other[:-1]+other[1:])])
+            rows = [(low, .5*(low+high), high, t)
+                    for low,high in zip(values[:-1],values[1:]) for t in probes]
+            uv = np.array([((q,t) if axis==0 else (t,q))
+                           for low,middle,high,t in rows for q in (low,middle,high)])
+            points = geometry.evaluate_face_many(face_id, uv).reshape((-1,3,3))
+            error = np.linalg.norm(points[:,1]-.5*(points[:,0]+points[:,2]),axis=1)
+            errors = error.reshape((len(values)-1,len(probes))).max(axis=1)
+            refine = np.flatnonzero(errors > tolerance)
+            if len(refine):
+                remaining = limit-(len(values)-1)
+                refine = refine[np.argsort(errors[refine])[::-1][:remaining]]
+                parameters[axis] = np.sort(np.r_[values,.5*(values[refine]+values[refine+1])])
+                changed = True
+        if not changed:
+            break
+    us,vs = parameters
+    uv=np.array([(u,v) for u in us for v in vs])
+    grid=geometry.evaluate_face_many(face_id,uv).reshape((len(us),len(vs),3))
+    return [np.array((grid[i,j],grid[i+1,j],grid[i+1,j+1],grid[i,j+1]))
+            for i in range(len(us)-1) for j in range(len(vs)-1)]
+
+
 def _flat_four_edge_polygon(
     geometry: GeometryModel, face_id: int
 ) -> Optional[np.ndarray]:
@@ -735,6 +801,7 @@ def build_geometry_scene(
     show_beam_sections: bool = True,
     entity_owners: Optional[Mapping[EntityRef, int]] = None,
     exposed_feature_ids: Iterable[int] = (),
+    plate_edges: Iterable[int] = (),
 ) -> Scene:
     """Draw user geometry plus the surfaces of generated features.
 
@@ -751,6 +818,11 @@ def build_geometry_scene(
 
         entity_owners = feature_entity_owners(geometry)
     exposed = {int(identifier) for identifier in exposed_feature_ids}
+    boundary_edges=frozenset(plate_edges)
+    from ..generator_properties import member_edges
+    generated_members=set().union(*(member_edges(geometry,r) for r in geometry.features.records if r.kind.startswith("generator.")))
+    smooth_feature_ids = {record.feature_id for record in geometry.features.records
+                          if record.kind in {"geometry.sketch.plane", "geometry.sketch.extrude", "geometry.extrude"}}
     sketch_profiles = {
         ref.id for record in geometry.features.records
         if record.kind in {"geometry.sketch.plane", "geometry.sketch.extrude"}
@@ -768,11 +840,9 @@ def build_geometry_scene(
         polygons = (
             [flat_polygon]
             if flat_polygon is not None
-            else face_display_polygons(
-                geometry,
-                face_id,
-                min(divisions, 2) if collapsed_feature else divisions,
-            )
+            else (_curved_sketch_display_polygons(geometry, face_id, divisions)
+                  if feature_id in smooth_feature_ids
+                  else face_display_polygons(geometry, face_id, min(divisions, 2) if collapsed_feature else divisions))
         )
         if collapsed_feature:
             # A collapsed generator is one semantic surface.  Retain all exact
@@ -786,13 +856,19 @@ def build_geometry_scene(
                     colors=[],
                     outline="",
                     polygon_visibility_owners=[],
+                    polygon_owners=[],
+                    grouped_pick=True,
                 )
                 collapsed_face_patches[feature_id] = patch
                 collapsed_face_owners[feature_id] = []
                 scene.faces.append(patch)
             patch.polygons.extend(polygons)
+            if feature_id in smooth_feature_ids:
+                if patch.outline_groups is None:patch.outline_groups=[]
+                patch.outline_groups.extend([face_id]*len(polygons))
             patch.colors.extend([COLOR_PLATE] * len(polygons))
             patch.polygon_visibility_owners.extend([(face_ref,)] * len(polygons))
+            patch.polygon_owners.extend([(face_ref,)] * len(polygons))
             collapsed_face_owners[feature_id].append(face_ref)
             continue
         scene.faces.append(
@@ -801,6 +877,7 @@ def build_geometry_scene(
                 polygons=polygons,
                 colors=[COLOR_PLATE] * len(polygons),
                 outline="",
+                outline_groups=[face_id]*len(polygons) if feature_id in smooth_feature_ids else None,
             )
         )
     for feature_id, patch in collapsed_face_patches.items():
@@ -810,7 +887,7 @@ def build_geometry_scene(
         is_beam = edge_id in project.edge_sections
         feature_id = entity_owners.get(EntityRef("edge", edge_id))
         is_sketch = edge_id in sketch_profiles
-        if feature_id is not None and feature_id not in exposed and not is_beam and not is_sketch:
+        if feature_id is not None and feature_id not in exposed and not is_beam and not is_sketch and edge_id not in generated_members and edge_id not in boundary_edges:
             continue
         samples = (
             2
@@ -839,7 +916,7 @@ def build_geometry_scene(
                 points=points,
                 color=COLOR_BEAM if is_beam else "#1565c0" if is_sketch else COLOR_LINE,
                 width=(3 if rendered_section else 4) if is_beam else 2,
-                draw_overlay=is_beam or is_sketch,
+                draw_overlay=is_beam or is_sketch or edge_id in generated_members or edge_id in boundary_edges,
             )
         )
 

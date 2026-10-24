@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from anyfem.ui.qt.app import QtFemWindow
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.model.records import ResultQuantityDescriptor
+from test_qt_workbench import settle_result_requests,wait_until
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +31,7 @@ def window(qapp,tmp_path,monkeypatch):
 
 
 @pytest.fixture
-def retained(window,tmp_path,monkeypatch):
+def retained(window,qapp,tmp_path,monkeypatch):
     from anymesher import Mesh
     mesh=Mesh(nodes={1:np.array([0.,0.,0.]),2:np.array([1.,0.,0.]),3:np.array([1.,1.,0.]),4:np.array([0.,1.,0.])},quads={1:(1,2,3,4)},elements_of_face={1:[1]})
     fields={
@@ -46,14 +47,14 @@ def retained(window,tmp_path,monkeypatch):
         histories={"load_displacement":(np.array([0.,1.]),np.array([0.,2.]))})
     dataset=store.open_result(artifact);window.active_job_id="synthetic";window.result_datasets["synthetic"]=dataset
     monkeypatch.setattr(window,"retained_result_mesh",lambda *_:mesh)
-    window.refresh_all();return dataset
+    window.refresh_all();settle_result_requests(window,qapp);return dataset
 
 
 def click_entry(window,qapp,identity):
-    browser=window.result_browser;window.show_result_browser();browser.tree.expandAll()
+    browser=window.result_browser;window.show_result_browser();settle_result_requests(window,qapp);browser.tree.expandAll()
     item=browser._items[identity];browser.tree.scrollTo(item.index());qapp.processEvents()
     QTest.mouseClick(browser.tree.viewport(),Qt.LeftButton,pos=browser.tree.visualRect(item.index()).center())
-    qapp.processEvents();return window.panels["Results"]
+    settle_result_requests(window,qapp);return window.panels["Results"]
 
 
 def test_left_tree_component_click_contour_and_inspection_are_synchronized(window,qapp,retained):
@@ -63,12 +64,12 @@ def test_left_tree_component_click_contour_and_inspection_are_synchronized(windo
     assert window.viewport._scene.faces
     assert window.viewport._scene.legend["title"]=="Stress · yy"
     assert window.left_tabs.currentWidget() is window.result_browser
-    panel.inspect_quantity()
+    panel.inspect_quantity();settle_result_requests(window,qapp)
     assert panel.table.values.headers==["element_id","yy"]
     assert panel.table.values.rows==[[1,-2e6]]
     np.testing.assert_array_equal(retained.field("stress").read(0),before)
     click_entry(window,qapp,("field","strain","xx"))
-    panel.inspect_quantity();assert panel.table.values.rows==[[1,.001]]
+    panel.inspect_quantity();settle_result_requests(window,qapp);assert panel.table.values.rows==[[1,.001]]
     parent=window.result_browser._items[("field_table","stress",None)]
     assert parent.hasChildren()
 
@@ -138,7 +139,7 @@ def test_unit_changes_preserve_expansion_and_saved_si_values(window,qapp,retaine
 
 def test_playback_uses_selected_quantity_frames_without_a_queued_redraw(window,qapp,retained):
     panel=click_entry(window,qapp,("field","last_displacement","uz"))
-    panel.play();qapp.processEvents()
+    panel.play();wait_until(qapp,lambda:window.viewport.canvas.animation_frames>0)
     assert window.viewport.canvas.animation_frames==1
     assert window.viewport.canvas._animation_frame_active
     window.viewport.canvas.stop_animation()

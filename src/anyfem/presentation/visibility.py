@@ -45,7 +45,8 @@ class SelectionVisibility:
             result.faces.append(replace(patch, ref=ref, owners=owners,
                 polygons=[patch.polygons[i] for i in keep],
                 colors=[patch.colors[i] for i in keep], polygon_owners=polygon_owners,
-                polygon_visibility_owners=visibility_owners))
+                polygon_visibility_owners=visibility_owners,
+                outline_groups=None if patch.outline_groups is None else [patch.outline_groups[i] for i in keep]))
         for name in ('lines', 'points'):
             setattr(result, name, [item for item in getattr(scene, name)
                 if not any(self.is_hidden(ref) for ref in

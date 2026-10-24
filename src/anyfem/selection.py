@@ -35,6 +35,7 @@ __all__ = [
     "owner_to_ref",
     "parse_entity_tag",
     "selection_key",
+    "plate_boundary_edge_ids",
 ]
 
 
@@ -158,6 +159,8 @@ class SelectionFilter:
 
     domain: SelectionDomain | str = SelectionDomain.GEOMETRY
     kinds: frozenset[str] = frozenset({"face"})
+    flavor: str = ""
+    eligible_ids: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         domain = SelectionDomain(self.domain)
@@ -171,6 +174,11 @@ class SelectionFilter:
             )
         object.__setattr__(self, "domain", domain)
         object.__setattr__(self, "kinds", kinds)
+        if self.flavor not in ('', 'plate_edge'):
+            raise ValueError('unknown selection flavor')
+        if self.flavor and (domain != SelectionDomain.GEOMETRY or kinds != frozenset({'edge'})):
+            raise ValueError('plate boundary selection requires geometry edges')
+        object.__setattr__(self,'eligible_ids',frozenset(int(i) for i in self.eligible_ids))
 
     @classmethod
     def one(
@@ -179,7 +187,8 @@ class SelectionFilter:
         return cls(domain, frozenset({kind}))
 
     def accepts(self, ref: object) -> bool:
-        return _ref_domain(ref) == self.domain and _ref_kind(ref) in self.kinds
+        return (_ref_domain(ref) == self.domain and _ref_kind(ref) in self.kinds
+                and (self.flavor != 'plate_edge' or getattr(ref,'id',None) in self.eligible_ids))
 
     def explain_rejection(self, ref: object) -> str | None:
         domain = _ref_domain(ref)
@@ -197,11 +206,40 @@ class SelectionFilter:
                 f"picked {mode_label(kind).lower()}, but the active "
                 f"{self.domain.value} filter accepts {accepted}"
             )
+        if self.flavor == 'plate_edge' and getattr(ref,'id',None) not in self.eligible_ids:
+            return 'the picked line is not a selectable plate boundary'
         return None
 
     @property
     def qualified_kinds(self) -> frozenset[str]:
         return frozenset(f"{self.domain.value}.{kind}" for kind in self.kinds)
+
+
+def plate_boundary_edge_ids(project, exposed_feature_ids=()) -> frozenset[int]:
+    """Plate perimeter/hole topology, respecting collapsed compound generators.
+
+    A shared edge inside a collapsed generated sheet is a partition, whereas
+    each independent manually authored plate retains its own full boundary.
+    No coordinate comparisons or visual tessellation infer adjacency.
+    """
+    geometry=project.geometry
+    exposed=set(exposed_feature_ids)
+    groups=[]; grouped=set()
+    for record in geometry.features.records:
+        if not record.kind.startswith('generator.') or record.feature_id in exposed:
+            continue
+        faces=set()
+        for ref in record.outputs.values():
+            if ref.kind=='face':
+                faces.update(r.id for r in geometry.resolve_ref(ref) if r.kind=='face' and r.id in geometry.faces)
+        if faces:
+            groups.append(faces); grouped.update(faces)
+    groups.extend({face_id} for face_id in geometry.faces if face_id not in grouped)
+    eligible=set()
+    for face_ids in groups:
+        candidates={item.edge for face_id in face_ids for loop in (geometry.faces[face_id].loop,)+geometry.faces[face_id].holes for item in loop}
+        eligible.update(edge_id for edge_id in candidates if len(set(geometry.faces_using_edge(edge_id))&face_ids)==1)
+    return frozenset(eligible)
 
 
 @dataclass(frozen=True)

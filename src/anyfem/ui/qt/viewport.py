@@ -1,7 +1,7 @@
 """Qt ownership of the shared ANYfem scene presenter and ANY3dView host."""
 from .theme import overlay
 from PySide6.QtCore import QObject, QEvent, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
 from types import SimpleNamespace
 
 from ...presentation.viewport import SceneViewport
@@ -18,10 +18,10 @@ class _ConstructionKeys(QObject):
         self._right_dragged = False
         self._camera_drag = False
         self._plate_left_down = False
-        self._sketch_press=None
-        self._sketch_drag=False
 
     def eventFilter(self, target, event):
+        if target is self.viewport.widget and event.type() == QEvent.Resize:
+            self.viewport._position_colour_legend()
         if target is self.viewport.canvas.event_widget:
             kind = event.type()
             from ...geometry.sketching import FaceSketchTask
@@ -140,66 +140,44 @@ class _ConstructionKeys(QObject):
         return False
 
     def _sketch_event(self,target,event,task):
-        kind=event.type();viewport=self.viewport;panel=viewport._window.panels['Construction']
-        def changed():viewport.refresh_construction_overlay();panel.updated(task,None)
+        kind=event.type();viewport=self.viewport;controller=viewport.sketcher
         if kind in (QEvent.MouseButtonPress,QEvent.MouseButtonDblClick) and event.button()==Qt.LeftButton:
             if kind==QEvent.MouseButtonDblClick:return True
             ratio=target.devicePixelRatioF();x=event.position().x()*ratio;y=event.position().y()*ratio
+            if task.tool=='reference':
+                # Pick model geometry through the viewer's owner query; the sketch itself is not hit-tested.
+                def pick():
+                    ref=viewport.pick_reference_source(x,y)
+                    if ref is not None:viewport._window.panels['Construction'].import_references([ref])
+                viewport._window.guarded(pick)()
+                return True
             key=viewport.sketch_point_at(x,y,9*ratio)
             if key is None and task.tool in ('select','dimension'):
                 for entity in task.entities:
                     if entity.kind not in ('arc','circle','fillet'):continue
-                    point=viewport.sketch_radius_label_position(entity)
-                    q=viewport.project_point(viewport._point3d(*point))
+                    q=viewport.project_point(viewport._point3d(*viewport.sketch_radius_label_position(entity)))
                     if q is not None and (q[0]-x)**2+(q[1]-y)**2<(12*ratio)**2:
-                        task.select();task.selected_entities[:]=[entity.id];changed();panel.focus_dimension(panel.radius);self._sketch_press=None;return True
+                        controller.select_dimension(entity=entity.id);return True
+                import numpy as np
                 for c in task.constraints:
                     if c.kind!='distance' or c.second is None:continue
-                    import numpy as np
-                    a=task.points[task.point_keys.index(c.first)];b=task.points[task.point_keys.index(c.second)]
+                    a=task.key_world(c.first);b=task.key_world(c.second)
                     q=viewport.project_point(viewport._point3d(*((np.asarray(a)+b)/2)))
                     if q is not None and (q[0]-x)**2+(q[1]-y)**2<(12*ratio)**2:
-                        task.select(c.first);task.select(c.second,True);changed();panel.focus_dimension();self._sketch_press=None;return True
-            self._sketch_press=(event.position().toPoint(),key);self._sketch_drag=False
-            if task.tool in ('select','dimension','fillet'):
-                if key is not None:task.select(key,bool(event.modifiers() & Qt.ShiftModifier))
-                else:
-                    entity=viewport.sketch_entity_at(x,y,8*ratio)
-                    if not event.modifiers() & Qt.ShiftModifier:task.selected.clear();task.selected_entities.clear()
-                    if entity is not None:
-                        if entity in task.selected_entities:task.selected_entities.remove(entity)
-                        else:task.selected_entities.append(entity)
-                    elif task.tool=='dimension':
-                        # Dimension text is picked independently from its source points.
-                        for c in task.constraints:
-                            if c.kind!='distance' or c.second is None:continue
-                            a=task.points[task.point_keys.index(c.first)];b=task.points[task.point_keys.index(c.second)]
-                            q=viewport.project_point(viewport._point3d(*((__import__('numpy').asarray(a)+b)/2)))
-                            if q is not None and (q[0]-x)**2+(q[1]-y)**2<(28*ratio)**2:
-                                task.selected[:]=[c.first,c.second];panel.constraint_body.section_toggle.setChecked(True);panel.focus_dimension();break
-                changed()
-            return True
+                        controller.select_dimension(constraint=c);return True
+            entity=viewport.sketch_entity_at(x,y,8*ratio) if key is None and task.tool in ('select','dimension','fillet') else None
+            controller.press((event.position().x(),event.position().y()),point_key=key,entity_id=entity,shift=bool(event.modifiers() & Qt.ShiftModifier));return True
         if kind==QEvent.MouseMove:
-            ratio=target.devicePixelRatioF();x=event.position().x()*ratio;y=event.position().y()*ratio
-            if self._sketch_press is not None and event.buttons() & Qt.LeftButton:
-                position,key=self._sketch_press
-                if key is not None and task.tool in ('select','dimension') and (event.position().toPoint()-position).manhattanLength()>=QApplication.startDragDistance():
-                    if not self._sketch_drag:task.begin_drag();self._sketch_drag=True
-                    point=viewport.project_to_workplane(x,y,viewport._construction_workplane,viewport._construction_coordinate_systems)
-                    if point is not None:
-                        viewport._window.guarded(lambda:task.move_point(key,point))();changed()
-                return True
-            if task.pending and task.tool not in ('select','dimension','fillet'):
-                task.hover=viewport.project_to_workplane(x,y,viewport._construction_workplane,viewport._construction_coordinate_systems);changed()
-            return False
+            ratio=target.devicePixelRatioF();world=viewport.project_to_workplane(event.position().x()*ratio,event.position().y()*ratio,viewport._construction_workplane,viewport._construction_coordinate_systems)
+            viewport._window.guarded(lambda:controller.move(world,position=(event.position().x(),event.position().y()),left_down=bool(event.buttons() & Qt.LeftButton),threshold=QApplication.startDragDistance()))()
+            return controller.session.pressed and bool(event.buttons() & Qt.LeftButton)
         if kind==QEvent.MouseButtonRelease and event.button()==Qt.LeftButton:
-            if self._sketch_press is None:return True
-            _,key=self._sketch_press;self._sketch_press=None
-            if self._sketch_drag:task.end_drag();self._sketch_drag=False;changed()
-            elif task.tool not in ('select','dimension','fillet'):
-                ratio=target.devicePixelRatioF()
-                if key is not None:viewport._window.guarded(lambda:task.add(task.points[task.point_keys.index(key)]))();changed()
-                else:viewport._window.guarded(lambda:viewport.construction_click(event.position().x()*ratio,event.position().y()*ratio))()
+            # Flush the final pointer position before ending its single undo gesture.
+            if controller.session.dragging:
+                ratio=target.devicePixelRatioF();world=viewport.project_to_workplane(event.position().x()*ratio,event.position().y()*ratio,viewport._construction_workplane,viewport._construction_coordinate_systems)
+                viewport._window.guarded(lambda:controller.move(world,position=(event.position().x(),event.position().y()),left_down=True,threshold=QApplication.startDragDistance()))()
+            if controller.release():
+                ratio=target.devicePixelRatioF();viewport._window.guarded(lambda:viewport.construction_click(event.position().x()*ratio,event.position().y()*ratio))()
             return True
         return False
 
@@ -228,6 +206,8 @@ class QtViewport(SceneViewport):
         self._visibility_mesh = None
         self._visibility_job = None
         self._window = parent
+        self.sketcher=getattr(parent,"sketcher",None)
+        self._sketch_timer=QTimer(self.widget);self._sketch_timer.setSingleShot(True);self._sketch_timer.timeout.connect(self.refresh_construction_overlay)
         # Probe OpenGL only once Qt has exposed the containing window. A hidden
         # startup widget can otherwise leave an invalid composition surface.
         self.canvas = create_viewer(self.widget, backend="software" if backend=="auto" else backend, host=QtViewerHostAdapter())
@@ -236,8 +216,34 @@ class QtViewport(SceneViewport):
         self._keys = _ConstructionKeys(self)
         self.widget.installEventFilter(self._keys)
         self.canvas.event_widget.installEventFilter(self._keys)
+        from .sketch_coordinates import SketchCoordinates
+        self._sketch_coordinates = SketchCoordinates(self)
+        self._sketch_coordinates.bind()
         self._watch_backend(parent)
         self.selection.add_listener(self._apply_highlight)
+
+    def pick_reference_source(self,x,y):
+        """Model vertex, edge or face under a pixel for the reference tool.
+
+        An explicit vertex/edge/face selection filter is passed to the viewer for
+        this one query, so the reference tool works whatever filter the user's
+        normal selection currently has, and that normal filter is never changed.
+        Vertices win over edges, edges over faces.
+        """
+        from ...selection import owner_to_ref
+        kinds=frozenset(('vertex','edge','face'))
+        api=getattr(self,'_selection_api',None)
+        if api is None or 'SelectionFilter' not in api:
+            raise RuntimeError('The installed viewer has no semantic selection filter; model references cannot be picked')
+        # Same qualified kind strings as SceneViewport._selection_config; the
+        # user's normal filter is neither consulted nor replaced.
+        flt=api['SelectionFilter'](kinds=frozenset(f'geometry.{kind}' for kind in kinds))
+        hits=self.canvas.query_point(round(x),round(y),selection_filter=flt)
+        refs=[c for hit in hits if (c:=owner_to_ref(hit.owner)) is not None and c.kind in kinds]
+        for kind in ('vertex','edge','face'):
+            found=next((c for c in refs if c.kind==kind),None)
+            if found is not None:return found
+        return None
 
     def _schedule_automatic_backend(self):
         if not self._automatic_pending:return
@@ -319,8 +325,14 @@ class QtViewport(SceneViewport):
         hits = () if preserve_selection else self.canvas.query_point(*point)[:1]
         if not hits and not preserve_selection:
             return
-        self.dismiss_feature_highlight()
-        if not preserve_selection:self.selection.apply_owners([hit.owner for hit in hits], "replace")
+        from ...selection import owner_to_ref
+        selected=set(self.selection.items)
+        # The actual picked owner must already be selected; an arbitrary member
+        # of a grouped render chunk must not keep an unrelated selection.
+        if any(owner_to_ref(hit.owner) in selected for hit in hits):preserve_selection=True
+        if not preserve_selection:
+            self.dismiss_feature_highlight()
+            self.selection.apply_owners([hit.owner for hit in hits], "replace")
         actions.canvas_context_menu(SimpleNamespace(hits=hits, end=point, preserve_selection=preserve_selection))
 
     def _line_construction_requested(self):
@@ -362,6 +374,18 @@ class QtViewport(SceneViewport):
 
     def cancel_plate(self):
         if self.plate_draft is not None:self.plate_draft.reject()
+
+    def request_sketch_preview(self):
+        if not self._sketch_timer.isActive():self._sketch_timer.start(16)
+
+    def refresh_construction_overlay(self):
+        self._sketch_timer.stop()
+        return super().refresh_construction_overlay()
+
+    def end_construction(self):
+        self._sketch_timer.stop()
+        super().end_construction()
+        self._sketch_coordinates.sync()
 
     def begin_construction(self, *args, **kwargs):
         self.cancel_plate()
@@ -424,7 +448,7 @@ class QtViewport(SceneViewport):
         import numpy as np
         from anygeometry import sample_sketch_entity
         task=self.construction_task
-        local=sample_sketch_entity(task.definition(0,allow_incomplete=True),entity,count=5)[2]
+        local=task.sample_entity(entity,count=5)[2]
         point=np.asarray(task.plane.world(local),dtype=float)
         axis=np.asarray(task.plane.y_axis,dtype=float)
         a=self.project_point(self._point3d(*point));b=self.project_point(self._point3d(*(point+axis)))
@@ -435,7 +459,8 @@ class QtViewport(SceneViewport):
     def sketch_point_at(self,x,y,radius=9):
         task=self.construction_task
         candidates=[]
-        for key,point in zip(task.point_keys,task.points):
+        # Fixed reference points are pickable (selection only; dragging is refused by the task).
+        for key,point in list(zip(task.point_keys,task.points))+[(k,task.reference_world(k)) for k in getattr(task,'reference_points',())]:
             q=self.project_point(self._point3d(*point))
             if q is not None:candidates.append(((q[0]-x)**2+(q[1]-y)**2,key))
         nearest=min(candidates,default=(float('inf'),None))
@@ -446,7 +471,7 @@ class QtViewport(SceneViewport):
         from anygeometry import sample_sketch_entity
         task=self.construction_task;definition=task.definition(0,allow_incomplete=True);nearest=(float('inf'),None)
         for entity in task.entities:
-            samples=[self.project_point(self._point3d(*task.plane.world(p))) for p in sample_sketch_entity(definition,entity)]
+            samples=[self.project_point(self._point3d(*task.plane.world(p))) for p in task.sample_entity(entity)]
             for a,b in zip(samples,samples[1:]):
                 if a is None or b is None:continue
                 a=np.asarray(a[:2]);d=np.asarray(b[:2])-a;q=np.asarray((x,y));den=float(d@d);t=0 if den==0 else float(np.clip((q-a)@d/den,0,1));distance=float(np.linalg.norm(q-a-t*d))
@@ -455,17 +480,20 @@ class QtViewport(SceneViewport):
 
     def _draw_construction_overlay(self):
         super()._draw_construction_overlay()
+        self._sketch_coordinates.bind()
+        self._sketch_coordinates.sync()
         self._draw_plane_preview()
         from ...geometry.sketching import FaceSketchTask
         task=self.construction_task
         if isinstance(task,FaceSketchTask):
-            selected=[task.points[task.point_keys.index(key)] for key in task.selected]
+            self._draw_sketch_references(task)
+            selected=[task.key_world(key) for key in task.selected if key in task.point_keys or key in task.reference_points]
             if selected:self.canvas.add_markers([self._point3d(*p) for p in selected],colors=['#e65100']*len(selected),size=[13]*len(selected),layer=49)
             from anygeometry import sample_sketch_entity,sketch_entity_radius
             definition=task.definition(0,allow_incomplete=True)
             for entity in task.entities:
                 if entity.id in task.selected_entities:
-                    samples=[task.plane.world(p) for p in sample_sketch_entity(definition,entity)]
+                    samples=[task.plane.world(p) for p in task.sample_entity(entity)]
                     for a,b in zip(samples,samples[1:]):self.canvas.add_line(self._point3d(*a),self._point3d(*b),color='#e65100',width=5,layer=49,draw_overlay=True)
                 if entity.kind in ('arc','circle','fillet'):
                     point=self.sketch_radius_label_position(entity)
@@ -494,6 +522,57 @@ class QtViewport(SceneViewport):
         for index, point in enumerate(points):
             self.canvas.add_text(self._point3d(*point), str(index+1), color=overlay("n"), layer=47, draw_overlay=True)
 
+    def _draw_sketch_references(self,task):
+        """Stippled fixed references: green links, yellow detached snapshots."""
+        references=list(task.references)+list(task.axis_references.values())
+        if not references:return
+        from PySide6.QtGui import QColor
+        dark=QColor(self.canvas.bg).lightness()<128
+        for item in references:
+            intrinsic=item.id in task.axis_references
+            linked=intrinsic or task.is_linked(item.id)
+            color=('#55dd77' if dark else '#16752b') if linked else ('#ffda44' if dark else '#947000')
+            # A section stores one independent 2-point curve per clipped interval
+            # ('<id>:<n>'); intervals and holes are never joined to each other.
+            for name,curve in task.reference_curves.items():
+                if name!=item.id and not name.startswith(item.id+':'):continue
+                world=[task.plane.world(p) for p in curve]
+                self._draw_reference_stipple(world,color)
+            world=[task.reference_world(key) for key in item.keys]
+            self.canvas.add_markers([self._point3d(*p) for p in world],colors=[color]*len(world),size=[11]*len(world),layer=47)
+            label=('Global origin' if item.id=='global-axis-origin' else item.id.removeprefix('global-axis-')+' axis ∩ plane') if intrinsic else item.id+('' if linked else ' (detached)')
+            self.canvas.add_text(self._point3d(*world[0]),label,color=color,layer=48,draw_overlay=True)
+        formatter=getattr(self,'_construction_length_formatter',None)
+        for c in task.constraints:
+            if c.kind!='distance' or (c.first not in task.reference_points and c.second not in task.reference_points):continue
+            mid=(task.key_world(c.first)+task.key_world(c.second))/2
+            self.canvas.add_text(self._point3d(*mid),formatter(float(c.value)) if callable(formatter) else f'{float(c.value):.6g} m',color=overlay('label'),layer=47,draw_overlay=True)
+
+    def _draw_reference_stipple(self,world,color):
+        import numpy as np
+        # Both viewer backends expose solid lines. Emit short, separated spans
+        # with a continuous phase across the sampled curve. Bound their count
+        # for long/offscreen references to keep sketch redraws responsive.
+        points=[np.asarray(p,dtype=float) for p in world]
+        projected=[self.project_point(self._point3d(*p)) for p in points]
+        lengths=[float(np.linalg.norm(np.asarray(b[:2])-a[:2])) if a is not None and b is not None else 0.
+                 for a,b in zip(projected,projected[1:])]
+        period=max(12*self.canvas.event_widget.devicePixelRatioF(),sum(lengths)/256)
+        phase=0.
+        for a,b,length in zip(points,points[1:],lengths):
+            offset=0.
+            while offset<length:
+                in_period=(phase+offset)%period
+                painted=in_period<period*.6
+                step=min(length-offset,(period*.6 if painted else period)-in_period)
+                if step<1e-8:
+                    offset+=1e-8;continue
+                if painted:
+                    first=a+(b-a)*(offset/length);last=a+(b-a)*((offset+step)/length)
+                    self.canvas.add_line(self._point3d(*first),self._point3d(*last),color=color,width=3,layer=44,draw_overlay=True)
+                offset+=step
+            phase=(phase+length)%period
+
     def set_collection_highlight(self,references):
         references=frozenset(references)
         if references == self._collection_refs:return
@@ -516,12 +595,15 @@ class QtViewport(SceneViewport):
             for group in (self._scene.faces,self._scene.lines,self._scene.points):
                 for item in group:
                     refs=item.owners or (() if item.ref is None else (item.ref,))
-                    if any(ref in self._collection_refs or owners.get(ref) in self._feature_ids for ref in refs):tags.add(item.tag)
+                    from ...selection import entity_tag
+                    tags.update(entity_tag(ref) for ref in refs if ref in self._collection_refs or owners.get(ref) in self._feature_ids)
         return sorted(tags)
 
     def _watch_backend(self,parent):
         self.canvas.render_error.connect(lambda message:parent.set_status(message,error=True))
         self.canvas.backend_changed.connect(lambda _:self.canvas.event_widget.installEventFilter(self._keys))
+        self._sketch_coordinates.bind()
+        self.canvas.backend_changed.connect(lambda _:self._sketch_coordinates.bind())
 
     def switch_backend(self, backend):
         if backend not in {"auto","gpu","software"}:
@@ -553,6 +635,8 @@ class QtViewport(SceneViewport):
             self._retained_styles = old_styles
             self._retained_scene = old_retained_scene
             candidate.destroy()
+            self._sketch_coordinates.bind()
+            self._sketch_coordinates.sync()
             raise
         self.layout.replaceWidget(old, candidate)
         if old_retained_scene is not None and not old_retained_scene[2].removed:
@@ -563,6 +647,58 @@ class QtViewport(SceneViewport):
         self._watch_backend(self.widget.parent())
         self._requested_backend = backend
         return self.active_backend
+
+    def _position_colour_legend(self):
+        label=getattr(self,"_colour_legend",None)
+        data=getattr(self,"_colour_legend_data",None)
+        if label is None or data is None:return
+        from html import escape
+        width=max(80,min(self.visualization.legend_width,self.widget.width()-24))
+        height=max(24,self.widget.height()-24)
+        label.setFixedWidth(width)
+        entries=data.get("entries",())
+        count=min(12,len(entries))
+        def render(count):
+            rows=['<b>'+escape(str(data.get("title","")))+'</b>']
+            rows += ['<span style="color:'+escape(color)+'">■</span> '+escape(text) for text,color in entries[:count]]
+            if len(entries)>count:rows.append('+'+str(len(entries)-count)+' more categories')
+            if data.get("note"):rows.append(escape(str(data["note"])))
+            label.setText('<br>'.join(rows))
+            return max(1,label.heightForWidth(width))
+        needed=render(count)
+        while needed>height and count>0:
+            count-=1;needed=render(count)
+        if needed>height:
+            # Even the title/note can exceed a very small canvas at large fonts.
+            # Keep a short honest summary; the full key remains on the toolbar.
+            from PySide6.QtGui import QFont, QFontMetrics
+            bold=QFont(label.font());bold.setBold(True)
+            short=QFontMetrics(bold).elidedText(str(data.get("title","")),Qt.ElideRight,max(1,width-2*label.margin()-12))
+            summary='+'+str(len(entries))+' more'
+            label.setText('<b>'+escape(short)+'</b><br>'+escape(summary))
+            needed=max(1,label.heightForWidth(width))
+        label.setFixedHeight(min(height,needed))
+        label.setProperty("visible_colour_entries",count)
+        label.move(max(8,self.widget.width()-width-12),12);label.raise_()
+
+    def _draw_legend(self, scene):
+        entries=(scene.legend or {}).get("entries")
+        label=getattr(self,"_colour_legend",None)
+        if entries is None or not self.visualization.show_legend:
+            self._colour_legend_data=None
+            if label is not None:label.hide()
+            return super()._draw_legend(scene)
+        self.canvas.clear_thickness_legend()
+        if label is None:
+            label=QLabel(self.widget);label.setObjectName("ModelColourLegend")
+            label.setAttribute(Qt.WA_TransparentForMouseEvents);label.setWordWrap(True)
+            label.setAutoFillBackground(True);label.setMargin(9)
+            label.setAlignment(Qt.AlignLeft|Qt.AlignTop)
+            self._colour_legend=label
+        font=label.font();font.setPointSize(self.visualization.legend_font_size);label.setFont(font)
+        self._colour_legend_data=scene.legend
+        label.setToolTip('\n'.join([scene.legend.get("title","")]+[text for text,_ in entries]))
+        self._position_colour_legend();label.show()
 
     def close(self):
         self.cancel_plate()

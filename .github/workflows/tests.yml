@@ -30,8 +30,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 10a67efbedf9faba516109450cccf085bea600f1
+          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
+          ref: bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -134,8 +134,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
-          # Consolidated main: prepared static evaluator and submodel transfer.
-          ref: 10a67efbedf9faba516109450cccf085bea600f1
+          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
+          ref: bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:

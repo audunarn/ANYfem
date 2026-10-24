@@ -1,19 +1,18 @@
 """Working-copy construction and face sketches on the shared viewport."""
 from dataclasses import replace,asdict
-from copy import deepcopy
 import json
 import math
-from uuid import uuid4
 from PySide6.QtCore import QTimer, Qt, QEvent
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QCheckBox, QPushButton, QLabel, QPlainTextEdit, QToolButton, QGridLayout, QListWidget)
-from anygeometry import GeometryError, face_sketch_plane, SketchConstraint,SketchDefinition, SketchPlane, plane_sketch_plane
+from anygeometry import (GeometryError, SketchDefinition, SketchPlane, face_sketch_plane,
+    plane_sketch_plane, reference_links_from_parameters)
 
 from ... import commands
 from ...geometry.construction import ConstructionTask, ConstructionMode
-from ...geometry.sketching import FaceSketchTask
+from ...sketcher import FaceSketchTask, SketchPorts
 from ...geometry.snapping import geometry_snap_data
 from ...model.coordinates import CoordinateSystem
 from ...model.workplanes import Workplane
@@ -22,8 +21,28 @@ from .editors import apply_on_enter
 
 
 class ConstructionPanel(QWidget):
+    @property
+    def support(self):return self.controller.session.support
+    @support.setter
+    def support(self,value):self.controller.configure(support=value)
+
+    @property
+    def editing_feature_id(self):return self.controller.session.editing_feature_id
+    @editing_feature_id.setter
+    def editing_feature_id(self,value):self.controller.configure(editing_feature_id=value)
+
+    @property
+    def editing_plane(self):return self.controller.session.editing_plane
+    @editing_plane.setter
+    def editing_plane(self,value):self.controller.configure(editing_plane=value)
+
+    @property
+    def last_sketch_feature_id(self):return self.controller.session.last_sketch_feature_id
+    @last_sketch_feature_id.setter
+    def last_sketch_feature_id(self,value):self.controller.configure(last_sketch_feature_id=value)
+
     def __init__(self, app):
-        super().__init__();self.app=app;self.support=None;self.editing_feature_id=None;self.editing_plane=None
+        super().__init__();self.app=app;self.controller=app.sketcher;self.support=None;self.editing_feature_id=None;self.editing_plane=None
         layout=QVBoxLayout(self)
         heading=QLabel("Sketcher");heading.setStyleSheet("font-size: 16px; font-weight: 600;");layout.addWidget(heading)
         self.summary=QLabel("Choose a plane or select one flat face, then Start sketch. Draw points in order; Enter finishes and Escape cancels.")
@@ -41,7 +60,7 @@ class ConstructionPanel(QWidget):
         button("Cut plate",lambda:app.cut_plate_with_sketch(self.last_sketch_feature_id),actions).setText("Cut plate with sketch…")
         self.tool_widget=QWidget();tool_grid=QGridLayout(self.tool_widget);tool_grid.setContentsMargins(0,0,0,0)
         self.tool_buttons={}
-        for i,(key,label,tip) in enumerate((('select','Select','Click a point; Shift adds to selection. Drag a point to move it.'),('line','Line','Click start and end; existing endpoints are reused.'),('connected','Connected lines','Click points in order; Enter completes the chain.'),('arc','Arc','Click start, a point on the arc, and end.'),('circle','Circle','Click centre and a point on the circle.'),('spline','Spline','Click fit or control points; Enter completes the curve.'),('fillet','Rounded corner','Select two connected straight segments, then set radius.'),('dimension','Dimension','Select two points or one curve, then enter its dimension.'))):
+        for i,(key,label,tip) in enumerate((('select','Select','Click a point; Shift adds to selection. Drag a point to move it.'),('line','Line','Click start and end; existing endpoints are reused.'),('connected','Connected lines','Click points in order; Enter completes the chain.'),('arc','Arc','Click start, a point on the arc, and end.'),('circle','Circle','Click centre and a point on the circle.'),('spline','Spline','Click fit or control points; Enter completes the curve.'),('fillet','Rounded corner','Select two connected straight segments, then set radius.'),('dimension','Dimension','Select two points or one curve, then enter its dimension.'),('reference','Pick references','Click model vertices, edges or flat plates that meet the sketch plane to add them as fixed reference geometry.'))):
             control=QToolButton();control.setText(label);control.setCheckable(True);control.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             control.setIcon(self.tool_icon(key));control.setToolTip(tip);control.clicked.connect(app.guarded(lambda checked=False,k=key:self.choose_tool(k)))
             tool_grid.addWidget(control,i//4,i%4);self.tool_buttons[key]=control
@@ -54,6 +73,7 @@ class ConstructionPanel(QWidget):
         edit_actions=QHBoxLayout();layout.addLayout(edit_actions)
         button('Undo sketch',lambda:self.local_undo(),edit_actions);button('Redo sketch',lambda:self.local_undo(True),edit_actions)
         button('Close loop',self.close_loop,edit_actions)
+        button("View sketch plane",self.view_plane,edit_actions).setText("View plane")
         form=QFormLayout();layout.addLayout(form)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -66,11 +86,10 @@ class ConstructionPanel(QWidget):
         self.system=QComboBox();form.addRow("Construction plane",self.system)
         self.offset=QLineEdit("0");self.length_row("Plane offset",self.offset)
         self.closed=QCheckBox("Closed profile");self.closed.setChecked(True);form.addRow(self.closed)
-        self.coordinates=QLineEdit();self.length_row("Add local point (u, v)",self.coordinates)
+        self.coordinates=QLineEdit();self.length_row("Point u, v",self.coordinates)
         self.coordinates.setPlaceholderText("For example: 1 m, 0.5 m — Enter adds the point")
-        point_actions=QHBoxLayout();layout.addLayout(point_actions)
+        self.point_row=QWidget();point_actions=QHBoxLayout(self.point_row);point_actions.setContentsMargins(0,0,0,0);form.addRow(self.point_row)
         button("Add local point",self.add_point,point_actions);button("Remove last point",self.backspace,point_actions)
-        button("View sketch plane",self.view_plane)
         self.extrusion=QLineEdit("0");self.length_row("Sketch extrusion",self.extrusion)
         self.extrusion.setToolTip("Optional extrusion along the plane normal. Leave at zero to create profile edges only.")
         plane_body,plane_layout=self.section(layout,"Create a construction plane")
@@ -105,10 +124,17 @@ class ConstructionPanel(QWidget):
             control.setToolTip(tip);self.constraint_buttons[kind]=control
         constraint_form.setRowVisible(self.pair,False)
         self.constraint_body=self.pair.parentWidget()
+        self.reference_body,reference_layout=self.section(layout,"Reference geometry")
+        self.reference_help=QLabel("References are fixed copies of existing geometry that meets the sketch plane. Select vertices or edges in the model, then use them. They never move, and can be used for Join points, Set distance and Fix point.")
+        self.reference_help.setWordWrap(True);reference_layout.addWidget(self.reference_help)
+        self.reference_list=QListWidget();self.reference_list.setMaximumHeight(90);reference_layout.addWidget(self.reference_list)
+        button("Use selected geometry as references",self.import_references,reference_layout).setToolTip("Capture the selected model vertices and edges where they meet the sketch plane as fixed, read-only reference points.")
+        button("Remove selected reference",self.remove_references,reference_layout).setToolTip("Select a reference point in the sketch first. Constraints using it are removed with it.")
+        button("Refresh reference from selection",self.refresh_reference,reference_layout).setToolTip("Select one reference point in the sketch and one model vertex or edge, then capture the new geometry into that reference.")
         _,raw_layout=self.section(constraint_layout,"Advanced constraint records")
         self.constraints=QPlainTextEdit("[]");self.constraints.setMaximumHeight(90);raw_layout.addWidget(self.constraints)
         self.constraints.setToolTip("Constraint records use SI metres for dimensional values.")
-        _,other_layout=self.section(layout,"Other construction tools")
+        self.other_body,other_layout=self.section(layout,"Other construction tools")
         other_form=QFormLayout();other_layout.addLayout(other_form)
         self.mode=QComboBox()
         for item in ConstructionMode:self.mode.addItem("Connected lines" if item.value=="polyline" else item.value.title(),item.value)
@@ -129,6 +155,11 @@ class ConstructionPanel(QWidget):
                     if isinstance(child,QFormLayout):
                         child.setRowWrapPolicy(QFormLayout.WrapLongRows)
                         child.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.controller.bind(SketchPorts(begin_preview=self._begin_preview,end_preview=app.viewport.end_construction,
+            changed=self._controller_changed,preview=app.viewport.request_sketch_preview,
+            execute=app.run,can_edit=lambda:not app.session.read_only,accepted=self._accepted,
+            focus=lambda kind:self.focus_dimension(self.radius if kind=='radius' else self.distance),finish_requested=self.apply,
+            geometry=lambda:self.app.project.geometry))
         layout.addStretch();self.sync_controls()
 
     @staticmethod
@@ -146,11 +177,9 @@ class ConstructionPanel(QWidget):
         p.end();return QIcon(pixmap)
 
     def choose_tool(self,key):
-        task=self.app.viewport.construction_task
-        if not isinstance(task,FaceSketchTask):return
-        if key=='spline':
-            key=self.spline_kind.currentData();task.spline_degree=int(self.spline_degree.text());task.spline_weights=tuple(parse_numeric_sequence(self.spline_weights.text(),float)) if self.spline_weights.text().strip() else ()
-        task.choose_tool(key);self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if not self.controller.active:return
+        if key=='spline':key=self.spline_kind.currentData()
+        self.controller.choose_tool(key,degree=int(self.spline_degree.text()),weights=tuple(parse_numeric_sequence(self.spline_weights.text(),float)) if self.spline_weights.text().strip() else ())
         if key in ('dimension','fillet'):self.constraint_body.section_toggle.setChecked(True)
 
     def reselect_spline(self):
@@ -167,48 +196,31 @@ class ConstructionPanel(QWidget):
         QTimer.singleShot(0,field,lambda:(field.setFocus(Qt.OtherFocusReason),field.selectAll()))
 
     def enter(self):
+        if self.controller.active:return self.controller.enter()
         task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask) and task.pending:
-            task.complete_tool();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
-        elif task is not None and task.ready:self.apply()
+        if task is not None and task.ready:self.apply()
 
     def escape(self):
-        task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask):task.escape_tool();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.escape()
         else:self.cancel()
 
     def close_loop(self):
-        task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask):task.complete_tool(closed=True);self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.close_loop()
 
     def local_undo(self,redo=False):
-        task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask):
-            (task.redo_local if redo else task.undo_local)();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.undo(redo)
 
     def remove_selected_constraint(self):
-        task=self.app.viewport.construction_task;index=self.constraint_list.currentRow()
-        if isinstance(task,FaceSketchTask) and 0<=index<len(task.constraints):task.checkpoint();task.constraints.pop(index);self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.remove_constraint(self.constraint_list.currentRow())
 
     def set_radius(self):
-        from anygeometry import set_sketch_radius,round_sketch_corner
-        task=self.app.viewport.construction_task
-        if not isinstance(task,FaceSketchTask):return
-        definition=task.definition(0,allow_incomplete=True);radius=self.length(self.radius.text())/(2 if self.diameter.isChecked() else 1)
-        if len(task.selected_entities)==2:definition=round_sketch_corner(definition,*task.selected_entities,radius)
-        elif len(task.selected_entities)==1:definition=set_sketch_radius(definition,task.selected_entities[0],radius)
-        else:raise ValueError('Select one arc/circle or two connected straight segments')
-        from anygeometry import solve_sketch_edit
-        result=solve_sketch_edit(definition,task.plane)
-        if not result.converged:raise GeometryError("Radius conflicts with existing constraints")
-        before_ids={e.id for e in task.entities}
-        task.checkpoint();replacement=FaceSketchTask(task.plane,task.snap_tolerance,definition)
-        task._restore(replacement._state());task.selected_entities[:]=[e.id for e in task.entities if e.id not in before_ids] or task.selected_entities
-        self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.enter(field="radius",value=self.length(self.radius.text()),diameter=self.diameter.isChecked())
 
     @staticmethod
     def section(layout,title):
-        toggle=QPushButton(title);toggle.setCheckable(True);layout.addWidget(toggle)
+        toggle=QPushButton("\u25B8  "+title);toggle.setCheckable(True);toggle.setFlat(True);layout.addWidget(toggle)
+        toggle.setStyleSheet("QPushButton{text-align:left;font-weight:600;border:none;border-bottom:1px solid palette(mid);padding:4px 2px;}")
+        toggle.toggled.connect(lambda on:toggle.setText(("\u25BE  " if on else "\u25B8  ")+title))
         body=QWidget();content=QVBoxLayout(body);content.setContentsMargins(8,0,0,4)
         layout.addWidget(body);body.hide();toggle.toggled.connect(body.setVisible)
         body.section_toggle=toggle
@@ -235,6 +247,7 @@ class ConstructionPanel(QWidget):
         self.form.setRowVisible(self.system,plane and not active)
         self.form.setRowVisible(self.offset,plane and not active)
         for key in ("Undo sketch","Redo sketch","Close loop"):self.buttons[key].setVisible(active and isinstance(task,FaceSketchTask))
+        self.buttons["View sketch plane"].setVisible(active)
         self.buttons["Cut plate"].setEnabled(not active and not self.app.session.read_only)
         self.support_info.setVisible(active)
         self.support_info.setText(getattr(self,"_support_label",""))
@@ -246,11 +259,15 @@ class ConstructionPanel(QWidget):
         self.buttons["Cancel"].setEnabled(active)
         self.buttons["Cancel"].setVisible(active)
         sketching=active and isinstance(task,FaceSketchTask)
-        for key in ("Add local point","Remove last point","View sketch plane"):
-            self.buttons[key].setEnabled(active);self.buttons[key].setVisible(active)
-        self.form.setRowVisible(self.coordinates,active)
+        for key in ("Add local point","Remove last point","View sketch plane"):self.buttons[key].setEnabled(active)
+        self.form.setRowVisible(self.coordinates,active);self.form.setRowVisible(self.point_row,active)
+        for body in (self.plane_body,self.snap_body,self.other_body):
+            body.section_toggle.setVisible(not active)
+            if active:body.section_toggle.setChecked(False)
         self.constraint_body.section_toggle.setVisible(sketching)
-        if not sketching:self.constraint_body.section_toggle.setChecked(False)
+        self.reference_body.section_toggle.setVisible(sketching)
+        if not sketching:self.constraint_body.section_toggle.setChecked(False);self.reference_body.section_toggle.setChecked(False)
+        for label in ("Use selected geometry as references","Remove selected reference","Refresh reference from selection"):self.buttons[label].setEnabled(sketching and not self.app.session.read_only)
         self.spline_box.setVisible(sketching and task.tool in ('spline','nurbs'))
 
     def start_sketch_workflow(self):
@@ -258,15 +275,12 @@ class ConstructionPanel(QWidget):
         else:self.sketch_on_plane()
 
     def cancel(self):
-        self.app.viewport.cancel_construction()
-        self.support=None;self.editing_feature_id=None;self.editing_plane=None
+        if self.controller.active:self.controller.cancel()
+        else:self.app.viewport.cancel_construction()
         self.sync_controls()
 
     def closed_changed(self,closed):
-        task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask):
-            task.preview_closed=closed
-            self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.set_closed(closed)
 
     def view_plane(self,workplane=None,systems=None):
         workplane=self.app.viewport._construction_workplane if workplane is None else workplane
@@ -342,6 +356,18 @@ class ConstructionPanel(QWidget):
                          self.length(self.tolerance.text()),self.grid.isChecked(),self.grid.isChecked(),objects,objects,objects)
 
     def begin(self,task,plane,systems):
+        if isinstance(task,FaceSketchTask):return self.controller.begin(task,plane,systems)
+        return self._begin_preview(task,plane,systems)
+
+    def _controller_changed(self,task,snap):
+        self.app.viewport.refresh_construction_overlay();self.updated(task,snap)
+
+    def _accepted(self,feature):
+        made=tuple(ref for key,ref in feature.outputs.items() if key.startswith('extrusion/face/'))
+        self.app.selection.set_mode('face' if made else 'edge')
+        self.app.selection.restore(made or tuple(dict.fromkeys(ref for key,ref in feature.outputs.items() if key.startswith(('profile/edge/','entity/')) and ref.kind=='edge')))
+
+    def _begin_preview(self,task,plane,systems):
         if self.app.session.read_only:raise PermissionError("This project is read-only")
         if self.app.viewport.construction_active:raise ValueError("Finish or cancel the current construction first")
         self.app._begin_modelling()
@@ -376,8 +402,9 @@ class ConstructionPanel(QWidget):
         self.extrusion.setText(self.app.project.units.format(0,"length",precision=17))
         task=FaceSketchTask(plane,workplane.snap_tolerance);task.close=self.closed.isChecked()
         self.begin(task,workplane,self.coordinate_systems())
+        self.import_references(quiet=True)  # model geometry selected before Start becomes fixed references
 
-    def start_sketch(self,support,definition=None,feature_id=None):
+    def start_sketch(self,support,definition=None,feature_id=None,links=None):
         if self.app.viewport.construction_active:raise ValueError("Finish or cancel the current construction first")
         self.support_choice.setCurrentIndex(1)
         self._support_label=f"Support: flat face {support.id}"
@@ -388,7 +415,9 @@ class ConstructionPanel(QWidget):
         workplane=replace(self.workplane(),coordinate_system_id=system.id,offset=0)
         self.closed.setChecked(definition.closed if definition is not None else True)
         self.extrusion.setText(self.app.project.units.format(definition.extrusion if definition is not None else 0,"length",precision=17))
-        self.begin(FaceSketchTask(plane,workplane.snap_tolerance,definition),workplane,systems)
+        self.begin(FaceSketchTask(plane,workplane.snap_tolerance,definition,links=links),workplane,systems)
+        # The support plate itself is the sketch plane, not a reference.
+        if definition is None:self.import_references([s for s in self._selected_sources() if s!=support],quiet=True)
 
     def edit_sketch(self,feature_id):
         record=self.app.project.geometry.features.get(feature_id)
@@ -408,110 +437,90 @@ class ConstructionPanel(QWidget):
             self.closed.setChecked(definition.closed)
             self.extrusion.setText(self.app.project.units.format(definition.extrusion,"length",precision=17))
             workplane=replace(self.workplane(),coordinate_system_id=system.id,offset=0)
-            self.begin(FaceSketchTask(plane,workplane.snap_tolerance,definition),workplane,systems)
+            self.begin(FaceSketchTask(plane,workplane.snap_tolerance,definition,links=self._saved_links(record)),workplane,systems)
             self.app.notebook.select("Construction");return True
         if record.kind!="geometry.sketch.extrude":return False
         refs=record.inputs.get("support_face",())
         if len(refs)!=1:raise ValueError("Sketch support is invalid")
         resolved=self.app.project.geometry.features.resolve(refs[0],self.app.project.geometry)
         if len(resolved)!=1 or resolved[0].kind!="face":raise ValueError("Sketch support is unresolved")
-        self.start_sketch(resolved[0],SketchDefinition.from_parameters(record.parameters),record.feature_id)
+        self.start_sketch(resolved[0],SketchDefinition.from_parameters(record.parameters),record.feature_id,self._saved_links(record))
         self.app.notebook.select("Construction");return True
 
+    @staticmethod
+    def _saved_links(record):
+        """Optional saved source links; the controller detaches any that no longer match."""
+        return {item.reference_id:item for item in reference_links_from_parameters(record.parameters)}
+
+    def _selected_sources(self):
+        return [ref for ref in self.app.selection.ordered_items if ref.kind in ('vertex','edge','face')]
+
+    def import_references(self,sources=None,*,quiet=False):
+        """Capture selected vertices/edges as fixed references; each failure is reported, never approximated."""
+        from ...sketch_references import describe_reference_error
+        self.controller._task()
+        sources=self._selected_sources() if sources is None else list(sources)
+        if not sources:
+            if quiet:return 0
+            raise ValueError('Select model vertices, edges or flat plates that meet the sketch plane and try again')
+        added=0;problems=[]
+        for source in sources:
+            try:self.controller.add_references([source]);added+=1
+            except (GeometryError,ValueError) as error:problems.append(describe_reference_error(error))
+        if problems and not added and not quiet:raise ValueError(problems[0])
+        self.app.set_status(f"Added {added} fixed reference(s)"+(f"; {len(problems)} skipped: {problems[0]}" if problems else ""))
+        return added
+
+    def remove_references(self):
+        task=self.controller._task()
+        ids=[]
+        for key in task.selected:
+            item=task.reference_of(key)
+            if item is not None and item.id not in ids:ids.append(item.id)
+        if not ids:raise ValueError('Select a reference point in the sketch first')
+        if any(identifier in task.axis_references for identifier in ids):raise ValueError('Global axis reference points cannot be removed')
+        for identifier in ids:self.controller.remove_reference(identifier)
+
+    def refresh_reference(self):
+        """Explicit user action: capture the selected model geometry into the selected reference."""
+        task=self.controller._task()
+        ids=[item.id for key in task.selected for item in (task.reference_of(key),) if item is not None]
+        sources=self._selected_sources()
+        if len(set(ids))!=1 or len(sources)!=1:raise ValueError('Select one reference point in the sketch and one model vertex or edge')
+        self.controller.relink_reference(ids[0],sources[0])
+
     def add_constraint(self,kind):
-        task=self.app.viewport.construction_task
-        if not isinstance(task,FaceSketchTask):raise ValueError("Start a sketch first")
-        indices=tuple(task.point_keys.index(key) for key in task.selected) if task.selected else tuple(value-1 for value in parse_numeric_sequence(self.pair.text(),int))
-        if (len(indices)!= (1 if kind=="fixed" else 2) or len(set(indices))!=len(indices) or min(indices)<0 or max(indices)>=len(task.point_keys)):raise ValueError("Select one point for Fixed, or two points for this constraint: click a point, then Shift-click the second")
-        task.checkpoint()
-        extrusion=self.length(self.extrusion.text()) if task.ready else None
-        previous_constraints=list(task.constraints)
-        try:
-            if kind=="distance":
-                keys={task.point_keys[i] for i in indices}
-                task.constraints[:]=[c for c in task.constraints if c.kind!="distance" or {c.first,c.second}!=keys]
-                task.add_distance(*indices,self.length(self.distance.text()))
-            elif kind=="coincident":task.add_coincidence(*indices)
-            else:task.constraints.append(SketchConstraint(kind,task.point_keys[indices[0]],task.point_keys[indices[1]] if len(indices)>1 else None,id="c"+uuid4().hex))
-            if task.ready:
-                from anygeometry import solve_sketch_edit
-                definition=task.definition(extrusion,allow_incomplete=True)
-                task.constraints[:]=definition.constraints
-                result=solve_sketch_edit(definition,task.plane,fixed_points=(task.point_keys[indices[0]],)) if kind=='distance' else solve_sketch_edit(definition,task.plane)
-                if not result.converged:result=solve_sketch_edit(definition,task.plane)
-                if not result.converged:raise GeometryError('Dimension conflicts with existing constraints')
-                task._points[:]=[tuple(task.plane.world(result.points[k])) for k in task.point_keys]
-                task.diagnostic=f'{result.degrees_of_freedom} degrees of freedom'
-        except Exception:
-            # Owner validation leaves points unchanged on failure. Restore the
-            # constraints (including any replaced distance) and drop the undo
-            # step of the attempt so the visible working copy stays valid.
-            task.constraints[:]=previous_constraints
-            if task._undo:task._undo.pop()
-            raise
-        self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        task=self.controller._task()
+        indices=tuple(value-1 for value in parse_numeric_sequence(self.pair.text(),int)) if not task.selected else None
+        if kind=='distance':self.controller.enter(field='distance',value=self.length(self.distance.text()),indices=indices,extrusion=self.length(self.extrusion.text()) if task.ready else 0)
+        else:self.controller.constraint(kind,indices=indices,extrusion=self.length(self.extrusion.text()) if task.ready else 0)
 
     def remove_constraint(self):
-        task=self.app.viewport.construction_task
-        if not isinstance(task,FaceSketchTask):raise ValueError("Start a sketch first")
-        task.remove_last_constraint();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        self.controller.remove_constraint()
 
     def add_point(self):
         task=self.app.viewport.construction_task
-        if task is None:raise ValueError("Start construction before adding a point")
+        if task is None:raise ValueError('Start construction before adding a point')
         u,v=parse_numeric_sequence(self.coordinates.text(),self.length,units=True)
         frame=self.app.viewport._construction_workplane.resolve(self.app.viewport._construction_coordinate_systems)
-        task.add_plane_coordinates(u,v,frame)
-        self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.enter(field='coordinates',value=frame.world_position((u,v)))
+        else:task.add_plane_coordinates(u,v,frame);self.app.viewport.refresh_construction_overlay();self.updated(task,None)
 
     def backspace(self):
-        task=self.app.viewport.construction_task
-        if task is not None:
-            task.backspace();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
+        if self.controller.active:self.controller.undo()
+        else:
+            task=self.app.viewport.construction_task
+            if task is not None:task.backspace();self.app.viewport.refresh_construction_overlay();self.updated(task,None)
 
     def apply(self):
-        if self.app.session.read_only:raise PermissionError("This project is read-only")
-        task=self.app.viewport.construction_task
-        if isinstance(task,FaceSketchTask):
-            name=self.sketch_name.text().strip()
-            if not name:raise ValueError("Enter a sketch name")
-            constraints=json.loads(self.constraints.toPlainText())
-            # Validate the proposed edit separately. A failed owner solve or
-            # project command must leave the displayed working preview intact.
-            preview=deepcopy(task)
-            if preview.pending:preview.complete_tool()
-            preview.constraints[:]=[SketchConstraint(**item) for item in constraints]
-            preview.close=self.closed.isChecked()
-            preview.preview_closed=preview.close
-            definition=preview.solve_preview(self.length(self.extrusion.text()))
-            if self.editing_feature_id is None:
-                if self.support is not None:feature=self.app.run(commands.AddSketch(self.support,definition,name))
-                else:
-                    frame=self.app.viewport._construction_workplane.resolve(self.app.viewport._construction_coordinate_systems)
-                    feature=self.app.run(commands.AddPlaneSketch(definition,frame.origin,frame.normal,frame.x_axis,name))
-            elif self.editing_plane is not None:
-                feature=self.app.run(commands.EditFeature(self.editing_feature_id,name=name,parameters={**definition.to_parameters(),"plane":self.editing_plane}))
-            else:feature=self.app.run(commands.EditFeature(self.editing_feature_id,name=name,parameters=definition.to_parameters()))
-            self.last_sketch_feature_id=feature.feature_id
-            self.app.viewport.end_construction()
-            self.editing_feature_id=None;self.editing_plane=None
-            self.support=None
-            made=tuple(ref for key,ref in feature.outputs.items() if key.startswith("extrusion/face/"))
-            if made:
-                self.app.selection.set_mode("face")
-                self.app.selection.restore(made)
-            else:
-                self.app.selection.set_mode("edge")
-                self.app.selection.restore(tuple(dict.fromkeys(ref for key,ref in feature.outputs.items() if key.startswith(("profile/edge/","entity/")) and ref.kind=="edge")))
+        if self.app.session.read_only:raise PermissionError('This project is read-only')
+        if self.controller.active:
+            self.controller.finish(name=self.sketch_name.text(),extrusion=self.length(self.extrusion.text()),closed=self.closed.isChecked(),constraint_records=json.loads(self.constraints.toPlainText()))
         else:
-            result=self.app.viewport.finish_construction(self.app.run)
-            made=result.edges or result.vertices
-            if made:
-                self.app.selection.set_mode("edge" if result.edges else "vertex")
-                self.app.selection.restore(made)
-        self.summary.setText("Sketch finished. Choose a support and Start sketch to draw another profile.")
-        self.sync_controls()
-        self.app.set_status("Construction applied")
+            result=self.app.viewport.finish_construction(self.app.run);made=result.edges or result.vertices
+            if made:self.app.selection.set_mode('edge' if result.edges else 'vertex');self.app.selection.restore(made)
+        self.summary.setText('Sketch finished. Choose a support and Start sketch to draw another profile.')
+        self.sync_controls();self.app.set_status('Construction applied')
 
     def updated(self,task,snap):
         if task.cancelled:
@@ -525,8 +534,11 @@ class ConstructionPanel(QWidget):
             current=self.constraint_list.currentRow();self.constraint_list.clear()
             for c in task.constraints:self.constraint_list.addItem(f"{c.kind.replace('_',' ').title()}: {c.first}"+(f" → {c.second}" if c.second else '')+(f" = {self.app.project.units.format(c.value,'length')}" if c.value is not None else ''))
             self.constraint_list.setCurrentRow(current)
+            self.reference_list.clear()
+            for item in task.references:
+                self.reference_list.addItem(f"{item.id} · {item.kind} · "+("Fixed (source linked)" if task.is_linked(item.id) else "Fixed (detached from source)"))
             if len(task.selected)==2:
-                a,b=(task.points[task.point_keys.index(k)] for k in task.selected)
+                a,b=(task.reference_world(k) if k in task.reference_points else task.points[task.point_keys.index(k)] for k in task.selected)
                 self.distance.setText(self.app.project.units.format(math.dist(a,b),'length',precision=12))
             if task.selected or task.selected_entities:self.constraint_body.section_toggle.setChecked(True)
             if len(task.selected_entities)==1:
@@ -537,12 +549,17 @@ class ConstructionPanel(QWidget):
         if isinstance(task,FaceSketchTask):
             picked=len(task.selected)
             for kind,control in self.constraint_buttons.items():control.setEnabled(picked==(1 if kind=="fixed" else 2))
-            instructions={"select":"Click to select; Shift adds points or segments. Drag a point to move it.","line":"Click start and end. Existing points are reused.","connected":"Click connected points. Enter completes; Close loop closes the profile.","arc":"Click start, a point on the arc, and end.","circle":"Click centre and a point on the circle.","spline":"Click fit/control points; Enter completes the spline.","nurbs":"Click control points; Enter completes the NURBS.","dimension":"Select two points or a curve, then enter a dimension.","fillet":"Shift-select two connected segments, then set Radius."}
-            self.summary.setText(instructions.get(task.tool,"")+" · Enter finishes the tool, then the sketch. Escape returns to Select.");return
+            instructions={"select":"Click to select; Shift adds points or segments. Drag a point to move it.","line":"Click start and end. Existing points are reused.","connected":"Click connected points. Enter completes; Close loop closes the profile.","arc":"Click start, a point on the arc, and end.","circle":"Click centre and a point on the circle.","spline":"Click fit/control points; Enter completes the spline.","nurbs":"Click control points; Enter completes the NURBS.","dimension":"Select two points or a curve, then enter a dimension.","fillet":"Shift-select two connected segments, then set Radius.","reference":"Click model vertices or edges that meet the sketch plane; each becomes a fixed reference. Escape returns to Select."}
+            self.summary.setText(instructions.get(task.tool,"")+" Escape returns to Select; Finish sketch saves.");return
         self.summary.setText(f"{len(task.points)} point(s) · {'Enter or Finish sketch to save' if task.ready else 'click points in the canvas'} · Backspace removes the last point; Escape cancels."+
                              (f" · {snap.kind.value} snap" if snap is not None and snap.kind is not None else ""))
 
     def refresh(self):
+        # Source history may change without a new rendered model (for example,
+        # deleting its last feature). Invalidate unsaved references on document
+        # refresh as well, while retaining their fixed snapshot coordinates.
+        if self.controller.active and self.controller.refresh_references():
+            self._controller_changed(self.controller.task,None)
         for field,label in self.length_labels.items():
             self.length_forms[field].labelForField(field).setText(f"{label} ({self.app.project.units.symbol('length')})")
         systems=self.coordinate_systems()

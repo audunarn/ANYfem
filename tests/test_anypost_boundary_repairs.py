@@ -4,6 +4,7 @@ from threading import Event,Thread
 import json,time
 import h5py,numpy as np,pytest
 from anyfem.post.access import LiveResultAccess,ShapeProvider,retained_recovery_bytes
+from anyfem.presentation import VisualizationStyle
 from anyfem.post.fields import Field
 from anypost.errors import RequestCancelled,WorkingSetError,ClosedReaderError
 
@@ -147,7 +148,7 @@ def test_first_deferred_display_preserves_requested_continuation(tmp_path,monkey
         def set_status(self,*a,**k):pass
     app=App();app.active_job_id='job';app.result_datasets={'job':dataset};app.project=SimpleNamespace(jobs={})
     app._show_attributes=SimpleNamespace(get=lambda:False)
-    app.viewport=SimpleNamespace(visualization=SimpleNamespace(show_beam_sections=False),show=lambda scene:events.append('shown'))
+    app.viewport=SimpleNamespace(visualization=VisualizationStyle(show_beam_sections=False),show=lambda scene:events.append('shown'))
     app.panels={'Results':SimpleNamespace(colormap=lambda:((0.,'#000000'),(1.,'#ffffff')),display_units=lambda:'SI (m / Pa)',
         show_result_nodes=lambda:False,show_result_supports=lambda:False,show_result_loads=lambda:False,
         show_result_masses=lambda:False,show_imperfect_reference=lambda:False)}
@@ -162,9 +163,9 @@ def test_publication_render_error_clears_pending_and_keeps_accepted_charge(monke
     value=source();panel=SimpleNamespace(ensure_compatible_field=lambda:None,field_name=lambda:'ux',scale_value=lambda s:0,
         show_result_nodes=lambda:False,show_result_supports=lambda:False,show_result_loads=lambda:False,
         show_result_masses=lambda:False,show_imperfect_reference=lambda:False,colour_limits=lambda:None,colormap=lambda:(),display_units=lambda:'SI (m / Pa)')
-    prior=Scene();viewport=SimpleNamespace(_scene=prior,active_backend='software',visualization=SimpleNamespace(show_beam_sections=False),
+    prior=Scene();viewport=SimpleNamespace(_scene=prior,active_backend='software',visualization=VisualizationStyle(show_beam_sections=False),
         show=lambda scene:(_ for _ in ()).throw(RuntimeError('render refused')))
-    app=SimpleNamespace(solution=value,project=None,panels={'Results':panel},current_shape=lambda:value,_live_result_access=access,
+    app=SimpleNamespace(_view_mode=None,solution=value,project=None,panels={'Results':panel},current_shape=lambda:value,_live_result_access=access,
         viewport=viewport,_show_attributes=SimpleNamespace(get=lambda:False),_result_scale_text=lambda p:None,
         _result_case_name=lambda s:'source',_with_attributes=lambda scene,**k:scene)
     monkeypatch.setattr(workflow,'build_result_scene',lambda *a,**k:Scene(result_field=k['values'],result_mesh=value.built.mesh))
@@ -204,3 +205,95 @@ def test_qt_frame_selector_uses_root_axis_for_subset_quantity():
     panel=SimpleNamespace(app=SimpleNamespace(result_datasets={'job':dataset},active_job_id='job'),
         use_retained=lambda:True,field_name=lambda:'stress')
     assert ResultsTask.frame_count(panel)==4
+
+
+@pytest.mark.parametrize('outcome',['success','cancel','failure'])
+def test_metadata_preparation_coalesces_continuations_and_settles_failure(outcome):
+    from anyfem.application.workflow import WorkbenchWorkflow
+
+    requests=[];events=[];diagnostics=[]
+    dataset=SimpleNamespace(metadata_ready=False)
+    def prepare():
+        events.append('read')
+        if outcome=='failure':raise ValueError('invalid retained header')
+        dataset.metadata_ready=True
+    dataset.prepare_metadata=prepare
+    app=SimpleNamespace(project=SimpleNamespace(jobs={'job':SimpleNamespace(diagnostics=diagnostics)}),
+        result_datasets={'job':dataset},refresh_panels=lambda:events.append('refresh'),
+        set_status=lambda *args,**kwargs:None,
+        _request_result=lambda load,publish,**kwargs:requests.append((load,publish,kwargs)))
+    for index in range(2):
+        assert WorkbenchWorkflow.prepare_result_dataset(app,dataset,
+            on_ready=lambda index=index:events.append(('ready',index)),
+            on_cancel=lambda index=index:events.append(('cancel',index)))
+    assert len(requests)==1 and requests[0][2]['channel']=='metadata'
+    load,publish,options=requests[0]
+    if outcome=='cancel':
+        options['on_cancel']()
+        assert events==[('cancel',0),('cancel',1)]
+        assert not dataset.metadata_ready and app.result_datasets=={'job':dataset}
+    else:
+        publish(load(Event()))
+        if outcome=='success':
+            assert events==['read','refresh',('ready',0),('ready',1)]
+            assert app.result_datasets=={'job':dataset}
+        else:
+            assert app.result_datasets=={} and 'invalid retained header' in diagnostics[0]['message']
+            assert not any(isinstance(event,tuple) and event[0]=='ready' for event in events)
+            assert ('cancel',0) in events and ('cancel',1) in events
+    assert not app._result_metadata_preparations
+
+
+@pytest.mark.parametrize('phase',['ready','cancel'])
+def test_metadata_waiter_failure_does_not_strand_later_waiters(phase):
+    from anyfem.application.workflow import WorkbenchWorkflow
+
+    requests=[];events=[]
+    dataset=SimpleNamespace(metadata_ready=False,prepare_metadata=lambda:None)
+    app=SimpleNamespace(refresh_panels=lambda:None,set_status=lambda *args,**kwargs:None,
+        _request_result=lambda load,publish,**kwargs:requests.append((load,publish,kwargs)))
+    def refused():
+        events.append('first')
+        raise RuntimeError('first waiter refused')
+    for callback in (refused,lambda:events.append('second')):
+        WorkbenchWorkflow.prepare_result_dataset(app,dataset,**{'on_'+phase:callback})
+    load,publish,options=requests[0]
+    with pytest.raises(RuntimeError,match='first waiter refused'):
+        if phase=='ready':publish(load(Event()))
+        else:options['on_cancel']()
+    assert events==['first','second'] and not app._result_metadata_preparations
+
+
+def test_real_metadata_continuation_failure_settles_each_waiter_once():
+    from anyfem.application.workflow import WorkbenchWorkflow
+
+    class Scheduler:
+        def __init__(self):self.callbacks=[]
+        def call_later(self,delay,callback):self.callbacks.append(callback)
+        def step(self):
+            callbacks,self.callbacks=self.callbacks,[]
+            for callback in callbacks:callback()
+    class App(WorkbenchWorkflow):
+        solution=None;project=None;mesh=None
+        def refresh_panels(self):pass
+        def set_status(self,text,**options):messages.append((text,options))
+    app=App();app.scheduler=Scheduler();app._closing=False;app.panels={}
+    events=[];messages=[];entered=Event();release=Event()
+    def prepare():
+        entered.set()
+        assert release.wait(5)
+    dataset=SimpleNamespace(metadata_ready=False,prepare_metadata=prepare,close=lambda:None)
+    def fail():
+        events.append('first ready');raise RuntimeError('continuation refused')
+    try:
+        app.prepare_result_dataset(dataset,on_ready=fail,on_cancel=lambda:events.append('first cancelled'))
+        assert entered.wait(5)
+        app.prepare_result_dataset(dataset,on_ready=lambda:events.append('second ready'),on_cancel=lambda:events.append('second cancelled'))
+        release.set()
+        deadline=time.monotonic()+5
+        while len(events)<2 and time.monotonic()<deadline:app.scheduler.step();time.sleep(.005)
+        assert events==['first ready','second ready']
+        assert any('continuation refused' in text and flags.get('error') for text,flags in messages)
+        assert not app._result_metadata_preparations
+    finally:
+        release.set();app.close_result_access();app._closing=True

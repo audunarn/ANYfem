@@ -141,18 +141,23 @@ def qt_panel():
     panel.deleteLater();appqt.processEvents()
 
 
-@pytest.mark.parametrize('control',['palette','units','limits','inspection_palette'])
-def test_actual_qt_controls_recolour_without_result_requests(qt_panel,control):
+@pytest.mark.parametrize('control,palette',[
+    *[(control,palette) for control in ('palette','inspection_palette')
+      for palette in ('Viridis','Jet','HSV','Inferno')],
+    ('units',None), ('limits',None)])
+def test_actual_qt_controls_recolour_without_result_requests(qt_panel,control,palette):
     panel,appqt=qt_panel
     if control=='inspection_palette':
         panel._selected_entry=('live','stress',None)
         panel._displayed_selection=panel._display_selection()
-    if control in {'palette','inspection_palette'}:panel.colors.setCurrentText('Viridis')
+    if control in {'palette','inspection_palette'}:panel.colors.setCurrentText(palette)
     elif control=='units':panel.units.setCurrentText('Engineering (mm / MPa)')
     else:
         panel.minimum.setText('1');panel.maximum.setText('4');panel.maximum.editingFinished.emit()
     appqt.processEvents()
     assert panel.app.viewport.canvas.draws==1
+    if palette is not None:
+        assert panel.app.viewport._scene.result_colormap==RESULT_COLORMAPS[palette]
 
 
 def test_source_epoch_change_requires_new_result_request(qt_panel):

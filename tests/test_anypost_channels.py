@@ -261,7 +261,7 @@ def test_result_display_defers_any_cold_header_until_worker_preparation(backend)
     dataset=object();pending=[]
     app=SimpleNamespace(solution=None,active_job_id='j',result_datasets={'j':dataset},
         prepare_result_dataset=lambda value,**kw:pending.append((value,kw)) or True)
-    panel=SimpleNamespace(app=app,use_retained=lambda:True,
+    panel=SimpleNamespace(app=app,use_retained=lambda:True,_display_selection=lambda:('stress',),
         _component=SimpleNamespace(get=lambda:'stress'),
         ensure_compatible_field=lambda:pytest.fail('cold headers touched on owner'))
     if backend=='qt':

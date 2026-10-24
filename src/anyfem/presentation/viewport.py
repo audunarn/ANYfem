@@ -206,6 +206,7 @@ class SceneViewport:
                 config=config,
             )
             self._canvas_filter_kinds = config.filter.kinds
+            self._canvas_filter_signature = self._selection_filter_signature(config)
         else:
             # The original tag callback remains the compatibility contract for
             # older ANYtk3D versions and for callers opting out of CAD controls.
@@ -322,6 +323,15 @@ class SceneViewport:
 
         self._cancel_interaction_restore()
         self._scene = scene
+        self._grouped_face_hits = {}
+        self._grouped_face_hover_keys = {}
+        for patch in scene.faces:
+            if not getattr(patch,'grouped_pick',False):continue
+            visible={ref for index in range(len(patch.polygons)) for ref in patch.owners_for_polygon(index)}
+            group=tuple(ref for ref in patch.owners if ref in visible)
+            self._grouped_face_hits.update((ref,group) for ref in group)
+            key=self._group_face_key(patch)
+            self._grouped_face_hover_keys.update((ref,key) for ref in group)
         self._interaction_scene = interaction_scene
         self._interaction_scene_active = False
         self._render_scene(scene, reset_view=reset_view)
@@ -396,7 +406,15 @@ class SceneViewport:
                     tuple(handle for handle, (_, options) in zip(handles, retained[1])
                           if 'opacity' in options))
             self._draw(retained[2])
-        self._draw_construction_overlay()
+        self._construction_overlay_group = None
+        self._construction_background_guard = None
+        if self.construction_active and callable(getattr(self.canvas,"annotation_group",None)):
+            self._construction_background_guard = lifetime_guard(self.canvas)
+            self._construction_overlay_group = self.canvas.annotation_group()
+            with self._construction_overlay_group:
+                self._draw_construction_overlay()
+        else:
+            self._draw_construction_overlay()
         if key is not None:
             guard = lifetime_guard(self.canvas)
             if guard is not None:
@@ -801,6 +819,16 @@ class SceneViewport:
             self.show(self._scene, interaction_scene=self._interaction_scene)
 
 
+    def _draw_construction_lines(self,pairs,*,color,width,layer):
+        pairs=tuple(pairs)
+        if not pairs:return
+        if callable(getattr(self.canvas,'add_mesh_arrays',None)):
+            from any3dview import MeshArrays
+            positions=np.asarray(pairs,dtype=float).reshape((-1,3))
+            mesh=MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=np.arange(len(positions),dtype=np.uint32).reshape((-1,2)))
+            return self.canvas.add_mesh_arrays(mesh,color=color,line_color=color,line_width=width,layer=layer,draw_overlay=True,pickable=False)
+        for start,end in pairs:self.canvas.add_line(self._point3d(*start),self._point3d(*end),color=color,width=width,layer=layer,draw_overlay=True)
+
     def _draw_construction_overlay(self) -> None:
         """Draw a bounded face/workplane grid and the uncommitted sketch."""
 
@@ -828,25 +856,11 @@ class SceneViewport:
         u_values = grid_values(u0, u1)
         v_values = grid_values(v0, v1)
         point3d = self._point3d
-        for value in u_values:
-            start = frame.world_position((value, v0))
-            end = frame.world_position((value, v1))
-            self.canvas.add_line(
-                point3d(*start), point3d(*end), color="#c8d7e6", width=1,
-                layer=40, draw_overlay=True,
-            )
-        for value in v_values:
-            start = frame.world_position((u0, value))
-            end = frame.world_position((u1, value))
-            self.canvas.add_line(
-                point3d(*start), point3d(*end), color="#c8d7e6", width=1,
-                layer=40, draw_overlay=True,
-            )
-        for start, end in task.preview_segments:
-            self.canvas.add_line(
-                point3d(*start), point3d(*end), color="#1565c0", width=3,
-                layer=45, draw_overlay=True,
-            )
+        grid_pairs=[]
+        for value in u_values:grid_pairs.append((frame.world_position((value,v0)),frame.world_position((value,v1))))
+        for value in v_values:grid_pairs.append((frame.world_position((u0,value)),frame.world_position((u1,value))))
+        self._draw_construction_lines(grid_pairs,color='#c8d7e6',width=1,layer=40)
+        self._draw_construction_lines(task.preview_segments,color='#1565c0',width=3,layer=45)
         point_keys = list(getattr(task, "point_keys", ()))
         point_index = {key: index for index, key in enumerate(point_keys)}
         for constraint in getattr(task, "constraints", ()):
@@ -898,22 +912,14 @@ class SceneViewport:
         engine = self._construction_snap_engine
         if task is None or workplane is None or systems is None or engine is None:
             return None
-        if getattr(task,'tool',None) in ('select','dimension','fillet'):
+        controller=getattr(self,'sketcher',None)
+        controlled=controller is not None and controller.task is task
+        if controlled:
             picker=getattr(self,'sketch_point_at',None)
-            key=picker(x,y) if picker else None
-            task.select(key)
-            self.refresh_construction_overlay()
-            if self._on_construction_update is not None:self._on_construction_update(task,None)
-            return None
-        if not task.accepts_more:
-            return None
-        picker=getattr(self,'sketch_point_at',None)
-        existing=picker(x,y) if picker else None
-        if existing is not None:
-            task.add(task.points[task.point_keys.index(existing)])
-            self.refresh_construction_overlay()
-            if self._on_construction_update is not None:self._on_construction_update(task,None)
-            return None
+            existing=picker(x,y) if picker else None
+            if task.tool in ('select','dimension','fillet'):controller.select(existing);return None
+            if existing is not None:controller.point(existing_key=existing);return None
+        elif not task.accepts_more:return None
         point = self.project_to_workplane(x, y, workplane, systems)
         if point is None:
             return None
@@ -921,6 +927,7 @@ class SceneViewport:
         source = self._construction_snap_data
         data = source() if callable(source) else source
         result = engine.snap(point, workplane, frame, data)
+        if controlled:controller.point(result);return result
         task.add(result)
         if getattr(self, "_scene", None) is not None:
             self.show(self._scene, interaction_scene=self._interaction_scene)
@@ -933,6 +940,16 @@ class SceneViewport:
         """Redraw a changed working-copy task without mutating the model."""
 
         if getattr(self, "_scene", None) is not None and self._construction_task is not None:
+            group = getattr(self,"_construction_overlay_group",None)
+            guard = getattr(self,"_construction_background_guard",None)
+            if (group is not None and group.viewer is self.canvas and guard is not None
+                    and not guard.removed and not self._interaction_scene_active):
+                group.remove()
+                self._construction_overlay_group = self.canvas.annotation_group()
+                with self._construction_overlay_group:
+                    self._draw_construction_overlay()
+                self.canvas.redraw()
+                return
             self.show(self._scene, interaction_scene=self._interaction_scene)
 
 
@@ -964,6 +981,8 @@ class SceneViewport:
         """Cancel the working preview.  The live model remains untouched."""
 
         task = self._construction_task
+        controller=getattr(self,"sketcher",None)
+        if controller is not None and controller.task is task and task is not None:return controller.cancel()
         if task is None:
             return False
         handler = self._on_construction_update
@@ -975,10 +994,14 @@ class SceneViewport:
 
 
     def _handle_construction_escape(self, _event=None) -> None:
-        self.cancel_construction()
+        controller=getattr(self,"sketcher",None)
+        if controller is not None and controller.active:controller.escape()
+        else:self.cancel_construction()
 
 
     def _handle_construction_enter(self, _event=None) -> None:
+        controller=getattr(self,"sketcher",None)
+        if controller is not None and controller.active:return controller.enter()
         task = self._construction_task
         handler = self._on_construction_apply
         if task is not None and task.ready and handler is not None:
@@ -1242,7 +1265,7 @@ class SceneViewport:
         capabilities = getattr(self.canvas, "capabilities", None)
         if not bool(getattr(capabilities, "smooth_normals", False)):
             return {}
-        if any(patch.polygon_owners is not None for patch in patches):
+        if any(patch.polygon_owners is not None and not getattr(patch,'grouped_pick',False) for patch in patches):
             return {}
         return {"smooth_angle": GEOMETRY_SMOOTH_ANGLE}
 
@@ -1259,17 +1282,19 @@ class SceneViewport:
             "width": style.edge_width,
             "opacity": opacity,
             "lit": lit,
-            "tags": patch.tag,
+            "tags": "" if getattr(patch,'grouped_pick',False) else patch.tag,
         }
         if patch.polygon_owners is not None:
             options["bindings"] = [
-                self._pick_binding(patch.owners_for_polygon(index), patch.tag)
+                self._face_pick_binding(patch,index)
                 for index in range(len(patch.polygons))
             ]
         else:
-            binding = self._pick_binding(patch.owners_for_polygon(0), patch.tag)
+            binding = self._face_pick_binding(patch,0)
             if binding is not None:
                 options["bindings"] = binding
+        if getattr(patch,"outline_groups",None) is not None:
+            options["outline_groups"] = patch.outline_groups
         options.update(self._smooth_options((patch,)))
         self.canvas.add_faces(
             [polygon.tolist() for polygon in patch.polygons],
@@ -1294,13 +1319,14 @@ class SceneViewport:
             polygons = []
             colors = []
             bindings = []
-            for patch in group:
+            outline_groups = [] if any(getattr(patch,"outline_groups",None) is not None for patch in group) else None
+            for patch_index, patch in enumerate(group):
                 # Without per-polygon owners every polygon has the same owner
                 # set, so build that binding once.  A collapsed generator
                 # carries all of its face owners on each polygon; rebuilding
                 # the binding per polygon made a cylinder quadratic in faces.
                 shared_binding = (
-                    self._pick_binding(patch.owners_for_polygon(0), patch.tag)
+                    self._face_pick_binding(patch,0)
                     if patch.polygon_owners is None and patch.polygons
                     else None
                 )
@@ -1314,12 +1340,13 @@ class SceneViewport:
                         else polygon.tolist()
                     )
                     colors.append(patch.colors[index])
+                    if outline_groups is not None:
+                        labels=getattr(patch,"outline_groups",None)
+                        outline_groups.append((patch_index,labels[index]) if labels is not None else (patch_index,index))
                     bindings.append(
                         shared_binding
                         if patch.polygon_owners is None
-                        else self._pick_binding(
-                            patch.owners_for_polygon(index), patch.tag
-                        )
+                        else self._face_pick_binding(patch,index)
                     )
             self.canvas.add_faces(
                 polygons,
@@ -1330,8 +1357,24 @@ class SceneViewport:
                 lit=lit,
                 tags="",
                 bindings=bindings,
+                **({"outline_groups":outline_groups} if outline_groups is not None else {}),
                 **self._smooth_options(group),
             )
+
+    @staticmethod
+    def _group_face_key(patch):
+        return 'anyfem:face-group:'+entity_tag(patch.owners[0]) if patch.owners else None
+
+    def _face_pick_binding(self,patch,index):
+        binding=self._pick_binding(patch.owners_for_polygon(index),patch.tag)
+        if binding is None or not getattr(patch,'grouped_pick',False):return binding
+        key=self._group_face_key(patch)
+        if key is None:return binding
+        # Presentation owner is never admitted by the native geometry filter
+        # and never persisted as a model reference. It only binds the one
+        # preselection key to every visible polygon of this semantic group.
+        owner=self._selection_api['PickOwner'](key,'presentation.face_group',0)
+        return self._selection_api['PickBinding']((*binding.owners,owner))
 
 
     def _draw_line_batches(self, polylines) -> None:
@@ -1527,9 +1570,11 @@ class SceneViewport:
                 if ref is not None and selection_filter is not None
                 else ref is not None and ref.kind == self.selection.mode
             )
-            if accepted and ref not in seen:
-                seen.add(ref)
-                refs.append(ref)
+            if accepted:
+                for candidate in getattr(self,'_grouped_face_hits',{}).get(ref,(ref,)):
+                    if candidate not in seen and (selection_filter is None or selection_filter.accepts(candidate)):
+                        seen.add(candidate)
+                        refs.append(candidate)
         return refs
 
 
@@ -1544,9 +1589,19 @@ class SceneViewport:
         if self._selection_tool == "single" and gesture != "click":
             return
 
-        owners = [
-            getattr(hit, "owner", hit) for hit in getattr(event, "hits", ())
-        ]
+        owners = []
+        seen=set()
+        for hit in getattr(event,'hits',()):
+            owner=getattr(hit,'owner',hit)
+            ref=owner_to_ref(owner)
+            expanded=getattr(self,'_grouped_face_hits',{}).get(ref)
+            for candidate in expanded if expanded is not None else (owner,):
+                identity=owner_to_ref(candidate)
+                # A window can report several polygons from the same group.
+                # Deduplicate before applying toggle/remove as one operation.
+                key=identity if identity is not None else id(candidate)
+                if key not in seen:
+                    seen.add(key);owners.append(candidate)
         event_operation = self._enum_value(
             getattr(event, "operation", "replace")
         )
@@ -1605,6 +1660,8 @@ class SceneViewport:
         self._hover_key = (
             None if ref is None else str(getattr(hit, "key", "")) or None
         )
+        if ref is not None:
+            self._hover_key=getattr(self,'_grouped_face_hover_keys',{}).get(ref,self._hover_key)
         # Current viewers apply hit preselection before this callback. Repeating
         # the public setter loses their hit-local ownership cache. Older viewers
         # still need the setter, as does a hit rejected by the application filter.
@@ -1640,7 +1697,16 @@ class SceneViewport:
         qualified_kinds = getattr(model_filter, "qualified_kinds", None)
         if qualified_kinds is None:
             qualified_kinds = frozenset({f"geometry.{self.selection.mode}"})
-        selection_filter = api["SelectionFilter"](kinds=qualified_kinds)
+        if getattr(model_filter,'flavor','')=='plate_edge':
+            # Public viewer filters own click/region/depth eligibility before
+            # hit arbitration. Keep canonical owners and geometry.edge kinds.
+            class PlateBoundaryFilter(api['SelectionFilter']):
+                def accepts(self,owner):
+                    ref=owner_to_ref(owner)
+                    return super().accepts(owner) and ref is not None and model_filter.accepts(ref)
+            selection_filter=PlateBoundaryFilter(kinds=qualified_kinds)
+        else:
+            selection_filter = api["SelectionFilter"](kinds=qualified_kinds)
         options = {
             "filter": selection_filter,
             "depth": depth,
@@ -1656,6 +1722,10 @@ class SceneViewport:
             # idempotent except for toggle, which ANYtk3D de-duplicates.
             options["click_on_press"] = True
         return api["SelectionConfig"](**options)
+
+    def _selection_filter_signature(self, config):
+        model_filter=getattr(self.selection,'filter',None)
+        return (config.filter.kinds,getattr(model_filter,'flavor',''),getattr(model_filter,'eligible_ids',frozenset()))
 
 
     def configure_selection(
@@ -1696,6 +1766,7 @@ class SceneViewport:
             tool=config.tool,
         )
         self._canvas_filter_kinds = config.filter.kinds
+        self._canvas_filter_signature = self._selection_filter_signature(config)
         # ANYtk3D clears preselection while replacing query policy.  The
         # current owner is still valid when only tool/depth/operation changed.
         if self._hover_key is not None and hasattr(
@@ -1734,9 +1805,11 @@ class SceneViewport:
         if self._commercial_selection:
             # The filter follows geometry Point/Line/Plate mode immediately.
             config = self._selection_config()
-            if config.filter.kinds != self._canvas_filter_kinds:
+            signature=self._selection_filter_signature(config)
+            if signature != getattr(self,'_canvas_filter_signature',None):
                 self.canvas.update_selection_config(filter=config.filter)
                 self._canvas_filter_kinds = config.filter.kinds
+                self._canvas_filter_signature=signature
                 self._clear_hover_state()
 
 

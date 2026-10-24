@@ -11,16 +11,7 @@ from ... import commands
 from ...model.regions import ManualRegion, Region, RegionDomain
 
 
-def is_geometry_set(region):
-    return (not region.hidden and region.domain is RegionDomain.GEOMETRY
-            and isinstance(region.definition, ManualRegion))
-
-
-def set_references(project, identifier):
-    return tuple(project.regions.resolve(
-        identifier, geometry=project.geometry,
-        feature_resolver=lambda anchor: project.geometry.features.resolve(anchor, project.geometry),
-    ))
+from ...presentation.sets import is_geometry_set,is_user_set,set_references,set_geometry_references
 
 
 class VectorDialog(QDialog):
@@ -95,15 +86,16 @@ class GeometryActions:
         return tuple(dict.fromkeys(refs))
 
     def new_set(self, refs=None, name=None):
-        binding=self.binding()
+        binding=self.binding();project=self.app.project;session=self.app.session
+        if session.read_only or project.read_only_reason:raise PermissionError('This project is read-only')
         refs = self.references() if refs is None else tuple(refs)
-        if not refs:
-            raise ValueError("Select geometry or a feature before creating a set.")
         if name is None:
             name, accepted = QInputDialog.getText(self.app, "New geometry set", "Set name")
             if not accepted:
                 return None
         self.assert_binding(binding)
+        if self.app.project is not project or self.app.session is not session:raise ValueError('The project changed; create the set again.')
+        if session.read_only or project.read_only_reason:raise PermissionError('This project is read-only')
         name = name.strip()
         if not name:
             raise ValueError("A set needs a name.")
@@ -113,7 +105,7 @@ class GeometryActions:
         refs = tuple(dict.fromkeys(geometry.entity_ref(ref.kind, ref.id) for ref in refs))
         kinds = {ref.kind for ref in refs}
         region = Region(name, RegionDomain.GEOMETRY,
-                        next(iter(kinds)) if len(kinds) == 1 else "mixed", ManualRegion(refs))
+                        next(iter(kinds)) if len(kinds) == 1 else "mixed", ManualRegion(tuple(commands._feature_anchor(geometry,ref) for ref in refs)))
         self.app.run(commands.AddRegion(region))
         self.app.set_status(f"Created set {name}: {len(refs)} entities")
         return region
@@ -137,6 +129,7 @@ class GeometryActions:
     def rename_set(self, identifier):
         binding=self.binding()
         region = self.app.project.regions[identifier]
+        if not is_geometry_set(region):raise ValueError('This set is defined by a Boolean, query or mesh scope; edit its source definition in Sets tools.')
         name, accepted = QInputDialog.getText(self.app, "Rename geometry set", "Set name", text=region.name)
         if accepted:
             self.assert_binding(binding)
@@ -154,6 +147,28 @@ class GeometryActions:
         self.dialogs.append(dialog)
         dialog.finished.connect(lambda _result: self.dialogs.remove(dialog) if dialog in self.dialogs else None)
         dialog.open()
+
+    def inspect_set(self,identifier):
+        region=self.app.project.regions[identifier]
+        if not is_user_set(region):raise ValueError('Internal assignment scopes are not user sets.')
+        if is_geometry_set(region):
+            refs=set_geometry_references(self.app.project,identifier)
+            if refs:return self.properties(refs)
+        dialog=QDialog(self.app);dialog.setWindowTitle('Set: '+region.name);dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.resize(480,320);layout=QVBoxLayout(dialog)
+        try:
+            refs=set_references(self.app.project,identifier)
+            detail=f'{len(refs)} member(s)'
+        except (ValueError,KeyError) as error:detail='Unavailable targets: '+str(error)
+        info=QLabel(f'Name: {region.name}\nDomain: {region.domain.value}\nKind: {region.entity_kind}\nDefinition: {type(region.definition).__name__.removesuffix("Region")}\n{detail}\n\nBoolean, query and mesh membership follows its source definition. Use Sets tools in Definitions to construct a new scope; dependent assignments remain unchanged.')
+        info.setWordWrap(True);layout.addWidget(info)
+        buttons=QDialogButtonBox(QDialogButtonBox.Close,dialog);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        self._open(dialog);return dialog
+
+    def edit(self,refs=None):
+        from .geometry_edit import GeometryEditDialog
+        refs=self.references() if refs is None else tuple(refs)
+        dialog=GeometryEditDialog(self.app,refs);self._open(dialog);return dialog
 
     def properties(self, refs=None):
         refs = self.references() if refs is None else tuple(refs)
@@ -210,14 +225,14 @@ class GeometryActions:
         binding = self.binding()
         menu = QMenu(parent or self.app)
         menu.setObjectName("GeometryActionsMenu")
-        for label in ("Copy", "Move", "Properties"):
+        for label in ("Copy", "Move", "Edit", "Properties"):
             def activate(_checked=False, label=label):
                 self.assert_binding(binding)
-                return self.properties(refs) if label == "Properties" else self.vector_dialog(label, refs)
+                return self.properties(refs) if label == "Properties" else self.edit(refs) if label == "Edit" else self.vector_dialog(label, refs)
             action = menu.addAction(label)
             action.triggered.connect(self.app.guarded(activate))
             if label != "Properties":
-                action.setEnabled(not bool(self.app.project.read_only_reason))
+                action.setEnabled(not (self.app.session.read_only or self.app.project.read_only_reason) and (label!="Edit" or any(ref.kind in {"edge","face"} for ref in refs)))
         kinds = {ref.kind for ref in refs}
         if refs and kinds in ({"vertex"}, {"edge"}):
             plate = kinds == {"vertex"}

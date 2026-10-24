@@ -3,6 +3,7 @@ import json,threading
 from types import SimpleNamespace,MappingProxyType
 import numpy as np
 import pytest
+from anyfem.presentation import VisualizationStyle
 from anyfem.post.fields import Field
 from anyfem.post.access import LiveResultAccess,ShapeProvider,evaluate_envelope,source_case_metadata
 from anypost.errors import WorkingSetError,UnavailableFieldError,FailedCaseError
@@ -199,7 +200,7 @@ def test_persisted_overlay_change_rebuilds_and_warm_legend_keeps_component(tmp_p
         shown.append(scene);app.viewport._scene=scene
         handle=SimpleNamespace(mesh=SimpleNamespace(element_scalars=np.zeros(1,dtype=np.float32)))
         app.viewport._retained_result=(b'geometry',[handle],(np.array([1]),),mesh)
-    app.viewport=SimpleNamespace(visualization=SimpleNamespace(show_beam_sections=False),show=show,
+    app.viewport=SimpleNamespace(visualization=VisualizationStyle(show_beam_sections=False),show=show,
         active_backend='gpu',_retained_result=None,_scene=None,
         update_result_field=lambda field,**kwargs:legends.append(kwargs['legend']) or True)
     flag=[False]

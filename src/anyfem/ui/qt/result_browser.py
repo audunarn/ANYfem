@@ -41,7 +41,10 @@ class QtResultBrowser(QWidget):
     def refresh(self):
         panel=self.app.panels["Results"];dataset=self.app.result_datasets.get(self.app.active_job_id)
         fields=panel.live_field_names() if self.app.solution is not None else ()
-        entries=result_entries(live_fields=fields,live_quantities=panel._live_quantity_descriptors,dataset=dataset)
+        # ResultsTask schedules source metadata preparation. Browsing must not
+        # bypass that worker boundary by reading a cold retained header here.
+        prepared_dataset=dataset if getattr(dataset,"metadata_ready",True) else None
+        entries=result_entries(live_fields=fields,live_quantities=panel._live_quantity_descriptors,dataset=prepared_dataset)
         owner=(self.app.project.document_id,self.app.active_job_id,id(self.app.solution),id(dataset))
         job=self.app.project.jobs.get(self.app.active_job_id)
         stale=job is not None and self.app._job_is_stale(job)

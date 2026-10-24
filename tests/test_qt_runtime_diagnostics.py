@@ -516,7 +516,8 @@ def test_qtfemwindow_report_route_consumes_the_snapshot_helper():
     assert qt["viewer"]["requested_backend"] == "auto"
     assert qt["viewer"]["active_backend"] == "software"
     assert qt["viewer"]["diagnostic_snapshot"] == {"identity": "cached viewer", "lifecycle": "idle"}
-    assert qt["workbenches_in_process"] == _NO_APP_NOTE
+    from PySide6.QtWidgets import QApplication
+    assert qt["workbenches_in_process"] == (_NO_APP_NOTE if QApplication.instance() is None else 0)
     assert isinstance(qt["qt_versions"]["pyside6"], str)
 
 
@@ -537,15 +538,17 @@ def test_scripts_copy_diagnosis_route_copies_the_extended_report():
     assert payload["recent_gui_commands"] == ["commands.run(commands.AddPoint(2, 0, 0))"]
 
 
-def test_help_copy_diagnosis_action_routes_through_the_scripts_panel():
+def test_help_copy_diagnosis_builds_a_fresh_report_without_scripts():
     pytest.importorskip("PySide6")
     from anyfem.ui.qt.app import QtFemWindow
-
-    calls: list[str] = []
-    window = SimpleNamespace(panels={"Scripts": SimpleNamespace(
-        copy_diagnosis=lambda: calls.append("copied"))})
+    calls=[];copied=[];statuses=[]
+    def fresh(**kwargs):
+        calls.append('fresh');return build_diagnostic_report(Project('Help snapshot'))
+    window=SimpleNamespace(panels={'Scripts':SimpleNamespace(copy_diagnosis=lambda:calls.append('script'))},
+        diagnostic_report=fresh,clipboard=SimpleNamespace(copy_text=copied.append),set_status=statuses.append)
     QtFemWindow.copy_diagnosis(window)
-    assert calls == ["copied"]
+    assert calls==['fresh'] and len(copied)==1 and 'current_state' in json.loads(copied[0])
+    assert 'copied' in statuses[0]
 
 
 def test_help_menu_registers_copy_diagnosis_with_a_tooltip():

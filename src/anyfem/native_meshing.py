@@ -759,21 +759,27 @@ class NativeMeshingCancellation:
     __slots__ = ("_event", "_lock", "_reason")
 
     def __init__(self) -> None:
-        self._event = threading.Event()
+        from anygeometry import CancellationSignal
+        self._event = CancellationSignal()
         self._lock = threading.Lock()
         self._reason = ""
 
     def cancel(self, reason: str = "meshing cancellation requested") -> bool:
         with self._lock:
-            changed = not self._event.is_set()
+            changed = not self._event.cancelled
             if changed:
                 self._reason = str(reason)
-                self._event.set()
+                self._event.cancel()
             return changed
 
     @property
     def is_cancelled(self) -> bool:
-        return self._event.is_set()
+        return self._event.cancelled
+
+    @property
+    def geometry_cancellation(self):
+        """Owner-issued passive state for numerical geometry cancellation."""
+        return self._event
 
     @property
     def cancelled(self) -> bool:

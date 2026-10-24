@@ -52,5 +52,36 @@ self-intersecting, touching and nested contours are refused. Separated circular
 and spline holes can coexist. A contour combining arcs and NURBS, or mixed
 contours with overlapping conservative bounds, is currently refused when its
 validity cannot be certified. Display sampling is never used to accept an
-uncertain cut. Spline extrusion is currently unavailable; profile editing and
-plate cuts remain available.
+uncertain cut.
+
+## Extrude a curved profile
+
+Draw a spline or control-point NURBS and press Enter to complete the curve.
+Set Sketch extrusion before Finish sketch, or finish the profile first and
+extrude its selected curve edges in Geometry. The swept plate follows the
+actual curve; fit points and control polygons are not substituted for it.
+Saving, reopening and editing the sketch retain its curve definition.
+
+Geometry validation still applies. A rejected extrusion keeps the editable
+draft and accepted model. Curves carried by an existing NURBS surface remain
+unsupported as extrusion inputs.
+
+## Internal editor boundary
+
+`anyfem.sketcher` is an internal application subsystem. One `SketchController`
+instance per window serves both the task panel and the canvas. It owns the
+editing session, tool transitions, selection, drag gestures, dimensions,
+local undo and commit/cancel decisions. `SketchPorts` supplies preview,
+document-command, focus and notification callbacks without importing Qt.
+
+The panel translates fields and units; the viewport translates native events,
+picks and projects points, and renders overlays. `FaceSketchTask` holds the
+working copy. Its former `anyfem.geometry.sketching` import remains a direct
+compatibility alias. ANYgeometry continues to own curves, constraints and
+validation; accepted edits still use the existing document commands and formats.
+
+Pointer previews use batched line geometry and coalesced refreshes. Hover and
+drag previews do not rebuild the form's constraint records. Curve samples are
+derived display caches keyed by entity dependencies; accepted geometry always
+uses the authoritative geometry and constraint operations. The last drag
+position is applied on release, and ending a session cancels pending previews.

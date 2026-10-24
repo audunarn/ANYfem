@@ -452,6 +452,7 @@ def _model_payload(document: Mapping[str, Any]) -> dict[str, Any]:
         for item in meshing.get("refinements", ()):
             if isinstance(item, dict):
                 item.pop("name", None)
+                item.pop("property_id", None)
     geometry = payload.get("geometry")
     if isinstance(geometry, dict):
         geometry = payload["geometry"] = dict(geometry)

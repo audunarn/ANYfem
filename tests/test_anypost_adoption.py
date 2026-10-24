@@ -4,6 +4,7 @@ import time
 from types import SimpleNamespace
 import numpy as np
 import pytest
+from anyfem.presentation import VisualizationStyle
 from anyfem.post.fields import Field, evaluate_field
 from anyfem.post.access import LiveResultAccess
 
@@ -106,7 +107,7 @@ def test_production_scalar_switch_reuses_cpu_scene(monkeypatch):
     calls=[];updates=[]
     def build(shape,**kwargs):calls.append(shape);return Scene(result_field=kwargs["values"],result_mesh=shape.built.mesh)
     monkeypatch.setattr(workflow,"build_result_scene",build)
-    app.viewport=SimpleNamespace(visualization=SimpleNamespace(show_beam_sections=False),show=lambda scene:None,
+    app.viewport=SimpleNamespace(visualization=VisualizationStyle(show_beam_sections=False),show=lambda scene:None,
                                  update_result_field=lambda field,**kwargs:updates.append(field) or True)
     selected=["ux"]
     panel=SimpleNamespace(ensure_compatible_field=lambda:None,field_name=lambda:selected[0],scale_value=lambda shape:0,

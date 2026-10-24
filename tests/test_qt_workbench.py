@@ -41,6 +41,17 @@ def wait_until(qapp,predicate,timeout=30):
     assert predicate(), "Qt workflow did not reach the expected state within its bounded wait"
 
 
+def settle_result_requests(window,qapp):
+    """Wait for worker results to be delivered before inspecting their UI state."""
+    qapp.processEvents()
+    def settled():
+        loader=getattr(window,"_result_loader",None)
+        return ((loader is None or not loader._records)
+                and not window.panels["Results"]._display_pending
+                and not window._refresh_pending)
+    wait_until(qapp,settled)
+
+
 def test_quick_selection_buttons_follow_all_selection_routes(window,qapp):
     for mode in ("vertex","edge","face","vertex"):
         window.quick_selection_actions[mode].trigger()
@@ -146,7 +157,13 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
         initial=window.viewport.canvas
         assert initial.backend_name=="software"
         window.show()
-        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and window.viewport.canvas._renderer.frame_count>1)
+        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and window.viewport.canvas._renderer.frame_count>0)
+        # Software rendering is event-driven: an exposed frame need not repeat
+        # while idle. A requested repaint must render a new frame on this same
+        # automatically initialized canvas, without switching the backend.
+        first_frame=window.viewport.canvas._renderer.frame_count
+        window.viewport.canvas.redraw()
+        wait_until(qapp,lambda:window.viewport.canvas._renderer.frame_count>first_frame)
         assert window.renderer.value()=="auto"
         assert window.viewport.canvas.surface.isVisible()
         assert window.viewport.canvas.viewport_size[0]>1
@@ -205,6 +222,7 @@ def test_property_edits_preserve_identity_and_undo(window,qapp):
     support=window.project.supports[0]
     window.tree.edit_record(("supports",support.id))
     panel=window.panels["Loads & BC"]
+    panel.advanced_form.setChecked(True)
     panel.record_fields["replacement"][1]["constraints"][0].setText('{"ux":0,"uy":0,"uz":0}')
     panel.execute()
     assert window.project.supports[0].id==support.id
@@ -285,7 +303,13 @@ def test_generators_regions_units_presets_and_record_selection(window,qapp):
     assert window.project.units.symbol("length")=="mm"
     sections=window.panels["Sections"];section=sections.create_plate()
     assert section.material in window.project.materials
-    supports=window.panels["Loads & BC"];supports.preset.setCurrentText("pinned");supports.support_preset()
+    supports=window.panels["Loads & BC"]
+    supports.preset.setCurrentText("pinned")
+    with pytest.raises(ValueError,match="Project units changed"):
+        supports.support_preset()
+    assert not window.project.supports
+    supports.bind_targets()
+    supports.preset.setCurrentText("pinned");supports.support_preset()
     assert len(window.project.supports[0].constraints)==3
     qapp.processEvents();item=window.tree._groups["Plate sections"].child(0)
     window.tree.selectionModel().select(item.index(),QItemSelectionModel.ClearAndSelect|QItemSelectionModel.Rows)
@@ -715,14 +739,19 @@ def test_saved_result_playback_tables_reports_gif_and_mesh_identity(window,qapp,
     window.solve();wait_until(qapp,lambda:window.solution is not None)
     window.save_project(path=str(tmp_path/"retained.anyfem"));window.flush_project_writes()
     window.new_project();window.open_project(str(tmp_path/"retained.anyfem"))
-    panel=window.panels["Results"];panel.play();qapp.processEvents()
+    panel=window.panels["Results"];panel.play()
+    wait_until(qapp,lambda:window.viewport.canvas.animation_frames>0)
     assert window.viewport.canvas.animation_frames==len(window.result_datasets[window.active_job_id].frames)
     window.viewport.canvas.stop_animation()
     panel.quantities.setCurrentIndex(panel.quantities.findText("Field: displacement"));panel.inspect_quantity()
+    settle_result_requests(window,qapp)
+    wait_until(qapp,lambda:panel.table.values.rowCount()==window.mesh.num_nodes)
     assert panel.table.values.rowCount()==window.mesh.num_nodes
     retained=window.retained_result_mesh(window.active_job_id)
     window.mesh=None
-    panel.show_results()
+    shown=[]
+    panel.show_results(on_ready=lambda:shown.append(True))
+    wait_until(qapp,lambda:bool(shown))
     assert window.mesh is None and window.retained_result_mesh(window.active_job_id) is retained
     revision=window.session.revision
     for _ in range(2):
@@ -731,7 +760,9 @@ def test_saved_result_playback_tables_reports_gif_and_mesh_identity(window,qapp,
         assert window.mesh is None and window.retained_result_mesh(window.active_job_id) is retained
         assert window.session.revision==revision
     report=tmp_path/"report.html";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(report))
-    panel.export_report();assert report.stat().st_size>100
+    panel.export_report();wait_until(qapp,lambda:report.exists())
+    settle_result_requests(window,qapp)
+    assert report.stat().st_size>100
     gif=tmp_path/"retained.gif";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(gif))
     panel.export_gif();wait_until(qapp,lambda:gif.exists())
     from PIL import Image
@@ -782,7 +813,7 @@ def test_qt_damaged_result_keeps_editable_project_and_valid_mesh(window,qapp,tmp
     window.new_project()
     if damage=="missing":sidecar.unlink()
     else:sidecar.write_bytes(original[:32])
-    window.open_project(str(path));qapp.processEvents()
+    window.open_project(str(path));settle_result_requests(window,qapp)
     assert window.project.geometry.entity_keys()==entities
     assert window.mesh.num_nodes==node_count
     assert not window.result_datasets and window.solution is None
@@ -818,6 +849,7 @@ def test_qt_auto_deformation_and_retained_summary_preserve_solver_data(window,qa
     for text in ("auto","", " AUTO "):
         panel.scale.setText(text);assert panel.scale_value(shape)==pytest.approx(expected_scale)
         panel.show_results()
+        settle_result_requests(window,qapp)
         nodes={point.ref.id:point.position for point in window.viewport._scene.points if point.ref is not None and point.ref.kind=="node"}
         np.testing.assert_allclose(np.stack([nodes[node] for node in sorted(shape.built.mesh.nodes)]),shape.deformed_positions(expected_scale))
     for text,expected in (("0",0),("-1",-1),("2.5",2.5)):
@@ -836,6 +868,7 @@ def test_qt_auto_deformation_and_retained_summary_preserve_solver_data(window,qa
     assert window.solution is not None
     assert panel.scale_value(shape)==pytest.approx(expected_scale)
     panel.show_results()
+    settle_result_requests(window,qapp)
     nodes={point.ref.id:point.position for point in window.viewport._scene.points if point.ref is not None and point.ref.kind=="node"}
     np.testing.assert_allclose(np.stack([nodes[node] for node in sorted(shape.built.mesh.nodes)]),shape.deformed_positions(expected_scale))
     window.undo();panel.activate_job(job_id)
@@ -849,7 +882,8 @@ def test_qt_auto_deformation_and_retained_summary_preserve_solver_data(window,qa
     assert "Deformation available" in panel.report.toPlainText()
     for text in ("auto",""):
         panel.scale.setText(text);assert panel.scale_value(None)==1
-        panel.show_results();assert window._view_mode=="results"
+        panel.show_results();settle_result_requests(window,qapp);assert window._view_mode=="results"
+        settle_result_requests(window,qapp)
     np.testing.assert_array_equal(dataset.field("displacement").read(0),saved)
     metadata=dataset.metadata
     def legacy_metadata(name):
@@ -902,13 +936,17 @@ def test_qt_submit_preserves_selected_output_requests(window,qapp,tmp_path,monke
     window.new_project();window.open_project(str(destination))
     assert window.project.analyses[job.analysis_id].output_request_ids==(request.id,)
     results=window.panels["Results"];results.activate_job(job.id)
+    settle_result_requests(window,qapp)
+    settle_result_requests(window,qapp)
     index=results.quantities.findText(f"Output: {dataset.field(key).descriptor.label}")
     assert index>=0
     results.quantities.setCurrentIndex(index)
     results.inspect_quantity()
+    settle_result_requests(window,qapp)
     csv_path=tmp_path/"tip-output.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     import csv
     with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert {int(row["node_id"]) for row in rows}==set(expected_ids)
@@ -978,7 +1016,7 @@ def test_qt_requested_scope_does_not_follow_an_edit_during_solve(window,qapp,tmp
 
 
 @pytest.mark.parametrize("policy,text",[("last","value 7"),("envelope","coordinate 0 is synthetic")])
-def test_qt_named_view_discloses_its_local_frame(window,tmp_path,policy,text):
+def test_qt_named_view_discloses_its_local_frame(window,qapp,tmp_path,policy,text):
     from test_output_request_views import payload,scoped
     from anyfem.io.artifacts import ArtifactStore
     from anyfem.io.output_views import add_output_request_views
@@ -991,17 +1029,19 @@ def test_qt_named_view_discloses_its_local_frame(window,tmp_path,policy,text):
         model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
     window.active_job_id="frame-job";window.result_datasets["frame-job"]=store.open_result(artifact)
     results=window.panels["Results"];results.refresh()
+    settle_result_requests(window,qapp)
     results.frame.setValue(0)
     index=results.quantities.findText(f"Output: {result.fields[key][0].label}")
     assert index>=0
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
-    assert text in results.report.toPlainText()
+    settle_result_requests(window,qapp)
+    assert text in results.report.toPlainText(),window._status.get()
     assert f"Frame policy: {policy}" in results.report.toPlainText()
     assert results.table.values.headers==["node_id","uz"]
     assert results.table.values.rows[0][0]==42
 
 
-def test_qt_repeated_frame_coordinates_keep_source_identity_and_qualification(window,tmp_path):
+def test_qt_repeated_frame_coordinates_keep_source_identity_and_qualification(window,qapp,tmp_path):
     from test_output_request_views import repeated_coordinate_payload,scoped
     from anyfem.io.artifacts import ArtifactStore
     from anyfem.io.output_views import add_output_request_views
@@ -1015,19 +1055,21 @@ def test_qt_repeated_frame_coordinates_keep_source_identity_and_qualification(wi
         model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
     window.active_job_id="frame-job";window.result_datasets["frame-job"]=store.open_result(artifact)
     results=window.panels["Results"];results.refresh()
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index)
     for local_index,source_index,label,status,value in [(0,1,"descending","fallback",-3.),(1,0,"ascending","qualified",1.)]:
         results.frame.setValue(local_index);results.inspect_quantity()
+        settle_result_requests(window,qapp)
         text=results.report.toPlainText()
-        assert "value 0.5" in text and f"source frame index: {source_index}" in text
+        assert "value 0.5" in text and f"source frame index: {source_index}" in text,window._status.get()
         assert f"load case: {label}" in text
         assert ("fallback/unclassified nodes" in text)==(status=="fallback")
         assert results.table.values.headers==["node_id","recovery_status","global_xx_top"]
         assert results.table.values.rows==[[42,status,value]]
 
 
-def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_path,monkeypatch):
+def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,qapp,tmp_path,monkeypatch):
     from test_output_request_views import payload,scoped
     from anyfem.io.artifacts import ArtifactStore
     from anyfem.io.output_views import add_output_request_views
@@ -1040,6 +1082,7 @@ def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_pa
         model_hash="model",mesh_hash="mesh",analysis_hash="analysis",**result.write_result_inputs())
     window.active_job_id="view-job";window.result_datasets["view-job"]=store.open_result(artifact)
     results=window.panels["Results"];results.refresh()
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",selected_key))
     label=results.quantities.itemText(index)
     assert sum(results.quantities.itemText(i)==label for i in range(results.quantities.count()))==2
@@ -1047,12 +1090,15 @@ def test_qt_duplicate_output_labels_keep_selected_scope_on_refresh(window,tmp_pa
     # Force a legitimate rebuild of the available-choice inventory.
     results.quantities.addItem("Removed quantity",("field","removed"))
     results.refresh()
+    settle_result_requests(window,qapp)
     assert tuple(results.quantities.currentData())==("field",selected_key)
     results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert results.table.values.rows[0][0]==11
     csv_path=tmp_path/"selected-scope.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     import csv
     with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert {int(row["node_id"]) for row in rows}=={11}
@@ -1097,12 +1143,15 @@ def test_qt_selected_mode_request_form_solve_reopen_and_export(window,qapp,tmp_p
     window.new_project();window.open_project(str(destination))
     assert window.project.output_requests[request.id].frame_indices==(1,0)
     results=window.panels["Results"];results.activate_job(job_id)
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "Frame policy: selected" in results.report.toPlainText()
     csv_path=tmp_path/"selected-modes.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(csv_path))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     with csv_path.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert {int(row["node_id"]) for row in rows}=={3}
     np.testing.assert_allclose([float(row["frame_value"]) for row in rows],[frequencies[1],frequencies[0]])
@@ -1406,14 +1455,17 @@ def test_qt_sample_reduced_stress_solve_reopen_inspect_export(window,qapp,tmp_pa
         np.testing.assert_allclose(expected,_reduce(recovered.element_stresses[element_id][component],"mean"))
     window.new_project();window.open_project(str(path))
     results=window.panels["Results"];results.activate_job(job_id)
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "Reduction: mean" in results.report.toPlainText()
     assert f"Basis: {'element_local' if basis in {'local','element'} else basis}" in results.report.toPlainText()
     assert window.project.output_requests[request.id].basis==basis
     destination=tmp_path/"reduced.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert len(rows)==1 and int(rows[0]["element_id"])==element_id
     np.testing.assert_allclose(float(rows[0][f"{component} [Pa]"]),expected)
@@ -1459,12 +1511,15 @@ def test_qt_batch_requested_stresses_keep_selected_case_names(window,qapp,tmp_pa
     assert dataset.field(key).descriptor.provenance["frame_labels"]==["live","default"]
     window.new_project();window.open_project(str(path))
     results=window.panels["Results"];results.activate_job(job_id)
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.frame.setValue(0);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "load case: live" in results.report.toPlainText()
     destination=tmp_path/"batch.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert [row["frame_label"] for row in rows]==["live","default"]
     assert [float(row["frame_value"]) for row in rows]==[1.,0.]
@@ -1519,12 +1574,15 @@ def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,
     np.testing.assert_array_equal(dataset.field(key).read(None)[:,0,0],expected)
     window.new_project();window.open_project(str(path))
     results=window.panels["Results"];results.activate_job(job_id)
+    settle_result_requests(window,qapp)
     index=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(index);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "Recovery: patch" in results.report.toPlainText()
     if fallback:assert "fallback/unclassified nodes: [6]" in results.report.toPlainText()
     destination=tmp_path/"patch.csv";monkeypatch.setattr(window.dialogs,"save_file",lambda **kwargs:str(destination))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert [row["recovery_status"] for row in rows]==[status]*len(expected)
     np.testing.assert_array_equal([float(row["von_mises [Pa]"]) for row in rows],expected)
@@ -1532,6 +1590,7 @@ def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,
     native_index=next(i for i in range(results.quantities.count())
                       if tuple(results.quantities.itemData(i))==("field","stress_patch_von_mises"))
     results.quantities.setCurrentIndex(native_index);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "recovery_status" in results.table.values.headers
     assert next(row for row in results.table.values.rows if row[0]==6)[1]==status
     if fallback:assert "fallback/unclassified nodes:" in results.report.toPlainText()
@@ -1586,11 +1645,14 @@ def test_qt_committed_nonlinear_stress_frames_solve_reopen_export(window,qapp,tm
     np.testing.assert_array_equal(dataset.field(key).read(None)[:,0,0],expected)
     window.new_project();window.open_project(str(path))
     results=window.panels["Results"];results.activate_job(job_id)
+    settle_result_requests(window,qapp)
     choice=next(i for i in range(results.quantities.count()) if tuple(results.quantities.itemData(i))==("field",key))
     results.quantities.setCurrentIndex(choice);results.frame.setValue(0);results.inspect_quantity()
+    settle_result_requests(window,qapp)
     assert "source frame index: 1" in results.report.toPlainText()
     destination=tmp_path/"increments.csv";monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(destination))
     results.export_quantity_csv()
+    settle_result_requests(window,qapp)
     with destination.open(newline="") as stream:rows=list(csv.DictReader(stream))
     assert [int(row["source_frame_index"]) for row in rows]==[1,0]
     np.testing.assert_array_equal([float(row[f"{component} [Pa]"]) for row in rows],expected)
@@ -1624,6 +1686,7 @@ def test_qt_sesam_stress_only_result_roundtrip(window,qapp,tmp_path):
     assert solution is not None and "magnitude" not in solution.available_fields()
     panel=window.panels["Results"];assert panel.field_name() in solution.available_fields()
     panel.show_results()
+    settle_result_requests(window,qapp)
     window.save_project(path=str(tmp_path/"sesam-result.anyfem"));window.flush_project_writes()
     window.new_project();window.open_project(str(tmp_path/"sesam-result.anyfem"))
     panel.activate_job(job_id);qapp.processEvents()
@@ -1716,6 +1779,7 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     if format=="sesam-stress":assert panel.field_name()!="magnitude"
     else:assert retained.field("displacement").descriptor.components==("ux","uy","uz")
     key=next(iter(expected));panel.field.setCurrentText(key);panel.show_results();qapp.processEvents()
+    settle_result_requests(window,qapp)
     csv_path=tmp_path/"external.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(csv_path))
     panel.export_csv()
@@ -1783,6 +1847,7 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
         report=tmp_path/f"transient.{suffix}"
         monkeypatch.setattr(window.dialogs,"save_file",lambda report=report,**_:str(report))
         panel.export_report()
+        settle_result_requests(window,qapp)
         assert "displacement" in report.read_text().lower()
     gif=tmp_path/"transient.gif"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(gif))

@@ -23,6 +23,39 @@ def _beam(project: Project, start, end) -> int:
     return project.geometry.add_line(first, second)
 
 
+def _assert_shell_quality(mesh, policy):
+    """Measure the same owner metrics independently of the selected mesh route."""
+    import numpy as np
+    from anymesher.core import MeshCore
+    from anymesher.quality_v2 import evaluate_quality
+
+    node_ids = sorted(mesh.nodes)
+    triangle_ids = sorted(mesh.tris)
+    quad_ids = sorted(mesh.quads)
+    core = MeshCore.from_id_connectivity(
+        np.asarray([mesh.nodes[node] for node in node_ids]),
+        node_ids=np.asarray(node_ids),
+        triangles=np.asarray([mesh.corners_of(element) for element in triangle_ids], dtype=int).reshape((-1, 3)),
+        quadrilaterals=np.asarray([mesh.corners_of(element) for element in quad_ids], dtype=int).reshape((-1, 4)),
+        triangle_ids=np.asarray(triangle_ids, dtype=int),
+        quad_ids=np.asarray(quad_ids, dtype=int),
+    )
+    node_rows = {node: index for index, node in enumerate(node_ids)}
+    quality = evaluate_quality(
+        core,
+        declared_plate_junction_edges=tuple(
+            (node_rows[first], node_rows[second])
+            for first, second in mesh.declared_plate_junction_edges
+        ),
+    )
+    for elements in (quality.triangles, quality.quadrilaterals):
+        assert np.all(elements.scaled_jacobian >= policy['minimum_scaled_jacobian'])
+        assert np.all(elements.aspect_ratio <= policy['maximum_aspect_ratio'])
+        assert np.all(elements.minimum_angle >= policy['minimum_angle'])
+        assert np.all(elements.maximum_angle <= policy['maximum_angle'])
+        assert np.all(elements.warpage <= policy['maximum_warpage'])
+
+
 def test_changed_cylinder_feature_retains_project_references_and_undo(tmp_path):
     from anyfem import fixed
     from anyfem.commands import EditFeature
@@ -168,7 +201,7 @@ def test_project_meshes_exact_floating_plate_and_diagonal_extrusion():
         payload.pop("structural_preparation")
     assert first_payload == second_payload
     assert first.automatic_intersections == 2
-    assert first.hybrid_diagnostics["structured_quality"]["accepted"] is True
+    _assert_shell_quality(first, options['quality_policy'])
     support_nodes = set(first.nodes_on(project.geometry.entity_ref("face", support)))
     floating_nodes = set(first.nodes_on(project.geometry.entity_ref("face", floating)))
     wall_nodes = set(first.nodes_on(project.geometry.entity_ref("face", wall)))

@@ -244,6 +244,13 @@ def _contains_geometry_mutation(command: Command) -> bool:
     )
 
 
+def _link_state(project: Project) -> Dict[int, list]:
+    """Cheap scan of optional sketch-reference link metadata (empty = fast path)."""
+
+    scan = getattr(getattr(project.geometry, "features", None), "parameter_values", None)
+    return {} if scan is None else dict(scan("reference_links"))
+
+
 class CommandStack:
     """Runs commands and keeps the undo and redo history."""
 
@@ -267,7 +274,9 @@ class CommandStack:
         selected_before = (
             list(self.selection.items) if self.selection is not None else None
         )
+        links_before = _link_state(self.project)
         result = command.do(self.project)
+        self._detach_links(command, links_before)
         geometry_edit = isinstance(
             command, (GeometryCommand, FeatureCommand, DeleteEntity)
         )
@@ -296,6 +305,11 @@ class CommandStack:
             return False
         command = self._done.pop()
         command.undo(self.project)
+        restore = getattr(command, "_link_restore", None)
+        if restore:
+            from .sketch_references import restore_links
+
+            restore_links(self.project, restore)
         if self.selection is not None and hasattr(command, "_selection_before"):
             self.selection.restore(command._selection_before)
         self._undone.append(command)
@@ -307,13 +321,30 @@ class CommandStack:
         if not self._undone:
             return False
         command = self._undone.pop()
+        links_before = _link_state(self.project)
         command.redo(self.project)
+        self._detach_links(command, links_before)
         if self.selection is not None and hasattr(command, "_selection_after"):
             self.selection.restore(command._selection_after)
         self._done.append(command)
         self._notify_action("redo", command)
         self._notify()
         return True
+
+    def _detach_links(self, command: Command, before: Mapping[int, list]) -> None:
+        """Immediately break sketch-reference links whose source just changed.
+
+        Runs only after a command succeeded. Snapshots never move; the exact
+        pre-command link metadata is kept on the command so undo restores it.
+        """
+
+        command._link_restore = {}
+        if not _link_state(self.project):
+            return
+        from .sketch_references import detach_stale_links
+
+        detached = detach_stale_links(self.project)
+        command._link_restore = {item: before[item] for item in detached if item in before}
 
     @property
     def can_undo(self) -> bool:
@@ -518,19 +549,29 @@ class AddSketch(FeatureCommand):
     definition: SketchDefinition
     name: str = "Sketch"
     label: str = "add sketch"
+    # reference id -> source entity for the optional source link (metadata only)
+    references: Mapping[str, EntityRef] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         FeatureCommand.__init__(self)
         if self.support_face.kind != "face":
             raise GeometryError("a sketch support must be a plate face")
+        if not set(self.references) <= {item.id for item in self.definition.references}:
+            raise GeometryError("sketch reference sources do not match the sketch definition")
 
     def change(self, project: Project) -> int:
+        from .sketch_references import LINKS_KEY, capture_links
+
         geometry = project.geometry
+        parameters = self.definition.to_parameters()
+        links = capture_links(geometry, self.references)
+        if links:
+            parameters[LINKS_KEY] = links
         geometry.features.capture_baseline(geometry)
         record = geometry.features.append(
             "geometry.sketch.extrude",
             name=self.name,
-            parameters=self.definition.to_parameters(),
+            parameters=parameters,
             inputs={
                 "support_face": (
                     _feature_anchor(geometry, self.support_face),
@@ -550,6 +591,9 @@ class AddPlaneSketch(FeatureCommand):
     x_axis: Sequence[float]
     name: str = "Plane sketch"
     label: str = "add plane sketch"
+    # reference id -> source entity for the OPTIONAL source link (metadata only;
+    # the snapshot itself lives in the definition and is never re-resolved)
+    references: Mapping[str, EntityRef] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         FeatureCommand.__init__(self)
@@ -557,21 +601,27 @@ class AddPlaneSketch(FeatureCommand):
         CoordinateSystem(
             "Sketch plane", origin=self.origin, axis=self.normal, reference=self.x_axis,
         )
+        if not set(self.references) <= {item.id for item in self.definition.references}:
+            raise GeometryError("sketch reference sources do not match the sketch definition")
 
     def change(self, project: Project) -> int:
+        from .sketch_references import LINKS_KEY, capture_links
+
         geometry = project.geometry
+        parameters = {
+            **self.definition.to_parameters(),
+            "plane": {
+                "origin": [float(item) for item in self.origin],
+                "normal": [float(item) for item in self.normal],
+                "x_axis": [float(item) for item in self.x_axis],
+            },
+        }
+        links = capture_links(geometry, self.references)
+        if links:
+            parameters[LINKS_KEY] = links
         geometry.features.capture_baseline(geometry)
         record = geometry.features.append(
-            "geometry.sketch.plane",
-            name=self.name,
-            parameters={
-                **self.definition.to_parameters(),
-                "plane": {
-                    "origin": [float(item) for item in self.origin],
-                    "normal": [float(item) for item in self.normal],
-                    "x_axis": [float(item) for item in self.x_axis],
-                },
-            },
+            "geometry.sketch.plane", name=self.name, parameters=parameters,
         )
         return record.feature_id
 
@@ -909,16 +959,41 @@ class EditFeature(FeatureCommand):
     inputs: Mapping[str, Sequence[Any]] | None = None
     dependencies: Sequence[int] | None = None
     label: str = "edit feature"
+    # Sketch reference source links (id -> entity) captured NOW as new optional
+    # link metadata (explicit relink); None keeps the still-valid existing links.
+    sketch_references: Mapping[str, EntityRef] | None = None
 
     def __post_init__(self) -> None:
         FeatureCommand.__init__(self)
 
     def change(self, project: Project) -> int:
+        parameters = self.parameters
+        existing = (
+            project.geometry.features.get(self.feature_id).parameters
+            if parameters is not None or self.sketch_references is not None else {}
+        )
+        if self.sketch_references is not None or (parameters is not None and "reference_links" in existing):
+            from .sketch_references import LINKS_KEY, capture_links
+
+            parameters = dict(existing if parameters is None else parameters)
+            # Still-valid existing links of references that remain, plus links
+            # captured now for explicitly (re)imported sources.
+            fresh = {} if self.sketch_references is None else dict(self.sketch_references)
+            known = {item["id"] for item in parameters.get("references", ())}
+            links = [
+                item for item in (parameters.get(LINKS_KEY, ()) if LINKS_KEY in parameters else existing.get(LINKS_KEY, ()))
+                if item.get("reference") in known and item.get("reference") not in fresh
+            ]
+            links.extend(capture_links(project.geometry, fresh))
+            parameters.pop(LINKS_KEY, None)
+            if links:
+                parameters[LINKS_KEY] = links
+        inputs = self.inputs
         project.geometry.features.update(
             self.feature_id,
             name=self.name,
-            parameters=self.parameters,
-            inputs=self.inputs,
+            parameters=parameters,
+            inputs=inputs,
             dependencies=self.dependencies,
         )
         record = project.geometry.features.get(self.feature_id)
@@ -1235,7 +1310,7 @@ def _apply_replacements(
                 replace(
                     refinement,
                     ref=new,
-                    name=f"{refinement.name}_{new.id}",
+                    name=refinement.name if getattr(refinement,"property_id",None) else f"{refinement.name}_{new.id}",
                 )
                 for new in replacements
             )
@@ -2054,6 +2129,9 @@ class MovePoint(Command):
     def undo(self, project: Project) -> None:
         assert self._previous is not None
         project.geometry.move_point(self.vertex_id, *self._previous)
+
+    def redo(self, project: Project) -> None:
+        self.do(project)
 
 
 @dataclass(eq=False)
@@ -3964,7 +4042,10 @@ class AddBeamSection(Command):
 
 @dataclass(eq=False)
 class EditGeometrySet(Command):
-    """Rename or replace a manual geometry scope without changing its UUID."""
+    """Rename or replace a manual geometry scope, including an empty set.
+
+    The UUID and feature-output anchors remain persistent.
+    """
 
     region_id: str
     name: str | None = None
@@ -3985,9 +4066,7 @@ class EditGeometrySet(Command):
         if self.references is not None:
             refs = tuple(dict.fromkeys(project.geometry.entity_ref(ref.kind, ref.id)
                                        for ref in self.references))
-            if not refs:
-                raise ProjectError("a set needs at least one geometry entity")
-            definition = ManualRegion(refs)
+            definition = ManualRegion(tuple(_feature_anchor(project.geometry,ref) for ref in refs))
             kinds = {ref.kind for ref in refs}
             kind = next(iter(kinds)) if len(kinds) == 1 else "mixed"
         self._before = region.name, region.definition, region.entity_kind
@@ -4203,3 +4282,15 @@ class DeleteOutputRequest(Command):
         project.add_output_request(self._request)
         for identifier, analysis in self._previous_analyses.items():
             project.analyses[identifier] = analysis
+
+
+_NAMED_MESH_COMMANDS = {"SetMeshSizeProperty", "AssignMeshSize", "DeleteMeshSizeProperty"}
+__all__ += sorted(_NAMED_MESH_COMMANDS)
+
+
+def __getattr__(name):
+    # Lazy public commands avoid a cycle when mesh_sizes is imported first.
+    if name in _NAMED_MESH_COMMANDS:
+        from . import mesh_sizes
+        return getattr(mesh_sizes, name)
+    raise AttributeError(name)

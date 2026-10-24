@@ -451,6 +451,9 @@ def test_mesh_hash_excludes_ephemeral_working_identity_and_is_repeatable() -> No
         mesh_input_hash="qualified-input",
         structural_preparation=first_report,
     )
+    # This check compares independently prepared models. Ordinary repeated
+    # generation now reuses a private clone with the same working identity.
+    project._mesh_preparation_cache = None
     second_mesh = project.generate_mesh(0.5)
     second_report = deepcopy(project._last_mesh_preparation)
     second_hash = mesh_semantic_hash(

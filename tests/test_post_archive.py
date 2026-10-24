@@ -515,3 +515,74 @@ def test_real_archive_vector_native_refusal_preserves_scalar_and_explicit_indice
         with pytest.raises(anypost.UnavailableFieldError): session.sample_selection("stress", "vector", 1)
         session.request_component("a", "stress", "vector", [2])
         drain_until(lambda: session.view.error is None and np.array_equal(session.handle.mesh.element_scalars, [2.]))
+
+
+def test_standalone_viewer_module_import_does_not_load_gui_backends(monkeypatch):
+    import importlib
+
+    for name in ("tkinter", "anytk3d", "any3dview.gpu"):
+        monkeypatch.setitem(sys.modules, name, None)
+    module = importlib.import_module("anyfem.ui.archive")
+    assert callable(importlib.reload(module).show_archive)
+
+
+@pytest.mark.parametrize("viewer_fails", [False, True])
+def test_archive_cli_delegates_prepared_viewer_and_closes_on_every_exit(monkeypatch, viewer_fails):
+    from anyfem.post import archive
+    from anyfem.ui import archive as ui_archive
+
+    owner = get_ident()
+    observed = {}
+    prepared = SimpleNamespace(closed=0)
+    prepared.close = lambda: setattr(prepared, "closed", prepared.closed + 1)
+
+    def prepare(path, **options):
+        observed.update(preparation_thread=get_ident(), path=path, options=options)
+        return prepared
+
+    def show(args, actual):
+        assert get_ident() == owner
+        assert actual is prepared
+        observed["args"] = args
+        if viewer_fails:
+            raise ValueError("viewer construction refused")
+        return 17
+
+    monkeypatch.setattr(archive.ArchiveSession, "prepare", prepare)
+    monkeypatch.setattr(ui_archive, "show_archive", show)
+    arguments = ["results.h5", "--case", "a", "--model-identity", "m", "--mesh-identity", "mesh"]
+    if viewer_fails:
+        with pytest.raises(ValueError, match="viewer construction refused"):
+            archive.main(arguments)
+    else:
+        assert archive.main(arguments) == 17
+    assert observed["preparation_thread"] != owner
+    assert observed["args"].case_id == "a"
+    assert observed["options"] == {"expected_model_identity": "m", "expected_mesh_identity": "mesh"}
+    assert prepared.closed == 1
+
+
+def test_archive_cli_list_remains_headless_and_never_opens_viewer(monkeypatch, capsys):
+    import json
+    from anyfem.post import archive
+
+    reader = SimpleNamespace(
+        metadata_summary=lambda: {"model_identity": "m"},
+        case_summaries=lambda: [{"case_id": "a"}],
+        components=lambda: [{"quantity_id": "stress"}],
+    )
+
+    class ReaderContext:
+        def __enter__(self):
+            return reader
+        def __exit__(self, *_):
+            pass
+
+    package = ModuleType("anypost")
+    package.open_results = lambda *args, **options: ReaderContext()
+    monkeypatch.setitem(sys.modules, "anypost", package)
+    monkeypatch.setattr(archive, "_show_archive", lambda *_: pytest.fail("--list must not open a GUI"))
+    assert archive.main(["results.h5", "--list"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"metadata": {"model_identity": "m"}, "cases": [{"case_id": "a"}],
+                       "components": [{"quantity_id": "stress"}]}

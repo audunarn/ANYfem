@@ -27,11 +27,11 @@ DESCRIPTIONS = {
     'Copy commands to editor': 'Copy the recorded GUI commands into the script editor for review or replay.',
     'Clear commands': 'Clear the recorded GUI command list.',
     'Clear output': 'Clear the displayed script output.',
-    'Copy diagnosis': 'Copy script diagnostic information to the clipboard.',
+    'Copy diagnosis': 'Copy the current project, geometry, mesh and analysis diagnosis to the clipboard.',
     'Record GUI commands': 'Record successful GUI model commands for review or replay in the script editor.',
     'Create set from selection': 'Create a named geometry set containing the currently selected entities.',
-    'Create region from selection': 'Create a reusable region from the current selection and chosen region settings.',
-    'Create Boolean region': 'Create a region using the selected Boolean operation and operand regions.',
+    'Create set from selection': 'Create a reusable set from the current geometry or mesh selection.',
+    'Create Boolean set': 'Combine the selected sets using union, intersection or subtraction.',
     'Apply unit profile': 'Apply the chosen project unit profile; stored engineering quantities retain their SI values.',
     'Create DNV material': 'Create a material using the chosen DNV material settings.',
     'Create plate section with DNV material': 'Create a plate section and its DNV material using the entered settings.',
@@ -103,7 +103,7 @@ WORKSPACES = {
     'Results': 'Inspect result fields, components, histories and animation.',
     'Visualization': 'Configure viewport appearance, clipping and image export.',
     'Scripts': 'Edit and run scripts and review recorded GUI commands.',
-    'Definitions': 'Define regions, coordinate systems, units and output requests.',
+    'Definitions': 'Define sets, coordinate systems, units and output requests.',
 }
 
 

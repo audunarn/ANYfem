@@ -286,6 +286,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             for section in _by_name(project.beam_sections)
         ],
         "generator_properties": {str(k):v for k,v in sorted(project.generator_properties.items())},
+        "mesh_size_properties": [dict(id=value.id,name=value.name,size=value.size,radius=value.radius,growth=value.growth) for value in sorted(project.mesh_size_properties.values(),key=lambda x:x.id)],
         "face_sections": {str(k): v for k, v in sorted(project.face_sections.items())},
         "edge_sections": {str(k): v for k, v in sorted(project.edge_sections.items())},
         "assignment_ids": {
@@ -395,6 +396,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             },
             "refinements": [
                 {
+                    **({"property_id":item.property_id} if hasattr(item,"property_id") else {}),
                     "name": item.name,
                     "size": float(item.size),
                     "radius": float(item.radius),
@@ -700,7 +702,30 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
     if regions_data:
         if not isinstance(regions_data, list):
             raise ProjectFileError("regions must be a list")
-        project.regions = RegionRegistry(region_from_dict(entry) for entry in regions_data)
+        # Persistent UUID ordering is independent of Boolean-set dependencies.
+        # Build operands first while retaining every original ID and definition.
+        from graphlib import TopologicalSorter
+        from ..model.regions import BooleanRegion
+
+        records = [region_from_dict(entry) for entry in regions_data]
+        by_id = {record.id: record for record in records}
+        if len(by_id) != len(records):
+            raise ProjectFileError("duplicate region ID")
+        dependencies = {
+            record.id: record.definition.region_ids
+            if isinstance(record.definition, BooleanRegion) else ()
+            for record in records
+        }
+        for identifier, operands in dependencies.items():
+            for operand in operands:
+                if operand not in by_id:
+                    raise ProjectFileError(
+                        f"region {identifier!r} references missing region {operand!r}"
+                    )
+        project.regions = RegionRegistry(
+            by_id[identifier]
+            for identifier in TopologicalSorter(dependencies).static_order()
+        )
 
     output_request_data = data.get("output_requests", ())
     attachment_data = data.get("geometry_attachment_regions", [])
@@ -1047,7 +1072,10 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         for entry in meshing.get("refinements", ()):
             center = entry.get("center")
             reference = entry.get("ref")
-            refinement = Refinement(
+            from ..mesh_sizes import NamedRefinement
+            if "property_id" in entry and any(isinstance(entry.get(key),bool) for key in ("size","radius","growth")):raise ValueError("Named mesh size values cannot be boolean")
+            refinement = (NamedRefinement if "property_id" in entry else Refinement)(
+                **({"property_id":entry["property_id"]} if "property_id" in entry else {}),
                 size=float(entry["size"]),
                 radius=float(entry.get("radius", 0.0)),
                 growth=float(entry.get("growth", 1.5)),
@@ -1101,11 +1129,33 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
             raise ProjectFileError(
                 "imported_semantics_artifact_id must name a mesh artifact"
             )
+    from ..mesh_sizes import MeshSizeProperty,validate_mesh_sizes
+    for entry in data.get("mesh_size_properties",()):
+        definition=MeshSizeProperty(**entry)
+        if definition.id in project.mesh_size_properties:raise ValueError("Duplicate mesh size property identity")
+        project.mesh_size_properties[definition.id]=definition
+    validate_mesh_sizes(project)
     from ..generator_properties import load_generator_properties
     load_generator_properties(project,data.get("generator_properties",{}))
     _read_submodels(project, data, version)
     _finalize_compatibility_recovery(project)
+    _detach_stale_sketch_links(project)
     return project
+
+
+def _detach_stale_sketch_links(project: Project) -> None:
+    """Break optional sketch-reference source links whose source changed on disk.
+
+    Fixed snapshots and constraints are never regenerated or touched; malformed
+    or unresolvable optional links are simply dropped and never veto a load.
+    """
+
+    try:
+        from ..sketch_references import detach_stale_links
+
+        detach_stale_links(project)
+    except Exception:  # noqa: BLE001 - optional metadata must not make a file unreadable
+        return
 
 
 def _read_submodels(project: Project, data: Mapping[str, Any], version: int) -> None:

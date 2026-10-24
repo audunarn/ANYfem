@@ -36,6 +36,7 @@ from ..structural_preparation import (
     prepare_structural_connectivity,
     remap_mesh_to_source,
     source_work_mapping,
+    source_edge_paths,
 )
 from .attributes import (
     Combination,
@@ -114,6 +115,7 @@ class Project:
     combinations: Dict[str, Combination] = field(default_factory=dict)
     imperfections: List[Imperfection] = field(default_factory=list)
     refinements: List[Refinement] = field(default_factory=list)
+    mesh_size_properties: Dict[str, Any] = field(default_factory=dict)
     generator_properties: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     element_order: str = "linear"
     # Document-level registries.  They are additive to the established
@@ -169,6 +171,10 @@ class Project:
         default_factory=dict, init=False, repr=False, compare=False
     )
     _mesh_preparation_cache: Any = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    _mesh_preparation_qualification: Any = field(
         default=None, init=False, repr=False, compare=False
     )
 
@@ -1951,6 +1957,7 @@ class Project:
         structure_preference: str | None = None,
         quality_policy: Mapping[str, float] | None = None,
         certification_mode: str | None = None,
+        geometry_approximation_error: float | None = None,
         mesh_controls: MeshControls | None = None,
         structured_controls: StructuredMeshControls | None = None,
         quad_options: object | None = None,
@@ -2017,6 +2024,10 @@ class Project:
             raise ProjectError(
                 "nothing to mesh: the model has no plates and no beams"
             )
+        explicit_curvilinear_controls = (mesh_controls is not None
+            or structured_controls is not None or quad_options is not None
+            or layout_policy is not None or seeding is not None
+            or quad_t3_minimum_angle is not None or quad_t3_angle_action is not None)
         settings = self.native_mesh_settings
         resolved_size = (
             float(target_size)
@@ -2048,13 +2059,14 @@ class Project:
         # SmartMapped is an explicit public strategy that shares the quad-first
         # pipeline (options, layout policy, angle rule, admission); the owner
         # receives strategy="smart_mapped" instead of the quad-first "native".
+        requested_curvilinear_strategy = resolved_strategy
         quad_pipeline_selected = resolved_strategy in ("quad_first", "smart_mapped")
         smart_mapped_selected = resolved_strategy == "smart_mapped"
         if quad_pipeline_selected:
             from ..quad_first import effective_quad_options
             from anymesher.quad.public_integration import QuadPublicUnsupported
             from anygeometry.entities import Face
-            from anygeometry.surfaces import Plane
+            from anygeometry.surfaces import Cylinder, Plane
 
             if quad_options is None and settings is not None:
                 quad_options = settings.to_dict()["parameters"].get("quad_options")
@@ -2070,16 +2082,16 @@ class Project:
                 int(edge_id) for edge_id in self.beam_edges
                 if self.geometry.faces_using_edge(int(edge_id))
             ]
-            # Planar (exact Face / exact Plane / no custom parameterization)
-            # shells and their boundary bars share the mesher's canonical
-            # source-edge stations at both linear and quadratic order; the
-            # owner pipeline supplies the shell/beam midside nodes. Other
-            # supports retain their refusal; final connectivity preflight
-            # still validates declared ownership.
+            # Source-boundary bars share canonical source-edge stations. Linear
+            # cylinders use the same identity-based merge as planar boundaries;
+            # curved quadratic ownership remains outside the qualified scope.
             if boundary_beams and any(
                 type(face) is not Face
-                or type(face.surface) is not Plane
                 or face.parameterization is not None
+                or not (
+                    type(face.surface) is Plane
+                    or (resolved_order == "linear" and type(face.surface) is Cylinder)
+                )
                 for edge_id in boundary_beams
                 for face_id in self.geometry.faces_using_edge(edge_id)
                 for face in (self.geometry.faces[face_id],)
@@ -2127,7 +2139,24 @@ class Project:
             for key, value in parameters.items()
             if key in {"recombine", "overlap_policy"}
         }
+        # This is geometric approximation authority, independent of target size.
+        from numbers import Real
+        geometry_approximation_error = (geometry_approximation_error
+            if geometry_approximation_error is not None
+            else parameters.get('geometry_approximation_error'))
+        if geometry_approximation_error is not None:
+            if (isinstance(geometry_approximation_error, (bool, np.bool_))
+                    or not isinstance(geometry_approximation_error, Real)):
+                raise ProjectError('geometry_approximation_error must be a finite positive real')
+            try:
+                geometry_approximation_error = float(geometry_approximation_error)
+            except (TypeError, ValueError, OverflowError) as error:
+                raise ProjectError('geometry_approximation_error must be a finite positive real') from error
+            if not np.isfinite(geometry_approximation_error) or geometry_approximation_error <= 0:
+                raise ProjectError('geometry_approximation_error must be a finite positive real')
         supported_parameters["recombine"] = controls.recombine
+        if geometry_approximation_error is not None:
+            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
         # Mapped-only runs must not activate the opt-in native path.
         if resolved_strategy != "mapped":
             native_options = controls.native_options()
@@ -2185,15 +2214,23 @@ class Project:
             tuple(sorted(int(face) for face in source_geometry.faces)),
             tuple(sorted(int(edge) for edge in self.beam_edges)),
             tuple(sorted(int(member) for member in source_members)),
+            geometry_approximation_error,
         )
+        if geometry_approximation_error is not None:
+            from anygeometry import clone_prepared_geometry
         cached = self._mesh_preparation_cache
         cache_hit = cached is not None and cached[0] == cache_key
+        qualification = self._mesh_preparation_qualification if cache_hit else None
         if cache_hit:
             if cancellation_check is not None:
                 cancellation_check("cached structural preparation")
             closure = replace(
                 cached[1],
-                working_model=cached[1].working_model.clone(preserve_identity=True),
+                working_model=(
+                    clone_prepared_geometry(
+                        cached[1].working_model)
+                    if qualification is not None else
+                    cached[1].working_model.clone(preserve_identity=True)),
             )
             preparation = deepcopy(cached[2])
             preparation_runtime = {}
@@ -2204,6 +2241,11 @@ class Project:
                 include_structural_closure=True,
                 include_features=False,
             )
+        if not cache_hit:
+            if geometry_approximation_error is not None:
+                from anymesher import qualify_model_closure_source_publication
+                qualification = qualify_model_closure_source_publication(
+                    source_geometry, closure, cancellation_check=cancellation_check)
         working = closure.working_model
         working_member_ids = tuple(
             sorted(
@@ -2229,12 +2271,18 @@ class Project:
                     )
             except StructuralPreparationError as error:
                 raise ProjectError(f"structural preparation failed: {error}") from None
+            preparation.source_edge_paths = source_edge_paths(closure)
+            preparation.source_to_working = source_work_mapping(closure, edge_paths=preparation.source_edge_paths)
             self._mesh_preparation_cache = (
                 cache_key,
-                replace(closure, working_model=working.clone(preserve_identity=True)),
+                replace(closure, working_model=(
+                    clone_prepared_geometry(working)
+                    if qualification is not None else
+                    working.clone(preserve_identity=True))),
                 deepcopy(preparation),
             )
-        preparation.source_to_working = source_work_mapping(closure)
+            self._mesh_preparation_qualification = qualification
+        preparation.source_to_working = source_work_mapping(closure, edge_paths=preparation.source_edge_paths)
 
         def descendants(kind: str, identifier: int) -> tuple[EntityRef, ...]:
             source = source_geometry.handle(kind, identifier)
@@ -2371,9 +2419,21 @@ class Project:
         # with the recovery policy unchanged.  Eligibility is applicability,
         # not a success guarantee: the owner pipeline still raises its own
         # typed errors.
+        from anymesher.recovery import select_curvilinear_recovery_policy
+        automation, curvilinear_recovery_selection = select_curvilinear_recovery_policy(
+            working, requested_strategy=requested_curvilinear_strategy,
+            order=resolved_order, certification_mode=resolved_certification,
+            geometry_approximation_error=geometry_approximation_error,
+            explicit_controls=(explicit_curvilinear_controls
+                or any(key.startswith('native_') for key in parameters)
+                or 'quad_options' in parameters or 'layout_policy' in parameters
+                or any(key.startswith('quad_t3_') for key in parameters)),
+            automation=automation, face_ids=tuple(sorted(working.faces)),
+            cancellation_check=cancellation_check)
         automatic_selection = None
         if (
-            resolved_strategy == "auto"
+            curvilinear_recovery_selection is None
+            and resolved_strategy == "auto"
             and quad_options is None
             and not already_structured
         ):
@@ -2505,6 +2565,10 @@ class Project:
                 ),
                 **supported_parameters,
             )
+            if curvilinear_recovery_selection is not None:
+                # Preserve the caller's exact quality settings on the existing
+                # native recovery recipe; only the meshing method is selected.
+                meshing_parameters['_native_surface_options'] = structure_options
             if automation is None:
                 from ..mesh_execution import (
                     ParallelMeshUnsupported,
@@ -2574,6 +2638,8 @@ class Project:
                 mesh = generate_automatic_mesh_result(
                     working,
                     automation=automation,
+                    **({'curvilinear_recovery_selection': curvilinear_recovery_selection}
+                       if curvilinear_recovery_selection is not None else {}),
                     fallback_structured_options=(
                         None if working_refinements else structure_options
                     ),
@@ -2621,7 +2687,9 @@ class Project:
                     and not item.reused
                 )
             )
-            remap_mesh_to_source(mesh, closure)
+            remap_mesh_to_source(mesh, closure, edge_paths=preparation.source_edge_paths,
+                source_geometry=self.geometry, cancellation_check=cancellation_check,
+                **({'qualification': qualification} if qualification is not None else {}))
         if automatic_selection is not None:
             # Recorded after the source remap so the provenance is the final
             # diagnostic.  A rejected probe stays execution-only (the legacy
@@ -2636,6 +2704,8 @@ class Project:
                 mesh.hybrid_diagnostics = merged_diagnostics
         mesh_preparation = getattr(mesh, "structural_preparation", {})
         preparation_payload = preparation.to_dict()
+        if geometry_approximation_error is not None:
+            preparation_payload['geometry_approximation_error'] = geometry_approximation_error
         if isinstance(mesh_preparation, Mapping) and "qualified_s3" in mesh_preparation:
             preparation_payload["qualified_s3"] = mesh_preparation["qualified_s3"]
         merge_geometry_runtime(mesh, preparation_runtime)

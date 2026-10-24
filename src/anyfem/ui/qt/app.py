@@ -264,8 +264,31 @@ class ScriptTask(QWidget):
     def copy_commands_to_editor(self):
         self.source.appendPlainText(self.command_stream.toPlainText())
 
+    def recent_commands(self):
+        stream=self.command_stream;document=getattr(stream,'document',None)
+        if callable(document):
+            block=document().lastBlock();rows=[]
+            while block.isValid() and len(rows)<50:
+                rows.append(block.text()[:1000]);block=block.previous()
+            return tuple(reversed(rows))
+        return tuple(stream.toPlainText().splitlines()[-50:])
+
     def copy_diagnosis(self):
-        self.app.clipboard.copy_text(self.app.diagnostic_report(recent_commands=self.command_stream.toPlainText().splitlines()[-50:]))
+        return _copy_current_diagnosis(self.app,ScriptTask.recent_commands(self))
+
+
+def _copy_current_diagnosis(app,recent_commands=()):
+    """Both actions copy current state, independent of script-panel history."""
+    from ...diagnostics import build_diagnostic_report
+    try:
+        report=app.diagnostic_report(recent_commands=recent_commands)
+        if not isinstance(report,str) or not report.strip():raise ValueError('The report route returned no text')
+    except Exception as error:
+        report=build_diagnostic_report(getattr(app,'project',None),context={'report_route_error':type(error).__name__+': '+str(error)[:500]})
+    app.clipboard.copy_text(report)
+    try:app.set_status('Current project diagnosis copied to clipboard.')
+    except Exception:pass  # A partial/headless status adapter cannot undo a successful copy.
+    return report
 
 
 class QtFemWindow(WorkbenchWorkflow, QMainWindow):
@@ -302,7 +325,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Results":"Inspect, animate and export solved fields.",
         "Visualization":"Adjust colours, transparency, section planes and images.",
         "Scripts":"Run Python commands as one undoable edit.",
-        "Definitions":"Regions, unit profile and other project definitions.",
+        "Definitions":"Sets, unit profile and other project definitions.",
     }
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
@@ -324,6 +347,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         _state["dark"]=saved_dark()
         apply_theme(self)
         self.resize(1400,900)
+        from ...sketcher import SketchController
+        self.sketcher=SketchController()
         self.viewport=QtViewport(self,self.selection,backend=viewer_backend)
         from .theme import sync_viewport
         sync_viewport(self)
@@ -556,9 +581,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         heading=QLabel("Select");heading.setObjectName("ToolbarLabel");toolbar.addWidget(heading)
         self.quick_selection_actions={}
         self.quick_selection_group=QActionGroup(self);self.quick_selection_group.setExclusive(False)
-        for label,mode in (("Point","vertex"),("Line","edge"),("Face","face")):
+        for label,mode in (("Point","vertex"),("Line","edge"),("Edge","plate_edge"),("Face","face")):
             action=QAction(label,self);action.setCheckable(True);action.setChecked(mode==self.selection.mode)
-            action.setToolTip(f"Select {label.lower()} geometry")
+            action.setToolTip('Select plate perimeter and hole edges' if mode=='plate_edge' else f"Select {label.lower()} geometry")
             action.triggered.connect(lambda checked=False,mode=mode:self._quick_select(mode))
             self.quick_selection_group.addAction(action);toolbar.addAction(action)
             self.quick_selection_actions[mode]=action
@@ -572,9 +597,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.quick_selection_actions["plane"]=plane_action
         toolbar.addSeparator()
         from .widgets import ValueCombo
-        self.selection_mode=ValueCombo((("vertex","Points"),("edge","Lines"),("face","Faces"),
+        self.selection_mode=ValueCombo((("vertex","Points"),("edge","Lines"),("plate_edge","Plate edges"),("face","Faces"),
                                         ("node","Mesh nodes"),("element","Mesh elements")))
-        self.selection_mode.currentIndexChanged.connect(lambda _index:self.selection.set_mode(self.selection_mode.value()))
+        self.selection_mode.currentIndexChanged.connect(lambda _index:self._quick_select(self.selection_mode.value()))
         self.selection_tool=ValueCombo((("box","Box"),("single","Click"),("lasso","Lasso")))
         self.selection_depth=ValueCombo((("visible","Visible only"),("through","See-through")))
         self.selection_operation=ValueCombo((("replace","Replace"),("add","Add"),("remove","Remove"),("toggle","Toggle")))
@@ -594,6 +619,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         toolbar.widgetForAction(self._actions["Fit"]).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self._actions["Fit"].setToolTip("Fit the model in the view")
         for name in ["Iso","Top","Front","Side"]:self._actions[name].setToolTip(f"{name} view")
+        self._build_model_colour_buttons(toolbar)
         spacer2=QWidget();spacer2.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred);toolbar.addWidget(spacer2)
         self._build_view_mode_buttons(toolbar)
         self.renderer=ValueCombo((("auto","Automatic"),("gpu","GPU"),("software","Software")))
@@ -640,8 +666,13 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _quick_select(self,mode):
         self.viewport.dismiss_feature_highlight()
-        self.selection.set_mode(mode)
+        if mode=='plate_edge':
+            from ...selection import SelectionFilter, plate_boundary_edge_ids
+            self.selection.set_filter(SelectionFilter(kinds=frozenset({'edge'}),flavor='plate_edge',eligible_ids=plate_boundary_edge_ids(self.project,self.tree.exploded_feature_ids)))
+        else:
+            self.selection.set_mode(mode)
         self._sync_selection_controls()
+        if self._view_mode=='geometry':self.show_geometry()
 
     def _refresh_plane_menu(self):
         self.plane_menu.clear()
@@ -678,13 +709,14 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         panel.fields["name"][0].setFocus()
 
     def _sync_selection_controls(self):
-        index=self.selection_mode.findData(self.selection.mode)
+        active='plate_edge' if getattr(self.selection.filter,'flavor','')=='plate_edge' else self.selection.mode
+        index=self.selection_mode.findData(active)
         if index>=0:
             self.selection_mode.blockSignals(True)
             self.selection_mode.setCurrentIndex(index)
             self.selection_mode.blockSignals(False)
         for mode,action in self.quick_selection_actions.items():
-            if action.isCheckable():action.setChecked(mode==self.selection.mode)
+            if action.isCheckable():action.setChecked(mode==active)
 
     def _set_show_attributes(self,visible):
         self._show_attributes.set(bool(visible))
@@ -699,6 +731,22 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     VIEW_MODES=(("Model","geometry",("geometry","mesh-layout-preview"),"mode_model","Show the geometry model"),
                 ("Mesh","mesh",("mesh","inspection_mesh"),"mode_mesh","Show the mesh"),
                 ("Results","results",("results",),"mode_results","Show solved results"))
+
+    def _build_model_colour_buttons(self, toolbar):
+        from .navigation import navigation_icon
+        group=QActionGroup(self);group.setExclusive(True)
+        self._model_colour_actions={}
+        for key,label,icon,tip in (
+            ("thickness","Thickness","mode_model","Colour plates by actual thickness; grey means unassigned"),
+            ("section","Section","sections","Colour structural members by beam section; grey means unassigned"),
+            ("density","Density","mode_mesh","Model: requested target size sampled on geometry. Mesh: actual shell √area or beam length"),
+            ("default","Default","geometry","Restore default model and mesh colours")):
+            action=QAction(navigation_icon(icon),label,self);action.setCheckable(True);action.setToolTip(tip)
+            action.setProperty("colour_base_tip",tip)
+            group.addAction(action);toolbar.addAction(action);self._model_colour_actions[key]=action
+            button=toolbar.widgetForAction(action);button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon);button.setAccessibleName({"thickness":"Plate thickness","section":"Beam section","density":"Mesh density","default":"Default"}[key]+" colours")
+            action.triggered.connect(lambda checked=False,key=key:self.guarded(lambda:self.set_model_colour_mode(key))())
+        self._model_colour_actions["default"].setChecked(True)
 
     def _build_view_mode_buttons(self,toolbar):
         from .navigation import navigation_icon
@@ -718,6 +766,13 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     def _sync_view_mode_buttons(self):
         self._update_wordmark()
         mode=getattr(self,"_view_mode",None)
+        for key,action in getattr(self,"_model_colour_actions",{}).items():
+            action.setEnabled(mode in {"geometry","mesh"})
+            action.setChecked(key==getattr(self,"_model_colour_mode","default"))
+            legend=getattr(self.viewport,"_scene",None)
+            entries=(getattr(legend,"legend",None) or {}).get("entries",()) if action.isChecked() else ()
+            base=action.property("colour_base_tip") or ""
+            action.setToolTip(base+("\n"+"\n".join(text for text,_ in entries) if entries else ""))
         for _label,key,modes,_icon,_tip in self.VIEW_MODES:
             action=self._view_mode_actions.get(key)
             if action is not None and action.isChecked()!=(mode in modes):action.setChecked(mode in modes)
@@ -750,6 +805,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             self._queue_refresh()
             return
         self._refreshing=True
+        self._refresh_pending=False
         try:
             self.run_monitor.bind_document()
             self.tree.refresh();self.refresh_panels();self.job_status.refresh()
@@ -758,7 +814,6 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             self._update_window_title()
             self._update_wordmark()
             self._last_refreshed_revision=revision
-            self._refresh_pending=False
         finally:self._refreshing=False
 
     def _on_revision_changed(self,revision):
@@ -779,7 +834,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if switching:self.resizeDocks([self._workspace_docks[0]],[370],Qt.Horizontal)
 
     def _on_workbench_event(self,event):
+        if event.kind=="state_changed" and event.field=="geometry_selection_mode":
+            # This is a navigation preference. Selection listeners already
+            # update picking, highlights, tree selection and status directly.
+            return
         if (event.kind in {"command_executed","commands_executed"}
+                and not self._refreshing
                 and self._last_refreshed_revision==(self.session,event.snapshot.revision.id)):
             return
         self._queue_refresh()
@@ -929,8 +989,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         return extend_report_with_qt_runtime(report,self)
 
     def copy_diagnosis(self):
-        """Help-menu route: the Scripts panel owns the shared copy behaviour."""
-        self.panels["Scripts"].copy_diagnosis()
+        """Always create a fresh current-state Help report, even without scripts."""
+        panel=getattr(self,'panels',{}).get('Scripts')
+        recent=panel.recent_commands() if panel is not None and callable(getattr(panel,'recent_commands',None)) else ()
+        return _copy_current_diagnosis(self,recent)
 
     def show_command_palette(self):
         choices=list(self._actions)+list(self.panels)

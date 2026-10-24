@@ -714,3 +714,19 @@ def test_case_caches_have_reserved_bound_and_clear_on_case_error(solver_spy):
             list(evaluator.iter_batches([external]))
         assert context._cache_bytes == 0
         assert not context._wet
+
+
+def test_prepared_snapshot_excludes_owner_preparation_execution_cache(solver_spy):
+    from anyfem.solve.prepared_static import _owned_project
+
+    project, _series, _points, _face = _project()
+    project.generate_mesh(1.0)
+    cache = project._mesh_preparation_cache
+    assert cache is not None
+    snapshot = _owned_project(project)
+    assert snapshot._mesh_preparation_cache is None
+    assert snapshot._mesh_preparation_qualification is None
+    assert project._mesh_preparation_cache is cache
+    assert snapshot.geometry is not project.geometry
+    assert snapshot.geometry.model_id == project.geometry.model_id
+    assert snapshot.load_cases is not project.load_cases

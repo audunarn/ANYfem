@@ -25,6 +25,30 @@ from ..numeric_input import numeric_sequence_annotation, parse_numeric_sequence
 from anygeometry import SketchDefinition
 
 
+from .widgets import ChoiceEdit
+
+
+class UserSetChoiceEdit(ChoiceEdit):
+    """Offer visible sets while retaining an existing internal assignment."""
+    def __init__(self,choices,default=None):
+        self._preserved=None
+        super().__init__(choices,default)
+
+    def setText(self,value):
+        value=str(value)
+        index=self.findData(value)
+        if index<0 and value:
+            self._preserved=value
+            index=self.findData(None)
+            if index<0:self.addItem('Existing assignment (unchanged)',None);index=self.count()-1
+            self.setCurrentIndex(index)
+        else:
+            self.setCurrentIndex(index)
+
+    def text(self):
+        return self._preserved or '' if self.currentData() is None else super().text()
+
+
 class CodeEdit(QPlainTextEdit):
     """A monospace multi-line field that reads and writes like a QLineEdit."""
 
@@ -152,13 +176,13 @@ class CommandEditor(QWidget):
                     default = f.default
                     if default is dataclasses.MISSING and f.default_factory is not dataclasses.MISSING:
                         default=f.default_factory()
-                    field=self.make_field(default, str(f.type), f.name)
+                    field=self.choice_field(f.name,default,str(f.type)) or self.make_field(default, str(f.type), f.name)
                     self.unit_field(field,default,f.name,record.__name__)
-                    form.addRow(title(f.name),field)
+                    form.addRow("Set" if "RegionRef" in str(f.type) else title(f.name),field)
                     fields[f.name]=(field,str(f.type),default)
                 self.record_fields[name]=(record,fields)
             else:
-                field=self.choice_field(name,parameter.default) or self.make_field(parameter.default,annotation,name)
+                field=self.choice_field(name,parameter.default,annotation) or self.make_field(parameter.default,annotation,name)
                 self.unit_field(field,parameter.default,name,self.operation.__name__)
                 form.addRow(self.FIELD_LABELS.get(name,title(name)),field)
                 self.fields[name]=(field,annotation,parameter.default)
@@ -177,14 +201,19 @@ class CommandEditor(QWidget):
                   "gravity_coordinate_system_id":"Gravity coordinate system"}
     DISTRIBUTION_CHOICES=(("per_target","Full value on each target"),("total_distributed","Total value shared by targets"))
 
-    def choice_field(self,name,default):
-        """Readable drop-downs for fields with a closed or project-defined set of values."""
+    def choice_field(self,name,default,annotation=""):
+        """Readable drop-downs for closed or project-defined values."""
+        if "RegionRef" in annotation:
+            return UserSetChoiceEdit(self.set_choices(),default.id if isinstance(default,RegionRef) else None)
         from .widgets import ChoiceEdit
         if name=="distribution_policy":
             return ChoiceEdit(self.DISTRIBUTION_CHOICES,default if isinstance(default,str) else None)
         if name.endswith("coordinate_system_id"):
             return ChoiceEdit(self.coordinate_choices(),default if isinstance(default,str) else None)
         return None
+
+    def set_choices(self):
+        return [(region.id,region.name) for region in self.app.project.regions if not region.hidden]
 
     def coordinate_choices(self):
         systems=getattr(self.app.project,"coordinate_systems",{})
@@ -392,6 +421,11 @@ class CommandEditor(QWidget):
         for name,(field,_,_) in self.fields.items():
             if name.endswith("coordinate_system_id") and isinstance(field,ChoiceEdit):
                 field.set_choices(self.coordinate_choices())
+        for _,fields in self.record_fields.values():
+            for field,annotation,_ in fields.values():
+                if isinstance(field,UserSetChoiceEdit):field.set_choices(self.set_choices())
+        for field,annotation,_ in self.fields.values():
+            if isinstance(field,UserSetChoiceEdit):field.set_choices(self.set_choices())
         self.update_guidance()
 
     def case_name(self):

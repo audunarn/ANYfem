@@ -200,7 +200,12 @@ def _field_vector(dataset: Any, fe_model: Any) -> np.ndarray:
         raise SubmodelError("SOURCE_FIELD", "the displacement field is not a global nodal field")
     if descriptor_.unit != _dof_unit("displacement", _DOF_COMPONENTS):
         raise SubmodelError("SOURCE_FIELD", f"the displacement field has unit {descriptor_.unit!r}")
-    values = np.asarray(result_field.read(), dtype=float)
+    from anypost import ResultsError
+
+    try:
+        values = np.asarray(result_field.read(), dtype=float)
+    except (ResultsError, ValueError, OSError) as error:
+        raise SubmodelError("SOURCE_FIELD", f"the displacement field is unreadable: {error}") from error
     if values.ndim != 3 or values.shape[0] != 1 or values.shape[2] != 6:
         raise SubmodelError("SOURCE_FIELD", f"the displacement field has shape {values.shape}, not one frame of six components")
     try:

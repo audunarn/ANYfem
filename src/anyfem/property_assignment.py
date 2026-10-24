@@ -3,7 +3,7 @@ from dataclasses import dataclass,replace
 from anygeometry import EntityRef
 from . import commands
 
-PROPERTY_KINDS={'plate_sections':'face','beam_sections':'edge','refinements':None}
+PROPERTY_KINDS={'plate_sections':'face','beam_sections':'edge','refinements':None,'mesh_size_properties':None}
 
 @dataclass(frozen=True)
 class SelectionAssignment:
@@ -20,12 +20,13 @@ class SelectionAssignment:
         else:record=next((r for r in getattr(project,attribute).values() if r.id==key),None)
         if record is None:raise ValueError('The chosen property is no longer available')
         kind=PROPERTY_KINDS[attribute]
-        refs=tuple(dict.fromkeys(ref for ref in references if isinstance(ref,EntityRef) and ref.kind in ({kind} if kind else {'vertex','edge','face'})))
+        allowed={'edge','face'} if attribute=='mesh_size_properties' else {kind} if kind else {'vertex','edge','face'}
+        refs=tuple(dict.fromkeys(ref for ref in references if isinstance(ref,EntityRef) and ref.kind in allowed))
         return cls(project,attribute,record,refs,project.geometry.revision)
 
     @property
     def explanation(self):
-        return {'plate_sections':'Select one or more geometry plates first.','beam_sections':'Select one or more geometry lines/beams first.','refinements':'Select geometry points, lines or plates first.'}[self.attribute]
+        return {'plate_sections':'Select one or more geometry plates first.','beam_sections':'Select one or more geometry lines/beams first.','refinements':'Select geometry points, lines or plates first.','mesh_size_properties':'Select one or more geometry plates or lines first.'}[self.attribute]
 
     def validate(self,current_project,*,read_only=False,require_selection=True):
         if read_only:raise PermissionError('This project is read-only')
@@ -37,6 +38,9 @@ class SelectionAssignment:
 
     def command(self,current_project,*,read_only=False):
         self.validate(current_project,read_only=read_only)
+        if self.attribute=='mesh_size_properties':
+            from .mesh_sizes import AssignMeshSize
+            return AssignMeshSize(self.record.id,self.references)
         if self.attribute=='plate_sections':children=[commands.AssignPlate(ref.id,self.record.name) for ref in self.references]
         elif self.attribute=='beam_sections':children=[commands.AssignBeam(ref.id,self.record.name) for ref in self.references]
         else:children=[commands.AddRefinement(replace(self.record,ref=ref,center=None)) for ref in self.references]

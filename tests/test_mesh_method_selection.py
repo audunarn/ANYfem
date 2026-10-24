@@ -228,7 +228,8 @@ def test_adaptive_quad_layout_persists_and_changes_job_identity() -> None:
     )
     reopened = project_from_dict(project_to_dict(project))
     assert reopened.native_mesh_settings.to_dict()["parameters"]["layout_policy"] == "adaptive"
-    existing = MeshSettings.create(0.5, element_order="linear", strategy="quad_first")
+    existing = MeshSettings.create(0.5, element_order="linear", strategy="quad_first",
+                                   layout_policy="existing")
     adaptive = MeshSettings.create(0.5, element_order="linear", strategy="quad_first",
                                    layout_policy="adaptive")
     assert existing.input_hash != adaptive.input_hash

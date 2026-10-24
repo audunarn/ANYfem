@@ -19,6 +19,7 @@ from .native_meshing import (
     MeshBackend,
     MeshGenerationRequest,
     NativeMeshCancelled,
+    NativeMeshingCancellation,
     NativeMeshResult,
     NativeMeshSettings,
     NativeMeshingRuntime,
@@ -27,6 +28,7 @@ from .structural_preparation import (
     prepare_structural_connectivity,
     remap_mesh_to_source,
     source_work_mapping,
+    source_edge_paths,
 )
 
 __all__ = [
@@ -228,6 +230,9 @@ class NativeProjectMeshingSession:
             include_structural_closure=True,
             include_features=False,
         )
+        if self.runtime.settings.to_dict().get('parameters', {}).get('geometry_approximation_error') is not None:
+            from anygeometry import qualify_model_closure_source
+            qualify_model_closure_source(self.geometry, closure)
         return GeometryComponentSnapshot(
             geometry=closure.working_model,
             component=closure.source_to_work[component],
@@ -364,13 +369,20 @@ class NativeProjectMeshingSession:
             raise TypeError("native generator requires GeometryComponentSnapshot")
         snapshot.assert_current()
         geometry = snapshot.geometry
+        qualification = None
+        if request.settings.to_dict().get("parameters", {}).get("geometry_approximation_error") is not None:
+            from anymesher import qualify_model_closure_source_publication
+            qualification = qualify_model_closure_source_publication(
+                snapshot.source_geometry, snapshot.closure,
+                cancellation_check=request.cancellation.raise_if_cancelled)
         preparation = prepare_structural_connectivity(
             geometry,
             source_model_id=str(snapshot.model_id),
             source_revision=snapshot.revision,
             cancellation_check=request.cancellation.raise_if_cancelled,
         )
-        preparation.source_to_working = source_work_mapping(snapshot.closure)
+        preparation.source_edge_paths = source_edge_paths(snapshot.closure)
+        preparation.source_to_working = source_work_mapping(snapshot.closure, edge_paths=preparation.source_edge_paths)
         view = GeometryMeshingView(geometry)
         component = snapshot.component
         face_ids: tuple[int, ...] = ()
@@ -455,9 +467,20 @@ class NativeProjectMeshingSession:
             "smart_mapped": "smart_mapped",
         }[str(backend)]
         quad_pipeline = str(backend) in ("quad_first", "smart_mapped")
+        from anymesher.recovery import (select_curvilinear_recovery_policy,
+                                         generate_automatic_mesh_result)
+        recovery_policy, recovery_selection = select_curvilinear_recovery_policy(
+            geometry, requested_strategy=backend, order=request.settings.element_order,
+            certification_mode=request.certification_mode,
+            geometry_approximation_error=parameters.get('geometry_approximation_error'),
+            explicit_controls=(any(key.startswith('native_') for key in parameters)
+                or 'quad_options' in parameters or 'layout_policy' in parameters
+                or any(key.startswith('quad_t3_') for key in parameters)),
+            face_ids=face_ids, cancellation_check=request.cancellation.raise_if_cancelled)
         automatic_selection = None
         if (
-            strategy == "auto"
+            recovery_selection is None
+            and strategy == "auto"
             and parameters.get("quad_options") is None
             and not self._already_structured(geometry, face_ids)
         ):
@@ -489,7 +512,7 @@ class NativeProjectMeshingSession:
         supported = {
             key: value
             for key, value in parameters.items()
-            if key in {"recombine", "overlap_policy"}
+            if key in {"recombine", "overlap_policy", "geometry_approximation_error"}
         }
         if quad_pipeline:
             supported["quad_options"] = quad_options
@@ -497,8 +520,7 @@ class NativeProjectMeshingSession:
             supported["quad_t3_minimum_angle"] = parameters.get("quad_t3_minimum_angle", 15.0)
             supported["quad_t3_angle_action"] = parameters.get("quad_t3_angle_action", "error")
         strict = request.certification_mode is CertificationMode.STRICT
-        generated = generate_hybrid_mesh_result(
-            geometry,
+        generation_options = dict(
             target_size=target_size,
             strategy=strategy,
             face_ids=face_ids,
@@ -506,7 +528,9 @@ class NativeProjectMeshingSession:
             refinements=tuple(entity_refinements),
             order=request.settings.element_order,
             certification_mode="strict" if strict else "none",
-            cancellation_check=request.cancellation.raise_if_cancelled,
+            cancellation_check=(request.cancellation.geometry_cancellation
+                if type(request.cancellation) is NativeMeshingCancellation
+                else request.cancellation.raise_if_cancelled),
             native_backend=native_backend,
             structural_preparation={
                 "automatic_face_connections": False,
@@ -517,6 +541,34 @@ class NativeProjectMeshingSession:
             mutation_policy="working_copy",
             **supported,
         )
+        def generate_checked(action, *args, **kwargs):
+            try:
+                return action(*args, **kwargs)
+            except Exception:
+                # Geometry's passive signal returns typed non-success. Keep
+                # the application's established cancellation classification.
+                request.cancellation.raise_if_cancelled('hybrid component cancellation')
+                raise
+
+        if recovery_selection is None:
+            generated = generate_checked(generate_hybrid_mesh_result, geometry, **generation_options)
+        else:
+            from .mesh_controls import StructuredMeshControls
+            effective_settings = NativeMeshSettings.from_dict({
+                **request.settings.to_dict(), 'parameters': parameters})
+            generation_options['_native_surface_options'] = (
+                StructuredMeshControls.from_settings(effective_settings).owner_options(
+                    preference=parameters.get('structure_preference', 'balanced'),
+                    quality_policy={key.removeprefix('mesh_quality_'): value
+                                    for key, value in parameters.items()
+                                    if key.startswith('mesh_quality_')}))
+            # This route already requires source S3 at final publication.
+            # Apply the same admission during recovery candidate selection.
+            generation_options["qualified_s3"] = True
+            generated = generate_checked(generate_automatic_mesh_result,
+                geometry, automation=recovery_policy,
+                curvilinear_recovery_selection=recovery_selection,
+                **generation_options).result
         request.cancellation.raise_if_cancelled("hybrid component completion")
         snapshot.assert_current()
         diagnostics = list(self._audit_diagnostics(request.changes))
@@ -532,7 +584,10 @@ class NativeProjectMeshingSession:
                 "thickness_of_face",
             )
         ):
-            remap_mesh_to_source(generated.mesh, snapshot.closure)
+            remap_mesh_to_source(generated.mesh, snapshot.closure, edge_paths=preparation.source_edge_paths,
+                                 source_geometry=snapshot.source_geometry,
+                                 cancellation_check=request.cancellation.raise_if_cancelled,
+                                 **({'qualification': qualification} if qualification is not None else {}))
         else:
             # NativeMeshingRuntime deliberately permits lightweight backend
             # payloads for predictors/adapters.  Only a real Mesh carries

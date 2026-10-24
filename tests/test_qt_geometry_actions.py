@@ -15,7 +15,17 @@ from anyfem.ui.qt.app import QtFemWindow
 
 
 @pytest.fixture(scope="module")
-def qapp():return QApplication.instance() or QApplication([])
+def qapp():
+    app=QApplication.instance() or QApplication([])
+    # Some Windows offscreen runtimes omit Qt's bundled fonts. Use an
+    # installed desktop font so row hit tests use real, nonzero text metrics.
+    from PySide6.QtGui import QFontDatabase,QFont
+    from pathlib import Path
+    if os.environ.get("QT_QPA_PLATFORM")=="offscreen":
+        font=Path(os.environ.get("WINDIR","C:/Windows"))/"Fonts"/"segoeui.ttf"
+        if font.is_file():
+            QFontDatabase.addApplicationFont(str(font));app.setFont(QFont("Segoe UI",9))
+    return app
 
 
 @pytest.fixture
@@ -116,7 +126,8 @@ def test_real_right_click_menu_and_left_selection(window,qapp):
     QTest.mouseClick(surface,Qt.RightButton,pos=position);qapp.processEvents()
     menu=window.geometry_actions.menu
     assert menu is not None and menu.isVisible()
-    assert [action.text() for action in menu.actions()][:3]==["Copy","Move","Properties"]
+    assert [action.text() for action in menu.actions()][:4]==["Copy","Move","Edit","Properties"]
+    assert not menu.actions()[2].isEnabled()  # Point-only selection has no structural inputs.
     menu.actions()[1].trigger();menu.close();qapp.processEvents()
     assert window.geometry_actions.dialogs[-1].operation=="Move"
     window.geometry_actions.dialogs[-1].reject();window.geometry_actions.close();qapp.processEvents()

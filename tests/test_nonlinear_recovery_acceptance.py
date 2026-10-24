@@ -11,6 +11,7 @@ from anyfem.post.fields import evaluate_field, recover
 from anyfem.post.results import NonlinearSolution
 from anyfem.solve.build import BuiltModel
 from anysolver import generate_simple_panel_mesh, recover_stress_result
+from anymesher import Mesh
 
 
 @pytest.mark.parametrize("kinematics", ["von_karman", "corotational"])
@@ -23,7 +24,7 @@ def test_increment_recovery_retains_committed_state_kinematics_and_cache(kinemat
             "plastic_strain": np.full((point_count,3),.002),
             "layer_stress": np.tile([stress,50.e6,10.e6],(point_count,1)),
             "alpha": np.full(point_count,.002)}}) for index,stress in [(7,250.e6),(9,270.e6)]]
-    built = BuiltModel(fe_model=model,load_case=None,mesh=SimpleNamespace(),project=SimpleNamespace(name="increments"))
+    built = BuiltModel(fe_model=model,load_case=None,mesh=Mesh(quads={1: tuple(model.mesh.elements[1].node_ids)}),project=SimpleNamespace(name="increments"))
     raw = SimpleNamespace(snapshots=snapshots,info={"kinematics":kinematics})
     solution = NonlinearSolution(displacements=displacement,built=built,raw_result=raw)
     for view,snapshot in zip(solution.shapes,snapshots):
@@ -69,7 +70,7 @@ def test_nonlinear_solution_recovers_yielded_committed_state_not_elastic_guess()
     built = BuiltModel(
         fe_model=model,
         load_case=None,
-        mesh=SimpleNamespace(),
+        mesh=Mesh(quads={1: tuple(model.mesh.elements[1].node_ids)}),
         project=SimpleNamespace(name="yielded panel"),
     )
     solution = NonlinearSolution(

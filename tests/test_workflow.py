@@ -15,6 +15,7 @@ import pytest
 
 from anyfem import (
     Project,
+    ShellFormulationPolicy,
     pinned,
     recovery_policy,
     resource_policy,
@@ -208,8 +209,14 @@ def compressed_plate(nonlinear: bool = True) -> Project:
 def capacity_solution():
     """One representative workflow run serves its read-only result contracts."""
 
+    project = compressed_plate()
+    # This fixture checks orchestration and summaries. The updated qualified
+    # plastic Q4 refuses the warped eigenmode imperfection; select the supported
+    # historical Q4 route explicitly rather than changing the production default.
+    project.shell_formulation_policy = ShellFormulationPolicy(
+        q4="legacy", s3=project.shell_formulation_policy.s3)
     return solve_capacity(
-        compressed_plate(), target_size=0.05, num_buckling_modes=3,
+        project, target_size=0.05, num_buckling_modes=3,
         imperfection_amplitude=1.0 / 500, num_steps=12,
     )
 

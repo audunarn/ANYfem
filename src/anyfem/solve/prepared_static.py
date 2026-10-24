@@ -114,7 +114,19 @@ def _owned_project(project: Project) -> Project:
     """
 
     geometry = project.geometry.clone(preserve_identity=True)
-    owned = deepcopy(project, {id(project.geometry): geometry})
+    # Prepared geometry caches retain immutable owner graphs, not inputs to
+    # canonical load construction. Do not deepcopy their mappingproxy views or
+    # carry meshing execution state into the evaluator's structural snapshot.
+    source = copy(project)
+    source._mesh_preparation_cache = None
+    source._mesh_preparation_qualification = None
+    owned = copy(source)
+    # Load-case callbacks are bound to the original Project. Seed its identity
+    # so deepcopy rebinds them to this same snapshot instead of recursively
+    # copying the live project and its preparation cache through __self__.
+    owned.__dict__ = deepcopy(vars(source), {
+        id(project): owned, id(project.geometry): geometry,
+    })
     if owned is project or owned.geometry is project.geometry:
         raise ProjectError(
             "prepared static capture did not detach the project snapshot"

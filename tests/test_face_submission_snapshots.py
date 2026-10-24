@@ -41,6 +41,7 @@ def test_face_batch_preserves_values_before_callbacks(callback):
     view = SimpleNamespace(canvas=canvas, _face_style=lambda patch: ("black", 1., True),
                            _pick_binding=binding, _smooth_options=lambda group: {},
                            _visualization=SimpleNamespace(edge_width=1))
+    view._face_pick_binding = SceneViewport._face_pick_binding.__get__(view)
     SceneViewport._draw_face_batches(view, [patch])
     assert polygon[1, 0] != expected[1, 0]
     assert len(canvas.outputs) == 1

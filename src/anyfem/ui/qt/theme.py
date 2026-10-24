@@ -85,6 +85,10 @@ _LIGHT_SHEET = """
         QStatusBar QLabel#StatusCaption { color: #68768a; }
         QStatusBar QComboBox { padding: 2px 22px 2px 6px; min-height: 16px; }
         QToolTip { background: #253247; color: white; border: none; padding: 6px; }
+        QLabel#ModelColourLegend {
+            background: #ffffff; color: #253247;
+            border: 1px solid #ccd5e0; border-radius: 4px;
+        }
     """
 
 # controls whose native look is light-only; styled only in dark mode so the light theme is unchanged

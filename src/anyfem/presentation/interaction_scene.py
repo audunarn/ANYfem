@@ -31,7 +31,8 @@ def camera_scene(scene, *, polygon_budget=160, line_budget=350, point_budget=64)
             polygons=[face.polygons[i] for i in indices],
             colors=[colors[i] if len(colors) > 1 else colors[0] for i in indices] if colors else [],
             polygon_owners=None if face.polygon_owners is None else [face.polygon_owners[i] for i in indices],
-            polygon_visibility_owners=None if face.polygon_visibility_owners is None else [face.polygon_visibility_owners[i] for i in indices]))
+            polygon_visibility_owners=None if face.polygon_visibility_owners is None else [face.polygon_visibility_owners[i] for i in indices],
+            outline_groups=None if face.outline_groups is None else [face.outline_groups[i] for i in indices]))
     result.lines = [scene.lines[i] for i in _indices(len(scene.lines), line_budget)]
     result.points = [scene.points[i] for i in _indices(len(scene.points), point_budget)]
     result.arrows = list(scene.arrows)

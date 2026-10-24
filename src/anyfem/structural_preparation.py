@@ -10,6 +10,7 @@ ANYfem persists with the mesh record.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Any, Callable, Iterable, Mapping
 
 from anygeometry import (
@@ -28,6 +29,7 @@ __all__ = [
     "prepare_structural_connectivity",
     "remap_mesh_to_source",
     "source_work_mapping",
+    "source_edge_paths",
 ]
 
 
@@ -64,6 +66,7 @@ class StructuralPreparationReport:
     connections: list[PreparedConnection] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     source_to_working: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    source_edge_paths: dict[int, tuple[tuple[int, bool], ...]] = field(default_factory=dict)
 
     @property
     def created_count(self) -> int:
@@ -84,6 +87,8 @@ class StructuralPreparationReport:
                 key: list(values)
                 for key, values in sorted(self.source_to_working.items())
             },
+            "source_edge_paths": {str(key): [[edge, forward] for edge, forward in path]
+                                  for key, path in sorted(self.source_edge_paths.items())},
         }
 
 
@@ -293,14 +298,24 @@ def prepare_structural_connectivity(
                 from anymesher.preparation import prepare_structural_closure
                 from anymesher.errors import MeshError
                 try:
-                    candidate, _ = prepare_structural_closure(
+                    candidate, owner_report = prepare_structural_closure(
                         geometry, face_ids=tuple(geometry.faces),
-                        options={"declare_missing_owners": False},
+                        # This geometry is the private mesh-job closure. Use
+                        # the owner's existing temporary declaration policy;
+                        # ordinary extrusions need not pollute the design
+                        # model with persistent Sheet records to be meshed.
+                        options={"declare_missing_owners": True},
                         cancellation_check=cancellation_check,
                         reuse_working_copy=True)
                 except (MeshError, GeometryError) as error:
                     raise StructuralPreparationError(str(error)) from error
                 geometry.restore_topology(candidate.topology_snapshot())
+                temporary = tuple(getattr(owner_report, "temporary_sheet_ids", ()))
+                if temporary:
+                    report.diagnostics.append(
+                        f"private mesh closure declared {len(temporary)} temporary Sheet owner(s): "
+                        + ", ".join(str(item) for item in temporary[:20])
+                    )
                 report.working_revision = int(geometry.revision)
                 return report
     owned_faces = {geometry.face_uses[use].face_id for sheet in geometry.sheets.values()
@@ -308,6 +323,24 @@ def prepare_structural_connectivity(
     operands = (*[geometry.handle("sheet", sheet) for sheet in sorted(geometry.sheets)],
                 *[geometry.handle("face", face) for face in sorted(set(geometry.faces) - owned_faces)],
                 *[geometry.handle("member", member) for member in active_members])
+    # The bounded NURBS owner accepts complete face scopes. A Sheet selector
+    # otherwise dispatches this exact same geometry to the legacy bilinear
+    # contact service. This selector hint grants no geometric authority: the
+    # complete public batch plan qualifies exact supports, references and every
+    # original face/pair. Raw topology Coons profiles acquire their exact chart
+    # in that owner route, so the generic chart service cannot precede it.
+    from anygeometry import Plane, CoonsSurface
+    from anygeometry.nurbs import NurbsSurface, NurbsCurve
+    bounded_hint = (not active_members
+        and sum(isinstance(face.surface, Plane) for face in geometry.faces.values()) == 1
+        and any(isinstance(face.surface, NurbsSurface)
+            or isinstance(face.parameterization, NurbsSurface)
+            or isinstance(face.surface, CoonsSurface) and any(
+                isinstance(geometry.edges[use.edge].curve, NurbsCurve)
+                for use in face.loop)
+            for face in geometry.faces.values()))
+    if bounded_hint:
+        operands = tuple(geometry.handle('face', face) for face in sorted(geometry.faces))
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
         return False
@@ -315,6 +348,7 @@ def prepare_structural_connectivity(
     # Report physical design-owner connections rather than one event per
     # cylindrical panel. Topology still retains every exact panel relation.
     sheets = _face_sheet_map(geometry)
+    original_faces = tuple(sorted(geometry.faces))
     representatives = {}
     for face in sorted(geometry.faces):
         key = ("sheet", sheets[face]) if face in sheets else ("face", face)
@@ -347,22 +381,101 @@ def prepare_structural_connectivity(
                 "coplanar plate overlap must be resolved with Fragment Overlaps before meshing: "
                 + str(error)) from error
         raise StructuralPreparationError(f"cannot prepare structural intersection batch: {error}") from error
+    # Some certified owners publish a complete application without legacy
+    # ArrangementPath records. Report only owners that actually share one of
+    # its issued joint edges, using explicit face replacement lineage.
+    descendant_owners = {}
+    for parent in original_faces:
+        descendants = tuple(geometry.resolve_ref(EntityRef('face', parent)))
+        if not descendants and parent in geometry.faces:
+            descendants = (EntityRef('face', parent),)
+        for descendant in descendants:
+            if descendant.kind == 'face' and descendant.id in geometry.faces:
+                descendant_owners.setdefault(descendant.id, set()).add(parent)
+    pair_relations = {}
+    for edge in application.joint_edges:
+        incident = geometry.faces_using_edge(edge.id)
+        labels = sorted({face_label(parent) for face in incident
+                         for parent in descendant_owners.get(face, ())})
+        # This combination is local to one actual shared edge, not the global
+        # operand set. Faces of the same original Sheet share one label.
+        for index, first in enumerate(labels):
+            for second in labels[index+1:]:
+                pair = (first, second)
+                pairs.add(pair)
+                pair_relations.setdefault(pair, []).append(_label(edge))
     relations = tuple(_label(handle) for handle in application.joint_edges)
     report.connections.extend(PreparedConnection(first, second, "intersection_curve",
-        "batch_arrangement", application.reused, relations) for first, second in sorted(pairs))
+        "batch_arrangement", application.reused,
+        tuple(dict.fromkeys(pair_relations.get((first,second), relations))))
+        for first, second in sorted(pairs))
     report.working_revision = int(geometry.revision)
     return report
 
 
-def source_work_mapping(closure: ModelClosure) -> dict[str, tuple[str, ...]]:
+def source_edge_paths(closure: ModelClosure) -> dict[int, tuple[tuple[int, bool], ...]]:
+    """Consume owner-authenticated shared-boundary occurrences, never proximity.
+
+    An original edge can remain active but orphaned after its face reuses a
+    canonical boundary. Replacement lineage alone cannot describe that reuse.
+    Polynomial preimages additionally provide exact source-parametric order.
+    Arc provenance does not qualify parameter transport and is not used here.
+    Returned paths are derived application data, not transferable owner proof.
+    """
+    import anygeometry
+    query = getattr(anygeometry, "query_prepared_edge_subcurve_preimages", None)
+    if not callable(query):
+        # Older supported owners retain their replacement-lineage route.
+        # Missing capability never licenses reconstructing aliases ourselves.
+        return {}
+    geometry = closure.working_model
+    try:
+        binding = query(geometry)
+    except GeometryError as error:
+        if str(error) in ("edge subcurve provenance requires a complete current preparation",
+                          "edge subcurve provenance is unavailable"):
+            return {}
+        raise
+    occurrences: dict[int, dict[tuple[Fraction, Fraction], tuple[int, bool]]] = {}
+    for row in (*binding.records, *binding.alias_records):
+        if row.ancestor.model_id != geometry.model_id:
+            continue
+        edge = row.edge_id
+        if not geometry.faces_using_edge(edge) and not geometry.members_using_edge(edge):
+            continue
+        first, last = (Fraction(*value) for value in row.interval)
+        interval = min(first, last), max(first, last)
+        paths = occurrences.setdefault(row.ancestor.definition.edge_id, {})
+        candidate = (edge, last > first)
+        if interval in paths and candidate != paths[interval]:
+            raise StructuralPreparationError(
+                f"source edge {row.ancestor.definition.edge_id} has ambiguous prepared occurrences")
+        paths[interval] = candidate
+    result = {}
+    for source, initial in closure.source_to_work.items():
+        if source.kind != "edge" or initial.id not in occurrences:
+            continue
+        rows = sorted(occurrences[initial.id].items())
+        # Partial evidence must not silently truncate a loaded design line.
+        if rows[0][0][0] != 0 or rows[-1][0][1] != 1 or any(
+                first[0][1] != second[0][0] for first, second in zip(rows, rows[1:])):
+            raise StructuralPreparationError(f"source edge {source.id} has incomplete or overlapping prepared occurrences")
+        result[source.id] = tuple(value for interval, value in rows)
+    return result
+
+
+def source_work_mapping(closure: ModelClosure, *, edge_paths=None) -> dict[str, tuple[str, ...]]:
     """Current exact lineage from source handles to prepared work handles."""
 
     geometry = closure.working_model
     mapping: dict[str, tuple[str, ...]] = {}
+    edge_paths = source_edge_paths(closure) if edge_paths is None else edge_paths
     for source, initial in sorted(
         closure.source_to_work.items(), key=lambda item: (item[0].kind, item[0].id)
     ):
-        if source.kind in ("vertex", "edge", "face"):
+        if source.kind == "edge" and source.id in edge_paths:
+            values = tuple(f"edge:{edge}" for edge, forward in edge_paths[source.id])
+        elif source.kind in ("vertex", "edge", "face"):
             current = geometry.resolve_ref(EntityRef(initial.kind, initial.id))
             if not current and initial.id in {
                 "vertex": geometry.vertices,
@@ -425,8 +538,40 @@ def _aggregate(
     }
 
 
-def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
+def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
+                         source_geometry=None, cancellation_check=None, qualification=None) -> None:
     """Publish prepared mesh associations against immutable source handles."""
+
+    # Generic closure maps do not prove curved coverage or parameter transport.
+    # The owner-bound route below performs fresh source qualification instead
+    # of rewriting a prepared S3 record's IDs.
+    triangles, quadrilaterals = getattr(mesh, 'tris', {}), getattr(mesh, 'quads', {})
+    shell_ids = set(triangles) | set(quadrilaterals)
+    if set(triangles) & set(quadrilaterals):
+        raise StructuralPreparationError('prepared shell element IDs overlap')
+    associated = set()
+    for cells in mesh.elements_of_face.values():
+        for cell in cells:
+            if cell not in shell_ids or cell in associated:
+                raise StructuralPreparationError('prepared shell face associations are invalid or duplicated')
+            associated.add(cell)
+    if associated != shell_ids:
+        raise StructuralPreparationError('prepared shell face associations are incomplete')
+    for face_id, cells in mesh.elements_of_face.items():
+        if cells and face_id not in closure.working_model.faces:
+            raise StructuralPreparationError('prepared mesh references a face outside the working closure')
+    # Geometry and live generation bindings choose the required route; mutable
+    # face labels cannot choose whether source-cell proof is necessary.
+    from anymesher import requires_material_source_transfer, publish_model_closure_mesh_to_source
+    if shell_ids and requires_material_source_transfer(closure.working_model, mesh):
+        if source_geometry is not None:
+            publish_model_closure_mesh_to_source(source_geometry, closure, mesh,
+                                                 cancellation_check=cancellation_check,
+                                                 **({'qualification': qualification} if qualification is not None else {}))
+            return
+        raise StructuralPreparationError(
+            'curvilinear project source remapping requires live owner source-cell '
+            'and parameter-transfer authority; generic closure maps cannot grant it')
 
     qualified_authority: dict[str, Any] | None = None
     preparation = getattr(mesh, "structural_preparation", None)
@@ -446,12 +591,37 @@ def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
     face_owner = _descendant_to_sources(closure, "face")
     edge_owner = _descendant_to_sources(closure, "edge")
     vertex_owner = _descendant_to_sources(closure, "vertex")
+    edge_paths = source_edge_paths(closure) if edge_paths is None else edge_paths
+    for source_id, path in edge_paths.items():
+        for edge, forward in path:
+            edge_owner[edge] = tuple(sorted(set(edge_owner.get(edge, ())) | {source_id}))
+    edge_tables = {}
+    for name in ("nodes_of_edge", "offset_nodes_of_edge", "elements_of_edge"):
+        original = getattr(mesh, name)
+        table = _aggregate(original, edge_owner)
+        for source_id, path in edge_paths.items():
+            present = [bool(original.get(edge)) for edge, forward in path]
+            if name == "nodes_of_edge" and any(present) and not all(present):
+                raise StructuralPreparationError(
+                    f"source edge {source_id} has incomplete prepared {name} associations")
+            values = []
+            for edge, forward in path:
+                sequence = list(original.get(edge, ()))
+                if not forward and name != "elements_of_edge":
+                    sequence.reverse()
+                if values and sequence and name == "nodes_of_edge" and values[-1] != sequence[0]:
+                    raise StructuralPreparationError(
+                        f"source edge {source_id} has disconnected prepared {name} associations")
+                # Offsets may exist on only some children. They are an
+                # independent support-node association, never a load path.
+                shared = values and sequence and name != "elements_of_edge" and values[-1] == sequence[0]
+                values.extend(sequence[1:] if shared else sequence)
+            if values:
+                table[source_id] = list(dict.fromkeys(values)) if name == "elements_of_edge" else values
+        edge_tables[name] = table
     mesh.elements_of_face = _aggregate(mesh.elements_of_face, face_owner)
-    mesh.elements_of_edge = _aggregate(mesh.elements_of_edge, edge_owner)
-    mesh.nodes_of_edge = _aggregate(mesh.nodes_of_edge, edge_owner)
-    mesh.offset_nodes_of_edge = _aggregate(
-        mesh.offset_nodes_of_edge, edge_owner
-    )
+    for name, table in edge_tables.items():
+        setattr(mesh, name, table)
     seeding = getattr(mesh, "seeding", None)
     if seeding is not None:
         source_divisions: dict[int, int] = {}
@@ -465,6 +635,14 @@ def remap_mesh_to_source(mesh, closure: ModelClosure) -> None:
                     source_classes.setdefault(
                         source_id, int(seeding.classes[working_id])
                     )
+        for source_id, path in edge_paths.items():
+            divisions = sum(int(seeding.divisions.get(edge, 0)) for edge, forward in path)
+            if divisions:
+                source_divisions[source_id] = divisions
+                for edge, forward in path:
+                    if edge in seeding.classes:
+                        source_classes[source_id] = int(seeding.classes[edge])
+                        break
         seeding.divisions = source_divisions
         seeding.classes = source_classes
     mesh.node_of_vertex = {

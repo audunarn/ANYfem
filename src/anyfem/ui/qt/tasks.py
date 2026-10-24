@@ -622,14 +622,14 @@ class ResultsTask(QWidget):
         count=self.frame_count()
         self.frame.setMaximum(max(0,count-1))
         self._set_frame_index(self.app.shape_index)
-        if solution is not None:self.report.setPlainText(_solution_report(solution))
-        elif dataset is not None:
+        if solution is not None and not getattr(self,"_inspection_active",False):self.report.setPlainText(_solution_report(solution))
+        elif dataset is not None and not getattr(self,"_inspection_active",False):
             job=self.app.project.jobs.get(self.app.active_job_id)
             state="stale" if job is not None and self.app._job_is_stale(job) else "current"
             summary=dataset.metadata("summary")
             deformation="Deformation available" if "displacement" in dataset.field_keys else "Deformation unavailable (undeformed display)"
             self.report.setPlainText(f"Retained result ({state})\n{len(dataset.frames)} frame(s)\n{deformation}\nStored solver summary:\n"+json.dumps(summary,indent=2,sort_keys=True)+"\nSelect a quantity to inspect its saved fields, histories or tables.")
-        elif dataset is None:
+        elif dataset is None and solution is None:
             self.report.clear();self.table.show_rows([],[]);self.plot.show_series([])
         self.refresh_details()
         self.refresh_quantities()
@@ -691,6 +691,7 @@ class ResultsTask(QWidget):
         self.frame_details.setText("\n".join(pieces))
 
     def inspect_quantity(self):
+        self._inspection_active=True
         # Read widget state once on the owner; worker emits plain preview actions.
         from types import SimpleNamespace
         choice=self.quantities.currentData(); frame=self.frame.value()
@@ -724,8 +725,12 @@ class ResultsTask(QWidget):
             self.plot.show_series([Series(key,np.asarray(x),np.asarray(y))]);return
         if kind=="field":
             stored=dataset.field(key);descriptor=stored.descriptor
-            resolver=getattr(stored,"root_frame_index",None)
-            index=resolver(self.frame.value()) if callable(resolver) else min(self.frame.value(),max(0,len(descriptor.frames)-1))
+            # Inspection follows this selected quantity's own row order. Its
+            # descriptor below retains source indices/labels; contour drawing
+            # separately resolves the shared root-frame coordinate.
+            index=int(self.frame.value()) if descriptor.frames else None
+            if index is not None and not 0<=index<len(descriptor.frames):
+                raise ValueError("selected quantity-local frame is unavailable")
             values=stored.read(index)
             policy=descriptor.provenance.get("frame_policy","all")
             frame_text=f"Quantity frame {index+1}; value {descriptor.frames[index]:g}" if descriptor.frames and index is not None else "Quantity frame association unavailable"
@@ -903,6 +908,7 @@ class ResultsTask(QWidget):
             raise
 
     def reset(self):
+        self._inspection_active=False
         self._gif_capture=None
         self._preview_owner=None
         self._display_source=None;self._selected_entry=None;self._quantity_component=None;self._live_quantity_descriptors=()
@@ -966,6 +972,7 @@ class ResultsTask(QWidget):
         return None
 
     def show_results(self, *, on_ready=None, on_cancel=None):
+        self._inspection_active=False
         selection=self._display_selection()
         ready=on_ready
         def published():

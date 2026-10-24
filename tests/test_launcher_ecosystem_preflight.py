@@ -29,7 +29,7 @@ def _versions() -> dict[str, str]:
         "ANYpost": "0.1.2",
         "ANYsolver-results": "2.1.1",
         "ANYtk3D": "0.5.5",
-        "ANYsolver": "0.4.6",
+        "ANYsolver": "0.4.7",
         "ANYfem": "0.4.2",
     }
 
@@ -190,7 +190,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4.6,<0.5: installed metadata reports 0.2.9" in message
+    assert "ANYsolver>=0.4.7,<0.5: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])

@@ -32,7 +32,7 @@ def test_set_roundtrip_edit_identity_and_undo(tmp_path):
     path=save_project(project,tmp_path/"sets.anyfem")
     reopened=load_project(path)
     assert reopened.regions[identifier].name=="Whole frame"
-    assert reopened.regions.resolve(identifier,geometry=reopened.geometry)==region.definition.anchors
+    assert reopened.regions.resolve(identifier,geometry=reopened.geometry,feature_resolver=lambda anchor:reopened.geometry.features.resolve(anchor,reopened.geometry))==project.regions.resolve(identifier,geometry=project.geometry,feature_resolver=lambda anchor:project.geometry.features.resolve(anchor,project.geometry))
 
 
 def test_invalid_set_edit_is_atomic():
@@ -40,7 +40,7 @@ def test_invalid_set_edit_is_atomic():
     region=Region("Frame",RegionDomain.GEOMETRY,"mixed",ManualRegion(refs))
     stack.run(cmd.AddRegion(region))
     before=region.to_dict(),stack.history()
-    for change in ({"name":" "},{"references":()},{"references":(EntityRef("edge",999999),)}):
+    for change in ({"name":" "},{"references":(EntityRef("edge",999999),)}):
         with pytest.raises(ValueError):stack.run(cmd.EditGeometrySet(region.id,**change))
         assert (region.to_dict(),stack.history())==before
 
@@ -110,3 +110,12 @@ def test_bad_move_does_not_change_geometry_or_history(vector):
     before=geometry_to_dict(project.geometry),stack.history()
     with pytest.raises(ValueError):stack.run(cmd.MoveEntities(refs,translation=vector))
     assert (geometry_to_dict(project.geometry),stack.history())==before
+
+
+def test_empty_set_edit_keeps_id_and_undo(tmp_path):
+    project,stack,_,refs=square();region=Region('Frame',RegionDomain.GEOMETRY,'mixed',ManualRegion(refs));stack.run(cmd.AddRegion(region))
+    stack.run(cmd.EditGeometrySet(region.id,references=()))
+    assert region.definition.anchors==() and region.entity_kind=='mixed'
+    identifier=region.id;stack.undo();assert region.definition.anchors==refs
+    stack.redo();loaded=load_project(save_project(project,tmp_path/'empty.anyfem'))
+    assert loaded.regions[identifier].definition.anchors==()

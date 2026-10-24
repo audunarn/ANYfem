@@ -263,6 +263,9 @@ def history_series(solution, *, probe=-1, component="uz"):
         provider_work_bytes = actual_bytes
         def metadata(self):
             return {"model_identity": f"anyfem-history:{id(solution)}", "cases": (), "descriptors": ()}
+        def read_field(self, case_id, quantity_id, component, selection=None, *, cancel_event=None):
+            from anypost import UnavailableFieldError
+            raise UnavailableFieldError("history provider has no field descriptors")
         def read_history(self):
             return [dict(item.__dict__) for item in prepared]
     with open_memory_results(HistoryProvider(), cache_bytes=0, working_bytes=WORKING_BYTES) as reader:
