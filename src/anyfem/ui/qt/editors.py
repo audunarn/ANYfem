@@ -451,6 +451,7 @@ class GeometryTask(CommandEditor):
             "AddStiffenedPanel":"Add stiffened panel",
             "AddConstructionPlane":"Add construction plane",
             "MeasureGeometry":"Measure selected geometry",
+            "Loft":"Loft between profiles",
         }
         for operation,label in labels.items():
             index=self.choice.findData(operation)
@@ -474,6 +475,16 @@ class GeometryTask(CommandEditor):
 
     def rebuild(self):
         super().rebuild()
+        if self.operation is commands.Loft:
+            previous = self.scroll.takeWidget()
+            previous.deleteLater()
+            self.fields = {}; self.record_fields = {}
+            self.scroll.setWidget(QWidget())
+            self.apply.setText("Construct")
+            self.feedback.setText("Select exactly two lines, profile faces or sketches, then Construct. Matching is automatic.")
+            if hasattr(self, "construct_plate"):
+                self.construct_plate.setVisible(False)
+            return
         self.apply.setText("Start sketch" if self.operation is commands.AddSketch else "Apply")
         if self.operation is commands.AddSketch:
             # Sketch intent is drawn in the canvas, never entered as a JSON record.
@@ -547,6 +558,9 @@ class GeometryTask(CommandEditor):
             self.construct_plate.setVisible(self.choice.currentData() == "AddPlate")
 
     def execute(self):
+        if self.operation is commands.Loft:
+            from .loft import construct_selected_loft
+            return construct_selected_loft(self.app)
         if self.operation is commands.AddConstructionPlane:
             if self.app.viewport.construction_active:raise ValueError("Finish or cancel the current construction first")
             system=super().execute()

@@ -133,6 +133,7 @@ __all__ = [
     "DeleteFeature",
     "DeleteProjectRecord",
     "Extrude",
+    "Loft",
     "FragmentPlateOverlaps",
     "EditFeature",
     "EditAttribute",
@@ -1401,6 +1402,11 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
         return "geometry.plate", {}, {
             "vertices": tuple(anchor("vertex", item) for item in command.vertex_ids)
         }
+    if isinstance(command, Loft):
+        return "geometry.loft", command.options(), {
+            "first_edges": tuple(anchor("edge", item) for item in command.first_edges),
+            "second_edges": tuple(anchor("edge", item) for item in command.second_edges),
+        }
     if isinstance(command, Extrude):
         return "geometry.extrude", {"vector": tuple(command.vector)}, {
             "edges": tuple(anchor("edge", item) for item in command.edge_ids)
@@ -1527,7 +1533,7 @@ def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any
         return [item.id for item in _numbered_outputs(outputs, "edge")]
     if isinstance(command, (AddFace, AddPlate)):
         return outputs["face"].id
-    if isinstance(command, (Extrude, Revolve)):
+    if isinstance(command, (Extrude, Loft, Revolve)):
         return [item.id for item in _numbered_outputs(outputs, "face")]
     if isinstance(command, SplitEdge):
         return outputs["point"].id
@@ -1675,6 +1681,33 @@ class AddPlate(GeometryCommand):
 
     def operate(self, project: Project) -> int:
         return project.geometry.add_plate(self.vertex_ids)
+
+
+@dataclass(eq=False)
+class Loft(GeometryCommand):
+    """Connect two ordered profiles through ANYgeometry's ruled loft owner."""
+
+    first_edges: Sequence[int]
+    second_edges: Sequence[int]
+    reverse_first: bool = False
+    reverse_second: bool = False
+    first_start: int = 0
+    second_start: int = 0
+    flip_normal: bool = False
+    label: str = "loft between profiles"
+
+    def __post_init__(self) -> None:
+        GeometryCommand.__init__(self)
+        self.first_edges = tuple(self.first_edges)
+        self.second_edges = tuple(self.second_edges)
+
+    def options(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in (
+            "reverse_first", "reverse_second", "first_start", "second_start", "flip_normal"
+        )}
+
+    def operate(self, project: Project) -> List[int]:
+        return project.geometry.loft(self.first_edges, self.second_edges, **self.options())
 
 
 @dataclass(eq=False)

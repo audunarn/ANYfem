@@ -306,7 +306,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
                    "AddCylinder","AddCone","AddStiffenedPanel")),
         ("Sketch and planes",("AddSketch","AddConstructionPlane")),
         ("Move, copy and pattern",("MovePoint","CopyEntities","LinearPattern","CircularPattern",
-                                   "MirrorEntities","Extrude","Revolve","ReverseEntity")),
+                                   "MirrorEntities","Extrude","Loft","Revolve","ReverseEntity")),
         ("Split and repair",("SplitEdge","SplitFace","StripFace","SetFaceCorners","JoinSheet",
                              "FragmentPlateOverlaps","TriangleToQuads","ButterflyHoleDecomposition","NeutralTrimHole")),
         ("Features and delete",("EditFeature","SuppressFeature","DeleteFeature","DeleteEntity")),
@@ -476,6 +476,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Undo",self.undo,"Ctrl+Z")
         self._action(edit,"Redo",self.redo,"Ctrl+Y")
         self._action(edit,"Cut plate with sketch…",self.cut_plate_with_sketch)
+        from .loft import construct_selected_loft, open_loft
+        self._action(edit,"Construct loft from selection",lambda:construct_selected_loft(self))
+        self._action(edit,"Edit loft settings…",lambda:open_loft(self))
         self._action(edit,"Select all",self._select_all,"Ctrl+A")
         self._action(edit,"Delete selected",self._delete_selection,"Delete")
         self._action(edit,"Create geometry set…",self.geometry_actions.new_set,"Ctrl+G")
