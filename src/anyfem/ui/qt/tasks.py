@@ -1,6 +1,7 @@
 """Mesh, analysis and results adapters for the shared application workflow."""
 import json
 import inspect
+import math
 from .theme import overlay
 from dataclasses import replace, fields,asdict
 
@@ -8,7 +9,7 @@ from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
-    QListWidget, QListWidgetItem, QAbstractItemView, QSlider)
+    QListWidget, QListWidgetItem, QAbstractItemView, QSlider, QProgressBar)
 
 from ...application.workflow import ANALYSES, _solution_report
 from ...post.fields import available_fields
@@ -341,7 +342,11 @@ class SolveTask(QWidget):
             choice=self.case.currentText() or "default"
             if choice.startswith("combination: "):options.setdefault("combination",choice.split(": ",1)[1])
             else:options.setdefault("load_case",choice)
-        if self.analysis.currentText()=="Batch linear static":options.setdefault("load_cases",[name for name,case in self.app.project.load_cases.items() if not case.is_template])
+        if self.analysis.currentText()=="Batch linear static":
+            selected=self.app.project.load_cases.get(self.case.currentText())
+            cases=(self.app.project.series_children(selected.name) if selected is not None and selected.is_template
+                   else [case for case in self.app.project.load_cases.values() if not case.is_template])
+            options.setdefault('load_cases',[case.name for case in cases])
         if self.use_resources.isChecked():
             from anysolver import ResourceConfig
             key="resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"
@@ -430,7 +435,20 @@ class ResultsTask(QWidget):
         from .result_browser import ResultFrameSelector
         self.frame=ResultFrameSelector();form.addRow("Frame",self.frame)
         self.playback_speed=QComboBox();self.playback_speed.addItems(["0.5","1","2","4","8","12","20","30"])
-        self.playback_speed.setCurrentText("4");form.addRow("Playback speed (fps)",self.playback_speed)
+        self.playback_speed.setCurrentText("20");form.addRow("Playback speed (fps)",self.playback_speed)
+        self.from_frame=QSpinBox();self.from_frame.setRange(1,1)
+        self.to_frame=QSpinBox();self.to_frame.setRange(1,1)
+        form.addRow("From frame",self.from_frame);form.addRow("To frame",self.to_frame)
+        self.preprocess_first=QCheckBox("Preprocess retained frames first (separate process)")
+        self.preprocess_first.setToolTip("Prepare the selected interval in an isolated process, then play from a temporary disk cache. Requires a retained field and GPU renderer.")
+        form.addRow(self.preprocess_first)
+        self.preparation_status=QLabel("Preprocessing starts when you press Play.")
+        self.preparation_status.setWordWrap(True);self.preparation_status.hide()
+        form.addRow(self.preparation_status)
+        self.preparation_progress=QProgressBar();self.preparation_progress.hide()
+        form.addRow(self.preparation_progress)
+        self.preprocess_first.toggled.connect(self.preparation_status.setVisible)
+        self._range_owner=None;self._preparation=None;self._cached_playback=None
         self.units=QComboBox();self.units.addItems(["SI (m / Pa)","Engineering (mm / MPa)"]);form.addRow("Display units",self.units)
         self.colors=QComboBox();self.colors.addItems(list(RESULT_COLORMAPS));form.addRow("Color map",self.colors)
         self.minimum=QLineEdit();self.maximum=QLineEdit()
@@ -449,11 +467,13 @@ class ResultsTask(QWidget):
                 button=QPushButton(label);button.clicked.connect(app.guarded(callback));grid.addWidget(button,index//2,index%2)
             layout.addLayout(grid)
         self.selection_details=QLabel();self.selection_details.setWordWrap(True);layout.addWidget(self.selection_details)
-        self.envelope=QCheckBox("Envelope of retained frames");layout.addWidget(self.envelope)
+        self.envelope=QCheckBox("Envelope of all live frames");layout.addWidget(self.envelope)
+        self.envelope.setToolTip("One static signed maximum-absolute contour over all live frames. The animation From/To interval does not apply. Saved retained fields do not currently support this option.")
         show=QPushButton("Show results");show.setProperty("primary",True);show.clicked.connect(app.guarded(self.show_results));layout.addWidget(show)
         playback=QHBoxLayout();playback.setSpacing(6)
         play=QPushButton("Play retained frames");play.clicked.connect(app.guarded(self.play));playback.addWidget(play)
-        stop=QPushButton("Stop playback");stop.clicked.connect(lambda:app.viewport.canvas.stop_animation());playback.addWidget(stop)
+        stop=QPushButton("Stop playback");stop.clicked.connect(self.stop_playback);playback.addWidget(stop)
+        self.playback_status=QLabel("Playback idle");layout.addWidget(self.playback_status)
         layout.addLayout(playback)
         self.outcome=QLabel();self.outcome.setWordWrap(True);layout.addWidget(self.outcome)
         self.frame_details=QLabel();self.frame_details.setWordWrap(True);layout.addWidget(self.frame_details)
@@ -483,6 +503,14 @@ class ResultsTask(QWidget):
         self.minimum.editingFinished.connect(self._appearance_changed)
         self.maximum.editingFinished.connect(self._appearance_changed)
         self.quantities.currentIndexChanged.connect(lambda *_:setattr(self,"_quantity_component",None))
+        self._playback=None
+        self.playback_speed.currentTextChanged.connect(self._playback_input_changed)
+        self.from_frame.valueChanged.connect(self._playback_input_changed)
+        self.to_frame.valueChanged.connect(self._playback_input_changed)
+        self.preprocess_first.toggled.connect(self._playback_input_changed)
+        self.envelope.toggled.connect(self._controls_changed)
+        for editor in (self.scale,self.minimum,self.maximum):editor.textChanged.connect(self._playback_input_changed)
+
 
     def activate_job(self,job_id):
         solution=self.app.solutions.get(job_id)
@@ -518,12 +546,12 @@ class ResultsTask(QWidget):
         self.update_component_choices()
         self._selected_entry=("field",self.field_name(),self.component.text().strip() or None) if self.use_retained() else ("live_field",self.field_name(),None)
         self.frame.setMaximum(max(0,self.frame_count()-1))
+        self._sync_frame_interval(self.frame_count())
         self._controls_changed()
 
     def frame_count(self):
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         if self.use_retained() and dataset is not None:
-            if len(dataset.frames):return len(dataset.frames)
             if self.field_name() in dataset.field_keys:
                 frames=dataset.field(self.field_name()).descriptor.frames
                 if frames:return len(frames)
@@ -566,6 +594,7 @@ class ResultsTask(QWidget):
     def _controls_changed(self,*_,appearance_only=False):
         inspection=self._selected_entry is not None and self._selected_entry[0] in {"field_table","live","history","table"}
         if self._syncing_controls or (self.app._view_mode!="results" and not inspection):return
+        if getattr(self,"_playback",None) is not None and self._playback.active:self.stop_playback()
         if self._display_pending:
             self._display_appearance_only=getattr(self,'_display_appearance_only',False) and appearance_only
             return
@@ -591,14 +620,17 @@ class ResultsTask(QWidget):
         self._display_pending=False
 
     def select_entry(self,entry):
+        self.stop_playback()
         self.app.notebook.select("Results")
         self._syncing_controls=True
         try:
             if entry.kind in {"live_field","field"}:
                 self._display_source="retained" if entry.kind=="field" else "live"
+                self._sync_envelope_control()
                 self.ensure_compatible_field();self.field.setCurrentText(entry.key)
                 self.update_component_choices();self.component.setText(entry.component or "")
                 self.frame.setMaximum(max(0,self.frame_count()-1))
+                self._sync_frame_interval(self.frame_count())
             else:
                 kind="field" if entry.kind=="field_table" else entry.kind
                 choice=next((i for i in range(self.quantities.count()) if tuple(self.quantities.itemData(i))==(kind,entry.key)),None)
@@ -619,7 +651,9 @@ class ResultsTask(QWidget):
         if owner!=self._preview_owner:
             self.reset();self._preview_owner=owner
         self.ensure_compatible_field();self.update_component_choices()
+        self._sync_envelope_control()
         count=self.frame_count()
+        self._sync_frame_interval(count)
         self.frame.setMaximum(max(0,count-1))
         self._set_frame_index(self.app.shape_index)
         if solution is not None and not getattr(self,"_inspection_active",False):self.report.setPlainText(_solution_report(solution))
@@ -666,7 +700,10 @@ class ResultsTask(QWidget):
             submitted=provenance.get("submitted_inputs_text")
             if submitted is None and provenance.get("submitted_inputs") is not None:
                 submitted=json.dumps(provenance["submitted_inputs"],indent=2,sort_keys=True)
-        self.submitted_inputs.setPlainText(submitted or "Submitted input text is unavailable; retained artifact hashes identify its provenance.")
+        submitted=submitted or "Submitted input text is unavailable; retained artifact hashes identify its provenance."
+        if submitted!=getattr(self,"_submitted_text",None):
+            self.submitted_inputs.setPlainText(submitted)
+            self._submitted_text=submitted
         if solution is None or self.use_retained():
             summary=dataset.metadata("summary") if dataset is not None else {}
             status=summary.get("status")
@@ -869,13 +906,16 @@ class ResultsTask(QWidget):
         self.app._request_result(load,lambda written:None,dataset=dataset,channel="export",ordered=True)
 
     def export_gif(self):
+        frames=self.animation_frames()
+        if self.envelope.isChecked():raise ValueError("An envelope is a static contour; turn it off before animation")
+        self.stop_playback()
         if self._gif_capture is not None:raise ValueError("GIF capture is already running")
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         count=self.frame_count()
         if not count:raise ValueError("Select a result to export")
         path=self.app.dialogs.save_file(filetypes=[("GIF animation","*.gif")],defaultextension=".gif")
         if not path:return
-        self._gif_capture=dict(session=self.app.session,job=self.app.active_job_id,path=path,count=count,index=0,original=self.app.shape_index,images=[])
+        self._gif_capture=dict(session=self.app.session,job=self.app.active_job_id,path=path,count=len(frames),frames=frames,index=0,original=self.app.shape_index,images=[])
         self.app.scheduler.call_later(0,self._capture_gif_frame)
 
     def _cancel_gif_capture(self):
@@ -889,7 +929,7 @@ class ResultsTask(QWidget):
             ResultsTask._cancel_gif_capture(self);return
         try:
             if state["index"]<state["count"]:
-                self._set_frame_index(state["index"])
+                self._set_frame_index(state["frames"][state["index"]])
                 def capture():
                     if self._gif_capture is not state or self.app._closing:return
                     state["images"].append(self.app.viewport.canvas.capture_image());state["index"]+=1
@@ -908,6 +948,8 @@ class ResultsTask(QWidget):
             raise
 
     def reset(self):
+        self.stop_playback(clear_prepared=True)
+        self._range_owner=None
         self._inspection_active=False
         self._gif_capture=None
         self._preview_owner=None
@@ -972,6 +1014,8 @@ class ResultsTask(QWidget):
         return None
 
     def show_results(self, *, on_ready=None, on_cancel=None):
+        if on_ready is None and on_cancel is None and not getattr(self,"_stream_request",False) and getattr(self,"_playback",None) is not None and self._playback.active:
+            self.stop_playback()
         self._inspection_active=False
         selection=self._display_selection()
         ready=on_ready
@@ -1020,37 +1064,205 @@ class ResultsTask(QWidget):
             raise ValueError("playback speed must be a positive number of frames/s")
         return value
 
-    def play(self):
-        fps=self.playback_fps()
-        dataset=self.app.result_datasets.get(self.app.active_job_id)
-        count=self.frame_count()
-        if not count:raise ValueError("Select a result before playback")
-        canvas=self.app.viewport.canvas
-        canvas.begin_animation_cache()
-        original=self.app.shape_index
-        session,job=self.app.session,self.app.active_job_id
-        def prepare(index):
-            if self.app._closing or session is not self.app.session or job!=self.app.active_job_id:
-                canvas.stop_animation();return
-            if index==count:
-                self._set_frame_index(original)
-                self.show_results(on_ready=lambda:canvas.play_animation(fps=fps),on_cancel=canvas.stop_animation)
-                self.app.set_status(f"playback started at {fps:g} fps")
-                return
-            self._set_frame_index(index)
-            def captured():
-                canvas.capture_animation_frame()
-                self.app.scheduler.call_later(0,lambda:prepare(index+1))
-            try:self.show_results(on_ready=captured,on_cancel=canvas.stop_animation)
-            except Exception:canvas.stop_animation();raise
-        prepare(0)
+    @property
+    def playback_active(self):
+        return bool((getattr(self,"_playback",None) is not None and self._playback.active)
+                    or (getattr(self,"_preparation",None) is not None and self._preparation.active))
 
+    def _playback_input_changed(self,*_):
+        if not self._syncing_controls and (self.playback_active or getattr(self,"_preparation",None) is not None):
+            self.stop_playback(clear_prepared=True)
+
+    def _sync_frame_interval(self,count):
+        owner=(id(self.app.session),self.app.active_job_id,id(self.app.solution),id(self.app.result_datasets.get(self.app.active_job_id)))
+        reset=owner!=self._range_owner
+        following=self.to_frame.value()==self.to_frame.maximum()
+        blockers=[QSignalBlocker(self.from_frame),QSignalBlocker(self.to_frame)]
+        for control in (self.from_frame,self.to_frame):control.setRange(1,max(1,count))
+        if reset:self.from_frame.setValue(1)
+        if reset or following:self.to_frame.setValue(max(1,count))
+        self._range_owner=owner
+        del blockers
+
+    def _sync_envelope_control(self):
+        supported=self.app.solution is not None and not self.use_retained()
+        self.envelope.setEnabled(supported)
+        if not supported:
+            with QSignalBlocker(self.envelope):self.envelope.setChecked(False)
+
+    def animation_frames(self):
+        count=self.frame_count()
+        if count<=0:raise ValueError("Select a result before playback")
+        first,last=self.from_frame.value()-1,self.to_frame.value()-1
+        if not 0<=first<=last<count:raise ValueError("Choose From frame <= To frame within the available result frames")
+        return tuple(range(first,last+1))
+
+    def _preprocess_context(self):
+        return (id(self.app.session),self.app.project.document_id,self.app.active_job_id,
+            id(self.app.result_datasets.get(self.app.active_job_id)),getattr(self.app,'_result_source_epoch',0),
+            self.app.session.revision,id(self.app.viewport.canvas),self.field_name(),self.component.text(),
+            self.scale.text(),self.minimum.text(),self.maximum.text(),self.colors.currentText(),self.units.currentText(),
+            self.app.viewport.visualization,self.app._show_attributes.get(),self.app.active_case(),self.animation_frames())
+
+    def _playback_context(self):
+        if self.app._closing:raise RuntimeError("workbench is closing")
+        # The controller snapshots this after show_results has normalized controls.
+        selection=self._display_selection()
+        return (selection,id(self.app.viewport.canvas),id(self.app.project),
+            self.app.shape_index,self.units.currentText(),self.colors.currentText(),
+            self.minimum.text(),self.maximum.text(),self.playback_speed.currentText(),
+            getattr(self.app.session,'revision',None))
+
+    def _playback_changed(self):
+        playback=getattr(self,"_playback",None)
+        if playback is not None and playback.active:
+            phase="Loading" if playback.inflight else "Playing"
+            self.playback_status.setText(f"{phase} frame {self.frame.value()+1} / {playback.count} (range {playback.first+1}-{playback.last+1})")
+        else:self.playback_status.setText("Playback stopped")
+
+    def _stream_frame(self,*,on_ready,on_cancel):
+        if self._cached_playback is not None:
+            cache=self._cached_playback;index=self.frame.value()
+            if cache.context!=self._preprocess_context():on_cancel();return
+            dataset=self.app.result_datasets.get(self.app.active_job_id)
+            def publish(scene):
+                if cache.context!=self._preprocess_context():on_cancel();return
+                access=getattr(self.app,'_live_result_access',None)
+                from ...presentation.retained_results import prepared_publication_bytes,scalar_buffer_bytes
+                prepared=scene._prepared_result_batches
+                reservation=None
+                if access is not None:
+                    reservation=access.reserve_publication(scene.result_field,prepared_publication_bytes(scene.result_field,scene,
+                        sum(scalar_buffer_bytes(mesh) for mesh,options in prepared[1])))
+                try:
+                    if self.app._view_mode!='results':self.app._view_mode='results'
+                    self.app.viewport.show(scene)
+                    if access is not None:access.commit_publication(reservation)
+                except BaseException:
+                    if access is not None:access.discard_publication()
+                    raise
+                self.app._persisted_geometry_key=None;self.app._persisted_frame_layout=None
+                self.refresh_details();self.app.result_browser.refresh();on_ready()
+            return self.app._request_result(lambda cancel:cache.load(index,cancel),publish,dataset=dataset,on_cancel=on_cancel)
+        self._stream_request=True
+        try:return self.show_results(on_ready=on_ready,on_cancel=on_cancel)
+        finally:self._stream_request=False
+
+    def stop_playback(self,*,clear_prepared=False):
+        preparation=getattr(self,'_preparation',None)
+        if preparation is not None:
+            if preparation.active:self.app.invalidate_result_requests()
+            preparation.stop(clear=clear_prepared)
+            if clear_prepared and not preparation.active:
+                self.preparation_progress.hide()
+                self.preparation_status.setText("Prepared frames cleared. Press Play to prepare again.")
+        self._cached_playback=None
+        playback=getattr(self,"_playback",None)
+        if playback is not None:playback.stop()
+        else:self.app.viewport.canvas.stop_animation()
+        self.playback_status.setText("Playback stopped")
+
+    def play(self):
+        fps=self.playback_fps();frames=self.animation_frames()
+        if self.envelope.isChecked():raise ValueError("An envelope is a static contour; turn it off before animation")
+        if self.preprocess_first.isChecked():
+            return self._prepare_playback(frames,fps)
+        self.stop_playback()
+        self._start_playback(frames,fps)
+
+    def _start_playback(self,frames,fps,cache=None):
+        count=self.frame_count();self._cached_playback=cache
+        if self._playback is None:
+            from .playback import ResultPlayback
+            self._playback=ResultPlayback(scheduler=self.app.scheduler,request=self._stream_frame,
+                set_frame=self._set_frame_index,context=self._playback_context,
+                invalidate=self.app.invalidate_result_requests,stop_canvas=lambda:self.app.viewport.canvas.stop_animation(),
+                changed=self._playback_changed,failed=lambda error:self.app.set_status(f"Playback stopped: {error}",error=True))
+        self.cancel_pending_display()
+        # Clear legacy cached geometry once; streaming never captures snapshots.
+        self.app.viewport.canvas.begin_animation_cache()
+        self._playback.start(count,fps,frames[0],first=frames[0],last=frames[-1])
+
+    def _preparation_changed(self,message):
+        self.preparation_status.show()
+        self.preparation_status.setText(message)
+        if message=="Preprocessing stopped":self.preparation_progress.hide()
+
+    def _preparation_progress(self,completed,total):
+        bar=self.preparation_progress;bar.show();bar.setRange(0,total)
+        bar.setValue(completed)
+        bar.setFormat("%v / %m frames (%p%)" if total else "Preparing snapshot…")
+
+    def _preparation_ready(self,frames,fps,cache):
+        self._preparation_changed(f"Preprocessing complete — {len(frames)} frames ready for playback.")
+        self._start_playback(frames,fps,cache)
+
+    def _preparation_failed(self,error):
+        self.preparation_progress.hide()
+        self._preparation_changed(f"Preprocessing failed: {error}")
+        self.app.set_status(f"Preprocessing stopped: {error}",error=True)
+
+    def _prepare_playback(self,frames,fps):
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
+        if dataset is None or not self.use_retained():raise ValueError("Select a retained field before preprocessing")
+        if self.app.viewport.active_backend!='gpu':raise ValueError("Preprocessed playback requires a GPU renderer")
+        from ...presentation.frame_updates import snapshot
+        view=snapshot(self.app.viewport)
+        if view is None:raise ValueError("This custom viewer does not support frame preprocessing")
+        context=self._preprocess_context()
+        fps_interval=1000/float(fps)
+        if not math.isfinite(fps_interval) or round(fps_interval)>2147483647:
+            raise ValueError('playback interval exceeds the Qt timer limit')
+        self.stop_playback()
+        if self._preparation is not None and self._preparation.cache is not None and self._preparation.cache.context==context:
+            self._preparation_progress(len(frames),len(frames))
+            self._preparation_ready(frames,fps,self._preparation.cache);return
+        if self._preparation is not None:self._preparation.stop(clear=True)
+        from .preprocessing import FramePreparation
+        self._preparation=FramePreparation(self.app.scheduler,self._preprocess_context,
+            self._preparation_changed,lambda cache:self._preparation_ready(frames,fps,cache),
+            self._preparation_failed,progress=self._preparation_progress)
+        preparation=self._preparation;token,directory=preparation.begin()
+        project=self.app.project;job=self.app.project.jobs.get(self.app.active_job_id)
+        stale=job is not None and self.app._job_is_stale(job)
+        options=dict(field=self.field_name(),component=self.component.text() or None,scale=self.scale_value(None),
+            limits=self.colour_limits(),colormap=self.colormap(),units=self.display_units(),
+            show_nodes=self.show_result_nodes(),show_beam_sections=self.app.viewport.visualization.show_beam_sections and not stale,
+            attributes=bool(self.app._show_attributes.get() and not stale),case=self.app.active_case(),
+            attribute_options=dict(show_supports=self.show_result_supports(),show_loads=self.show_result_loads(),
+                show_masses=self.show_result_masses(),show_imperfections=self.show_imperfect_reference()))
+        policy=dict(visualization=view.visualization,commercial=view._commercial_selection)
+        mesh=[None]
+        def request(cancel):
+            from ...presentation.frame_cache import write_request
+            mesh[0]=self.app.retained_result_mesh(self.app.active_job_id)
+            return write_request(directory,project,mesh[0],dataset,policy,options,frames,cancel)
+        def ready(path):
+            if path is not None:preparation.launch(token,path,mesh[0],frames)
+        self.app._request_result(request,ready,dataset=dataset,on_cancel=lambda:preparation.stop(clear=True))
+
+
+
+class SectioningTask(QWidget):
+    """Display clipping controls, sharing the saved-presentation controller."""
+    def __init__(self,app,controls):
+        super().__init__();self.app=app;self.presentation_controls=controls
+        layout=QVBoxLayout(self);layout.addWidget(controls.sectioning_controls)
+        self.plane=controls.plane;self.offset=controls.offset
+
+    def refresh(self):pass
 
 
 class VisualizationTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
+        from ...presentation.visualization import VISUAL_PRESETS
+        self.preset=QComboBox();self.preset.addItems(VISUAL_PRESETS)
+        preset_row=QWidget();preset_layout=QHBoxLayout(preset_row);preset_layout.setContentsMargins(0,0,0,0)
+        preset_layout.addWidget(self.preset)
+        preset_apply=QPushButton('Apply preset');preset_apply.clicked.connect(app.guarded(self.apply_preset));preset_layout.addWidget(preset_apply)
+        form.addRow('Visual preset',preset_row)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         note=QLabel("Appearance applies immediately to the current CAD, mesh or result view.\nShaded hides surface outlines; model lines and beam axes have a separate switch.")
         note.setWordWrap(True);form.addRow(note)
@@ -1070,8 +1282,16 @@ class VisualizationTask(QWidget):
         ordered=sorted(fields(VisualizationStyle),key=lambda field:0 if field.name in {"show_model_lines","show_beam_sections","show_mesh_nodes"} else 1)
         labels={"show_model_lines":"Show model lines / beam axes","show_beam_sections":"Show beam section shapes",
                 "show_mesh_nodes":"Show mesh nodes",
-                "edge_color":"Surface edge colour","edge_width":"Surface edge width"}
+                "edge_color":"Surface edge colour","edge_width":"Surface edge width",
+                "ao_strength":"AO strength","ao_radius":"AO radius (px)"}
         help_text={"show_model_lines":"Show or hide CAD curves and beam centre lines. Surface outlines, beam section shapes, loads and supports are separate.",
+                   "ambient_occlusion":"WebGPU contact shading: Low uses half resolution, High uses full resolution and refines after camera movement. Numerical result contours always bypass this shading to preserve their colours.",
+                   "ao_strength":"Ambient occlusion strength, from 0 (no shading) to 2.",
+                   "ao_radius":"Ambient occlusion radius in screen pixels (1 to 256). Transparent surfaces do not cast this shading.",
+                   "antialiasing":"WebGPU: 4x multisampling smooths silhouettes and lines. Off reduces GPU memory and work.",
+                   "lighting":"Studio uses a soft camera-following key light and ambient fill. Flat preserves unshaded contour colours.",
+                   "background_gradient":"WebGPU: use a subtle vertical background gradient.",
+                   "feature_edges":"WebGPU: reduce surface tessellation lines, retaining boundaries and creases above 30 degrees. Explicit lines and result mesh outlines remain available; selection and visibility restore full outlines.",
                    "show_mesh_nodes":"Show node dots in mesh and inspection views. Enable to pick nodes in the viewport. Result nodes have a separate setting.",
                    "show_beam_sections":"Draw the physical cross-section shapes of beams. Turn off for a simpler model; their axes use the model-lines switch.",
                    "geometry_detail":"Display tessellation of curved CAD surfaces only. Does not change the engineering mesh.",
@@ -1082,8 +1302,10 @@ class VisualizationTask(QWidget):
             value=getattr(app.viewport.visualization,field.name)
             if isinstance(value,bool):
                 widget=QCheckBox();widget.setChecked(value)
-            elif field.name in {"geometry_detail","result_colormap"}:
-                widget=QComboBox();widget.addItems(GEOMETRY_DETAILS if field.name=="geometry_detail" else list(RESULT_COLORMAPS));widget.setCurrentText(value)
+            elif field.name in {"geometry_detail","result_colormap","antialiasing","lighting","ambient_occlusion"}:
+                choices={'geometry_detail':GEOMETRY_DETAILS,'result_colormap':list(RESULT_COLORMAPS),
+                    'antialiasing':('Off','4x'),'lighting':('Flat','Studio'),'ambient_occlusion':('Off','Low','High')}
+                widget=QComboBox();widget.addItems(choices[field.name]);widget.setCurrentText(value)
             else:widget=QLineEdit(str(value))
             widget.setToolTip(help_text.get(field.name,field.name.replace("_"," ").capitalize()+" appearance setting."))
             self.appearance[field.name]=widget
@@ -1103,15 +1325,12 @@ class VisualizationTask(QWidget):
         reset=QPushButton("Reset appearance");reset.clicked.connect(app.guarded(self.reset))
         row(apply,reset)
         sync=QPushButton("Load viewport appearance");sync.clicked.connect(self.sync_from_viewport);layout.addWidget(sync)
-        layout.addWidget(section_label("Section plane"))
-        plane_form=QFormLayout();layout.addLayout(plane_form)
-        self.plane=QLineEdit("1, 0, 0");plane_form.addRow("Section plane normal",self.plane)
-        self.offset=QLineEdit("0");plane_form.addRow("Section offset (m)",self.offset)
-        section=QPushButton("Enable section plane");section.clicked.connect(app.guarded(self.section))
-        clear=QPushButton("Clear section plane");clear.clicked.connect(app.viewport.clear_section_plane)
-        row(section,clear)
         layout.addWidget(section_label("Image"))
         capture=QPushButton("Save viewport image");capture.clicked.connect(app.guarded(self.capture));layout.addWidget(capture);layout.addStretch()
+        from .presentation_controls import PresentationControls
+        self.presentation_controls=PresentationControls(app)
+        layout.addWidget(self.presentation_controls)
+        self.plane=self.presentation_controls.plane;self.offset=self.presentation_controls.offset
         self.sync_from_viewport()
         self.render.currentTextChanged.connect(app.guarded(self.apply))
         self.opacity.editingFinished.connect(app.guarded(self.apply))
@@ -1125,11 +1344,19 @@ class VisualizationTask(QWidget):
         self.transparency_value.setText(f"{value}%")
         self.app.guarded(self.apply)()
 
+    def apply_preset(self):
+        from ...presentation.visualization import visual_preset
+        self.app.viewport.set_visualization(visual_preset(self.preset.currentText(),self.app.viewport.visualization))
+        self.sync_from_viewport()
+        self.app.set_status(f'{self.preset.currentText()} visual preset applied')
+        controls=getattr(self,'presentation_controls',None)
+        if controls is not None and hasattr(getattr(self.app,'session',None),'transaction'):controls.save_workspace()
+
     def apply(self):
         values={}
         for name,widget in self.appearance.items():
             old=getattr(self.app.viewport.visualization,name)
-            values[name]=widget.isChecked() if isinstance(widget,QCheckBox) else widget.currentText() if isinstance(widget,QComboBox) else int(widget.text()) if isinstance(old,int) else widget.text()
+            values[name]=widget.isChecked() if isinstance(widget,QCheckBox) else widget.currentText() if isinstance(widget,QComboBox) else int(widget.text()) if isinstance(old,int) else float(widget.text()) if isinstance(old,float) else widget.text()
         old_style=self.app.viewport.visualization
         style=replace(old_style,render_mode=self.render.currentText(),surface_opacity=float(self.opacity.text()),**values)
         for label,colour in (("background",style.background),("surface edge",style.edge_color)):
@@ -1148,6 +1375,8 @@ class VisualizationTask(QWidget):
         elif mode=="results" and results is not None and style!=old_style:
             scene_fields=("result_colormap","show_result_nodes","show_result_supports","show_result_loads","show_result_masses","show_imperfect_reference","show_beam_sections")
             if any(getattr(old_style,key)!=getattr(style,key) for key in scene_fields if key!='result_colormap'):results.show_results()
+        controls=getattr(self,'presentation_controls',None)
+        if controls is not None and hasattr(getattr(self.app,'session',None),'transaction') and style!=old_style:controls.save_workspace()
 
     def choose_colour(self,widget):
         colour=QColorDialog.getColor(QColor(widget.text()),self,"Viewport colour")
@@ -1169,7 +1398,7 @@ class VisualizationTask(QWidget):
             else:widget.setText(str(value))
 
     def section(self):
-        self.app.viewport.set_section_plane(normal=parse_numeric_sequence(self.plane.text()),offset=float(self.offset.text()))
+        self.presentation_controls.apply_plane()
 
     def capture(self):
         path=self.app.dialogs.save_file(filetypes=[("PNG image","*.png")],defaultextension=".png")

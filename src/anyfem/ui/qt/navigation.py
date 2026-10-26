@@ -23,6 +23,7 @@ _DRAWINGS={
     "solve": '<path d="M10 5 27 16 10 27Z" fill="#dbeafe"/><path d="M4 8V24"/>',
     "results": '<path d="M4 28V4 M4 28H29 M7 23 13 17 19 20 27 7"/><circle cx="13" cy="17" r="2"/><circle cx="27" cy="7" r="2"/>',
     "visualization": '<path d="M2 16Q16-3 30 16Q16 35 2 16Z"/><circle cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="2" fill="#2563b4"/>',
+    "sectioning": '<path d="M5 10 16 4 27 10V23L16 29 5 23Z M5 10 16 16 27 10 M16 16V29"/><path d="M2 19 13 12 30 17 19 25Z" fill="#dbeafe" fill-opacity=".85" stroke-dasharray="3 2"/>',
     "scripts": '<path d="M11 8 3 16 11 24 M21 8 29 16 21 24 M19 5 13 27"/>',
     "definitions": '<path d="M7 3V29 M16 3V29 M25 3V29"/><path d="M3 9H11V15H3Z M12 19H20V25H12Z M21 6H29V12H21Z" fill="#dbeafe"/>',
     "point": '<path d="M4 16H28 M16 4V28" opacity=".35"/><circle cx="16" cy="16" r="4" fill="#2563b4"/>',

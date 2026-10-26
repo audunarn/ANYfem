@@ -87,7 +87,10 @@ SUBMODELS_FORMAT = 12
 # format and bytes.  An older reader would treat an override as a refine-only
 # zone and silently clamp a coarse size, so it must refuse the file instead.
 ENTITY_SIZES_FORMAT = 13
-MAX_READ_FORMAT = ENTITY_SIZES_FORMAT
+BOUND_PRESSURE_FORMAT = 14
+PRESSURE_HISTORY_FORMAT = 15
+PRESENTATION_FORMAT = 16
+MAX_READ_FORMAT = PRESENTATION_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -192,7 +195,10 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         raise ProjectFileError(
             f"{nested_backend} is non-canonical; use meshing.native_backend"
         )
+    from ..presentation.workspace import validate_presentation
+    presentation = validate_presentation(project.presentation)
     return {
+        **({"presentation": presentation} if presentation else {}),
         **({"geometry_attachment_regions": [
             {"ref": _ref(reference), "region": binding.id}
             for reference, binding in sorted(project.geometry_attachment_regions.items(), key=lambda item: (item[0].kind, item[0].id))
@@ -200,6 +206,13 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "anyfem": {
             "schema": "anyfem.project",
             "format": (
+                PRESENTATION_FORMAT if presentation else
+                PRESSURE_HISTORY_FORMAT
+                if any(load.history is not None for case in project.load_cases.values() for load in case.wet_pressures)
+                else
+                BOUND_PRESSURE_FORMAT
+                if any(load.mesh_content_sha256 is not None for case in project.load_cases.values() for load in case.wet_pressures)
+                else
                 ENTITY_SIZES_FORMAT
                 if _uses_entity_sizes(project)
                 else SUBMODELS_FORMAT
@@ -363,6 +376,7 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
         "load_cases": [
             _load_case_to_dict(case, numbered=_uses_wet_loads(project))
             for case in _by_name(project.load_cases)
+            if not (case.parent is not None and any(load.history is not None for load in project.load_cases[case.parent].wet_pressures))
         ],
         "combinations": [
             {"id": item.id, "name": item.name, "factors": dict(item.factors)}
@@ -1137,6 +1151,11 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
     validate_mesh_sizes(project)
     from ..generator_properties import load_generator_properties
     load_generator_properties(project,data.get("generator_properties",{}))
+    if "presentation" in data:
+        if version < PRESENTATION_FORMAT:
+            raise ProjectFileError("presentation requires format 16")
+        from ..presentation.workspace import validate_presentation
+        project.presentation = validate_presentation(data["presentation"])
     _read_submodels(project, data, version)
     _finalize_compatibility_recovery(project)
     _detach_stale_sketch_links(project)
@@ -1354,7 +1373,9 @@ def load_project(path: str | Path) -> Project:
         data = json.loads(raw)
     except json.JSONDecodeError as error:
         raise ProjectFileError(f"{source} is not valid JSON: {error}") from None
-    return project_from_dict(data)
+    project=project_from_dict(data)
+    from ..application.pressure_transfer import upgrade_legacy_wave_sources
+    return upgrade_legacy_wave_sources(project,source)
 
 
 def _uses_entity_sizes(project: Project) -> bool:
@@ -1903,7 +1924,11 @@ def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
         "scale": float(load.scale),
         "surfaces": list(load.surfaces),
     }
-    if load.value is not None:
+    if load.history is not None:
+        entry['history']=load.history.to_dict()
+        entry['mapping_key']='element'
+        entry['mesh_content_sha256']=load.mesh_content_sha256
+    elif load.value is not None:
         entry["value"] = float(load.value)
     elif load.expression is not None:
         entry["expression"] = load.expression
@@ -1920,6 +1945,8 @@ def _wet_pressure_to_dict(load: WetPressure) -> Dict[str, Any]:
         entry["mapping"] = {
             str(key): float(value) for key, value in sorted(load.mapping.items())
         }
+        if load.mesh_content_sha256 is not None:
+            entry['mesh_content_sha256'] = load.mesh_content_sha256
     entry.update(_envelope_entry(load))
     return entry
 
@@ -2108,6 +2135,8 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
                 expression=entry.get("expression"),
                 mapping=entry.get("mapping"),
                 mapping_key=str(entry.get("mapping_key", "face")),
+                mesh_content_sha256=entry.get('mesh_content_sha256'),
+                history=(None if entry.get('history') is None else __import__('anyloads.pressure_history',fromlist=['pressure_history_from_dict']).pressure_history_from_dict(entry['history'])),
                 surfaces=tuple(entry.get("surfaces", ())),
                 scale=entry.get("scale", 1.0),
                 code=entry.get("code"),

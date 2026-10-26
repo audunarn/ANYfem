@@ -21,8 +21,8 @@ def test_project_forwards_live_source_and_cancellation_to_publication(monkeypatc
     def publication(mesh, closure, **kwargs):
         assert kwargs['source_geometry'] is project.geometry
         assert kwargs['cancellation_check'] is callback
-        assert kwargs['qualification'] is project._mesh_preparation_qualification
         assert kwargs['qualification'] is not None
+        assert project._mesh_preparation_qualification is None
         raise PublicationReached()
     monkeypatch.setattr(project_module, 'remap_mesh_to_source', publication)
     with pytest.raises(PublicationReached):
@@ -30,6 +30,8 @@ def test_project_forwards_live_source_and_cancellation_to_publication(monkeypatc
             certification_mode='interactive', geometry_approximation_error=.0025,
             cancellation_check=callback, execution_policy=MeshExecutionPolicy.off())
     assert to_dict(project.geometry) == before
+    assert project._mesh_preparation_cache is None
+    assert project._mesh_preparation_qualification is None
 
 
 def test_principal_public_project_prepares_complete_owned_face_scope_before_meshing(monkeypatch):
@@ -44,6 +46,17 @@ def test_principal_public_project_prepares_complete_owned_face_scope_before_mesh
     project.assign_plate(plate, 'cut plate')
     before = to_dict(project.geometry)
     before_assignments = dict(project.section_assignments)
+    prepared = {}
+    actual_extract = project_module.extract_model_closure
+    actual_prepare = project_module.prepare_structural_connectivity
+    def extract(*args, **kwargs):
+        prepared['closure'] = actual_extract(*args, **kwargs)
+        return prepared['closure']
+    def prepare(*args, **kwargs):
+        prepared['report'] = actual_prepare(*args, **kwargs)
+        return prepared['report']
+    monkeypatch.setattr(project_module, 'extract_model_closure', extract)
+    monkeypatch.setattr(project_module, 'prepare_structural_connectivity', prepare)
     class PreparedPrincipalReached(Exception):
         pass
     def inspect(working, **request):
@@ -57,7 +70,8 @@ def test_principal_public_project_prepares_complete_owned_face_scope_before_mesh
         assert request['geometry_approximation_error'] == .0025
         assert request['order'] == 'linear'
         assert request['curvilinear_recovery_selection']['requested_strategy'] == 'quad_first'
-        cached_closure, report = project._mesh_preparation_cache[1:]
+        assert project._mesh_preparation_cache is None
+        cached_closure, report = prepared['closure'], prepared['report']
         assert report.connections and report.created_count > 0
         originals = {target.id: original.id
                      for target,original in cached_closure.work_to_source.items()
@@ -79,6 +93,8 @@ def test_principal_public_project_prepares_complete_owned_face_scope_before_mesh
             execution_policy=MeshExecutionPolicy.off())
     assert to_dict(project.geometry) == before
     assert project.section_assignments == before_assignments
+    assert project._mesh_preparation_cache is None
+    assert project._mesh_preparation_qualification is None
 
 
 def test_ordinary_planar_preparation_keeps_sheet_operands(monkeypatch):
@@ -155,7 +171,7 @@ def test_connections_do_not_report_other_owner_pairs_trace_edges():
     assert reported[walls[0]].isdisjoint(reported[walls[1]])
 
 def test_project_cache_keeps_live_qualification_and_exact_source_maps(monkeypatch):
-    """Caller/cache plumbing only; no intercepted mesh grants admission."""
+    """A real successful mesh establishes the cache before refused reuse."""
     import anymesher
     import anygeometry as owner
     project, _sheet = curved_project()
@@ -167,6 +183,12 @@ def test_project_cache_keeps_live_qualification_and_exact_source_maps(monkeypatc
         issued.append((token, closure))
         return token
     monkeypatch.setattr(anymesher, 'qualify_model_closure_source_publication', qualify)
+    project.generate_mesh(.25, strategy='quad_first', order='linear',
+        certification_mode='interactive', geometry_approximation_error=.0025,
+        execution_policy=MeshExecutionPolicy.off())
+    baseline_cache = project._mesh_preparation_cache
+    baseline_token = project._mesh_preparation_qualification
+    assert baseline_cache is not None and baseline_token is issued[0][0]
     monkeypatch.setattr(anymesher, 'generate_automatic_mesh_result',
                         lambda *args, **kwargs: SimpleNamespace(mesh=Mesh()))
     class PublicationReached(Exception):
@@ -188,6 +210,8 @@ def test_project_cache_keeps_live_qualification_and_exact_source_maps(monkeypatc
                 execution_policy=MeshExecutionPolicy.off())
     assert len(issued) == 1 and len(published) == 2
     assert len(project._mesh_preparation_cache) == 3
+    assert project._mesh_preparation_cache is baseline_cache
+    assert project._mesh_preparation_qualification is baseline_token
     assert published[0].working_model is not published[1].working_model
     assert published[0].working_model.model_id == published[1].working_model.model_id
     assert to_dict(project.geometry) == before
@@ -197,6 +221,9 @@ def test_project_failed_new_preparation_keeps_previous_cache_and_qualification(m
     """A failed cache miss cannot pair an old cache with a newly issued token."""
     import anymesher
     project, _sheet = curved_project()
+    request = dict(strategy='quad_first', order='linear', certification_mode='interactive',
+                   geometry_approximation_error=.0025, execution_policy=MeshExecutionPolicy.off())
+    project.generate_mesh(.25, **request)
     monkeypatch.setattr(anymesher, 'generate_automatic_mesh_result',
                         lambda *args, **kwargs: SimpleNamespace(mesh=Mesh()))
     class PublicationReached(Exception):
@@ -204,8 +231,6 @@ def test_project_failed_new_preparation_keeps_previous_cache_and_qualification(m
     def stop(*_args, **_kwargs):
         raise PublicationReached()
     monkeypatch.setattr(project_module, 'remap_mesh_to_source', stop)
-    request = dict(strategy='quad_first', order='linear', certification_mode='interactive',
-                   geometry_approximation_error=.0025, execution_policy=MeshExecutionPolicy.off())
     with pytest.raises(PublicationReached):
         project.generate_mesh(.25, **request)
     cache, token = project._mesh_preparation_cache, project._mesh_preparation_qualification

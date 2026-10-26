@@ -54,6 +54,10 @@ class LoadTask(CommandEditor):
         super().__init__(app,self.OPERATIONS)
         header=QFormLayout();self.case=ChoiceEdit([]);header.addRow('Active load case',self.case);self.layout().insertLayout(0,header)
         self.case.currentTextChanged.connect(self.case_changed)
+        self.wave_button=QPushButton('Hydrodynamic wave load…')
+        self.wave_button.setObjectName('HydrodynamicWaveLoadInput')
+        self.wave_button.clicked.connect(self.open_wave_load)
+        self.layout().insertWidget(1,self.wave_button)
         self.edit_bar=QWidget();edit_layout=QHBoxLayout(self.edit_bar);edit_layout.setContentsMargins(0,0,0,0)
         self.editing_label=QLabel();self.editing_label.setWordWrap(True);edit_layout.addWidget(self.editing_label)
         self.new_button=QPushButton('Cancel edit / New');self.new_button.clicked.connect(self.cancel_edit);edit_layout.addWidget(self.new_button)
@@ -206,12 +210,17 @@ class LoadTask(CommandEditor):
 
     def refresh(self):
         if not self._interactive_ready:return super().refresh()
-        self.case.set_choices([(name,name) for name in self.app.project.load_cases])
+        self.case.set_choices([(name,name) for name,case in self.app.project.load_cases.items() if case.parent is None])
         if not self.case.text():self.case.setText('default')
         if self.using_primary():self.frame.set_choices(self.coordinate_choices())
         if not self.using_primary():super().refresh();self.case_changed(self.case_name())
         else:self.selection_changed()
         if self._editing is not None:self._sync_edit_state()
+
+    def open_wave_load(self):
+        from .wave_load import WaveLoadDialog
+        self._wave_dialog=WaveLoadDialog(self)
+        self._wave_dialog.show()
 
     def support_preset(self):
         self.advanced_form.setChecked(False)

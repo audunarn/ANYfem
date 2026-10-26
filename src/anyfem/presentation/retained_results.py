@@ -46,7 +46,8 @@ def geometry_style_key(style):
 
 APPEARANCE_FIELDS = frozenset({'background','render_mode','surface_opacity',
     'edge_color','edge_width','show_legend','legend_font_size','legend_width',
-    'result_colormap','show_model_lines'})
+    'result_colormap','show_model_lines','antialiasing','lighting','background_gradient','feature_edges',
+    'ambient_occlusion','ao_strength','ao_radius'})
 
 
 def snapshot_appearance_field(field):
@@ -119,7 +120,8 @@ def prepare(viewport, scene):
         group = groups.setdefault(("face",)+style, [])
         for index, polygon in enumerate(patch.polygons):
             owners = patch.owners_for_polygon(index)
-            group.append((np.asarray(polygon), element_id(owners), viewport._pick_binding(owners,patch.tag)))
+            node_ids=None if patch.polygon_node_ids is None else patch.polygon_node_ids[index]
+            group.append((np.asarray(polygon), element_id(owners), viewport._pick_binding(owners,patch.tag),node_ids))
     for line in scene.lines:
         eid = element_id(line.pick_owners)
         if eid is None or line.annotation:
@@ -127,18 +129,22 @@ def prepare(viewport, scene):
         group = groups.setdefault(("line",int(line.width),bool(line.draw_overlay)), [])
         binding = viewport._pick_binding(line.pick_owners,line.tag)
         points = np.asarray(line.points)
-        for start,end in zip(points,points[1:]):group.append((np.asarray([start,end]),eid,binding))
-    batches = []; edge_batches = []
+        for index,(start,end) in enumerate(zip(points,points[1:])):
+            node_ids=None if line.point_node_ids is None else line.point_node_ids[index:index+2]
+            group.append((np.asarray([start,end]),eid,binding,node_ids))
+    batches = []; edge_batches = []; node_maps=[]
     digest = hashlib.sha256()
     _digest_value(digest,viewport.visualization)
     for key, primitives in groups.items():
         # Preserve original geometry dtype/shape/bytes before mesh conversion.
-        for points, eid, binding in primitives:_digest_value(digest, points)
-        positions, indices, mappings, bindings, edges = [], [], [], [], []
-        ids = tuple(dict.fromkeys(eid for points,eid,binding in primitives))
+        for points, eid, binding, nodes in primitives:_digest_value(digest, points)
+        positions, indices, mappings, bindings, edges,vertex_nodes = [], [], [], [], [],[]
+        complete_nodes=all(nodes is not None and len(nodes)==len(points) for points,eid,binding,nodes in primitives)
+        ids = tuple(dict.fromkeys(eid for points,eid,binding,nodes in primitives))
         dense = {eid:i for i,eid in enumerate(ids)}
-        for points,eid,binding in primitives:
+        for points,eid,binding,nodes in primitives:
             offset = len(positions);positions.extend(points)
+            if complete_nodes:vertex_nodes.extend(nodes)
             if key[0]=="face":
                 edges.extend((offset+i,offset+(i+1)%len(points)) for i in range(len(points)))
                 for index in range(1,len(points)-1):
@@ -163,31 +169,36 @@ def prepare(viewport, scene):
             # Custom identity metadata may differ even for equal packed owner
             # keys. Preserve every primitive/owner association in that case.
             _digest_value(digest, bindings)
+        node_ids=tuple(vertex_nodes) if complete_nodes else None
+        node_maps.append(node_ids)
+        node_values=None if field.per_element or node_ids is None else np.asarray([field.node_values.get(node,np.nan) for node in node_ids],dtype=np.float32)
+        _digest_value(digest,node_ids)
         options = dict(owners=owners,scalar_range=scene.result_scalar_range)
         options["colormap"] = scene.result_colormap
         if key[0]=="face":
             # Shells represent surfaces, not closed solids. Their selected
             # result field must remain visible from either viewing direction.
             options.update(outline=key[1],opacity=key[2],lit=key[3],width=viewport.visualization.edge_width,cull_backface=False)
-            mesh = MeshArrays(positions,indices,triangle_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values)
+            mesh = MeshArrays(positions,indices,triangle_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values if node_values is None else None,node_scalars=node_values)
             edge_batches.append(MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=edges))
         else:
             options.update(line_width=key[1],draw_overlay=key[2],layer=30)
-            mesh = MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=indices,line_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values)
+            mesh = MeshArrays(positions,np.empty((0,3),dtype=np.uint32),lines=indices,line_to_element=mappings,element_ids=np.asarray(ids,dtype=np.uint64),element_scalars=values if node_values is None else None,node_scalars=node_values)
         batches.append((mesh,options))
     # Overlay/style changes require a redraw; component legends do not.
     saved_legend = remaining.legend;remaining.legend=None
     _digest_value(digest,remaining);remaining.legend=saved_legend
-    return digest.digest(),batches,remaining,edge_batches
+    return digest.digest(),batches,remaining,edge_batches,tuple(node_maps)
 
 
 def scalar_values(field, source_mesh, ids):
     if field.per_element:
         return np.asarray([field.element_values.get(int(eid),np.nan) for eid in ids],dtype=np.float32)
     rows=[]
+    shells,beams=source_mesh.shells,source_mesh.beams
     for eid in ids:
         eid=int(eid)
-        nodes=source_mesh.shells[eid] if eid in source_mesh.shells else source_mesh.beams.get(eid,())
+        nodes=shells[eid] if eid in shells else beams.get(eid,())
         values=[field.node_values.get(node,np.nan) for node in nodes]
         rows.append(float(np.mean(values)) if values and np.isfinite(values).all() else np.nan)
     return np.asarray(rows,dtype=np.float32)
@@ -281,7 +292,12 @@ def prepare_warm_field(field, scene, retained, *, limits=None, display_units='SI
         if eid is not None:lines.append((index,color(eid,COLOR_BEAM)))
     colors=(faces,lines)
     resident=sum(a.nbytes for a in scalars)+sum(sys.getsizeof(c)+sum(sys.getsizeof(v) for v in c) for p,c in faces)+sum(sys.getsizeof(c) for p,c in lines)
-    field._display_buffers=(retained[0],scalars,colors)
+    node_maps=retained[4] if len(retained)>4 else (None,)*len(retained[1])
+    nodes=tuple(None if not include_scalars or field.per_element or ids is None else np.asarray([field.node_values.get(int(node),np.nan) for node in ids],dtype=np.float32) for ids in node_maps)
+    field._display_node_buffers=nodes
+    resident+=sum(value.nbytes for value in nodes if value is not None)
+    gpu_elements=tuple(None if nodes[index] is not None else values for index,values in enumerate(scalars))
+    field._display_buffers=(retained[0],gpu_elements,colors)
     field._display_buffer_bytes=resident
 
 
@@ -311,4 +327,8 @@ def prepared_publication_bytes(field,scene,scalar_bytes):
 
 
 def discard_prepared_field(field):
-    field.__dict__.pop('_display_buffers',None);field.__dict__.pop('_display_buffer_bytes',None)
+    field.__dict__.pop('_display_buffers',None);field.__dict__.pop('_display_node_buffers',None);field.__dict__.pop('_display_buffer_bytes',None)
+
+
+def scalar_buffer_bytes(mesh):
+    return sum(array.nbytes for array in (getattr(mesh,'element_scalars',None),getattr(mesh,'node_scalars',None)) if array is not None)

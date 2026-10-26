@@ -8,6 +8,7 @@ from ...presentation.viewport import SceneViewport
 from ...presentation.visibility import SelectionVisibility
 from any3dview import create_viewer, Point3D
 from any3dview.qt import QtViewerHostAdapter
+from any3dview.errors import GPUUnavailableError
 
 
 class _ConstructionKeys(QObject):
@@ -208,9 +209,9 @@ class QtViewport(SceneViewport):
         self._window = parent
         self.sketcher=getattr(parent,"sketcher",None)
         self._sketch_timer=QTimer(self.widget);self._sketch_timer.setSingleShot(True);self._sketch_timer.timeout.connect(self.refresh_construction_overlay)
-        # Probe OpenGL only once Qt has exposed the containing window. A hidden
-        # startup widget can otherwise leave an invalid composition surface.
-        self.canvas = create_viewer(self.widget, backend="software" if backend=="auto" else backend, host=QtViewerHostAdapter())
+        # Resolve Automatic only after the containing window is exposed.
+        options = {"shading": True} if backend == "webgpu" else {}
+        self.canvas = create_viewer(self.widget, backend="software" if backend=="auto" else backend, host=QtViewerHostAdapter(), **options)
         self.layout.addWidget(self.canvas)
         self._configure_canvas(self.canvas)
         self._keys = _ConstructionKeys(self)
@@ -250,7 +251,7 @@ class QtViewport(SceneViewport):
         self._automatic_pending=False
         def initialize():
             if not self._closed and self._requested_backend=="auto":
-                self.switch_backend("auto")
+                self._window.switch_viewer_backend("auto")
         QTimer.singleShot(0,self.widget,initialize)
 
     def set_feature_highlight(self,identifiers):
@@ -606,8 +607,8 @@ class QtViewport(SceneViewport):
         self.canvas.backend_changed.connect(lambda _:self._sketch_coordinates.bind())
 
     def switch_backend(self, backend):
-        if backend not in {"auto","gpu","software"}:
-            raise ValueError("backend must be auto, gpu or software")
+        if backend not in {"auto","gpu","webgpu","software"}:
+            raise ValueError("backend must be auto, gpu, webgpu or software")
         self.cancel_plate()
         self._cancel_interaction_restore()
         # Restore the surviving canvas before attempting a backend that may
@@ -620,7 +621,7 @@ class QtViewport(SceneViewport):
         old_styles = getattr(self, '_retained_styles', None)
         old_retained_scene = getattr(self, "_retained_scene", None)
         state = old.export_view_state()
-        candidate = create_viewer(self.widget, backend=backend, host=QtViewerHostAdapter())
+        candidate = self._create_backend(backend)
         try:
             self.canvas = candidate
             self._configure_canvas(candidate)
@@ -647,6 +648,21 @@ class QtViewport(SceneViewport):
         self._watch_backend(self.widget.parent())
         self._requested_backend = backend
         return self.active_backend
+
+    def _create_backend(self, backend):
+        selected = "webgpu" if backend == "auto" else backend
+        options = {"shading": True} if selected == "webgpu" else {}
+        try:
+            return create_viewer(self.widget, backend=selected, host=QtViewerHostAdapter(), **options)
+        except GPUUnavailableError as error:
+            if backend != "auto":
+                raise
+            # Automatic remains usable without a supported WebGPU runtime.
+            # OpenGL is an explicit user choice, never a hidden default probe.
+            candidate = create_viewer(self.widget, backend="software", host=QtViewerHostAdapter())
+            candidate._backend_diagnostics = (
+                f"Automatic WebGPU unavailable: {error}", *error.diagnostics)
+            return candidate
 
     def _position_colour_legend(self):
         label=getattr(self,"_colour_legend",None)

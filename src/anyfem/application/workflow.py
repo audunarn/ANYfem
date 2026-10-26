@@ -99,7 +99,9 @@ class _WorkbenchField:
         if self.field in {"solution", "project", "mesh", "result_datasets", "active_model_hash", "shape_index", "active_job_id"}:
             invalidate = getattr(instance, "invalidate_result_requests", None)
             if invalidate is not None:
-                if self.field != "result_datasets":invalidate(source=self.field in {"solution","project","mesh","active_model_hash"},reads=self.field=="active_job_id")
+                previous=getattr(workbench,self.field,None)
+                same=(self.field in {"active_model_hash","shape_index","active_job_id"} and previous==value)
+                if self.field != "result_datasets" and not same:invalidate(source=self.field in {"solution","project","mesh","active_model_hash"},reads=self.field=="active_job_id")
         workbench.update(self.field, value)
 
 
@@ -1908,13 +1910,28 @@ class WorkbenchWorkflow:
         options = dict(colormap=panel.colormap(), display_units=panel.display_units(),
                        show_nodes=panel.show_result_nodes(),
                        show_beam_sections=self.viewport.visualization.show_beam_sections and not stale)
-        geometry_key=(getattr(self,"_result_revision",0),id(dataset),self.active_job_id,frame if scale else None,
+        # A nonzero display scale does not make a stress-only artifact deform.
+        # Keep the source revision/attributes gates, but do not key identical
+        # reference geometry by an unrelated scalar-frame number.
+        deforming=bool(scale and "displacement" in dataset.field_keys and "displacement_node_ids" in dataset.table_keys)
+        geometry_key=(getattr(self,"_result_source_epoch",0),getattr(getattr(self,"session",None),"revision",None),
+                      id(dataset),self.active_job_id,field_key,component,self.active_case() if self._show_attributes.get() else None,
+                      frame if deforming else None,
                       scale,geometry_style_key(self.viewport.visualization),self._show_attributes.get(),stale,
                       options["show_nodes"],panel.show_result_supports(),panel.show_result_loads(),
                       panel.show_result_masses(),panel.show_imperfect_reference())
         warm=(geometry_key==getattr(self,"_persisted_geometry_key",None) and
               getattr(self.viewport,'active_backend',None)=='gpu' and
               getattr(self.viewport,'_retained_result',None) is not None)
+        # Snapshot canonical display policy before dispatch; no Qt reads in worker.
+        from ..presentation.frame_updates import snapshot,prepare_frame
+        preparation_view=snapshot(self.viewport) if getattr(self.viewport,'active_backend',None)=='gpu' else None
+        prior_layout=getattr(self,'_persisted_frame_layout',None)
+        attribute_project=self.project
+        attribute_enabled=bool(self._show_attributes.get() and not stale)
+        attribute_case=self.active_case() if attribute_enabled else None
+        attribute_options=dict(show_supports=panel.show_result_supports(),show_loads=panel.show_result_loads(),
+            show_masses=panel.show_result_masses(),show_imperfections=panel.show_imperfect_reference())
         def load(cancel):
             if warm:
                 from ..ui.scene import read_persisted_display_field
@@ -1935,6 +1952,11 @@ class WorkbenchWorkflow:
                 show_nodes=options["show_nodes"],
                 show_beam_sections=options["show_beam_sections"],
             )
+            if preparation_view is not None and not cancel.is_set():
+                if attribute_enabled:
+                    scene.merge(build_attribute_overlay(attribute_project,case_name=attribute_case,mesh=result_mesh,**attribute_options))
+                scene._result_attributes_prepared=True
+                prepare_frame(preparation_view,scene,prior_layout)
             return scene
         def apply(scene):
             panel = self.panels["Results"]
@@ -1942,8 +1964,9 @@ class WorkbenchWorkflow:
             field=scene[0] if warm else scene.result_field
             scalar_bytes=0
             retained=getattr(self.viewport,"_retained_result",None)
-            if warm and retained:scalar_bytes=sum(handle.mesh.element_scalars.nbytes for handle in retained[1])
-            from ..presentation.retained_results import prepared_publication_bytes
+            from ..presentation.retained_results import scalar_buffer_bytes
+            if warm and retained:scalar_bytes=sum(scalar_buffer_bytes(handle.mesh) for handle in retained[1])
+            from ..presentation.retained_results import prepared_publication_bytes,scalar_buffer_bytes
             reservation=access.reserve_publication(field,prepared_publication_bytes(field,getattr(self.viewport,"_scene",None) if warm else scene,scalar_bytes)) if access is not None else None
             if warm:
                 from ..ui.scene import persisted_display_metadata
@@ -1961,7 +1984,7 @@ class WorkbenchWorkflow:
                 self.show_persisted_result(field_key,frame=frame,component=component,scale=scale,limits=limits,on_ready=on_ready,on_cancel=on_cancel)
                 return
             result_mesh=scene.result_mesh
-            scene = scene if stale else self._with_attributes(
+            scene = scene if stale or getattr(scene,'_result_attributes_prepared',False) else self._with_attributes(
                 scene,
                 mesh=result_mesh,
                 show_supports=panel.show_result_supports(),
@@ -1969,13 +1992,14 @@ class WorkbenchWorkflow:
                 show_masses=panel.show_result_masses(),
                 show_imperfections=panel.show_imperfect_reference(),
             )
-            self._view_mode = "results"
+            if self._view_mode != "results":self._view_mode = "results"
             if access is not None and getattr(self.viewport,"active_backend",None)=="gpu":
                 from ..presentation.retained_results import prepare
-                prepared=prepare(self.viewport,scene)
+                prepared=getattr(scene,'_prepared_result_batches',None)
+                if prepared is None:prepared=prepare(self.viewport,scene)
                 if prepared is not None:
                     access.discard_publication()
-                    reservation=access.reserve_publication(field,prepared_publication_bytes(field,scene,sum(mesh.element_scalars.nbytes for mesh,options in prepared[1])))
+                    reservation=access.reserve_publication(field,prepared_publication_bytes(field,scene,sum(scalar_buffer_bytes(mesh) for mesh,options in prepared[1])))
                     scene._prepared_result_batches=prepared
             self.viewport.show(scene)
             from ..presentation.retained_results import discard_prepared_field
@@ -1983,6 +2007,7 @@ class WorkbenchWorkflow:
             if reservation is not None:access.commit_publication(reservation)
             self._result_geometry_key=None
             self._persisted_geometry_key=geometry_key
+            self._persisted_frame_layout=getattr(scene,'_retained_frame_layout',None)
             if on_ready is not None:on_ready()
             self._update_view_label()
             if stale:self.set_status("Stale retained result on its submitted mesh; current sections and model attributes are omitted")
@@ -2081,7 +2106,12 @@ class WorkbenchWorkflow:
 
     def active_case(self) -> str:
         panel = self.panels.get("Loads & BC")
-        return "default" if panel is None else panel.case_name()
+        name="default" if panel is None else panel.case_name()
+        case=self.project.load_cases.get(name)
+        if case is not None and case.is_template and any(load.history is not None for load in case.wet_pressures):
+            children=self.project.series_children(name)
+            if children:return children[0].name
+        return name
 
 
     def refresh_views(self) -> None:
@@ -2101,7 +2131,9 @@ class WorkbenchWorkflow:
 
     def invalidate_result_requests(self, *, source=False, reads=False):
         self._result_revision = getattr(self, "_result_revision", 0) + 1
-        if source:self._result_source_epoch=getattr(self,'_result_source_epoch',0)+1
+        if source:
+            self._result_source_epoch=getattr(self,'_result_source_epoch',0)+1
+            self._persisted_frame_layout=None
         loader=getattr(self,"_result_loader",None)
         if loader is not None:
             loader.invalidate(source=source,reads=reads)
@@ -2296,12 +2328,16 @@ class WorkbenchWorkflow:
             from ..post.access import LiveResultAccess,result_access_scope
             access=getattr(self,"_live_result_access",None)
             accepted_bytes=getattr(access,"_publication_bytes",0)
+            previous_access=access
             if dataset is not None and access is not None:
                 access.close();access=None
             if access is None or getattr(self,"_live_access_revision",None)!=revision:
                 if access is not None:access.close()
-                access=self._live_result_access=LiveResultAccess(analysis_status=getattr(solution,"status",None))
-                access.commit_publication(accepted_bytes)
+                limits={} if previous_access is None else dict(cache_bytes=previous_access.cache_bytes,working_bytes=previous_access.working_bytes)
+                access=LiveResultAccess(analysis_status=getattr(solution,"status",None),**limits)
+                if previous_access is not None:previous_access.migrate_publications_to(access)
+                else:access.commit_publication(accepted_bytes)
+                self._live_result_access=access
                 self._live_access_revision=revision
             with result_access_scope(access):
                 value=load(cancel)
@@ -2437,11 +2473,12 @@ class WorkbenchWorkflow:
         if access is not None:
             retained=getattr(self.viewport,"_retained_result",None)
             scalar_bytes=0
+            from ..presentation.retained_results import scalar_buffer_bytes
             if retained and geometry_key == getattr(self,"_result_geometry_key",None):
                 for handle in retained[1]:
                     mesh=handle.mesh
-                    scalar_bytes += mesh.element_scalars.nbytes
-            from ..presentation.retained_results import prepared_publication_bytes
+                    scalar_bytes += scalar_buffer_bytes(mesh)
+            from ..presentation.retained_results import prepared_publication_bytes,scalar_buffer_bytes
             candidate_scene=getattr(self.viewport,"_scene",None)
             reservation=access.reserve_publication(result_field,scalar_bytes if candidate_scene is None else prepared_publication_bytes(result_field,candidate_scene,scalar_bytes))
         if geometry_key == getattr(self,"_result_geometry_key",None):
@@ -2481,11 +2518,11 @@ class WorkbenchWorkflow:
             from ..presentation.retained_results import prepare
             prepared=prepare(self.viewport,scene)
             if prepared is not None:
-                scalar_bytes=sum(mesh.element_scalars.nbytes for mesh,options in prepared[1])
+                scalar_bytes=sum(scalar_buffer_bytes(mesh) for mesh,options in prepared[1])
                 access.discard_publication()
                 reservation=access.reserve_publication(result_field,scalar_bytes+getattr(result_field,"_display_buffer_bytes",0))
                 scene._prepared_result_batches=prepared
-        from ..presentation.retained_results import prepared_publication_bytes,discard_prepared_field
+        from ..presentation.retained_results import prepared_publication_bytes,scalar_buffer_bytes,discard_prepared_field
         if access is not None and reservation is None:reservation=access.reserve_publication(result_field,prepared_publication_bytes(result_field,scene,0))
         if access is not None:
             access.discard_publication()

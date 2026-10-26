@@ -29,6 +29,7 @@ def camera_scene(scene, *, polygon_budget=160, line_budget=350, point_budget=64)
         colors = face.colors
         result.faces.append(replace(face,
             polygons=[face.polygons[i] for i in indices],
+            polygon_node_ids=None if face.polygon_node_ids is None else [face.polygon_node_ids[i] for i in indices],
             colors=[colors[i] if len(colors) > 1 else colors[0] for i in indices] if colors else [],
             polygon_owners=None if face.polygon_owners is None else [face.polygon_owners[i] for i in indices],
             polygon_visibility_owners=None if face.polygon_visibility_owners is None else [face.polygon_visibility_owners[i] for i in indices],

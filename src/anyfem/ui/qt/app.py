@@ -20,7 +20,7 @@ from .runtime_diagnostics import extend_report_with_qt_runtime
 from .viewport import QtViewport
 from .editors import CommandEditor,GeometryTask
 from .tree import QtModelTree
-from .tasks import MeshTask, SolveTask, ResultsTask, VisualizationTask
+from .tasks import MeshTask, SolveTask, ResultsTask, VisualizationTask, SectioningTask
 
 
 def _worker_process_job_manager(project):
@@ -323,7 +323,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Mesh":"Set the element size and generate the finite element mesh.",
         "Solve":"Choose an analysis and run it on the current mesh.",
         "Results":"Inspect, animate and export solved fields.",
-        "Visualization":"Adjust colours, transparency, section planes and images.",
+        "Visualization":"Adjust appearance, contours, comparison views and image exports.",
+        "Sectioning":"Inspect inside the model with section planes, section boxes and cut surfaces.",
         "Scripts":"Run Python commands as one undoable edit.",
         "Definitions":"Sets, unit profile and other project definitions.",
     }
@@ -375,9 +376,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             "Sections":SectionTask(self),
             "Loads & BC":LoadTask(self),
             "Mesh":MeshTask(self),"Solve":SolveTask(self),"Results":ResultsTask(self),
-            "Visualization":VisualizationTask(self),"Scripts":ScriptTask(self),
-            "Definitions":DefinitionsTask(self),
+            "Visualization":VisualizationTask(self),
         }
+        self.panels["Sectioning"]=SectioningTask(self,self.panels["Visualization"].presentation_controls)
+        self.panels.update({"Scripts":ScriptTask(self),"Definitions":DefinitionsTask(self)})
         from .result_browser import QtResultBrowser
         self.result_browser=QtResultBrowser(self);self.left_tabs.addTab(self.result_browser,"Results")
         from .navigation import install_option_icons,ActionIcons
@@ -438,6 +440,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if settings.contains("docks"):self.restoreState(settings.value("docks"))
         from .button_help import ButtonHelp
         self.button_help=ButtonHelp(self)
+        self.panels["Visualization"].presentation_controls.reset_project()
 
     def _dock(self,title,widget,area):
         dock=QDockWidget(title,self);dock.setObjectName(title)
@@ -625,10 +628,11 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._build_model_colour_buttons(toolbar)
         spacer2=QWidget();spacer2.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred);toolbar.addWidget(spacer2)
         self._build_view_mode_buttons(toolbar)
-        self.renderer=ValueCombo((("auto","Automatic"),("gpu","GPU"),("software","Software")))
+        self.renderer=ValueCombo((("auto","Automatic"),("gpu","GPU (OpenGL)"),
+                                  ("webgpu","WebGPU"),("software","Software")))
         self.renderer.set_value(self._viewer_backend)
         self.renderer.currentIndexChanged.connect(lambda _index:self.guarded(lambda:self.switch_viewer_backend(self.renderer.value()))())
-        self.renderer.setToolTip("Viewport renderer. Automatic uses the GPU when available.");self.renderer.setAccessibleName("Viewport renderer")
+        self.renderer.setToolTip("Automatic uses WebGPU (Vulkan or Metal), or Software if unavailable. GPU (OpenGL) selects the legacy GPU renderer.");self.renderer.setAccessibleName("Viewport renderer")
         renderer_box=QWidget();renderer_layout=QHBoxLayout(renderer_box);renderer_layout.setContentsMargins(0,0,6,0);renderer_layout.setSpacing(4)
         caption=QLabel("Renderer");caption.setObjectName("StatusCaption");renderer_layout.addWidget(caption);renderer_layout.addWidget(self.renderer)
         self._footer_statusbar=super().statusBar()
@@ -786,7 +790,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             return
         # startup only: once the model gains geometry (or a project is opened) the wordmark is gone for the session
         if not getattr(self,"_wordmark_done",False):
-            try:empty=len(self.project.geometry.vertices)==0
+            try:
+                empty=(len(self.project.geometry.vertices)==0
+                       and not self.project.mesh_records and not self.result_datasets)
             except Exception:empty=False
             try:
                 viewport=self.viewport
@@ -837,6 +843,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         if switching:self.resizeDocks([self._workspace_docks[0]],[370],Qt.Horizontal)
 
     def _on_workbench_event(self,event):
+        if event.kind=="state_changed" and event.field=="shape_index":
+            panel=getattr(self,"panels",{}).get("Results")
+            if getattr(panel,"playback_active",False):
+                # Playback updates its frame/details directly; document trees
+                # and every other workbench panel did not change with this frame.
+                return
         if event.kind=="state_changed" and event.field=="geometry_selection_mode":
             # This is a navigation preference. Selection listeners already
             # update picking, highlights, tree selection and status directly.
@@ -972,18 +984,26 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Results"].reset()
         self.panels["Solve"].reset()
         super()._set_project(*args,**kwargs)
+        self.panels["Visualization"].presentation_controls.reset_project()
         self.tree.cancel_pending_search()
         self.tree.search_edit.setText(self.tree.query)
         self.refresh_all()
 
     def switch_viewer_backend(self,backend):
+        stop_playback=getattr(self.panels["Results"],"stop_playback",None)
+        if stop_playback is not None:stop_playback(clear_prepared=True)
         try:
             active=self.viewport.switch_backend(backend)
         except BaseException:
             self.renderer.blockSignals(True);self.renderer.set_value(self._viewer_backend);self.renderer.blockSignals(False)
             raise
         self._viewer_backend=backend
-        self.set_status(f"Renderer: {active}"+(f" · {'; '.join(self.viewport.backend_diagnostics)}" if self.viewport.backend_diagnostics else ""))
+        self.renderer.blockSignals(True)
+        try:self.renderer.set_value(backend)
+        finally:self.renderer.blockSignals(False)
+        api=getattr(getattr(self.viewport,"canvas",None),"backend_name",active)
+        label="WebGPU" if api=="webgpu" else "GPU (OpenGL)" if api=="gpu" else active
+        self.set_status(f"Renderer: {label}"+(f" · {'; '.join(self.viewport.backend_diagnostics)}" if self.viewport.backend_diagnostics else ""))
         return active
 
     def diagnostic_report(self, *, recent_commands=()):
@@ -1034,6 +1054,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Solve"].graph_timer.stop()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()
+        self.panels["Visualization"].presentation_controls.close()
         self.close_result_access()
         self.scheduler.close()
         self.worker.stop();self.workbench.close()
@@ -1049,9 +1070,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         event.accept()
 
 
-def main():
+def main(*, viewer_backend="auto"):
     import sys
     app=QApplication.instance() or QApplication(sys.argv)
-    window=QtFemWindow()
+    window=QtFemWindow() if viewer_backend=="auto" else QtFemWindow(viewer_backend=viewer_backend)
     window.show()
     return app.exec()

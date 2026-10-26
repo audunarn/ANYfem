@@ -316,10 +316,13 @@ class LiveResultAccess:
         self._readers = OrderedDict()
         self._closed = False
         self.analysis_status = analysis_status
+        self._pane_publications = {}
+        self._publication_successor = None
         self._publication_bytes = 0
         self._pending_publication_bytes = 0
         from threading import RLock
         self._cache_lock=RLock()
+        self._publication_lock=RLock()
         self._recovery_resident = {}
 
     def field(self, shape, name, *, reduction="mean", cancel_event=None):
@@ -431,8 +434,48 @@ class LiveResultAccess:
         return required
 
     def commit_publication(self,reservation):
-        self._publication_bytes=reservation
-        self._pending_publication_bytes=0
+        with self._publication_lock:
+            owner=self.publication_owner()
+            if owner is not self:return owner.commit_publication(reservation)
+            self._pane_publications['main']=reservation
+            self._publication_bytes=sum(self._pane_publications.values())
+            self._pending_publication_bytes=0
+
+    def commit_pane_publication(self,pane,reservation):
+        """Accept a pane against the same aggregate cache ceiling."""
+        with self._publication_lock:
+            owner=self.publication_owner()
+            if owner is not self:return owner.commit_pane_publication(pane,reservation)
+            self._pane_publications[str(pane)]=int(reservation)
+            self._publication_bytes=sum(self._pane_publications.values())
+            self._pending_publication_bytes=0
+
+    def publication_owner(self):
+        with self._publication_lock:
+            owner=self
+            while owner._publication_successor is not None:owner=owner._publication_successor
+            if owner is not self:self._publication_successor=owner
+            return owner
+
+    def migrate_publications_to(self,successor):
+        """Atomically move pane leases against concurrent owner-side release.
+
+        This short ledger lock is separate from the field-query cache lock;
+        GUI release never waits for scientific extraction/recovery.
+        """
+        with self._publication_lock:
+            owner=self.publication_owner()
+            successor._publication_lock=owner._publication_lock
+            successor._pane_publications=dict(owner._pane_publications)
+            successor._publication_bytes=sum(successor._pane_publications.values())
+            owner._publication_successor=successor
+
+    def release_pane_publication(self,pane):
+        with self._publication_lock:
+            owner=self.publication_owner()
+            if owner is not self:return owner.release_pane_publication(pane)
+            self._pane_publications.pop(str(pane),None)
+            self._publication_bytes=sum(self._pane_publications.values())
 
     def discard_publication(self):
         """Owner-only release of an unaccepted candidate reservation."""

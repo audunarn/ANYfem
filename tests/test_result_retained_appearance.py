@@ -35,6 +35,7 @@ class Canvas:
 
 def view():
     result=SceneViewport.__new__(SceneViewport);result.canvas=Canvas()
+    result._construction_task=None
     result._visualization=VisualizationStyle();result.visibility=SelectionVisibility()
     field=Field('ux','m',element_values={1:2.})
     result._scene=Scene(faces=[FacePatch(MeshEntityRef('element',1),
@@ -141,6 +142,73 @@ def qt_panel():
     panel.deleteLater();appqt.processEvents()
 
 
+def test_new_playback_panel_targets_twenty_fps_and_keeps_lower_rates(qt_panel):
+    panel,_=qt_panel
+    assert panel.playback_fps()==20
+    panel.playback_speed.setCurrentText('4')
+    assert panel.playback_fps()==4
+
+
+def test_animation_interval_is_one_based_inclusive_and_validated_before_options(qt_panel):
+    panel,_=qt_panel
+    panel.frame_count=lambda:600;panel._sync_frame_interval(600)
+    assert panel.animation_frames()==tuple(range(600))
+    panel.from_frame.setValue(5);panel.to_frame.setValue(9)
+    assert panel.animation_frames()==(4,5,6,7,8)
+    panel.from_frame.setValue(10)
+    with pytest.raises(ValueError,match='From frame'):panel.play()
+    with pytest.raises(ValueError,match='From frame'):panel.export_gif()
+    panel.preprocess_first.setChecked(True)
+    with pytest.raises(ValueError,match='From frame'):panel.play()
+    assert panel._playback is None and panel._preparation is None
+
+
+def test_frame_interval_uses_selected_quantity_frame_count(qt_panel):
+    panel,_=qt_panel
+    descriptor=SimpleNamespace(frames=(10.,20.))
+    panel.app.solution=None
+    panel.app.result_datasets={'job':SimpleNamespace(frames=tuple(range(600)),field_keys=('subset',),
+        field=lambda name:SimpleNamespace(descriptor=descriptor))}
+    panel.field.blockSignals(True);panel.field.clear();panel.field.addItem('subset');panel.field.blockSignals(False)
+    assert panel.frame_count()==2
+    panel._sync_frame_interval(2)
+    assert panel.animation_frames()==(0,1)
+
+
+def test_preprocessing_progress_and_completion_remain_visible(qt_panel):
+    panel,_=qt_panel;started=[]
+    assert panel.preparation_status.isHidden() and panel.preparation_progress.isHidden()
+    panel.preprocess_first.setChecked(True)
+    assert not panel.preparation_status.isHidden()
+    assert 'press Play' in panel.preparation_status.text()
+    panel._preparation_changed('Preparing snapshot');panel._preparation_progress(0,0)
+    assert panel.preparation_progress.maximum()==0
+    panel._preparation_progress(2,5)
+    assert panel.preparation_progress.value()==2 and panel.preparation_progress.maximum()==5
+    assert panel.preparation_progress.text()=='2 / 5 frames (40%)'
+    panel._start_playback=lambda *args:started.append(args)
+    cache=object();panel._preparation_progress(5,5);panel._preparation_ready(tuple(range(5)),20,cache)
+    panel.playback_status.setText('Playing frame 1 / 5')
+    assert 'Preprocessing complete' in panel.preparation_status.text()
+    assert panel.preparation_progress.value()==5 and started[0][-1] is cache
+    panel._preparation_changed('Preprocessing stopped')
+    assert panel.preparation_progress.isHidden() and 'stopped' in panel.preparation_status.text()
+    errors=[];panel.app.set_status=lambda *args,**kwargs:errors.append((args,kwargs))
+    panel._preparation_failed(RuntimeError('disk full'))
+    assert 'failed: disk full' in panel.preparation_status.text() and errors[0][1]['error']
+
+
+def test_envelope_is_explicitly_live_only_and_not_an_animation(qt_panel):
+    panel,_=qt_panel
+    panel._sync_envelope_control();assert panel.envelope.isEnabled()
+    panel.envelope.blockSignals(True);panel.envelope.setChecked(True);panel.envelope.blockSignals(False)
+    panel._sync_frame_interval(1)
+    with pytest.raises(ValueError,match='static contour'):panel.play()
+    with pytest.raises(ValueError,match='static contour'):panel.export_gif()
+    panel.app.solution=None;panel._sync_envelope_control()
+    assert not panel.envelope.isEnabled() and not panel.envelope.isChecked()
+
+
 @pytest.mark.parametrize('control,palette',[
     *[(control,palette) for control in ('palette','inspection_palette')
       for palette in ('Viridis','Jet','HSV','Inferno')],
@@ -166,6 +234,20 @@ def test_source_epoch_change_requires_new_result_request(qt_panel):
     panel.app._result_source_epoch+=1
     panel.colors.setCurrentText('Viridis');appqt.processEvents()
     assert requests==['load'] and panel.app.viewport.canvas.draws==0
+
+
+def test_results_visual_preset_keeps_retained_handles_and_field(qt_panel):
+    from anyfem.ui.qt.tasks import VisualizationTask
+    panel,qapp=qt_panel;visual=VisualizationTask(panel.app)
+    panel.app.set_status=lambda *args,**kwargs:None
+    retained=panel.app.viewport._retained_result
+    field=panel.app.viewport._scene.result_field
+    visual.preset.setCurrentText('Results');visual.apply_preset()
+    assert panel.app.viewport.visualization.lighting=='Flat'
+    assert panel.app.viewport._retained_result is retained
+    assert panel.app.viewport._scene.result_field is field
+    assert visual.appearance['antialiasing'].currentText()=='4x'
+    visual.deleteLater();qapp.processEvents()
 
 
 def test_results_palette_then_visualization_reset_recolours_once_each(qt_panel,monkeypatch):

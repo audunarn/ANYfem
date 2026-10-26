@@ -27,7 +27,7 @@ class ResultRequests:
         from queue import SimpleQueue
         self.retirement_reports=SimpleQueue()
         self._report_pending=False
-    def request(self,load,completed,*,channel='display',ordered=False):
+    def request(self,load,completed,*,channel='display',ordered=False,independent=False):
         with self._lock:
             if self._closed:raise RuntimeError('result coordinator is closed')
             if not ordered:
@@ -36,7 +36,7 @@ class ResultRequests:
             self._serial+=1;serial=self._serial
             if not ordered:self._latest[channel]=serial
             previous=self._owner_gate;gate=self._owner_gate=Event();event=Event()
-            record=dict(channel=channel,ordered=ordered,event=event,gate=gate,completed=completed,settled=False,result=None)
+            record=dict(channel=channel,ordered=ordered,independent=independent,event=event,gate=gate,completed=completed,settled=False,result=None)
             self._tasks[serial]=self._records[serial]=record
             source_generation=self._source_generation;display_generation=self._display_generation;read_generation=self._read_generation
             def run():
@@ -67,8 +67,8 @@ class ResultRequests:
                     if record['settled']:gate.set();return
                     record['settled']=True;self._records.pop(serial,None)
                     delivered=record.pop('result');callback=record.pop('completed')
-                    stale=(self._closed or event.is_set() or source_generation!=self._source_generation or
-                        (not ordered and read_generation!=self._read_generation) or
+                    stale=(self._closed or event.is_set() or (not independent and source_generation!=self._source_generation) or
+                        (not independent and not ordered and read_generation!=self._read_generation) or
                         (channel=='display' and display_generation!=self._display_generation) or
                         (not ordered and self._latest.get(channel)!=serial))
                 keep_error=ordered and delivered.error is not None and not delivered.cancelled
@@ -83,13 +83,20 @@ class ResultRequests:
             try:self._dispatch(deliver)
             except BaseException:gate.set();raise
         future.add_done_callback(done);return serial
+    def cancel_channel(self,channel):
+        """Cancel only one pane/source channel without retiring other reads."""
+        with self._lock:
+            self._latest.pop(channel,None)
+            for task in self._tasks.values():
+                if task["channel"]==channel:task["event"].set()
+
     def invalidate(self,*,source=False,reads=False):
         with self._lock:
             self._display_generation+=1
             if source:self._source_generation+=1
             if reads:self._read_generation+=1
             for task in self._tasks.values():
-                if source or (reads and not task['ordered']) or task['channel']=='display':task['event'].set()
+                if not task.get('independent',False) and (source or (reads and not task['ordered']) or task['channel']=='display'):task['event'].set()
     def retire(self,finalizer=lambda:None,*,report_pending=False):
         with self._lock:
             self._report_pending=report_pending

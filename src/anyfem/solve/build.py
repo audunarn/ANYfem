@@ -1645,6 +1645,18 @@ def _wet_pressure_accumulation(
     by_surface_id = {surface.id: surface for surface in project.wet_surfaces}
     accumulated: Dict[int, tuple] = {}  # element id -> (pressure, centroid, normal, shared)
     for load in case.wet_pressures:
+        if load.history is not None:
+            from ..application.pressure_transfer import effective_wave_pressure,PressureRemapError
+            try:load=effective_wave_pressure(project,mesh,load)
+            except PressureRemapError as error:raise ProjectError(str(error)) from error
+        if load.mesh_content_sha256 is not None:
+            from anymesher.serialize import mesh_to_dict
+            from ..document import canonical_hash
+            if canonical_hash(mesh_to_dict(mesh)).removeprefix('sha256:') != load.mesh_content_sha256.removeprefix('sha256:'):
+                detail=getattr(project,'_wave_source_recovery_error','')
+                raise ProjectError('wet pressure mesh identity differs from its transferred element mapping; '
+                    'original verified source is unavailable: regenerate wave input on the current mesh'
+                    +(f' ({detail})' if detail else ''))
         scale = _envelope_factor(case, load)
         if scale == 0.0:
             continue
@@ -1801,6 +1813,13 @@ def _wet_pressure_values(
     mapping by id is evaluated by ANYloads.
     """
 
+    if load.history is not None:
+        if set(int(e) for e in element_ids) != set(load.history.element_ids):
+            raise ProjectError('mapped pressure history element scope differs from selected wet surface mesh')
+        try:
+            return load.scale*load.history.evaluate(case.time,element_ids[pick])
+        except ValueError as error:
+            raise ProjectError(str(error)) from error
     if load.kind != "mapping":
         return field_pressure(case, load, centroids)
 

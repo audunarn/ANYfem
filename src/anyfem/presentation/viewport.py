@@ -140,6 +140,7 @@ class SceneViewport:
         self._interaction_restore_after_id: object | None = None
         self._retained_result = None
         self._retained_result_canvas = None
+        self._retained_result_topology = None
         self._retained_styles = None
         self._retained_opacity = None
         self._retained_scene = None
@@ -340,6 +341,7 @@ class SceneViewport:
     def _render_scene(self, scene: Scene, *, reset_view: bool = False) -> None:
         """Draw one retained scene while retaining ``self._scene`` as source."""
 
+        self._apply_render_quality(self.visualization)
         from .retained_scene import lifetime_guard, scene_key
         key = scene_key(self, scene)
         cached = getattr(self, "_retained_scene", None)
@@ -357,15 +359,34 @@ class SceneViewport:
         if self.active_backend == "gpu" and scene.result_field is not None and hasattr(self.canvas, "add_mesh_arrays"):
             retained = getattr(scene,"_prepared_result_batches",None)
             if retained is None:retained = prepare(self, scene)
+        if retained is not None and scene.result_field is not None and not scene.result_field.per_element and scene.legend is not None:
+            maps=retained[4] if len(retained)>4 else ()
+            if maps and all(ids is not None for ids in maps):
+                scene.legend=dict(scene.legend)
+                scene.legend['title']=scene.legend.get('title','').replace(' · element mean for display',' · nodal interpolation')
         scene.__dict__.pop("_prepared_result_batches",None)
         previous = getattr(self, "_retained_result", None)
+        topology=getattr(scene,"_retained_topology_key",None)
+        same_topology=(topology is not None and topology==getattr(self,"_retained_result_topology",None))
         if (retained is not None and previous is not None
-                and previous[0] == retained[0]
+                and (previous[0] == retained[0] or same_topology)
                 and len(previous[1]) == len(retained[1])
                 and SceneViewport._retained_result_is_current(self, previous)):
             for handle, (mesh, options) in zip(previous[1], retained[1]):
-                handle.update_scalar_fields(element_scalars=mesh.element_scalars)
+                if same_topology and not np.array_equal(handle.mesh.positions,mesh.positions):
+                    handle.update_positions(mesh.positions)
+                handle.update_scalar_fields(element_scalars=mesh.element_scalars,node_scalars=mesh.node_scalars)
                 handle.update_appearance(scalar_range=scene.result_scalar_range, colormap=scene.result_colormap)
+            current=(retained[0],previous[1],previous[2],scene.result_mesh,retained[4] if len(retained)>4 else (None,)*len(previous[1]))
+            styles=getattr(self,"_retained_styles",None)
+            if styles is not None and styles[0] is previous:
+                if same_topology:
+                    for handle,mesh in zip(styles[3],retained[3]):
+                        if not np.array_equal(handle.mesh.positions,mesh.positions):handle.update_positions(mesh.positions)
+                self._retained_styles=(current,*styles[1:])
+            opacity=getattr(self,"_retained_opacity",None)
+            if opacity is not None and opacity[0] is previous:self._retained_opacity=(current,*opacity[1:])
+            self._retained_result=current
             from .retained_results import snapshot_appearance_field
             scene._appearance_field=snapshot_appearance_field(scene.result_field)
             self._draw_legend(scene)
@@ -375,6 +396,7 @@ class SceneViewport:
             return
         self._retained_result = None
         self._retained_result_canvas = None
+        self._retained_result_topology = topology
         self._marker_size = 0.012 * scene.characteristic_size()
         self._retained_styles = None
         self._retained_opacity = None
@@ -384,7 +406,7 @@ class SceneViewport:
             self._draw(scene)
         else:
             handles = [self.canvas.add_mesh_arrays(mesh, **options) for mesh, options in retained[1]]
-            self._retained_result = (retained[0], handles, tuple(mesh.element_ids for mesh, options in retained[1]), scene.result_mesh)
+            self._retained_result = (retained[0], handles, tuple(mesh.element_ids for mesh, options in retained[1]), scene.result_mesh,retained[4] if len(retained)>4 else (None,)*len(handles))
             self._retained_result_canvas = self.canvas
             surfaces=tuple(handle for handle, (_, options) in zip(handles, retained[1]) if 'opacity' in options)
             lines=tuple(handle for handle, (_, options) in zip(handles, retained[1]) if 'opacity' not in options)
@@ -447,11 +469,15 @@ class SceneViewport:
             prepared=field._display_buffers
         scene=self._scene.copy()
         scene.result_field=field;scene.result_scalar_range=scalar_range;scene.result_colormap=colormap;scene.legend=legend
+        if not field.per_element and scene.legend is not None and len(retained)>4 and retained[4] and all(ids is not None for ids in retained[4]):
+            scene.legend=dict(scene.legend)
+            scene.legend['title']=scene.legend.get('title','').replace(' · element mean for display',' · nodal interpolation')
         faces,lines=prepared[2]
         for index,colors in faces:scene.faces[index]=replace(scene.faces[index],colors=colors)
         for index,color in lines:scene.lines[index]=replace(scene.lines[index],color=color)
-        for handle, values in zip(retained[1],prepared[1]):
-            handle.update_scalar_fields(element_scalars=values)
+        node_buffers=getattr(field,'_display_node_buffers',(None,)*len(retained[1]))
+        for handle, values,nodes in zip(retained[1],prepared[1],node_buffers):
+            handle.update_scalar_fields(element_scalars=values if nodes is None else None,node_scalars=nodes)
             handle.update_appearance(scalar_range=scalar_range,colormap=colormap)
         self._scene=scene
         from .retained_results import snapshot_appearance_field
@@ -575,6 +601,7 @@ class SceneViewport:
                     colour_check(colour)
                 except Exception as error:
                     raise ValueError(f"invalid {label} colour {colour!r}") from error
+        self._apply_render_quality(style)
         if SceneViewport._update_result_style(self, style) or SceneViewport._update_result_opacity(self, style):
             return
         self._visualization = style
@@ -585,6 +612,28 @@ class SceneViewport:
             widget.configure(background=style.background)
         if getattr(self, "_scene", None) is not None:
             self._refresh_visualization_scene()
+
+    def _apply_render_quality(self,style):
+        # Numerical contours keep their original palette values even if a
+        # modeling preset is selected while a retained field is displayed.
+        numerical=getattr(getattr(self,'_scene',None),'result_field',None) is not None
+        ao='Off' if numerical else style.ambient_occlusion
+        shadows='Off' if numerical else getattr(self,'_presentation_shadows','Off')
+        key=(self.canvas,style.antialiasing,style.background_gradient,style.feature_edges,style.lighting,
+            ao,style.ao_strength,style.ao_radius,shadows,numerical)
+        if getattr(self,'_render_quality_key',None)==key:return
+        quality=getattr(self.canvas,'set_render_quality',None)
+        if callable(quality):quality(samples=4 if style.antialiasing=='4x' else 1,
+            gradient=style.background_gradient,feature_edges=style.feature_edges,
+            ambient_occlusion=ao,ao_strength=style.ao_strength,ao_radius=style.ao_radius)
+        shadow_setter=getattr(self.canvas,'set_shadows',None)
+        if callable(shadow_setter):shadow_setter(quality=shadows,strength=.5)
+        shading=getattr(self.canvas,'set_shading',None)
+        if callable(shading):shading(not numerical and style.lighting=='Studio')
+        light=getattr(self.canvas,'set_light',None)
+        if callable(light) and style.lighting=='Studio':
+            light(direction=(0.4,-0.6,0.85),ambient=.58,diffuse=.42,specular=.10,shininess=40,follow_camera=True)
+        self._render_quality_key=key
 
     def _update_result_style(self, style):
         """Update retained result appearance, keeping GPU geometry/scalars intact."""
@@ -1244,7 +1293,7 @@ class SceneViewport:
         style = self._visualization
         outline = patch.outline
         opacity = style.surface_opacity
-        lit = True
+        lit = style.lighting!='Flat'
         if style.render_mode == "Shaded":
             outline = ""
         elif style.render_mode == "Shaded with edges":

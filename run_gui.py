@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import argparse
 import re
 import sys
 from importlib import metadata, util
@@ -138,10 +139,11 @@ def _active_distribution_version(distribution: str) -> str:
 
 # Optional siblings are used when they are checked out beside ANYfem and are
 # never required: ANYsection supplies the standard beam-section library and
-# ANYfem starts without it.  Inserted first so the required projects below,
+# ANYhydro supplies hydrodynamic wave pressures. Inserted first so the required projects below,
 # and ANYfem itself, still end up ahead of it.
 _OPTIONAL_SOURCE_PROJECTS = (
     ("ANYsection", "anysection", _ECOSYSTEM_WORKSPACE / "ANYsection" / "src"),
+    ("ANYhydro", "anyhydro", _ECOSYSTEM_WORKSPACE / "ANYhydro" / "src"),
 )
 
 
@@ -301,19 +303,54 @@ def require_compatible_ecosystem(
         )
 
 
+def require_renderer_dependencies(renderer: str) -> None:
+    """Check optional WebGPU admission without creating a GUI or GPU device."""
+    if renderer != "webgpu":
+        return
+    missing = []
+    for module in ("wgpu", "any3dview.qt_webgpu"):
+        try:
+            available = util.find_spec(module) is not None
+        except (ImportError, ValueError, AttributeError):
+            available = False
+        if not available:
+            missing.append(module)
+    if missing:
+        viewer = str(_ANY3DVIEW_PROJECT) + "[webgpu]"
+        application = str(_ROOT) + "[webgpu]"
+        raise RuntimeError(
+            "WebGPU is unavailable in the selected Python environment: "
+            + ", ".join(missing)
+            + "\nInstall the optional source dependencies in that environment:\n"
+            + f'"{sys.executable}" -m pip install -e "{viewer}" -e "{application}"'
+        )
+
+
 def main() -> None:
     """Launch the GUI only after the latest-only release graph is verified."""
 
     if "--qt" in sys.argv and "--tk" in sys.argv:
         raise SystemExit("Choose only one frontend: --qt or --tk")
-    frontend="tk" if "--tk" in sys.argv else "qt"
+    parser = argparse.ArgumentParser(description="Launch the ANYfem workbench")
+    parser.add_argument("--qt", action="store_true", help="use the Qt frontend (default)")
+    parser.add_argument("--tk", action="store_true", help="use the legacy Tk frontend")
+    parser.add_argument("--renderer", choices=("auto", "gpu", "webgpu", "software"),
+                        default="auto", help="Qt viewport renderer; default: auto")
+    args, _qt_options = parser.parse_known_args(sys.argv[1:])
+    frontend="tk" if args.tk else "qt"
+    if frontend == "tk" and args.renderer != "auto":
+        raise SystemExit("--renderer selects a Qt viewport; use --qt for this option")
+    require_renderer_dependencies(args.renderer)
     require_compatible_ecosystem(frontend=frontend)
     if frontend=="tk":
         from anyfem.ui.tk import main as gui_main
     else:
         from anyfem.ui.qt import main as gui_main
 
-    gui_main()
+    if args.renderer == "auto":
+        gui_main()
+    else:
+        gui_main(viewer_backend=args.renderer)
 
 
 if __name__ == "__main__":

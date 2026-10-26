@@ -8,7 +8,7 @@ load survives a re-mesh.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Mapping, Sequence
+from typing import Any, Callable, List, Mapping, Sequence
 from uuid import uuid4
 
 import numpy as np
@@ -510,8 +510,25 @@ class WetPressure:
     table_case: float | int | str | None = None
     # When the load acts and how strongly over a time history; None = always.
     envelope: Envelope | None = None
+    mesh_content_sha256: str | None = None
+    history: Any = None
 
     def __post_init__(self) -> None:
+        if self.history is not None:
+            from anyloads.pressure_history import MappedPressureHistory
+            from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
+            from anyloads.source_pressure_history import SourceAwarePressureHistory
+            if not isinstance(self.history,(MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory)):
+                raise ValueError('history must be a typed ANYloads mapped pressure history')
+            if self.mesh_content_sha256 is None:
+                object.__setattr__(self,'mesh_content_sha256',self.history.mesh_content_sha256)
+            if self.mesh_content_sha256 != self.history.mesh_content_sha256:
+                raise ValueError('history and load mesh identities differ')
+        if self.mesh_content_sha256 is not None:
+            import re
+            if ((self.mapping is None and self.history is None) or self.mapping_key != 'element'
+                    or re.fullmatch('(sha256:)?[0-9a-f]{64}', self.mesh_content_sha256) is None):
+                raise ValueError('mesh_content_sha256 requires an element mapping and lowercase SHA256')
         object.__setattr__(self, "envelope", Envelope.coerce(self.envelope))
         given = [
             label
@@ -521,6 +538,7 @@ class WetPressure:
                 ("mapping", self.mapping),
                 ("code", self.code),
                 ("table", self.table),
+                ("history", self.history),
             )
             if item is not None
         ]
@@ -529,7 +547,7 @@ class WetPressure:
                 "a wet pressure needs exactly one of a value, an expression, "
                 f"a mapping, code or a table (got {', '.join(given) or 'none'})"
             )
-        if self.mapping is None:
+        if self.mapping is None and self.history is None:
             # ANYloads validates and normalises every source it evaluates.
             normalised = PressureField(
                 value=self.value,
@@ -575,6 +593,8 @@ class WetPressure:
 
     @property
     def kind(self) -> str:
+        if self.history is not None:
+            return 'history'
         if self.value is not None:
             return "uniform"
         if self.expression is not None:
@@ -587,7 +607,7 @@ class WetPressure:
     def field(self) -> PressureField:
         """The ANYloads definition that evaluates this pressure (not a mapping)."""
 
-        if self.mapping is not None:
+        if self.mapping is not None or self.history is not None:
             raise ValueError("a mapping is evaluated per plate or element id")
         return PressureField(
             value=self.value,

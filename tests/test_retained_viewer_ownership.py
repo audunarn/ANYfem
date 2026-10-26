@@ -61,6 +61,8 @@ class Canvas:
 
 class View(SceneViewport):
     def __init__(self, canvas):
+        self._construction_task=None
+        self._sketch_coordinates=SimpleNamespace(bind=lambda:None,sync=lambda:None)
         self.canvas = canvas
         self._retained_result = self._retained_result_canvas = None
         self._scene = Scene(result_field=Field("ux", "m", element_values={1: 0.}),
@@ -76,6 +78,9 @@ class View(SceneViewport):
     def _restore_full_scene(self): pass
     def _configure_canvas(self, canvas): pass
     def _watch_backend(self, parent): pass
+    def _create_backend(self, backend):
+        from anyfem.ui.qt.viewport import QtViewport
+        return QtViewport._create_backend(self,backend)
     def _draw(self, scene): pass
     def _draw_construction_overlay(self): pass
     def _draw_legend(self, scene): pass

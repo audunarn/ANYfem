@@ -157,13 +157,16 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
         initial=window.viewport.canvas
         assert initial.backend_name=="software"
         window.show()
-        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and window.viewport.canvas._renderer.frame_count>0)
+        def frames():
+            canvas=window.viewport.canvas
+            return getattr(canvas,"_webgpu",canvas._renderer).frame_count
+        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and frames()>0)
         # Software rendering is event-driven: an exposed frame need not repeat
         # while idle. A requested repaint must render a new frame on this same
         # automatically initialized canvas, without switching the backend.
-        first_frame=window.viewport.canvas._renderer.frame_count
+        first_frame=frames()
         window.viewport.canvas.redraw()
-        wait_until(qapp,lambda:window.viewport.canvas._renderer.frame_count>first_frame)
+        wait_until(qapp,lambda:frames()>first_frame)
         assert window.renderer.value()=="auto"
         assert window.viewport.canvas.surface.isVisible()
         assert window.viewport.canvas.viewport_size[0]>1
@@ -740,9 +743,9 @@ def test_saved_result_playback_tables_reports_gif_and_mesh_identity(window,qapp,
     window.save_project(path=str(tmp_path/"retained.anyfem"));window.flush_project_writes()
     window.new_project();window.open_project(str(tmp_path/"retained.anyfem"))
     panel=window.panels["Results"];panel.play()
-    wait_until(qapp,lambda:window.viewport.canvas.animation_frames>0)
-    assert window.viewport.canvas.animation_frames==len(window.result_datasets[window.active_job_id].frames)
-    window.viewport.canvas.stop_animation()
+    wait_until(qapp,lambda:panel._playback.completed_frames>0)
+    assert panel.playback_active and window.viewport.canvas.animation_frames==0
+    panel.stop_playback()
     panel.quantities.setCurrentIndex(panel.quantities.findText("Field: displacement"));panel.inspect_quantity()
     settle_result_requests(window,qapp)
     wait_until(qapp,lambda:panel.table.values.rowCount()==window.mesh.num_nodes)
@@ -1201,9 +1204,10 @@ def test_qt_live_result_playback(window,qapp):
     window.generate_mesh_async(0.25,strategy="auto")
     wait_until(qapp,lambda:window.mesh is not None)
     window.solve();wait_until(qapp,lambda:window.solution is not None)
-    window.panels["Results"].play();qapp.processEvents()
-    assert window.viewport.canvas.animation_frames==len(getattr(window.solution,"shapes",()) or (window.solution,))
-    window.viewport.canvas.stop_animation()
+    panel=window.panels["Results"];panel.play()
+    wait_until(qapp,lambda:panel._playback.completed_frames>0)
+    assert panel.playback_active and window.viewport.canvas.animation_frames==0
+    panel.stop_playback()
     assert not window.viewport.canvas._animation_frame_active
     window.show_geometry();qapp.processEvents()
     assert window.viewport.canvas._display_entries() is window.viewport.canvas._entries
@@ -1816,12 +1820,13 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     expected=np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes])
     panel=window.panels["Results"];panel.history()
     assert panel.plot.series
-    assert panel.playback_fps()==4
+    assert panel.playback_fps()==20
     for fps,interval in (("0.5",2000),("2",500),("8",125)):
         panel.playback_speed.setCurrentText(fps);panel.play()
-        assert window.viewport.canvas._animation_after_id.interval()==interval
-        assert window.viewport.canvas.animation_frames==len(solution.shapes)
-        window.viewport.canvas.stop_animation()
+        wait_until(qapp,lambda:panel._playback.timer is not None)
+        assert panel._playback.timer.interval()==interval
+        assert window.viewport.canvas.animation_frames==0
+        panel.stop_playback()
     np.testing.assert_array_equal(np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes]),expected)
     path=tmp_path/"transient.anyfem"
     window.save_project(path=str(path));window.flush_project_writes()
@@ -1837,9 +1842,10 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     window.mesh=None
     for fps,interval in (("0.5",2000),("2",500),("8",125)):
         panel.playback_speed.setCurrentText(fps);panel.play()
-        assert window.viewport.canvas._animation_after_id.interval()==interval
-        assert window.viewport.canvas.animation_frames==len(solution.shapes)
-        window.viewport.canvas.stop_animation()
+        wait_until(qapp,lambda:panel._playback.timer is not None)
+        assert panel._playback.timer.interval()==interval
+        assert window.viewport.canvas.animation_frames==0
+        panel.stop_playback()
     for index in range(len(solution.shapes)):
         np.testing.assert_array_equal(dataset.field("displacement").read(index),expected[index])
     assert window.mesh is None and window.retained_result_mesh(job_id) is retained

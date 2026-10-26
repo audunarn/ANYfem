@@ -57,7 +57,8 @@ gui = [
 ]
 tk = ["ANY3dView[gpu]>=0.5.6,<0.6", "ANYtk3D>=0.5.5,<0.6", "Pillow>=10,<13"]
 # Source development uses an editable sibling viewer instead of the release pin.
-qt = ["ANY3dView[gpu,qt]>=0.5.6,<0.6", "Pillow>=10,<13", "PySide6>=6.10.1,<6.11"]
+qt = ["ANY3dView[gpu,qt,webgpu]>=0.5.6,<0.6", "Pillow>=10,<13", "PySide6>=6.10.1,<6.11"]
+webgpu = ["ANY3dView[webgpu]>=0.5.6,<0.6", "Pillow>=10,<13", "PySide6>=6.10.1,<6.11"]
 # Excel (.xlsx) pressure tables; CSV/TSV/text need nothing extra.
 excel = ["ANYloads[excel]>=0.1,<0.2"]
 # Optional standard beam-section library (ANYsection); ANYfem runs without it.

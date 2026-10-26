@@ -5,9 +5,6 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt, QLineF
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from .theme import overlay
-
-
 class SketchCoordinates(QWidget):
     """Camera-dependent presentation; never creates scene geometry or timers.
 
@@ -103,7 +100,8 @@ class SketchCoordinates(QWidget):
             length=math.hypot(dx,dy)
             if math.isfinite(length):axes.append((name,dx/length,dy/length) if length>1e-6 else (name,0.,0.))
         off_plane=abs(float(frame.normal_distance((0,0,0))))>1e-9
-        signature = (rect.getRect(), heading, tuple(samples), overlay("label"),origin,tuple(axes),off_plane)
+        foreground,background=self._label_colors()
+        signature = (rect.getRect(), heading, tuple(samples), foreground.rgba(),background.rgba(),origin,tuple(axes),off_plane)
         if signature != self._signature:
             self._signature = signature
             self.samples = tuple(samples)
@@ -115,13 +113,20 @@ class SketchCoordinates(QWidget):
         self.show()
         self.raise_()
 
+    def _label_colors(self):
+        # The native window palette can stay dark while the canvas is light
+        # (and user-selected canvas colours can differ from the app theme).
+        # Choose the text and its backing together from the actual canvas.
+        background=QColor(self.viewport.canvas.bg)
+        foreground=QColor('#e4edfa' if background.lightness()<128 else '#17365d')
+        background.setAlpha(245)
+        return foreground,background
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setFont(self.font())
         metrics = painter.fontMetrics()
-        foreground = QColor(overlay("label"))
-        background = self.viewport.widget.palette().window().color()
-        background.setAlpha(235)
+        foreground,background=self._label_colors()
         occupied = []
 
         origin=self.global_origin

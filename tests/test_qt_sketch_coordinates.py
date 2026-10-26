@@ -22,6 +22,40 @@ def numbers(sample):
     return np.array([float(item.split("=")[1]) for item in sample[3].split()])
 
 
+def test_label_contrast_tracks_canvas_even_with_opposite_native_palette(window,qapp):
+    from PySide6.QtGui import QColor,QPalette
+    from anyfem.ui.qt import theme
+    from test_qt_legend_contrast import luminance
+    panel=enter_sketch(window,qapp)
+    viewport=window.viewport;ruler=viewport._sketch_coordinates
+    original_theme=theme.is_dark();original_palette=viewport.widget.palette()
+    try:
+        for dark in (False,True,False):
+            theme.set_dark(window,dark,persist=False)
+            palette=viewport.widget.palette()
+            palette.setColor(QPalette.Window,QColor('white' if dark else '#202020'))
+            viewport.widget.setPalette(palette)
+            qapp.processEvents();ruler.sync()
+            image=ruler.grab().toImage()
+            ratio=image.devicePixelRatio()
+            background=image.pixelColor(round(10*ratio),round(10*ratio))
+            foreground,_=ruler._label_colors()
+            values=sorted((luminance(background.getRgb()[:3]),luminance(foreground.getRgb()[:3])))
+            assert (values[1]+.05)/(values[0]+.05)>=7
+            assert background.lightness()<80 if dark else background.lightness()>230
+            assert foreground.lightness()>180 if dark else foreground.lightness()<90
+            # Confirm this is painted text, rather than just contrasting helpers.
+            rgb=np.array(foreground.getRgb()[:3])
+            pixels=[image.pixelColor(x,y).getRgb()[:3] for x in range(round(14*ratio),round(130*ratio)) for y in range(round(12*ratio),round(27*ratio))]
+            assert np.min(np.linalg.norm(np.asarray(pixels)-rgb,axis=1))<20
+            if os.environ.get('ANYFEM_SKETCH_CONTRAST_IMAGES')=='1':
+                image.save('C:/ANYworkspaceWork/sketch-label-'+('dark' if dark else 'light')+'-20261026.png')
+    finally:
+        viewport.widget.setPalette(original_palette)
+        theme.set_dark(window,original_theme,persist=False)
+        panel.cancel()
+
+
 def assert_tick_positions(window):
     viewport = window.viewport
     ruler = viewport._sketch_coordinates

@@ -133,6 +133,7 @@ class Project:
     artifacts: Dict[str, ArtifactRef] = field(default_factory=dict)
     # Submodel definitions and runs (``anyfem.model.submodels``).  Outside the
     # numerical model hash: adding or editing one stales no job of this model.
+    presentation: Dict[str, Any] = field(default_factory=dict)
     submodels: Dict[str, Any] = field(default_factory=dict)
     submodel_runs: Dict[str, Any] = field(default_factory=dict)
     target_size: float | None = None
@@ -2273,7 +2274,7 @@ class Project:
                 raise ProjectError(f"structural preparation failed: {error}") from None
             preparation.source_edge_paths = source_edge_paths(closure)
             preparation.source_to_working = source_work_mapping(closure, edge_paths=preparation.source_edge_paths)
-            self._mesh_preparation_cache = (
+            pending_mesh_preparation_cache = (
                 cache_key,
                 replace(closure, working_model=(
                     clone_prepared_geometry(working)
@@ -2281,7 +2282,6 @@ class Project:
                     working.clone(preserve_identity=True))),
                 deepcopy(preparation),
             )
-            self._mesh_preparation_qualification = qualification
         preparation.source_to_working = source_work_mapping(closure, edge_paths=preparation.source_edge_paths)
 
         def descendants(kind: str, identifier: int) -> tuple[EntityRef, ...]:
@@ -2725,6 +2725,11 @@ class Project:
                 preparation_payload["structured_layout"] = dict(
                     structured_layout
                 )
+        # A rejected/cancelled mesh must not replace the previous reusable
+        # preparation or its source-publication receipt.
+        if not cache_hit:
+            self._mesh_preparation_cache = pending_mesh_preparation_cache
+            self._mesh_preparation_qualification = qualification
         self._last_mesh_preparation = preparation_payload
         return mesh
 

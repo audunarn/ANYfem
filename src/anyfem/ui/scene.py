@@ -181,8 +181,12 @@ class FacePatch:
     grouped_pick: bool = False
     # Optional display-polygon groups suppress artificial tessellation edges.
     outline_groups: Optional[List[object]] = None
+    # Exact canonical connectivity in each display polygon vertex order.
+    polygon_node_ids: Optional[List[tuple[int, ...]]] = None
 
     def __post_init__(self) -> None:
+        if self.polygon_node_ids is not None and (len(self.polygon_node_ids)!=len(self.polygons) or any(len(ids)!=len(polygon) for ids,polygon in zip(self.polygon_node_ids,self.polygons))):
+            raise ValueError("polygon_node_ids must match every polygon vertex")
         if self.outline_groups is not None and len(self.outline_groups) != len(self.polygons):
             raise ValueError("outline_groups must have one entry per face polygon")
         if self.polygon_visibility_owners is not None and len(self.polygon_visibility_owners) != len(self.polygons):
@@ -221,6 +225,7 @@ class Polyline:
     draw_overlay: bool = False
     # Display annotations can share geometric owners without being model axes.
     annotation: bool = False
+    point_node_ids: Optional[tuple[int, ...]] = None
 
     @property
     def tag(self) -> str:
@@ -1262,6 +1267,7 @@ def build_result_scene(
                     polygons=polygons,
                     colors=colors,
                     outline="",
+                    polygon_node_ids=[tuple(int(node) for node in mesh.corners_of(element_id)) for element_id in rendered_ids],
                     polygon_owners=[
                         tuple(
                             owner
@@ -1334,6 +1340,7 @@ def build_result_scene(
                     width=1 if rendered_section else 4,
                     draw_overlay=True,
                     owners=owners,
+                    point_node_ids=tuple(int(node) for node in beam_nodes),
                 )
             )
 
@@ -2208,9 +2215,9 @@ def _wet_pressure_samples(project, geometry, case, mesh):
             except Exception:  # an undisplayable plate is reported by validation
                 continue
             try:
-                if load.kind != "mapping":
+                if load.kind not in {'mapping','history'}:
                     magnitude = field_pressure(case, load, np.array(points))
-                elif load.mapping_key == "face":
+                elif load.kind=='mapping' and load.mapping_key == "face":
                     magnitude = load.scale * np.full(
                         len(points), load.mapping.get(surface.ref.id, 0.0)
                     )

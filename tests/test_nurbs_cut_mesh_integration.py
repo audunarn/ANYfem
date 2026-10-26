@@ -119,7 +119,7 @@ def _assert_closed_joint_graph(mesh, expected_incidence):
     return joint
 
 
-def test_principal_public_cut_and_default_project_mesh(approximation_error):
+def _assigned_principal_project():
     project = principal_project()
     geometry = project.geometry
     assert len(geometry.faces) == 5
@@ -134,6 +134,11 @@ def test_principal_public_cut_and_default_project_mesh(approximation_error):
     before = geometry_to_dict(geometry)
     assignments = deepcopy(project.section_assignments)
     sections = dict(project.face_sections)
+    return project, geometry, plate, walls, before, assignments, sections
+
+
+def test_principal_public_cut_preview_topology_material_and_sheet_uses():
+    project, geometry, plate, walls, before, assignments, sections = _assigned_principal_project()
     preview = geometry.clone(include_features=False)
     application = apply_intersections(preview,
         plan_intersections(preview, tuple(preview.handle('face', face) for face in preview.faces),
@@ -157,6 +162,13 @@ def test_principal_public_cut_and_default_project_mesh(approximation_error):
         actual = {preview.face_uses[use].face_id for use in preview.sheets[sheet].face_use_ids}
         assert actual == expected
     assert not preview.validate_topology()
+    assert geometry_to_dict(geometry) == before
+    assert project.section_assignments == assignments and project.face_sections == sections
+
+
+def test_principal_public_cut_and_default_project_mesh(approximation_error):
+    # Fresh source Project: its public mesh route performs its own preparation.
+    project, geometry, plate, walls, before, assignments, sections = _assigned_principal_project()
     mesh = project.generate_mesh(.25, strategy='quad_first', order='linear',
         certification_mode='interactive', geometry_approximation_error=approximation_error)
     _assert_mesh_assignment_and_admission(project, mesh, before, assignments)

@@ -44,6 +44,7 @@ class SelectionVisibility:
                 ref = next(iter(owners), None)
             result.faces.append(replace(patch, ref=ref, owners=owners,
                 polygons=[patch.polygons[i] for i in keep],
+                polygon_node_ids=None if patch.polygon_node_ids is None else [patch.polygon_node_ids[i] for i in keep],
                 colors=[patch.colors[i] for i in keep], polygon_owners=polygon_owners,
                 polygon_visibility_owners=visibility_owners,
                 outline_groups=None if patch.outline_groups is None else [patch.outline_groups[i] for i in keep]))

@@ -200,7 +200,7 @@ def test_production_qt_gif_capture_waits_for_field_publication():
     app=SimpleNamespace(_closing=False,session=session,active_job_id="job",
         viewport=SimpleNamespace(canvas=SimpleNamespace(capture_image=lambda:images.append("actual") or "frame")),
         scheduler=SimpleNamespace(call_later=lambda delay,callback:queued.append(callback)))
-    state=dict(session=session,job="job",count=2,index=0,images=[])
+    state=dict(session=session,job="job",count=2,index=0,frames=(0,1),images=[])
     panel=SimpleNamespace(_gif_capture=state,app=app,_set_frame_index=lambda index:None,
         show_results=lambda **kwargs:callbacks.append(kwargs["on_ready"]),_capture_gif_frame=lambda:None)
     ResultsTask._capture_gif_frame(panel)
