@@ -3,9 +3,11 @@
 Snapshot: 2026-10-27, baseline `e243c3ebe888a7f09e1e8d80aa6c3f05910faf69`.
 This is a bounded repository/distribution assessment, **not a legal opinion,
 chain-of-title certification or approval to convey a proprietary build**.
-Full local evidence is retained at `C:/Github/licensing-evidence-20261027/`:
-`audit-snapshot.json`, `audit-summary.txt`, `audit-context.md`, `pypi-anyfem.json`.
-The portable findings below do not depend on access to that workstation.
+Full source/registry snapshots and the private product-integration trace are
+retained in the task evidence archive (`audit-snapshot.json`, `audit-summary.txt`,
+`audit-context.md`, `pypi-anyfem.json`). The portable findings below do not depend
+on workstation paths. This public summary names the requested product and public
+ANYfem APIs; exact private checkout identities remain in the task evidence.
 The downloaded public 0.4.1 wheel/sdist matched registry hashes and each declares
 MPL-2.0 in its package metadata, independently confirming the published boundary.
 
@@ -24,6 +26,7 @@ legal assignments or proof that all copyright vests in the named maintainer.
 | Narrative docs | CC BY 4.0 notice retained; embedded source uses GPL | Quoted standards/figures/reference descriptions retain external rights |
 | Result JSON/logs and historical patches | 12 JSON includes dependency inventory, mesher pin inventory, UI manifest and 9 submodelling result files; historical logs/patches retained | Preserve lineage; distinguish program-generated facts from copied protected content; no blanket new asset commercialization grant |
 | Images/fonts/CAD/mesh/binary data | No tracked image/font/CAD/mesh binary file found in baseline extension inventory | Does not exclude external assets, embedded material or runtime-generated/customer assets |
+| Published example dimensions / standards references | `src/anyfem/application/examples.py:34` cites a Damen Stan Pontoon product page; `src/anyfem/verification.py` names a DNV-RP-C208 yield-stress reference | Public dimensions, independently coded examples and external expressive material need different treatment; no permission to copy Damen drawings/images or DNV standards is inferred, and no endorsement is claimed |
 | Portable copied control extracts | `tools/prepared_candidate_controls/reviewed_geometry_driver_extract.py` identifies original driver and SHA-256 `54149b83d7232e33a796a8ae19c18b201debc2ef7b32519be29ec17853387b40`; supervisor helper extract identifies reviewed in-repository helpers | Establish original source rights rather than treating extract comments as assignment; proposal helper also needs title review |
 | Vendor/generated sources | No tracked vendor directory or separate third-party copyright notice identified by the bounded scan | This is not a plagiarism scan or evidence of absence; investigate uncertain provenance before an alternative grant |
 
@@ -70,18 +73,15 @@ content and need their applicable notices where relevant.
 
 ## ANYworkbenchAI assessment (no sibling changes)
 
-The requested product is in local repository `ANYworkspaceAI`, observed HEAD
-`26b097a9c31f757bc51c1308234c9a129390bf2f`. Its
-`engine/pyproject.toml:26` pins ANYfem
-`6fd5dd4f50fbd50c68abb31de80038f97392888e`, whose metadata is version 0.4.2,
-**MPL-2.0**, not GPL main. Prior grants on that pin survive this migration.
+The inspected ANYworkbenchAI engine pins an earlier ANYfem source commit whose
+metadata is version 0.4.2, **MPL-2.0**, not GPL main. The exact pin, private
+checkout identity and import locations are recorded in the task evidence.
+Prior grants on that pin survive this migration.
 
-`engine/src/anyengine/fem_document.py` imports `DocumentSession`, `Project` and
-`WorkbenchController`; `analysis_jobs.py` imports the job API, and capabilities
-import model/io/commands. These are direct Python imports in the engine.
-`workbench/src/ANYworkbenchAI.Core/EngineProcess.cs` launches a Python process
-importing `anyengine.host`; the Avalonia/.NET UI communicates over IPC. Thus a
-process boundary exists at UI/engine, **not between anyengine and ANYfem**.
+The engine directly imports ANYfem `DocumentSession`, `Project`,
+`WorkbenchController`, `AnalysisDefinition` and `JobManager`, plus public model,
+IO and command APIs. The frontend communicates with that Python engine over IPC. Thus a
+process boundary exists at UI/engine, **not between the engine and ANYfem**.
 
 For an upgrade to new GPL ANYfem in a proprietary engine, evaluate the combined
 work and distribution with counsel. The intended alternative route is an executed

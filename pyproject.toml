@@ -17,10 +17,7 @@ license-files = [
   "docs/LICENSE.md",
   "SOURCE_LICENSES.md",
   "DEPENDENCY_NOTICES.md",
-  "docs/COMMERCIAL_LICENSING.md",
-  "docs/LICENSING_TRANSITION.md",
-  "docs/LICENSING_AUDIT.md",
-  "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md",
+  "source-license-exceptions.json",
 ]
 authors = [
   { name = "Audun Arnesen Nyhus", email = "audunarn@gmail.com" },

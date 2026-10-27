@@ -102,6 +102,9 @@ and shipment review. Defer C until demand and a defensible boundary exist.
 
 GPL provides a compliance basis for distributed covered derivatives; it is not
 a ban on competition, commercial use, private modifications or old MPL forks.
+GPLv3 also does not generally trigger corresponding-source obligations merely
+because someone runs a modified service over a network without conveying copies.
+An AGPL change would be a separate licensing decision, not part of this task.
 Detection and enforcement require rights evidence, actual distribution evidence,
 technical/legal assessment and proportionate counsel-led action. Do not forecast
 income from license choice alone. Enterprise adoption depends on stability,

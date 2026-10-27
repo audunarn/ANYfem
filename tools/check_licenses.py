@@ -24,10 +24,7 @@ EXPECTED_LICENSE_FILES = [
     "docs/LICENSE.md",
     "SOURCE_LICENSES.md",
     "DEPENDENCY_NOTICES.md",
-    "docs/COMMERCIAL_LICENSING.md",
-    "docs/LICENSING_TRANSITION.md",
-    "docs/LICENSING_AUDIT.md",
-    "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md",
+    "source-license-exceptions.json",
 ]
 GPL_NORMALIZED_SHA256 = (
     "FB981668C18A279E285FC4D83FBA1E836CC84DD4DAA73C9697D3CFD2D8ACA6E0"
@@ -80,30 +77,87 @@ def _fail(message: str) -> None:
     raise SystemExit(f"license check failed: {message}")
 
 
+def _source_exceptions() -> dict[str, dict[str, str]]:
+    data = json.loads((ROOT / "source-license-exceptions.json").read_text(encoding="utf-8"))
+    if data.get("schema") != "anyfem.source-license-exceptions-v1":
+        _fail("unknown source exception schema")
+    if not isinstance(data.get("exceptions"), list):
+        _fail("source exception list is missing")
+    exceptions = {}
+    for row in data.get("exceptions", []):
+        if not isinstance(row, dict):
+            _fail("malformed source exception")
+        path = row.get("path", "")
+        if not path or path.startswith(("/", "\\")) or ".." in Path(path).parts or ":" in path or "\\" in path:
+            _fail("unsafe source exception path")
+        if path in exceptions or not all(row.get(key) for key in ("license", "sha256", "provenance", "review")):
+            _fail("incomplete or duplicate source exception")
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", row["sha256"]):
+            _fail("invalid source exception SHA-256")
+        if row.get("commercial_eligibility") != "excluded-pending-separate-clearance":
+            _fail("source exception must preserve commercial exclusion")
+        if row["license"] not in ALLOWED_EXPRESSIONS | {"LGPL-3.0-only"}:
+            _fail("source exception requires a reviewed compatible license")
+        exceptions[path] = row
+    return exceptions
+
+
 def check_source_text(name: str, text: str) -> None:
     """Refuse contradictory explicit source headers; absent headers inherit scope."""
+    exception = _source_exceptions().get(name.replace("\\", "/"))
+    expected = EXPECTED_LICENSE
+    if exception:
+        digest = hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+        if digest != exception["sha256"].lower():
+            _fail(f"{name}: source exception hash changed; review required")
+        expected = exception["license"]
     for expression in re.findall(
-        r"^\s*#\s*SPDX-License-Identifier:\s*([^\r\n]+)", text, re.MULTILINE
+        r"^\s*(?:#|//|/\*|\*|<!--|\"\"\"|''')?\s*SPDX-License-Identifier:\s*([^\r\n]+)", text, re.MULTILINE
     ):
-        if expression.strip() != EXPECTED_LICENSE:
+        expression = expression.strip().removesuffix("-->").removesuffix("*/").removesuffix('"""').removesuffix("'''").strip()
+        if expression != expected:
             _fail(f"{name}: conflicting source SPDX {expression.strip()!r}")
+    if "Mozilla Public License" in "\n".join(text.splitlines()[:12]) and expected != "MPL-2.0":
+        _fail(f"{name}: MPL source boilerplate requires a reviewed exception")
 
 
 def _check_source_scope() -> None:
     if (ROOT / ".git").exists():
         result = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--cached"],
             check=True, capture_output=True,
         )
         paths = [ROOT / p for p in result.stdout.decode("utf-8").split("\0") if p]
     else:
         # An extracted sdist has no Git metadata. Limit scanning to delivered code.
-        paths = [p for directory in ("src", "tools", "tests")
+        paths = [p for directory in ("src", "tools", "tests", "docs", ".github")
                  for p in (ROOT / directory).rglob("*") if p.is_file()]
         paths.extend(p for p in ROOT.iterdir() if p.is_file())
     for path in paths:
-        if path.suffix in {".py", ".sh", ".yml", ".yaml", ".toml", ".in"}:
-            check_source_text(str(path.relative_to(ROOT)), path.read_text(encoding="utf-8"))
+        if path.suffix in {".py", ".sh", ".yml", ".yaml", ".toml", ".in", ".cfg", ".bat", ".ps1", ".js", ".ts", ".css", ".html", ".c", ".h", ".cpp", ".cs", ".rs"} or not path.suffix:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                _fail(f"cannot read tracked source {path.relative_to(ROOT)}: {type(error).__name__}")
+            if path.suffix or text.startswith("#!"):
+                check_source_text(str(path.relative_to(ROOT)), text)
+    source_names = {p.relative_to(ROOT).as_posix() for p in paths}
+    for name in _source_exceptions():
+        if name not in source_names:
+            _fail(f"source exception names an absent/untracked file: {name}")
+
+
+def check_publication(project: dict[str, object]) -> None:
+    """Development builds are allowed; release identity and URLs need clearance."""
+    version = tuple(map(int, str(project["version"]).split(".")))
+    if version <= (0, 4, 2):
+        _fail("GPL publication requires a new version >=0.4.3; 0.4.2 identifies earlier MPL source too")
+    requirements = list(project.get("dependencies", []))
+    for extra, rows in project.get("optional-dependencies", {}).items():
+        if extra != "dev":
+            requirements.extend(rows)
+    if any("@" in requirement for requirement in requirements):
+        _fail("public package metadata contains a direct-URL dependency; resolve the release pin explicitly")
 
 
 def render_dependency_notices(inventory: dict[str, object]) -> str:
@@ -151,7 +205,7 @@ def check_installed_distribution() -> None:
     for member in files:
         name = str(member).replace("\\", "/")
         if name.startswith("anyfem/") and name.endswith(".py"):
-            check_source_text(name, Path(dist.locate_file(member)).read_text(encoding="utf-8"))
+            check_source_text("src/" + name, Path(dist.locate_file(member)).read_text(encoding="utf-8"))
     print("installed distribution license check passed: GPL-3.0-only (no runtime import)")
 
 
@@ -264,7 +318,7 @@ def _check_installed(rows: list[dict[str, object]]) -> None:
             )
 
 
-def check(*, check_installed: bool = False) -> None:
+def check(*, check_installed: bool = False, for_publication: bool = False) -> None:
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = metadata["project"]
     version_match = re.fullmatch(
@@ -276,6 +330,8 @@ def check(*, check_installed: bool = False) -> None:
         _fail("pyproject.toml does not declare GPL-3.0-only")
     if project.get("license-files") != EXPECTED_LICENSE_FILES:
         _fail("pyproject.toml license-files does not match the required set")
+    if for_publication:
+        check_publication(project)
 
     for relative in EXPECTED_LICENSE_FILES:
         if not (ROOT / relative).is_file():
@@ -348,8 +404,13 @@ def check(*, check_installed: bool = False) -> None:
         )
 
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8").lower()
+    notice_rows = {
+        _normalized_name(name.split("/")[0].strip())
+        for name in re.findall(r"^\| ([^|]+) \|", notices, re.MULTILINE)
+        if name.strip() not in {"dependency", "---"}
+    }
     for name,_scope in recorded:
-        if name not in notices:
+        if name not in notice_rows:
             _fail(f"third-party notice is missing {name!r}")
     if check_installed:
         _check_installed(rows)
@@ -358,6 +419,10 @@ def check(*, check_installed: bool = False) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--for-publication", action="store_true",
+        help="also refuse ambiguous release versions and direct-URL runtime/extra requirements",
+    )
     parser.add_argument(
         "--distribution-only", action="store_true",
         help="check installed ANYfem metadata/notices only, without importing runtime",
@@ -369,11 +434,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     if arguments.distribution_only:
-        if arguments.check_installed:
-            parser.error("--distribution-only and --check-installed are mutually exclusive")
+        if arguments.check_installed or arguments.for_publication:
+            parser.error("--distribution-only cannot be combined with source checks")
         check_installed_distribution()
     else:
-        check(check_installed=arguments.check_installed)
+        check(check_installed=arguments.check_installed, for_publication=arguments.for_publication)
     return 0
 
 

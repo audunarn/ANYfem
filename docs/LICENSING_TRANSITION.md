@@ -27,10 +27,8 @@ artifacts were uploaded on 2026-09-17 UTC:
 
 Both artifacts were independently downloaded, their hashes matched the registry,
 and wheel METADATA / sdist PKG-INFO each declare 0.4.1 and MPL-2.0.
-The request's claim that current GitHub main mixes MPL and GPL declarations was
-stale: refreshed main at `e243c3e` already consistently declares GPL-3.0-only.
-The original local `C:/Github/ANYfem` checkout remained at the earlier main commit
-with unrelated uncommitted work; it was preserved rather than reset or relabeled.
+Refreshed main at `e243c3e` consistently declares GPL-3.0-only. Earlier local
+working changes were preserved through a dedicated isolated licensing branch.
 
 ## Earlier rights survive
 
@@ -53,14 +51,20 @@ title verification or clearance of a particular binary shipment.
 Run `python tools/check_licenses.py` for source declarations, source SPDX conflicts,
 generated dependency notices and the exact direct-dependency inventory. Source
 headers are optional under the repository scope notice, but a conflicting source
-header is refused. Historical narrative/evidence isn't rewritten to eliminate old
+header without a hash-bound reviewed exception is refused. The Git-mode scan
+uses tracked source only, excluding independently checked-out dependency repos.
+Historical narrative/evidence isn't rewritten to eliminate old
 MPL mentions. New exceptions require a reviewed notice rather than blanket relabeling.
 
 Run `python -m pytest tests/test_license_policy.py tests/test_licensing_artifacts.py`
 for focused acceptance/refusal checks, `python -m build`,
 `python tools/check_release_artifacts.py dist`, and `python -m twine check dist/*`.
 The artifact gate compares source notices and metadata to built wheel/sdist,
-checks packaged source declarations and includes commercial-policy/draft warnings.
+checks packaged source declarations. Wheels contain licensing notices, not the
+audit, strategy or draft term sheet as `License-File` metadata. Those documents
+remain narrative source/sdist documentation; source checks verify the policy's
+no-grant statement and the draft warning. No automated wording check substitutes
+for legal review of a contract.
 Build from the sdist too; do not only validate the checkout-built wheel.
 
 Install the resulting wheel into a fresh environment, then run
@@ -74,5 +78,11 @@ Before an installer/OEM shipment, resolve the exact dependency graph and native
 components, preserve complete notices and corresponding-source access, and review
 Qt replacement/relinking/install-information obligations as applicable. A wheel
 that contains only ANYfem source does not clear a future frozen GUI executable.
-Do not reuse the unchanged 0.4.2 version to overwrite a prior public artifact;
-choose the next release/version under the governing release policy when authorized.
+Publication uses `python tools/check_licenses.py --for-publication`, which refuses
+the unchanged 0.4.2 version: both MPL source and GPL development currently identify
+as 0.4.2. Select a new version at least 0.4.3 under the governing patch-only policy
+before any release. It also refuses the existing direct-URL ANYgeometry `gui`
+requirement, which is accepted by development pip installations but unsuitable
+for public PyPI package metadata. Replace that pin only through an authorized,
+compatibility-verified release decision. Neither hold blocks source development
+or grants permission to publish; `twine check` alone does not clear these holds.

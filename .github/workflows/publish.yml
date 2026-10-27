@@ -44,9 +44,11 @@ jobs:
               )
           PY
       - name: Install release tooling
-        run: python -m pip install --upgrade build twine
+        run: python -m pip install --upgrade build twine pytest
       - name: Check source and dependency licensing
-        run: python tools/check_licenses.py
+        run: python tools/check_licenses.py --for-publication
+      - name: Test licensing acceptance and refusal paths
+        run: python -m pytest tests/test_license_policy.py tests/test_licensing_artifacts.py -q
       - name: Verify published dependency resolution
         run: python -m pip install --dry-run --ignore-installed ".[gui]"
       - name: Build wheel and source distribution

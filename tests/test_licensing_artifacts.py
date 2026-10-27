@@ -3,8 +3,10 @@
 from email.message import Message
 from io import BytesIO
 import json
+import hashlib
 from pathlib import Path
 import shutil
+import subprocess
 import tarfile
 import zipfile
 
@@ -17,7 +19,7 @@ from tools import check_release_artifacts as artifacts
 @pytest.fixture
 def source(tmp_path, monkeypatch):
     root = licenses.ROOT
-    for relative in {*licenses.EXPECTED_LICENSE_FILES, "README.md", "pyproject.toml"}:
+    for relative in {*licenses.EXPECTED_LICENSE_FILES, "README.md", "pyproject.toml", "docs/COMMERCIAL_LICENSING.md", "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md"}:
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root / relative, target)
@@ -40,7 +42,7 @@ def _metadata():
 def _wheel(path, *, edit=None):
     root = f"anyfem-{artifacts.VERSION}.dist-info"
     content = {root + "/METADATA": _metadata().as_bytes(),
-               "anyfem/__init__.py": b"# SPDX-License-Identifier: GPL-3.0-only\n"}
+               "anyfem/__init__.py": (licenses.ROOT / "src/anyfem/__init__.py").read_bytes()}
     for relative in licenses.EXPECTED_LICENSE_FILES:
         content[root + "/licenses/" + relative] = (licenses.ROOT / relative).read_bytes()
     if edit:
@@ -123,9 +125,9 @@ def test_wheel_altered_license_is_refused(tmp_path):
         artifacts._check_wheel(_wheel(tmp_path / "bad.whl", edit=alter))
 
 
-def test_wheel_missing_commercial_policy_is_refused(tmp_path):
+def test_wheel_missing_scope_policy_is_refused(tmp_path):
     def alter(content, root):
-        del content[root + "/licenses/docs/COMMERCIAL_LICENSING.md"]
+        del content[root + "/licenses/SOURCE_LICENSES.md"]
     with pytest.raises(SystemExit, match="missing"):
         artifacts._check_wheel(_wheel(tmp_path / "bad.whl", edit=alter))
 
@@ -178,3 +180,117 @@ def test_installed_distribution_notices_and_mutation(tmp_path, monkeypatch):
     (folder / "LICENSE").write_text("mutated", encoding="utf-8")
     with pytest.raises(SystemExit, match="installed notice differs"):
         licenses.check_installed_distribution()
+
+
+def test_git_scan_ignores_untracked_dependency_checkout_and_checks_tracked_source(source):
+    subprocess.run(["git", "init", str(source)], check=True, capture_output=True)
+    code = source / "src/anyfem/module.py"
+    code.parent.mkdir(parents=True)
+    code.write_text("# SPDX-License-Identifier: GPL-3.0-only\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(source), "add", "src"], check=True, capture_output=True)
+    dependency = source / ".ecosystem/viewer/module.py"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("# SPDX-License-Identifier: MPL-2.0\n", encoding="utf-8")
+    licenses.check()
+    code.write_text("# SPDX-License-Identifier: MPL-2.0\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="conflicting source SPDX"):
+        licenses.check()
+
+
+def test_no_git_nested_source_and_reviewed_exception(source):
+    text = "# SPDX-License-Identifier: MIT\n"
+    path = source / "src/anyfem/third_party_example.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(SystemExit, match="conflicting source SPDX"):
+        licenses.check()
+    row = {"path": "src/anyfem/third_party_example.py", "license": "MIT",
+           "sha256": hashlib.sha256(text.encode()).hexdigest(),
+           "provenance": "test-only upstream", "review": "test-only review",
+           "commercial_eligibility": "excluded-pending-separate-clearance"}
+    (source / "source-license-exceptions.json").write_text(json.dumps({"schema":"anyfem.source-license-exceptions-v1", "exceptions":[row]}), encoding="utf-8")
+    licenses.check()
+    path.write_text(text + "# changed\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="hash changed"):
+        licenses.check()
+
+
+@pytest.mark.parametrize("prefix,suffix", [('"""', '"""'), ('// ', ''), ('<!-- ', ' -->')])
+def test_non_hash_spdx_is_refused(prefix, suffix):
+    with pytest.raises(SystemExit, match="conflicting source SPDX"):
+        licenses.check_source_text("test.py", prefix + "SPDX-License-Identifier: MPL-2.0" + suffix)
+
+
+def test_mpl_boilerplate_is_refused():
+    with pytest.raises(SystemExit, match="MPL source boilerplate"):
+        licenses.check_source_text("test.py", '# This Source Code Form is subject to the terms of the Mozilla Public License\n')
+
+
+def test_notice_table_cannot_be_satisfied_by_prose(source):
+    path = source / "THIRD_PARTY_NOTICES.md"
+    text = path.read_text(encoding="utf-8")
+    path.write_text("\n".join(line for line in text.splitlines() if not line.startswith("| build |")) + "\nbuild is still mentioned\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="missing 'build'"):
+        licenses.check()
+
+
+@pytest.mark.parametrize("name", ["vendor/module.py", "anyfem/extra.dll"])
+def test_wheel_unreviewed_vendoring_is_refused(tmp_path, name):
+    def alter(content, root):
+        content[name] = b"unreviewed binary or package"
+    with pytest.raises(SystemExit, match="unexpected bundled|unreviewed bundled"):
+        artifacts._check_wheel(_wheel(tmp_path / "bad.whl", edit=alter))
+
+
+def test_release_identity_and_direct_url_holds():
+    with pytest.raises(SystemExit, match="new version"):
+        licenses.check_publication({"version":"0.4.2"})
+    with pytest.raises(SystemExit, match="direct-URL"):
+        licenses.check_publication({"version":"0.4.3", "optional-dependencies":{"gui":["ANYgeometry @ git+https://example.com@abc"]}})
+    licenses.check_publication({"version":"0.4.3", "dependencies":["ANYgeometry>=0.4.3,<0.5"]})
+
+
+@pytest.mark.parametrize("field,value,error", [
+    ("license_expression", "AGPL-3.0-only", "review-required"),
+    ("bundled", True, "not bundled"),
+    ("requirement", "ANY3dView>=99", "inventory mismatch"),
+])
+def test_inventory_refusals_remain_strict(source, field, value, error):
+    path = source / "dependency-licenses.json"
+    inventory = json.loads(path.read_text(encoding="utf-8"))
+    inventory["dependencies"][0][field] = value
+    path.write_text(json.dumps(inventory, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    (source / "DEPENDENCY_NOTICES.md").write_text(licenses.render_dependency_notices(inventory), encoding="utf-8")
+    with pytest.raises(SystemExit, match=error):
+        licenses.check()
+
+
+def test_noncanonical_inventory_is_refused(source):
+    path = source / "dependency-licenses.json"
+    path.write_text(json.dumps(json.loads(path.read_text(encoding="utf-8"))), encoding="utf-8")
+    with pytest.raises(SystemExit, match="canonical sorted JSON"):
+        licenses.check()
+
+
+def test_unreviewed_qt_gpl_route_is_not_aliased_to_lgpl(monkeypatch):
+    class Installed:
+        metadata = {"License-Expression": "GPL-3.0-only"}
+    monkeypatch.setattr(licenses.importlib_metadata, "distribution", lambda name: Installed())
+    with pytest.raises(SystemExit, match="review-required license"):
+        licenses._check_installed([{"name":"PySide6", "scope":"optional:qt"}])
+
+
+def test_wheel_traversal_is_refused(tmp_path):
+    def alter(content, root):
+        content["../escape.py"] = b"x"
+    with pytest.raises(SystemExit, match="unsafe path"):
+        artifacts._check_wheel(_wheel(tmp_path / "bad.whl", edit=alter))
+
+
+def test_wheel_duplicate_metadata_is_refused(tmp_path):
+    path = _wheel(tmp_path / "bad.whl")
+    with zipfile.ZipFile(path, "a") as archive:
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            archive.writestr(f"anyfem-{artifacts.VERSION}.dist-info/METADATA", _metadata().as_bytes())
+    with pytest.raises(SystemExit, match="duplicate archive members"):
+        artifacts._check_wheel(path)

@@ -74,6 +74,12 @@ def _check_wheel(path: Path) -> None:
         if len(metadata_names) != 1:
             _fail(f"{path.name} has {len(metadata_names)} METADATA files")
         metadata_name = metadata_names[0]
+        metadata_root = str(PurePosixPath(metadata_name).parent) + "/"
+        for name in names:
+            if not (name.startswith("anyfem/") or name.startswith(metadata_root)):
+                _fail(f"{path.name} contains unexpected bundled package/path {name!r}")
+            if PurePosixPath(name).suffix.lower() in {".dll", ".so", ".pyd", ".dylib", ".exe", ".whl", ".zip", ".a", ".lib"}:
+                _fail(f"{path.name} contains an unreviewed bundled binary {name!r}")
         _check_metadata(archive.read(metadata_name), path)
         license_root = PurePosixPath(metadata_name).parent / "licenses"
         for relative in LICENSE_FILES:
@@ -83,7 +89,11 @@ def _check_wheel(path: Path) -> None:
             _check_notice(relative, archive.read(member), path)
         for name in names:
             if name.startswith("anyfem/") and name.endswith(".py"):
-                check_source_text(name, archive.read(name).decode("utf-8"))
+                text = archive.read(name).decode("utf-8")
+                check_source_text("src/" + name, text)
+                source = ROOT / "src" / name
+                if not source.is_file() or text.replace("\r\n", "\n") != source.read_text(encoding="utf-8"):
+                    _fail(f"{path.name} package source differs from checkout: {name}")
 
 
 def _check_sdist(path: Path) -> None:
@@ -116,7 +126,7 @@ def _check_sdist(path: Path) -> None:
             _fail(f"{path.name} has inconsistent pyproject license-files")
         for member in members:
             if member.isfile() and PurePosixPath(member.name).suffix in {".py", ".sh", ".yml", ".yaml", ".toml", ".in"}:
-                check_source_text(member.name, archive.extractfile(member).read().decode("utf-8"))
+                check_source_text(str(PurePosixPath(member.name).relative_to(root)), archive.extractfile(member).read().decode("utf-8"))
 
 
 def check(directory: Path) -> None:

@@ -38,6 +38,40 @@ Audit evidence: `C:/Github/licensing-evidence-20261027/audit-snapshot.json`,
 `audit-summary.txt`, `audit-context.md`, `pypi-anyfem.json`. Original dirty checkout
 and earlier GPL worktree remain untouched. Baseline has 641 tracked files.
 
-Status: implementation complete; source check and 24 focused tests passed.
-Fresh checkout, builds, installed-distribution checks and independent review in progress.
-Final validation/review results will be recorded here before handoff.
+## Verification and review checkpoint
+
+Implementation is complete. Source consistency passed for GPL-3.0-only and 22
+direct dependencies. `C:/Python/Python314/python.exe -m pytest
+tests/test_license_policy.py tests/test_licensing_artifacts.py -q` passed **41
+tests, 0 failures** after review-driven repairs. An initial fresh checkout at
+`dd76958` passed 24 then-current tests, wheel/sdist build, metadata/artifact checks,
+isolated no-dependency installation and an sdist-to-wheel rebuild. Final revised
+artifact verification is recorded per candidate in the external evidence archive.
+
+Independent review: two subscription-only Claude Sonnet 5.5 high-effort Read
+reviews completed with actual successful Read calls and no edits/commands. The
+follow-up found **no blocker to delivered source**. Findings were reconciled:
+licensing-only wheel notices, scoped tracked-source scanning, hash-bound source
+exceptions, source/notice/vendoring refusals, actual human notice rows and release
+holds. Public audit wording was corrected after follow-up; unsupported future
+license/header styles and title/binary clearance remain explicit limitations.
+No review is a legal opinion or approval of an OEM grant.
+
+Evidence: `C:/Github/licensing-evidence-20261027/` contains both reviews,
+`review-disposition.md`, initial and final check commands, candidate identity,
+process-wall timing, exit/cleanup receipts, complete outputs and built artifacts.
+The first sandboxed Edit attempt made zero edits and failed DNS; its failure
+evidence is preserved. Python's optional pyreadline console finalizer emits a
+shutdown OSError in this host; the focused tests finish with exit zero.
+
+Unrun: numerical/GUI/scientific campaigns, supported-platform matrix, complete
+installed dependency release audit and installer qualification. Runtime source
+and behavior are untouched; the sampled environment has missing/out-of-range
+dependencies, so none of those gates is claimed. Workflow YAML syntax is checked
+locally; hosted CI is not claimed green.
+
+Publication check intentionally refuses version 0.4.2; the existing direct-URL
+gui dependency is a second documented release hold. No release/merge, package
+access change, commercial rights grant or sibling modification is authorized.
+Recommend a bounded paid GPL onboarding/support engagement first, and an OEM
+agreement only after a concrete customer and source/deployment rights clearance.

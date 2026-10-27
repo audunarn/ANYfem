@@ -21,7 +21,7 @@ remain governed by the notices shipped by their distributors.
 | build | development | MIT | https://github.com/pypa/build |
 | h5py | runtime | BSD-3-Clause | https://www.h5py.org/ |
 | NumPy | runtime | BSD-3-Clause and bundled-component licenses | https://numpy.org/ |
-| Pillow | optional GUI | HPND | https://python-pillow.github.io/ |
+| Pillow | optional GUI | HPND legacy / MIT-CMU in newer wheels; version-specific | https://python-pillow.github.io/ |
 | PySide6 / Qt | optional GUI | LGPL-3.0-only route | https://doc.qt.io/qtforpython-6/commercial/index.html |
 | platformdirs | runtime | MIT | https://github.com/tox-dev/platformdirs |
 | pytest | development | MIT | https://pytest.org/ |

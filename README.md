@@ -1105,13 +1105,13 @@ the representative workstation used for timing acceptance.
 ## License
 
 As of 2026-10-27, ANYfem source code on this development line is licensed under
-the [GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`).
+the [GNU General Public License, version 3 only](https://github.com/audunarn/ANYfem/blob/main/LICENSE) (`GPL-3.0-only`).
 Earlier published releases retain the license terms that applied when they were
 published, including MPL-2.0 starting with version 0.4.0. This change does not
 retroactively relicense those releases. Original project documentation
-is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
+is licensed separately as described in [docs/LICENSE.md](https://github.com/audunarn/ANYfem/blob/main/docs/LICENSE.md), and
 third-party components retain their own terms as recorded in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](https://github.com/audunarn/ANYfem/blob/main/THIRD_PARTY_NOTICES.md).
 
 Ordinary commercial engineering use of the GPL version does not require payment.
 The rights holder may negotiate a separate commercial license for specifically
@@ -1122,6 +1122,8 @@ cleared owned code; this repository grants no such alternative rights. See the
 [source/documentation scope](SOURCE_LICENSES.md). The
 [sample term sheet](docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md) is
 **NON-OPERATIVE / LEGAL REVIEW REQUIRED**.
+
+## Native archive implementation notes
 
 
 Native archive preparation prefers ANYpost's bounded `metadata_summary()` on its
