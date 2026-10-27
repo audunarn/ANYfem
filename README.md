@@ -1113,6 +1113,16 @@ is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
 third-party components retain their own terms as recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+Ordinary commercial engineering use of the GPL version does not require payment.
+The rights holder may negotiate a separate commercial license for specifically
+cleared owned code; this repository grants no such alternative rights. See the
+[commercial policy](docs/COMMERCIAL_LICENSING.md),
+[historical transition](docs/LICENSING_TRANSITION.md),
+[ownership/dependency audit](docs/LICENSING_AUDIT.md) and
+[source/documentation scope](SOURCE_LICENSES.md). The
+[sample term sheet](docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md) is
+**NON-OPERATIVE / LEGAL REVIEW REQUIRED**.
+
 
 Native archive preparation prefers ANYpost's bounded `metadata_summary()` on its
 I/O worker. Small complete pool-free records remain prefetched; pooled records

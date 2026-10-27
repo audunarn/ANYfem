@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Document optional commercial OEM licensing as a separate, conditional contract
+  (no rights granted), preserve historical MPL and narrative documentation terms,
+  and enforce source, generated notice, wheel/sdist and installed license consistency.
+
 - License: ANYfem source code moves to GNU GPL version 3 only (`GPL-3.0-only`)
   on 2026-10-27. Previously published releases retain their original licenses;
   narrative documentation remains CC BY 4.0 and dependencies retain their own terms.

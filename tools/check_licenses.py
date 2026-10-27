@@ -8,6 +8,7 @@ from importlib import metadata as importlib_metadata
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tomllib
 
@@ -21,6 +22,12 @@ EXPECTED_LICENSE_FILES = [
     "THIRD_PARTY_NOTICES.md",
     "dependency-licenses.json",
     "docs/LICENSE.md",
+    "SOURCE_LICENSES.md",
+    "DEPENDENCY_NOTICES.md",
+    "docs/COMMERCIAL_LICENSING.md",
+    "docs/LICENSING_TRANSITION.md",
+    "docs/LICENSING_AUDIT.md",
+    "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md",
 ]
 GPL_NORMALIZED_SHA256 = (
     "FB981668C18A279E285FC4D83FBA1E836CC84DD4DAA73C9697D3CFD2D8ACA6E0"
@@ -71,6 +78,81 @@ INSTALLED_LICENSE_ALIASES = {
 
 def _fail(message: str) -> None:
     raise SystemExit(f"license check failed: {message}")
+
+
+def check_source_text(name: str, text: str) -> None:
+    """Refuse contradictory explicit source headers; absent headers inherit scope."""
+    for expression in re.findall(
+        r"^\s*#\s*SPDX-License-Identifier:\s*([^\r\n]+)", text, re.MULTILINE
+    ):
+        if expression.strip() != EXPECTED_LICENSE:
+            _fail(f"{name}: conflicting source SPDX {expression.strip()!r}")
+
+
+def _check_source_scope() -> None:
+    if (ROOT / ".git").exists():
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            check=True, capture_output=True,
+        )
+        paths = [ROOT / p for p in result.stdout.decode("utf-8").split("\0") if p]
+    else:
+        # An extracted sdist has no Git metadata. Limit scanning to delivered code.
+        paths = [p for directory in ("src", "tools", "tests")
+                 for p in (ROOT / directory).rglob("*") if p.is_file()]
+        paths.extend(p for p in ROOT.iterdir() if p.is_file())
+    for path in paths:
+        if path.suffix in {".py", ".sh", ".yml", ".yaml", ".toml", ".in"}:
+            check_source_text(str(path.relative_to(ROOT)), path.read_text(encoding="utf-8"))
+
+
+def render_dependency_notices(inventory: dict[str, object]) -> str:
+    """Deterministic notice index, not a substitute for component license texts."""
+    lines = [
+        "# Generated dependency notice index", "",
+        "Generated from `dependency-licenses.json`; do not edit this table by hand.",
+        "Dependencies retain their own terms and are installed separately from the ANYfem wheel.",
+        "This index is not a bundled-component SBOM or a replacement for complete license texts.",
+        "For installers/OEM bundles preserve each actual component's notices, source access",
+        "and applicable replacement/relinking rights. See `THIRD_PARTY_NOTICES.md`.", "",
+        "| Dependency | Scope | Declared license | Upstream |",
+        "|---|---|---|---|",
+    ]
+    for row in inventory["dependencies"]:
+        cells = [str(row[key]) for key in ("name", "scope", "license_expression", "upstream")]
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def check_distribution_metadata(metadata, *, label: str) -> None:
+    if metadata.get_all("License-Expression") != [EXPECTED_LICENSE]:
+        _fail(f"{label}: wrong or duplicate License-Expression")
+    files = metadata.get_all("License-File", [])
+    if sorted(files) != sorted(EXPECTED_LICENSE_FILES):
+        _fail(f"{label}: missing, duplicate or unexpected License-File entries")
+
+
+def check_installed_distribution() -> None:
+    """Check the installed wheel's public notices without importing its runtime."""
+    dist = importlib_metadata.distribution("ANYfem")
+    check_distribution_metadata(dist.metadata, label="installed ANYfem")
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    if dist.version != project["version"]:
+        _fail("installed ANYfem version differs from candidate")
+    files = list(dist.files or [])
+    for relative in EXPECTED_LICENSE_FILES:
+        matches = [f for f in files if str(f).replace("\\", "/").endswith(".dist-info/licenses/" + relative)]
+        if len(matches) != 1:
+            _fail(f"installed ANYfem missing or duplicate notice {relative}")
+        actual = Path(dist.locate_file(matches[0])).read_text(encoding="utf-8")
+        expected = (ROOT / relative).read_text(encoding="utf-8")
+        if actual != expected:
+            _fail(f"installed notice differs from source: {relative}")
+    for member in files:
+        name = str(member).replace("\\", "/")
+        if name.startswith("anyfem/") and name.endswith(".py"):
+            check_source_text(name, Path(dist.locate_file(member)).read_text(encoding="utf-8"))
+    print("installed distribution license check passed: GPL-3.0-only (no runtime import)")
 
 
 def _normalized_name(requirement: str) -> str:
@@ -217,7 +299,24 @@ def check(*, check_installed: bool = False) -> None:
     if "Creative Commons Attribution 4.0" not in documentation:
         _fail("documentation license notice is missing CC BY 4.0")
 
+    notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
+    if "SPDX-License-Identifier: GPL-3.0-only" not in notice:
+        _fail("NOTICE does not declare GPL-3.0-only")
+    scope = (ROOT / "SOURCE_LICENSES.md").read_text(encoding="utf-8")
+    if "GPL-3.0-only" not in scope or "CC BY 4.0" not in scope:
+        _fail("source/documentation scope notice is inconsistent")
+    commercial = (ROOT / "docs/COMMERCIAL_LICENSING.md").read_text(encoding="utf-8")
+    if "No commercial rights are granted by this policy" not in commercial:
+        _fail("commercial policy must not itself grant rights")
+    draft = (ROOT / "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md").read_text(encoding="utf-8")
+    if not draft.startswith("# NON-OPERATIVE / LEGAL REVIEW REQUIRED"):
+        _fail("commercial term sheet lacks its non-operative warning")
+    _check_source_scope()
+
     inventory = _read_inventory()
+    generated = (ROOT / "DEPENDENCY_NOTICES.md").read_text(encoding="utf-8")
+    if generated != render_dependency_notices(inventory):
+        _fail("generated dependency notices drifted from inventory")
     rows = inventory.get("dependencies")
     if not isinstance(rows, list):
         _fail("dependency inventory rows are missing")
@@ -260,12 +359,21 @@ def check(*, check_installed: bool = False) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--distribution-only", action="store_true",
+        help="check installed ANYfem metadata/notices only, without importing runtime",
+    )
+    parser.add_argument(
         "--check-installed",
         action="store_true",
         help="also verify installed direct-dependency license metadata",
     )
     arguments = parser.parse_args(argv)
-    check(check_installed=arguments.check_installed)
+    if arguments.distribution_only:
+        if arguments.check_installed:
+            parser.error("--distribution-only and --check-installed are mutually exclusive")
+        check_installed_distribution()
+    else:
+        check(check_installed=arguments.check_installed)
     return 0
 
 

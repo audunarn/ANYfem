@@ -55,6 +55,11 @@ jobs:
         run: python -m twine check dist/*
       - name: Inspect distribution contents
         run: python tools/check_release_artifacts.py dist
+      - name: Check installed distribution licensing without optional runtime imports
+        run: |
+          python -m venv .license-smoke
+          .license-smoke/bin/python -m pip install --no-deps dist/*.whl
+          .license-smoke/bin/python tools/check_licenses.py --distribution-only
       - name: Store distributions for the publishing job
         uses: actions/upload-artifact@v5
         with:

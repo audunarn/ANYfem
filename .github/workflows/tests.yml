@@ -105,6 +105,9 @@ jobs:
       - name: Check source and installed dependency licensing
         run: python tools/check_licenses.py --check-installed
 
+      - name: Test licensing acceptance and refusal paths
+        run: python -m pytest tests/test_license_policy.py tests/test_licensing_artifacts.py -q
+
       - name: Run the test suite (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a python tools/test_anyfem.py --profile full --out reports/full-suite
@@ -207,4 +210,5 @@ jobs:
           .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
           .wheel-smoke/bin/python -m pip install dist/*.whl
+          .wheel-smoke/bin/python tools/check_licenses.py --distribution-only
           .wheel-smoke/bin/python -c "import anyfem; import anyfem.ui.app; from importlib.metadata import version; assert anyfem.__version__ == version('ANYfem'); print('wheel import OK', anyfem.__version__)"

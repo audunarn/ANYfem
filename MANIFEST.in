@@ -4,9 +4,13 @@ include LICENSE
 include NOTICE
 include THIRD_PARTY_NOTICES.md
 include dependency-licenses.json
+include SOURCE_LICENSES.md
+include DEPENDENCY_NOTICES.md
 include run_gui.py
 include tools/check_licenses.py
 include tools/check_release_artifacts.py
+include tests/test_license_policy.py
+include tests/test_licensing_artifacts.py
 recursive-include docs *.md
 prune reports
 global-exclude __pycache__

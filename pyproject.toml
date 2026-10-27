@@ -15,6 +15,12 @@ license-files = [
   "THIRD_PARTY_NOTICES.md",
   "dependency-licenses.json",
   "docs/LICENSE.md",
+  "SOURCE_LICENSES.md",
+  "DEPENDENCY_NOTICES.md",
+  "docs/COMMERCIAL_LICENSING.md",
+  "docs/LICENSING_TRANSITION.md",
+  "docs/LICENSING_AUDIT.md",
+  "docs/drafts/COMMERCIAL_LICENSE_TERM_SHEET.md",
 ]
 authors = [
   { name = "Audun Arnesen Nyhus", email = "audunarn@gmail.com" },

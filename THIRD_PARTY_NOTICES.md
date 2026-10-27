@@ -32,6 +32,11 @@ remain governed by the notices shipped by their distributors.
 
 The machine-readable companion inventory is
 [`dependency-licenses.json`](dependency-licenses.json).
+The generated per-extra index is [`DEPENDENCY_NOTICES.md`](DEPENDENCY_NOTICES.md).
+Neither inventory substitutes for complete notices of actual shipped binaries.
+ANYfem's optional commercial contracts cover only eligible ANYfem rights; they
+do not relicense these dependencies. See the version-bounded findings and open
+installer/native-runtime obligations in [`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md).
 
 The Qt frontend uses dynamically installed PySide6 and the Qt Core, Gui,
 Widgets and OpenGL modules under their available LGPL route. It does not bundle
