@@ -8,7 +8,7 @@ version = "0.4.2"
 description = "Shell and beam finite-element application with native hybrid meshing, solving and postprocessing"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MPL-2.0"
+license = "GPL-3.0-only"
 license-files = [
   "LICENSE",
   "NOTICE",

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- License: ANYfem source code moves to GNU GPL version 3 only (`GPL-3.0-only`)
+  on 2026-10-27. Previously published releases retain their original licenses;
+  narrative documentation remains CC BY 4.0 and dependencies retain their own terms.
+
 - Larger barge example with detail. `floating_barge_large()` (Examples menu: "Floating barge
   section — 15 m with bulkhead openings…") is the barge at three times the length: 15 m, girders
   every 4 m (X = 0, 4, 8, 12), two transverse bulkheads (X = 5 and 10 m), each with three

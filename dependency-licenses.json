@@ -12,7 +12,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANY3dView",
-      "requirement": "ANY3dView[gpu,qt]>=0.5.6,<0.6",
+      "requirement": "ANY3dView[gpu,qt,webgpu]>=0.5.6,<0.6",
       "scope": "optional:qt",
       "upstream": "https://github.com/audunarn/ANY3dView"
     },
@@ -22,6 +22,14 @@
       "name": "ANY3dView",
       "requirement": "ANY3dView[gpu]>=0.5.6,<0.6",
       "scope": "optional:tk",
+      "upstream": "https://github.com/audunarn/ANY3dView"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANY3dView",
+      "requirement": "ANY3dView[webgpu]>=0.5.6,<0.6",
+      "scope": "optional:webgpu",
       "upstream": "https://github.com/audunarn/ANY3dView"
     },
     {
@@ -186,6 +194,14 @@
     },
     {
       "bundled": false,
+      "license_expression": "HPND",
+      "name": "Pillow",
+      "requirement": "Pillow>=10,<13",
+      "scope": "optional:webgpu",
+      "upstream": "https://python-pillow.github.io/"
+    },
+    {
+      "bundled": false,
       "license_expression": "MIT",
       "name": "platformdirs",
       "requirement": "platformdirs>=4.5,<5",
@@ -206,6 +222,14 @@
       "name": "PySide6",
       "requirement": "PySide6>=6.10.1,<6.11",
       "scope": "optional:qt",
+      "upstream": "https://doc.qt.io/qtforpython-6/commercial/index.html"
+    },
+    {
+      "bundled": false,
+      "license_expression": "LGPL-3.0-only",
+      "name": "PySide6",
+      "requirement": "PySide6>=6.10.1,<6.11",
+      "scope": "optional:webgpu",
       "upstream": "https://doc.qt.io/qtforpython-6/commercial/index.html"
     },
     {
@@ -250,6 +274,6 @@
     }
   ],
   "project": "ANYfem",
-  "project_license": "MPL-2.0",
+  "project_license": "GPL-3.0-only",
   "schema": "anyecosystem.dependency-licenses-v1"
 }

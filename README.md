@@ -1104,9 +1104,11 @@ the representative workstation used for timing acceptance.
 
 ## License
 
-Starting with version 0.4.0, ANYfem source code is licensed under the
-[Mozilla Public License 2.0](LICENSE). Earlier releases retain the license
-terms that applied when they were published. Original project documentation
+As of 2026-10-27, ANYfem source code on this development line is licensed under
+the [GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`).
+Earlier published releases retain the license terms that applied when they were
+published, including MPL-2.0 starting with version 0.4.0. This change does not
+retroactively relicense those releases. Original project documentation
 is licensed separately as described in [docs/LICENSE.md](docs/LICENSE.md), and
 third-party components retain their own terms as recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
