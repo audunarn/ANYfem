@@ -38,6 +38,8 @@ INSTALLED_LICENSE_ALIASES = {
     "pyside6": {"LGPL-3.0-only"},
     "any3dview": {"MPL-2.0"},
     "anyfileio": {"MPL-2.0"},
+    "anyhydro": {"MPL-2.0"},
+    "anystability": {"MPL-2.0"},
     "anygeometry": {"MPL-2.0"},
     "anyloads": {"MPL-2.0"},
     "anymaterial": {"MPL-2.0"},
