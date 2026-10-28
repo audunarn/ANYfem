@@ -71,7 +71,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated Q4/S3 owner laws, same as the headless matrix.
-          ref: d38676977a4f1e66b9a5b751d78972cf440ac080
+          ref: 5cc82571679850533ca1fcbe8ee92f7b70742800
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
