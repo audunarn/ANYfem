@@ -47,6 +47,7 @@ def settle_result_requests(window,qapp):
     def settled():
         loader=getattr(window,"_result_loader",None)
         return ((loader is None or not loader._records)
+                and not getattr(window,"_result_metadata_preparations",None)
                 and not window.panels["Results"]._display_pending
                 and not window._refresh_pending)
     wait_until(qapp,settled)

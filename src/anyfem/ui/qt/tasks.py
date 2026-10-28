@@ -1049,8 +1049,15 @@ class ResultsTask(QWidget):
             if ready is not None:ready()
         on_ready=published
         dataset=self.app.result_datasets.get(self.app.active_job_id)
+        job_id=self.app.active_job_id
+        def metadata_ready():
+            if (self.app.active_job_id!=job_id or self.app.result_datasets.get(job_id) is not dataset
+                    or selection!=self._display_selection()):
+                if on_cancel is not None:on_cancel()
+                return
+            self.show_results(on_ready=on_ready,on_cancel=on_cancel)
         if self.use_retained() and dataset is not None and self.app.prepare_result_dataset(
-                dataset,on_ready=lambda:self.show_results(on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
+                dataset,on_ready=metadata_ready,on_cancel=on_cancel):return
         if self.use_retained():
             dataset=self.app.result_datasets.get(self.app.active_job_id)
             component=self.component.text().strip() or None
