@@ -58,6 +58,11 @@ class LoadTask(CommandEditor):
         self.wave_button.setObjectName('HydrodynamicWaveLoadInput')
         self.wave_button.clicked.connect(self.open_wave_load)
         self.layout().insertWidget(1,self.wave_button)
+        self.turbine_button=QPushButton('Wind turbine loads…')
+        self.turbine_button.setObjectName('WindTurbineLoadInput')
+        self.turbine_button.setToolTip('Saved turbine definitions (thrust curve, hub, rotor, owned wind) for floating transient runs')
+        self.turbine_button.clicked.connect(self.open_wind_turbine_loads)
+        self.layout().insertWidget(2,self.turbine_button)
         self.edit_bar=QWidget();edit_layout=QHBoxLayout(self.edit_bar);edit_layout.setContentsMargins(0,0,0,0)
         self.editing_label=QLabel();self.editing_label.setWordWrap(True);edit_layout.addWidget(self.editing_label)
         self.new_button=QPushButton('Cancel edit / New');self.new_button.clicked.connect(self.cancel_edit);edit_layout.addWidget(self.new_button)
@@ -221,6 +226,12 @@ class LoadTask(CommandEditor):
         from .wave_load import WaveLoadDialog
         self._wave_dialog=WaveLoadDialog(self)
         self._wave_dialog.show()
+
+    def open_wind_turbine_loads(self):
+        from .wind_turbine import WindTurbineLoadEditor
+        self._turbine_dialog=WindTurbineLoadEditor(self)
+        self._turbine_dialog.show()
+        return self._turbine_dialog
 
     def support_preset(self):
         self.advanced_form.setChecked(False)

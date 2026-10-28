@@ -1,5 +1,6 @@
-"""Floating wind TRANSIENT dialog: Kaimal / imported / steady wind (ANYloads), thrust curve, hub + rotor yaw/tilt, mooring
-attachments and external histories on a saved coarse job input; the canonical operating mean through the isolated
+"""Floating wind TRANSIENT dialog: ONE selected saved wind turbine load (``Project.wind_turbine_loads``: thrust curve,
+hub, rotor and its owned steady / imported / retained-Kaimal wind, edited in the Loads & BC wind turbine editor) or
+"No turbine", mooring attachments and external histories on a saved coarse job input; the canonical operating mean through the isolated
 pinned-ANYgeometry runtime when (and only when) the mean-defining loads change; an async cancellable run of the headless
 job; plain unverified-hydro diagnostics; reopen (no solve, no BEM) and persistent undoable Apply.
 
@@ -22,6 +23,8 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPlainTextEdit, QPushButton, QVBoxLayout)
+
+from ...model.wind_turbine import realization_record  # noqa: F401 - shared provenance record (re-exported)
 
 DEVELOPMENT_MARKER = 'DEVELOPMENT - UNVERIFIED HYDRODYNAMICS'
 
@@ -86,18 +89,6 @@ def kaimal_parameters(mean_world, ti, length, seed, period, max_frequency):
     return dict(mean_speed=U, turbulence_intensity=float(ti), integral_scale=float(length),
                 direction=(np.asarray(mean_world, float) / U).tolist(), seed=int(seed), period=float(period),
                 max_frequency=float(max_frequency))
-
-
-def realization_record(real):
-    """Exact retained realization (coefficients + omitted-variance accounting) for persistence with the input."""
-    return dict(kind='kaimal', generator='anyloads.generate_kaimal_realization', mean_speed=real.mean_speed,
-                turbulence_intensity=real.turbulence_intensity, integral_scale=real.integral_scale,
-                direction=np.asarray(real.direction).tolist(), seed=real.seed, period=real.period,
-                max_frequency=real.max_frequency, frequencies=np.asarray(real.frequencies).tolist(),
-                bin_energy=np.asarray(real.bin_energy).tolist(), amplitudes=np.asarray(real.amplitudes).tolist(),
-                phases=np.asarray(real.phases).tolist(), missing_low_variance=real.missing_low_variance,
-                missing_high_variance=real.missing_high_variance, target_variance=real.target_variance,
-                represented_variance=real.represented_variance)
 
 
 def wind_history(mode, times, *, mean_world=None, ti=0.0, length=340.2, seed=0, max_frequency=None, path=None,
@@ -223,7 +214,7 @@ class FloatingTransientDialog(QDialog):
         self.run_job = run_job or job.run_floating_transient_job
         self.reopen_job = reopen_job or job.reopen_floating_transient_result
         self.runner, self.summary, self.job_input_path, self.mean_solves = None, None, None, 0
-        self.kaimal_realization = None
+        self.turbine_editor = None
         self.setWindowTitle('Floating wind transient'); self.setObjectName('FloatingTransientDialog')
         layout = QVBoxLayout(self); form = QFormLayout(); layout.addLayout(form)
         self.fields = {}
@@ -236,25 +227,14 @@ class FloatingTransientDialog(QDialog):
         edit('field_kernel', 'Saved field kernel (.npz)')
         edit('modal', 'Verified elastic modal record of THIS model (.json; blank = screening not assessed)')
         edit('result', 'Result file (.npz)')
-        self.wind_mode = QComboBox(); self.wind_mode.setObjectName('ft_wind_mode')
-        self.wind_mode.addItem('Kaimal turbulent wind (ANYloads, retained realization)', 'kaimal')
-        self.wind_mode.addItem('Imported 3-component history (CSV t,u,v,w)', 'import')
-        self.wind_mode.addItem('Steady declared mean wind', 'steady')
-        self.wind_mode.addItem('No turbine', 'none')
-        form.addRow('Wind', self.wind_mode)
-        edit('wind_mean', 'Declared reference mean wind, world (u v w, m/s)', '10 0 0')
-        edit('wind_ti', 'Turbulence intensity (Kaimal)', '0.1')
-        edit('wind_length', 'Integral length scale L (m, Kaimal)', '340.2')
-        edit('wind_seed', 'Seed (Kaimal)', '1')
-        edit('wind_fmax', 'Max frequency (Hz; blank = retained realization, else Nyquist of the first grid)')
-        self.regenerate_wind = QPushButton('Regenerate wind realization'); self.regenerate_wind.setObjectName('ft_regen')
-        self.regenerate_wind.clicked.connect(lambda: setattr(self, 'kaimal_realization', None))
-        form.addRow(self.regenerate_wind)
-        edit('wind_file', 'Imported wind CSV')
-        edit('thrust_curve', 'Thrust curve (rotor-axial speed : thrust, ...)', '0:0, 10:1000, 20:1500')
-        edit('hub', 'Hub position (ABSOLUTE body point, m)', '0 0 10')
-        edit('hub_node', 'Hub node id')
-        edit('yaw', 'Rotor yaw (deg)', '0'); edit('tilt', 'Rotor tilt (deg)', '0')
+        # ONE saved wind turbine load definition (Loads & BC -> Wind turbine loads); this dialog owns no wind settings
+        turbine_row = QHBoxLayout()
+        self.turbine = QComboBox(); self.turbine.setObjectName('ft_turbine')
+        self.edit_turbines = QPushButton('Wind turbine loads…'); self.edit_turbines.setObjectName('ft_edit_turbines')
+        self.edit_turbines.clicked.connect(lambda: self.open_turbine_editor())
+        turbine_row.addWidget(self.turbine, 1); turbine_row.addWidget(self.edit_turbines)
+        form.addRow('Wind turbine load', turbine_row)
+        self.refresh_turbines()
         edit('external', 'External load history (.npz: ext_times, ext_values (perturbation), ext_mean_values, ...)')
         self.mooring = QPlainTextEdit(); self.mooring.setObjectName('ft_mooring')
         self.mooring.setPlaceholderText('id; node; px py pz (absolute body); Fx Fy Fz (reference pretension); kxx kyy kzz')
@@ -336,31 +316,68 @@ class FloatingTransientDialog(QDialog):
                                              operating)
         return lambda cancel: run_operating_spec(frozen_settings, frozen_spec, cancel=cancel)['mean_equilibrium']
 
+    # ---------------------------------------------------------------- turbine selection
+    def refresh_turbines(self):
+        """'No turbine' plus every saved turbine load of the live project; keeps the current selection by ID."""
+        current = self.turbine.currentData() if self.turbine.count() else None
+        self.turbine.blockSignals(True)
+        try:
+            self.turbine.clear()
+            self.turbine.addItem('No turbine', None)
+            loads = getattr(self.app.project, 'wind_turbine_loads', {}) or {}
+            for load in sorted(loads.values(), key=lambda item: item.name):
+                self.turbine.addItem(f'{load.name} ({load.wind_mode} wind, hub node {load.hub_node_id})', load.id)
+            index = self.turbine.findData(current) if current is not None else 0
+            self.turbine.setCurrentIndex(max(index, 0))
+        finally:
+            self.turbine.blockSignals(False)
+
+    def select_turbine(self, key):
+        """Select a saved turbine load by name or ID (None = no turbine)."""
+        self.refresh_turbines()
+        if key is None:
+            self.turbine.setCurrentIndex(0)
+            return None
+        load = self.app.project.wind_turbine_load(key)
+        self.turbine.setCurrentIndex(self.turbine.findData(load.id))
+        return load
+
+    def selected_turbine(self):
+        """The selected immutable record, read from the live project by ID (never a cached copy)."""
+        load_id = self.turbine.currentData()
+        if load_id is None:
+            return None
+        load = (getattr(self.app.project, 'wind_turbine_loads', {}) or {}).get(load_id)
+        if load is None:
+            raise ValueError('the selected wind turbine load no longer exists; choose another or "No turbine"')
+        return load
+
+    def open_turbine_editor(self):
+        from .wind_turbine import WindTurbineLoadEditor
+        self.turbine_editor = WindTurbineLoadEditor(self.panel, parent=self)
+        self.turbine_editor.finished.connect(lambda *_: self.refresh_turbines())
+        self.turbine_editor.show()
+        return self.turbine_editor
+
     # ---------------------------------------------------------------- inputs
     def load_fields(self, base):
-        """Turbine / mooring / external fields from the controls on the base input's accepted time grid."""
+        """Selected turbine load / mooring / external fields on the base input's accepted time grid."""
         out, wind_prov = {}, None
         cg = np.asarray(base.cg_body, float)
-        mode = self.wind_mode.currentData()
-        if mode == 'none':
+        turbine = self.selected_turbine()
+        if turbine is None:
             out.update(wind_times=None, wind_velocity=None, thrust_speeds=None, thrust_values=None, hub_offset_body=None,
                        rotor_axis_body=None, hub_node_id=None, mean_thrust=None, wind_reference_mean_world=None)
         else:
-            hub_abs = parse_vector(self.fields['hub'].text(), 'hub position')
-            mean = parse_vector(self.fields['wind_mean'].text(), 'reference mean wind')
-            wt, wv, ref, wind_prov, real = wind_history(
-                mode, base.times, mean_world=mean, ti=float(self.fields['wind_ti'].text() or 0.0),
-                length=float(self.fields['wind_length'].text() or 340.2), seed=int(self.fields['wind_seed'].text() or 0),
-                max_frequency=float(self.fields['wind_fmax'].text()) if self.fields['wind_fmax'].text().strip() else None,
-                path=self.fields['wind_file'].text(), reference_mean=mean, realization=self.kaimal_realization)
-            if real is not None:
-                self.kaimal_realization = real               # retained: a dt / window change re-samples THIS one
-            sp, th = parse_curve(self.fields['thrust_curve'].text())
-            out.update(wind_times=wt, wind_velocity=wv, wind_reference_mean_world=ref, thrust_speeds=sp,
-                       thrust_values=th, hub_offset_body=hub_abs - cg,          # converted ONCE: transient is CG-relative
-                       rotor_axis_body=rotor_axis(hub_abs - cg, float(self.fields['yaw'].text()),
-                                                  float(self.fields['tilt'].text())),
-                       hub_node_id=int(self.fields['hub_node'].text()))
+            hub_abs = np.asarray(turbine.hub_body, float)
+            # the record's OWNED wind: steady mean, imported samples or the retained Kaimal realization re-sampled on
+            # this grid (full coverage enforced, never regenerated)
+            wt, wv, ref, wind_prov, _ = turbine.wind_history(base.times)
+            out.update(wind_times=wt, wind_velocity=wv, wind_reference_mean_world=ref,
+                       thrust_speeds=np.asarray(turbine.thrust_speeds, float),
+                       thrust_values=np.asarray(turbine.thrust_values, float),
+                       hub_offset_body=hub_abs - cg,          # converted ONCE: transient is CG-relative
+                       rotor_axis_body=turbine.rotor_axis_body(), hub_node_id=int(turbine.hub_node_id))
         fairleads = []
         for f in parse_fairleads(self.mooring.toPlainText()):
             g = dict(f, point_body=(np.asarray(f['point_body']) - cg).tolist(),

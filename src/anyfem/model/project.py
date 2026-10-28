@@ -66,6 +66,7 @@ from .regions import (
     RegionRegistry,
 )
 from .units import UnitProfile, unit_profile
+from .wind_turbine import WindTurbineLoad
 from .ownership import (
     SheetJoinIntent,
     infer_sheet_join_intents,
@@ -237,6 +238,9 @@ class Project:
     geometry_attachment_regions: Dict[EntityRef, RegionRef] = field(default_factory=dict)
     # Appended: applied floating TRANSIENT results (artifact references + provenance; see FloatingTransientResultRef).
     floating_transient_results: Dict[str, FloatingTransientResultRef] = field(default_factory=dict)
+    # Appended: saved reusable wind turbine load definitions (immutable WindTurbineLoad records keyed by id).  Only a
+    # floating TRANSIENT run consumes one (selected by name); standard static solves never read them.
+    wind_turbine_loads: Dict[str, WindTurbineLoad] = field(default_factory=dict)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -591,6 +595,45 @@ class Project:
             raise ProjectError(f"duplicate artifact ID {artifact.id!r}")
         self.artifacts[artifact.id] = artifact
         return artifact
+
+    # ------------------------------------------------------------------
+    # wind turbine load definitions (dynamic; consumed only by floating transients)
+    # ------------------------------------------------------------------
+    def add_wind_turbine_load(self, load: WindTurbineLoad) -> WindTurbineLoad:
+        if not isinstance(load, WindTurbineLoad):
+            raise TypeError("add_wind_turbine_load expects a WindTurbineLoad")
+        if load.id in self.wind_turbine_loads:
+            raise ProjectError(f"duplicate wind turbine load ID {load.id!r}")
+        if any(item.name == load.name for item in self.wind_turbine_loads.values()):
+            raise ProjectError(f"wind turbine load {load.name!r} already exists")
+        self.wind_turbine_loads[load.id] = load
+        return load
+
+    def replace_wind_turbine_load(self, load: WindTurbineLoad) -> WindTurbineLoad:
+        """Replace one immutable record without changing its stable ID."""
+        if not isinstance(load, WindTurbineLoad):
+            raise TypeError("replace_wind_turbine_load expects a WindTurbineLoad")
+        if load.id not in self.wind_turbine_loads:
+            raise ProjectError(f"unknown wind turbine load ID {load.id!r}")
+        if any(item.name == load.name and item.id != load.id for item in self.wind_turbine_loads.values()):
+            raise ProjectError(f"wind turbine load {load.name!r} already exists")
+        self.wind_turbine_loads[load.id] = load
+        return load
+
+    def remove_wind_turbine_load(self, load_id: str) -> WindTurbineLoad:
+        try:
+            return self.wind_turbine_loads.pop(str(load_id))
+        except KeyError:
+            raise ProjectError(f"unknown wind turbine load ID {load_id!r}") from None
+
+    def wind_turbine_load(self, key: str) -> WindTurbineLoad:
+        """One saved turbine load by ID or by name."""
+        if key in self.wind_turbine_loads:
+            return self.wind_turbine_loads[key]
+        for item in self.wind_turbine_loads.values():
+            if item.name == key:
+                return item
+        raise ProjectError(f"no wind turbine load named or identified by {key!r}")
 
     # ------------------------------------------------------------------
     # materials and sections

@@ -93,7 +93,10 @@ PRESENTATION_FORMAT = 16
 # Older readers must refuse files containing applied transient results rather
 # than silently dropping their artifact references on the next save.
 FLOATING_TRANSIENT_RESULTS_FORMAT = 17
-MAX_READ_FORMAT = FLOATING_TRANSIENT_RESULTS_FORMAT
+# Saved wind turbine load definitions (owned wind samples / retained Kaimal coefficients): an older reader would
+# silently drop them on the next save, so a file holding any is format 18 and refused there.
+WIND_TURBINE_LOADS_FORMAT = 18
+MAX_READ_FORMAT = WIND_TURBINE_LOADS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -2231,3 +2234,46 @@ def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper o
         project.floating_transient_results = refs
         return project
     return _base_project_from_dict(data, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Additive persistence of saved wind turbine load definitions (complete immutable records, including imported samples
+# and retained Kaimal coefficients).  Written only when present, so other documents keep their exact bytes.
+
+WIND_TURBINE_LOADS_KEY = "wind_turbine_loads"
+_turbine_base_project_to_dict = project_to_dict
+_turbine_base_project_from_dict = project_from_dict
+
+
+def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper over the established writer
+    data = _turbine_base_project_to_dict(project, *args, **kwargs)
+    loads = getattr(project, "wind_turbine_loads", None) or {}
+    if loads:
+        data[WIND_TURBINE_LOADS_KEY] = [load.to_dict() for load in sorted(loads.values(),
+                                                                          key=lambda item: (item.name, item.id))]
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], WIND_TURBINE_LOADS_FORMAT)
+    return data
+
+
+def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper over the established reader
+    from ..model.wind_turbine import WindTurbineLoad
+    if isinstance(data, Mapping) and WIND_TURBINE_LOADS_KEY in data:
+        header = data.get("anyfem")
+        try:
+            version = int(header["format"]) if isinstance(header, Mapping) else 0
+        except (KeyError, TypeError, ValueError):
+            version = 0
+        if version < WIND_TURBINE_LOADS_FORMAT:
+            raise ProjectFileError(f"wind_turbine_loads require project format {WIND_TURBINE_LOADS_FORMAT}")
+        raw = dict(data)
+        stored = raw.pop(WIND_TURBINE_LOADS_KEY)
+        project = _turbine_base_project_from_dict(raw, *args, **kwargs)
+        if not isinstance(stored, list):
+            raise ProjectFileError("wind_turbine_loads must be a list of records")
+        for index, entry in enumerate(stored):
+            try:
+                project.add_wind_turbine_load(WindTurbineLoad.from_dict(entry))
+            except (TypeError, ValueError) as error:
+                raise ProjectFileError(f"wind_turbine_loads[{index}]: {error}") from None
+        return project
+    return _turbine_base_project_from_dict(data, *args, **kwargs)

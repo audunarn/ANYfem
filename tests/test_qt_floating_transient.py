@@ -48,13 +48,26 @@ def _dialog(qapp, world, tmp_path, inp, **services):
     panel = Panel()
     d = FloatingTransientDialog(panel, fe_model_provider=lambda: world["model"], **services)
     d.fields["base_input"].setText(str(base)); d.fields["field_kernel"].setText(str(fk)); d.fields["result"].setText(str(res))
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("none"))
+    assert d.turbine.currentData() is None                        # "No turbine" stays the valid default option
     d.fields["window_end"].setText("50")
     import json
     modal = tmp_path / "modal.json"
     modal.write_text(json.dumps(screening_record(world).to_dict()), encoding="utf-8")    # manufactured fixture
     d.fields["modal"].setText(str(modal))
     return d, panel, res
+
+
+def _use_steady_turbine(d, world):
+    """Create the saved turbine load (former dialog defaults) through the command path and select it by name."""
+    from anyfem.commands import AddWindTurbineLoad
+    from anyfem.model.wind_turbine import WindTurbineLoad
+    load = WindTurbineLoad.create("T1", thrust_speeds=[0.0, 10.0, 20.0], thrust_values=[0.0, 1000.0, 1500.0],
+                                  hub_body=[0.0, 0.0, 10.0], hub_node_id=int(world["dry"].node_ids[-1]),
+                                  wind_mode="steady", reference_mean_world=[10.0, 0.0, 0.0],
+                                  rotor_yaw_deg=0.0, rotor_tilt_deg=0.0)
+    d.app.run(AddWindTurbineLoad(load))
+    assert d.select_turbine("T1") == load and d.turbine.currentData() == load.id
+    return load
 
 
 def _bar_with_modulus(E, n=4):
@@ -155,8 +168,7 @@ def test_unverified_hydro_needs_explicit_development_and_is_attached_only_as_dev
 
 def test_turbine_change_uses_the_production_runtime_and_refuses_without_it(qapp, world, tmp_path):
     d, _, _ = _dialog(qapp, world, tmp_path, make_input(world))
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("steady"))
-    d.fields["hub_node"].setText(str(world["dry"].node_ids[-1]))
+    _use_steady_turbine(d, world)
     d.start()                                    # default service = isolated runtime; not configured here
     assert d.runner is None and "operating mean" in d.status.text() and "runtime" in d.status.text()
 
@@ -175,8 +187,7 @@ def test_changed_mean_is_resolved_in_the_worker_and_a_moved_pose_is_refused_as_s
         rec["translation_world"] = [0.0, 0.0, 0.1]                   # same rotation, moved CG: still stale
         return rec
     d, _, res = _dialog(qapp, world, tmp_path, make_input(world), solve_mean=moved)
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("steady"))
-    d.fields["hub_node"].setText(str(world["dry"].node_ids[-1]))
+    _use_steady_turbine(d, world)
     d.start(); _wait(qapp, d)
     assert calls and calls[0]["hub_body"] == [0.0, 0.0, 10.0]
     assert "stale" in d.status.text() and d.summary is None and not res.exists()
@@ -193,8 +204,7 @@ def test_mean_worker_uses_only_frozen_inputs_and_user_edits_cannot_redirect_the_
                               curve={"speeds": [0.0, 10.0, 20.0], "thrusts": [0.0, 1000.0, 1500.0]},
                               wind_ref=[10.0, 0.0, 0.0])
     d, _, res = _dialog(qapp, world, tmp_path, make_input(world), solve_mean=gated_mean)
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("steady"))
-    d.fields["hub_node"].setText(str(world["dry"].node_ids[-1]))
+    _use_steady_turbine(d, world)
     d.start()
     end = time.monotonic() + 10
     while not seen and time.monotonic() < end:
@@ -206,7 +216,7 @@ def test_mean_worker_uses_only_frozen_inputs_and_user_edits_cannot_redirect_the_
     def live(*a, **k):
         raise AssertionError("the worker must not read the live FE provider after start")
     d.fe_model_provider = live
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("none"))
+    d.select_turbine(None)                                       # ... and switching to "No turbine" mid-run
     gate.set(); _wait(qapp, d)
     assert d.mean_solves == 1                                    # committed on the GUI thread via the signal
     assert res.exists() and not other.exists()                   # ... cannot redirect the job or change its inputs
@@ -222,8 +232,7 @@ def test_cancel_during_the_mean_solve_publishes_nothing(qapp, world, tmp_path):
             time.sleep(0.01)
         raise RuntimeError("isolated mean process killed")
     d, _, res = _dialog(qapp, world, tmp_path, make_input(world), solve_mean=slow_mean)
-    d.wind_mode.setCurrentIndex(d.wind_mode.findData("steady"))
-    d.fields["hub_node"].setText(str(world["dry"].node_ids[-1]))
+    _use_steady_turbine(d, world)
     d.start()
     end = time.monotonic() + 10
     while not started and time.monotonic() < end:
