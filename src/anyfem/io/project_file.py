@@ -90,7 +90,10 @@ ENTITY_SIZES_FORMAT = 13
 BOUND_PRESSURE_FORMAT = 14
 PRESSURE_HISTORY_FORMAT = 15
 PRESENTATION_FORMAT = 16
-MAX_READ_FORMAT = PRESENTATION_FORMAT
+# Older readers must refuse files containing applied transient results rather
+# than silently dropping their artifact references on the next save.
+FLOATING_TRANSIENT_RESULTS_FORMAT = 17
+MAX_READ_FORMAT = FLOATING_TRANSIENT_RESULTS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -2191,3 +2194,40 @@ def _load_case_from_dict(project: Project, data: Mapping[str, Any]) -> LoadCase:
         if entry.get("id"):
             case.surface_tractions[-1] = replace(load, id=str(entry["id"]))
     return case
+
+
+# ---------------------------------------------------------------------------
+# Additive persistence of applied floating TRANSIENT results (artifact references + provenance only).  The key is
+# written only when results exist, so documents without them keep their exact established bytes and hashes.
+
+FLOATING_TRANSIENT_RESULTS_KEY = "floating_transient_results"
+_base_project_to_dict = project_to_dict
+_base_project_from_dict = project_from_dict
+
+
+def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper over the established writer
+    data = _base_project_to_dict(project, *args, **kwargs)
+    results = getattr(project, "floating_transient_results", None) or {}
+    if results:
+        data[FLOATING_TRANSIENT_RESULTS_KEY] = {name: ref.to_dict() for name, ref in sorted(results.items())}
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], FLOATING_TRANSIENT_RESULTS_FORMAT)
+    return data
+
+
+def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper over the established reader
+    from ..model.project import FloatingTransientResultRef
+    if isinstance(data, Mapping) and FLOATING_TRANSIENT_RESULTS_KEY in data:
+        raw = dict(data)
+        stored = raw.pop(FLOATING_TRANSIENT_RESULTS_KEY)
+        project = _base_project_from_dict(raw, *args, **kwargs)
+        if not isinstance(stored, Mapping):
+            raise ValueError("floating_transient_results must be a mapping of result records")
+        refs = {}
+        for name, entry in stored.items():
+            ref = FloatingTransientResultRef.from_dict(entry)
+            if ref.name != name:
+                raise ValueError(f"floating transient result key {name!r} differs from its record name")
+            refs[name] = ref
+        project.floating_transient_results = refs
+        return project
+    return _base_project_from_dict(data, *args, **kwargs)

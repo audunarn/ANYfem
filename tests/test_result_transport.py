@@ -59,10 +59,24 @@ def _solution():
     return helpers.s3_linear_result(project=None, progress=_quiet)
 
 
+def _root(envelope):
+    return envelope["objects"][envelope["root"]]
+
+
+def _target(envelope, encoded):
+    return envelope["objects"][encoded["ref"]]
+
+
 def _mesh_values(envelope):
-    built = envelope["record"]["values"]["built"]
-    fe_model = built["values"]["fe_model"]
-    return fe_model["values"]["mesh"]["values"]
+    built = _target(envelope, _root(envelope)["values"]["built"])
+    fe_model = _target(envelope, built["values"]["fe_model"])
+    return _target(envelope, fe_model["values"]["mesh"])["values"]
+
+
+def _wire(envelope):
+    """The envelope as the receiver sees it: through one transport pickle."""
+
+    return loads(dumps(envelope))
 
 
 # ----------------------------------------------------------------------
@@ -71,9 +85,12 @@ def _mesh_values(envelope):
 def test_encode_decode_round_trip_preserves_the_completed_s3_result():
     solution = _solution()
     envelope = encode_result(solution)
-    pickle.dumps(envelope)  # the envelope itself is plain data
+    # Intentional codec-v4 contract: raw ordinary values (mappingproxy views)
+    # need the private transport pickler, so the standard pickle shortcut is
+    # no longer promised; the transport dumps/loads round trip is the contract.
+    loads(dumps(envelope))
 
-    decoded = decode_result(envelope)
+    decoded = decode_result(_wire(envelope))
 
     assert type(decoded) is LinearSolution
     np.testing.assert_array_equal(decoded.displacements, solution.displacements)
@@ -124,7 +141,7 @@ def test_encode_decode_round_trip_preserves_the_completed_s3_result():
 
 def test_the_decoded_mesh_owns_a_fresh_constructor_epoch_and_subscriptions():
     solution = _solution()
-    decoded = decode_result(encode_result(solution))
+    decoded = decode_result(_wire(encode_result(solution)))
     mesh = decoded.built.fe_model.mesh
     token = mesh._qualified_direct_state_token
 
@@ -145,19 +162,20 @@ def test_the_decoded_mesh_owns_a_fresh_constructor_epoch_and_subscriptions():
 
 def test_the_envelope_records_the_current_dataclass_field_sets():
     envelope = encode_result(_solution())
-    record = envelope["record"]
+    record = _root(envelope)
+    assert envelope["version"] == 4
     assert record["fields"] == [f.name for f in dataclasses.fields(LinearSolution)]
-    built = record["values"]["built"]
+    built = _target(envelope, record["values"]["built"])
     assert built["fields"] == [f.name for f in dataclasses.fields(BuiltModel)]
-    fe_model = built["values"]["fe_model"]
+    fe_model = _target(envelope, built["values"]["fe_model"])
     assert fe_model["fields"] == [f.name for f in dataclasses.fields(FEModel)]
-    mesh = fe_model["values"]["mesh"]
+    mesh = _target(envelope, fe_model["values"]["mesh"])
     assert mesh["fields"] == [f.name for f in dataclasses.fields(FEMesh)]
 
 
 def test_a_picklable_stress_cache_is_carried_exactly():
     solution = helpers.s3_linear_result_with_stress(project=None, progress=_quiet)
-    decoded = decode_result(encode_result(solution))
+    decoded = decode_result(_wire(encode_result(solution)))
     assert decoded._stress.provenance == solution._stress.provenance
     assert (
         decoded._stress.element_stresses[101]["von_mises"].tolist()
@@ -199,9 +217,11 @@ def test_unsupported_result_families_are_refused():
 
 def test_a_batch_with_distinct_built_models_keeps_each_shape_model():
     batch = helpers.s3_batch_distinct_built_result(project=None, progress=_quiet)
-    decoded = decode_result(encode_result(batch))
+    decoded = decode_result(_wire(encode_result(batch)))
     assert type(decoded) is LinearBatchSolution
     assert decoded.case_names == ("alpha", "beta")
+    assert decoded.shapes[0].built.fe_model is not decoded.shapes[1].built.fe_model
+    assert decoded.shapes[0].built.fe_model is not decoded.built.fe_model
     assert decoded.built.project.name == "result transport batch"
     assert [shape.built.project.name for shape in decoded.shapes] == [
         "result transport alpha",
@@ -237,7 +257,7 @@ def test_a_non_mapping_envelope_is_refused():
 
 def test_field_set_drift_is_refused():
     envelope = encode_result(_solution())
-    record = envelope["record"]
+    record = _root(envelope)
     record["fields"] = list(record["fields"]) + ["future_field"]
     with pytest.raises(ResultTransportError, match="field set"):
         decode_result(envelope)
@@ -245,7 +265,7 @@ def test_field_set_drift_is_refused():
 
 def test_class_marker_drift_is_refused():
     envelope = encode_result(_solution())
-    envelope["record"]["class"] = "fake.module.Thing"
+    _root(envelope)["class"] = "fake.module.Thing"
     with pytest.raises(ResultTransportError, match="was encoded as"):
         decode_result(envelope)
 
@@ -301,9 +321,9 @@ def test_an_unknown_element_transport_codec_is_refused():
 def test_a_node_whose_id_differs_from_its_key_is_refused():
     envelope = encode_result(_solution())
     values = _mesh_values(envelope)
-    nodes = loads(values["nodes"])
-    nodes[1].id = 999
-    values["nodes"] = dumps(nodes)
+    envelope = _wire(envelope)  # tamper with a copy, never the live result
+    values = _mesh_values(envelope)
+    values["nodes"]["value"][1].id = 999
     with pytest.raises(ResultTransportError, match="node ids do not match"):
         decode_result(envelope)
 
@@ -311,16 +331,16 @@ def test_a_node_whose_id_differs_from_its_key_is_refused():
 def test_a_tampered_dof_mapping_is_refused():
     envelope = encode_result(_solution())
     values = _mesh_values(envelope)
-    nodes = loads(values["nodes"])
+    envelope = _wire(envelope)
+    nodes = _mesh_values(envelope)["nodes"]["value"]
     nodes[1].dofs, nodes[2].dofs = nodes[2].dofs, nodes[1].dofs
-    values["nodes"] = dumps(nodes)
     with pytest.raises(ResultTransportError, match="DOF mapping"):
         decode_result(envelope)
 
 
 def test_the_retired_stress_drop_state_is_refused():
     envelope = encode_result(_solution())
-    envelope["record"]["values"]["_stress"] = {"state": "dropped_unpicklable"}
+    _root(envelope)["values"]["_stress"] = {"state": "dropped_unpicklable"}
     with pytest.raises(ResultTransportError, match="unknown stress cache state"):
         decode_result(envelope)
 
@@ -577,11 +597,11 @@ def test_requested_stresses_survive_the_worker_and_artifact_adapter():
 
 def test_requested_stress_presence_including_none_survives():
     solution = _solution()
-    decoded = decode_result(encode_result(solution))
+    decoded = decode_result(_wire(encode_result(solution)))
     assert not hasattr(decoded, "_requested_global_stress")
     assert not hasattr(decoded, "_requested_patch_stress")
     solution._requested_global_stress = None
-    decoded = decode_result(encode_result(solution))
+    decoded = decode_result(_wire(encode_result(solution)))
     assert decoded._requested_global_stress is None
     assert not hasattr(decoded, "_requested_patch_stress")
 
@@ -603,6 +623,203 @@ def test_unknown_dynamic_state_is_refused():
 
 def test_unknown_application_extra_record_is_refused():
     envelope = encode_result(_solution())
-    envelope["record"]["application_extras"]["unsupported_state"] = dumps(1)
+    _root(envelope)["application_extras"]["unsupported_state"] = 1
     with pytest.raises(ResultTransportError, match="unknown application extras"):
         decode_result(envelope)
+
+
+# ----------------------------------------------------------------------
+# codec v4: identity-indexed graph
+# ----------------------------------------------------------------------
+def _objects_of(envelope, name):
+    suffix = "." + name
+    return [r for r in envelope["objects"] if r["class"].endswith(suffix)]
+
+
+@pytest.mark.parametrize("cases", [1, 10, 50, 200])
+def test_one_model_record_per_distinct_model_at_any_batch_size(cases):
+    batch = helpers.shared_model_batch(cases)
+    envelope = encode_result(batch)
+    assert len(_objects_of(envelope, "FEModel")) == 1
+    assert len(_objects_of(envelope, "FEMesh")) == 1
+    # one wrapper per shape + the batch; one BuiltModel per replace() copy + base
+    assert len(_objects_of(envelope, "LinearSolution")) == cases
+    assert len(_objects_of(envelope, "BuiltModel")) == cases + 1
+
+
+def test_wire_size_is_linear_not_quadratic_in_cases():
+    sizes = {n: len(dumps(("encoded_result", encode_result(helpers.shared_model_batch(n)))))
+             for n in (50, 100, 200)}
+    # Doubling the cases must roughly double the bytes (quadratic would be ~4x).
+    assert sizes[200] < 2.6 * sizes[100]
+    assert sizes[100] < 2.6 * sizes[50]
+
+
+def test_a_shared_64kib_project_marker_is_carried_once():
+    base = len(dumps(("encoded_result", encode_result(helpers.shared_model_batch(200, 0)))))
+    marked = len(dumps(("encoded_result", encode_result(helpers.shared_model_batch(200, 65536)))))
+    assert marked - base <= 70 * 1024
+
+
+def test_decoded_batch_keeps_every_shared_alias():
+    batch = helpers.shared_model_batch(10)
+    decoded = decode_result(_wire(encode_result(batch)))
+    model = decoded.built.fe_model
+    for shape in decoded.shapes:
+        assert shape.built.fe_model is model
+        assert shape.built.project is decoded.built.project
+        assert shape.built.mesh is decoded.built.mesh
+        assert shape.built.shell_formulation_policy == decoded.built.shell_formulation_policy
+    for index, shape in enumerate(decoded.shapes):
+        # shape.built.load_case is the very object registered in the model
+        assert any(shape.built.load_case is case for case in model.load_cases)
+        assert shape.built.load_case.name == f"case-{index}"
+    assert decoded.shapes[0].built.mesh.nodes is decoded.shapes[3].built.mesh.nodes
+
+
+def test_decoded_batch_values_are_exact():
+    batch = helpers.shared_model_batch(10)
+    decoded = decode_result(_wire(encode_result(batch)))
+    for old, new in zip(batch.shapes, decoded.shapes):
+        assert np.array_equal(old.displacements, new.displacements)
+        assert old.info == new.info and old.label == new.label and old.value == new.value
+        for old_case, new_case in zip(old.built.fe_model.load_cases,
+                                      new.built.fe_model.load_cases):
+            assert dumps(old_case.nodal_loads) == dumps(new_case.nodal_loads)
+
+
+def test_the_shared_decoded_mesh_advances_one_epoch_on_node_mutation():
+    decoded = decode_result(_wire(encode_result(helpers.shared_model_batch(5))))
+    mesh = decoded.built.fe_model.mesh
+    token = mesh._qualified_direct_state_token
+    before = token[0]
+    mesh.nodes[1].x += 0.1
+    assert token[0] > before
+
+
+def test_each_distinct_mesh_is_reconstructed_once(monkeypatch):
+    built = []
+    real = FEMesh.__init__
+
+    def counting(self, *args, **kwargs):
+        built.append(self)
+        real(self, *args, **kwargs)
+
+    batch = helpers.shared_model_batch(20)
+    wire = _wire(encode_result(batch))
+    monkeypatch.setattr(FEMesh, "__init__", counting)
+    decode_result(wire)
+    assert len(built) == 1
+
+
+def test_batch_application_extras_are_carried_and_unknown_state_refused():
+    batch = helpers.shared_model_batch(2)
+    batch._requested_global_stress = helpers.controlled_global_stress()
+    decoded = decode_result(_wire(encode_result(batch)))
+    assert decoded._requested_global_stress.provenance == (
+        helpers.controlled_global_stress().provenance
+    )
+    assert not hasattr(decoded, "_requested_patch_stress")
+    batch.mystery = 1
+    with pytest.raises(ResultTransportError, match="mystery"):
+        encode_result(batch)
+
+
+def test_an_unsupported_envelope_version_is_refused_explicitly():
+    envelope = encode_result(helpers.shared_model_batch(2))
+    envelope["version"] = 3
+    with pytest.raises(ResultTransportError, match="unsupported result transport codec"):
+        decode_result(envelope)
+
+
+def test_streaming_encode_names_an_unpicklable_field_without_probing_first():
+    from anyfem.result_transport import encode_result_stream
+
+    solution = helpers.s3_linear_result_with_unpicklable_stress(project=None, progress=_quiet)
+
+    def serialize(envelope):
+        return dumps(("encoded_result", envelope))
+
+    with pytest.raises(ResultTransportError, match="_stress"):
+        encode_result_stream(solution, serialize)
+
+
+def _two_mesh_batch():
+    """Two distinct FEMesh/FEModel instances holding the SAME element object."""
+
+    batch = helpers.shared_model_batch(2)
+    common = batch.built.fe_model
+    other_model = dataclasses.replace(common, mesh=dataclasses.replace(common.mesh))
+    batch.shapes[1].built = dataclasses.replace(batch.shapes[1].built, fe_model=other_model)
+    return batch
+
+
+def test_an_element_shared_between_distinct_meshes_is_rebuilt_once(monkeypatch):
+    batch = _two_mesh_batch()
+    assert batch.shapes[0].built.fe_model.mesh is not batch.shapes[1].built.fe_model.mesh
+    wire = _wire(encode_result(batch))
+    real = NativeParityE4PLS3V2DShellElement.from_dict
+    calls = []
+
+    def counting(cls, payload):
+        calls.append(1)
+        return real(payload)
+
+    monkeypatch.setattr(NativeParityE4PLS3V2DShellElement, "from_dict", classmethod(counting))
+    decoded = decode_result(wire)
+    first = decoded.shapes[0].built.fe_model.mesh
+    second = decoded.shapes[1].built.fe_model.mesh
+    assert first is not second
+    assert first.elements[101] is second.elements[101]
+    assert len(calls) == 1
+    # fresh, independent epochs; the shared element is subscribed to both
+    token_a, token_b = first._qualified_direct_state_token, second._qualified_direct_state_token
+    assert token_a is not token_b
+    bound = first.elements[101]._qualified_direct_state_tokens
+    assert any(t is token_a for t in bound) and any(t is token_b for t in bound)
+
+
+def test_large_shared_numpy_metadata_round_trips_through_both_encode_routes():
+    from anyfem.result_transport import encode_result_stream
+
+    batch = helpers.shared_model_batch(3)
+    shared = np.arange(20000, dtype=float)  # > 64 KiB: pickled as a PickleBuffer
+    for shape in batch.shapes:
+        shape.info["shared"] = shared
+    batch.info["shared"] = shared
+
+    verified = decode_result(_wire(encode_result(batch)))  # verify=True probes
+    assert np.array_equal(verified.info["shared"], shared)
+    assert all(s.info["shared"] is verified.info["shared"] for s in verified.shapes)
+
+    wire = encode_result_stream(batch, lambda envelope: dumps(("encoded_result", envelope)))
+    streamed = decode_result(loads(wire)[1])
+    assert np.array_equal(streamed.info["shared"], shared)
+    assert all(s.info["shared"] is streamed.info["shared"] for s in streamed.shapes)
+    assert streamed.shapes[0].info["shared"] is streamed.info["shared"]
+
+
+def test_distinct_elements_with_equal_ids_in_distinct_meshes_are_not_merged():
+    batch = helpers.s3_batch_distinct_built_result(project=None, progress=_quiet)
+    decoded = decode_result(_wire(encode_result(batch)))
+    first, second = (s.built.fe_model.mesh.elements[101] for s in decoded.shapes)
+    assert first is not second
+
+
+def test_cancellation_during_serialization_is_a_cancellation_not_a_transfer_error():
+    from anyfem._transport_spool import TransportSpoolError
+    from anyfem.job_process import dumps_spooled
+
+    with pytest.raises(TransportSpoolError) as caught:
+        dumps_spooled(("result", b"x" * 100), cancelled=lambda: True)
+    assert caught.value.cancelled
+    assert not TransportSpoolError("disk full").cancelled
+
+
+def test_the_worker_carries_a_shared_batch_with_aliases_intact():
+    manager, record, _ = run(helpers.s3_shared_batch_result)
+    assert record.status == JobStatus.COMPLETED
+    result = manager.result(record.id)
+    model = result.built.fe_model
+    assert all(shape.built.fe_model is model for shape in result.shapes)
+    assert all(any(s.built.load_case is c for c in model.load_cases) for s in result.shapes)

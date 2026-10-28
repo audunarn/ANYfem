@@ -73,36 +73,71 @@ def retained_regular_settings(history):
     """Restore exact retained one-component parameters, refusing other grids."""
     from anyloads.source_pressure_history import SourceAwarePressureHistory
     from anyloads.pressure_history import MappedPressureHistory
+    from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
     from anyloads.sea_state import WaveRealization
     from anyhydro.pressure_bank import PressureResponseBank
     from .hydro_wave_input import RegularWaveInput
-    if not isinstance(history,SourceAwarePressureHistory) or type(history.mapped_history) is not MappedPressureHistory:
+    if not isinstance(history,SourceAwarePressureHistory) or type(history.mapped_history) not in (MappedPressureHistory,SpectralMappedPressureHistory):
         raise PressureRemapError('saved wave inputs unavailable; recreate this history using explicit wave inputs')
     bank=PressureResponseBank.from_dict(json.loads(history.source_payload_json));_validate_source(bank)
     r=WaveRealization.from_dict(json.loads(history.realization_json))
-    if len(r.components)!=1 or len(bank.omegas)!=1 or r.components[0].omega!=history.mapped_history.omega:
+    mapped_omegas=((history.mapped_history.omega,) if type(history.mapped_history) is MappedPressureHistory
+        else history.mapped_history.omegas)
+    if (r.source_kind!='declared_components' or len(r.components)!=1 or len(bank.omegas)!=1 or
+            tuple(mapped_omegas)!=(r.components[0].omega,) or bank.omegas[0]!=r.components[0].omega):
         raise PressureRemapError('saved regular wave component inventory differs; recreate explicit wave inputs')
     c=r.components[0]
-    if len(history.times)<2 or history.times[0]!=0.:
+    record_times=history.full_record_times
+    if len(record_times)<2 or record_times[0]!=0.:
         raise PressureRemapError('retained time grid cannot be represented by duration/dt inputs; recreate explicit wave inputs')
     try:
         settings=RegularWaveInput(height=2*c.amplitude,period=math.tau/c.omega,
             heading=c.direction_degrees,depth=bank.water_depth,phase=math.degrees(c.phase),
-            duration=history.times[-1],dt=history.times[1]-history.times[0])
+            duration=record_times[-1],dt=record_times[1]-record_times[0])
         predicted=settings.times
     except ValueError as error:
         raise PressureRemapError('retained time grid exceeds regular input limits; recreate explicit wave inputs') from error
-    if len(predicted)!=len(history.times) or not np.allclose(predicted,history.times,rtol=0.,
-            atol=1e-12*max(1.,history.times[-1])):
+    if len(predicted)!=len(record_times) or not np.allclose(predicted,record_times,rtol=0.,
+            atol=1e-12*max(1.,record_times[-1])):
         raise PressureRemapError('retained nonuniform time grid cannot be represented by duration/dt; recreate explicit wave inputs')
     from dataclasses import asdict
     return asdict(settings)
+
+
+def preview_source_resultants(history,*,cancel=None):
+    """Six original-source dynamic resultants; never a mapped-FEM resultant."""
+    from anyloads.source_pressure_history import SourceAwarePressureHistory
+    from anyloads.wave_preview import source_resultants
+    from anyloads.sea_state import WaveRealization
+    from anyhydro.pressure_bank import PressureResponseBank
+    if not isinstance(history,SourceAwarePressureHistory):
+        raise PressureRemapError('prepare wave input with its retained source before previewing resultants')
+    bank=PressureResponseBank.from_dict(json.loads(history.source_payload_json));_validate_source(bank)
+    realization=WaveRealization.from_dict(json.loads(history.realization_json))
+    return source_resultants(bank,realization,history.full_record_times,cancel=cancel)
+
+
+def validate_preview_source(history,source_bank_id):
+    from anyhydro.pressure_bank import PressureResponseBank
+    bank=PressureResponseBank.from_dict(json.loads(history.source_payload_json));_validate_source(bank)
+    if bank.bank_id!=source_bank_id or json.loads(history.domain_json)['source_bank_id']!=source_bank_id:
+        raise PressureRemapError('prepared preview source identity changed; prepare again')
 
 
 def effective_wave_pressure(project,mesh,load):
     """Shared preview/solve hook, returning an effective immutable load clone."""
     from anyloads.source_pressure_history import SourceAwarePressureHistory
     history=load.history
+    from .wave_surface_pressure import is_surface_history
+    if is_surface_history(history):
+        # Wave-following mode: re-evaluate target-point fields from the RETAINED field sources on the current mesh.
+        from .wave_surface_pressure import remap_surface_history
+        _domain(project,load.surfaces)    # same fixed-domain selection contract as source-aware histories (all five/empty)
+        try:made=remap_surface_history(project,mesh,history)
+        except PressureRemapError:raise
+        except (ValueError,KeyError,TypeError,ImportError) as error:
+            raise PressureRemapError(f'cannot remap wave-following source: {error}; regenerate wave input on current mesh') from error
+        return load if made is history else replace(load,history=made,mesh_content_sha256=made.mesh_content_sha256)
     if not isinstance(history,SourceAwarePressureHistory):return load
     try:
         from anyloads.spectral_pressure_history import build_pressure_mapping_plan,map_pressure_bank,SpectralMappedPressureHistory
@@ -138,7 +173,8 @@ def effective_wave_pressure(project,mesh,load):
                 mapping_plan_id=plan.plan_id,mapping_algorithm=plan.algorithm,frequency_transfer_evidence=evidence)
             current=SpectralMappedPressureHistory(history.times,tuple(cells[0]),tuple(bank.omegas),
                 mapped.real,mapped.imag,bank.heading,mesh_hash,bank.bank_id,history.realization_json,_json(provenance))
-            made=SourceAwarePressureHistory(current,history.source_payload_json,history.realization_json,history.domain_json)
+            made=SourceAwarePressureHistory(current,history.source_payload_json,history.realization_json,history.domain_json,
+                record_times=history.record_times,selected_window=history.selected_window,force_payload_json=history.force_payload_json)
         frequency_count=len(bank.omegas);element_count=len(made.element_ids)
         charge=128*frequency_count*element_count+len(history.source_payload_json.encode())+16*len(history.times)
         while _CACHE and (_CACHE_BYTES+charge>_CACHE_LIMIT or len(_CACHE)>=_CACHE_ENTRIES):

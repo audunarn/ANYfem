@@ -73,11 +73,84 @@ from .ownership import (
     sheet_join_intent_problems,
 )
 
-__all__ = ["Project", "ProjectError"]
+__all__ = ["FloatingTransientResultRef", "Project", "ProjectError"]
 
 
 class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
+
+
+FLOATING_TRANSIENT_DEVELOPMENT_MARKER = "DEVELOPMENT - UNVERIFIED HYDRODYNAMICS"
+_FT_ACCEPTED_STATUS = "complete"
+_FT_UNVERIFIED_STATUS = "completed_unverified_hydrodynamics"
+
+
+@dataclass(frozen=True)
+class FloatingTransientResultRef:
+    """Persistent project record of an applied floating TRANSIENT result: an artifact REFERENCE (path + content hash)
+    plus its complete provenance; the large arrays stay in the hash-verified artifact, never in the project JSON.
+
+    Accepted results (``status='complete'``, accepted hydrodynamics) may be consumed as quasistatic frame loads.
+    Unverified (development) results are stored only when explicitly attached as development
+    (``development_attached=True``) and always carry the development marker; they never become accepted loads."""
+
+    name: str
+    result_path: str
+    result_hash: str
+    status: str
+    hydrodynamic_verification: str
+    unpassed_gates: tuple = ()
+    frame_indices: tuple = ()
+    frame_times: tuple = ()
+    input_hash: str = ""
+    mass_digest: str = ""
+    structural_digest: str = ""          # canonical assembled stiffness identity (stale on any E/section change)
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+    development_attached: bool = False
+    marker: str = ""
+    stress_label: str = "quasistatic elastic stresses of the residual-relieved effective frame load"
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.result_path or len(str(self.result_hash)) != 64:
+            raise ProjectError("a floating transient result needs a name, an artifact path and its sha256 hash")
+        if self.status == _FT_ACCEPTED_STATUS:
+            if self.hydrodynamic_verification != "accepted" or self.unpassed_gates or self.development_attached:
+                raise ProjectError("an accepted floating transient result cannot carry unpassed / development state")
+        elif self.status == _FT_UNVERIFIED_STATUS:
+            if self.hydrodynamic_verification != "unverified" or not self.unpassed_gates:
+                raise ProjectError("an unverified floating transient result must list its unpassed gates")
+            if not self.development_attached or self.marker != FLOATING_TRANSIENT_DEVELOPMENT_MARKER:
+                raise ProjectError("unverified hydrodynamics may only be attached explicitly as development "
+                                   "(development_attached + marker)")
+        else:
+            raise ProjectError(f"floating transient status {self.status!r} cannot be applied to a project")
+        if len(self.frame_indices) != len(self.frame_times) or not self.frame_indices:
+            raise ProjectError("frame indices and frame times must match and be non-empty")
+        object.__setattr__(self, "unpassed_gates", tuple(str(g) for g in self.unpassed_gates))
+        object.__setattr__(self, "frame_indices", tuple(int(i) for i in self.frame_indices))
+        object.__setattr__(self, "frame_times", tuple(float(t) for t in self.frame_times))
+        object.__setattr__(self, "provenance", deepcopy(dict(self.provenance)))
+
+    @property
+    def accepted(self) -> bool:
+        return self.status == _FT_ACCEPTED_STATUS
+
+    def to_dict(self) -> dict:
+        return dict(name=self.name, result_path=self.result_path, result_hash=self.result_hash, status=self.status,
+                    hydrodynamic_verification=self.hydrodynamic_verification, unpassed_gates=list(self.unpassed_gates),
+                    frame_indices=list(self.frame_indices), frame_times=list(self.frame_times),
+                    input_hash=self.input_hash, mass_digest=self.mass_digest,
+                    structural_digest=self.structural_digest, provenance=deepcopy(dict(self.provenance)),
+                    development_attached=bool(self.development_attached), marker=self.marker,
+                    stress_label=self.stress_label)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "FloatingTransientResultRef":
+        allowed = set(cls.__dataclass_fields__)
+        extra = set(data) - allowed
+        if extra:
+            raise ProjectError(f"unknown floating transient result fields {sorted(extra)}")
+        return cls(**dict(data))
 
 
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
@@ -162,6 +235,8 @@ class Project:
     # Appended application binding for raw owner records without a region field.
     # Established positional arguments and owner record types stay unchanged.
     geometry_attachment_regions: Dict[EntityRef, RegionRef] = field(default_factory=dict)
+    # Appended: applied floating TRANSIENT results (artifact references + provenance; see FloatingTransientResultRef).
+    floating_transient_results: Dict[str, FloatingTransientResultRef] = field(default_factory=dict)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )

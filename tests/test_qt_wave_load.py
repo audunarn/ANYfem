@@ -28,14 +28,22 @@ def opened(window,qapp):
 
 
 def test_primary_button_real_child_mapping_one_case_saved(window,qapp,tmp_path):
+    window.wave_solution_cache_directory=tmp_path/'force-solutions'
     panel=opened(window,qapp);mesh=window.mesh
     QTest.mouseClick(panel.wave_button,Qt.LeftButton);qapp.processEvents()
     dialog=panel._wave_dialog
     assert dialog.inputs['height'].text()=='1.0' and dialog.inputs['period'].text()=='6.0'
     assert dialog.convert.isChecked()
-    QTest.mouseClick(dialog.apply_button,Qt.LeftButton)
+    before=canonical_hash(project_to_dict(window.project))
+    QTest.mouseClick(dialog.prepare_button,Qt.LeftButton)
     wait(qapp,lambda:dialog.runner is not None and not dialog.runner.isRunning())
     qapp.processEvents()
+    assert canonical_hash(project_to_dict(window.project))==before
+    assert dialog.prepared is not None,dialog.status.text()
+    preview_runner=dialog.runner
+    assert dialog.prepared['preview_kind']=='force_only_v1' and 'history' not in dialog.prepared
+    QTest.mouseClick(dialog.apply_button,Qt.LeftButton)
+    wait(qapp,lambda:dialog.runner is not preview_runner and not dialog.runner.isRunning());qapp.processEvents()
     owners=[c for c in window.project.load_cases.values() if c.parent is None]
     assert len(owners)==1,dialog.status.text()
     parent=owners[0];assert len(parent.times)==101 and len(parent.wet_pressures)==1
@@ -58,16 +66,17 @@ def test_primary_button_real_child_mapping_one_case_saved(window,qapp,tmp_path):
     window.redo();assert (window.project.load_cases[parent.name].id,next(iter(window.project.analyses)))==ids
 
 
-def test_cancel_and_stale_input_do_not_apply(window,qapp):
+def test_cancel_and_stale_input_do_not_apply(window,qapp,tmp_path):
+    window.wave_solution_cache_directory=tmp_path/'force-solutions'
     panel=opened(window,qapp)
     before=canonical_hash(project_to_dict(window.project))
     QTest.mouseClick(panel.wave_button,Qt.LeftButton);qapp.processEvents();dialog=panel._wave_dialog
-    QTest.mouseClick(dialog.apply_button,Qt.LeftButton)
+    QTest.mouseClick(dialog.prepare_button,Qt.LeftButton)
     dialog.reject()
     wait(qapp,lambda:not dialog.runner.isRunning())
     assert canonical_hash(project_to_dict(window.project))==before
     QTest.mouseClick(panel.wave_button,Qt.LeftButton);qapp.processEvents();dialog=panel._wave_dialog
-    QTest.mouseClick(dialog.apply_button,Qt.LeftButton)
+    QTest.mouseClick(dialog.prepare_button,Qt.LeftButton)
     window.project.name='Changed during wave input'
     changed=canonical_hash(project_to_dict(window.project))
     wait(qapp,lambda:not dialog.runner.isRunning());qapp.processEvents()

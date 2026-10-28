@@ -49,6 +49,38 @@ class UserSetChoiceEdit(ChoiceEdit):
         return self._preserved or '' if self.currentData() is None else super().text()
 
 
+class PressureHistoryEdit(QLineEdit):
+    """Opaque immutable history, never a truncated editable JSON payload."""
+    def __init__(self):
+        super().__init__()
+        self.setReadOnly(True)
+        self.setToolTip('Retained pressure history is preserved unchanged. Use Hydrodynamic wave load to edit its record/window.')
+        self.set_history(None)
+
+    def set_history(self, value):
+        from anyloads.pressure_history import MappedPressureHistory, pressure_history_from_dict
+        from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
+        from anyloads.source_pressure_history import SourceAwarePressureHistory
+        if isinstance(value,dict):value=pressure_history_from_dict(value)
+        from anyloads.wave_surface_pressure import WaveSurfacePressureHistory
+        if value is not None and not isinstance(value,(MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory,
+                WaveSurfacePressureHistory)):
+            raise ValueError('pressure history must be a supported immutable history record')
+        self.history=value
+        if value is None:summary='No retained pressure history'
+        elif isinstance(value,WaveSurfacePressureHistory):
+            summary=(f'Wave-following pressure (hydrostatic included): {len(value.times)} samples, '
+                f'{len(value.element_ids)} elements, {len(value.omegas)} frequencies; {value.content_sha256[:16]}')
+        else:
+            times=value.times
+            identity=getattr(value,'content_sha256','')
+            summary=f'{type(value).__name__}: {len(times)} samples, {len(value.element_ids)} elements; {identity[:16]}'
+        super().setText(summary)
+
+    def setText(self,value):
+        raise ValueError('retained pressure history cannot be replaced by text; use set_history with a typed record')
+
+
 class CodeEdit(QPlainTextEdit):
     """A monospace multi-line field that reads and writes like a QLineEdit."""
 
@@ -176,13 +208,13 @@ class CommandEditor(QWidget):
                     default = f.default
                     if default is dataclasses.MISSING and f.default_factory is not dataclasses.MISSING:
                         default=f.default_factory()
-                    field=self.choice_field(f.name,default,str(f.type)) or self.make_field(default, str(f.type), f.name)
+                    field=self.choice_field(f.name,default,str(f.type)) or self.make_field(default, str(f.type), f.name,record.__name__)
                     self.unit_field(field,default,f.name,record.__name__)
                     form.addRow("Set" if "RegionRef" in str(f.type) else title(f.name),field)
                     fields[f.name]=(field,str(f.type),default)
                 self.record_fields[name]=(record,fields)
             else:
-                field=self.choice_field(name,parameter.default,annotation) or self.make_field(parameter.default,annotation,name)
+                field=self.choice_field(name,parameter.default,annotation) or self.make_field(parameter.default,annotation,name,self.operation.__name__)
                 self.unit_field(field,parameter.default,name,self.operation.__name__)
                 form.addRow(self.FIELD_LABELS.get(name,title(name)),field)
                 self.fields[name]=(field,annotation,parameter.default)
@@ -234,7 +266,12 @@ class CommandEditor(QWidget):
         self.guidance.show()
 
     @staticmethod
-    def make_field(default, annotation, name):
+    def make_field(default, annotation, name, owner=None):
+        if name=='history' and ('PressureHistory' in annotation or owner in ('WetPressure','AddWetPressure')):
+            field=PressureHistoryEdit()
+            if default is not None and default is not inspect.Parameter.empty and default is not dataclasses.MISSING and repr(default)!="<factory>":
+                field.set_history(default)
+            return field
         field=CodeEdit() if name=="code" else QLineEdit()
         missing=default is inspect.Parameter.empty or default is dataclasses.MISSING or repr(default)=="<factory>"
         if not missing and default is not None:
@@ -257,6 +294,10 @@ class CommandEditor(QWidget):
         return field
 
     def value(self, field, annotation, default):
+        if isinstance(field,PressureHistoryEdit):
+            if field.history is not None:return field.history
+            if default is None or 'None' in annotation or 'Optional' in annotation:return None
+            raise ValueError('A required pressure history is empty')
         text=field.text().strip()
         if text=="null" and ("None" in annotation or "Optional" in annotation):return None
         if annotation.startswith("RegionRef"):
@@ -358,7 +399,7 @@ class CommandEditor(QWidget):
         for name,(field,annotation,default) in self.fields.items():
             if name in overrides:
                 options[name]=overrides[name];continue
-            if not field.text().strip() and repr(default)=="<factory>":
+            if (not field.text().strip() or isinstance(field,PressureHistoryEdit) and field.history is None) and repr(default)=="<factory>":
                 continue
             options[name]=self.value(field,annotation,default)
         if self.operation in {commands.AddFeature,commands.EditFeature} and options.get("inputs") is not None:
@@ -408,10 +449,14 @@ class CommandEditor(QWidget):
                 if hasattr(value,"id"):self.loaded_ids[name]=value.id
                 for key,(field,*_) in self.record_fields[name][1].items():
                     number=getattr(value,key)
+                    if isinstance(field,PressureHistoryEdit):
+                        field.set_history(number);continue
                     field.setText(self.format_quantity(number,self.dimensions[field],self.app.project.units) if field in self.dimensions and number is not None else self.encoded(number))
                     if key=="name":field.setReadOnly(True)
             elif name in self.fields:
                 field=self.fields[name][0]
+                if isinstance(field,PressureHistoryEdit):
+                    field.set_history(value);continue
                 field.setText(self.format_quantity(value,self.dimensions[field],self.app.project.units) if field in self.dimensions and value is not None else self.encoded(value))
         self.feedback.setText("Loaded existing values. Apply creates one undoable edit.")
 
