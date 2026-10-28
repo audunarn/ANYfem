@@ -4244,8 +4244,17 @@ def _execute_analysis_job(
     """Build, preflight and solve one immutable JobManager request."""
 
     from ..solve.run import preflight
+    from ..solve.static_options import allows_free_static
 
     resolved = dict(options)
+    if resolved.get("inertia_relief", False) and analysis_name not in ("Linear static", "Batch linear static"):
+        raise ValueError("inertia relief is only available for linear static analyses")
+    allow_free_static = (
+        analysis_name in ("Linear static", "Batch linear static")
+        and allows_free_static(resolved.get("constraint_mode", "auto" if resolved.get("inertia_relief", False) else "transformation"),
+            inertia_relief=resolved.get("inertia_relief", False),
+            allow_unbalanced_free_free=resolved.get("allow_unbalanced_free_free", False))
+    )
     built = resolved.pop("built", None)
     mesh = resolved.pop("mesh", None)
     if built is None:
@@ -4260,6 +4269,8 @@ def _execute_analysis_job(
             build_options["load_case"] = resolved["load_case"]
         if analysis_name == "Modal":
             build_options.update(require_loads=False, require_supports=False)
+        elif allow_free_static:
+            build_options["require_supports"] = False
         elif analysis_name == "Impact" and resolved.get("load_case") is None:
             build_options.update(require_loads=False, require_supports=True)
         progress("building immutable model snapshot")
@@ -4271,6 +4282,9 @@ def _execute_analysis_job(
         analysis_type=analysis_name,
         kinematics=kinematics,
         corotational_tangent=str(resolved.get("corotational_tangent", "auto")),
+        constraint_mode=resolved.get("constraint_mode", "auto")
+        if analysis_name in ("Linear static", "Batch linear static") else "auto",
+        inertia_relief=resolved.get("inertia_relief", False),
     )
     if report.errors:
         details = _format_preflight_errors(report.errors)

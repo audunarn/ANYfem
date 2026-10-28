@@ -238,6 +238,11 @@ class LinearSolution(ShapeView):
     label: str = "static"
     _stress: Any = field(default=None, repr=False)
 
+    @property
+    def inertia_relief(self) -> Optional[Mapping[str, Any]]:
+        """Owner acceleration, mass, balance and accuracy summary when enabled."""
+        return self.info.get("inertia_relief")
+
     # ------------------------------------------------------------------
     def stresses(self, **kwargs: Any):
         """Recover element stresses, caching the result.
@@ -277,11 +282,16 @@ class LinearSolution(ShapeView):
     def summary(self) -> str:
         node_id, magnitude = self.max_translation()
         mesh = self.built.mesh
-        return (
+        text = (
             f"{self.built.project.name}: {mesh.num_nodes} nodes, "
             f"{mesh.num_elements} elements, "
             f"max translation {magnitude:.6g} m at node {node_id}"
         )
+        if self.inertia_relief:
+            a = self.inertia_relief["acceleration_at_reference"]
+            alpha = self.inertia_relief["angular_acceleration"]
+            text += f"; inertia relief: acceleration {a} m/s^2, angular acceleration {alpha} rad/s^2"
+        return text
 
     def __repr__(self) -> str:  # pragma: no cover - display only
         return f"LinearSolution({self.summary()})"

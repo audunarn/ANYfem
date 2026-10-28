@@ -1878,6 +1878,35 @@ def _base_provenance(solution: Any, raw: Any) -> dict[str, Any]:
             result_case = nonlinear_info.get("result_case")
     if result_case is not None:
         provenance["result_case"] = _json_safe(result_case)
+    # Physical accelerating-frame diagnostics belong with the saved result,
+    # separately from displacement fields and support-reaction quantities.
+    info = getattr(solution, "info", None)
+    if isinstance(info, Mapping):
+        relief = info.get("inertia_relief")
+        if isinstance(relief, Mapping):
+            provenance["inertia_relief"] = _json_safe({
+                key: value for key, value in relief.items() if key != "result_case"})
+        elif type(solution).__name__ == "LinearBatchSolution":
+            cases = info.get("case_results", ())
+            if cases and len(cases) == len(solution.case_names) and all(
+                    isinstance(case.get("inertia_relief"), Mapping) for case in cases):
+                provenance["inertia_relief_cases"] = [
+                    {"case_name": name, "summary": _json_safe(case["inertia_relief"])}
+                    for name, case in zip(solution.case_names, cases)]
+        floating = info.get("floating_relief")
+        if isinstance(floating, Mapping):
+            provenance["floating_relief"] = _json_safe(floating)
+        if type(solution).__name__ == "LinearBatchSolution":
+            shapes = getattr(solution, "shapes", ())
+            if len(shapes) == len(solution.case_names):
+                entries = [
+                    {"case_name": name, "summary": _json_safe(shape.info["floating_relief"])}
+                    for name, shape in zip(solution.case_names, shapes)
+                    if isinstance(getattr(shape, "info", None), Mapping)
+                    and isinstance(shape.info.get("floating_relief"), Mapping)
+                ]
+                if entries:
+                    provenance["floating_relief_cases"] = entries
     metadata = getattr(raw, "quantity_metadata", None)
     if metadata:
         provenance["solver_quantities"] = _json_safe(

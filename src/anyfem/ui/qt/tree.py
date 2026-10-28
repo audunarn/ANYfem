@@ -574,10 +574,9 @@ class QtModelTree(QTreeView):
             self.app.panels["Definitions"].load_values("EditOutputRequest",request_id=key,replacement=self.project.output_requests[key]);page="Definitions"
         elif attribute=="analyses":
             record=self.project.analyses[key];panel=self.app.panels["Solve"]
-            import json
             display={"linear_static":"Linear static","batch_linear_static":"Batch linear static","modal":"Modal","buckling":"Buckling","nonlinear_static":"Nonlinear static","arc_length":"Arc length","transient":"Transient","impact":"Impact","capacity":"Capacity"}.get(record.type,record.type)
             if panel.analysis.findText(display)<0:raise ValueError(f"Analysis type {record.type} is unavailable")
-            panel.analysis.setCurrentText(display);panel.options.setPlainText(json.dumps(record.settings));page="Solve"
+            panel.analysis.setCurrentText(display);panel.load_settings(record.settings);page="Solve"
         else:
             self.app.set_status(f"{attribute.replace('_',' ')}: {key}");return
         self.app.notebook.select(page)

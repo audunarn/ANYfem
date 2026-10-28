@@ -377,7 +377,7 @@ def solve_linear_static_many(
                 for index,case in enumerate(case_results)):
             raise ProjectError("inertia relief batch returned mismatched case identity")
         _report_inertia_relief(progress, [case["inertia_relief"] for case in case_results])
-    if case_results:
+    if case_results and not inertia_relief:
         _report_nullspace_diagnostics(progress, [case["solver_info"] for case in case_results])
     for index, (name, solver_case) in enumerate(zip(case_names, solver_cases)):
         case_built = replace(built, load_case=solver_case)
