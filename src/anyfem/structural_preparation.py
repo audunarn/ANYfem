@@ -375,6 +375,10 @@ def prepare_structural_connectivity(
             for index, first in enumerate(members):
                 pairs.update((f"member:{first}", f"member:{second}") for second in members[index+1:])
         application = apply_intersections(geometry, plan, policy=policy)
+        # Only a successful owner preparation restores the local mapping route.
+        # A process transport itself never transfers preparation authority.
+        if hasattr(geometry, '_anyfem_transport_requires_preparation'):
+            del geometry._anyfem_transport_requires_preparation
     except GeometryError as error:
         if "positive-area" in str(error):
             raise StructuralPreparationError(
@@ -432,6 +436,9 @@ def source_edge_paths(closure: ModelClosure) -> dict[int, tuple[tuple[int, bool]
     try:
         binding = query(geometry)
     except GeometryError as error:
+        if getattr(geometry, '_anyfem_transport_requires_preparation', False):
+            raise StructuralPreparationError(
+                'transported geometry requires fresh owner preparation before source-edge mapping') from error
         if str(error) in ("edge subcurve provenance requires a complete current preparation",
                           "edge subcurve provenance is unavailable"):
             return {}
@@ -562,16 +569,15 @@ def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
             raise StructuralPreparationError('prepared mesh references a face outside the working closure')
     # Geometry and live generation bindings choose the required route; mutable
     # face labels cannot choose whether source-cell proof is necessary.
-    from anymesher import requires_material_source_transfer, publish_model_closure_mesh_to_source
-    if shell_ids and requires_material_source_transfer(closure.working_model, mesh):
-        if source_geometry is not None:
-            publish_model_closure_mesh_to_source(source_geometry, closure, mesh,
-                                                 cancellation_check=cancellation_check,
-                                                 **({'qualification': qualification} if qualification is not None else {}))
-            return
+    try:
+        from anymesher import requires_material_source_transfer
+    except ImportError as error:
         raise StructuralPreparationError(
-            'curvilinear project source remapping requires live owner source-cell '
-            'and parameter-transfer authority; generic closure maps cannot grant it')
+            'the installed mesher lacks the material source-transfer routing contract') from error
+    if shell_ids and requires_material_source_transfer(closure.working_model, mesh):
+        raise StructuralPreparationError(
+            'curvilinear project source remapping requires qualified owner source-cell '
+            'and parameter-transfer authority, unavailable in this delivery')
 
     qualified_authority: dict[str, Any] | None = None
     preparation = getattr(mesh, "structural_preparation", None)

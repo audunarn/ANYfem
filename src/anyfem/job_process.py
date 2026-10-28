@@ -104,6 +104,14 @@ def _new_thread_local() -> threading.local:
     return threading.local()
 
 
+def _restore_geometry_definition(document, preparation_invalidated):
+    from anygeometry import from_dict
+    model = from_dict(document)
+    if preparation_invalidated:
+        model._anyfem_transport_requires_preparation = True
+    return model
+
+
 class _TransportPickler(pickle.Pickler):
     # Private dispatch table; nothing else about pickling changes.
     #  * Read-only mapping views travel as their contents and are rebuilt as read-only views.
@@ -111,6 +119,18 @@ class _TransportPickler(pickle.Pickler):
     #    as a fresh, empty one.  That is exact, not a loss: by definition no other thread
     #    ever sees what a thread stored in it, so the receiving process starts where any
     #    other thread of the worker would have.
+    def reducer_override(self, value):
+        # Geometry's public persisted definition is the process boundary.
+        # Invocation callbacks, weak owner receipts and transient caches are
+        # deliberately not authority that can travel to another process.
+        from anygeometry import GeometryModel, to_dict
+        if type(value) is GeometryModel:
+            invalidated = any(hasattr(value, name) for name in (
+                "_intersection_preparation_receipt", "_edge_subcurve_preimages_receipt",
+                "_anyfem_transport_requires_preparation"))
+            return (_restore_geometry_definition, (to_dict(value), invalidated))
+        return NotImplemented
+
     dispatch_table = copyreg.dispatch_table.copy()
     dispatch_table[types.MappingProxyType] = lambda view: (_rebuild_mappingproxy, (dict(view),))
     dispatch_table[type(threading.local())] = lambda local: (_new_thread_local, ())
