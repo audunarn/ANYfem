@@ -11,6 +11,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
+if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
+    pytest.skip("set ANYFEM_RUN_QT_TESTS=1 for Qt tests", allow_module_level=True)
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from anysolver.floating_transient import numeric_array_digest  # noqa: E402

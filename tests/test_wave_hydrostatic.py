@@ -6,7 +6,11 @@ import json
 import math
 import numpy as np
 import pytest
-from test_wave_force_input import retained_force_record
+from test_pressure_remap import source_bank
+from anyfem.application import pressure_transfer as bridge
+from anyfem.application.hydro_wave_pressure import target_hull_cells
+from anyloads.spectral_pressure_history import build_pressure_mapping_plan, map_pressure_bank, SpectralMappedPressureHistory
+from anyloads.source_pressure_history import SourceAwarePressureHistory
 from test_pressure_remap import project_and_meshes as barge_meshes,original_history
 from anyfem.application import wave_hydrostatic as hs
 from anyfem.application.hydro_wave_input import (RegularWaveInput,ApplyWavePressure,select_prepared_wave_window)
@@ -283,3 +287,29 @@ def test_forged_or_unpaired_static_stays_untrusted_and_still_exact(tmp_path,monk
     context=builder._BatchLoadContext(other)
     stray=hs.make_static_pressure(WetPressure(history=dynamic.history,mapping_key='element'))
     assert not context._is_owned_static(stray) and context._is_owned_static(static)
+
+
+def retained_force_record(tmp_path):
+    """Minimal retained-history fixture shared with the wave-window contract."""
+    project, old, new, config, history, _ = irregular_record()
+    payload = migrate_retained_preview(history, asdict(config), cache_directory=tmp_path)
+    retained = SourceAwarePressureHistory(
+        history.mapped_history, history.source_payload_json, history.realization_json, history.domain_json,
+        record_times=history.times, selected_window=(history.times[0], history.times[-1]),
+        force_payload_json=json.dumps(payload['excitation_bank']))
+    return project, old, new, config, retained
+
+
+def irregular_record():
+    project, old, new = barge_meshes()
+    config = IrregularWaveInput(component_count=2, seed=22)
+    realization = config.realization()
+    bank = replace(source_bank(), omegas=tuple(c.omega for c in realization.components), bank_id='')
+    cells = target_hull_cells(project, old, {s.name: s.ref.id for s in project.wet_surfaces})
+    mesh_hash = canonical_hash(mesh_to_dict(old))
+    plan = build_pressure_mapping_plan(bank, *cells, mesh_content_sha256=mesh_hash)
+    fields, _ = map_pressure_bank(bank, plan, *cells[1:4], surface_ids=cells[4], mesh_content_sha256=mesh_hash)
+    history = SpectralMappedPressureHistory(config.times, tuple(cells[0]), tuple(bank.omegas), fields.real, fields.imag,
+        bank.heading, mesh_hash, bank.bank_id, json.dumps(realization.to_dict()), json.dumps(dict(settings=asdict(config))))
+    history = bridge.retain_pressure_source(history, bank, realization, project)
+    return project, old, new, config, history, None
