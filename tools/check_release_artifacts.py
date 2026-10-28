@@ -53,8 +53,8 @@ def _check_wheel(path: Path) -> None:
         metadata = archive.read(metadata_name).decode("utf-8").replace("\r\n", "\n")
         if f"Version: {VERSION}\n" not in metadata:
             _fail(f"{path.name} does not declare version {VERSION}")
-        if "License-Expression: MPL-2.0\n" not in metadata:
-            _fail(f"{path.name} does not declare MPL-2.0")
+        if "License-Expression: GPL-3.0-only\n" not in metadata:
+            _fail(f"{path.name} does not declare GPL-3.0-only")
         license_root = PurePosixPath(metadata_name).parent / "licenses"
         for relative in LICENSE_FILES:
             member = str(license_root / relative)

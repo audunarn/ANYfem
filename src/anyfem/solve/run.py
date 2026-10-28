@@ -20,6 +20,7 @@ from ..mesh.mapped import Mesh
 from ..model.attributes import LoadCase
 from ..model.project import Project, ProjectError
 from .build import BuiltModel, build_fe_model
+from .static_options import StaticConstraintMode, allows_free_static
 
 if TYPE_CHECKING:
     from anysolver import CancellationToken
@@ -136,37 +137,104 @@ def solve_linear_static(
     overrides: Optional[Mapping[int, int]] = None,
     progress: Progress = None,
     cancellation_token: Optional["CancellationToken"] = None,
+    constraint_mode: StaticConstraintMode = "auto",
+    allow_unbalanced_free_free: bool = False,
+    inertia_relief: bool = False,
+    reference_point: Optional[Sequence[float]] = None,
     **solver_options: Any,
 ):
     """Mesh if needed, build, and run a linear static solve.
 
     Pass ``combination`` to solve a factored sum of cases instead of a single
-    one.
+    one. Explicit ``constraint_mode="nullspace"`` permits a project without
+    supports and fixes its rigid-motion gauge. Loads must be self-equilibrated
+    unless ``allow_unbalanced_free_free`` is enabled separately; that opt-in
+    gives generalized balancing reactions, not mass-based inertia relief.
+    The legacy ``auto`` default still requires supports when building a project.
+    ``inertia_relief=True`` instead uses physical mass-based balancing and
+    exposes accelerations/balance in ``solution.inertia_relief``. It requires
+    auto/nullspace, no physical supports and no generalized-balancing opt-in.
     """
 
     from anysolver import solve_linear
 
     from ..post.results import LinearSolution
 
+    allow_free = allows_free_static(constraint_mode, inertia_relief=inertia_relief,
+                                   allow_unbalanced_free_free=allow_unbalanced_free_free)
+    if reference_point is not None and not inertia_relief:
+        raise ValueError("reference_point requires inertia_relief=True")
     built = _resolve_built(
         project, built, mesh=mesh, target_size=target_size, overrides=overrides,
         progress=progress, load_case=load_case, combination=combination,
         allow_quad_first=True,
+        require_supports=not allow_free,
     )
 
+    _require_floating_relief(built.load_case, inertia_relief, built.fe_model, built.project)
     _report(progress, "solving")
     structured_progress = solver_options.pop("progress_callback", None)
-    displacements, info = solve_linear(
-        built.fe_model,
-        built.load_case,
-        cancellation_token=cancellation_token,
-        progress_callback=_step_reporter(
-            progress, "static solve", structured_progress
-        ),
-        **solver_options,
-    )
+    if inertia_relief:
+        from anysolver import solve_inertia_relief
+
+        _preflight_static_cases(built, (built.load_case,), "linear_static", inertia_relief=True)
+        options = dict(solver_options)
+        if options.pop("solver_type", "direct") != "direct":
+            raise ValueError("inertia relief requires solver_type='direct'")
+        unsupported = set(options)-{"resource_config", "session"}
+        if unsupported:
+            raise ValueError("unsupported inertia relief options: " + ", ".join(sorted(unsupported)))
+        relief = solve_inertia_relief(built.fe_model, built.load_case,
+            reference_point=reference_point, cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(progress, "inertia relief", structured_progress), **options)
+        if not relief.converged or relief.displacements is None:
+            raise ProjectError(f"inertia relief failed ({relief.status}): {relief.error}")
+        displacements = np.asarray(relief.displacements, dtype=float)
+        summary = {"analysis_type": "inertia_relief", **relief.to_dict()}
+        info = {**relief.solver_info, "status": relief.status, "analysis_type": "inertia_relief",
+                "inertia_relief": summary, "reactions": {}, "constraint_forces": relief.constraint_forces,
+                **_floating_relief_metadata(built.load_case, {"inertia_relief": summary}, built.fe_model)}
+        _report_inertia_relief(progress, [summary])
+    elif constraint_mode == "nullspace":
+        from anysolver import solve_linear_many
+
+        _preflight_static_cases(built, (built.load_case,), "linear_static")
+        # The public batch route certifies augmented-system backward error and
+        # raises on incompatible loads. The legacy single route returns an
+        # unchecked finite result (or a zero field on refusal).
+        options = dict(solver_options)
+        if options.pop("solver_type", "direct") != "direct":
+            raise ValueError("nullspace static analysis requires solver_type='direct'")
+        unsupported = set(options) - {"resource_config", "session", "factorization_cache"}
+        if unsupported:
+            raise ValueError("unsupported checked nullspace options: " + ", ".join(sorted(unsupported)))
+        matrix, batch_info = solve_linear_many(
+            built.fe_model, [built.load_case], constraint_mode="nullspace",
+            allow_unbalanced_free_free=allow_unbalanced_free_free,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(progress, "static solve", structured_progress),
+            **options,
+        )
+        case_info = dict(batch_info["case_results"][0]["solver_info"])
+        displacements = np.asarray(matrix[:, 0], dtype=float)
+        info = {**batch_info, "convergence_info": case_info,
+                "nullspace_info": case_info.get("nullspace_info", {})}
+        _report_nullspace_diagnostics(progress, [case_info])
+    else:
+        displacements, info = solve_linear(
+            built.fe_model,
+            built.load_case,
+            constraint_mode=constraint_mode,
+            allow_unbalanced_free_free=allow_unbalanced_free_free,
+            cancellation_token=cancellation_token,
+            progress_callback=_step_reporter(
+                progress, "static solve", structured_progress
+            ),
+            **solver_options,
+        )
     return LinearSolution(
-        displacements=displacements, built=built, info=info, label="static"
+        displacements=displacements, built=built, info=info,
+        label="static (inertia relief)" if inertia_relief else "static"
     )
 
 
@@ -181,6 +249,10 @@ def solve_linear_static_many(
     progress: Progress = None,
     cancellation_token: Optional["CancellationToken"] = None,
     load_tolerance: Optional[float] = 1.0e-6,
+    constraint_mode: StaticConstraintMode = "auto",
+    allow_unbalanced_free_free: bool = False,
+    inertia_relief: bool = False,
+    reference_point: Optional[Sequence[float]] = None,
     **solver_options: Any,
 ):
     """Solve several unchanged-stiffness cases with one factorization.
@@ -200,6 +272,13 @@ def solve_linear_static_many(
     prescribed motion, or compression that would not pay solve every case.
     ``load_tolerance`` (first-tier cut-off on the nodal-force singular values)
     ``None`` or 0 always solves every case.
+
+    Explicit ``constraint_mode="nullspace"`` permits unsupported projects and
+    retains exact per-case compatibility and generalized-reaction diagnostics,
+    bypassing load compression. Unbalanced loads require the separate
+    ``allow_unbalanced_free_free`` opt-in; this is not mass-based inertia relief.
+    ``inertia_relief=True`` selects the owner's exact checked mass-balanced
+    batch route and retains each original case's acceleration and diagnostics.
     """
 
     from anysolver import solve_linear_many
@@ -207,6 +286,16 @@ def solve_linear_static_many(
     from ..post.results import LinearBatchSolution, LinearSolution
     from .build import _build_load_case, _resolve_load_case
 
+    allow_free = allows_free_static(constraint_mode, inertia_relief=inertia_relief,
+                                   allow_unbalanced_free_free=allow_unbalanced_free_free)
+    if reference_point is not None and not inertia_relief:
+        raise ValueError("reference_point requires inertia_relief=True")
+    solver_options.update(
+        constraint_mode=constraint_mode,
+        allow_unbalanced_free_free=allow_unbalanced_free_free,
+    )
+    if inertia_relief:
+        solver_options.update(inertia_relief=True, reference_point=reference_point)
     if built is None:
         built = _resolve_built(
             project,
@@ -217,6 +306,7 @@ def solve_linear_static_many(
             progress=progress,
             load_case=None,
             require_loads=True,
+            require_supports=not allow_free,
             allow_quad_first=True,
         )
     resolved_project = built.project
@@ -235,14 +325,26 @@ def solve_linear_static_many(
 
     solver_cases = []
     case_names = []
+    # Job-local reuse (mesh hash, wet sets, remapped histories) for exact mapped
+    # histories only; discarded with this call.
+    from .build import _BatchLoadContext
+
+    context = _BatchLoadContext(built)
     for requested_case in requested:
         case = _resolve_load_case(resolved_project, requested_case)
         if case is None:  # pragma: no cover - rejected by the public type
             raise ProjectError("a batch linear solve cannot include an empty case")
-        solver_case = _build_load_case(resolved_project, built.mesh, case)
+        solver_case = _build_load_case(
+            resolved_project, built.mesh, case, _load_context=context
+        )
+        _require_floating_relief(solver_case, inertia_relief, built.fe_model, built.project)
         built.fe_model.add_load_case(solver_case)
         solver_cases.append(solver_case)
         case_names.append(case.name)
+    context.verify_unchanged()
+
+    if constraint_mode == "nullspace" or inertia_relief:
+        _preflight_static_cases(built, solver_cases, "batch_linear_static", inertia_relief=inertia_relief)
 
     structured_progress = solver_options.pop("progress_callback", None)
     reduced = None
@@ -265,13 +367,31 @@ def solve_linear_static_many(
             **solver_options,
         )
     shapes = []
+    case_results = info.get("case_results", ()) if constraint_mode == "nullspace" or inertia_relief else ()
+    if inertia_relief:
+        if len(case_results) != len(case_names) or any(case.get("status") != "converged"
+                or case.get("inertia_relief", {}).get("status") != "converged" for case in case_results):
+            raise ProjectError("inertia relief batch did not return an accepted result for every case")
+        if any(case["solver_info"].get("input_index") != index
+                or case["solver_info"].get("case_id") != str(index)
+                for index,case in enumerate(case_results)):
+            raise ProjectError("inertia relief batch returned mismatched case identity")
+        _report_inertia_relief(progress, [case["inertia_relief"] for case in case_results])
+    if case_results and not inertia_relief:
+        _report_nullspace_diagnostics(progress, [case["solver_info"] for case in case_results])
     for index, (name, solver_case) in enumerate(zip(case_names, solver_cases)):
         case_built = replace(built, load_case=solver_case)
         shapes.append(
             LinearSolution(
                 displacements=np.asarray(matrix[:, index], dtype=float),
                 built=case_built,
-                info={**info, "batch_case_index": index, "batch_case": name},
+                info={**info, **({"convergence_info": case_results[index]["solver_info"],
+                                "nullspace_info": case_results[index]["solver_info"].get("nullspace_info", {}),
+                                "case_results": (case_results[index],)} if case_results else {}),
+                      **({"inertia_relief": case_results[index]["inertia_relief"], "reactions": {}}
+                         if inertia_relief else {}),
+                      **_floating_relief_metadata(solver_case, case_results[index] if case_results else None, built.fe_model),
+                      "batch_case_index": index, "batch_case": name},
                 label=f"static: {name}",
                 value=float(index),
             )
@@ -283,6 +403,101 @@ def solve_linear_static_many(
         info=info,
         case_names=tuple(case_names),
     )
+
+
+def _require_floating_relief(solver_case: Any, inertia_relief: bool, fe_model: Any = None, project: Any = None) -> None:
+    """A floating coupled load is a free body: it needs the owner's mass-based inertia relief (never generalized balancing,
+    nullspace-only or supports that would silently absorb the unbalanced residual), and the compound's primary inertia must
+    belong to the CURRENT dry mass (IR must not conceal a stale M)."""
+    if getattr(solver_case, "_floating_compound", None) is None:
+        return
+    if not inertia_relief:
+        raise ProjectError("a floating coupled load requires mass-based inertia relief on a free body "
+                           "(no supports, no generalized balancing); enable inertia relief")
+    if fe_model is not None:
+        from ..application.floating_apply import require_current_binding
+        try:
+            require_current_binding(solver_case._floating_history, fe_model, project)
+        except ValueError as error:
+            raise ProjectError(str(error)) from error
+
+
+def _floating_relief_metadata(solver_case: Any, case_result: Optional[Mapping[str, Any]], fe_model: Any = None) -> dict:
+    """Numeric primary / correction / total acceleration and original / corrected wrench of a floating case.  The physical
+    IR acceleration IS the residual correction because the primary rigid inertia -M a_primary is already in the assembled load;
+    the owner's diagnostics stay under their own keys."""
+    marker = getattr(solver_case, "_floating_compound", None)
+    if marker is None:
+        return {}
+    relief = {} if case_result is None else case_result.get("inertia_relief", {})
+    meta = {"kind": "floating_residual_relief_v1", "history_content_sha256": marker["history"], "time": marker["time"],
+            "correction_acceleration_at_center_of_mass": relief.get("acceleration_at_center_of_mass"),
+            "correction_angular_acceleration": relief.get("angular_acceleration"),
+            "correction_center_of_mass": relief.get("center_of_mass")}
+    if fe_model is not None:
+        from ..application.floating_apply import floating_relief_record
+        history = solver_case._floating_history
+        nodal = np.zeros((len(history.node_ids), 6))
+        for row, node_id in enumerate(history.node_ids):
+            if node_id in solver_case.nodal_loads:
+                nodal[row] = solver_case.nodal_loads[node_id]
+        meta["numeric"] = floating_relief_record(history, fe_model, nodal, marker["time"], relief)
+    return {"floating_relief": meta}
+
+
+def _preflight_static_cases(built: BuiltModel, cases: Sequence[Any], analysis_type: str,
+                            *, inertia_relief: bool = False) -> None:
+    """Validate the mapped, actual cases before checked nullspace assembly.
+
+    The immutable batch snapshot has no selected load case. Its initial model
+    preflight cannot validate loads that are only mapped here. Numerical
+    certification alone does not establish production load eligibility.
+    """
+    report = preflight(
+        built, load_cases=tuple(case for case in cases if case is not None),
+        analysis_type=analysis_type, constraint_mode="nullspace",
+        inertia_relief=inertia_relief,
+    )
+    if report.errors:
+        details = "\n".join(
+            f"[{issue.code}] {issue.message} Suggestion: {issue.suggestion}"
+            for issue in report.errors
+        )
+        raise ProjectError(f"preflight blocked {analysis_type}:\n{details}")
+
+
+def _report_inertia_relief(progress: Progress, summaries: Sequence[Mapping[str, Any]]) -> None:
+    """Present physical acceleration/balance; every case keeps its full summary."""
+    for index, item in enumerate(summaries[:3]):
+        a = np.asarray(item["acceleration_at_reference"])
+        alpha = np.asarray(item["angular_acceleration"])
+        _report(progress, f"inertia relief case {index+1}: acceleration at reference {a.tolist()} m/s^2; angular acceleration {alpha.tolist()} rad/s^2")
+    if len(summaries) > 3:
+        _report(progress, f"inertia relief: accelerations for all {len(summaries)} cases retained in result diagnostics")
+    diagnostics = [item["diagnostics"] for item in summaries]
+    if diagnostics:
+        _report(progress, "inertia relief: maximum force balance error "
+            f"{max(d['force_balance_error'] for d in diagnostics):.3e}; moment balance error "
+            f"{max(d['moment_balance_error'] for d in diagnostics):.3e}; elastic backward error "
+            f"{max(d['elastic_backward_error'] for d in diagnostics):.3e}")
+
+
+def _report_nullspace_diagnostics(progress: Progress, cases: Sequence[Mapping[str, Any]]) -> None:
+    """Present owner-reported topology and balancing warnings once per run."""
+    if not cases:
+        return
+    modes = cases[0].get("nullspace_info", {})
+    rank = modes.get("rank", cases[0].get("nullspace_rank", 0))
+    components = modes.get("component_count", len(modes.get("components", ())))
+    _report(progress, f"nullspace: {rank} rigid modes; {components} connected components")
+    if components > 1:
+        _report(progress, "warning: nullspace model contains multiple disconnected components; each component has its own rigid-motion gauge and load balance")
+    warnings = dict.fromkeys(str(warning) for case in cases for warning in case.get("warnings", ()))
+    for warning in warnings:
+        _report(progress, "warning: " + warning)
+    if warnings:
+        imbalance = max(float(case.get("relative_rigid_body_load_imbalance", 0.0)) for case in cases)
+        _report(progress, f"generalized load balancing: maximum relative rigid-body load imbalance {imbalance:.6g} across {len(cases)} case(s); not mass-based inertia relief")
 
 
 #: Fewer cases than this are simply all solved.
@@ -379,12 +594,17 @@ def _nodal_force_proxy(mesh: Any, pressure_keys: Sequence[int], pressure: np.nda
     nodal_rows = [row(key) for key in nodal_keys]
     proxy = np.zeros((len(rows), pressure.shape[1]))
     if triplets:
-        index_rows = np.array([t[0] for t in triplets])
-        index_columns = np.array([t[1] for t in triplets])
-        values = np.array([t[2] for t in triplets])
-        weights = np.zeros((len(rows), len(pressure_keys)))
-        np.add.at(weights, (index_rows, index_columns), values)
-        proxy = weights @ pressure
+        # Sparse weights from the same triplets (duplicates sum, as np.add.at did).
+        from scipy import sparse
+
+        weights = sparse.coo_array(
+            (
+                np.array([t[2] for t in triplets]),
+                (np.array([t[0] for t in triplets]), np.array([t[1] for t in triplets])),
+            ),
+            shape=(len(rows), len(pressure_keys)),
+        ).tocsr()
+        proxy = np.asarray(weights @ pressure)
     for position, target in enumerate(nodal_rows):
         proxy[target] += nodal[position]
     return proxy
@@ -439,6 +659,11 @@ def _solve_compressed(
     from anysolver import FactorizationCache, solve_linear_many
 
     if not _compressible(model, cases):
+        return None
+    # Nullspace case_results certify each original load and contain its
+    # generalized balancing reactions. Synthetic compression cases cannot be
+    # presented as those original diagnostics. Retain exact per-case solves.
+    if solver_options.get("constraint_mode") == "nullspace" or solver_options.get("inertia_relief", False):
         return None
     pressure_keys, pressure, nodal_keys, nodal = _load_blocks(cases)
     try:
@@ -1656,6 +1881,8 @@ def preflight(
     kinematics: str = "von_karman",
     corotational_tangent: str = "auto",
     allow_free_mechanisms: bool | None = None,
+    constraint_mode: StaticConstraintMode = "auto",
+    inertia_relief: bool = False,
     **validation_options: Any,
 ):
     """Run the solver's production validation against a built model.
@@ -1673,8 +1900,13 @@ def preflight(
     )
     if load_cases is None:
         load_cases = () if built.load_case is None else (built.load_case,)
+    if inertia_relief and normalized not in ("linear_static", "batch_linear_static"):
+        raise ValueError("inertia relief is only available for linear static analyses")
     if allow_free_mechanisms is None:
-        allow_free_mechanisms = normalized in ("modal", "free_vibration")
+        allow_free_mechanisms = normalized in ("modal", "free_vibration") or (
+            normalized in ("linear_static", "batch_linear_static")
+            and allows_free_static(constraint_mode, inertia_relief=inertia_relief)
+        )
     return validate_production_model(
         built.fe_model,
         load_cases=tuple(load_cases),

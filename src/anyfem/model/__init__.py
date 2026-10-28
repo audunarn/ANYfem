@@ -81,6 +81,7 @@ from .regions import (
 )
 from .units import UNIT_PROFILES, UnitError, UnitProfile, unit_profile
 from .workplanes import Workplane, WorkplaneError, WorkplaneFrame
+from .wind_turbine import WindTurbineLoad, WindTurbineLoadError
 
 __all__ = [
     "BeamSection",
@@ -140,6 +141,8 @@ __all__ = [
     "UNIT_PROFILES",
     "WetPressure",
     "WetSurface",
+    "WindTurbineLoad",
+    "WindTurbineLoadError",
     "UnitError",
     "UnitProfile",
     "Workplane",

@@ -69,6 +69,11 @@ ANALYSES = {
 _QUAD_PIPELINE_STRATEGIES = ("quad_first", "smart_mapped")
 
 
+def _metadata_channel(dataset) -> str:
+    """One loader channel per dataset so distinct header reads never coalesce."""
+    return f"metadata:{id(dataset)}"
+
+
 class _WorkbenchField:
     """Data descriptor keeping legacy ``app.field`` access controller-owned."""
 
@@ -94,8 +99,13 @@ class _WorkbenchField:
             from queue import SimpleQueue
             retired=instance.__dict__.setdefault("_retired_result_datasets",SimpleQueue())
             instance.__dict__["_result_dataset_snapshot"]=tuple(value.values())
+            loader=instance.__dict__.get("_result_loader")
             for dataset in previous.values():
-                if not any(dataset is current for current in value.values()):retired.put(dataset)
+                if not any(dataset is current for current in value.values()):
+                    retired.put(dataset)
+                    # Header reads are dataset-owned: only replacing that
+                    # dataset (not display/source epochs) cancels them.
+                    if loader is not None:loader.cancel_channel(_metadata_channel(dataset))
         if self.field in {"solution", "project", "mesh", "result_datasets", "active_model_hash", "shape_index", "active_job_id"}:
             invalidate = getattr(instance, "invalidate_result_requests", None)
             if invalidate is not None:
@@ -1900,8 +1910,14 @@ class WorkbenchWorkflow:
         dataset = self.result_datasets.get(self.active_job_id)
         if dataset is None:
             raise ValueError("the result artifact is unavailable")
-        if self.prepare_result_dataset(dataset,on_ready=lambda:self.show_persisted_result(
-                field_key,frame=frame,scale=scale,component=component,limits=limits,on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
+        job_id=self.active_job_id
+        def metadata_ready():
+            if self.active_job_id!=job_id or self.result_datasets.get(job_id) is not dataset:
+                if on_cancel is not None:on_cancel()
+                return
+            self.show_persisted_result(field_key,frame=frame,scale=scale,component=component,
+                limits=limits,on_ready=on_ready,on_cancel=on_cancel)
+        if self.prepare_result_dataset(dataset,on_ready=metadata_ready,on_cancel=on_cancel):return
         job=self.project.jobs.get(self.active_job_id)
         stale=job is not None and self._job_is_stale(job)
         panel = self.panels["Results"]
@@ -2212,6 +2228,15 @@ class WorkbenchWorkflow:
         if getattr(self,'_retiring_result_access',False):
             if on_cancel is not None:on_cancel()
             return None
+        # Metadata preparation belongs to its dataset, not to the display owner:
+        # activating that dataset's job or loading its mesh must not cancel it.
+        # Real activation writes active_job_id/solution/shape_index, which
+        # invalidate reads and bump the source epoch even for None->None, so
+        # only project identity and dataset membership own these requests.
+        if channel=="metadata" and dataset is not None:channel=_metadata_channel(dataset)
+        source_owned=dataset is not None and channel.startswith("metadata:")
+        def source_current():
+            return any(current is dataset for current in getattr(self,"result_datasets",{}).values())
         retirement=getattr(self,'_result_retirement',None)
         if retirement is not None:
             if not retirement.done():
@@ -2221,8 +2246,11 @@ class WorkbenchWorkflow:
                 owner=(self.solution,self.project,self.mesh,self.active_job_id)
                 def retry():
                     current=(self.solution,self.project,self.mesh,self.active_job_id)
-                    valid=(all(a is b for a,b in zip(owner[:3],current[:3])) and
-                           (ordered or owner[3]==current[3]) and source_epoch==getattr(self,'_result_source_epoch',0))
+                    if source_owned:
+                        valid=owner[1] is current[1] and source_current()
+                    else:
+                        valid=(all(a is b for a,b in zip(owner[:3],current[:3])) and
+                               (ordered or owner[3]==current[3]) and source_epoch==getattr(self,'_result_source_epoch',0))
                     if self._closing or not valid or (not ordered and pending.get(channel) is not token):
                         if on_cancel is not None:on_cancel()
                         if ordered and channel=='export' and not valid and not self._closing:
@@ -2294,7 +2322,9 @@ class WorkbenchWorkflow:
                 if not self._closing:
                     WorkbenchWorkflow._result_export_notice(self,f'Export failed: {type(result.error).__name__}: {result.error}',request_status,error=True)
                 return
-            if self._closing or result.cancelled or self.solution is not solution or self.project is not project or self.mesh is not mesh:
+            displaced=((self.project is not project or not source_current()) if source_owned else
+                       (self.solution is not solution or self.project is not project or self.mesh is not mesh))
+            if self._closing or result.cancelled or displaced:
                 cancel_capture()
                 if ordered and channel=='export' and not self._closing:
                     message='Export cancelled before publication'
@@ -2324,7 +2354,10 @@ class WorkbenchWorkflow:
                     release=getattr(other,"release_reader",None) or other.close
                     release()
             for retired_dataset in self._take_retired_result_datasets():
-                if not any(retired_dataset is current for current in getattr(self,"_result_dataset_snapshot",datasets)):retired_dataset.close()
+                if not any(retired_dataset is current for current in getattr(self,"_result_dataset_snapshot",datasets)):
+                    retired_dataset.close()
+                    if source_owned and retired_dataset is dataset:cancel.set()
+            if source_owned and cancel.is_set():return None  # replaced before the header read began
             from ..post.access import LiveResultAccess,result_access_scope
             access=getattr(self,"_live_result_access",None)
             accepted_bytes=getattr(access,"_publication_bytes",0)
@@ -2346,7 +2379,7 @@ class WorkbenchWorkflow:
                     from ..presentation.retained_results import prepare_warm_field
                     prepare_warm_field(field,display_scene,retained,working_bytes=access.working_bytes,**display_options)
                 return value
-        return self._result_loader.request(run, completed,channel=channel,ordered=ordered)
+        return self._result_loader.request(run, completed,channel=channel,ordered=ordered,independent=source_owned)
 
     def _result_scale_text(self,panel):
         widget=getattr(panel,"scale",getattr(panel,"_scale",None))
@@ -4244,8 +4277,17 @@ def _execute_analysis_job(
     """Build, preflight and solve one immutable JobManager request."""
 
     from ..solve.run import preflight
+    from ..solve.static_options import allows_free_static
 
     resolved = dict(options)
+    if resolved.get("inertia_relief", False) and analysis_name not in ("Linear static", "Batch linear static"):
+        raise ValueError("inertia relief is only available for linear static analyses")
+    allow_free_static = (
+        analysis_name in ("Linear static", "Batch linear static")
+        and allows_free_static(resolved.get("constraint_mode", "auto" if resolved.get("inertia_relief", False) else "transformation"),
+            inertia_relief=resolved.get("inertia_relief", False),
+            allow_unbalanced_free_free=resolved.get("allow_unbalanced_free_free", False))
+    )
     built = resolved.pop("built", None)
     mesh = resolved.pop("mesh", None)
     if built is None:
@@ -4260,6 +4302,8 @@ def _execute_analysis_job(
             build_options["load_case"] = resolved["load_case"]
         if analysis_name == "Modal":
             build_options.update(require_loads=False, require_supports=False)
+        elif allow_free_static:
+            build_options["require_supports"] = False
         elif analysis_name == "Impact" and resolved.get("load_case") is None:
             build_options.update(require_loads=False, require_supports=True)
         progress("building immutable model snapshot")
@@ -4271,6 +4315,9 @@ def _execute_analysis_job(
         analysis_type=analysis_name,
         kinematics=kinematics,
         corotational_tangent=str(resolved.get("corotational_tangent", "auto")),
+        constraint_mode=resolved.get("constraint_mode", "auto")
+        if analysis_name in ("Linear static", "Batch linear static") else "auto",
+        inertia_relief=resolved.get("inertia_relief", False),
     )
     if report.errors:
         details = _format_preflight_errors(report.errors)

@@ -34,18 +34,22 @@ import copyreg
 import dataclasses
 import inspect
 import io
+import hashlib
 import multiprocessing
 import os
 import pickle
 import select
 import signal
 import sys
+import tempfile
 import threading
 import time
 import traceback
 import types
 from copy import deepcopy
 from typing import Any, Callable, Mapping
+
+from ._transport_spool import SPOOL_MEMORY_BYTES, BoundedSpool, TransportSpoolError
 
 __all__ = [
     "WorkerProcessError",
@@ -100,6 +104,14 @@ def _new_thread_local() -> threading.local:
     return threading.local()
 
 
+def _restore_geometry_definition(document, preparation_invalidated):
+    from anygeometry import from_dict
+    model = from_dict(document)
+    if preparation_invalidated:
+        model._anyfem_transport_requires_preparation = True
+    return model
+
+
 class _TransportPickler(pickle.Pickler):
     # Private dispatch table; nothing else about pickling changes.
     #  * Read-only mapping views travel as their contents and are rebuilt as read-only views.
@@ -107,6 +119,18 @@ class _TransportPickler(pickle.Pickler):
     #    as a fresh, empty one.  That is exact, not a loss: by definition no other thread
     #    ever sees what a thread stored in it, so the receiving process starts where any
     #    other thread of the worker would have.
+    def reducer_override(self, value):
+        # Geometry's public persisted definition is the process boundary.
+        # Invocation callbacks, weak owner receipts and transient caches are
+        # deliberately not authority that can travel to another process.
+        from anygeometry import GeometryModel, to_dict
+        if type(value) is GeometryModel:
+            invalidated = any(hasattr(value, name) for name in (
+                "_intersection_preparation_receipt", "_edge_subcurve_preimages_receipt",
+                "_anyfem_transport_requires_preparation"))
+            return (_restore_geometry_definition, (to_dict(value), invalidated))
+        return NotImplemented
+
     dispatch_table = copyreg.dispatch_table.copy()
     dispatch_table[types.MappingProxyType] = lambda view: (_rebuild_mappingproxy, (dict(view),))
     dispatch_table[type(threading.local())] = lambda local: (_new_thread_local, ())
@@ -120,6 +144,141 @@ def dumps(value: Any) -> bytes:
 
 def loads(data: bytes) -> Any:
     return pickle.loads(data)
+
+
+# Bound every Windows overlapped WriteFile, rather than handing a potentially
+# multi-gigabyte serialized result to one message-mode pipe operation.
+_PIPE_FRAME_BYTES = 1024 * 1024
+_MAX_TRANSFER_BYTES = 8 * 1024**3  # serialized-message limit, not peak memory
+_TRANSFER_TAG = "anyfem_chunked_pickle_v2"
+_FRAME_PREFIX = 9  # kind byte + 8-byte stream identity
+
+
+_SPOOL_MEMORY_BYTES = SPOOL_MEMORY_BYTES
+
+
+def dumps_spooled(value: Any, *, cancelled: Any = None) -> BoundedSpool:
+    """Serialize into a bounded spool; the 8 GiB cap is enforced while writing.
+
+    Raises :class:`TransportSpoolError` for the size cap, cancellation or a disk
+    failure, and whatever the pickler raises for an object that refuses pickle.
+    """
+
+    spool = BoundedSpool(_MAX_TRANSFER_BYTES, _SPOOL_MEMORY_BYTES, cancelled)
+    try:
+        _TransportPickler(spool, protocol=pickle.HIGHEST_PROTOCOL).dump(value)
+    except BaseException:
+        spool.close()
+        raise
+    return spool
+
+
+def _send_serialized(connection: Any, data: bytes | BoundedSpool, kind="result") -> None:
+    """Send ``data`` (bytes, or a spool read back in bounded chunks) as one message."""
+
+    spooled = isinstance(data, BoundedSpool)
+    size = data.size if spooled else len(data)
+    stream = os.urandom(8)
+    stream_started = False
+    try:
+        if size > _MAX_TRANSFER_BYTES:
+            raise OSError(f'serialized message exceeds {_MAX_TRANSFER_BYTES}-byte transfer limit')
+        if size <= _PIPE_FRAME_BYTES - 1:
+            whole = data.read_all() if spooled else data
+            connection.send_bytes(b'C' + whole)
+            return
+        digest = data.hexdigest() if spooled else hashlib.sha256(data).hexdigest()
+        header = dumps((_TRANSFER_TAG, size, digest, kind))
+        stream_started = True  # even a failed header write may have reached the pipe
+        connection.send_bytes(b'H' + stream + header)
+        chunk_size = _PIPE_FRAME_BYTES - _FRAME_PREFIX
+        if spooled:
+            for block in data.chunks(chunk_size):
+                connection.send_bytes(b'D' + stream + block)
+        else:
+            view = memoryview(data)
+            for offset in range(0, size, chunk_size):
+                connection.send_bytes(b'D' + stream + view[offset:offset + chunk_size].tobytes())
+    except BaseException as error:
+        if not stream_started and not isinstance(error,OSError):
+            raise  # preserve pre-header codec/progress fallback behavior
+        message = (f"worker output transport failed (serialized_bytes={size}, "
+                   f"maximum_pipe_frame_bytes={_PIPE_FRAME_BYTES}): {error}")
+        try:
+            connection.send_bytes(b'A' + stream + dumps(('ResultTransferError', message)))
+        except BaseException:
+            pass  # best effort only; receiver reports incomplete stream/exit
+        raise WorkerProcessError(message, remote_type="ResultTransferError") from error
+
+
+class _IncomingMessage:
+    """Tagged trusted-child messages; partial streams admit only matching abort."""
+    def __init__(self):
+        self.buffer = None
+        self.size = self.received = 0
+        self.digest = self.expected = self.stream = self.kind = None
+
+    def close(self):
+        """Release the receive spool (idempotent); partial streams publish nothing."""
+        buffer,self.buffer=self.buffer,None
+        if buffer is not None:
+            try:buffer.close()
+            except Exception:pass
+
+    @staticmethod
+    def decode(data):
+        try:return loads(data)
+        except Exception as error:
+            raise WorkerProcessError(f'invalid serialized worker transfer: {type(error).__name__}: {error}',
+                remote_type='ResultTransferError') from error
+
+    def accept(self, data: bytes):
+        if len(data)>_PIPE_FRAME_BYTES:
+            raise WorkerProcessError('oversized worker transfer frame',remote_type='ResultTransferError')
+        if not data:raise WorkerProcessError('empty worker transfer frame',remote_type='ResultTransferError')
+        tag=data[:1]
+        if tag==b'C' and self.buffer is None:return self.decode(data[1:])
+        if tag in (b'H',b'D',b'A') and len(data)>_FRAME_PREFIX:
+            stream=data[1:_FRAME_PREFIX];payload=data[_FRAME_PREFIX:]
+            if self.buffer is not None and stream!=self.stream:
+                raise WorkerProcessError('worker transfer stream identity mismatch',remote_type='ResultTransferError')
+            if tag==b'A':
+                abort=self.decode(payload)
+                if not isinstance(abort,tuple) or len(abort)!=2 or abort[0]!='ResultTransferError':
+                    raise WorkerProcessError('invalid worker abort frame',remote_type='ResultTransferError')
+                raise WorkerProcessError(str(abort[1]),remote_type=abort[0])
+            if tag==b'H' and self.buffer is None:
+                value=self.decode(payload)
+                if (not isinstance(value,tuple) or len(value)!=4 or value[0]!=_TRANSFER_TAG
+                        or type(value[1]) is not int or not _PIPE_FRAME_BYTES-1<value[1]<=_MAX_TRANSFER_BYTES
+                        or not isinstance(value[2],str) or len(value[2])!=64
+                        or any(c not in '0123456789abcdef' for c in value[2])
+                        or value[3] not in ('result','encoded_result','progress','object','error')):
+                    raise WorkerProcessError('invalid worker transfer header',remote_type='ResultTransferError')
+                self.size,self.expected,self.kind=value[1:];self.stream=stream;self.received=0
+                # Bounded: RAM up to the spool threshold, then an anonymous temp file.
+                self.buffer=tempfile.SpooledTemporaryFile(max_size=_SPOOL_MEMORY_BYTES);self.digest=hashlib.sha256()
+                return None
+            if tag==b'D' and self.buffer is not None:
+                expected=min(_PIPE_FRAME_BYTES-_FRAME_PREFIX,self.size-self.received)
+                if len(payload)!=expected:
+                    raise WorkerProcessError(f'incomplete worker transfer frame (expected={expected}, received={len(payload)}, serialized_bytes={self.size})',remote_type='ResultTransferError')
+                try:self.buffer.write(payload)
+                except OSError as error:
+                    raise WorkerProcessError(f'worker transfer spool write failed: {error}',remote_type='ResultTransferError') from error
+                self.digest.update(payload);self.received+=len(payload)
+                if self.received<self.size:return None
+                if self.digest.hexdigest()!=self.expected:
+                    raise WorkerProcessError('worker transfer digest mismatch',remote_type='ResultTransferError')
+                self.buffer.seek(0)
+                try:value=pickle.load(self.buffer)
+                except Exception as error:
+                    raise WorkerProcessError(f'invalid serialized worker transfer: {type(error).__name__}: {error}',
+                        remote_type='ResultTransferError') from error
+                if not isinstance(value,tuple) or not value or value[0]!=self.kind:
+                    raise WorkerProcessError('worker transfer envelope kind mismatch',remote_type='ResultTransferError')
+                self.close();return value
+        raise WorkerProcessError('unexpected worker transfer frame',remote_type='ResultTransferError')
 
 
 # ----------------------------------------------------------------------
@@ -767,8 +926,17 @@ def _worker_main(
 
     _lower_priority()
 
+    transport_lock = threading.Lock()
+    transport_failed = False
+
     def send(message: tuple) -> None:
-        connection.send_bytes(dumps(message))
+        nonlocal transport_failed
+        with transport_lock:
+            if transport_failed:raise WorkerProcessError('worker output stream already failed',remote_type='ResultTransferError')
+            try:_send_serialized(connection, dumps(message), message[0])
+            except WorkerProcessError:
+                transport_failed=True
+                raise
 
     spec = None
     guardian: tuple[int, int] | None = None
@@ -842,8 +1010,28 @@ def _worker_main(
             spec["function"], spec["kwargs"], spec["snapshot"], spec["project_override"], progress, token
         )
         result = spec["function"](**call)
+        def cancelled() -> bool:
+            return _is_cancelled(token)
+
+        def transfer_failure(error: BaseException) -> WorkerProcessError:
+            # Size cap, cancellation or disk failure: never a codec fallback.
+            # An actual cancellation stays a cancellation (nothing attached).
+            if getattr(error, "cancelled", False):
+                return WorkerProcessError(
+                    "cancelled during worker result transfer; nothing attached",
+                    remote_type="CancelledDuringTransfer",
+                )
+            return WorkerProcessError(
+                f"worker output transport failed (maximum_serialized_bytes="
+                f"{_MAX_TRANSFER_BYTES}): {error}",
+                remote_type="ResultTransferError",
+            )
+
         try:
-            data = dumps(("result", result))
+            data = dumps_spooled(("result", result), cancelled=cancelled)
+            result_kind="result"
+        except TransportSpoolError as error:
+            raise transfer_failure(error) from error
         except Exception:
             # A completed result can hold live solver objects that refuse
             # pickle by contract (the qualified S3 V2D shells block
@@ -852,18 +1040,33 @@ def _worker_main(
             # encoded through its supported plain-data APIs instead of
             # pickling the live objects; anything without such a route
             # fails below with the same structured transfer error as before.
-            from .result_transport import encode_result
+            from .result_transport import encode_result_stream
 
             progress("preparing the completed result for transfer")
             try:
-                data = dumps(("encoded_result", encode_result(result)))
+                data = encode_result_stream(
+                    result, lambda envelope: dumps_spooled(
+                        ("encoded_result", envelope), cancelled=cancelled)
+                )
+                result_kind="encoded_result"
+            except TransportSpoolError as error:
+                raise transfer_failure(error) from error
             except Exception as error:
                 raise WorkerProcessError(
                     f"the result could not be transferred to the application: "
                     f"{type(error).__name__}: {error}",
                     remote_type="ResultTransferError",
                 ) from error
-        connection.send_bytes(data)
+        with transport_lock:
+            if transport_failed:
+                data.close()
+                raise WorkerProcessError('worker output stream already failed',remote_type='ResultTransferError')
+            try:_send_serialized(connection, data, result_kind)
+            except WorkerProcessError:
+                transport_failed=True
+                raise
+            finally:
+                data.close()
     except BaseException as error:  # noqa: BLE001 - reported to the parent, which decides
         kind = getattr(error, "remote_type", None) or type(error).__name__
         diagnostic = None
@@ -1152,6 +1355,8 @@ def run_in_worker_process(
     # that owns them is constructed first and torn down on every path.
     tree: WorkerTree | None = WorkerTree(process, job=job) if containment else None
     started = False
+    incoming = _IncomingMessage()
+    partial_stream = False
     try:
         try:
             process.start()
@@ -1218,23 +1423,46 @@ def run_in_worker_process(
             on_process(process)
 
         outcome: tuple | None = None
+        connection_error = None
         while outcome is None:
             if _is_cancelled(token) and not cancel_event.is_set():
                 cancel_event.set()
-            if receiver.poll(_CONTAINED_POLL_SECONDS if containment else _POLL_SECONDS):
+            if incoming.buffer is not None and incoming.kind in ("result","encoded_result") and _is_cancelled(token):
+                raise WorkerProcessError("cancelled during worker result transfer; nothing attached", remote_type="CancelledDuringTransfer")
+            try:
+                available = receiver.poll(_CONTAINED_POLL_SECONDS if containment else _POLL_SECONDS)
+            except (EOFError, OSError) as error:
+                connection_error=error
+                break  # Windows may report pipe closure from poll, before recv.
+            if available:
                 try:
-                    message = loads(receiver.recv_bytes())
-                except (EOFError, OSError):
+                    message = incoming.accept(receiver.recv_bytes(_PIPE_FRAME_BYTES))
+                except EOFError:
                     break
+                except OSError as error:
+                    if str(error)=='bad message length':
+                        raise WorkerProcessError('oversized worker transfer frame rejected by receive limit',remote_type='ResultTransferError') from error
+                    connection_error=error
+                    break
+                if message is None:
+                    continue
                 if message[0] == "progress":
                     progress(_progress_value(message[1], message[2]))
                 elif message[0] == "object":
                     progress(message[1])
                 else:
                     outcome = message
-            elif not process.is_alive() and not receiver.poll(0):
-                break
+            elif not process.is_alive():
+                try:
+                    if not receiver.poll(0):break
+                except (EOFError, OSError):
+                    break
     finally:
+        # A partial stream publishes nothing; remember it for the error text,
+        # then release the receive spool on every path.
+        partial_stream = incoming.buffer is not None
+        received_bytes = incoming.received
+        incoming.close()
         cleanup_failures = _cleanup_worker(
             process, receiver, sender, tree, control_parent, control_child, started
         )
@@ -1246,8 +1474,12 @@ def run_in_worker_process(
                 _cleanup_note(in_flight, cleanup_failures)
 
     if outcome is None:
+        if partial_stream:
+            raise WorkerProcessError(
+                f"worker transfer ended before completion (serialized_bytes={incoming.size}, received={received_bytes}, exit_code={process.exitcode}, connection_error={connection_error}); nothing attached",
+                remote_type="ResultTransferError")
         error = WorkerProcessError(
-            f"the worker process ended unexpectedly (exit code {process.exitcode}); "
+            f"the worker process ended unexpectedly (exit code {process.exitcode}, connection_error={connection_error}); "
             "the application and the model are unaffected",
             remote_type="WorkerProcessExited",
         )
@@ -1255,6 +1487,8 @@ def run_in_worker_process(
             _cleanup_note(error, cleanup_failures)
         raise error
     if outcome[0] == "result":
+        if _is_cancelled(token):
+            raise WorkerProcessError("cancelled during worker result transfer; nothing attached", remote_type="CancelledDuringTransfer")
         if cleanup_failures:
             # Mandatory cleanup failed: the result exists but is not
             # published while its worker tree was not confirmed retired.

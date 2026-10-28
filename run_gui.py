@@ -144,6 +144,9 @@ def _active_distribution_version(distribution: str) -> str:
 _OPTIONAL_SOURCE_PROJECTS = (
     ("ANYsection", "anysection", _ECOSYSTEM_WORKSPACE / "ANYsection" / "src"),
     ("ANYhydro", "anyhydro", _ECOSYSTEM_WORKSPACE / "ANYhydro" / "src"),
+    # Floating linear response: the equilibrium workflow runs in an isolated, explicitly configured runtime that holds the
+    # pinned ANYgeometry owner; this checkout (if present) is only exposed so the worker module can be located/imported.
+    ("ANYstability", "anystability", _ECOSYSTEM_WORKSPACE / "ANYstability" / "src"),
 )
 
 

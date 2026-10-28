@@ -230,8 +230,11 @@ class NativeProjectMeshingSession:
             include_structural_closure=True,
             include_features=False,
         )
-        if self.runtime.settings.to_dict().get('parameters', {}).get('geometry_approximation_error') is not None:
-            from anygeometry import qualify_model_closure_source
+        from .model.project import source_publication_required, source_publication_service
+        if (self.runtime.settings.to_dict().get('parameters', {}).get('geometry_approximation_error') is not None
+                and source_publication_required(self.geometry)):
+            qualify_model_closure_source = source_publication_service(
+                "anygeometry", "qualify_model_closure_source")
             qualify_model_closure_source(self.geometry, closure)
         return GeometryComponentSnapshot(
             geometry=closure.working_model,
@@ -370,11 +373,19 @@ class NativeProjectMeshingSession:
         snapshot.assert_current()
         geometry = snapshot.geometry
         qualification = None
-        if request.settings.to_dict().get("parameters", {}).get("geometry_approximation_error") is not None:
-            from anymesher import qualify_model_closure_source_publication
+        from .model.project import (ProjectError, source_publication_required,
+                                    source_publication_service)
+        if (request.settings.to_dict().get("parameters", {}).get("geometry_approximation_error") is not None
+                and source_publication_required(snapshot.source_geometry)):
+            qualify_model_closure_source_publication = source_publication_service(
+                "anymesher", "qualify_model_closure_source_publication")
             qualification = qualify_model_closure_source_publication(
                 snapshot.source_geometry, snapshot.closure,
                 cancellation_check=request.cancellation.raise_if_cancelled)
+            if qualification is None:
+                raise ProjectError(
+                    "curved source publication returned no owner qualification; "
+                    "curved publication is refused")
         preparation = prepare_structural_connectivity(
             geometry,
             source_model_id=str(snapshot.model_id),
@@ -509,10 +520,20 @@ class NativeProjectMeshingSession:
             native_backend = "python"
         else:
             native_backend = self._native_backend
+        # The bound reaches the mesher only on a qualified curved route.  A
+        # bound supplied only by a control never passed the gate above, so a
+        # curved model refuses here instead of losing it.
+        if (parameters.get("geometry_approximation_error") is not None
+                and qualification is None
+                and source_publication_required(snapshot.source_geometry)):
+            raise ProjectError(
+                "curved source publication requires owner qualification of "
+                "the component closure; curved publication is refused")
         supported = {
             key: value
             for key, value in parameters.items()
-            if key in {"recombine", "overlap_policy", "geometry_approximation_error"}
+            if key in {"recombine", "overlap_policy"}
+            or (key == "geometry_approximation_error" and qualification is not None)
         }
         if quad_pipeline:
             supported["quad_options"] = quad_options

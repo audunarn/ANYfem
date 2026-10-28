@@ -66,6 +66,7 @@ from .regions import (
     RegionRegistry,
 )
 from .units import UnitProfile, unit_profile
+from .wind_turbine import WindTurbineLoad
 from .ownership import (
     SheetJoinIntent,
     infer_sheet_join_intents,
@@ -73,11 +74,116 @@ from .ownership import (
     sheet_join_intent_problems,
 )
 
-__all__ = ["Project", "ProjectError"]
+__all__ = ["FloatingTransientResultRef", "Project", "ProjectError"]
 
 
 class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
+
+
+def source_publication_required(geometry: Any) -> bool:
+    """Route a geometry approximation bound by the owner's classification.
+
+    A positive bound is not by itself evidence that curved source
+    qualification is needed; only the ANYmesher routing query decides.  An
+    unavailable query refuses instead of guessing either route.
+    """
+
+    try:
+        from anymesher.material_source_transfer import requires_material_source_transfer
+        return bool(requires_material_source_transfer(geometry, None))
+    except ImportError as error:
+        raise ProjectError(
+            "geometry_approximation_error requires the ANYmesher "
+            "source-transfer routing query, which is unavailable"
+        ) from error
+
+
+def source_publication_service(module: str, name: str) -> Callable[..., Any]:
+    """Return an owner publication service or refuse the curved route."""
+
+    from importlib import import_module
+
+    try:
+        return getattr(import_module(module), name)
+    except (ImportError, AttributeError) as error:
+        raise ProjectError(
+            f"curved source publication requires {module}.{name}, which is "
+            "unavailable; curved publication is refused"
+        ) from error
+
+
+FLOATING_TRANSIENT_DEVELOPMENT_MARKER = "DEVELOPMENT - UNVERIFIED HYDRODYNAMICS"
+_FT_ACCEPTED_STATUS = "complete"
+_FT_UNVERIFIED_STATUS = "completed_unverified_hydrodynamics"
+
+
+@dataclass(frozen=True)
+class FloatingTransientResultRef:
+    """Persistent project record of an applied floating TRANSIENT result: an artifact REFERENCE (path + content hash)
+    plus its complete provenance; the large arrays stay in the hash-verified artifact, never in the project JSON.
+
+    Accepted results (``status='complete'``, accepted hydrodynamics) may be consumed as quasistatic frame loads.
+    Unverified (development) results are stored only when explicitly attached as development
+    (``development_attached=True``) and always carry the development marker; they never become accepted loads."""
+
+    name: str
+    result_path: str
+    result_hash: str
+    status: str
+    hydrodynamic_verification: str
+    unpassed_gates: tuple = ()
+    frame_indices: tuple = ()
+    frame_times: tuple = ()
+    input_hash: str = ""
+    mass_digest: str = ""
+    structural_digest: str = ""          # canonical assembled stiffness identity (stale on any E/section change)
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+    development_attached: bool = False
+    marker: str = ""
+    stress_label: str = "quasistatic elastic stresses of the residual-relieved effective frame load"
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.result_path or len(str(self.result_hash)) != 64:
+            raise ProjectError("a floating transient result needs a name, an artifact path and its sha256 hash")
+        if self.status == _FT_ACCEPTED_STATUS:
+            if self.hydrodynamic_verification != "accepted" or self.unpassed_gates or self.development_attached:
+                raise ProjectError("an accepted floating transient result cannot carry unpassed / development state")
+        elif self.status == _FT_UNVERIFIED_STATUS:
+            if self.hydrodynamic_verification != "unverified" or not self.unpassed_gates:
+                raise ProjectError("an unverified floating transient result must list its unpassed gates")
+            if not self.development_attached or self.marker != FLOATING_TRANSIENT_DEVELOPMENT_MARKER:
+                raise ProjectError("unverified hydrodynamics may only be attached explicitly as development "
+                                   "(development_attached + marker)")
+        else:
+            raise ProjectError(f"floating transient status {self.status!r} cannot be applied to a project")
+        if len(self.frame_indices) != len(self.frame_times) or not self.frame_indices:
+            raise ProjectError("frame indices and frame times must match and be non-empty")
+        object.__setattr__(self, "unpassed_gates", tuple(str(g) for g in self.unpassed_gates))
+        object.__setattr__(self, "frame_indices", tuple(int(i) for i in self.frame_indices))
+        object.__setattr__(self, "frame_times", tuple(float(t) for t in self.frame_times))
+        object.__setattr__(self, "provenance", deepcopy(dict(self.provenance)))
+
+    @property
+    def accepted(self) -> bool:
+        return self.status == _FT_ACCEPTED_STATUS
+
+    def to_dict(self) -> dict:
+        return dict(name=self.name, result_path=self.result_path, result_hash=self.result_hash, status=self.status,
+                    hydrodynamic_verification=self.hydrodynamic_verification, unpassed_gates=list(self.unpassed_gates),
+                    frame_indices=list(self.frame_indices), frame_times=list(self.frame_times),
+                    input_hash=self.input_hash, mass_digest=self.mass_digest,
+                    structural_digest=self.structural_digest, provenance=deepcopy(dict(self.provenance)),
+                    development_attached=bool(self.development_attached), marker=self.marker,
+                    stress_label=self.stress_label)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "FloatingTransientResultRef":
+        allowed = set(cls.__dataclass_fields__)
+        extra = set(data) - allowed
+        if extra:
+            raise ProjectError(f"unknown floating transient result fields {sorted(extra)}")
+        return cls(**dict(data))
 
 
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
@@ -162,6 +268,11 @@ class Project:
     # Appended application binding for raw owner records without a region field.
     # Established positional arguments and owner record types stay unchanged.
     geometry_attachment_regions: Dict[EntityRef, RegionRef] = field(default_factory=dict)
+    # Appended: applied floating TRANSIENT results (artifact references + provenance; see FloatingTransientResultRef).
+    floating_transient_results: Dict[str, FloatingTransientResultRef] = field(default_factory=dict)
+    # Appended: saved reusable wind turbine load definitions (immutable WindTurbineLoad records keyed by id).  Only a
+    # floating TRANSIENT run consumes one (selected by name); standard static solves never read them.
+    wind_turbine_loads: Dict[str, WindTurbineLoad] = field(default_factory=dict)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -516,6 +627,45 @@ class Project:
             raise ProjectError(f"duplicate artifact ID {artifact.id!r}")
         self.artifacts[artifact.id] = artifact
         return artifact
+
+    # ------------------------------------------------------------------
+    # wind turbine load definitions (dynamic; consumed only by floating transients)
+    # ------------------------------------------------------------------
+    def add_wind_turbine_load(self, load: WindTurbineLoad) -> WindTurbineLoad:
+        if not isinstance(load, WindTurbineLoad):
+            raise TypeError("add_wind_turbine_load expects a WindTurbineLoad")
+        if load.id in self.wind_turbine_loads:
+            raise ProjectError(f"duplicate wind turbine load ID {load.id!r}")
+        if any(item.name == load.name for item in self.wind_turbine_loads.values()):
+            raise ProjectError(f"wind turbine load {load.name!r} already exists")
+        self.wind_turbine_loads[load.id] = load
+        return load
+
+    def replace_wind_turbine_load(self, load: WindTurbineLoad) -> WindTurbineLoad:
+        """Replace one immutable record without changing its stable ID."""
+        if not isinstance(load, WindTurbineLoad):
+            raise TypeError("replace_wind_turbine_load expects a WindTurbineLoad")
+        if load.id not in self.wind_turbine_loads:
+            raise ProjectError(f"unknown wind turbine load ID {load.id!r}")
+        if any(item.name == load.name and item.id != load.id for item in self.wind_turbine_loads.values()):
+            raise ProjectError(f"wind turbine load {load.name!r} already exists")
+        self.wind_turbine_loads[load.id] = load
+        return load
+
+    def remove_wind_turbine_load(self, load_id: str) -> WindTurbineLoad:
+        try:
+            return self.wind_turbine_loads.pop(str(load_id))
+        except KeyError:
+            raise ProjectError(f"unknown wind turbine load ID {load_id!r}") from None
+
+    def wind_turbine_load(self, key: str) -> WindTurbineLoad:
+        """One saved turbine load by ID or by name."""
+        if key in self.wind_turbine_loads:
+            return self.wind_turbine_loads[key]
+        for item in self.wind_turbine_loads.values():
+            if item.name == key:
+                return item
+        raise ProjectError(f"no wind turbine load named or identified by {key!r}")
 
     # ------------------------------------------------------------------
     # materials and sections
@@ -2156,8 +2306,7 @@ class Project:
             if not np.isfinite(geometry_approximation_error) or geometry_approximation_error <= 0:
                 raise ProjectError('geometry_approximation_error must be a finite positive real')
         supported_parameters["recombine"] = controls.recombine
-        if geometry_approximation_error is not None:
-            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
+        # The bound reaches the mesher only on a qualified curved route (below).
         # Mapped-only runs must not activate the opt-in native path.
         if resolved_strategy != "mapped":
             native_options = controls.native_options()
@@ -2217,11 +2366,13 @@ class Project:
             tuple(sorted(int(member) for member in source_members)),
             geometry_approximation_error,
         )
-        if geometry_approximation_error is not None:
-            from anygeometry import clone_prepared_geometry
         cached = self._mesh_preparation_cache
         cache_hit = cached is not None and cached[0] == cache_key
         qualification = self._mesh_preparation_qualification if cache_hit else None
+        if qualification is not None:
+            # Only a qualified curved preparation carries the owner clone.
+            clone_prepared_geometry = source_publication_service(
+                "anygeometry", "clone_prepared_geometry")
         if cache_hit:
             if cancellation_check is not None:
                 cancellation_check("cached structural preparation")
@@ -2243,10 +2394,23 @@ class Project:
                 include_features=False,
             )
         if not cache_hit:
-            if geometry_approximation_error is not None:
-                from anymesher import qualify_model_closure_source_publication
+            # Planar input keeps the scalar bound without source publication;
+            # a curved route needs both owner services or is refused.
+            if (geometry_approximation_error is not None
+                    and source_publication_required(source_geometry)):
+                qualify_model_closure_source_publication = source_publication_service(
+                    "anymesher", "qualify_model_closure_source_publication")
+                clone_prepared_geometry = source_publication_service(
+                    "anygeometry", "clone_prepared_geometry")
                 qualification = qualify_model_closure_source_publication(
                     source_geometry, closure, cancellation_check=cancellation_check)
+                if qualification is None:
+                    raise ProjectError(
+                        "curved source publication returned no owner qualification; "
+                        "curved publication is refused")
+        if qualification is not None:
+            # A curved bound is never dropped; planar input keeps it as metadata.
+            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
         working = closure.working_model
         working_member_ids = tuple(
             sorted(

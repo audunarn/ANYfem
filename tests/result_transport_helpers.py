@@ -250,6 +250,46 @@ def s3_batch_result(*, project, progress, cancellation_token=None):
     )
 
 
+def shared_model_batch(cases: int, marker_bytes: int = 0):
+    """A batch of ``cases`` shapes sharing ONE built model, project and mesh.
+
+    Every case is registered in ``fe_model.load_cases`` and each shape's
+    ``built.load_case`` is that very object, as ``solve_linear_static_many``
+    produces.  ``marker_bytes`` plants a shared project payload of that size.
+    """
+
+    from dataclasses import replace
+
+    from anyfem.post.results import LinearBatchSolution, LinearSolution
+    from anysolver import LoadCase
+
+    built = _build_built("shared batch")
+    built.project.presentation["diagnostic_marker"] = b"x" * marker_bytes
+    shapes = []
+    for index in range(cases):
+        case = LoadCase(name=f"case-{index}")
+        case.nodal_loads[2] = np.array([float(index), 0.0, 0.0, 0.0, 0.0, 0.0])
+        built.fe_model.add_load_case(case)
+        shapes.append(
+            LinearSolution(
+                displacements=DISPLACEMENTS * (index + 1),
+                built=replace(built, load_case=case),
+                info={"case": index},
+                label=case.name,
+                value=float(index),
+            )
+        )
+    return LinearBatchSolution(
+        built=built, shapes=shapes, case_names=tuple(s.label for s in shapes)
+    )
+
+
+def s3_shared_batch_result(*, project, progress, cancellation_token=None):
+    """Worker job: a 10-case shared-model batch holding live S3 elements."""
+
+    return shared_model_batch(10)
+
+
 def s3_batch_distinct_built_result(*, project, progress, cancellation_token=None):
     """A batch whose shapes carry genuinely different built models.
 

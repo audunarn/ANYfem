@@ -99,7 +99,7 @@ portable fixture is copied byte-for-byte from commit
 `0d47063b2351984e2597a952a8ae9cdedc7d90b4`,
 `tools/authored_pair_fixture.py`, into `tests/prepared_pair_owner_fixture.py`
 (SHA256 `f660b83cb438bd960005e3c24b70cf725873aa75f74480f1b00bf9cfef3b82b6`).
-It retains ANYmesher's MPL-2.0 licensing, matching ANYfem's license. Its private
+It retains ANYmesher's MPL-2.0 licensing; ANYfem itself uses GPL-3.0-only. Its private
 builder helpers construct test inputs only; the FEM adapter consumes public owner
 resolution and the public mesher validator, not those private algorithms.
 

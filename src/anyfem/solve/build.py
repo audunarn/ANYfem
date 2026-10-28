@@ -12,7 +12,7 @@ import builtins as _builtins
 import os
 import sys
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import permutations
 import warnings
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -123,6 +123,7 @@ def build_fe_model(
     _add_supports(project, mesh, fe_model)
     connections = _add_connections(project, mesh, fe_model)
     _add_masses(project, mesh, fe_model)
+    _add_turbine_masses(project, fe_model)
 
     # Imperfections move the stress-free reference geometry, so they are
     # applied to the finished model before anything is assembled from it.
@@ -1156,6 +1157,11 @@ def _accumulate_case(
 
     _refuse_definition(project, case)
     case = project.resolve_case(case)
+    if getattr(target, "_floating_compound", None) is not None:
+        # Whatever order a combination folds its cases, nothing (gravity, another case, another floating load) may be added to a
+        # target that already holds the complete floating compound (pressure + weight + rigid inertia).
+        raise ProjectError("a floating coupled load owns pressure, weight and rigid inertia: it cannot be combined with other "
+                           "cases, loads or gravity")
     case_factor = factor
     attribute_targets = (
         _attribute_targets if _load_context is None else _load_context.attribute_targets
@@ -1632,6 +1638,7 @@ def _wet_pressure_accumulation(
     *,
     limit: int | None,
     _load_context: Any,
+    surface_mode: str = "average",
 ) -> Dict[int, tuple]:
     """Element id -> (pressure, centroid, normal, shared) for a case's wet
     pressures; ``shared`` marks geometry held by a prepared context's cache
@@ -1645,14 +1652,42 @@ def _wet_pressure_accumulation(
     by_surface_id = {surface.id: surface for surface in project.wet_surfaces}
     accumulated: Dict[int, tuple] = {}  # element id -> (pressure, centroid, normal, shared)
     for load in case.wet_pressures:
+        note_load = getattr(_load_context, "note_load", None)
+        if note_load is not None:
+            note_load(load)
+        if load.history is not None and _is_surface_history(load.history):
+            # Separate exact route for the wave-following history: its loads are assembled as consistent nodal
+            # vectors (_accumulate_wave_surface); inspection only sees full-area element averages.
+            if surface_mode == "average":
+                _surface_average(project, mesh, case, load, accumulated, _load_context)
+            continue
+        if load.history is not None and _is_floating_history(load.history):
+            # Exact floating coupled compound: ASSEMBLED once as FULL residual nodal vectors by _accumulate_floating (never a generic
+            # pressure fallback).  The inspection ("average") path shows its REAL signed element pressures [Pa] on the mean wet mesh.
+            if surface_mode == "average":
+                from ..application.floating_pressure_view import floating_element_pressures
+
+                try:
+                    view = floating_element_pressures(load.history, project, mesh, float(case.time))
+                except (ValueError, KeyError, TypeError) as error:
+                    raise ProjectError(f"floating pressure inspection unavailable: {error}") from error
+                for eid, sign, value in zip(view["element_ids"], view["sign"], view["pressure_full_area_average_pa"]):
+                    centroid, normal = _element_centroid_normal(mesh, int(eid))
+                    accumulated[int(eid)] = (float(sign) * float(value), centroid, normal, False)
+            continue
         if load.history is not None:
             from ..application.pressure_transfer import effective_wave_pressure,PressureRemapError
-            try:load=effective_wave_pressure(project,mesh,load)
+            effective = effective_wave_pressure if _load_context is None else getattr(
+                _load_context, "effective_wave_pressure", effective_wave_pressure)
+            try:load=effective(project,mesh,load)
             except PressureRemapError as error:raise ProjectError(str(error)) from error
         if load.mesh_content_sha256 is not None:
-            from anymesher.serialize import mesh_to_dict
-            from ..document import canonical_hash
-            if canonical_hash(mesh_to_dict(mesh)).removeprefix('sha256:') != load.mesh_content_sha256.removeprefix('sha256:'):
+            current_hash = getattr(_load_context, "mesh_content_hash", None)
+            if current_hash is None:
+                from anymesher.serialize import mesh_to_dict
+                from ..document import canonical_hash
+                current_hash = lambda value: canonical_hash(mesh_to_dict(value))
+            if current_hash(mesh).removeprefix('sha256:') != load.mesh_content_sha256.removeprefix('sha256:'):
                 detail=getattr(project,'_wave_source_recovery_error','')
                 raise ProjectError('wet pressure mesh identity differs from its transferred element mapping; '
                     'original verified source is unavailable: regenerate wave input on the current mesh'
@@ -1777,6 +1812,163 @@ def _wet_pressure_accumulation(
     return accumulated
 
 
+def _supported_mapped_history(history: Any) -> bool:
+    """Exact immutable ANYloads mapped histories (or their exact source-aware wrapper).
+
+    ``evaluate`` of these runs no caller code, so nothing can mutate the mesh or
+    project while a job-local context holds derived values.  Subclasses and any
+    other provider are not supported and keep the uncached path.
+    """
+
+    from anyloads.pressure_history import MappedPressureHistory
+    from anyloads.source_pressure_history import SourceAwarePressureHistory
+    from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
+    from anyloads.wave_surface_pressure import WaveSurfacePressureHistory
+
+    if type(history) is SourceAwarePressureHistory:
+        history = getattr(history, "mapped_history", None)
+    # The wave-following history is an exact immutable ANYloads record whose evaluation runs no caller code.
+    return type(history) in (MappedPressureHistory, SpectralMappedPressureHistory, WaveSurfacePressureHistory)
+
+
+class _BatchLoadContext:
+    """Job-local reuse for one batch build: mesh hash, wet sets, remapped histories.
+
+    Owned by a single ``solve_linear_static_many`` call and never shared between
+    jobs.  Everything derived is recomputed from scratch as soon as a wet load
+    that is not an exact supported mapped history appears (such a provider may
+    run caller code), the project geometry token and wet-surface state are
+    checked on every use, and :meth:`verify_unchanged` re-hashes the mesh once
+    at the end so a mutation during the build is refused, not ignored.
+    """
+
+    connections = None
+
+    def __init__(self, built: "BuiltModel") -> None:
+        self.project = built.project
+        self.mesh = built.mesh
+        self._hash: str | None = None
+        self._trusted = False
+        self._wet: dict[Any, tuple] = {}
+        self._effective: dict[Any, tuple] = {}
+        geometry = self.project.geometry
+        self._token = (id(geometry), geometry.model_id, geometry.revision)
+        self.reuses = {"mesh_hash": 0, "wet_elements": 0, "remapped_history": 0}
+        # Package-owned constant hydrostatic companions of this project's wave series, found once:
+        # id(load) -> (load, owning dynamic load). Re-validated cheaply on every use.
+        self._owned_static: dict[int, tuple] = {}
+        from ..application.wave_hydrostatic import owned_pair
+
+        for case in self.project.load_cases.values():
+            if case.parent is None and len(case.wet_pressures) == 2:
+                pair = owned_pair(case)
+                if pair is not None and _supported_mapped_history(pair[0].history):
+                    self._owned_static[id(pair[1])] = (pair[1], pair[0])
+
+    # -- plain delegation (no reuse) -----------------------------------
+    def attribute_targets(self, project, region, ref, **kwargs):
+        return _attribute_targets(project, region, ref, **kwargs)
+
+    def nodes_on_target(self, mesh, target, *, constrained=False):
+        return _nodes_on_target(mesh, target, constrained=constrained)
+
+    def elements_on_target(self, mesh, target):
+        return _elements_on_target(mesh, target)
+
+    def centroid_normal(self, element_id):
+        return _element_centroid_normal(self.mesh, element_id)
+
+    # -- guards ----------------------------------------------------------
+    def require_unchanged(self, stage: str) -> None:
+        geometry = self.project.geometry
+        if (id(geometry), geometry.model_id, geometry.revision) != self._token:
+            raise ProjectError(f"batch load context geometry changed during {stage}")
+
+    def _drop(self) -> None:
+        self._hash = None
+        self._wet.clear()
+        self._effective.clear()
+
+    @staticmethod
+    def _content_hash(mesh: Any) -> str:
+        from anymesher.serialize import mesh_to_dict
+        from ..document import canonical_hash
+
+        return canonical_hash(mesh_to_dict(mesh))
+
+    def mesh_content_hash(self, mesh: Any) -> str:
+        if mesh is not self.mesh or not self._trusted:
+            return self._content_hash(mesh)
+        if self._hash is None:
+            self._hash = self._content_hash(mesh)
+        else:
+            self.reuses["mesh_hash"] += 1
+        return self._hash
+
+    def verify_unchanged(self) -> None:
+        """Re-hash the mesh once; refuse a build during which it changed."""
+
+        self.require_unchanged("the batch build")
+        job = getattr(self, "_wave_surface_job", None)
+        if job is not None:
+            try:
+                job.verify(full=True)
+            except ValueError as error:
+                raise ProjectError(str(error)) from error
+        if self._hash is not None and self._content_hash(self.mesh) != self._hash:
+            raise ProjectError("the mesh changed while the batch load cases were built")
+
+    # -- reuse -------------------------------------------------------------
+    def note_load(self, load: Any) -> None:
+        """Called for every wet load before use: trust only exact mapped histories."""
+
+        self._trusted = (type(load) is WetPressure and load.history is not None
+                         and _supported_mapped_history(load.history)) or self._is_owned_static(load)
+        if not self._trusted:
+            self._drop()
+
+    def _is_owned_static(self, load: Any) -> bool:
+        """The exact package-owned constant hydrostatic expression bound to a supported wave history.
+
+        Its evaluation is an ANYloads expression of the centroid only (no caller code), so it cannot
+        mutate the mesh or project. Arbitrary expressions and subclasses are never trusted."""
+
+        entry = self._owned_static.get(id(load))
+        if entry is None or entry[0] is not load:
+            return False
+        from ..application.wave_hydrostatic import is_owned_static
+
+        return is_owned_static(load, entry[1])
+
+    def effective_wave_pressure(self, project, mesh, load):
+        from ..application.pressure_transfer import effective_wave_pressure
+
+        if mesh is not self.mesh or project is not self.project or not self._trusted:
+            return effective_wave_pressure(project, mesh, load)
+        key = (load.id, id(load.history))
+        hit = self._effective.get(key)
+        if hit is not None and hit[0] is load.history:
+            self.reuses["remapped_history"] += 1
+            return replace(load, history=hit[1], mesh_content_sha256=hit[2])
+        made = effective_wave_pressure(project, mesh, load)
+        self._effective[key] = (load.history, made.history, made.mesh_content_sha256)
+        return made
+
+    def wet_elements(self, selected):
+        state = tuple(_wet_surface_state(surface) for surface in selected)
+        if not self._trusted or any(item is None for item in state):
+            self._drop()
+            return _wet_elements(self.project, self.mesh, selected)
+        key = tuple((surface.id, id(surface)) for surface in selected)
+        hit = self._wet.get(key)
+        if hit is not None and hit[0] == state:
+            self.reuses["wet_elements"] += 1
+            return hit[1]
+        value = _wet_elements(self.project, self.mesh, selected)
+        self._wet[key] = (state, value, tuple(selected))  # keep surfaces alive: ids stay unique
+        return value
+
+
 def _accumulate_wet_pressures(
     project: Project,
     mesh: Mesh,
@@ -1790,13 +1982,152 @@ def _accumulate_wet_pressures(
 
     # M31b: pressures only (no geometry arrays leave the accumulation).
     accumulated = _wet_pressure_accumulation(
-        project, mesh, case, limit=None, _load_context=_load_context
+        project, mesh, case, limit=None, _load_context=_load_context,
+        surface_mode="skip",
     )
     for key in sorted(accumulated):
         target.pressure_loads[key] = (
             target.pressure_loads.get(key, 0.0)
             + factor * accumulated[key][0]
         )
+    for load in case.wet_pressures:
+        if load.history is not None and _is_surface_history(load.history):
+            _accumulate_wave_surface(project, mesh, case, factor, target, load, _load_context)
+        elif load.history is not None and _is_floating_history(load.history):
+            _accumulate_floating(project, mesh, case, factor, target, load, _load_context)
+
+
+def _is_floating_history(history: Any) -> bool:
+    from anyloads.floating_history import FloatingCoupledLoadHistory
+
+    return type(history) is FloatingCoupledLoadHistory
+
+
+def _accumulate_floating(project: Project, mesh: Mesh, case: LoadCase, factor: float, target: SolverLoadCase,
+                         load: Any, _load_context: Any) -> None:
+    """Add the exact floating compound (pressure + weight + primary rigid inertia + static) as full nodal vectors, once.
+
+    The compound already contains the dry weight and the primary inertia, so the solver case keeps ``gravity=None`` and the
+    case must be solved with mass-based inertia relief (checked in run.py).  Scaling, envelopes, factors and any other load on
+    the case would duplicate or distort that compound and are refused.
+    """
+    from ..application.floating_apply import floating_nodal_load
+
+    history = load.history
+    if (case.point_loads or case.pressures or case.line_loads or case.surface_tractions or case.connection_loads
+            or case.gravity is not None or case.follower_pressure or len(case.wet_pressures) != 1
+            or getattr(target, "_floating_compound", None) is not None or target.nodal_loads or target.pressure_loads
+            or target.gravity is not None):
+        raise ProjectError("a floating coupled load owns pressure, weight and rigid inertia: it cannot be mixed with other "
+                           "loads, gravity or another floating load in one case")
+    if load.scale != 1.0 or load.envelope is not None or factor != 1.0 or case.time is None:
+        raise ProjectError("a floating coupled load cannot be scaled, factored or enveloped, and needs an actual selected time")
+    cached = getattr(_load_context, "_floating_mesh_hash", None) if _load_context is not None else None
+    if cached is None:
+        from anymesher.serialize import mesh_to_dict
+        from ..document import canonical_hash
+        cached = canonical_hash(mesh_to_dict(mesh))
+        if _load_context is not None:
+            _load_context._floating_mesh_hash = cached
+    if cached.removeprefix("sha256:") != history.mesh_content_sha256.removeprefix("sha256:"):
+        raise ProjectError("floating load mesh identity differs from the current mesh; reopen/remap the floating load first")
+    try:
+        nodal = floating_nodal_load(history, float(case.time))
+    except ValueError as error:
+        raise ProjectError(str(error)) from error
+    for node_id, vector in zip(history.node_ids, nodal):
+        if node_id not in mesh.nodes:
+            raise ProjectError(f"floating load node {node_id} is not in the current mesh")
+        if np.any(vector):
+            _add_nodal(target, int(node_id), vector[:3], vector[3:])
+    target._floating_compound = {"history": history.content_sha256, "time": float(case.time)}
+    target._floating_history = history      # validated against the current dry mass once per model (run.py)
+
+
+def _is_surface_history(history: Any) -> bool:
+    from anyloads.wave_surface_pressure import WaveSurfacePressureHistory
+
+    return type(history) is WaveSurfacePressureHistory
+
+
+def _surface_job(project: Project, mesh: Mesh, _load_context: Any) -> Any:
+    """Job-local wave-surface context (actual elements + kernels); lives only on the batch context, never on the mesh."""
+
+    from ..application.wave_surface_pressure import SurfaceJob, SurfaceTargetError
+
+    if _load_context is None:
+        return None          # single use: frame_loads builds and discards its own verified job
+    job = getattr(_load_context, "_wave_surface_job", None)
+    if job is not None and (job.project is not project or job.mesh is not mesh):
+        job = None
+    if job is None:
+        try:
+            job = SurfaceJob(project, mesh)
+        except SurfaceTargetError as error:
+            raise ProjectError(str(error)) from error
+        _load_context._wave_surface_job = job
+    return job
+
+
+def _surface_effective(project: Project, mesh: Mesh, load: Any, _load_context: Any) -> Any:
+    from ..application.pressure_transfer import effective_wave_pressure, PressureRemapError
+
+    effective = effective_wave_pressure if _load_context is None else getattr(
+        _load_context, "effective_wave_pressure", effective_wave_pressure)
+    try:
+        made = effective(project, mesh, load)
+    except PressureRemapError as error:
+        raise ProjectError(str(error)) from error
+    return made
+
+
+def _surface_average(
+    project: Project, mesh: Mesh, case: LoadCase, load: Any,
+    accumulated: Dict[int, tuple], _load_context: Any,
+) -> None:
+    """Inspection record: normal-signed full-area element-average pressure (dry exactly zero)."""
+
+    from ..application.wave_surface_pressure import inspection_pressures, SurfaceTargetError
+
+    scale = _envelope_factor(case, load)
+    if scale == 0.0:
+        return
+    made = _surface_effective(project, mesh, load, _load_context)
+    try:
+        records = inspection_pressures(
+            project, mesh, made.history, case.time, _surface_job(project, mesh, _load_context))
+    except (SurfaceTargetError, ValueError) as error:
+        raise ProjectError(str(error)) from error
+    for element_id, record in records.items():
+        pressure, centroid, normal = record[0], record[1], record[2]
+        previous = accumulated.get(element_id)
+        accumulated[element_id] = (
+            scale * load.scale * pressure + (0.0 if previous is None else previous[0]),
+            centroid, normal, False,
+        )
+
+
+def _accumulate_wave_surface(
+    project: Project, mesh: Mesh, case: LoadCase, factor: float, target: SolverLoadCase,
+    load: Any, _load_context: Any,
+) -> None:
+    """Assemble the wave-following frame as consistent equivalent nodal forces (force and moment preserving)."""
+
+    from ..application.wave_surface_pressure import frame_loads, SurfaceTargetError
+
+    scale = _envelope_factor(case, load)
+    if scale == 0.0:
+        return
+    made = _surface_effective(project, mesh, load, _load_context)
+    try:
+        frame = frame_loads(
+            project, mesh, made.history, case.time, _surface_job(project, mesh, _load_context))
+    except (SurfaceTargetError, ValueError) as error:
+        raise ProjectError(str(error)) from error
+    weight = factor * scale * load.scale
+    for node_id in sorted(frame.nodal):
+        vector = weight * frame.nodal[node_id]           # full 6-DOF consistent vector: forces AND direct moments
+        _add_nodal(target, int(node_id), vector[:3], vector[3:])
 
 
 def _wet_pressure_values(
@@ -2102,6 +2433,15 @@ def _traction_elements_to_nodes(
                 accumulated[node_id] = np.zeros(3)
             accumulated[node_id] += weight * area * intensity
     return list(accumulated.items())
+
+
+def _add_turbine_masses(project, fe_model):
+    """Explicit turbine mass belongs to the structure, independently of thrust-case selection."""
+    for turbine in getattr(project, "wind_turbine_loads", {}).values():
+        if turbine.mass_mode == "additional":
+            turbine.attachment_node(fe_model)
+            fe_model.add_concentrated_mass(turbine.hub_node_id, turbine.mass,
+                                          offset=turbine.mass_cg_offset, inertia_cg=turbine.inertia_cg)
 
 
 def _add_masses(project: Project, mesh: Mesh, fe_model: FEModel) -> None:

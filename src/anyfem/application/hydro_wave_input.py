@@ -19,9 +19,15 @@ class RegularWaveInput:
     duration: float=10.
     dt: float=.1
     wave_type: str='regular'
+    include_hydrostatic: bool=False
+    follow_surface: bool=False
 
     def __post_init__(self):
         if self.wave_type!='regular':raise ValueError('only regular waves are currently available')
+        if type(self.include_hydrostatic) is not bool:raise ValueError('include_hydrostatic must be a boolean')
+        if type(self.follow_surface) is not bool:raise ValueError('follow_surface must be a boolean')
+        # Following the instantaneous surface implies (and locks) the hydrostatic inclusion.
+        if self.follow_surface:object.__setattr__(self,'include_hydrostatic',True)
         if not self.name.strip():raise ValueError('a wave load needs a name')
         if not all(math.isfinite(x) for x in (self.height,self.period,self.heading,self.depth,self.phase,self.duration,self.dt)):
             raise ValueError('wave inputs must be finite SI values')
@@ -75,6 +81,11 @@ def compute_wave_input(*,project=None,document,mesh_data,settings,cache_path=Non
     checkpoint()
     from .irregular_wave_input import IrregularWaveInput
     config=(IrregularWaveInput if settings.get('wave_type','regular')=='irregular' else RegularWaveInput)(**settings)
+    if config.follow_surface:
+        from .wave_surface_pressure import prepare_surface_preview,select_surface_window
+        prepared=prepare_surface_preview(document=document,mesh_data=mesh_data,settings=settings,
+            source_bank_cache_directory=source_bank_cache_directory,progress=progress,cancellation_token=cancellation_token)
+        return select_surface_window(prepared)
     model=project_from_dict(document);mesh=mesh_from_dict(mesh_data)
     exterior={s.name:s.ref.id for s in model.wet_surfaces}
     if set(exterior)!={'bottom','port','starboard','end0','end60'}:
@@ -136,6 +147,65 @@ def compute_wave_input(*,project=None,document,mesh_data,settings,cache_path=Non
         'input_document_hash':canonical_hash(document),'mesh_hash':canonical_hash(mesh_data)}
 
 
+def prepare_wave_preview(*,project=None,document,mesh_data,settings,cache_path=None,
+        source_bank_cache_directory=None,progress=None,cancellation_token=None,retained_history=None,retained_preview=None,
+        document_content_hash=None,mesh_content_hash=None,preview_context_version=None,repair_cache=False):
+    """Force-only stage; pressure recovery/mapping are deferred until Apply."""
+    if settings.get('follow_surface') is True:
+        # Separate additive mode: explicit field preparation + corrected applied-resultant preview.
+        from .wave_surface_pressure import prepare_surface_preview
+        return prepare_surface_preview(project=project,document=document,mesh_data=mesh_data,settings=settings,
+            source_bank_cache_directory=source_bank_cache_directory,progress=progress,cancellation_token=cancellation_token,
+            document_content_hash=document_content_hash,mesh_content_hash=mesh_content_hash)
+    from .wave_force_input import prepare_force_preview
+    return prepare_force_preview(project=project,document=document,mesh_data=mesh_data,settings=settings,
+        cache_path=cache_path,source_bank_cache_directory=source_bank_cache_directory,progress=progress,
+        cancellation_token=cancellation_token,retained_history=retained_history,retained_preview=retained_preview,
+        document_content_hash=document_content_hash,mesh_content_hash=mesh_content_hash,preview_context_version=preview_context_version,
+        repair_cache=repair_cache)
+
+
+def recover_prepared_wave_input(*,project=None,document,mesh_data,prepared,start=None,end=None,
+        offline_history=None,progress=None,cancellation_token=None):
+    """Apply-stage owned-child entry; cached solution recovery, no new BEM."""
+    if prepared.get('preview_kind')=='wave_surface_v1':
+        from .wave_surface_pressure import recover_surface_selection
+        return recover_surface_selection(document=document,mesh_data=mesh_data,prepared=prepared,start=start,end=end)
+    from .wave_force_input import recover_selected_wave_input
+    return recover_selected_wave_input(project=project,document=document,mesh_data=mesh_data,prepared=prepared,
+        start=start,end=end,offline_history=offline_history,progress=progress,cancellation_token=cancellation_token)
+
+
+def select_prepared_wave_window(result,start=None,end=None):
+    """Choose original absolute sample times, retaining the prepared full source."""
+    from dataclasses import replace
+    from anyloads.pressure_history import pressure_history_from_dict
+    from anyloads.source_pressure_history import SourceAwarePressureHistory
+    from anyloads.wave_preview import select_sample_window
+    if result.get('preview_kind')=='wave_surface_v1':
+        from .wave_surface_pressure import select_surface_window
+        return select_surface_window(result,start,end)
+    if result.get('preview_kind')=='force_only_v1':
+        from .wave_force_input import validate_force_preview
+        validate_force_preview(result)
+        window=select_sample_window(result['force_preview']['record_times'],start,end)
+        return {**result,'selected_window':window.interval,'selected_times':window.times}
+    history=pressure_history_from_dict(result['history'])
+    if not isinstance(history,SourceAwarePressureHistory):
+        raise ValueError('window selection requires a prepared source-aware wave record')
+    if 'preview_source_bank_id' in result:
+        from .pressure_transfer import validate_preview_source
+        validate_preview_source(history,result['preview_source_bank_id'])
+        if result.get('preview_content_hash')!=canonical_hash({key:result[key] for key in
+                ('preview_times','preview_resultants','preview_source_bank_id','preview_moment_origin')}):
+            raise ValueError('prepared resultant preview content changed; prepare again')
+    window=select_sample_window(history.full_record_times,start,end)
+    mapped=replace(history.mapped_history,times=window.times,content_sha256='')
+    selected=SourceAwarePressureHistory(mapped,history.source_payload_json,history.realization_json,
+        history.domain_json,record_times=window.record_times,selected_window=window.interval,force_payload_json=history.force_payload_json)
+    return {**result,'history':selected.to_dict()}
+
+
 class ApplyWavePressure(Command):
     label='Hydrodynamic wave pressure time series'
     def __init__(self,result,*,replace_legacy=False):
@@ -156,11 +226,19 @@ class ApplyWavePressure(Command):
         existing=project.load_cases.get(name)
         replacing_owner=(existing is not None and existing.times is not None
             and any(load.history is not None for load in existing.wet_pressures) and self.replace_legacy)
+        from .wave_hydrostatic import (wave_loads_without_companion,history_includes_hydrostatic,
+            make_static_pressure)
         def mixed(case):
-            return (len(case.wet_pressures)!=1 or bool(case.point_loads or case.pressures or
+            # Only the exact validated app-owned hydrostatic companion is set aside; anything else is unrelated.
+            wet=wave_loads_without_companion(case)
+            return (len(wet)!=1 or bool(case.point_loads or case.pressures or
                 case.line_loads or case.surface_tractions or case.connection_loads or case.parameters)
                 or case.gravity is not None or case.follower_pressure
-                or any(load.envelope is not None or load.scale!=1. for load in case.wet_pressures))
+                or any(load.envelope is not None or load.scale!=1. for load in wet))
+        from .wave_surface_pressure import is_surface_history
+        composed=is_surface_history(history)
+        # A wave-following history already contains the hydrostatic term: never append the companion (no double pressure).
+        include=history_includes_hydrostatic(history) and not composed
         if self.replace_legacy and (any(mixed(case) for case in legacy) or (replacing_owner and mixed(existing))):
             raise ValueError('wave replacement would discard additional loads, parameters or envelopes; choose a new series name')
         if replacing_owner:
@@ -179,8 +257,13 @@ class ApplyWavePressure(Command):
                     if old.target_id==name and old.name==name+' — Batch linear static' and old.type=='batch_linear_static':
                         del project.analyses[aid]
             parent=project.add_load_series(name,history.times)
-            parent.wet_pressures.append(WetPressure(history=history,mapping_key='element',
-                surfaces=tuple(self.result['surfaces']),name='Incident + diffraction pressure history'))
+            dynamic=WetPressure(history=history,mapping_key='element',
+                surfaces=tuple(self.result['surfaces']),
+                name=('Wave-following pressure (hydrostatic + incident/diffraction)' if composed
+                    else 'Incident + diffraction pressure history'))
+            parent.wet_pressures.append(dynamic)
+            # One constant companion per owning series, steady over every selected original time.
+            if include:parent.wet_pressures.append(make_static_pressure(dynamic))
             analysis=AnalysisDefinition(name+' — Batch linear static',type='batch_linear_static',
                 target_kind='load_cases',target_id=name,
                 settings={'load_cases':[c.name for c in project.series_children(name)]})

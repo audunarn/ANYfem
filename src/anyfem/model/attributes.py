@@ -518,7 +518,17 @@ class WetPressure:
             from anyloads.pressure_history import MappedPressureHistory
             from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
             from anyloads.source_pressure_history import SourceAwarePressureHistory
-            if not isinstance(self.history,(MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory)):
+            from anyloads.wave_surface_pressure import WaveSurfacePressureHistory
+            from anyloads.floating_history import FloatingCoupledLoadHistory
+            if isinstance(self.history,WaveSurfacePressureHistory) and type(self.history) is not WaveSurfacePressureHistory:
+                # The builder handles only the exact type; a subclass must never fall into mean-pressure assembly.
+                raise ValueError('wave surface pressure history subclasses are not admitted')
+            if isinstance(self.history,FloatingCoupledLoadHistory) and (type(self.history) is not FloatingCoupledLoadHistory
+                    or not self.history.times or not self.history.payload):
+                # Exact class only: the coupled load owns pressure, weight and inertia and is dispatched separately.
+                raise ValueError('a floating coupled load needs its exact class, selected times and embedded payload')
+            if not isinstance(self.history,(MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory,
+                    WaveSurfacePressureHistory,FloatingCoupledLoadHistory)):
                 raise ValueError('history must be a typed ANYloads mapped pressure history')
             if self.mesh_content_sha256 is None:
                 object.__setattr__(self,'mesh_content_sha256',self.history.mesh_content_sha256)

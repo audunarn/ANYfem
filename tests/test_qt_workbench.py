@@ -47,6 +47,7 @@ def settle_result_requests(window,qapp):
     def settled():
         loader=getattr(window,"_result_loader",None)
         return ((loader is None or not loader._records)
+                and not getattr(window,"_result_metadata_preparations",None)
                 and not window.panels["Results"]._display_pending
                 and not window._refresh_pending)
     wait_until(qapp,settled)
@@ -87,6 +88,11 @@ def test_workspace_option_icons_choose_existing_options_and_wrap(window,qapp):
     before=window.commands.history()
     for name,panel in window.panels.items():
         window.notebook.select(name);qapp.processEvents()
+        if name=="Sectioning":
+            # Sectioning has direct plane/box controls, not an option selector.
+            assert panel.plane is panel.presentation_controls.plane
+            assert panel.offset is panel.presentation_controls.offset
+            continue
         strip=panel.option_icons
         assert strip.buttons
         for button in strip.buttons:

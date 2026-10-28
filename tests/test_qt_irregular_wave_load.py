@@ -67,12 +67,27 @@ def test_irregular_apply_uses_atomic_command_and_compact_project(qapp,monkeypatc
         def __init__(self,kwargs,parent=None):super().__init__(parent);self.kwargs=kwargs;self.cancelled=False
         def run(self):
             c=IrregularWaveInput(**self.kwargs['settings']);r=c.realization()
+            mesh_hash=self.kwargs.get('mesh_content_hash') or canonical_hash(self.kwargs['mesh_data'])
+            document_hash=self.kwargs.get('document_content_hash') or canonical_hash(self.kwargs['document'])
             h=SpectralMappedPressureHistory(c.times,ids,tuple(x.omega for x in r.components),
-                ((1.,)*n,(2.,)*n),((0.,)*n,(.1,)*n),0.,canonical_hash(self.kwargs['mesh_data']),
+                ((1.,)*n,(2.,)*n),((0.,)*n,(.1,)*n),0.,mesh_hash,
                 'b'*64,json.dumps(r.to_dict()),json.dumps(dict(settings=asdict(c))))
-            self.completed.emit(dict(name=c.name,history=h.to_dict(),surfaces=[s.id for s in p.wet_surfaces],
-                input_document_hash=canonical_hash(self.kwargs['document']),mesh_hash=canonical_hash(self.kwargs['mesh_data']),
-                source_cache_path=None))
+            from test_pressure_remap import source_bank
+            from dataclasses import replace
+            from anyloads.source_pressure_history import SourceAwarePressureHistory
+            from anyloads.wave_preview import source_resultants
+            bank=replace(source_bank(),omegas=tuple(x.omega for x in r.components),bank_id='')
+            h=SourceAwarePressureHistory(h,json.dumps(bank.to_dict()),json.dumps(r.to_dict()),
+                json.dumps(dict(source_bank_id=bank.bank_id)))
+            preview=source_resultants(bank,r,c.times)
+            result=dict(name=c.name,history=h.to_dict(),surfaces=[s.id for s in p.wet_surfaces],
+                input_document_hash=document_hash,mesh_hash=mesh_hash,
+                source_cache_path=None,input_settings_hash=canonical_hash(self.kwargs['settings']),
+                preview_times=preview.times.tolist(),preview_resultants=preview.values.tolist(),
+                preview_source_bank_id=bank.bank_id,preview_moment_origin=preview.moment_origin)
+            result['preview_content_hash']=canonical_hash({key:result[key] for key in
+                ('preview_times','preview_resultants','preview_source_bank_id','preview_moment_origin')})
+            self.completed.emit(result)
         def cancel(self):self.cancelled=True
         def shutdown(self):self.wait(1000)
     monkeypatch.setattr(ui,'WaveCalculation',FastCalculation)
@@ -84,9 +99,12 @@ def test_irregular_apply_uses_atomic_command_and_compact_project(qapp,monkeypatc
     dialog=WaveLoadDialog(panel);dialog.wave_type.setCurrentIndex(1)
     dialog.inputs['component_count'].setText('2');dialog.start()
     deadline=time.monotonic()+10
-    while (not commands or dialog.runner.isRunning()) and time.monotonic()<deadline:
+    while (dialog.prepared is None or dialog.runner.isRunning()) and time.monotonic()<deadline:
         qapp.processEvents();time.sleep(.01)
     qapp.processEvents()
+    assert not commands and not p.load_cases
+    assert dialog.prepared is not None,dialog.status.text()
+    dialog.apply_result()
     assert len(commands)==1,dialog.status.text()
     data=project_to_dict(p);assert len(data['load_cases'])==1
     owner=next(c for c in p.load_cases.values() if c.parent is None)

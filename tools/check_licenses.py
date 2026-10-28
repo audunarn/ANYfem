@@ -14,7 +14,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_PATH = ROOT / "dependency-licenses.json"
-EXPECTED_LICENSE = "MPL-2.0"
+EXPECTED_LICENSE = "GPL-3.0-only"
 EXPECTED_LICENSE_FILES = [
     "LICENSE",
     "NOTICE",
@@ -22,8 +22,8 @@ EXPECTED_LICENSE_FILES = [
     "dependency-licenses.json",
     "docs/LICENSE.md",
 ]
-MPL_NORMALIZED_SHA256 = (
-    "3F3D9E0024B1921B067D6F7F88DEB4A60CBE7A78E76C64E3F1D7FC3B779B9D04"
+GPL_NORMALIZED_SHA256 = (
+    "FB981668C18A279E285FC4D83FBA1E836CC84DD4DAA73C9697D3CFD2D8ACA6E0"
 )
 ALLOWED_EXPRESSIONS = {
     "Apache-2.0",
@@ -38,6 +38,8 @@ INSTALLED_LICENSE_ALIASES = {
     "pyside6": {"LGPL-3.0-only"},
     "any3dview": {"MPL-2.0"},
     "anyfileio": {"MPL-2.0"},
+    "anyhydro": {"MPL-2.0"},
+    "anystability": {"MPL-2.0"},
     "anygeometry": {"MPL-2.0"},
     "anyloads": {"MPL-2.0"},
     "anymaterial": {"MPL-2.0"},
@@ -189,9 +191,9 @@ def check(*, check_installed: bool = False) -> None:
         r"(\d+)\.(\d+)\.(\d+)", str(project.get("version", ""))
     )
     if version_match is None or tuple(map(int, version_match.groups())) < (0, 4, 0):
-        _fail("pyproject.toml does not declare an MPL release version >=0.4.0")
+        _fail("pyproject.toml does not declare a release version >=0.4.0")
     if project.get("license") != EXPECTED_LICENSE:
-        _fail("pyproject.toml does not declare MPL-2.0")
+        _fail("pyproject.toml does not declare GPL-3.0-only")
     if project.get("license-files") != EXPECTED_LICENSE_FILES:
         _fail("pyproject.toml license-files does not match the required set")
 
@@ -202,17 +204,17 @@ def check(*, check_installed: bool = False) -> None:
         "\r\n", "\n"
     )
     digest = hashlib.sha256(license_text.encode("utf-8")).hexdigest().upper()
-    if digest != MPL_NORMALIZED_SHA256:
-        _fail("LICENSE is not the approved unmodified MPL-2.0 text")
+    if digest != GPL_NORMALIZED_SHA256:
+        _fail("LICENSE is not the approved unmodified GPL-3.0-only text")
     if "Copyright (c) Audun Nyhus" not in (ROOT / "NOTICE").read_text(
         encoding="utf-8"
     ):
         _fail("NOTICE is missing the project copyright")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    if "Starting with version 0.4.0" not in readme:
-        _fail("README does not describe the 0.4.0 licensing boundary")
-    if "Mozilla Public License 2.0" not in readme:
-        _fail("README does not identify the MPL-2.0 license")
+    if "Earlier published releases retain" not in readme:
+        _fail("README does not preserve earlier published release licensing")
+    if "GNU General Public License, version 3 only" not in readme:
+        _fail("README does not identify the GPL-3.0-only license")
     documentation = (ROOT / "docs" / "LICENSE.md").read_text(encoding="utf-8")
     if "Creative Commons Attribution 4.0" not in documentation:
         _fail("documentation license notice is missing CC BY 4.0")

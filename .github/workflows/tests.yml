@@ -31,7 +31,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5
+          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -45,28 +45,38 @@ jobs:
           path: .ecosystem/ANYmaterial
       - uses: actions/checkout@v4
         with:
+          repository: audunarn/ANYhydro
+          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          path: .ecosystem/ANYhydro
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYstability
+          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
+          path: .ecosystem/ANYstability
+      - uses: actions/checkout@v4
+        with:
           repository: audunarn/ANYloads
-          ref: 28a15c09eff75037dedf62c66ca09ea21221c5af
+          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: dda8c70a1f6205ae601e8288a1624f52aa76e24a
+          ref: 9d2abf6ac7659350a043501b0630a3d4fd20ea18
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 246aeb227687f268b9046073c5ef79409f6382cf
+          ref: b6f7cf466865b1c4c34b8e5511ace97d00290f6c
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: db73950018e1c87dab0ca618c25c965030ba08ce
+          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: 245fe3e0d70c559da06879546a5738a1863a7e52
+          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:
@@ -85,8 +95,9 @@ jobs:
 
       - name: Install
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip "xarray>=2023.1"
           python -m pip install --no-deps -e .ecosystem/ANYmaterial
+          python -m pip install --no-deps -e .ecosystem/ANYhydro -e .ecosystem/ANYstability
           python -m pip install --no-deps -e .ecosystem/ANYloads
           python -m pip install --no-deps -e .ecosystem/ANYgeometry
           python -m pip install --no-deps -e .ecosystem/ANYmesh
@@ -135,7 +146,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5
+          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -149,28 +160,38 @@ jobs:
           path: .ecosystem/ANYmaterial
       - uses: actions/checkout@v4
         with:
+          repository: audunarn/ANYhydro
+          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          path: .ecosystem/ANYhydro
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYstability
+          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
+          path: .ecosystem/ANYstability
+      - uses: actions/checkout@v4
+        with:
           repository: audunarn/ANYloads
-          ref: 28a15c09eff75037dedf62c66ca09ea21221c5af
+          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: dda8c70a1f6205ae601e8288a1624f52aa76e24a
+          ref: 9d2abf6ac7659350a043501b0630a3d4fd20ea18
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 246aeb227687f268b9046073c5ef79409f6382cf
+          ref: b6f7cf466865b1c4c34b8e5511ace97d00290f6c
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: db73950018e1c87dab0ca618c25c965030ba08ce
+          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANY3dView
-          ref: 245fe3e0d70c559da06879546a5738a1863a7e52
+          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
           path: .ecosystem/ANY3dView
       - uses: actions/checkout@v4
         with:
@@ -184,7 +205,7 @@ jobs:
 
       - name: Build the wheel
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip "xarray>=2023.1" build
           python tools/check_licenses.py
           python -m build
 
@@ -197,8 +218,9 @@ jobs:
       - name: Install and import the wheel in a clean environment
         run: |
           python -m venv .wheel-smoke
-          .wheel-smoke/bin/python -m pip install --upgrade pip
+          .wheel-smoke/bin/python -m pip install --upgrade pip "xarray>=2023.1"
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmaterial
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYhydro .ecosystem/ANYstability
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYloads
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYgeometry
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh

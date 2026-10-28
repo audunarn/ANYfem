@@ -309,6 +309,9 @@ class SolveTask(QWidget):
         name=self.analysis.currentText();function=ANALYSES[name]
         excluded={"project","built","mesh","target_size","overrides","load_case","progress","cancellation_token","imperfection","fracture","resources","control","collision","contact","damage","plastic_damage","config"}
         parameters=[(key,p.annotation,p.default) for key,p in inspect.signature(function).parameters.items() if key not in excluded and p.kind not in (p.VAR_KEYWORD,p.VAR_POSITIONAL)]
+        if name in {"Linear static","Batch linear static"}:
+            parameters=[(key,annotation,"transformation" if key=="constraint_mode" else default)
+                        for key,annotation,default in parameters]
         if name in {"Nonlinear static","Arc length","Capacity"}:
             from anysolver import solve_static_nonlinear,solve_static_arc_length
             signature=inspect.signature(solve_static_arc_length if name=="Arc length" else solve_static_nonlinear)
@@ -331,10 +334,32 @@ class SolveTask(QWidget):
             self.controls_layout.addWidget(QLabel(key.capitalize()))
             widget=OptionForm.record(record);self.record_controls[key]=(record,widget);self.controls_layout.addWidget(widget)
 
+    def load_settings(self, settings):
+        """Restore surfaced static settings without hidden JSON overrides."""
+        remaining=dict(settings)
+        # A rejected record must not leave another record's hidden overrides
+        # active after the tree has selected the requested analysis type.
+        self.options.setPlainText("{}")
+        if self.analysis.currentText() in {"Linear static","Batch linear static"}:
+            self.controls.set_values({
+                "constraint_mode":remaining.pop("constraint_mode","nullspace" if remaining.get("inertia_relief",False) else "transformation"),
+                "allow_unbalanced_free_free":remaining.pop("allow_unbalanced_free_free",False),
+                "inertia_relief":remaining.pop("inertia_relief",False),
+                "reference_point":remaining.pop("reference_point",None),
+            })
+        self.options.setPlainText(json.dumps(remaining))
+
     def settings(self):
         options=json.loads(self.options.toPlainText())
         if not isinstance(options,dict):raise ValueError("Analysis options must be an object")
         values=self.controls.values();values.update(options);options=values
+        if self.analysis.currentText() in {"Linear static","Batch linear static"}:
+            from ...solve.static_options import allows_free_static
+            allows_free_static(options.get("constraint_mode","transformation"),
+                inertia_relief=options.get("inertia_relief",False),
+                allow_unbalanced_free_free=options.get("allow_unbalanced_free_free",False))
+            if options.get("reference_point") is not None and not options.get("inertia_relief",False):
+                raise ValueError("Reference point requires inertia relief")
         for key,(record,widget) in self.record_controls.items():
             raw=options.get(key)
             options[key]=record(**raw) if isinstance(raw,dict) else raw or record(**widget.values())
@@ -1024,8 +1049,15 @@ class ResultsTask(QWidget):
             if ready is not None:ready()
         on_ready=published
         dataset=self.app.result_datasets.get(self.app.active_job_id)
+        job_id=self.app.active_job_id
+        def metadata_ready():
+            if (self.app.active_job_id!=job_id or self.app.result_datasets.get(job_id) is not dataset
+                    or selection!=self._display_selection()):
+                if on_cancel is not None:on_cancel()
+                return
+            self.show_results(on_ready=on_ready,on_cancel=on_cancel)
         if self.use_retained() and dataset is not None and self.app.prepare_result_dataset(
-                dataset,on_ready=lambda:self.show_results(on_ready=on_ready,on_cancel=on_cancel),on_cancel=on_cancel):return
+                dataset,on_ready=metadata_ready,on_cancel=on_cancel):return
         if self.use_retained():
             dataset=self.app.result_datasets.get(self.app.active_job_id)
             component=self.component.text().strip() or None

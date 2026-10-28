@@ -119,8 +119,14 @@ class IrregularWaveInput:
     duration: float=10.
     dt: float=.1
     wave_type: str='irregular'
+    include_hydrostatic: bool=False
+    follow_surface: bool=False
 
     def __post_init__(self):
+        if type(self.include_hydrostatic) is not bool:raise ValueError('include_hydrostatic must be a boolean')
+        if type(self.follow_surface) is not bool:raise ValueError('follow_surface must be a boolean')
+        # Following the instantaneous surface implies (and locks) the hydrostatic inclusion.
+        if self.follow_surface:object.__setattr__(self,'include_hydrostatic',True)
         values=(self.significant_height,self.peak_period,self.gamma,self.lower_frequency_ratio,
             self.upper_frequency_ratio,self.heading,self.depth,self.duration,self.dt)
         if (self.wave_type!='irregular' or not self.name.strip() or

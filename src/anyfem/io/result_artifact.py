@@ -1587,11 +1587,63 @@ def _pad_ragged_rows(rows):
     return padded, [tuple(int(extent) for extent in row.shape) for row in rows]
 
 
+def _is_stress_metadata(value: Any) -> bool:
+    """Recovery flags (e.g. ``physical_stress_available``) are not stresses.
+
+    Booleans pass the numeric dtype probe, so without this check they would be
+    persisted as Pa fields that ANYpost rightly rejects on reopen.
+    """
+
+    if isinstance(value, (bool, np.bool_)):
+        return True
+    array = _numeric_array(value)
+    return array is not None and array.dtype.kind == "b"
+
+
+def _split_stress_metadata(
+    stresses: Mapping[Any, Any],
+) -> tuple[set[str], dict[str, dict[str, Any]]]:
+    """Return metadata component names and their per-element values."""
+
+    names = {
+        str(component)
+        for values in stresses.values()
+        if isinstance(values, Mapping)
+        for component, value in values.items()
+        if _is_stress_metadata(value)
+    }
+    metadata: dict[str, dict[str, Any]] = {}
+    for element_id, values in stresses.items():
+        if not isinstance(values, Mapping):
+            continue
+        flags = {
+            str(component): _json_safe(value)
+            for component, value in values.items()
+            if str(component) in names
+        }
+        if flags:
+            metadata[str(element_id)] = flags
+    return names, metadata
+
+
+def _add_recovery_metadata_table(builder: _Builder, prefix: str, metadata: Any) -> str:
+    base = _safe_key(f"{prefix}_recovery_metadata")
+    key = base
+    index = 2
+    while key in builder.tables:
+        key = f"{base}_{index}"
+        index += 1
+    builder.add_table(key, metadata)
+    return key
+
+
 def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_only: bool = False,
                         frames=(0.0,)) -> None:
     stresses = getattr(result, "element_stresses", None)
     if not isinstance(stresses, Mapping) or not stresses:
         return
+    metadata_names, metadata = _split_stress_metadata(stresses)
+    metadata_key = _add_recovery_metadata_table(builder, prefix, metadata) if metadata else None
     components = sorted(
         {
             str(component)
@@ -1599,7 +1651,7 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_
             if isinstance(values, Mapping)
             for component in values
             if not global_only or component in _GLOBAL_SURFACE_STRESSES
-        }
+        } - metadata_names
     )
     provenance = _stress_provenance(result)
     for component in components:
@@ -1632,6 +1684,7 @@ def _add_static_stresses(builder: _Builder, result: Any, *, prefix: str, global_
             frames=frames,
             recovery="recovered",
             provenance={**provenance,
+                        **({"recovery_metadata_table": metadata_key} if metadata_key else {}),
                         **({"element_sample_shapes": {str(element_id): list(shape)
                              for element_id, shape in zip(ids, ragged_shapes)}}
                            if ragged_shapes is not None else {}),
@@ -1658,6 +1711,16 @@ def _add_stress_history(
     if len(mappings) != len(history):
         builder.add_table(prefix, history)
         return
+    metadata_names: set[str] = set()
+    metadata_key = None
+    if scalar_component is None:
+        split = tuple(_split_stress_metadata(frame) for frame in mappings)
+        metadata_names = set().union(*(names for names, _values in split))
+        if metadata_names:
+            metadata_key = _add_recovery_metadata_table(
+                builder, prefix,
+                {"frames": [values for _names, values in split]},
+            )
     component_names = (
         (scalar_component,)
         if scalar_component is not None
@@ -1669,7 +1732,7 @@ def _add_stress_history(
                     for values in frame.values()
                     if isinstance(values, Mapping)
                     for component in values
-                }
+                } - metadata_names
             )
         )
     )
@@ -1721,6 +1784,7 @@ def _add_stress_history(
             frames=descriptor_frames,
             recovery=recovery,
             provenance={**dict(provenance or {}),
+                        **({"recovery_metadata_table": metadata_key} if metadata_key else {}),
                         **({"frame_element_sample_shapes": {
                                 str(frame_index): {
                                     str(element_id): list(shape)
@@ -1878,6 +1942,35 @@ def _base_provenance(solution: Any, raw: Any) -> dict[str, Any]:
             result_case = nonlinear_info.get("result_case")
     if result_case is not None:
         provenance["result_case"] = _json_safe(result_case)
+    # Physical accelerating-frame diagnostics belong with the saved result,
+    # separately from displacement fields and support-reaction quantities.
+    info = getattr(solution, "info", None)
+    if isinstance(info, Mapping):
+        relief = info.get("inertia_relief")
+        if isinstance(relief, Mapping):
+            provenance["inertia_relief"] = _json_safe({
+                key: value for key, value in relief.items() if key != "result_case"})
+        elif type(solution).__name__ == "LinearBatchSolution":
+            cases = info.get("case_results", ())
+            if cases and len(cases) == len(solution.case_names) and all(
+                    isinstance(case.get("inertia_relief"), Mapping) for case in cases):
+                provenance["inertia_relief_cases"] = [
+                    {"case_name": name, "summary": _json_safe(case["inertia_relief"])}
+                    for name, case in zip(solution.case_names, cases)]
+        floating = info.get("floating_relief")
+        if isinstance(floating, Mapping):
+            provenance["floating_relief"] = _json_safe(floating)
+        if type(solution).__name__ == "LinearBatchSolution":
+            shapes = getattr(solution, "shapes", ())
+            if len(shapes) == len(solution.case_names):
+                entries = [
+                    {"case_name": name, "summary": _json_safe(shape.info["floating_relief"])}
+                    for name, shape in zip(solution.case_names, shapes)
+                    if isinstance(getattr(shape, "info", None), Mapping)
+                    and isinstance(shape.info.get("floating_relief"), Mapping)
+                ]
+                if entries:
+                    provenance["floating_relief_cases"] = entries
     metadata = getattr(raw, "quantity_metadata", None)
     if metadata:
         provenance["solver_quantities"] = _json_safe(

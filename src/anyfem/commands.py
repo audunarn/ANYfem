@@ -70,6 +70,7 @@ from .model.materials import MaterialSpec
 from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import BeamSection, PlateSection
 from .model.units import UnitProfile
+from .model.wind_turbine import WindTurbineLoad
 from .geometry_features import BUTTERFLY_HOLE_KIND
 
 __all__ = [
@@ -107,6 +108,9 @@ __all__ = [
     "EditGeometrySet",
     "AddSupport",
     "AddSurfaceTraction",
+    "AddWindTurbineLoad",
+    "DeleteWindTurbineLoad",
+    "EditWindTurbineLoad",
     "AddWetPressure",
     "AddWetPressureTable",
     "AddWetSurface",
@@ -175,6 +179,60 @@ class Command:
 
     def redo(self, project: Project) -> Any:
         return self.do(project)
+
+
+class _WindTurbineLoadCommand(Command):
+    """Undo restores exactly the prior turbine-load collection; no other project record is touched."""
+
+    def _remember(self, project: Project) -> None:
+        self._before = dict(project.wind_turbine_loads)
+
+    def undo(self, project: Project) -> None:
+        project.wind_turbine_loads.clear()
+        project.wind_turbine_loads.update(self._before)
+
+
+class AddWindTurbineLoad(_WindTurbineLoadCommand):
+    """Add one saved, immutable wind turbine load definition."""
+
+    label = "add wind turbine load"
+
+    def __init__(self, load: WindTurbineLoad) -> None:
+        if not isinstance(load, WindTurbineLoad):
+            raise TypeError("AddWindTurbineLoad expects a WindTurbineLoad")
+        self.load = load
+
+    def do(self, project: Project) -> WindTurbineLoad:
+        self._remember(project)
+        return project.add_wind_turbine_load(self.load)
+
+
+class EditWindTurbineLoad(_WindTurbineLoadCommand):
+    """Replace one turbine load (same stable ID) by an already validated record."""
+
+    label = "edit wind turbine load"
+
+    def __init__(self, replacement: WindTurbineLoad) -> None:
+        if not isinstance(replacement, WindTurbineLoad):
+            raise TypeError("EditWindTurbineLoad expects a WindTurbineLoad")
+        self.replacement = replacement
+
+    def do(self, project: Project) -> WindTurbineLoad:
+        self._remember(project)
+        return project.replace_wind_turbine_load(self.replacement)
+
+
+class DeleteWindTurbineLoad(_WindTurbineLoadCommand):
+    """Delete one turbine load by ID."""
+
+    label = "delete wind turbine load"
+
+    def __init__(self, load_id: str) -> None:
+        self.load_id = str(load_id)
+
+    def do(self, project: Project) -> WindTurbineLoad:
+        self._remember(project)
+        return project.remove_wind_turbine_load(self.load_id)
 
 
 @dataclass(frozen=True)
