@@ -360,7 +360,7 @@ class FloatingTransientDialog(QDialog):
         return self.turbine_editor
 
     # ---------------------------------------------------------------- inputs
-    def load_fields(self, base):
+    def load_fields(self, base, fe_snapshot=None):
         """Selected turbine load / mooring / external fields on the base input's accepted time grid."""
         out, wind_prov = {}, None
         cg = np.asarray(base.cg_body, float)
@@ -369,7 +369,12 @@ class FloatingTransientDialog(QDialog):
             out.update(wind_times=None, wind_velocity=None, thrust_speeds=None, thrust_values=None, hub_offset_body=None,
                        rotor_axis_body=None, hub_node_id=None, mean_thrust=None, wind_reference_mean_world=None)
         else:
-            hub_abs = np.asarray(turbine.hub_body, float)
+            if fe_snapshot is not None:
+                hub_abs = turbine.resolved_hub_body(fe_snapshot)
+            elif turbine.hub_reference == "absolute" and turbine.mass_mode == "already_modelled":
+                hub_abs = np.asarray(turbine.hub_body, float)
+            else:
+                raise ValueError("a current structural snapshot is required to resolve the turbine attachment")
             # the record's OWNED wind: steady mean, imported samples or the retained Kaimal realization re-sampled on
             # this grid (full coverage enforced, never regenerated)
             wt, wv, ref, wind_prov, _ = turbine.wind_history(base.times)
@@ -403,7 +408,12 @@ class FloatingTransientDialog(QDialog):
         if base.hydrodynamic_verification == 'unverified' and not self.development.isChecked():
             raise ValueError('the saved coarse input has UNVERIFIED hydrodynamics (gates: '
                              + ', '.join(base.unpassed_hydro_gates) + '); enable development explicitly to run it')
-        loads, wind_prov = self.load_fields(base)
+        if fe_snapshot is not None:
+            from ...application.floating_mass import dry_mass_properties
+            from ...application.floating_transient import mass_identity
+            if mass_identity(dry_mass_properties(fe_snapshot)) != base.mass_digest:
+                raise ValueError("prepared input has stale structural mass; prepare the floating input again with the current turbine mass and inertia")
+        loads, wind_prov = self.load_fields(base, fe_snapshot)
         n_t = base.times.size
         start = int(self.fields['window_start'].text() or 0)
         end = int(self.fields['window_end'].text() or n_t - 1)

@@ -141,3 +141,19 @@ def test_floating_transient_selects_a_named_turbine_and_load_fields_reads_the_re
         d.load_fields(base)
     d.refresh_turbines()
     assert d.turbine.count() == 1 and d.turbine.currentData() is None
+
+
+def test_editor_attachment_mass_and_undo(qapp):
+    panel=Panel(); editor=WindTurbineLoadEditor(panel)
+    _fill(editor,hub_node='2',attachment_element='10',hub='1 0 2',mass='100',mass_cg='.5 0 1',inertia='3 4 5 0 0 0')
+    editor.hub_reference.setCurrentIndex(editor.hub_reference.findData('attachment'))
+    editor.mass_mode.setCurrentIndex(editor.mass_mode.findData('additional'))
+    saved=editor.save(); assert saved is not None,editor.status.text()
+    assert saved.mass==100 and saved.attachment_element_id==10 and saved.hub_reference=='attachment'
+    editor.load_record(saved); assert editor.record_from_fields(saved)==saved
+    _fill(editor,inertia='1 1 9 0 0 0')
+    assert editor.save() is None
+    assert panel.project.wind_turbine_loads[saved.id]==saved
+    panel.commands[-1].undo(panel.project)
+    assert not panel.project.wind_turbine_loads
+    editor.close()

@@ -123,6 +123,7 @@ def build_fe_model(
     _add_supports(project, mesh, fe_model)
     connections = _add_connections(project, mesh, fe_model)
     _add_masses(project, mesh, fe_model)
+    _add_turbine_masses(project, fe_model)
 
     # Imperfections move the stress-free reference geometry, so they are
     # applied to the finished model before anything is assembled from it.
@@ -2432,6 +2433,15 @@ def _traction_elements_to_nodes(
                 accumulated[node_id] = np.zeros(3)
             accumulated[node_id] += weight * area * intensity
     return list(accumulated.items())
+
+
+def _add_turbine_masses(project, fe_model):
+    """Explicit turbine mass belongs to the structure, independently of thrust-case selection."""
+    for turbine in getattr(project, "wind_turbine_loads", {}).values():
+        if turbine.mass_mode == "additional":
+            turbine.attachment_node(fe_model)
+            fe_model.add_concentrated_mass(turbine.hub_node_id, turbine.mass,
+                                          offset=turbine.mass_cg_offset, inertia_cg=turbine.inertia_cg)
 
 
 def _add_masses(project: Project, mesh: Mesh, fe_model: FEModel) -> None:

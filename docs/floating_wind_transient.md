@@ -136,3 +136,34 @@ reviews and current limitations are recorded in
 [`handoff/inertia-relief-20261027.md`](handoff/inertia-relief-20261027.md).
 The development implementation does not constitute hydrodynamic qualification
 or publication approval.
+
+## Turbine attachment and explicit mass
+
+Choose the attachment structural node (for example the tower-top node). An optional
+structural element ID verifies that the node belongs to the intended member. Hub
+coordinates can be absolute body coordinates or an offset from that node. Thrust
+transfers as a force and the exact hub-offset moment. Tower deformation does not
+feed back into relative wind; platform rigid motion remains the only motion input.
+Remeshing requires checking the attachment IDs; no nearest-node retargeting occurs.
+
+Mass ownership defaults to **Already modelled / no additional mass**. Choose
+**Add to structural mass model** only for mass absent from the FE model. Enter kg,
+the CG offset from the attachment in body axes (m), and the symmetric inertia
+about that CG in body axes (kg m²). The six entries are Ixx, Iyy, Izz, Ixy, Ixz,
+Iyz: off-diagonals are actual tensor entries, not unsigned products of inertia.
+Principal moments must be nonnegative and satisfy the triangle inequalities.
+
+Every explicitly added turbine mass enters the canonical FE mass matrix once per
+fresh structural build, even when its thrust history is not selected. It contributes
+to static acceleration/gravity loads, floating dry inertia and inertia relief.
+Existing tower or RNA mass is never removed or inferred. Switching back to Already
+modelled preserves entered properties but disables their added contribution.
+
+Changing added mass or its attachment invalidates prepared floating mass identities.
+Rebuild the FE model with `build_fe_model`, obtain its `dry_mass_properties`, and
+prepare the floating input through `prepare_floating_transient_job` using that dry
+mass and matching mean-pose/coarse operators. The dialog refuses a stale prepared
+input before running its mean solver. It does not automatically rerun BEM or rebase
+old operators onto a different CG. Saved result inspection likewise checks the
+current structural mass and stiffness identities. New attachment/mass semantics
+use project format 19; older turbine records retain their original defaults.

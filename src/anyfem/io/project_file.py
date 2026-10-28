@@ -96,7 +96,8 @@ FLOATING_TRANSIENT_RESULTS_FORMAT = 17
 # Saved wind turbine load definitions (owned wind samples / retained Kaimal coefficients): an older reader would
 # silently drop them on the next save, so a file holding any is format 18 and refused there.
 WIND_TURBINE_LOADS_FORMAT = 18
-MAX_READ_FORMAT = WIND_TURBINE_LOADS_FORMAT
+TURBINE_MASS_FORMAT = 19
+MAX_READ_FORMAT = TURBINE_MASS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -2251,7 +2252,15 @@ def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper 
     if loads:
         data[WIND_TURBINE_LOADS_KEY] = [load.to_dict() for load in sorted(loads.values(),
                                                                           key=lambda item: (item.name, item.id))]
-        data["anyfem"]["format"] = max(data["anyfem"]["format"], WIND_TURBINE_LOADS_FORMAT)
+        extended = any(load.mass_mode != "already_modelled" or load.mass != 0. or
+                       load.hub_reference != "absolute" or load.attachment_element_id is not None or
+                       any(any(row) for row in load.inertia_cg) or any(load.mass_cg_offset) for load in loads.values())
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], TURBINE_MASS_FORMAT if extended else WIND_TURBINE_LOADS_FORMAT)
+        if not extended:
+            for record in data[WIND_TURBINE_LOADS_KEY]:
+                for key in ("mass_mode", "mass", "mass_cg_offset", "inertia_cg", "hub_reference", "attachment_element_id"):
+                    record.pop(key)
+
     return data
 
 

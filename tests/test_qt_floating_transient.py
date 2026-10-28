@@ -289,3 +289,13 @@ def test_rotor_axis_reuses_the_anyloads_applicator():
     from anyfem.ui.qt.floating_transient import rotor_axis
     ref = TurbineLoadApplicator.from_yaw_tilt([0.0, 0.0, 10.0], yaw=np.radians(7.0), tilt=np.radians(-5.0))
     np.testing.assert_array_equal(rotor_axis([0.0, 0.0, 10.0], 7.0, -5.0), ref.rotor_axis_body)
+
+
+def test_changed_turbine_mass_refused_before_mean_or_run(qapp,world,tmp_path):
+    import copy
+    d,panel,_=_dialog(qapp,world,tmp_path,make_input(world),solve_mean=lambda *a: (_ for _ in ()).throw(AssertionError('mean must not run')))
+    changed=copy.deepcopy(world['model'])
+    changed.add_concentrated_mass(world['dry'].node_ids[-1],100.,offset=(1.,0.,0.),inertia_cg=np.diag([2.,3.,4.]))
+    with pytest.raises(ValueError,match='stale structural mass'):
+        d.plan_input(fe_snapshot=changed)
+    d.close()
