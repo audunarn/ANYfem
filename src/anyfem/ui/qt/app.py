@@ -9,6 +9,7 @@ from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QStandardItemMode
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QHBoxLayout, QMainWindow,
     QPlainTextEdit, QPushButton, QTabWidget, QTabBar, QTableView, QVBoxLayout, QWidget,
     QInputDialog, QLabel, QCheckBox, QScrollArea, QMenu, QStyle, QToolButton)
+from shiboken6 import isValid
 
 from ...application.controller import WorkbenchController, default_project
 from ...application.workflow import WorkbenchWorkflow,_job_progress_text
@@ -52,24 +53,38 @@ class _Value:
 class _DockFooter(QObject):
     """Share the native bottom tab row without taking ownership of its tab bar."""
 
+    EVENTS=frozenset({QEvent.Show,QEvent.Hide,QEvent.Resize,QEvent.Move,QEvent.LayoutRequest,QEvent.ChildAdded})
+
     def __init__(self,window,status):
         super().__init__(window)
         self.window=window;self.status=status;self.tab_bar=None
         self._busy=False;self.in_tab_row=False;self._watched=set()
         status.setObjectName("DockFooter")
         status.setSizeGripEnabled(False)
+        # Filtered events arrive while Qt is building, reparenting or destroying children:
+        # ChildAdded is sent from inside the child's own constructor.  Walking the window's
+        # children from that dispatch wraps half-built objects (the hosted Windows PySide 6.10
+        # lane aborted there), so events only request one coalesced sync from the event loop.
+        self._timer=QTimer(self);self._timer.setSingleShot(True);self._timer.setInterval(0)
+        self._timer.timeout.connect(self.sync)
         window.installEventFilter(self)
         self.sync()
 
     def eventFilter(self,watched,event):
-        if event.type() in {QEvent.Show,QEvent.Hide,QEvent.Resize,QEvent.Move,QEvent.LayoutRequest,QEvent.ChildAdded}:
-            self.sync()
+        if event.type() in self.EVENTS:self.schedule()
         return False
 
+    def schedule(self):
+        if self._busy or getattr(self.window,"_closing",True) or not isValid(self._timer):return
+        if not self._timer.isActive():self._timer.start()
+
     def sync(self):
-        if self._busy or self.window._closing:return
+        if self._busy or not isValid(self.window) or self.window._closing:return
         self._busy=True
         try:
+            # Qt may destroy and recreate dock tab bars; forget the deleted ones.
+            self._watched={bar for bar in self._watched if isValid(bar)}
+            if self.tab_bar is not None and not isValid(self.tab_bar):self.tab_bar=None
             names={dock.windowTitle() for dock in self.window._workspace_docks[2:]
                    if not dock.isFloating() and self.window.dockWidgetArea(dock)==Qt.BottomDockWidgetArea}
             bars=[bar for bar in self.window.findChildren(QTabBar)

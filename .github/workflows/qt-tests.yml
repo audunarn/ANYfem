@@ -29,7 +29,7 @@ on:
         description: Exact ANYgeometry commit with component planning and binding contracts
         required: true
         type: string
-        default: ebbe0e3b500a3f0cfcc62059c3dac4b0ac178b6c
+        default: 9d2abf6ac7659350a043501b0630a3d4fd20ea18
       mesher_ref:
         description: Exact ANYmesh commit with opt-in component parallel meshing and pool lifecycle
         required: true
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: ${{ inputs.geometry_ref || 'ebbe0e3b500a3f0cfcc62059c3dac4b0ac178b6c' }}
+          ref: ${{ inputs.geometry_ref || '9d2abf6ac7659350a043501b0630a3d4fd20ea18' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:

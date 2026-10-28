@@ -81,6 +81,38 @@ class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
 
 
+def source_publication_required(geometry: Any) -> bool:
+    """Route a geometry approximation bound by the owner's classification.
+
+    A positive bound is not by itself evidence that curved source
+    qualification is needed; only the ANYmesher routing query decides.  An
+    unavailable query refuses instead of guessing either route.
+    """
+
+    try:
+        from anymesher.material_source_transfer import requires_material_source_transfer
+        return bool(requires_material_source_transfer(geometry, None))
+    except ImportError as error:
+        raise ProjectError(
+            "geometry_approximation_error requires the ANYmesher "
+            "source-transfer routing query, which is unavailable"
+        ) from error
+
+
+def source_publication_service(module: str, name: str) -> Callable[..., Any]:
+    """Return an owner publication service or refuse the curved route."""
+
+    from importlib import import_module
+
+    try:
+        return getattr(import_module(module), name)
+    except (ImportError, AttributeError) as error:
+        raise ProjectError(
+            f"curved source publication requires {module}.{name}, which is "
+            "unavailable; curved publication is refused"
+        ) from error
+
+
 FLOATING_TRANSIENT_DEVELOPMENT_MARKER = "DEVELOPMENT - UNVERIFIED HYDRODYNAMICS"
 _FT_ACCEPTED_STATUS = "complete"
 _FT_UNVERIFIED_STATUS = "completed_unverified_hydrodynamics"
@@ -2274,8 +2306,7 @@ class Project:
             if not np.isfinite(geometry_approximation_error) or geometry_approximation_error <= 0:
                 raise ProjectError('geometry_approximation_error must be a finite positive real')
         supported_parameters["recombine"] = controls.recombine
-        if geometry_approximation_error is not None:
-            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
+        # The bound reaches the mesher only on a qualified curved route (below).
         # Mapped-only runs must not activate the opt-in native path.
         if resolved_strategy != "mapped":
             native_options = controls.native_options()
@@ -2335,11 +2366,13 @@ class Project:
             tuple(sorted(int(member) for member in source_members)),
             geometry_approximation_error,
         )
-        if geometry_approximation_error is not None:
-            from anygeometry import clone_prepared_geometry
         cached = self._mesh_preparation_cache
         cache_hit = cached is not None and cached[0] == cache_key
         qualification = self._mesh_preparation_qualification if cache_hit else None
+        if qualification is not None:
+            # Only a qualified curved preparation carries the owner clone.
+            clone_prepared_geometry = source_publication_service(
+                "anygeometry", "clone_prepared_geometry")
         if cache_hit:
             if cancellation_check is not None:
                 cancellation_check("cached structural preparation")
@@ -2361,10 +2394,23 @@ class Project:
                 include_features=False,
             )
         if not cache_hit:
-            if geometry_approximation_error is not None:
-                from anymesher import qualify_model_closure_source_publication
+            # Planar input keeps the scalar bound without source publication;
+            # a curved route needs both owner services or is refused.
+            if (geometry_approximation_error is not None
+                    and source_publication_required(source_geometry)):
+                qualify_model_closure_source_publication = source_publication_service(
+                    "anymesher", "qualify_model_closure_source_publication")
+                clone_prepared_geometry = source_publication_service(
+                    "anygeometry", "clone_prepared_geometry")
                 qualification = qualify_model_closure_source_publication(
                     source_geometry, closure, cancellation_check=cancellation_check)
+                if qualification is None:
+                    raise ProjectError(
+                        "curved source publication returned no owner qualification; "
+                        "curved publication is refused")
+        if qualification is not None:
+            # A curved bound is never dropped; planar input keeps it as metadata.
+            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
         working = closure.working_model
         working_member_ids = tuple(
             sorted(
