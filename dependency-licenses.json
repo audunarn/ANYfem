@@ -59,6 +59,14 @@
     {
       "bundled": false,
       "license_expression": "MPL-2.0",
+      "name": "ANYhydro",
+      "requirement": "ANYhydro",
+      "scope": "optional:floating",
+      "upstream": "https://github.com/audunarn/ANYhydro"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
       "name": "ANYloads",
       "requirement": "ANYloads[excel]>=0.1,<0.2",
       "scope": "optional:excel",
@@ -135,6 +143,14 @@
       "requirement": "ANYsolver-results>=2.1.1,<3",
       "scope": "runtime",
       "upstream": "https://github.com/audunarn/ANYsolver"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYstability",
+      "requirement": "ANYstability[floating]",
+      "scope": "optional:floating",
+      "upstream": "https://github.com/audunarn/ANYstability"
     },
     {
       "bundled": false,
