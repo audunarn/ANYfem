@@ -87,6 +87,11 @@ def test_workspace_option_icons_choose_existing_options_and_wrap(window,qapp):
     before=window.commands.history()
     for name,panel in window.panels.items():
         window.notebook.select(name);qapp.processEvents()
+        if name=="Sectioning":
+            # Sectioning has direct plane/box controls, not an option selector.
+            assert panel.plane is panel.presentation_controls.plane
+            assert panel.offset is panel.presentation_controls.offset
+            continue
         strip=panel.option_icons
         assert strip.buttons
         for button in strip.buttons:

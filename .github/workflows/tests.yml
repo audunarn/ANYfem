@@ -31,7 +31,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 5cc82571679850533ca1fcbe8ee92f7b70742800
+          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: db73950018e1c87dab0ca618c25c965030ba08ce
+          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -146,7 +146,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 5cc82571679850533ca1fcbe8ee92f7b70742800
+          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
       - uses: actions/checkout@v4
         with:
@@ -186,7 +186,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: db73950018e1c87dab0ca618c25c965030ba08ce
+          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
