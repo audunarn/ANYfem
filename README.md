@@ -129,6 +129,9 @@ them by default.
 
 ## Install and run
 
+For the Apple Silicon developer target and its CI verification limits, see the
+[macOS installation guide](docs/macos.md).
+
 Until the compatible ecosystem packages are published, bootstrap the complete
 latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:

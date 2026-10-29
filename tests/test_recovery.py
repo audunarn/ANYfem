@@ -327,3 +327,99 @@ def test_failed_bundle_write_never_becomes_discoverable(tmp_path, monkeypatch):
 
     assert discover_recoveries(root=root) == []
     assert not list(root.rglob("*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# Process identity (Darwin start token, hostname drift, missing tokens)
+# ---------------------------------------------------------------------------
+def _foreign_lock(lock, **overrides):
+    values = dict(
+        pid=os.getpid(),
+        hostname=socket.gethostname(),
+        acquired_utc="2026-08-10T10:00:00Z",
+        token="foreign-token",
+        process_start=None,
+    )
+    values.update(overrides)
+    lock.path.write_text(json.dumps(LockOwner(**values).to_dict()), encoding="utf-8")
+
+
+def test_a_live_owner_with_a_matching_start_token_stays_live(tmp_path):
+    from anyfem.io import recovery
+
+    token = recovery._process_start_token(os.getpid())
+    assert token is not None, "this platform must produce a start token for a live process"
+    lock = ProjectLock(tmp_path / "model.anyfem")
+    _foreign_lock(lock, process_start=token)
+    decision = lock.inspect()
+    assert decision.state == "live" and decision.read_only and not decision.can_take_over
+
+
+def test_a_changed_start_token_marks_the_pid_as_reused(tmp_path):
+    lock = ProjectLock(tmp_path / "model.anyfem")
+    _foreign_lock(lock, process_start="darwin-start:1.000000")
+    decision = lock.inspect()
+    assert decision.state == "stale" and decision.can_take_over
+    assert "reused" in decision.reason
+
+
+def test_a_missing_start_token_is_conservatively_live(tmp_path):
+    lock = ProjectLock(tmp_path / "model.anyfem")
+    _foreign_lock(lock, process_start=None)
+    assert lock.inspect().state == "live"
+
+
+def test_hostname_drift_is_live_even_when_the_pid_is_dead(tmp_path):
+    lock = ProjectLock(tmp_path / "model.anyfem")
+    _foreign_lock(lock, pid=2_147_483_647, hostname="renamed-host.invalid")
+    decision = lock.acquire(take_over_stale=True)
+    assert decision.state == "live" and decision.read_only and not decision.can_take_over
+    assert lock.path.exists()
+
+
+def test_darwin_start_token_uses_the_process_identity_helper(monkeypatch):
+    from anyfem import _darwin_process
+    from anyfem.io import recovery
+
+    monkeypatch.setattr(recovery.sys, "platform", "darwin")
+    monkeypatch.setattr(_darwin_process, "process_start_token", lambda pid: f"darwin-start:{pid}")
+    assert recovery._process_start_token(42) == "darwin-start:42"
+
+    def broken(pid):
+        raise RuntimeError("psutil unavailable")
+
+    monkeypatch.setattr(_darwin_process, "process_start_token", broken)
+    assert recovery._process_start_token(42) is None  # absence never makes a lock stale
+
+
+def test_darwin_zombie_owner_is_dead_but_an_unknown_one_stays_live(monkeypatch):
+    from anyfem import _darwin_process
+    from anyfem.io import recovery
+
+    monkeypatch.setattr(recovery.sys, "platform", "darwin")
+    monkeypatch.setattr(recovery.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(_darwin_process, "pid_state", lambda pid: "zombie")
+    assert recovery._pid_is_live(4242) is False
+    monkeypatch.setattr(_darwin_process, "pid_state", lambda pid: "running")
+    assert recovery._pid_is_live(4242) is True
+
+    def unknown(pid):
+        raise OSError("inspection failed")
+
+    monkeypatch.setattr(_darwin_process, "pid_state", unknown)
+    assert recovery._pid_is_live(4242) is True  # unknown is never dead
+
+
+def test_unicode_paths_round_trip_through_lock_and_recovery(tmp_path):
+    source = tmp_path / "modèle_βeta_日本語.anyfem"
+    source.write_text('{"saved": true}\n', encoding="utf-8")
+    lock = ProjectLock(source)
+    assert lock.acquire().acquired
+    assert lock.path.name == source.name + ".lock"
+    assert lock.release()
+
+    candidate = _autosave(tmp_path / "state", source=source)
+    found = discover_recoveries(root=tmp_path / "state")
+    assert [item.source_path for item in found] == [candidate.source_path]
+    assert found[0].source_path.name == source.name
+    assert found[0].source_state == "source_unchanged"

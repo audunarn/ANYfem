@@ -11,6 +11,8 @@ import re
 import sys
 import tomllib
 
+from packaging.requirements import Requirement
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_PATH = ROOT / "dependency-licenses.json"
@@ -51,6 +53,7 @@ INSTALLED_LICENSE_ALIASES = {
     "anytk3d": {"MPL-2.0"},
     "build": {"MIT"},
     "h5py": {"BSD-3-Clause", "BSD License"},
+    "psutil": {"BSD-3-Clause", "BSD License"},
     "numpy": {
         "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
         "BSD-3-Clause AND bundled-component-licenses",
@@ -162,6 +165,9 @@ def _license_from_metadata(
 def _check_installed(rows: list[dict[str, object]]) -> None:
     for row in rows:
         if row["scope"] == "build":
+            continue
+        requirement = Requirement(str(row["requirement"]))
+        if requirement.marker is not None and not requirement.marker.evaluate():
             continue
         name = _normalized_name(str(row["name"]))
         try:

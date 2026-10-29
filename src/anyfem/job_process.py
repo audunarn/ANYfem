@@ -303,6 +303,13 @@ class _IncomingMessage:
 #   while it lives it anchors the group against numeric reuse.  Cleanup
 #   signals that group only; a shared resource tracker is never touched.
 #   Unsupported POSIX systems decline containment before any dispatch.
+# * macOS (Darwin): same owned session/group.  There is no fork and no
+#   parent-death signal: a fresh-interpreter guardian (stdlib only, ``-I``,
+#   explicit ``pass_fds``) joins the group, watches the outer worker's
+#   liveness pipe and the ORIGINAL multiprocessing parent sentinel, and
+#   acknowledges before "ready".  An independent worker-side thread watches
+#   the same parent and the guardian and kills the worker's own group if
+#   either dies.  Retirement is verified with psutil (``_darwin_process``).
 #
 # Solve workers keep the historical daemon behaviour; nothing below runs
 # unless a mesh job explicitly opts in.
@@ -489,6 +496,52 @@ def _linux_group_survivor(group: int, deadline: float | None = None) -> int | No
     return None
 
 
+def _darwin_group_survivor(group: int, deadline: float | None = None) -> int | None:
+    """Darwin counterpart of :func:`_linux_group_survivor` (psutil + getpgid)."""
+
+    from . import _darwin_process
+
+    return _darwin_process.group_survivor(group, deadline)
+
+
+def _group_survivor(group: int, deadline: float | None = None) -> int | None:
+    """The platform's owned-group inspection; looked up at call time."""
+
+    if sys.platform == "darwin":
+        return _darwin_group_survivor(group, deadline)
+    return _linux_group_survivor(group, deadline)
+
+
+def _darwin_session_survivor(session: int, deadline: float | None = None) -> int | None:
+    """First live member of the owned SESSION (the ANYmesh pool uses its own groups)."""
+
+    from . import _darwin_process
+
+    return _darwin_process.session_survivor(session, deadline)
+
+
+def _retirement_survivor(group: int, deadline: float | None = None) -> int | None:
+    """Survivor check used by :meth:`WorkerTree.confirm_retirement`.
+
+    Darwin inspects the whole isolated session (the outer worker's own
+    ``setsid`` makes its pid the session id), because pool members and their
+    guardians sit in other process groups of that session.  Other platforms
+    keep the owned-group scan.
+    """
+
+    if sys.platform == "darwin":
+        return _darwin_session_survivor(group, deadline)
+    return _group_survivor(group, deadline)
+
+
+def _darwin_containment_refusal() -> str | None:
+    """Why Darwin containment cannot start (checked before any spawn), or ``None``."""
+
+    from . import _darwin_process
+
+    return _darwin_process.preflight()
+
+
 def _set_parent_death_signal() -> None:
     """Linux only: die with the GUI process.  Strictly checked, never best effort.
 
@@ -626,6 +679,15 @@ class WorkerTree:
                         # so success is NOT marked -- the caller's fallback
                         # stop of the created worker itself must engage.
                         return
+                    if sys.platform == "darwin" and not self._process.is_alive():
+                        # is_alive may reap a crashed worker. Its numeric PGID
+                        # could then be reused after the guardian has exited.
+                        # Never signal that number again. The guardian/pool
+                        # watches handle death; session-wide inspection below
+                        # must still prove retirement or fail the job.
+                        self._proven_group = target
+                        self._terminated = True
+                        return
                     try:
                         os.killpg(target, signal.SIGKILL)
                     except ProcessLookupError:
@@ -681,7 +743,7 @@ class WorkerTree:
                 while True:
                     if time.monotonic() >= deadline:
                         return "owned group retirement was not verified within the cleanup deadline"
-                    survivor = _linux_group_survivor(group, deadline)
+                    survivor = _retirement_survivor(group, deadline)
                     if time.monotonic() >= deadline:
                         return "owned group retirement was not verified within the cleanup deadline"
                     if survivor is None:
@@ -852,6 +914,122 @@ def _start_guardian(connection: Any, control: Any) -> tuple[int, int]:
     return dismiss_write, pid
 
 
+def _abort_contained(code: int, owned_group: bool) -> None:
+    """Leave a contained worker; kill its own proven group first when it owns one.
+
+    ``os._exit`` alone would leave a pool the worker already created.  The
+    group is signalled only when this process leads its own group (its own
+    ``setsid``), never a numeric group from anywhere else.
+    """
+
+    try:
+        if owned_group and os.getpgrp() == os.getpid():
+            os.killpg(os.getpid(), signal.SIGKILL)
+    except OSError:  # pragma: no cover - the group is already gone
+        pass
+    os._exit(code)
+
+
+def _start_darwin_containment() -> tuple[int, int]:
+    """Launch and acknowledge the Darwin guardian, then arm the worker-side watch.
+
+    Called in the contained worker AFTER ``setsid``.  Returns
+    ``(liveness_write_fd, guardian_pid)`` like the Linux guardian.  Raises
+    ``OSError`` (nothing left running) when the application is already gone,
+    the guardian cannot be launched or it does not acknowledge in time.
+    """
+
+    import subprocess
+
+    parent = multiprocessing.parent_process()
+    if parent is None:
+        raise OSError("no multiprocessing parent sentinel to watch")
+    if not parent.is_alive():
+        raise OSError("the application process is already gone")
+    sentinel = int(parent.sentinel)
+    from ._darwin_process import guardian_script_path
+
+    live_read, live_write = os.pipe()
+    ack_read, ack_write = os.pipe()
+    process = None
+    try:
+        try:
+            process = subprocess.Popen(
+                [
+                    sys.executable, "-I", guardian_script_path(),
+                    str(os.getpid()), str(live_read), str(sentinel), str(ack_write),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                pass_fds=(live_read, sentinel, ack_write),
+            )
+        finally:
+            os.close(live_read)
+            os.close(ack_write)
+        deadline = time.monotonic() + _GUARDIAN_ACK_SECONDS
+        acknowledged = b""
+        while True:
+            ready, _, _ = select.select([ack_read], [], [], 0.05)
+            if ready:
+                acknowledged = os.read(ack_read, 16)
+                break
+            if process.poll() is not None:
+                raise OSError("the containment guardian exited before acknowledging startup")
+            if time.monotonic() >= deadline:
+                raise OSError("the containment guardian did not acknowledge startup")
+        if acknowledged != b"ready":
+            raise OSError("the containment guardian refused to start")
+    except BaseException:
+        os.close(live_write)
+        if process is not None and process.poll() is None:
+            try:
+                process.kill()
+                process.wait(timeout=_GUARDIAN_ACK_SECONDS)
+            except Exception:  # noqa: BLE001 - best effort; the worker exits next
+                pass
+        raise
+    finally:
+        os.close(ack_read)
+
+    threading.Thread(
+        target=_darwin_watch, args=(parent, process), name="anyfem-darwin-watch", daemon=True
+    ).start()
+    return live_write, process.pid
+
+
+def _darwin_watch(
+    parent: Any,
+    guardian: Any,
+    abort: Callable[[int, bool], None] = _abort_contained,
+    sleep: Callable[[float], None] = time.sleep,
+    *,
+    iterations: int | None = None,
+) -> None:
+    """Worker-side watch: kill the owned group when the tree is unsupervised.
+
+    Independent of the guardian: the application or the guardian dying means
+    this tree is unsupervised, so the owned group is killed (not merely this
+    process, which would leave the pool running).  An unexpected failure of the
+    watch itself is the same unknown state and fails closed the same way; the
+    abort signals only the group this worker leads (``_abort_contained``).
+    ``iterations`` bounds the loop for tests only.
+    """
+
+    count = 0
+    while iterations is None or count < iterations:
+        count += 1
+        try:
+            unsupervised = (not parent.is_alive()) or guardian.poll() is not None
+        except BaseException:  # noqa: BLE001 - a dead watch must not leave an unsupervised tree
+            unsupervised = True
+        if unsupervised:
+            abort(3, True)
+            return
+        sleep(_GUARDIAN_POLL_SECONDS)
+
+
 # ----------------------------------------------------------------------
 # preparing the call (shared by the thread and the process path)
 # ----------------------------------------------------------------------
@@ -921,10 +1099,12 @@ def _worker_main(
     cancel_event: Any,
     payload: bytes,
     control: Any = None,
+    worker_priority: str = "background",
 ) -> None:
     from .jobs import _cancellation_token
 
-    _lower_priority()
+    if worker_priority == "background":
+        _lower_priority()
 
     transport_lock = threading.Lock()
     transport_failed = False
@@ -968,19 +1148,28 @@ def _worker_main(
                     control.send(("failed", f"linux containment bootstrap failed: {error}"))
                     os._exit(4)
                 control.send(("ready", os.getpid()))
+            elif sys.platform == "darwin":
+                try:
+                    os.setsid()
+                    guardian = _start_darwin_containment()
+                except OSError as error:
+                    control.send(("failed", f"darwin containment bootstrap failed: {error}"))
+                    os._exit(4)
+                control.send(("ready", os.getpid()))
             else:
                 control.send(
                     (
                         "failed",
-                        "contained parallel meshing requires Linux process-group containment",
+                        "contained parallel meshing requires Linux or macOS process-group containment",
                     )
                 )
                 os._exit(4)
+            owned_group = guardian is not None and sys.platform == "darwin"
             try:
                 if control.recv() != "go":
-                    os._exit(4)
+                    _abort_contained(4, owned_group)
             except (EOFError, OSError):
-                os._exit(4)
+                _abort_contained(4, owned_group)
         token = _cancellation_token()
 
         def forward_cancellation() -> None:
@@ -1273,6 +1462,8 @@ def run_in_worker_process(
     on_process: Callable[[Any], None] | None = None,
     containment: bool = False,
     on_tree: Callable[[Any, Any], None] | None = None,
+    terminate_on_cancel: bool = False,
+    worker_priority: str = "background",
 ) -> Any:
     """Run ``function`` in a fresh worker process and return its result.
 
@@ -1288,8 +1479,22 @@ def run_in_worker_process(
     cannot be established the job never starts and
     ``WorkerProcessError(remote_type="ContainmentUnavailable")`` explains why,
     so the caller can fall back to serial execution.
+
+    ``terminate_on_cancel`` is an opt-in for contained, read-only computations
+    such as geometry diagnosis. Cancellation enters the owned-tree cleanup
+    directly. It never touches a shared Event after a caller may have killed
+    that Event's cancellation-waiter process. Other callers retain cooperative
+    cancellation by default.
+
+    ``worker_priority="normal"`` keeps the spawning application's scheduling
+    priority during bootstrap and computation. The default retains the existing
+    background solver policy. High and real-time modes are not supported.
     """
 
+    if terminate_on_cancel and not containment:
+        raise ValueError("terminate_on_cancel requires an owned contained process tree")
+    if worker_priority not in ("background", "normal"):
+        raise ValueError("worker_priority must be 'background' or 'normal'")
     try:
         payload = dumps(
             {
@@ -1331,22 +1536,42 @@ def run_in_worker_process(
                     f"the process-tree containment is unavailable: {error}",
                     remote_type="ContainmentUnavailable",
                 ) from error
-        elif sys.platform != "linux":
-            # Unsupported POSIX containment safely declines: only Linux
-            # process groups (with their cleanup guardian) and the Windows
-            # job object are claimed.
+        elif sys.platform not in ("linux", "darwin"):
+            # Unsupported POSIX containment safely declines: only Linux and
+            # macOS process groups (with their cleanup guardians) and the
+            # Windows job object are claimed.
             _close_quietly(control_parent)
             _close_quietly(control_child)
             _close_quietly(receiver)
             _close_quietly(sender)
             raise WorkerProcessError(
                 "parallel meshing needs a contained worker process tree, but "
-                "process-tree containment is only supported on Linux and Windows",
+                "process-tree containment is only supported on Linux, macOS and Windows",
                 remote_type="ContainmentUnavailable",
             )
+        elif sys.platform == "darwin":
+            # Refuse before any spawn when the guardian's prerequisites
+            # (psutil, the packaged script) are missing.
+            try:
+                refusal = _darwin_containment_refusal()
+            except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
+                refusal = f"{type(error).__name__}: {error}"
+            if refusal is not None:
+                _close_quietly(control_parent)
+                _close_quietly(control_child)
+                _close_quietly(receiver)
+                _close_quietly(sender)
+                raise WorkerProcessError(
+                    "parallel meshing needs a contained worker process tree, but "
+                    f"macOS containment is unavailable: {refusal}",
+                    remote_type="ContainmentUnavailable",
+                )
+    worker_arguments = (sender, cancel_event, payload, control_child)
+    if worker_priority == "normal":
+        worker_arguments += (worker_priority,)
     process = context.Process(
         target=_worker_main,
-        args=(sender, cancel_event, payload, control_child),
+        args=worker_arguments,
         name="anyfem-mesh" if containment else "anyfem-solve",
         daemon=not containment,
     )
@@ -1425,8 +1650,14 @@ def run_in_worker_process(
         outcome: tuple | None = None
         connection_error = None
         while outcome is None:
-            if _is_cancelled(token) and not cancel_event.is_set():
-                cancel_event.set()
+            if _is_cancelled(token):
+                if terminate_on_cancel:
+                    raise WorkerProcessError(
+                        "the contained computation was cancelled; retiring its owned process tree",
+                        remote_type="CancelledByCaller",
+                    )
+                if not cancel_event.is_set():
+                    cancel_event.set()
             if incoming.buffer is not None and incoming.kind in ("result","encoded_result") and _is_cancelled(token):
                 raise WorkerProcessError("cancelled during worker result transfer; nothing attached", remote_type="CancelledDuringTransfer")
             try:
