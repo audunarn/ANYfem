@@ -3,7 +3,7 @@ import json
 from dataclasses import replace
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QComboBox,QLineEdit,QCheckBox,QPushButton,QGridLayout
+from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QComboBox,QLineEdit,QCheckBox,QPushButton,QGridLayout,QSpinBox
 from ... import commands
 from ...model import attributes
 from ...load_assignment import LoadSelection,ApplyLoadAttributes,AttributeEdit,attribute_targets
@@ -58,11 +58,21 @@ class LoadTask(CommandEditor):
         self.wave_button.setObjectName('HydrodynamicWaveLoadInput')
         self.wave_button.clicked.connect(self.open_wave_load)
         self.layout().insertWidget(1,self.wave_button)
+        self.preview_bar=QWidget();preview_layout=QHBoxLayout(self.preview_bar);preview_layout.setContentsMargins(0,0,0,0)
+        self.preview_button=QPushButton('Visualize on mesh');self.preview_button.setObjectName('VisualizePressureOnMesh')
+        self.preview_button.setToolTip('Colour the active structural mesh by the pressure of the selected load case or series step. Preview only: no solve or result. Sign is along each element normal, so opposite winding shows opposite signs.')
+        self.preview_step=QSpinBox();self.preview_step.setObjectName('PressurePreviewStepNumber');self.preview_step.setAccessibleName('Pressure preview step number');self.preview_step.setRange(1,1)
+        self.preview_label=QLabel();self.preview_label.setObjectName('PressurePreviewSelection');self.preview_label.setWordWrap(True)
+        for widget in (self.preview_button,QLabel('Step'),self.preview_step,self.preview_label):preview_layout.addWidget(widget)
+        self.layout().insertWidget(2,self.preview_bar)
+        self.preview_button.clicked.connect(self.visualize_on_mesh)
+        self.preview_step.valueChanged.connect(lambda *_:self.update_preview_selector())
+        self.case.currentTextChanged.connect(lambda *_:self.update_preview_selector(reset=True))
         self.turbine_button=QPushButton('Wind turbine loads…')
         self.turbine_button.setObjectName('WindTurbineLoadInput')
         self.turbine_button.setToolTip('Saved turbine definitions (thrust curve, hub, rotor, owned wind) for floating transient runs')
         self.turbine_button.clicked.connect(self.open_wind_turbine_loads)
-        self.layout().insertWidget(2,self.turbine_button)
+        self.layout().insertWidget(3,self.turbine_button)
         self.edit_bar=QWidget();edit_layout=QHBoxLayout(self.edit_bar);edit_layout.setContentsMargins(0,0,0,0)
         self.editing_label=QLabel();self.editing_label.setWordWrap(True);edit_layout.addWidget(self.editing_label)
         self.new_button=QPushButton('Cancel edit / New');self.new_button.clicked.connect(self.cancel_edit);edit_layout.addWidget(self.new_button)
@@ -72,9 +82,48 @@ class LoadTask(CommandEditor):
         self.advanced_form=QCheckBox('Advanced command form');self.advanced_form.setToolTip('Show every original command parameter, including envelopes and explicit references')
         self.layout().insertWidget(self.layout().indexOf(self.choice)+1,self.advanced_form)
         self.advanced_form.toggled.connect(self._advanced_mode_changed)
+        base_refresh=self.refresh
+        def refresh_with_preview(*args,**kwargs):
+            # Case/time changes refresh through blocked signals; keep the step range, count and label current.
+            result=base_refresh(*args,**kwargs)
+            if self._interactive_ready:self.update_preview_selector(reset=False)
+            return result
+        self.refresh=refresh_with_preview
         self._interactive_ready=True;self.rebuild();self.refresh()
         self.app.selection.add_listener(self.selection_changed)
         self.destroyed.connect(lambda *_:app.selection.remove_listener(self.selection_changed))
+
+    def update_preview_selector(self,reset=False):
+        """Show the actual selected case number and time; series definitions expose their steps."""
+        from ...presentation.mesh_pressure_preview import resolve_preview_selection,MeshPressurePreviewError
+        name=self.case_name()
+        try:
+            definition=self.app.project.load_cases.get(name)
+            count=len(self.app.project.series_children(name)) if definition is not None and definition.times is not None else 0
+        except Exception:count=0
+        blocked=self.preview_step.blockSignals(True)
+        self.preview_step.setRange(1,max(count,1));self.preview_step.setEnabled(count>1)
+        if reset:self.preview_step.setValue(1)
+        self.preview_step.blockSignals(blocked)
+        try:
+            selection=resolve_preview_selection(self.app.project,name,self.preview_step.value() if count else None)
+            self.preview_label.setText(selection.label())
+        except MeshPressurePreviewError as error:self.preview_label.setText(str(error))
+        return self.preview_label.text()
+
+
+    def preview_number(self,name):
+        """Step number chosen here for ``name``, or None when that case is not the selected series."""
+        return self.preview_step.value() if name==self.case_name() and self.preview_step.isEnabled() else None
+
+
+    def visualize_on_mesh(self,checked=False):
+        try:
+            self.update_preview_selector()
+            self.app.show_pressure_preview(self.case_name(),self.preview_number(self.case_name()))
+        except Exception as error:
+            self.preview_label.setText(str(error));self.app.set_status(f'Mesh pressure preview refused: {error}',error=True)
+
 
     def using_primary(self):
         return self.choice.currentData() in self.PRIMARY and not (hasattr(self,'advanced_form') and self.advanced_form.isChecked())

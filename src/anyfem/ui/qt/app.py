@@ -21,7 +21,7 @@ from .runtime_diagnostics import extend_report_with_qt_runtime
 from .viewport import QtViewport
 from .editors import CommandEditor,GeometryTask
 from .tree import QtModelTree
-from .tasks import MeshTask, SolveTask, ResultsTask, VisualizationTask, SectioningTask
+from .tasks import MeshTask, SolveTask, ResultsTask, VisualizationTask, SectioningTask, ExportTask
 
 
 def _worker_process_job_manager(project):
@@ -338,8 +338,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Mesh":"Set the element size and generate the finite element mesh.",
         "Solve":"Choose an analysis and run it on the current mesh.",
         "Results":"Inspect, animate and export solved fields.",
-        "Visualization":"Adjust appearance, contours, comparison views and image exports.",
+        "Visualization":"Adjust appearance, contours and comparison views.",
         "Sectioning":"Inspect inside the model with section planes, section boxes and cut surfaces.",
+        "Export":"Capture images and export animations of the selected result frame interval.",
         "Scripts":"Run Python commands as one undoable edit.",
         "Definitions":"Sets, unit profile and other project definitions.",
     }
@@ -394,13 +395,14 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             "Visualization":VisualizationTask(self),
         }
         self.panels["Sectioning"]=SectioningTask(self,self.panels["Visualization"].presentation_controls)
+        self.panels["Export"]=ExportTask(self,self.panels["Visualization"].presentation_controls)
         self.panels.update({"Scripts":ScriptTask(self),"Definitions":DefinitionsTask(self)})
         from .result_browser import QtResultBrowser
         self.result_browser=QtResultBrowser(self);self.left_tabs.addTab(self.result_browser,"Results")
         from .navigation import install_option_icons,ActionIcons
         selectors={"Geometry":"choice","Construction":"mode","Generators":"kind","Sections":"choice",
                    "Loads & BC":"choice","Mesh":"strategy","Solve":"analysis","Results":"field",
-                   "Visualization":"render","Definitions":"choice"}
+                   "Definitions":"choice"}
         for name,attribute in selectors.items():
             install_option_icons(self.panels[name],getattr(self.panels[name],attribute),
                                  groups=self.GEOMETRY_GROUPS if name=="Geometry" else None)
@@ -456,6 +458,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         from .button_help import ButtonHelp
         self.button_help=ButtonHelp(self)
         self.panels["Visualization"].presentation_controls.reset_project()
+        if viewer_backend=='auto':
+            label='WebGPU' if self.viewport.canvas.backend_name=='webgpu' else self.viewport.active_backend
+            details='; '.join(self.viewport.backend_diagnostics)
+            self.set_status(f'Renderer: {label}'+(f' · {details}' if details else ''))
 
     def _dock(self,title,widget,area):
         dock=QDockWidget(title,self);dock.setObjectName(title)
@@ -475,6 +481,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action.triggered.connect(lambda _checked=False:self.guarded(callback)())
         menu.addAction(action);self._actions[name]=action
         return action
+
 
     def _menus(self):
         file=self.menuBar().addMenu("File")
@@ -772,6 +779,24 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _build_view_mode_buttons(self,toolbar):
         from .navigation import navigation_icon
+        controls=self.panels['Visualization'].presentation_controls
+        self.split_screen_action=QAction(navigation_icon('split_screen'),'Split screen',self)
+        self.split_screen_action.setCheckable(True)
+        self.split_screen_action.setChecked(controls.compare.isChecked())
+        self.split_screen_action.setToolTip('Show or hide a second viewport. Choose its result in Visualization > Compare results.')
+        self.split_screen_action.triggered.connect(lambda checked:controls.compare.setChecked(checked))
+        controls.compare.toggled.connect(lambda checked:self.split_screen_action.setChecked(checked))
+        toolbar.addAction(self.split_screen_action)
+        button=toolbar.widgetForAction(self.split_screen_action)
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setAccessibleName('Split screen toggle')
+        self.reset_view_action=QAction(navigation_icon('reset_view'),'Reset view',self)
+        self.reset_view_action.setToolTip('Restore default dock layout, appearance and an isometric fitted camera; clear sectioning, split screen and inspection overlays.')
+        self.reset_view_action.triggered.connect(lambda checked=False:self.guarded(controls.reset_view)())
+        toolbar.addAction(self.reset_view_action)
+        button=toolbar.widgetForAction(self.reset_view_action)
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setAccessibleName('Reset view')
         self._view_mode_actions={};group=QActionGroup(self);group.setExclusive(True)
         callbacks={"geometry":lambda:self.show_geometry(),"mesh":lambda:self.show_mesh(),
                    "results":lambda:self.panels["Results"].show_results()}

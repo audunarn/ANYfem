@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QFormLayout, QGridLayout, QLayout, QSizePolicy, QT
 _DRAWINGS={
     "theme_dark": '<path d="M24 20A11 11 0 0 1 12 5 11 11 0 1 0 24 20Z" fill="#dbeafe"/><path d="M22 5V9 M20 7H24" opacity=".7"/>',
     "theme_light": '<circle cx="16" cy="16" r="6" fill="#ffe08a"/><path d="M16 3V7 M16 25V29 M3 16H7 M25 16H29 M6.8 6.8 9.6 9.6 M22.4 22.4 25.2 25.2 M6.8 25.2 9.6 22.4 M22.4 9.6 25.2 6.8"/>',
+    "reset_view": '<path d="M7 9A11 11 0 1 1 5 20 M3 4V12H11"/><path d="M11 16 17 12 23 16V23L17 27 11 23Z M11 16 17 20 23 16 M17 20V27"/>',
+    "split_screen": '<rect x="3" y="5" width="26" height="22" rx="2"/><path d="M16 5V27"/><path d="M6 8H12V24H6Z M20 8H26V24H20Z" fill="#dbeafe"/>',
     "mode_model": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z" fill="#dbeafe"/><path d="M5 10 16 16 27 10 M16 16V29"/><path d="M5 10 16 16V29 5 23Z" fill="#b9d0f0"/>',
     "mode_mesh": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z M5 10 16 16 27 10 M16 16V29 M10.5 7 21.5 13 M21.5 7 10.5 13 M10.5 19.5 10.5 26 M21.5 19.5 21.5 26 M5 16.5 16 22.5 27 16.5"/>',
     "mode_results": '<path d="M5 10 16 4 27 10 27 23 16 29 5 23Z" fill="#7fb2f0"/><path d="M16 4 27 10 27 23 16 16Z" fill="#f2c14e"/><path d="M27 10 27 23 21.5 26 21.5 13Z" fill="#e8604c"/><path d="M5 10 16 16 27 10 M16 16V29"/>',
@@ -24,6 +26,7 @@ _DRAWINGS={
     "results": '<path d="M4 28V4 M4 28H29 M7 23 13 17 19 20 27 7"/><circle cx="13" cy="17" r="2"/><circle cx="27" cy="7" r="2"/>',
     "visualization": '<path d="M2 16Q16-3 30 16Q16 35 2 16Z"/><circle cx="16" cy="16" r="6"/><circle cx="16" cy="16" r="2" fill="#2563b4"/>',
     "sectioning": '<path d="M5 10 16 4 27 10V23L16 29 5 23Z M5 10 16 16 27 10 M16 16V29"/><path d="M2 19 13 12 30 17 19 25Z" fill="#dbeafe" fill-opacity=".85" stroke-dasharray="3 2"/>',
+    "export": '<rect x="3" y="8" width="26" height="21" rx="2"/><path d="M5 25 12 17 17 22 21 18 27 25 M16 18V2 M11 7 16 2 21 7"/>',
     "scripts": '<path d="M11 8 3 16 11 24 M21 8 29 16 21 24 M19 5 13 27"/>',
     "definitions": '<path d="M7 3V29 M16 3V29 M25 3V29"/><path d="M3 9H11V15H3Z M12 19H20V25H12Z M21 6H29V12H21Z" fill="#dbeafe"/>',
     "point": '<path d="M4 16H28 M16 4V28" opacity=".35"/><circle cx="16" cy="16" r="4" fill="#2563b4"/>',

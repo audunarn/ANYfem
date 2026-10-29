@@ -95,8 +95,6 @@ class _ConstructionKeys(QObject):
                     QTimer.singleShot(0, target, lambda: self.viewport.context_menu_at(target, position, preserve_selection=preserve))
             elif event.type() in {QEvent.FocusOut, QEvent.Hide}:
                 self._right_press = None
-        if target is self.viewport.widget and event.type()==QEvent.Show:
-            self.viewport._schedule_automatic_backend()
         draft = getattr(self.viewport, "plate_draft", None)
         if draft is not None and event.type() == QEvent.KeyPress:
             if event.key() == Qt.Key_Escape:self.viewport.cancel_plate();return True
@@ -192,7 +190,6 @@ class QtViewport(SceneViewport):
         self._point3d = Point3D
         self._requested_backend = backend
         self._commercial_interaction_requested = True
-        self._automatic_pending = backend=="auto"
         self._closed = False
         self.plate_draft = None
         self.line_start = None
@@ -209,11 +206,11 @@ class QtViewport(SceneViewport):
         self._window = parent
         self.sketcher=getattr(parent,"sketcher",None)
         self._sketch_timer=QTimer(self.widget);self._sketch_timer.setSingleShot(True);self._sketch_timer.timeout.connect(self.refresh_construction_overlay)
-        # Resolve Automatic only after the containing window is exposed.
-        options = {"shading": True} if backend == "webgpu" else {}
-        self.canvas = create_viewer(self.widget, backend="software" if backend=="auto" else backend, host=QtViewerHostAdapter(), **options)
+        # Select the final renderer before exposure to avoid a visible canvas switch.
+        self.canvas = self._create_backend(backend)
         self.layout.addWidget(self.canvas)
         self._configure_canvas(self.canvas)
+        self._default_view_state=self.canvas.export_view_state()
         self._keys = _ConstructionKeys(self)
         self.widget.installEventFilter(self._keys)
         self.canvas.event_widget.installEventFilter(self._keys)
@@ -245,14 +242,6 @@ class QtViewport(SceneViewport):
             found=next((c for c in refs if c.kind==kind),None)
             if found is not None:return found
         return None
-
-    def _schedule_automatic_backend(self):
-        if not self._automatic_pending:return
-        self._automatic_pending=False
-        def initialize():
-            if not self._closed and self._requested_backend=="auto":
-                self._window.switch_viewer_backend("auto")
-        QTimer.singleShot(0,self.widget,initialize)
 
     def set_feature_highlight(self,identifiers):
         identifiers=frozenset(identifiers)
@@ -308,6 +297,8 @@ class QtViewport(SceneViewport):
         self._visibility_scene = None
         self._visibility_interaction_scene = None
         super().clear()
+
+
 
     def _handle_selection_event(self,event):
         self.dismiss_feature_highlight()

@@ -20,7 +20,7 @@ def camera_scene(scene, *, polygon_budget=160, line_budget=350, point_budget=64)
     """
     faces = [face for face in scene.faces if getattr(face.ref, "kind", None) != "edge"]
     faces = [faces[i] for i in _indices(len(faces), polygon_budget)]
-    result = Scene(legend=scene.legend)
+    result = Scene(legend=scene.legend, show_element_edges=scene.show_element_edges)
     remaining = polygon_budget
     for offset, face in enumerate(faces):
         allowance = max(1, remaining // (len(faces) - offset))

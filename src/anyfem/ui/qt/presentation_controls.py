@@ -8,7 +8,7 @@ import tempfile
 import numpy as np
 from PySide6.QtCore import Qt,QTimer,QSignalBlocker
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QFormLayout,QHBoxLayout,QPushButton,
-    QLineEdit,QComboBox,QCheckBox,QSpinBox,QLabel,QSplitter,QInputDialog,QProgressBar)
+    QLineEdit,QComboBox,QCheckBox,QSpinBox,QLabel,QSplitter,QInputDialog,QProgressBar,QSizePolicy)
 from ...presentation.workspace import (store_presentation,camera_record,apply_camera,
     section_box_values,stable_sample_ids,annotation_stale)
 class PresentationControls(QWidget):
@@ -17,11 +17,18 @@ class PresentationControls(QWidget):
         self._reference_source=None;self._reference_generation=0;self._reference_closed=False
         self._reference_queue=SimpleQueue();self._reference_requests=None
         self._link_signature=None;self._reloading=False
-        layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
+        from .widgets import Collapsible
+        root_layout=QVBoxLayout(self);root_layout.setContentsMargins(0,0,0,0);root_layout.setAlignment(Qt.AlignTop)
+        def group(title):
+            section=Collapsible(title);section.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Maximum);root_layout.addWidget(section)
+            form=QFormLayout();form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            section.addLayout(form)
+            return section.body_layout,form
+        layout,form=group('Contours and thresholds')
         def edit(label,text,*,target=None):
             widget=QLineEdit(text);(form if target is None else target).addRow(label,widget);return widget
-        def combo(label,choices):
-            widget=QComboBox();widget.addItems(choices);form.addRow(label,widget);return widget
+        def combo(label,choices,*,target=None):
+            widget=QComboBox();widget.addItems(choices);(form if target is None else target).addRow(label,widget);return widget
         def check(text,checked=False,*,target=None):
             widget=QCheckBox(text);widget.setChecked(checked);(form if target is None else target).addRow(widget);return widget
         def button(text,callback,*,target=None):
@@ -59,13 +66,16 @@ class PresentationControls(QWidget):
         self.levels=edit('Explicit contour levels','');self.zero=check('Show zero contour')
         self.threshold=edit('Threshold value','');self.threshold_direction=combo('Threshold direction',['above','below'])
         button('Apply contours / threshold',self.apply_contours)
+        layout,form=group('Selection and rendering')
         self.outline=check('Selection outline',True);self.through=check('Outline through geometry')
         self.shadows=combo('Shadows',['Off','Low','High'])
         self.present=combo('Presentation method',['auto','bitmap','native'])
         button('Apply renderer controls',self.apply_renderer)
+        layout,form=group('Saved views')
         self.names=QComboBox();form.addRow('Saved project views',self.names)
         button('Save named view in project',self.save_view);button('Restore named view',self.restore_view)
         button('Delete named view',self.delete_view)
+        layout,form=group('Compare results')
         self.compare=check('Two side-by-side result panes');self.compare.toggled.connect(lambda enabled:app.guarded(lambda:self.toggle_reference(enabled))())
         self.link_camera=check('Link cameras',True)
         self.shared_limits=check('Share compatible scalar limits')
@@ -75,19 +85,31 @@ class PresentationControls(QWidget):
         self.scale=edit('Reference deformation multiplier','1')
         button('Refresh reference sources',self.refresh_sources);button('Show reference frame',self.show_reference)
         button('Cancel reference request',self.cancel_reference)
-        self.capture_size=combo('PNG resolution',['Current','4K','Custom'])
+        self.export_controls=QWidget()
+        export_layout=QVBoxLayout(self.export_controls)
+        export_layout.addWidget(section_label('Images'))
+        export_form=QFormLayout();export_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        export_layout.addLayout(export_form)
+        self.capture_size=combo('PNG resolution',['Current','4K','Custom'],target=export_form)
         self.width=QSpinBox();self.height=QSpinBox()
         for widget,value in ((self.width,3840),(self.height,2160)):widget.setRange(16,16384);widget.setValue(value)
-        form.addRow('Custom width',self.width);form.addRow('Custom height',self.height)
-        button('Capture pane(s) PNG',self.capture)
-        self.animation_format=combo('Animation export',['GIF','PNG sequence ZIP','MP4'])
-        self.export_progress=QProgressBar();layout.addWidget(self.export_progress)
-        self.export_status=QLabel('MP4 requires an installed, reviewed encoder; none is configured.');self.export_status.setWordWrap(True);layout.addWidget(self.export_status)
+        export_form.addRow('Custom width',self.width);export_form.addRow('Custom height',self.height)
+        button('Capture pane(s) PNG',self.capture,target=export_layout)
+        self.capture_status=QLabel();self.capture_status.setWordWrap(True);export_layout.addWidget(self.capture_status)
+        export_layout.addWidget(section_label('Animations'))
+        interval_note=QLabel('Uses the From frame / To frame interval selected in Results.')
+        interval_note.setWordWrap(True);export_layout.addWidget(interval_note)
+        animation_form=QFormLayout();export_layout.addLayout(animation_form)
+        self.animation_format=combo('Format',['GIF','PNG sequence ZIP','MP4'],target=animation_form)
+        self.export_progress=QProgressBar();export_layout.addWidget(self.export_progress)
+        self.export_status=QLabel('MP4 requires an installed, reviewed encoder; none is configured.');self.export_status.setWordWrap(True);export_layout.addWidget(self.export_status)
         from .animation_export import AnimationExport
         self.animation_export=AnimationExport(self)
-        button('Choose and review installed MP4 encoder',self.configure_encoder)
-        button('Export selected frame interval',self.animation_export.start)
-        button('Cancel animation export',self.animation_export.cancel)
+        button('Choose and review installed MP4 encoder',self.configure_encoder,target=export_layout)
+        button('Export selected frame interval',self.animation_export.start,target=export_layout)
+        button('Cancel animation export',self.animation_export.cancel,target=export_layout)
+        export_layout.addStretch()
+        layout,form=group('Annotations')
         self.annotation_name=edit('Annotation group','Inspection')
         button('Persist current probe / extrema',self.save_annotation)
         button('Show saved annotations',self.show_annotations)
@@ -95,6 +117,7 @@ class PresentationControls(QWidget):
         button('Rename current annotation group',self.rename_annotation_group)
         button('Hide / show current annotation group',self.toggle_annotation_group)
         button('Delete current annotation group',self.delete_annotation_group)
+        layout,form=group('Vectors and stress axes')
         self.glyph_count=QSpinBox();self.glyph_count.setRange(1,2000);self.glyph_count.setValue(2000)
         form.addRow('Maximum glyph samples',self.glyph_count)
         self.glyph_scale=edit('Glyph length multiplier','1')
@@ -103,7 +126,7 @@ class PresentationControls(QWidget):
         button('Show displacement vector glyphs',self.vector_glyphs)
         button('Show principal stress axes',self.principal_glyphs)
         button('Clear glyphs',self.clear_glyphs)
-        self.status=QLabel();self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.status=QLabel();self.status.setWordWrap(True);root_layout.addWidget(self.status)
         self.job.currentIndexChanged.connect(self.refresh_fields);self.field.currentIndexChanged.connect(self.refresh_components)
         self._timer=QTimer(self);self._timer.setInterval(50);self._timer.timeout.connect(self.poll);self._timer.start()
         self.refresh_names();self.refresh_sources()
@@ -297,9 +320,21 @@ class PresentationControls(QWidget):
             # Reparent both widgets into a single project-owned split workspace.
             self.app.takeCentralWidget()
             self.splitter=QSplitter(Qt.Horizontal,self.app)
+            self.splitter.setChildrenCollapsible(False)
+            self._primary_minimum_width=self.app.viewport.widget.minimumWidth()
             self.splitter.addWidget(self.app.viewport.widget);self.splitter.addWidget(self.reference.widget)
+            self.reference.set_visualization(self.app.viewport.visualization)
             self.app.setCentralWidget(self.splitter)
-        if self.reference is not None:self.reference.widget.setVisible(enabled)
+        if self.reference is not None:
+            self.reference.widget.setVisible(enabled)
+            # Reserve real canvas space even when dock panels have wide forms.
+            # Without this, QMainWindow can allocate the splitter only its handle width.
+            self.app.viewport.widget.setMinimumWidth(160 if enabled else self._primary_minimum_width)
+            self.reference.widget.setMinimumWidth(160)
+            self.splitter.setMinimumWidth(320+self.splitter.handleWidth() if enabled else self._primary_minimum_width)
+            if enabled:self.splitter.setSizes([max(160,self.splitter.width()//2)]*2)
+        action=getattr(self.app,'split_screen_action',None)
+        if action is not None:action.setChecked(enabled)
         if not enabled:
             self.cancel_reference();self.release_reference()
             if self.reference is not None:self.reference.clear()
@@ -491,7 +526,7 @@ class PresentationControls(QWidget):
         fd,temp=tempfile.mkstemp(prefix='.'+destination.name,suffix='.png',dir=destination.parent);os.close(fd)
         try:result.save(temp,format='PNG');os.replace(temp,destination)
         finally:Path(temp).unlink(missing_ok=True)
-        self.status.setText(f'Saved {result.width} × {result.height} PNG')
+        self.capture_status.setText(f'Saved {result.width} × {result.height} PNG')
     def capture_composite(self):
         from PIL import Image
         panes=[self.app.viewport]
@@ -750,7 +785,7 @@ class PresentationControls(QWidget):
             if callable(method):method(*args,**kwargs)
         viewport._presentation_shadows='Off';viewport._render_quality_key=None
 
-    def reset_project(self):
+    def reset_project(self,*,restore_workspace=True):
         """Drop old document presentation before optionally restoring this one.
 
         Global material/theme appearance is preserved. Resetting an empty new
@@ -792,7 +827,35 @@ class PresentationControls(QWidget):
         finally:
             del blockers;self._reloading=previous
         workspace=self.app.project.presentation.get('workspace')
-        if workspace:self.app.guarded(lambda:self.restore_record(workspace))()
+        if restore_workspace and workspace:self.app.guarded(lambda:self.restore_record(workspace))()
+
+    def reset_view(self):
+        """Restore application display defaults without restoring project view settings."""
+        self.app.panels['Results'].stop_playback(clear_prepared=True)
+        previous=self._reloading;self._reloading=True
+        try:
+            self.reset_project(restore_workspace=False)
+            self.app.reset_workspace_layout()
+            self.annotations_visible.setChecked(False)
+            self.app.selection.clear()
+            viewport=self.app.viewport
+            viewport.visibility.hidden.clear()
+            viewport.refresh_visibility()
+            self.app.set_model_colour_mode('default')
+            visual=self.app.panels['Visualization']
+            visual.reset();visual.preset.setCurrentText('Model')
+            from dataclasses import replace
+            defaults=viewport._default_view_state
+            camera_keys=('camera_position','camera_target','camera_world_up','fov','near','far',
+                         'axis_indicator','axis_ruler','occlude_lines')
+            state=viewport.canvas.export_view_state()
+            viewport.canvas.apply_view_state(replace(state,**{key:getattr(defaults,key) for key in camera_keys}),redraw=False)
+            viewport.canvas.set_iso_view();viewport.fit()
+            self.update_annotations()
+        finally:self._reloading=previous
+        self.save_workspace()
+        self.app._sync_view_mode_buttons()
+        self.app.set_status('View reset to application defaults')
 
     def close(self):
         self.animation_export.close();self.clear_glyphs()

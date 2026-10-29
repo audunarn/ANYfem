@@ -146,6 +146,18 @@ def _source_mesh():
     return np.asarray(vertices), np.asarray(faces), tuple(labels)
 
 
+def hydro_to_project_points(points):
+    """Convert this admitted hull's WORLD0 points to project coordinates.
+
+    Mathematical inverse (subject to floating-point roundoff) of target_hull_cells' z_hydro=z_project-1.5; vectors and
+    pressure signs are unchanged. This does not admit arbitrary hull geometry.
+    """
+    values=np.asarray(points)
+    if values.ndim<1 or values.shape[-1]!=3 or values.dtype.kind not in 'iuf' or not np.isfinite(values).all():
+        raise ValueError('hydrodynamic points must be finite real (...,3) coordinates')
+    return values+np.array((0.,0.,1.5))
+
+
 def target_hull_cells(project,mesh,exterior):
     """Owner-certified planar wet cells in hydro coordinates, preserving identity."""
     ids, centers, normals, areas, labels = [], [], [], [], []

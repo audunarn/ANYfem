@@ -96,11 +96,12 @@ def test_invalid_appearance_is_refused_atomically_and_sync_does_not_apply(window
     assert panel.appearance["show_model_lines"].toolTip()
 
 
-def test_render_icons_apply_without_apply_button(window,qapp):
+def test_render_mode_applies_without_apply_button(window,qapp):
     from PySide6.QtTest import QTest
     panel=window.panels["Visualization"]
     window.notebook.select("Visualization");qapp.processEvents()
-    QTest.mouseClick(panel.option_icons.buttons[1],Qt.LeftButton)
+    panel.render.setFocus()
+    QTest.keyClick(panel.render,Qt.Key_Down)
     assert window.viewport.visualization.render_mode=="Shaded"
 
 

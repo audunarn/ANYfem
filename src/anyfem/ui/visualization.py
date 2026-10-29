@@ -20,7 +20,7 @@ RENDER_MODES = ("Shaded", "Shaded with edges", "Wireframe")
 # every ring/segment cell.  This is a display policy only; it never changes
 # geometry, mesh controls or solver inputs.
 GEOMETRY_DETAILS = ("Auto", "Fine", "Balanced", "Fast")
-VISUAL_PRESETS = ("Model", "Results", "Presentation")
+VISUAL_PRESETS = ("Model", "Results", "Presentation", "Simple")
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,12 @@ def visual_preset(name,current=None):
     """Change visual styling while preserving visibility, opacity and results."""
     from dataclasses import replace
     if name not in VISUAL_PRESETS:raise ValueError('unknown visual preset')
+    if name=='Simple':
+        return replace(current or VisualizationStyle(),
+            antialiasing='Off',lighting='Flat',background_gradient=False,
+            feature_edges=False,ambient_occlusion='Off',
+            background='#fbfbfd',edge_color='#4a6572',edge_width=1,
+            render_mode='Shaded with edges')
     return replace(current or VisualizationStyle(),
         antialiasing='4x',lighting='Flat' if name=='Results' else 'Studio',
         background_gradient=name!='Results',feature_edges=name!='Results',

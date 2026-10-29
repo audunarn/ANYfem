@@ -40,6 +40,9 @@ def test_generated_panel_selection_has_no_artificial_diagonal(window, qapp, view
     qapp.processEvents()
     assert window.selection.items and all(ref.kind == "face" for ref in window.selection.items)
     pixels = np.asarray(canvas.capture_image().convert("RGB"), dtype=float)
+    # Inspecting the selected face can resize the viewport by opening a dock.
+    # Sample its current projection, rather than the pre-click screen position.
+    x, y, _ = canvas.project_point((2.5, .25, 0))
     sx, sy, _ = canvas.project_point((2.5, .12, 0))
     fill = pixels[round(sy), round(sx)]
     centre = pixels[round(y)-1:round(y)+2, round(x)-1:round(x)+2]

@@ -93,6 +93,14 @@ def test_workspace_option_icons_choose_existing_options_and_wrap(window,qapp):
             assert panel.plane is panel.presentation_controls.plane
             assert panel.offset is panel.presentation_controls.offset
             continue
+        if name=="Visualization":
+            # Appearance now uses the compact render-mode combo and grouped controls.
+            assert panel.render.isVisible()
+            assert panel.presentation_controls is window.panels["Export"].presentation_controls
+            continue
+        if name=="Export":
+            assert panel.isAncestorOf(panel.presentation_controls.export_controls)
+            continue
         strip=panel.option_icons
         assert strip.buttons
         for button in strip.buttons:
@@ -161,12 +169,12 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
     try:
         window.run(cmd.AddPoint(1,2,3))
         initial=window.viewport.canvas
-        assert initial.backend_name=="software"
+        assert initial.backend_name==("software" if disabled else "webgpu")
         window.show()
         def frames():
             canvas=window.viewport.canvas
             return getattr(canvas,"_webgpu",canvas._renderer).frame_count
-        wait_until(qapp,lambda:window.viewport.canvas is not initial and window.viewport.canvas.surface.isVisible() and frames()>0)
+        wait_until(qapp,lambda:window.viewport.canvas is initial and window.viewport.canvas.surface.isVisible() and frames()>0)
         # Software rendering is event-driven: an exposed frame need not repeat
         # while idle. A requested repaint must render a new frame on this same
         # automatically initialized canvas, without switching the backend.
@@ -180,13 +188,13 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
         if disabled:
             assert window.viewport.active_backend=="software"
             assert window.viewport.backend_diagnostics
-        elif os.environ.get("ANYFEM_QT_TEST_BACKEND")=="gpu":
-            assert window.viewport.active_backend=="gpu",window.viewport.backend_diagnostics
+        else:
+            assert window.viewport.canvas.backend_name=="webgpu",window.viewport.backend_diagnostics
     finally:
         window.session.mark_saved();window.close();qapp.processEvents()
 
 
-def test_automatic_pending_initialization_does_not_outlive_window(qapp,tmp_path,monkeypatch):
+def test_automatic_startup_does_not_switch_after_window_close(qapp,tmp_path,monkeypatch):
     from anyfem.io import recovery
     monkeypatch.setattr(recovery,"default_recovery_root",lambda:tmp_path/"recovery")
     window=QtFemWindow(viewer_backend="auto")

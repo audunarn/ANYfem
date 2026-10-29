@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
-    QListWidget, QListWidgetItem, QAbstractItemView, QSlider, QProgressBar)
+    QListWidget, QListWidgetItem, QAbstractItemView, QSlider, QProgressBar, QSizePolicy)
 
 from ...application.workflow import ANALYSES, _solution_report
 from ...post.fields import available_fields
@@ -1285,10 +1285,21 @@ class SectioningTask(QWidget):
     def refresh(self):pass
 
 
+class ExportTask(QWidget):
+    """Image and animation exports, sharing the presentation controller."""
+    def __init__(self,app,controls):
+        super().__init__();self.app=app;self.presentation_controls=controls
+        layout=QVBoxLayout(self);layout.addWidget(controls.export_controls)
+
+    def refresh(self):pass
+
+
 class VisualizationTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
-        layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
+        from .widgets import Collapsible
+        layout=QVBoxLayout(self)
+        form=QFormLayout();layout.addLayout(form)
         from ...presentation.visualization import VISUAL_PRESETS
         self.preset=QComboBox();self.preset.addItems(VISUAL_PRESETS)
         preset_row=QWidget();preset_layout=QHBoxLayout(preset_row);preset_layout.setContentsMargins(0,0,0,0)
@@ -1296,11 +1307,11 @@ class VisualizationTask(QWidget):
         preset_apply=QPushButton('Apply preset');preset_apply.clicked.connect(app.guarded(self.apply_preset));preset_layout.addWidget(preset_apply)
         form.addRow('Visual preset',preset_row)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
-        note=QLabel("Appearance applies immediately to the current CAD, mesh or result view.\nShaded hides surface outlines; model lines and beam axes have a separate switch.")
+        note=QLabel("Choose a preset, or adjust the appearance below. Changes apply to the current view.")
         note.setWordWrap(True);form.addRow(note)
         self.render=QComboBox();self.render.addItems(["Shaded with edges","Shaded","Wireframe"]);form.addRow("Render mode",self.render)
         self.render.setToolTip("Shaded: filled surfaces. Shaded with edges: filled surfaces and their outlines. Wireframe: outlines only.")
-        self.opacity=QLineEdit("1");form.addRow("Surface opacity (0 to 1)",self.opacity)
+        self.opacity=QLineEdit("1",self);self.opacity.hide()
         self.opacity.setToolTip("0 is transparent; 1 is opaque. Applies when you finish editing. Does not change lines, loads or supports.")
         self.transparency=QSlider(Qt.Horizontal);self.transparency.setRange(0,100)
         self.transparency.setTracking(False)
@@ -1309,13 +1320,20 @@ class VisualizationTask(QWidget):
         slider_row=QWidget();slider_layout=QVBoxLayout(slider_row);slider_layout.setContentsMargins(0,0,0,0)
         slider_layout.addWidget(self.transparency);slider_layout.addWidget(self.transparency_value)
         form.addRow("Transparency",slider_row)
+        groups={}
+        for title in ('Model visibility','Colours and edges','Lighting and quality','Results and legend'):
+            section=Collapsible(title,expanded=False);section.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Maximum);layout.addWidget(section)
+            group_form=QFormLayout();group_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            section.addLayout(group_form);groups[title]=group_form
         self.appearance={}
         from ...presentation.visualization import GEOMETRY_DETAILS
         ordered=sorted(fields(VisualizationStyle),key=lambda field:0 if field.name in {"show_model_lines","show_beam_sections","show_mesh_nodes"} else 1)
         labels={"show_model_lines":"Show model lines / beam axes","show_beam_sections":"Show beam section shapes",
                 "show_mesh_nodes":"Show mesh nodes",
                 "edge_color":"Surface edge colour","edge_width":"Surface edge width",
-                "ao_strength":"AO strength","ao_radius":"AO radius (px)"}
+                "ao_strength":"Contact shading strength","ao_radius":"Contact shading radius (px)",
+                "ambient_occlusion":"Contact shading","antialiasing":"Edge smoothing","feature_edges":"Hide flat tessellation edges",
+                "geometry_detail":"Curved surface detail","background_gradient":"Background gradient"}
         help_text={"show_model_lines":"Show or hide CAD curves and beam centre lines. Surface outlines, beam section shapes, loads and supports are separate.",
                    "ambient_occlusion":"WebGPU contact shading: Low uses half resolution, High uses full resolution and refines after camera movement. Numerical result contours always bypass this shading to preserve their colours.",
                    "ao_strength":"Ambient occlusion strength, from 0 (no shading) to 2.",
@@ -1323,13 +1341,18 @@ class VisualizationTask(QWidget):
                    "antialiasing":"WebGPU: 4x multisampling smooths silhouettes and lines. Off reduces GPU memory and work.",
                    "lighting":"Studio uses a soft camera-following key light and ambient fill. Flat preserves unshaded contour colours.",
                    "background_gradient":"WebGPU: use a subtle vertical background gradient.",
-                   "feature_edges":"WebGPU: reduce surface tessellation lines, retaining boundaries and creases above 30 degrees. Explicit lines and result mesh outlines remain available; selection and visibility restore full outlines.",
+                   "feature_edges":"WebGPU: reduce geometry tessellation lines, retaining boundaries and creases above 30 degrees. Mesh view keeps element edges when an edged render mode is selected. Explicit lines and result mesh outlines remain available; selection and visibility restore full outlines.",
                    "show_mesh_nodes":"Show node dots in mesh and inspection views. Enable to pick nodes in the viewport. Result nodes have a separate setting.",
                    "show_beam_sections":"Draw the physical cross-section shapes of beams. Turn off for a simpler model; their axes use the model-lines switch.",
                    "geometry_detail":"Display tessellation of curved CAD surfaces only. Does not change the engineering mesh.",
                    "edge_color":"Colour of surface outlines in Shaded with edges or Wireframe. Does not recolour model lines.",
                    "edge_width":"Surface outline width in pixels. Does not change model lines."}
         for field in ordered:
+            name=field.name
+            group=('Model visibility' if name in {'show_model_lines','show_beam_sections','show_mesh_nodes','geometry_detail'}
+                else 'Lighting and quality' if name in {'antialiasing','lighting','background_gradient','feature_edges','ambient_occlusion','ao_strength','ao_radius'}
+                else 'Colours and edges' if name in {'background','edge_color','edge_width'} else 'Results and legend')
+            form=groups[group]
             if field.name in {"render_mode","surface_opacity"}:continue
             value=getattr(app.viewport.visualization,field.name)
             if isinstance(value,bool):
@@ -1348,17 +1371,8 @@ class VisualizationTask(QWidget):
                 button=QPushButton("Choose colour");button.clicked.connect(lambda checked=False,widget=widget:self.choose_colour(widget));row_layout.addWidget(button)
                 form.addRow(label,row)
             else:form.addRow(label,widget)
-        from .widgets import section_label
-        def row(*buttons):
-            line=QHBoxLayout();line.setSpacing(6)
-            for button in buttons:line.addWidget(button)
-            layout.addLayout(line)
-        apply=QPushButton("Apply appearance");apply.setProperty("primary",True);apply.clicked.connect(app.guarded(self.apply))
         reset=QPushButton("Reset appearance");reset.clicked.connect(app.guarded(self.reset))
-        row(apply,reset)
-        sync=QPushButton("Load viewport appearance");sync.clicked.connect(self.sync_from_viewport);layout.addWidget(sync)
-        layout.addWidget(section_label("Image"))
-        capture=QPushButton("Save viewport image");capture.clicked.connect(app.guarded(self.capture));layout.addWidget(capture);layout.addStretch()
+        layout.addWidget(reset)
         from .presentation_controls import PresentationControls
         self.presentation_controls=PresentationControls(app)
         layout.addWidget(self.presentation_controls)
@@ -1378,7 +1392,14 @@ class VisualizationTask(QWidget):
 
     def apply_preset(self):
         from ...presentation.visualization import visual_preset
-        self.app.viewport.set_visualization(visual_preset(self.preset.currentText(),self.app.viewport.visualization))
+        if self.preset.currentText()=='Simple':
+            controls=getattr(self,'presentation_controls',None)
+            if controls is not None:controls.shadows.setCurrentText('Off')
+            self.app.viewport._presentation_shadows='Off'
+        style=visual_preset(self.preset.currentText(),self.app.viewport.visualization)
+        from .theme import is_dark,VIEWPORT
+        if is_dark():style=replace(style,**VIEWPORT['dark'])
+        self.app.viewport.set_visualization(style)
         self.sync_from_viewport()
         self.app.set_status(f'{self.preset.currentText()} visual preset applied')
         controls=getattr(self,'presentation_controls',None)
@@ -1416,7 +1437,10 @@ class VisualizationTask(QWidget):
             widget.setText(colour.name());self.app.guarded(self.apply)()
 
     def reset(self):
-        self.sync_from_viewport(VisualizationStyle());self.apply()
+        from .theme import is_dark,VIEWPORT
+        style=VisualizationStyle()
+        if is_dark():style=replace(style,**VIEWPORT['dark'])
+        self.sync_from_viewport(style);self.apply()
 
     def sync_from_viewport(self,style=None):
         style=self.app.viewport.visualization if not isinstance(style,VisualizationStyle) else style

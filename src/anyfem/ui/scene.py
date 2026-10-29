@@ -285,6 +285,9 @@ class Scene:
     result_mesh: object = None
     result_colormap: object = None
     result_scalar_range: object = None
+    # Mesh element boundaries are meaningful; unlike CAD tessellation edges,
+    # they must not be removed by the feature-edge display optimization.
+    show_element_edges: bool = False
 
     def copy(self) -> "Scene":
         """Return independent draw lists while sharing coordinate payloads.
@@ -303,6 +306,7 @@ class Scene:
             legend=None if self.legend is None else dict(self.legend),
             result_field=self.result_field, result_mesh=self.result_mesh,
             result_colormap=self.result_colormap, result_scalar_range=self.result_scalar_range,
+            show_element_edges=self.show_element_edges,
         )
 
     def tags(self) -> List[str]:
@@ -321,8 +325,14 @@ class Scene:
         self.points.extend(other.points)
         self.arrows.extend(other.arrows)
         self.spheres.extend(other.spheres)
+        self.show_element_edges = self.show_element_edges or other.show_element_edges
         if other.legend is not None:
-            self.legend = other.legend
+            # A hydro source-pressure legend never replaces an existing one.
+            if not (
+                self.legend is not None
+                and other.legend.get("kind") == "hydro_source_pressure"
+            ):
+                self.legend = other.legend
         return self
 
     def bounds(self) -> Optional[tuple[np.ndarray, np.ndarray]]:
@@ -958,7 +968,7 @@ def build_mesh_scene(
     filter; explicit True shows all mesh nodes and False hides them.
     """
 
-    scene = Scene()
+    scene = Scene(show_element_edges=True)
     shells = mesh.shells
     grouped_shells: set[int] = set()
 
@@ -2178,6 +2188,13 @@ def _wet_pressure_samples(project, geometry, case, mesh):
     """
 
     from ..model.wetfield import WetFieldError, field_pressure, fluid_sign
+    from ..presentation.hydro_pressure_glyphs import split_source_loads
+
+    # Source-aware wave loads are drawn per original hydro panel by
+    # _draw_wet_pressures; they are never mapped to the structure for display.
+    _sources, case = split_source_loads(case)
+    if _sources and not case.wet_pressures:
+        return []
 
     if mesh is not None:
         from ..model.project import ProjectError
@@ -2237,8 +2254,23 @@ def _wet_pressure_samples(project, geometry, case, mesh):
 
 
 def _draw_wet_pressures(scene: Scene, project, geometry, case, mesh, arrow_length: float) -> None:
-    """Arrows into each wet plate, longer where the pressure is higher."""
+    """Arrows into each wet plate, longer where the pressure is higher.
 
+    A source-aware wave load instead gets one equal-length arrow per original
+    hydro panel, coloured by its signed first-available-time pressure.
+    """
+
+    from ..presentation.hydro_pressure_glyphs import glyph_groups, split_source_loads
+
+    sources, _rest = split_source_loads(case)
+    if sources:
+        for group in glyph_groups(project, case, sources, arrow_length):
+            scene.arrows.extend(
+                Arrow(start=start, end=end, color=colour)
+                for start, end, colour in zip(group.starts, group.ends, group.colors)
+            )
+            if scene.legend is None:
+                scene.legend = group.legend
     samples = [
         item
         for item in _wet_pressure_samples(project, geometry, case, mesh)

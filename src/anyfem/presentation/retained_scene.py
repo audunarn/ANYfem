@@ -124,7 +124,7 @@ def scene_key(viewport, scene):
         stream = io.BytesIO()
         _IdentityPickler(stream, protocol=5, buffer_callback=buffers.append).dump(
             (scene.faces, scene.lines, scene.points, scene.arrows,
-             scene.spheres, scene.legend, viewport.visualization,
+             scene.spheres, scene.legend, scene.show_element_edges, viewport.visualization,
              viewport._commercial_selection),
         )
         metadata = stream.getbuffer()

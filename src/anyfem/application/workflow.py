@@ -2130,12 +2130,51 @@ class WorkbenchWorkflow:
         return name
 
 
+    def show_pressure_preview(self, case_name=None, number=None):
+        """Colour the active structural mesh by one selected step's pressure.
+
+        Preview only: no solve, job, result or project change.  Raises
+        ``ValueError`` with an actionable message when it cannot be shown.
+        """
+
+        from ..presentation.mesh_pressure_preview import build_mesh_pressure_scene
+        if case_name is None:
+            panel = self.panels.get("Loads & BC")
+            case_name = "default" if panel is None else panel.case_name()
+        scene, selection, info = build_mesh_pressure_scene(self.project, self.mesh, case_name, number)
+        self._pressure_preview = (case_name, number)
+        self._pressure_preview_info = dict(info, label=selection.label())
+        self._view_mode = "mesh-pressure-preview"
+        self.viewport.show(scene)
+        self._update_view_label()
+        self.set_status(
+            f"mesh pressure preview (not a result): {selection.label()}; "
+            f"{info['mapped']} element(s) coloured, {info['unmapped']} plain mesh colour = no returned pressure (unloaded or zero); no solve"
+        )
+        return selection
+
+
+    def refresh_pressure_preview(self) -> None:
+        """Re-evaluate the displayed selection on the current mesh and loads, or refuse clearly."""
+
+        case_name, number = getattr(self, "_pressure_preview", (None, None))
+        try:
+            self.show_pressure_preview(case_name, number)
+        except Exception as error:
+            self._pressure_preview = None
+            self._view_mode = "mesh"
+            self.show_mesh()
+            self.set_status(f"Mesh pressure preview closed: {error}", error=True)
+
+
     def refresh_views(self) -> None:
         """Redraw whichever view is showing."""
 
         if self._closing:
             return
-        if self._view_mode == "results":
+        if self._view_mode == "mesh-pressure-preview":
+            self.refresh_pressure_preview()
+        elif self._view_mode == "results":
             self.show_results()
         elif self._view_mode == "mesh":
             self.show_mesh()

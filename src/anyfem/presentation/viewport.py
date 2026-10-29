@@ -617,14 +617,18 @@ class SceneViewport:
         # Numerical contours keep their original palette values even if a
         # modeling preset is selected while a retained field is displayed.
         numerical=getattr(getattr(self,'_scene',None),'result_field',None) is not None
+        # Feature-edge filtering removes coplanar CAD tessellation. In mesh
+        # views those same lines are element boundaries and must remain visible.
+        show_element_edges=bool(getattr(getattr(self,'_scene',None),'show_element_edges',False))
+        feature_edges=style.feature_edges and not show_element_edges
         ao='Off' if numerical else style.ambient_occlusion
         shadows='Off' if numerical else getattr(self,'_presentation_shadows','Off')
-        key=(self.canvas,style.antialiasing,style.background_gradient,style.feature_edges,style.lighting,
+        key=(self.canvas,style.antialiasing,style.background_gradient,feature_edges,style.lighting,
             ao,style.ao_strength,style.ao_radius,shadows,numerical)
         if getattr(self,'_render_quality_key',None)==key:return
         quality=getattr(self.canvas,'set_render_quality',None)
         if callable(quality):quality(samples=4 if style.antialiasing=='4x' else 1,
-            gradient=style.background_gradient,feature_edges=style.feature_edges,
+            gradient=style.background_gradient,feature_edges=feature_edges,
             ambient_occlusion=ao,ao_strength=style.ao_strength,ao_radius=style.ao_radius)
         shadow_setter=getattr(self.canvas,'set_shadows',None)
         if callable(shadow_setter):shadow_setter(quality=shadows,strength=.5)

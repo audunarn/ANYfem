@@ -98,10 +98,20 @@ class RecordTableDialog(QDialog):
         if category=='Sets':
             self.sets_tools_button=QPushButton('Sets tools…');bar.addWidget(self.sets_tools_button)
             self.sets_tools_button.clicked.connect(self.open_sets_tools)
+        if category=='Load cases':
+            self.visualize_button=QPushButton('Visualize on mesh');self.visualize_button.setObjectName('VisualizeLoadCaseOnMesh');bar.addWidget(self.visualize_button)
+            self.visualize_button.setToolTip('Colour the active mesh by the selected case or series step (preview only, no solve). Series definitions use the step chosen in Loads & BC.')
+            self.visualize_button.clicked.connect(self.visualize_on_mesh)
+            from PySide6.QtWidgets import QSpinBox
+            self.visualize_step=QSpinBox();self.visualize_step.setObjectName('LoadCaseStepNumber');self.visualize_step.setAccessibleName('Load case step number');self.visualize_step.setRange(1,1);self.visualize_step.setEnabled(False)
+            self.visualize_label=QLabel('Select a load case or series step');self.visualize_label.setObjectName('LoadCaseStepSelection')
+            bar.addWidget(QLabel('Step'));bar.addWidget(self.visualize_step);bar.addWidget(self.visualize_label)
+            self.visualize_step.valueChanged.connect(lambda *_:self.update_visualize_selector())
         layout.addLayout(bar);self.view=QTableView();self.model=RecordTableModel(app,category,self);self.proxy=QSortFilterProxyModel(self);self.proxy.setSourceModel(self.model);self.proxy.setSortRole(Qt.UserRole+1);self.proxy.setFilterKeyColumn(-1);self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive);self.view.setModel(self.proxy);self.view.setSortingEnabled(True);self.view.setSelectionBehavior(QAbstractItemView.SelectRows);self.view.setSelectionMode(QAbstractItemView.ExtendedSelection);self.view.setAlternatingRowColors(True);self.view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive);self.view.horizontalHeader().setDefaultSectionSize(145);self.view.horizontalHeader().setStretchLastSection(True);layout.addWidget(self.view)
         self.count=QLabel();layout.addWidget(self.count);self.feedback=QLabel('Double-click an input cell to edit. Identity and derived fields are read-only; use source settings.');self.feedback.setWordWrap(True);layout.addWidget(self.feedback)
         self.search.textChanged.connect(self.proxy.setFilterFixedString);self.proxy.rowsInserted.connect(self.update_count);self.proxy.rowsRemoved.connect(self.update_count);self.proxy.modelReset.connect(self.update_count);self.search.textChanged.connect(self.update_count)
         self.add_button.clicked.connect(self.add_record);self.edit_button.clicked.connect(self.edit_record);self.delete_button.clicked.connect(self.delete_records);self.view.selectionModel().selectionChanged.connect(self.highlight)
+        if category=='Load cases':self.view.selectionModel().selectionChanged.connect(lambda *_:self.update_visualize_selector(reset=True))
         self._pending=False;self._active=True;self._stack=app.commands;self._workbench=app.workbench;self._stack.add_listener(self.schedule_refresh);self._workbench.add_listener(self.workbench_event);self.update_count()
 
     def set_feedback(self,message,error=False):self.feedback.setText(str(message));self.feedback.setProperty('error',bool(error))
@@ -124,6 +134,7 @@ class RecordTableDialog(QDialog):
                 index=self.proxy.mapFromSource(self.model.index(i,0));self.view.selectionModel().select(index,QItemSelectionModel.Select|QItemSelectionModel.Rows)
 
         self.view.selectionModel().blockSignals(False);self.highlight()
+        if self.category=='Load cases':self.update_visualize_selector(reset=False)
 
     def workbench_event(self,event):
         if event.kind=='project_replaced':self.schedule_refresh()
@@ -164,6 +175,33 @@ class RecordTableDialog(QDialog):
                 self.app.notebook.select(page);self.app.set_status('Review '+category.lower()+' creation settings in '+page+'. No operation was executed.');self.hide();return
             panel.choice.setCurrentIndex(index);panel.rebuild();self.app.notebook.select(page)
         self.app.set_status(category+': review inputs and Apply in the open workspace. No meshing, solver or job starts automatically.');self.hide()
+
+    def update_visualize_selector(self,reset=False):
+        """Own step-number selector: a series definition exposes its steps, a step row selects itself."""
+        from ...presentation.mesh_pressure_preview import resolve_preview_selection,MeshPressurePreviewError
+        rows=self.selected_rows()
+        if len(rows)!=1:
+            self.visualize_step.setEnabled(False);self.visualize_label.setText('Select one load case or series step');return
+        name=rows[0].record.name;project=self.app.project
+        definition=project.load_cases.get(name);count=len(project.series_children(name)) if definition is not None and definition.times is not None else 0
+        blocked=self.visualize_step.blockSignals(True)
+        self.visualize_step.setRange(1,max(count,1));self.visualize_step.setEnabled(count>1)
+        if reset:self.visualize_step.setValue(1)
+        self.visualize_step.blockSignals(blocked)
+        try:self.visualize_label.setText(resolve_preview_selection(project,name,self.visualize_step.value() if count else None).label())
+        except MeshPressurePreviewError as error:self.visualize_label.setText(str(error))
+
+    def visualize_on_mesh(self):
+        rows=self.selected_rows()
+        if len(rows)!=1:return self.set_feedback('Select one load case or series step row to visualize on the mesh',True)
+        try:
+            self.model.assert_current();name=rows[0].record.name
+            self.update_visualize_selector()
+            number=self.visualize_step.value() if self.visualize_step.isEnabled() else None
+            selection=self.app.show_pressure_preview(name,number)
+            self.set_feedback('Previewing '+selection.label()+' on the mesh (not a result; no solve)')
+        except Exception as error:
+            self.set_feedback(error,True);self.app.set_status(f'Mesh pressure preview refused: {error}',error=True)
 
     def open_sets_tools(self):
         self.app.notebook.select('Definitions');self.app.panels['Definitions'].region_name.setFocus()

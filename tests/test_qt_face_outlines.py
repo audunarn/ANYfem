@@ -38,7 +38,7 @@ def test_rendered_semantic_boundaries(window, qapp, kind, selected, tmp_path):
         square = np.array(((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)))
         polygons = [square] if kind == "quad" else [square[[0, 1, 2]], square[[0, 2, 3]]]
         refs = [MeshEntityRef("element", index + 1) for index in range(len(polygons))]
-        scene = Scene(faces=[FacePatch(None, polygons, ["#7099b4"] * len(polygons),
+        scene = Scene(show_element_edges=True, faces=[FacePatch(None, polygons, ["#7099b4"] * len(polygons),
                                       outline="#334155", polygon_owners=[(ref,) for ref in refs])])
         window.selection.set_mode("element")
     for dock in window.findChildren(QDockWidget):

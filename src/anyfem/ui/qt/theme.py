@@ -69,6 +69,16 @@ _LIGHT_SHEET = """
             padding: 6px 12px; min-height: 18px; }
         QPushButton:hover { background: #edf3fd; border-color: #9bb9df; }
         QPushButton:pressed { background: #dce9fb; }
+        QScrollBar#ModelTreeScrollBar:vertical { width: 16px; background: #f3f5f8;
+            border: 1px solid #dce2eb; border-radius: 4px; margin: 0; }
+        QScrollBar#ModelTreeScrollBar::handle:vertical { background: white;
+            border: 1px solid #cbd5e1; border-radius: 4px; min-height: 32px; margin: 1px; }
+        QScrollBar#ModelTreeScrollBar::handle:vertical:hover { background: #edf3fd; border-color: #9bb9df; }
+        QScrollBar#ModelTreeScrollBar::handle:vertical:pressed { background: #dce9fb; }
+        QScrollBar#ModelTreeScrollBar::add-line:vertical, QScrollBar#ModelTreeScrollBar::sub-line:vertical {
+            height: 0; border: none; background: transparent; }
+        QScrollBar#ModelTreeScrollBar::add-page:vertical, QScrollBar#ModelTreeScrollBar::sub-page:vertical {
+            background: transparent; }
         QPushButton[primary="true"] { background: #245fab; border-color: #245fab; color: white; font-weight: bold;
             padding: 8px 12px; }
         QPushButton[primary="true"]:hover { background: #194f96; }
@@ -154,8 +164,8 @@ def sync_viewport(window,*,refresh=False):
     old=VIEWPORT["light" if _state["dark"] else "dark"]
     style=viewport.visualization
     dark=_state["dark"]
-    old_values={"background":{"white","#ffffff","#fbfbfd"} if dark else {old["background"]},
-                "edge_color":{old["edge_color"]}}
+    old_values={"background":{"white","#ffffff","#fbfbfd","#f0f3f8","#e9edf3"} if dark else {old["background"]},
+                "edge_color":{old["edge_color"],"#536477","#344559"} if dark else {old["edge_color"]}}
     changes={key:new[key] for key in new if str(getattr(style,key)).lower() in old_values[key]}
     try:
         from dataclasses import replace
