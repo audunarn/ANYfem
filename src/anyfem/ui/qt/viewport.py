@@ -211,6 +211,8 @@ class QtViewport(SceneViewport):
         self.layout.addWidget(self.canvas)
         self._configure_canvas(self.canvas)
         self._default_view_state=self.canvas.export_view_state()
+        from .location import LocationCallout
+        self.location_callout = LocationCallout(self)
         self._keys = _ConstructionKeys(self)
         self.widget.installEventFilter(self._keys)
         self.canvas.event_widget.installEventFilter(self._keys)
@@ -292,13 +294,40 @@ class QtViewport(SceneViewport):
         self._visibility_job = None
 
     def clear(self):
+        self.hide_location()
         self.cancel_plate()
         self._plane_preview = None
         self._visibility_scene = None
         self._visibility_interaction_scene = None
         super().clear()
 
+    def show_location(self, reference, *, caption=None):
+        """Inspect an exact point on an entity without changing the document."""
+        geometry = self._window.project.geometry
+        reference = geometry.entity_ref(reference.kind, reference.id)
+        if reference.kind == 'vertex':
+            world = geometry.vertex_position(reference.id)
+            title = f'Point {reference.id}'
+        elif reference.kind == 'edge':
+            world = geometry.sample_edge(reference.id, [.5])[0]
+            title = f'Edge {reference.id} · midpoint'
+        elif reference.kind == 'face':
+            face = geometry.faces[reference.id]
+            # A known boundary point also locates concave and holed plates;
+            # their parameter-space centre need not belong to the material.
+            world = geometry.sample_edge(face.loop[0].edge, [.5])[0]
+            title = f'Face {reference.id} · boundary\n{len(face.loop)} edges · {len(face.holes)} holes'
+        else:
+            raise ValueError('Show location needs a point, edge or face')
+        coordinates = ', '.join(f'{value:.6g}' for value in world)
+        if caption:
+            title=f'{caption}\n{title}'
+        self.location_callout.locate(reference, world, f'{title}\nx, y, z = {coordinates} {geometry.units}')
 
+    def hide_location(self):
+        callout = getattr(self, 'location_callout', None)
+        if callout is not None:
+            callout.dismiss()
 
     def _handle_selection_event(self,event):
         self.dismiss_feature_highlight()
@@ -708,6 +737,7 @@ class QtViewport(SceneViewport):
         self._position_colour_legend();label.show()
 
     def close(self):
+        self.hide_location()
         self.cancel_plate()
         self._closed=True
         self._retained_result = self._retained_result_canvas = None

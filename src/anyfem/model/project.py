@@ -81,6 +81,30 @@ class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
 
 
+class _StructuralMeshPreparationError(ProjectError):
+    """Keep owner evidence through the public project/job exception boundary."""
+    def __init__(self, cause, runtime):
+        super().__init__(f"structural preparation failed: {cause}")
+        self._preparation_diagnostic = cause.to_diagnostic()
+        self._preparation_runtime = dict(runtime)
+
+    def to_diagnostic(self):
+        return {**self._preparation_diagnostic,
+                'geometry_runtime': dict(self._preparation_runtime)}
+
+    @classmethod
+    def _from_payload(cls, message, diagnostic, runtime):
+        result = cls.__new__(cls)
+        ProjectError.__init__(result, message)
+        result._preparation_diagnostic = dict(diagnostic)
+        result._preparation_runtime = dict(runtime)
+        return result
+
+    def __reduce__(self):
+        return (type(self)._from_payload,
+                (str(self), self._preparation_diagnostic, self._preparation_runtime))
+
+
 def source_publication_required(geometry: Any) -> bool:
     """Route a geometry approximation bound by the owner's classification.
 
@@ -2425,6 +2449,7 @@ class Project:
         from .._meshing_runtime import collect_geometry_runtime, merge_geometry_runtime
 
         if not cache_hit:
+            preparation_runtime = {}
             try:
                 with collect_geometry_runtime() as preparation_runtime:
                     preparation = prepare_structural_connectivity(
@@ -2435,7 +2460,7 @@ class Project:
                         cancellation_check=cancellation_check,
                     )
             except StructuralPreparationError as error:
-                raise ProjectError(f"structural preparation failed: {error}") from None
+                raise _StructuralMeshPreparationError(error, preparation_runtime) from error
             preparation.source_edge_paths = source_edge_paths(closure)
             preparation.source_to_working = source_work_mapping(closure, edge_paths=preparation.source_edge_paths)
             pending_mesh_preparation_cache = (
@@ -2552,6 +2577,9 @@ class Project:
         # check_mappable deliberately permits holes (ok=True), so a face with
         # holes is never "already structured"; shared with the headless backend.
         from ..mesh_controls import faces_are_untrimmed_mappable
+
+        if cancellation_check is not None:
+            cancellation_check("mesh element generation")
 
         already_structured = faces_are_untrimmed_mappable(
             working, tuple(working.faces)

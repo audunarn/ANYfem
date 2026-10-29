@@ -489,10 +489,15 @@ class QtModelTree(QTreeView):
 
     def _context_menu(self,position):
         index=self.indexAt(position)
-        if not index.isValid():return
+        if not index.isValid():
+            if self.app.viewport.location_callout.reference is not None:
+                menu=QMenu(self);self._location_actions(menu)
+                menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater()
+            return
         category=self.category_name(index)
         if category is not None:
             menu=QMenu(self)
+            self._location_actions(menu)
             menu.addAction('Open table',lambda:self.open_table(category))
             if category=='Sets':
                 def sets_tools():
@@ -504,9 +509,11 @@ class QtModelTree(QTreeView):
             menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater();return
         value=index.siblingAtColumn(0).data(Qt.UserRole)
         if isinstance(value,(tuple,list)) and value[0]=='sets':
-            menu=self.set_menu(value[1]);menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater();return
+            menu=self.set_menu(value[1]);self._location_actions(menu)
+            menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater();return
         if self._property_value(value):
-            menu=self.property_menu(value);menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater();return
+            menu=self.property_menu(value);self._location_actions(menu)
+            menu.exec(self.viewport().mapToGlobal(position));menu.deleteLater();return
         if isinstance(value,(tuple,list)) and value[0]=='mesh_size_editor':
             self.app.notebook.select('Mesh');return
         if not self.selectionModel().isSelected(index):self.setCurrentIndex(index)
@@ -515,6 +522,7 @@ class QtModelTree(QTreeView):
         if not keys:return
         refs=self.app.geometry_actions.references()
         menu=self.app.geometry_actions.menu_for(refs,self) if refs else QMenu(self)
+        self._location_actions(menu,value)
         menu.addAction(self.app._actions["Hide selected"])
         menu.addAction(self.app._actions["Show selected"])
         menu.addSeparator()
@@ -535,6 +543,19 @@ class QtModelTree(QTreeView):
                 menu.addAction(label,lambda checked=False,action=action:self.app.guarded(lambda:self.app._tree_action(action,keys))())
         menu.exec(self.viewport().mapToGlobal(position))
         menu.deleteLater()
+
+    def _location_actions(self, menu, value=None):
+        reference=value if isinstance(value,EntityRef) else None
+        caption=None
+        if isinstance(value,(tuple,list)) and value[0]=='members':
+            refs=self.beam_references(value[1])
+            reference=refs[0] if refs else None
+            caption=f'Beam {value[1]}'
+        if reference is not None and reference.kind in {'vertex','edge','face'}:
+            menu.addAction('Show location', lambda checked=False:
+                self.app.guarded(lambda:self.app.viewport.show_location(reference,caption=caption))())
+        hide=menu.addAction('Hide location', self.app.viewport.hide_location)
+        hide.setEnabled(self.app.viewport.location_callout.reference is not None)
 
     def toggle_feature_topology(self,identifiers):
         identifiers=set(identifiers)

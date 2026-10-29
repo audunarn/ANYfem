@@ -880,7 +880,7 @@ def run_mesh_job(
     )
     progress("snapshot", "prepared immutable model snapshot", 0.1)
     cancellation.raise_if_cancelled("mesh generation")
-    progress("generation", "generating mesh elements", 0.2)
+    progress("preparation", "Preparing structural connections", 0.2)
     last_parallel_stage = None
 
     def check_and_report(stage):
@@ -890,6 +890,15 @@ def run_mesh_job(
         # changed public component stages so the run monitor remains useful
         # without flooding the GUI thread with identical updates.
         text = str(stage)
+        if (text.startswith('structural ') or text == 'cached structural preparation'):
+            if text != last_parallel_stage:
+                progress('preparation', text, 0.2)
+                last_parallel_stage = text
+            return
+        if text == 'mesh element generation':
+            progress('generation', 'generating mesh elements', 0.2)
+            last_parallel_stage = text
+            return
         if text.startswith("parallel ") and text != last_parallel_stage:
             fraction = 0.2
             words = text.split()

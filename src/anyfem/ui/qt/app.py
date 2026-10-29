@@ -1019,6 +1019,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             panel.append_progress_batch(entries)
 
     def _set_project(self,*args,**kwargs):
+        self.viewport.hide_location()
         self.viewport.cancel_plate()
         self.panels["Scripts"].reset()
         self.panels["Results"].reset()

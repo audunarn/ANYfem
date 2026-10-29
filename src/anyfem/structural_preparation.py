@@ -36,6 +36,35 @@ __all__ = [
 class StructuralPreparationError(ValueError):
     """A candidate connection could not be classified or prepared safely."""
 
+    #: The workflow stage that failed: shared connection preparation, which runs before any element generation.
+    phase = "preparing structural connections"
+
+    def to_diagnostic(self):
+        """Structured evidence for the mesh-job transport (the owner's pair/residual/tolerance details are kept).
+
+        The owner's typed refusal (for example ANYgeometry's plane-chart ``to_diagnostic``) is the ``__cause__``
+        of this error; the message-only wrapper used to drop it.
+        """
+        payload = {"phase": self.phase, "element_generation_started": False}
+        cause = self.__cause__
+        seen = set()
+        while (cause is not None and id(cause) not in seen
+               and not callable(getattr(cause, 'to_diagnostic', None))):
+            seen.add(id(cause))
+            cause = cause.__cause__
+        provider = getattr(cause, "to_diagnostic", None)
+        if callable(provider):
+            try:
+                details = provider()
+            except Exception as error:  # diagnostics must not swallow process interrupts
+                payload["cause_diagnostic_error"] = f"{type(error).__name__}: {error}"
+            else:
+                if isinstance(details, Mapping):
+                    payload["cause"] = dict(details)
+        if cause is not None:
+            payload["cause_type"] = type(cause).__name__
+        return payload
+
 
 @dataclass(frozen=True)
 class PreparedConnection:
