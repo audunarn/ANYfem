@@ -1,0 +1,121 @@
+name: macOS developer compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      metal_probe:
+        description: Also attempt the separate hardware Metal clear/readback probe
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  developer:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+        os: [macos-15, ubuntu-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      ANYFEM_RUN_QT_TESTS: '1'
+      ANYFEM_QT_TEST_BACKEND: software
+      ANYFEM_RUN_PARALLEL_MESH_TESTS: '1'
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - name: Select an isolated build directory
+        run: echo "MAC_WORK=$RUNNER_TEMP/anyfem-macos-${{ matrix.python }}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ runner.os == 'macOS' && 'arm64' || 'x64' }}
+      - name: Linux reference desktop libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0
+      - name: Build pinned wheels and resolve a clean installation
+        run: python tools/bootstrap_macos.py --work-dir "$MAC_WORK" ${{ runner.os == 'Linux' && '--linux-reference' || '' }}
+      - name: Validate licensing against the installed environment
+        run: '"$MAC_WORK/venv/bin/python" tools/check_licenses.py --check-installed'
+      - name: Require Darwin lifecycle execution
+        if: runner.os == 'macOS'
+        run: |
+          "$MAC_WORK/venv/bin/python" tools/macos_required_tests.py --out reports/macos-required.json
+      - name: Full scientific, Darwin lifecycle and Qt software contracts
+        if: runner.os == 'macOS'
+        run: '"$MAC_WORK/venv/bin/python" -I tools/test_anyfem.py --installed-package --profile full --out reports/macos-full --require-passed reports/macos-required.json'
+      - name: Snapshot the existing mesh parity oracle
+        run: '"$MAC_WORK/venv/bin/python" tools/macos_parity.py --write reports/macos-parity.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parity-${{ runner.os }}-py${{ matrix.python }}
+          path: reports/macos-parity.json
+          if-no-files-found: error
+      - name: Preserve bootstrap and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-development-${{ runner.os }}-py${{ matrix.python }}
+          path: |
+            reports/macos-*
+            ${{ env.MAC_WORK }}/*.json
+            ${{ env.MAC_WORK }}/*.log
+
+  parity:
+    needs: developer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: parity-*
+          path: parity
+      - name: Compare Mac and Linux normalized engineering outputs
+        run: python tools/macos_parity.py --compare parity/*/macos-parity.json --out reports/macos-parity-verdict.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-parity-verdict
+          path: reports/macos-parity-verdict.json
+
+  metal:
+    if: github.event_name == 'workflow_dispatch' && inputs.metal_probe
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: arm64
+      - run: python -m pip install wgpu==0.32.0
+      - name: Probe actual Metal and attempt offscreen readback
+        run: python tools/macos_runtime.py --metal-only --out reports/macos-metal.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-metal-probe
+          path: reports/macos-metal.json

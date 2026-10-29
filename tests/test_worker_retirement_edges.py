@@ -30,6 +30,7 @@ def test_late_empty_group_scan_cannot_confirm_retirement(monkeypatch):
         return None
 
     monkeypatch.setattr(worker, "_linux_group_survivor", late_scan)
+    monkeypatch.setattr(worker, "_darwin_group_survivor", late_scan)
     tree = worker.WorkerTree(SimpleNamespace(pid=42), group=42)
     tree._proven_group = 42
     tree._terminated = True

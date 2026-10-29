@@ -26,6 +26,7 @@ remain governed by the notices shipped by their distributors.
 | Pillow | optional GUI | HPND | https://python-pillow.github.io/ |
 | PySide6 / Qt | optional GUI | LGPL-3.0-only route | https://doc.qt.io/qtforpython-6/commercial/index.html |
 | platformdirs | runtime | MIT | https://github.com/tox-dev/platformdirs |
+| psutil | macOS process inspection | BSD-3-Clause | https://github.com/giampaolo/psutil |
 | pytest | development | MIT | https://pytest.org/ |
 | SciPy | runtime | BSD-3-Clause and bundled-component licenses | https://scipy.org/ |
 | setuptools | build | MIT | https://github.com/pypa/setuptools |

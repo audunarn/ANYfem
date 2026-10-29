@@ -17,6 +17,31 @@ runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
 
+def test_installed_mode_rejects_source_and_never_dispatches(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.importlib, "import_module", lambda name: SimpleNamespace(__file__=str(ROOT / "src/anyfem/__init__.py")))
+    monkeypatch.setattr(runner, "execute", lambda *args: pytest.fail("source shadow was dispatched"))
+    output = tmp_path / "source-refused"
+    assert runner.main(["--installed-package", "--out", str(output)]) == 2
+    assert json.loads((output / "run.json").read_text())["status"] == "blocked"
+
+
+def test_installed_mode_suppresses_source_path_but_keeps_tooling(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.importlib, "import_module", lambda name: SimpleNamespace(__file__=str(tmp_path / "venv/site-packages/anyfem/__init__.py")))
+    monkeypatch.setenv("PYTHONPATH", str(ROOT / "src"))
+    captured = {}
+
+    def execute(command, log, environment):
+        captured.update(command=command, environment=environment)
+        log.with_name("pytest.xml").write_text('<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0"><testcase classname="tests.test_example" name="test_installed"/></testsuite></testsuites>')
+        return 0
+
+    monkeypatch.setattr(runner, "execute", execute)
+    assert runner.main(["--installed-package", "--out", str(tmp_path / "installed")]) == 0
+    assert "PYTHONPATH" not in captured["environment"]
+    assert captured["command"][1:4] == ["-I", "-m", "pytest"]
+    assert captured["command"][captured["command"].index("-o") + 1] == "pythonpath=."
+
+
 @pytest.mark.parametrize("selector", ["--help", "../tests/x.py", "tests/../x.py",
                                       "tests/a/../../x.py", "tests/..\\x.py"])
 def test_focused_refuses_outside_paths(selector):
@@ -188,11 +213,17 @@ def test_cleanup_stops_real_owned_descendant(tmp_path):
         else:
             deadline = time.monotonic() + 1
             while time.monotonic() < deadline:
-                state = Path(f"/proc/{pid}/stat")
-                try:
-                    stopped = state.read_text().split(") ", 1)[1].startswith("Z")
-                except FileNotFoundError:
-                    stopped = True
+                if sys.platform == "linux":
+                    state = Path(f"/proc/{pid}/stat")
+                    try:
+                        stopped = state.read_text().split(") ", 1)[1].startswith("Z")
+                    except FileNotFoundError:
+                        stopped = True
+                else:
+                    # No /proc (macOS): a missing /proc entry would read every
+                    # live process as stopped.  Ask psutil; unknown raises.
+                    from anyfem._darwin_process import pid_state
+                    stopped = pid_state(pid) != "running"
                 if stopped:
                     break
                 time.sleep(0.01)
@@ -224,6 +255,138 @@ def test_runner_propagates_failures_and_refuses_all_skipped(monkeypatch, tmp_pat
     assert runner.main(["--out", str(output)]) == expected
     assert json.loads((output / "run.json").read_text())["counts"]["tests"] == 1
     assert (output / "pytest.log").read_text() == "retained failure diagnostics"
+
+
+REQUIRED = ["tests/test_a.py::test_one", "tests/test_a.py::TestK::test_two[x-1]"]
+
+
+def _junit(path, cases):
+    rows = []
+    for classname, name, child in cases:
+        body = {"": "", "skip": '<skipped type="pytest.skip" message="s"/>',
+                "xfail": '<skipped type="pytest.xfail" message="x"/>',
+                "fail": '<failure message="f"/>', "error": '<error message="e"/>'}[child]
+        rows.append(f'<testcase classname="{classname}" name="{name}">{body}</testcase>')
+    path.write_text(f'<testsuites><testsuite tests="{len(rows)}">{"".join(rows)}</testsuite></testsuites>')
+
+
+def _fake_root(tmp_path):
+    (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tests" / "test_a.py").write_text("")
+    return tmp_path
+
+
+def test_junit_node_ids_are_reconstructed_exactly(tmp_path):
+    root = _fake_root(tmp_path)
+    assert runner.junit_node_id("tests.test_a", "test_one", root) == "tests/test_a.py::test_one"
+    assert runner.junit_node_id("tests.test_a.TestK", "test_two[x-1]", root) == \
+        "tests/test_a.py::TestK::test_two[x-1]"
+
+
+def test_required_ids_are_validated(tmp_path):
+    good = tmp_path / "ids.json"
+    good.write_text(json.dumps(REQUIRED))
+    assert runner.load_required_ids(good) == REQUIRED
+    for bad in ([], "x", [1], ["tests/test_a.py"], ["test_a.py::t"], ["tests/../x.py::t"],
+                ["tests/test_a.py::t", "tests/test_a.py::t"], ["tests\\test_a.py::t"], ["tests/a.txt::t"]):
+        path = tmp_path / "bad.json"
+        path.write_text(json.dumps(bad))
+        with pytest.raises(ValueError):
+            runner.load_required_ids(path)
+
+
+@pytest.mark.parametrize("second, expected", [
+    ("", "passed"), ("skip", "skipped"), ("xfail", "xfail"), ("fail", "failed"), ("error", "failed")])
+def test_check_required_reports_each_outcome(tmp_path, second, expected):
+    root = _fake_root(tmp_path)
+    xml = tmp_path / "pytest.xml"
+    _junit(xml, [("tests.test_a", "test_one", ""), ("tests.test_a.TestK", "test_two[x-1]", second)])
+    statuses, problems = runner.check_required(xml, REQUIRED, root)
+    assert statuses == {REQUIRED[0]: "passed", REQUIRED[1]: expected}
+    assert bool(problems) == (expected != "passed")
+
+
+def test_check_required_reports_a_missing_id_and_takes_the_worst_outcome(tmp_path):
+    root = _fake_root(tmp_path)
+    xml = tmp_path / "pytest.xml"
+    # a passing call followed by a teardown error is not a pass
+    _junit(xml, [("tests.test_a", "test_one", ""), ("tests.test_a", "test_one", "error")])
+    statuses, problems = runner.check_required(xml, REQUIRED, root)
+    assert statuses == {REQUIRED[0]: "failed", REQUIRED[1]: "missing"}
+    assert len(problems) == 2
+
+
+def _run_required(monkeypatch, tmp_path, cases, code=0):
+    root = _fake_root(tmp_path / "root")
+    monkeypatch.setattr(runner, "ROOT", root)
+    ids = tmp_path / "ids.json"
+    ids.write_text(json.dumps(REQUIRED))
+
+    def execute(command, log, environment):
+        log.write_text("run")
+        _junit(log.with_name("pytest.xml"), cases)
+        return code
+    monkeypatch.setattr(runner, "execute", execute)
+    output = tmp_path / "run"
+    status = runner.main(["--out", str(output), "--require-passed", str(ids)])
+    return status, json.loads((output / "run.json").read_text())
+
+
+def test_runner_succeeds_only_when_every_required_id_passed(monkeypatch, tmp_path):
+    status, report = _run_required(monkeypatch, tmp_path, [
+        ("tests.test_a", "test_one", ""), ("tests.test_a.TestK", "test_two[x-1]", "")])
+    assert status == 0 and report["status"] == "passed"
+    assert set(report["required_tests"].values()) == {"passed"}
+
+
+@pytest.mark.parametrize("second", ["skip", "xfail", "fail", "error"])
+def test_runner_fails_when_a_required_id_is_not_passed(monkeypatch, tmp_path, second):
+    # pytest itself exits 0 for skip/xfail: the required list alone must fail the run
+    status, report = _run_required(monkeypatch, tmp_path, [
+        ("tests.test_a", "test_one", ""), ("tests.test_a.TestK", "test_two[x-1]", second)],
+        code=1 if second in ("fail", "error") else 0)
+    assert status != 0 and report["status"] == "failed"
+    assert report["required_tests"][REQUIRED[1]] != "passed"
+
+
+def test_runner_fails_when_a_required_id_is_missing(monkeypatch, tmp_path):
+    status, report = _run_required(monkeypatch, tmp_path, [("tests.test_a", "test_one", "")])
+    assert status == 2 and report["status"] == "failed"
+    assert report["required_tests"][REQUIRED[1]] == "missing"
+    assert "required tests did not pass" in report["error"]
+
+
+def test_require_passed_with_a_malformed_file_is_refused_before_running(monkeypatch, tmp_path):
+    monkeypatch.setattr(runner, "execute", lambda *args: pytest.fail("pytest must not start"))
+    bad = tmp_path / "ids.json"
+    bad.write_text("[]")
+    with pytest.raises(SystemExit):
+        runner.main(["--out", str(tmp_path / "run"), "--require-passed", str(bad)])
+    assert not (tmp_path / "run").exists()
+
+
+def test_dry_run_lists_the_required_ids(tmp_path, capsys):
+    ids = tmp_path / "ids.json"
+    ids.write_text(json.dumps(REQUIRED))
+    assert runner.main(["--dry-run", "--require-passed", str(ids)]) == 0
+    assert json.loads(capsys.readouterr().out)["required_tests"] == REQUIRED
+
+
+def test_macos_required_ids_are_exact_existing_node_ids():
+    ids_path = ROOT / "tests/test_macos_containment.py"
+    source = ids_path.read_text(encoding="utf-8")
+    namespace = {}
+    start = source.index("REQUIRED_TEST_IDS = [")
+    exec(source[start:source.index("]\n", start) + 1], namespace)  # the literal only
+    required = namespace["REQUIRED_TEST_IDS"]
+    assert required and len(set(required)) == len(required)
+    for identifier in required:
+        file_part, _, name = identifier.partition("::")
+        assert (ROOT / file_part).is_file(), identifier
+        # Parameter IDs are verified by pytest collection and the JUnit gate;
+        # the source definition itself has only the base function name.
+        name = name.split("[", 1)[0]
+        assert f"def {name}(" in (ROOT / file_part).read_text(encoding="utf-8"), identifier
 
 
 def test_fixture_reuses_original_measured_report_including_failure(monkeypatch, tmp_path):
