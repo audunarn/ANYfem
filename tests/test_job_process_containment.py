@@ -54,10 +54,10 @@ from anyfem.job_process import WorkerProcessError, run_in_worker_process
 from anyfem.jobs import _cancellation_token
 from anyfem.model.project import Project
 
-CONTAINED_PLATFORMS = ("win32", "linux")
+CONTAINED_PLATFORMS = ("win32", "linux", "darwin")
 requires_containment = pytest.mark.skipif(
     sys.platform not in CONTAINED_PLATFORMS,
-    reason="contained worker trees are supported on Windows (job object) and Linux (process group + guardian)",
+    reason="contained worker trees are supported on Windows (job object), Linux and macOS (process group + guardian)",
 )
 requires_linux = pytest.mark.skipif(
     sys.platform != "linux",
@@ -105,12 +105,26 @@ def _pid_alive(pid: int) -> bool:
             return code.value == 259  # STILL_ACTIVE
         finally:
             kernel32.CloseHandle(handle)
+    if sys.platform == "linux":
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as stat:
+                state = stat.read().rsplit(") ", 1)[1][0]
+            return state != "Z"
+        except (FileNotFoundError, ProcessLookupError, IndexError):
+            return False
+    # Other POSIX (Darwin has no /proc: reading it would report every live
+    # process dead).  Signal 0 proves existence; psutil separates a zombie
+    # (dead) from a running process, and an uninspectable one raises rather
+    # than reading as dead.
     try:
-        with open(f"/proc/{pid}/stat", encoding="utf-8") as stat:
-            state = stat.read().rsplit(") ", 1)[1][0]
-        return state != "Z"
-    except (FileNotFoundError, ProcessLookupError, IndexError):
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return False
+    except PermissionError:
+        pass
+    from anyfem._darwin_process import pid_state
+
+    return pid_state(pid) == "running"
 
 
 # ----------------------------------------------------------------------
@@ -493,6 +507,8 @@ def test_confirm_retirement_reports_a_surviving_group_member(monkeypatch):
     tree.terminate()
     assert tree.terminated, "the native stop itself succeeded"
     monkeypatch.setattr(job_process, "_linux_group_survivor", lambda group, deadline=None: 3333)
+    monkeypatch.setattr(job_process, "_darwin_group_survivor", lambda group, deadline=None: 3333)
+    monkeypatch.setattr(job_process, "_darwin_session_survivor", lambda group, deadline=None: 3333)
     failure = tree.confirm_retirement(time.monotonic() - 1.0)  # the deadline already passed
     assert failure, "a surviving owned process was reported as retired"
     assert "cleanup deadline" in failure
@@ -512,6 +528,8 @@ def test_confirm_retirement_accepts_a_fully_retired_group(monkeypatch):
     tree = job_process.WorkerTree(FakeProcess())
     tree.terminate()
     monkeypatch.setattr(job_process, "_linux_group_survivor", lambda group, deadline=None: None)
+    monkeypatch.setattr(job_process, "_darwin_group_survivor", lambda group, deadline=None: None)
+    monkeypatch.setattr(job_process, "_darwin_session_survivor", lambda group, deadline=None: None)
     assert tree.confirm_retirement(time.monotonic() + 1.0) is None
 
 
@@ -592,8 +610,8 @@ def test_an_assignment_failure_stops_the_owned_worker_promptly(monkeypatch, tmp_
 
 
 @pytest.mark.skipif(
-    sys.platform in ("win32", "linux"),
-    reason="only a non-Linux POSIX system reaches the safe-decline branch",
+    sys.platform in ("win32", "linux", "darwin"),
+    reason="only a POSIX system other than Linux and macOS reaches the safe-decline branch",
 )
 def test_unsupported_posix_containment_safely_declines():
     with pytest.raises(WorkerProcessError) as error:

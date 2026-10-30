@@ -62,6 +62,7 @@ def test_reset_toolbar_clears_display_state_and_preserves_engineering_data(windo
     controls.compare.setChecked(True)
     controls.box_enabled.setChecked(True)
     window.selection.set_mode('face'); window.selection.select(ref); window.set_selection_hidden(True)
+    window.viewport.show_location(ref)
     controls.save_workspace()
     window.reset_view_action.trigger(); qapp.processEvents()
     after = project_to_dict(window.project); after.pop('presentation', None)
@@ -72,6 +73,7 @@ def test_reset_toolbar_clears_display_state_and_preserves_engineering_data(windo
     assert not controls.box_enabled.isChecked()
     assert window.viewport.canvas.section_box is None
     assert not window.selection.items and not window.viewport.visibility.hidden
+    assert window.viewport.location_callout.reference is None
     assert window.viewport.visualization.surface_opacity == 1
     assert window.viewport.visualization.render_mode == 'Shaded with edges'
     assert not window.project.presentation['workspace']['comparison']['enabled']

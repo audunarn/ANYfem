@@ -174,10 +174,12 @@ class SelectionFilter:
             )
         object.__setattr__(self, "domain", domain)
         object.__setattr__(self, "kinds", kinds)
-        if self.flavor not in ('', 'plate_edge'):
+        if self.flavor not in ('', 'plate_edge', 'topology_vertex'):
             raise ValueError('unknown selection flavor')
-        if self.flavor and (domain != SelectionDomain.GEOMETRY or kinds != frozenset({'edge'})):
-            raise ValueError('plate boundary selection requires geometry edges')
+        if self.flavor:
+            expected = 'edge' if self.flavor == 'plate_edge' else 'vertex'
+            if domain != SelectionDomain.GEOMETRY or kinds != frozenset({expected}):
+                raise ValueError(f'{self.flavor} selection requires geometry {expected} entities')
         object.__setattr__(self,'eligible_ids',frozenset(int(i) for i in self.eligible_ids))
 
     @classmethod
@@ -188,7 +190,7 @@ class SelectionFilter:
 
     def accepts(self, ref: object) -> bool:
         return (_ref_domain(ref) == self.domain and _ref_kind(ref) in self.kinds
-                and (self.flavor != 'plate_edge' or getattr(ref,'id',None) in self.eligible_ids))
+                and (not self.flavor or getattr(ref,'id',None) in self.eligible_ids))
 
     def explain_rejection(self, ref: object) -> str | None:
         domain = _ref_domain(ref)
@@ -208,6 +210,8 @@ class SelectionFilter:
             )
         if self.flavor == 'plate_edge' and getattr(ref,'id',None) not in self.eligible_ids:
             return 'the picked line is not a selectable plate boundary'
+        if self.flavor == 'topology_vertex' and getattr(ref,'id',None) not in self.eligible_ids:
+            return 'the picked point is not a selectable topology vertex'
         return None
 
     @property

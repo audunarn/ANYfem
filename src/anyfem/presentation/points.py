@@ -2,6 +2,13 @@
 USER_POINT_GROUP = "anyfem:user_points"
 
 
+def topology_vertex_ids(geometry):
+    """Actual edge endpoints, including intersections but not control-only points."""
+    return frozenset(identifier for edge in geometry.edges.values()
+                     for identifier in (edge.start, edge.end)
+                     if identifier in geometry.vertices)
+
+
 def displayed_geometry_point_ids(geometry):
     """Use an explicit point group when present; preserve ordinary model display.
 

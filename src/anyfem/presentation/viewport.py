@@ -1631,6 +1631,10 @@ class SceneViewport:
         return refs
 
 
+    def _expanded_selection_ref(self, ref):
+        """Application-specific canonical grouping; None keeps the original owner."""
+        return None
+
     def _handle_selection_event(self, event) -> None:
         """Translate rich canvas hits into the existing Selection service."""
 
@@ -1648,6 +1652,7 @@ class SceneViewport:
             owner=getattr(hit,'owner',hit)
             ref=owner_to_ref(owner)
             expanded=getattr(self,'_grouped_face_hits',{}).get(ref)
+            if expanded is None:expanded=self._expanded_selection_ref(ref)
             for candidate in expanded if expanded is not None else (owner,):
                 identity=owner_to_ref(candidate)
                 # A window can report several polygons from the same group.
@@ -1750,7 +1755,7 @@ class SceneViewport:
         qualified_kinds = getattr(model_filter, "qualified_kinds", None)
         if qualified_kinds is None:
             qualified_kinds = frozenset({f"geometry.{self.selection.mode}"})
-        if getattr(model_filter,'flavor','')=='plate_edge':
+        if getattr(model_filter,'flavor','') in {'plate_edge', 'topology_vertex'}:
             # Public viewer filters own click/region/depth eligibility before
             # hit arbitration. Keep canonical owners and geometry.edge kinds.
             class PlateBoundaryFilter(api['SelectionFilter']):

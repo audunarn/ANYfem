@@ -51,7 +51,7 @@ _LIGHT_SHEET = """
         QTabBar::tab { background: #e9edf3; padding: 7px 14px; border: none; color: #54647a; }
         QTabBar::tab:selected { background: white; color: #1659ad; border-bottom: 2px solid #245fab; }
         QTabBar::tab:hover:!selected { background: #f1f5fa; }
-        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
+        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextBrowser {
             background: white; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 7px;
             selection-background-color: #245fab; selection-color: white;
         }

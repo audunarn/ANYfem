@@ -20,7 +20,8 @@ def test_beam_row_selects_and_hides_whole_chain(window, qapp):
     assert {ref.id for ref in window.viewport._collection_refs} == set(edges)
     window._actions["Hide selected"].trigger()
     assert all(window.viewport.visibility.is_hidden(p.geometry.entity_ref("edge", edge)) for edge in edges)
-    assert item.foreground().color().name() == "#8794a6"
+    from anyfem.ui.qt.theme import overlay
+    assert item.foreground().color().name() == overlay('muted')
     window._actions["Show selected"].trigger()
     assert all(not window.viewport.visibility.is_hidden(p.geometry.entity_ref("edge", edge)) for edge in edges)
 

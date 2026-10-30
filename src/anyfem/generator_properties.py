@@ -10,7 +10,8 @@ from .model.sections import PlateSection
 from .mesh.refinement import Refinement
 
 GENERATOR_KINDS=frozenset('plate bulkhead frame girder stiffener stiffened_panel cylinder cone'.split())
-FIELDS=frozenset(('beam_section','plate_section','plate_thickness','material','mesh_size','mesh_size_mode'))
+BEAM_SECTION_FIELDS=('beam_section','longitudinal_beam_section','transverse_beam_section')
+FIELDS=frozenset((*BEAM_SECTION_FIELDS,'plate_section','plate_thickness','material','mesh_size','mesh_size_mode'))
 # mesh_size_mode: "override" (the default for a size set now) meshes each output
 # plate and beam at mesh_size, finer or coarser than the global target.
 # "refine" is the refine-only spatial zone and must be chosen explicitly.  Saved
@@ -32,7 +33,7 @@ def properties(values):
             if not math.isfinite(value) or value<=0:raise ValueError(key.replace('_',' ')+' must be finite and positive')
             values[key]=value
     if values.get('mesh_size_mode') is not None and values['mesh_size_mode'] not in MESH_SIZE_MODES:raise ValueError('mesh size mode must be refine or override')
-    for key in ('beam_section','plate_section','material'):
+    for key in (*BEAM_SECTION_FIELDS,'plate_section','material'):
         if values.get(key) is not None and (not isinstance(values[key],str) or not values[key].strip()):raise ValueError(key+' must name an existing definition')
     if '_managed' in values:
         if not isinstance(values['_managed'],dict):raise ValueError('Invalid generator assignment provenance')
@@ -51,9 +52,16 @@ def output_slots(geometry,record):
     members=member_edges(geometry,record)
     return {key:ref for key,ref in record.outputs.items() if ref.kind=='face' or (ref.kind=='edge' and ref.id in members)}
 
-def _section(project,record,options,kind):
+def directional_member_edges(geometry,record):
+    """Use the generator owner's named groups, scoped to this feature's outputs."""
+    owned=member_edges(geometry,record)
+    return {direction:owned & {ref.id for ref in geometry.group(direction+'_stiffeners') if ref.kind=='edge'}
+            if direction+'_stiffeners' in geometry.groups else set()
+            for direction in ('longitudinal','transverse')}
+
+def _section(project,record,options,kind,*,source=None,slot=None):
     registry=project.plate_sections if kind=='plate' else project.beam_sections
-    source=options.get(kind+'_section');material=options.get('material')
+    source=options.get(kind+'_section') if source is None else source;material=options.get('material')
     if material is not None and material not in project.materials:raise ValueError('Unknown material '+material)
     if source is not None and source not in registry:raise ValueError('Unknown '+kind+' section '+source)
     base=registry[source] if source is not None else None
@@ -67,7 +75,8 @@ def _section(project,record,options,kind):
     else:
         if base is None:return None
         if material is None or material==base.material:return source
-        candidate=replace(base,name=f'Generator {record.feature_id} beam',material=material,id=str(uuid5(NAMESPACE_URL,f'{project.document_id}:generator:{record.feature_id}:beam')))
+        suffix='beam' if slot is None else slot
+        candidate=replace(base,name=f'Generator {record.feature_id} {suffix}',material=material,id=str(uuid5(NAMESPACE_URL,f'{project.document_id}:generator:{record.feature_id}:{suffix}')))
     name=candidate.name
     base_name=name;number=0
     while name in registry and registry[name].id!=candidate.id:
@@ -90,18 +99,35 @@ def reapply_generator_properties(project):
                 assignment=project.section_assignments.get(state['id'])
                 if assignment is not None and assignment.section_id==state['section_id']:project.section_assignments.pop(assignment.id)
                 managed.pop(key,None)
-        sections={'face':_section(project,record,options,'plate'),'edge':_section(project,record,options,'beam')}
-        if options.get('beam_section') and not any(ref.kind=='edge' for ref in slots.values()):raise ValueError('This generator has no structural members; enable stiffener spacing first')
-        if options.get('material') and not any(sections.values()):raise ValueError('Choose a plate thickness/section or beam section to assign the material')
+        directional=any(options.get(key) for key in BEAM_SECTION_FIELDS[1:])
+        sections={'face':_section(project,record,options,'plate'),'edge':None if directional else _section(project,record,options,'beam')}
+        edge_sections={}
+        if directional:
+            if record.kind!='generator.stiffened_panel':raise ValueError('Directional beam sections require a stiffened panel')
+            directions=directional_member_edges(project.geometry,record)
+            if directions['longitudinal'] & directions['transverse']:raise ValueError('Generator member direction groups are ambiguous')
+            if member_edges(project.geometry,record)-set().union(*directions.values()):raise ValueError('Generator member direction groups are unavailable')
+            for direction,edges in directions.items():
+                source=options.get(direction+'_beam_section',options.get('beam_section'))
+                if options.get(direction+'_beam_section') and not edges:raise ValueError('This panel has no '+direction+' beams; enable its spacing first')
+                if not edges:continue
+                section=_section(project,record,options,'beam',source=source,slot='beam-'+direction)
+                edge_sections.update((edge,section) for edge in edges)
+        if any(options.get(key) for key in BEAM_SECTION_FIELDS) and not any(ref.kind=='edge' for ref in slots.values()):raise ValueError('This generator has no structural members; enable stiffener spacing first')
+        if options.get('material') and not (any(sections.values()) or any(edge_sections.values())):raise ValueError('Choose a plate thickness/section or beam section to assign the material')
         # Resolve current assignments only after obsolete managed scopes are removed.
         project.resolve_section_assignments(strict=False,adopt_legacy=False)
         for key,ref in slots.items():
-            section=sections[ref.kind]
-            if section is None:continue
+            section=edge_sections.get(ref.id,sections['edge']) if ref.kind=='edge' else sections['face']
             kind='plate' if ref.kind=='face' else 'beam'
             current=(project.face_assignment_ids if kind=='plate' else project.edge_assignment_ids).get(ref.id)
             previous=managed.get(key)
             assignment=project.section_assignments.get(current)
+            if section is None:
+                if assignment is not None and previous is not None and assignment.id==previous['id'] and assignment.section_id==previous['section_id']:
+                    project.section_assignments.pop(assignment.id)
+                managed.pop(key,None)
+                continue
             if assignment is not None and (previous is None or assignment.id!=previous['id'] or assignment.section_id!=previous['section_id']):continue
             assignment=project._assign_singleton(ref,kind,section,resolve_existing=False,materialize=False)
             managed[key]={'id':assignment.id,'section_id':assignment.section_id}
@@ -168,12 +194,13 @@ def load_generator_properties(project,raw):
         identifier=int(key);record=project.geometry.features.get(identifier)
         if record.kind not in {'generator.'+kind for kind in GENERATOR_KINDS}:raise ValueError('Generator properties reference an unsupported feature')
         option=properties(value)
+        if any(option.get(field) for field in BEAM_SECTION_FIELDS[1:]) and record.kind!='generator.stiffened_panel':raise ValueError('Directional beam sections require a stiffened panel')
         # A generator's engineering mesh size has always been offered as the
         # size of its own plates and beams, so files written before the mode
         # existed (no key) are entity overrides too; only an explicit
         # "refine" keeps the spatial refine-only meaning.
         if option.get('mesh_size') is not None:option.setdefault('mesh_size_mode','override')
-        for field,registry in (('material',project.materials),('plate_section',project.plate_sections),('beam_section',project.beam_sections)):
+        for field,registry in (('material',project.materials),('plate_section',project.plate_sections),*((key,project.beam_sections) for key in BEAM_SECTION_FIELDS)):
             if option.get(field) is not None and option[field] not in registry:raise ValueError('Generator properties reference an unknown '+field)
         result[identifier]=option
     project.generator_properties=result
@@ -188,7 +215,7 @@ def remove_generator_properties(project,identifier):
     project.refinements[:]=[r for r in project.refinements if r.name!=f'generator:{identifier}:mesh']
     project.adopt_geometry_attachment_regions()
     project.resolve_section_assignments(strict=False,adopt_legacy=False)
-    for kind,registry in (('plate',project.plate_sections),('beam',project.beam_sections)):
+    for kind,registry in (('plate',project.plate_sections),*((key,project.beam_sections) for key in ('beam','beam-longitudinal','beam-transverse'))):
         owned=str(uuid5(NAMESPACE_URL,f'{project.document_id}:generator:{identifier}:{kind}'))
         for name,section in tuple(registry.items()):
             if section.id==owned and not any(a.section_id==owned for a in project.section_assignments.values()):registry.pop(name)

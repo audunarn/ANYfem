@@ -234,6 +234,13 @@ class GeometryActions:
             if label != "Properties":
                 action.setEnabled(not (self.app.session.read_only or self.app.project.read_only_reason) and (label!="Edit" or any(ref.kind in {"edge","face"} for ref in refs)))
         kinds = {ref.kind for ref in refs}
+        if len(refs) == 1 and kinds == {"face"}:
+            action = menu.addAction("Cut")
+            def cut(_checked=False):
+                self.assert_binding(binding)
+                return self.cut_plate(refs)
+            action.triggered.connect(self.app.guarded(cut))
+            action.setEnabled(not (self.app.session.read_only or self.app.project.read_only_reason))
         if refs and kinds in ({"vertex"}, {"edge"}):
             plate = kinds == {"vertex"}
             action = menu.addAction("Add plate" if plate else "Add beam")
@@ -303,6 +310,38 @@ class GeometryActions:
             self.app.run(commands.AddBeamMember(ids, section))
         else:
             self.app.run(commands.CompositeCommand([commands.AssignBeam(ref.id, section) for ref in refs], label="assign beams"))
+
+    def cut_plate(self, refs=None):
+        if self.app.session.read_only or self.app.project.read_only_reason:
+            raise PermissionError("This project is read-only")
+        refs = self.references() if refs is None else tuple(refs)
+        if len(refs) != 1 or refs[0].kind != "face":
+            raise ValueError("Select one target plate face before cutting.")
+        from .plate_cut import PlateCutDialog
+        dialog = PlateCutDialog(self, refs[0].id)
+        self.dialogs.append(dialog)
+        dialog.finished.connect(lambda _result: self.dialogs.remove(dialog) if dialog in self.dialogs else None)
+        dialog.show()
+        return dialog
+
+    def create_beam_from_edges(self, refs=None):
+        if self.app.session.read_only or self.app.project.read_only_reason:
+            raise PermissionError("This project is read-only")
+        refs = self.references() if refs is None else tuple(refs)
+        if not refs or any(ref.kind != "edge" for ref in refs):
+            raise ValueError("Select a cut edge or one connected edge chain.")
+        from ...presentation.beams import ordered_beam_chain
+        ordered_beam_chain(self.app.project.geometry, tuple(ref.id for ref in refs))
+        binding = self.binding()
+        sections = list(self.app.project.beam_sections)
+        if not sections:
+            raise ValueError("Create a beam section in Sections before creating a beam.")
+        section, accepted = QInputDialog.getItem(self.app, "Create beam from edge", "Beam section", sections, 0, False)
+        if not accepted:return
+        self.assert_binding(binding)
+        if self.app.session.read_only or self.app.project.read_only_reason:
+            raise PermissionError("This project is read-only")
+        self.app.run(commands.AddBeamMember(tuple(ref.id for ref in refs), section))
 
     def close(self):
         if self.menu is not None:

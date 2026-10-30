@@ -1648,6 +1648,13 @@ class WorkbenchWorkflow:
             from ..selection import SelectionFilter,plate_boundary_edge_ids
             self.selection.set_filter(SelectionFilter(kinds=frozenset({'edge'}),flavor='plate_edge',eligible_ids=plate_boundary_edge_ids(self.project,exposed_features)))
         plate_edges=getattr(self.selection.filter,'eligible_ids',frozenset()) if getattr(self.selection.filter,'flavor','')=='plate_edge' else frozenset()
+        topology_vertices = None
+        if getattr(self.selection.filter, 'flavor', '') == 'topology_vertex':
+            from ..presentation.points import topology_vertex_ids
+            from ..selection import SelectionFilter
+            topology_vertices = topology_vertex_ids(self.project.geometry)
+            self.selection.set_filter(SelectionFilter(kinds=frozenset({'vertex'}),
+                flavor='topology_vertex', eligible_ids=topology_vertices))
         cache_key = (
             id(self.project.geometry),
             int(self.project.geometry.revision),
@@ -1656,6 +1663,7 @@ class WorkbenchWorkflow:
             bool(self.viewport.visualization.show_beam_sections),
             tuple(sorted(exposed_features)),
             (getattr(self.selection.filter,'flavor',''),tuple(sorted(plate_edges))),
+            None if topology_vertices is None else tuple(sorted(topology_vertices)),
         )
         cached = self._geometry_scene_cache
         if cached is None or cached[0] != cache_key:
@@ -1667,6 +1675,7 @@ class WorkbenchWorkflow:
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
                 plate_edges=plate_edges,
+                topology_vertices=topology_vertices,
             )
             interaction_scene = build_geometry_scene(
                 self.project,
@@ -1676,6 +1685,7 @@ class WorkbenchWorkflow:
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
                 plate_edges=plate_edges,
+                topology_vertices=topology_vertices,
             )
             self._geometry_scene_cache = (cache_key, scene, interaction_scene)
         else:

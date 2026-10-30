@@ -71,7 +71,8 @@ from .model.ownership import SheetJoinIntent, join_anchors
 from .model.sections import BeamSection, PlateSection
 from .model.units import UnitProfile
 from .model.wind_turbine import WindTurbineLoad
-from .geometry_features import BUTTERFLY_HOLE_KIND
+from .geometry_features import (BUTTERFLY_HOLE_KIND, PLATE_CUT_KIND,
+                                restore_plate_cut_executor_state)
 
 __all__ = [
     "AddArc",
@@ -95,6 +96,7 @@ __all__ = [
     "AddMeshRecord",
     "AddOutputRequest",
     "AddPlate",
+    "CutPlate",
     "AddPoint",
     "AddPointLoad",
     "AddPlateSection",
@@ -516,6 +518,7 @@ class FeatureCommand(Command):
         self._before = geometry.design_snapshot()
         self._before_attributes = _attribute_snapshot(project)
         working_project = _stage_feature_project(project)
+        restore_plate_cut_executor_state(working_project.geometry)
         feature_id = int(self.change(working_project))
         previous_ids={record.feature_id for record in self._before["features"]["records"]}
         appended_ids=(feature_id,) if feature_id not in previous_ids else ()
@@ -847,7 +850,11 @@ class DeleteFeature(FeatureCommand):
 
 
 class AddStiffenedPanel(AddFeature):
-    """Insert an editable ANYgeometry stiffened-panel generator feature."""
+    """Insert an editable panel; directional sections override ``beam_section``.
+
+    An omitted directional choice inherits the legacy common beam section.
+    With no common section, only explicitly assigned directions get sections.
+    """
 
     def __init__(
         self,
@@ -862,6 +869,8 @@ class AddStiffenedPanel(AddFeature):
         semantic_group: str = "shell",
         name: str = "Stiffened panel",
         beam_section: str | None = None,
+        longitudinal_beam_section: str | None = None,
+        transverse_beam_section: str | None = None,
         plate_section: str | None = None,
         plate_thickness: float | None = None,
         material: str | None = None,
@@ -882,7 +891,7 @@ class AddStiffenedPanel(AddFeature):
             "generator.stiffened_panel",
             name=name,
             parameters=parameters,
-            engineering={key:value for key,value in dict(beam_section=beam_section,plate_section=plate_section,plate_thickness=plate_thickness,material=material,mesh_size=mesh_size).items() if value is not None} or None,
+            engineering={key:value for key,value in dict(beam_section=beam_section,longitudinal_beam_section=longitudinal_beam_section,transverse_beam_section=transverse_beam_section,plate_section=plate_section,plate_thickness=plate_thickness,material=material,mesh_size=mesh_size).items() if value is not None} or None,
             label="add stiffened panel",
         )
 
@@ -1021,11 +1030,18 @@ class EditFeature(FeatureCommand):
     # Sketch reference source links (id -> entity) captured NOW as new optional
     # link metadata (explicit relink); None keeps the still-valid existing links.
     sketch_references: Mapping[str, EntityRef] | None = None
+    engineering: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         FeatureCommand.__init__(self)
 
     def change(self, project: Project) -> int:
+        if self.engineering is not None:
+            from .generator_properties import properties
+            previous=project.generator_properties.get(int(self.feature_id),{})
+            project.generator_properties[int(self.feature_id)]={
+                **properties(self.engineering), '_managed':previous.get('_managed',{}),
+            }
         parameters = self.parameters
         existing = (
             project.geometry.features.get(self.feature_id).parameters
@@ -1176,6 +1192,7 @@ class GeometryCommand(Command):
                     include_features=True
                 )
                 working_geometry = working_project.geometry
+                restore_plate_cut_executor_state(working_geometry)
                 working_geometry.features.capture_baseline(working_geometry)
                 pending = working_geometry.features.append(
                     kind,
@@ -1193,6 +1210,24 @@ class GeometryCommand(Command):
                     )
                 self._feature_id = pending.feature_id
                 self._replacements = tuple(report.replacements)
+                if isinstance(self, CutPlate):
+                    # Raw/imported baseline plates have no producer output
+                    # slot, so the feature report cannot derive their remap.
+                    # Consume only the owner's explicit identity lineage.
+                    lineage = dict(self._replacements)
+                    for entity_kind, source_store, target_store in (
+                        ("vertex", project.geometry.vertices, working_geometry.vertices),
+                        ("edge", project.geometry.edges, working_geometry.edges),
+                        ("face", project.geometry.faces, working_geometry.faces),
+                    ):
+                        for identifier in source_store:
+                            old = EntityRef(entity_kind, identifier)
+                            if identifier not in target_store:
+                                lineage[old] = tuple(
+                                    new for new in working_geometry.resolve_ref(old)
+                                    if new.kind == entity_kind
+                                )
+                    self._replacements = tuple(lineage.items())
                 staged = working_geometry.features.get(pending.feature_id)
                 if str(getattr(staged, "state", "")) != "ok":
                     raise GeometryError(
@@ -1211,6 +1246,11 @@ class GeometryCommand(Command):
             # Splitting a line that carries a load, or a plate that carries a
             # pressure, must not throw the attribute away: it follows onto
             # whatever replaced the entity.
+            if isinstance(self, CutPlate):
+                self._replacements = tuple(
+                    (old, tuple(new for new in descendants if new.kind == old.kind))
+                    for old, descendants in self._replacements
+                )
             _apply_replacements(project, self._replacements)
             self._after = project.geometry.design_snapshot()
             self._after_attributes = _attribute_snapshot(project)
@@ -1300,16 +1340,22 @@ def _apply_replacements(
         if not replacements:
             continue
 
-        if old.kind == "edge":
-            section = project.edge_sections.pop(old.id, None)
+        if old.kind in {"edge", "face"}:
+            sections, assignment_ids = (
+                (project.edge_sections, project.edge_assignment_ids)
+                if old.kind == "edge"
+                else (project.face_sections, project.face_assignment_ids)
+            )
+            section = sections.pop(old.id, None)
+            assignment_id = assignment_ids.pop(old.id, None)
             if section is not None:
                 for new in replacements:
-                    project.edge_sections[new.id] = section
-        elif old.kind == "face":
-            section = project.face_sections.pop(old.id, None)
-            if section is not None:
-                for new in replacements:
-                    project.face_sections[new.id] = section
+                    sections[new.id] = section
+                    # These are caches of the canonical region assignment.
+                    # Carry its identity with the value, otherwise legacy-map
+                    # adoption invents overlapping descendant assignments.
+                    if assignment_id is not None:
+                        assignment_ids[new.id] = assignment_id
 
         kept: List[Support] = []
         for support in project.supports:
@@ -1435,6 +1481,16 @@ def _geometry_feature_definition(command: "GeometryCommand", geometry):
     anchor = lambda kind, value: _feature_anchor(
         geometry, EntityRef(kind, int(value))
     )
+    if isinstance(command, CutPlate):
+        inputs = {"face": (anchor("face", command.face_id),)}
+        if command.cutter_face_id is not None:
+            if command.origin is not None or command.normal is not None:
+                raise GeometryError("Choose either a cutter plate or a plane.")
+            inputs["cutter"] = (anchor("face", command.cutter_face_id),)
+            parameters = {}
+        else:
+            parameters = {"origin": command.origin, "normal": command.normal}
+        return PLATE_CUT_KIND, parameters, inputs
     if isinstance(command, AddPoint):
         return "geometry.point", {"position": (command.x, command.y, command.z)}, {}
     if isinstance(command, AddLine):
@@ -1583,6 +1639,14 @@ def _feature_command_result(command: "GeometryCommand", geometry, record) -> Any
     """Preserve established command return types after feature regeneration."""
 
     outputs = record.outputs
+    if isinstance(command, CutPlate):
+        from .plate_cut import PlateCutResult
+        return PlateCutResult(
+            tuple(ref.id for ref in _numbered_outputs(outputs, "target")),
+            tuple(ref.id for ref in _numbered_outputs(outputs, "cutter")),
+            tuple(ref.id for ref in _numbered_outputs(outputs, "trace")),
+            command.replacements,
+        )
     if isinstance(command, AddPoint):
         return outputs["point"].id
     if isinstance(command, (AddLine, AddArc)):
@@ -4385,3 +4449,15 @@ def __getattr__(name):
         from . import mesh_sizes
         return getattr(mesh_sizes, name)
     raise AttributeError(name)
+
+@dataclass(eq=False)
+class CutPlate(GeometryCommand):
+    """Imprint a plate through the public geometry owner, as one undo step."""
+    face_id: int
+    cutter_face_id: int | None = None
+    origin: Sequence[float] | None = None
+    normal: Sequence[float] | None = None
+    label: str = "cut plate"
+
+    def __post_init__(self):
+        GeometryCommand.__init__(self)

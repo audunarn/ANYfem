@@ -125,17 +125,36 @@ class QtModelTree(QTreeView):
             for ref,feature_id in owners.items():
                 owned[ref.kind].add(ref.id)
                 generated.setdefault(feature_id,{}).setdefault(ref.kind,[]).append(ref.id)
+            # Cut traces are authored modelling intent even when the cut plate
+            # belongs to a composite generator. Follow exact owner lineage;
+            # ordinary generated seams remain grouped under their feature.
+            from ...geometry_features import PLATE_CUT_KIND
+            for record in geometry.features.records:
+                if record.kind != PLATE_CUT_KIND or record.suppressed:
+                    continue
+                for key, reference in record.outputs.items():
+                    if key.startswith("trace/") and key[6:].isdigit():
+                        for current in geometry.resolve_ref(reference):
+                            if current.kind == "edge" and current.id in geometry.edges:
+                                owned["edge"].discard(current.id)
             member_edges = {use.edge_id for use in geometry.member_edge_uses.values()}
             owned["edge"].update(member_edges)
             self._sync_group("Beams", [(identifier, geometry.members[identifier].name or f"Beam {identifier}",
                                        f"{len(geometry.members[identifier].edge_use_ids)} segments", ("members",identifier))
                                       for identifier in bounded_entity_ids(geometry.members,self.query)])
-            for label,kind,items in [("Points","vertex",displayed_geometry_point_ids(geometry)),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
+            point_ids=displayed_geometry_point_ids(geometry)
+            if getattr(self.app.selection.filter,'flavor','')=='topology_vertex':
+                from ...presentation.points import topology_vertex_ids
+                point_ids=topology_vertex_ids(geometry)
+                owned['vertex'].difference_update(point_ids)
+            for label,kind,items in [("Points","vertex",point_ids),("Lines","edge",geometry.edges),("Plates","face",geometry.faces)]:
                 self._sync_group(label,[(identifier,f"{kind.capitalize()} {identifier}","",geometry.entity_ref(kind,identifier)) for identifier in bounded_unowned_entity_ids(items,owned[kind],self.query)])
+            plane_systems=(self.app.panels['Construction'].coordinate_systems()
+                           if self.app._plane_selection_active else self.project.coordinate_systems)
             self._sync_group("Construction planes",[
                 (identifier,system.name,"",("coordinate_systems",identifier))
-                for identifier,system in self.project.coordinate_systems.items()
-                if identifier!="global" and system.kind=="cartesian"
+                for identifier,system in plane_systems.items()
+                if (identifier!="global" or self.app._plane_selection_active) and system.kind=="cartesian"
             ])
             self._sync_group("Sketches",[
                 (record.feature_id,record.name,str(getattr(record.state,"value",record.state)),("geometry",record.feature_id))
@@ -434,8 +453,9 @@ class QtModelTree(QTreeView):
             return
         refs=[index.data(Qt.UserRole) for index in self.selectionModel().selectedRows()]
         if len(refs)==1 and isinstance(refs[0],(tuple,list)) and refs[0][0] in {'mesh_size_properties','mesh_size_new'}:return
+        plane_systems=self.app.panels['Construction'].coordinate_systems() if self.app._plane_selection_active else self.project.coordinate_systems
         planes=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="coordinate_systems"
-                and ref[1] in self.project.coordinate_systems and self.project.coordinate_systems[ref[1]].kind=="cartesian"]
+                and ref[1] in plane_systems and plane_systems[ref[1]].kind=="cartesian"]
         features=[ref[1] for ref in refs if isinstance(ref,(tuple,list)) and ref[0]=="geometry"]
         collections=[]
         for value in refs:
@@ -585,6 +605,10 @@ class QtModelTree(QTreeView):
             return self.app.geometry_actions.inspect_set(key)
         if attribute=="geometry":
             if self.app.panels["Construction"].edit_sketch(int(key)):return
+            record=self.project.geometry.features.get(int(key))
+            if record.kind.startswith('generator.') and self.app.panels['Generators'].kind.findText(record.kind.removeprefix('generator.').replace('_',' ').capitalize())>=0:
+                panel=self.app.panels['Generators'];panel.load_feature(record.feature_id)
+                self.app.notebook.select('Generators');return
             record=self.project.geometry.features.get(int(key));panel=self.app.panels["Geometry"]
             panel.load_values("EditFeature",feature_id=record.feature_id,name=record.name,parameters=record.parameters,inputs=record.inputs,dependencies=record.dependencies)
             page="Geometry"

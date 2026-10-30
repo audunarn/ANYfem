@@ -19,12 +19,26 @@ class _ConstructionKeys(QObject):
         self._right_dragged = False
         self._camera_drag = False
         self._plate_left_down = False
+        self._plane_left_down = False
 
     def eventFilter(self, target, event):
         if target is self.viewport.widget and event.type() == QEvent.Resize:
             self.viewport._position_colour_legend()
         if target is self.viewport.canvas.event_widget:
             kind = event.type()
+            if kind == QEvent.KeyPress and event.key() == Qt.Key_Escape and self.viewport._window._plane_selection_active:
+                self.viewport._window._quick_select(self.viewport.selection.mode)
+                return True
+            if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._plane_left_down:
+                self._plane_left_down = False
+                return True
+            if (kind in {QEvent.MouseButtonPress, QEvent.MouseButtonDblClick}
+                    and event.button() == Qt.LeftButton and self.viewport._window._plane_selection_active):
+                self._plane_left_down = True
+                ratio = target.devicePixelRatioF()
+                self.viewport._window.guarded(lambda:self.viewport.pick_reference_plane(
+                    event.position().x()*ratio, event.position().y()*ratio))()
+                return True
             from ...geometry.sketching import FaceSketchTask
             task=self.viewport.construction_task
             if isinstance(task,FaceSketchTask) and self._sketch_event(target,event,task):return True
@@ -294,6 +308,7 @@ class QtViewport(SceneViewport):
         self._visibility_job = None
 
     def clear(self):
+        self._member_pick_groups=None
         self.hide_location()
         self.cancel_plate()
         self._plane_preview = None
@@ -332,6 +347,29 @@ class QtViewport(SceneViewport):
     def _handle_selection_event(self,event):
         self.dismiss_feature_highlight()
         super()._handle_selection_event(event)
+
+    def _expanded_selection_ref(self,ref):
+        if (ref is None or ref.kind!='edge' or self._window._view_mode!='geometry'
+                or getattr(self.selection.filter,'flavor','')=='plate_edge'):
+            return None
+        tree=self._window.tree;geometry=self._window.project.geometry
+        key=(id(geometry),geometry.revision,tree.exploded_feature_ids)
+        cached=getattr(self,'_member_pick_groups',None)
+        if cached is None or cached[0]!=key:
+            owners=tree.generated_entity_owners();groups={};ambiguous=set()
+            collapsed={record.feature_id for record in geometry.features.records if record.kind=='generator.stiffened_panel'}-set(tree.exploded_feature_ids)
+            for member in geometry.members.values():
+                refs=tuple(geometry.entity_ref('edge',geometry.member_edge_uses[use].edge_id) for use in member.edge_use_ids)
+                features={owners.get(item) for item in refs}
+                if len(refs)<2 or len(features)!=1:continue
+                feature=next(iter(features))
+                if feature not in collapsed:continue
+                for item in refs:
+                    if item in groups and groups[item]!=refs:ambiguous.add(item)
+                    else:groups[item]=refs
+            for item in ambiguous:groups.pop(item,None)
+            self._member_pick_groups=(key,groups)
+        return self._member_pick_groups[1].get(ref)
 
     def context_menu_at(self, surface, position, *, preserve_selection=False):
         if self._closed or surface is not self.canvas.event_widget or self.construction_active:
@@ -436,29 +474,57 @@ class QtViewport(SceneViewport):
             from ...presentation.scene import Scene
             self.show(self._scene if self._scene is not None else Scene(),interaction_scene=self._interaction_scene)
 
-    def _draw_plane_preview(self):
-        if not hasattr(self._window,"project"):return
+    def _visible_reference_planes(self):
         from ...model.workplanes import Workplane
         systems=self._window.panels["Construction"].coordinate_systems()
-        if self._window._view_mode!="geometry":return
         planes={identifier:(Workplane(identifier),system.name) for identifier,system in self._window.project.coordinate_systems.items()
                 if identifier!="global" and system.kind=="cartesian"}
+        if self._window._plane_selection_active:
+            planes.update({identifier:(Workplane(identifier),system.name) for identifier,system in systems.items()
+                           if system.kind=='cartesian'})
         if self._plane_preview is not None:
             plane,name=self._plane_preview
             if plane.coordinate_system_id in systems:planes[plane.coordinate_system_id]=(plane,name)
-        for identifier,(plane,name) in planes.items():
-            if ("plane",identifier) in self.visibility.hidden:continue
-            if self.construction_active and identifier==self._construction_workplane.coordinate_system_id:continue
+        planes={identifier:value for identifier,value in planes.items()
+                if ('plane',identifier) not in self.visibility.hidden
+                and not (self.construction_active and identifier==self._construction_workplane.coordinate_system_id)}
+        return systems, planes
+
+    def _draw_plane_preview(self):
+        if not hasattr(self._window,"project") or self._window._view_mode!='geometry':return
+        systems, planes = self._visible_reference_planes()
+        for plane,name in planes.values():
             self._draw_reference_plane(plane,name,systems)
+
+    def pick_reference_plane(self, x, y):
+        """Pick a displayed reference-plane footprint, never plate geometry."""
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QPolygonF
+        systems, planes = self._visible_reference_planes()
+        candidates=[]
+        for identifier,(plane,_name) in planes.items():
+            frame=plane.resolve(systems)
+            size=5*plane.grid_spacing
+            projected=[self.project_point(self._point3d(*frame.world_position(uv)))
+                       for uv in ((-size,-size),(size,-size),(size,size),(-size,size))]
+            polygon=QPolygonF([QPointF(float(point[0]),float(point[1])) for point in projected])
+            if polygon.containsPoint(QPointF(x,y),Qt.OddEvenFill):
+                candidates.append((sum(float(point[2]) for point in projected)/4,identifier))
+        if not candidates:
+            self._window.set_status("No existing plane here. Select one in Construction planes in the model tree.")
+            return
+        self._window._choose_plane(min(candidates)[1])
 
     def _draw_reference_plane(self,plane,name,systems):
         frame=plane.resolve(systems)
         spacing=plane.grid_spacing
+        selected=(self._window._plane_selection_active
+                  and plane.coordinate_system_id==self._window.session.active_workplane.coordinate_system_id)
         for index in range(-5,6):
             for first,last in (((index*spacing,-5*spacing),(index*spacing,5*spacing)),
                                ((-5*spacing,index*spacing),(5*spacing,index*spacing))):
                 self.canvas.add_line(self._point3d(*frame.world_position(first)),self._point3d(*frame.world_position(last)),
-                                     color=overlay("grid"),width=1,layer=40,draw_overlay=True)
+                                     color=overlay("u") if selected else overlay("grid"),width=2 if selected else 1,layer=40,draw_overlay=True)
         for direction,label,color in ((frame.x_axis,"u",overlay("u")),(frame.y_axis,"v",overlay("v")),(frame.normal,"n",overlay("n"))):
             end=frame.origin+spacing*direction
             self.canvas.add_line(self._point3d(*frame.origin),self._point3d(*end),color=color,width=2,layer=46,draw_overlay=True)

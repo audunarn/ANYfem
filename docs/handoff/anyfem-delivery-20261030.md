@@ -1,0 +1,11 @@
+# ANYfem branch delivery — 2026-10-30
+
+User explicitly authorised all pending ANYfem changes, including unrelated pre-existing work. After the clean-dependency blocker was identified, the user explicitly selected **push ANYfem branch only**, without publishing companion ANYgeometry changes. Do not merge main or silently omit those features to bypass CI.
+
+Candidate starts at local main f81da499ac19e6ae10aab48fd17815767831fcb4 (one unpublished tree-controls commit above remote main325eb2986e39420bb02a17ded5d80d4cc41cc0c8). Snapshot all pending files in this checkout: geometry cleaner/diagnosis, cut-to-beam workflow, measurement and topology/plane selection, presentation and section fixes, Darwin developer tooling/containment, lazy imports, licensing, test-runner changes and free-floating60m example. Existing draft PR15 remains separate and unmodified; this delivery does not establish its acceptance.
+
+Validation evidence retained in individual task records: barge-cut/diagnosis126 combined tests plus18 final selector tests and installed ANYfem/ANYgeometry wheel smoke; earlier beam/Measure/selection checks and macOS task135 focused tests are documented in their living handoffs. Source licensing and git whitespace checks are rechecked for delivery. This is a branch snapshot, not a clean-CI or release acceptance claim.
+
+Merge blocker: the pinned ANYgeometry commit9d2abf6ac7659350a043501b0630a3d4fd20ea18 and currently known owner origin/main81288fc0f09c65cc5c9e0c25d8e29ed35773c5c5 lack anygeometry.cleaner and cleaner_diagnostics. The working ANYgeometry checkout supplies unpublished files and a strict-audit compatibility fix. Source/installed development tests consumed that owner candidate; a clean checkout of the current pins cannot reproduce those APIs. User declined companion publication, so this record preserves the blocker rather than changing sibling history or dependency pins to an unavailable artifact.
+
+Known verification limits remain: native macOS/Linux compatibility and full CI/release matrix pending, three pre-existing result-display failures reproduced on saved pre-change source, unsupported curved diagnosis coverage and four end-girder attachment metadata mismatches retained. No tests/tolerances/gates waived. No main merge, version bump, tag or package publication authorised by the latest scope.

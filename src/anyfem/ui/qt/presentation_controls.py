@@ -839,6 +839,7 @@ class PresentationControls(QWidget):
             self.annotations_visible.setChecked(False)
             self.app.selection.clear()
             viewport=self.app.viewport
+            viewport.hide_location()
             viewport.visibility.hidden.clear()
             viewport.refresh_visibility()
             self.app.set_model_colour_mode('default')

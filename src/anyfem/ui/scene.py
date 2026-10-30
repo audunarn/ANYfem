@@ -817,6 +817,7 @@ def build_geometry_scene(
     entity_owners: Optional[Mapping[EntityRef, int]] = None,
     exposed_feature_ids: Iterable[int] = (),
     plate_edges: Iterable[int] = (),
+    topology_vertices: Iterable[int] | None = None,
 ) -> Scene:
     """Draw user geometry plus the surfaces of generated features.
 
@@ -833,7 +834,16 @@ def build_geometry_scene(
 
         entity_owners = feature_entity_owners(geometry)
     exposed = {int(identifier) for identifier in exposed_feature_ids}
-    boundary_edges=frozenset(plate_edges)
+    # Cut traces are semantic design curves, including on collapsed features.
+    # Keep their exact owner edges visible independently of auxiliary topology.
+    cut_traces = {
+        current.id
+        for record in geometry.features.records if record.kind == "anyfem.plate_cut"
+        for key, reference in record.outputs.items() if key.startswith("trace/")
+        for current in geometry.resolve_ref(reference)
+        if current.kind == "edge" and current.id in geometry.edges
+    }
+    boundary_edges = frozenset(plate_edges) | cut_traces
     from ..generator_properties import member_edges
     generated_members=set().union(*(member_edges(geometry,r) for r in geometry.features.records if r.kind.startswith("generator.")))
     smooth_feature_ids = {record.feature_id for record in geometry.features.records
@@ -878,9 +888,11 @@ def build_geometry_scene(
                 collapsed_face_owners[feature_id] = []
                 scene.faces.append(patch)
             patch.polygons.extend(polygons)
-            if feature_id in smooth_feature_ids:
-                if patch.outline_groups is None:patch.outline_groups=[]
-                patch.outline_groups.extend([face_id]*len(polygons))
+            # Exact owner faces are the display-outline boundary. Tessellation
+            # triangles around trims are not additional geometric edges.
+            if patch.outline_groups is None:
+                patch.outline_groups = []
+            patch.outline_groups.extend([face_id] * len(polygons))
             patch.colors.extend([COLOR_PLATE] * len(polygons))
             patch.polygon_visibility_owners.extend([(face_ref,)] * len(polygons))
             patch.polygon_owners.extend([(face_ref,)] * len(polygons))
@@ -892,7 +904,7 @@ def build_geometry_scene(
                 polygons=polygons,
                 colors=[COLOR_PLATE] * len(polygons),
                 outline="",
-                outline_groups=[face_id]*len(polygons) if feature_id in smooth_feature_ids else None,
+                outline_groups=[face_id] * len(polygons),
             )
         )
     for feature_id, patch in collapsed_face_patches.items():
@@ -937,9 +949,11 @@ def build_geometry_scene(
 
     if show_points:
         from ..presentation.points import displayed_geometry_point_ids
-        for vertex_id in sorted(displayed_geometry_point_ids(geometry)):
+        point_ids = displayed_geometry_point_ids(geometry) if topology_vertices is None else frozenset(topology_vertices)
+        topology_vertices = frozenset() if topology_vertices is None else frozenset(topology_vertices)
+        for vertex_id in sorted(point_ids):
             feature_id = entity_owners.get(EntityRef("vertex", vertex_id))
-            if feature_id is not None and feature_id not in exposed:
+            if feature_id is not None and feature_id not in exposed and vertex_id not in topology_vertices:
                 continue
             scene.points.append(
                 PointMarker(

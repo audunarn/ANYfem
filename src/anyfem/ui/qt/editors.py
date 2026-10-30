@@ -422,6 +422,9 @@ class CommandEditor(QWidget):
         return options
 
     def execute(self):
+        if self.operation is commands.MeasureGeometry:
+            self.app._select_workspace(list(self.app.panels).index("Measure"))
+            return
         options=self.command_options()
         command=self.operation(**options)
         result=self.app.commands.query(command) if self.operation is commands.MeasureGeometry else self.app.run(command)
@@ -461,7 +464,7 @@ class CommandEditor(QWidget):
         self.feedback.setText("Loaded existing values. Apply creates one undoable edit.")
 
     def refresh(self):
-        self.apply.setEnabled(not self.app.session.read_only and not self.app._closing)
+        self.apply.setEnabled((self.operation is commands.MeasureGeometry or not self.app.session.read_only) and not self.app._closing)
         from .widgets import ChoiceEdit
         for name,(field,_,_) in self.fields.items():
             if name.endswith("coordinate_system_id") and isinstance(field,ChoiceEdit):
@@ -480,7 +483,7 @@ class CommandEditor(QWidget):
 
 class GeometryTask(CommandEditor):
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress):
+        if event.type() in (QEvent.MouseButtonPress, QEvent.KeyPress) and self.operation is not commands.MeasureGeometry:
             self.app._begin_modelling()
         return super().eventFilter(watched, event)
 
@@ -520,6 +523,17 @@ class GeometryTask(CommandEditor):
 
     def rebuild(self):
         super().rebuild()
+        if self.operation is commands.MeasureGeometry:
+            previous = self.scroll.takeWidget()
+            previous.deleteLater()
+            self.fields = {}; self.record_fields = {}
+            self.scroll.setWidget(QWidget())
+            self.apply.setText("Open Measure workspace")
+            self.apply.setEnabled(True)
+            self.feedback.setText("Measure selected geometry in the dedicated Measure workspace.")
+            if hasattr(self, "construct_plate"):
+                self.construct_plate.setVisible(False)
+            return
         if self.operation is commands.Loft:
             previous = self.scroll.takeWidget()
             previous.deleteLater()

@@ -339,6 +339,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Solve":"Choose an analysis and run it on the current mesh.",
         "Results":"Inspect, animate and export solved fields.",
         "Visualization":"Adjust appearance, contours and comparison views.",
+        "Measure":"Measure selected geometry in project units.",
         "Sectioning":"Inspect inside the model with section planes, section boxes and cut surfaces.",
         "Export":"Capture images and export animations of the selected result frame interval.",
         "Scripts":"Run Python commands as one undoable edit.",
@@ -359,6 +360,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._status=_Value("")
         self._refreshing=False
         self._refresh_pending=False
+        self._plane_selection_active=False
+        self._plane_selection_filter=None
         self._last_refreshed_revision=None
         from .theme import apply_theme, saved_dark, _state
         _state["dark"]=saved_dark()
@@ -394,6 +397,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             "Mesh":MeshTask(self),"Solve":SolveTask(self),"Results":ResultsTask(self),
             "Visualization":VisualizationTask(self),
         }
+        from .measure import MeasureTask
+        self.panels["Measure"]=MeasureTask(self)
         self.panels["Sectioning"]=SectioningTask(self,self.panels["Visualization"].presentation_controls)
         self.panels["Export"]=ExportTask(self,self.panels["Visualization"].presentation_controls)
         self.panels.update({"Scripts":ScriptTask(self),"Definitions":DefinitionsTask(self)})
@@ -402,7 +407,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         from .navigation import install_option_icons,ActionIcons
         selectors={"Geometry":"choice","Construction":"mode","Generators":"kind","Sections":"choice",
                    "Loads & BC":"choice","Mesh":"strategy","Solve":"analysis","Results":"field",
-                   "Definitions":"choice"}
+                   "Definitions":"choice","Measure":"choice"}
         for name,attribute in selectors.items():
             install_option_icons(self.panels[name],getattr(self.panels[name],attribute),
                                  groups=self.GEOMETRY_GROUPS if name=="Geometry" else None)
@@ -482,6 +487,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         menu.addAction(action);self._actions[name]=action
         return action
 
+    def open_geometry_cleaner(self):
+        from .geometry_cleaner import open_geometry_cleaner
+        return open_geometry_cleaner(self)
 
     def _menus(self):
         file=self.menuBar().addMenu("File")
@@ -511,6 +519,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Copy geometry…",lambda:self.geometry_actions.vector_dialog("Copy"))
         self._action(edit,"Move geometry…",lambda:self.geometry_actions.vector_dialog("Move"))
         self._action(edit,"Geometry properties…",self.geometry_actions.properties)
+        self._action(edit,"Cut plate…",self.geometry_actions.cut_plate)
+        self._action(edit,"Create beam from edge…",self.geometry_actions.create_beam_from_edges)
+        self._action(edit,"Review and clean geometry…",self.open_geometry_cleaner)
         self._action(edit,"Commands",self.show_command_palette,"Ctrl+P")
         view=self.menuBar().addMenu("View")
         self._action(view,"Hide selected",lambda:self.set_selection_hidden(True),"Ctrl+H")
@@ -553,6 +564,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action.setToolTip("60 m hull with centreline and transverse bulkheads, framed end structures to 6 m, and an illustrative linear-static load")
         action.setStatusTip(action.toolTip())
         help_menu=self.menuBar().addMenu("Help")
+        from .licensing import show_licensing
+        self._action(help_menu,"Licensing",lambda:show_licensing(self))
         action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)
         action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
         action.setStatusTip(action.toolTip())
@@ -609,23 +622,25 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         heading=QLabel("Select");heading.setObjectName("ToolbarLabel");toolbar.addWidget(heading)
         self.quick_selection_actions={}
         self.quick_selection_group=QActionGroup(self);self.quick_selection_group.setExclusive(False)
-        for label,mode in (("Point","vertex"),("Line","edge"),("Edge","plate_edge"),("Face","face")):
+        for label,mode in (("Point","vertex"),("Vertex","topology_vertex"),("Line","edge"),("Edge","plate_edge"),("Face","face")):
             action=QAction(label,self);action.setCheckable(True);action.setChecked(mode==self.selection.mode)
-            action.setToolTip('Select plate perimeter and hole edges' if mode=='plate_edge' else f"Select {label.lower()} geometry")
+            action.setToolTip('Select plate perimeter and hole edges' if mode=='plate_edge' else
+                             'Select topology vertices, including intersections; exclude control-only points' if mode=='topology_vertex' else
+                             'Select authored model points' if mode=='vertex' else f"Select {label.lower()} geometry")
             action.triggered.connect(lambda checked=False,mode=mode:self._quick_select(mode))
             self.quick_selection_group.addAction(action);toolbar.addAction(action)
             self.quick_selection_actions[mode]=action
         self.plane_menu=QMenu(self)
         self.plane_menu.aboutToShow.connect(self._refresh_plane_menu)
         plane_action=QAction("Plane",self)
-        plane_action.setToolTip("Select a construction plane to display and use for sketching, or create a new plane.")
-        plane_action.setMenu(self.plane_menu)
+        plane_action.setCheckable(True)
+        plane_action.setToolTip("Select existing construction planes in the viewport or model tree. Create planes in Construction.")
+        plane_action.triggered.connect(lambda checked=False:self.guarded(lambda:self._quick_select('plane'))())
         toolbar.addAction(plane_action)
-        toolbar.widgetForAction(plane_action).setPopupMode(QToolButton.InstantPopup)
         self.quick_selection_actions["plane"]=plane_action
         toolbar.addSeparator()
         from .widgets import ValueCombo
-        self.selection_mode=ValueCombo((("vertex","Points"),("edge","Lines"),("plate_edge","Plate edges"),("face","Faces"),
+        self.selection_mode=ValueCombo((("vertex","Points"),("topology_vertex","Vertices"),("edge","Lines"),("plate_edge","Plate edges"),("face","Faces"),("plane","Planes"),
                                         ("node","Mesh nodes"),("element","Mesh elements")))
         self.selection_mode.currentIndexChanged.connect(lambda _index:self._quick_select(self.selection_mode.value()))
         self.selection_tool=ValueCombo((("box","Box"),("single","Click"),("lasso","Lasso")))
@@ -673,10 +688,17 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.workspace_summary.setText(self.WORKSPACE_SUMMARIES.get(name,""))
 
     def _workspace_changed(self,index):
+        if self.details.tabText(index) == "Measure":
+            self.panels["Measure"].activate()
         if self.details.tabText(index) in {"Geometry", "Construction", "Generators"}:
             self._begin_modelling()
 
     def _begin_modelling(self, *_):
+        if self._plane_selection_active:
+            self._plane_selection_active=False
+            self._sync_selection_controls()
+            self.tree.refresh()
+            if self._view_mode=='geometry':self.show_geometry()
         # Imported mesh-only documents have no generating geometry to return to.
         if self.imported is not None:
             return
@@ -695,12 +717,34 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _quick_select(self,mode):
         self.viewport.dismiss_feature_highlight()
-        if mode=='plate_edge':
+        self._plane_selection_active=False
+        if mode=='plane':
+            if self.viewport.construction_active:
+                self._sync_selection_controls()
+                raise ValueError("Finish or cancel construction before selecting a plane")
+            self.selection.set_mode('face')
+            self.selection.clear()
+            self._plane_selection_active=True
+            self._plane_selection_filter=self.selection.filter
+            self.tree.refresh()
+            group=self.tree._groups.get("Construction planes")
+            if group is not None:
+                self.tree.expand(group.index())
+                self.tree.scrollTo(group.index())
+            self.show_geometry()
+            self.set_status("Select an existing plane in the viewport or Construction planes in the model tree. Create planes in Construction.")
+        elif mode=='topology_vertex':
+            from ...selection import SelectionFilter
+            from ...presentation.points import topology_vertex_ids
+            self.selection.set_filter(SelectionFilter(kinds=frozenset({'vertex'}),
+                flavor='topology_vertex', eligible_ids=topology_vertex_ids(self.project.geometry)))
+        elif mode=='plate_edge':
             from ...selection import SelectionFilter, plate_boundary_edge_ids
             self.selection.set_filter(SelectionFilter(kinds=frozenset({'edge'}),flavor='plate_edge',eligible_ids=plate_boundary_edge_ids(self.project,self.tree.exploded_feature_ids)))
         else:
             self.selection.set_mode(mode)
         self._sync_selection_controls()
+        if mode != 'plane':self.tree.refresh()
         if self._view_mode=='geometry':self.show_geometry()
 
     def _refresh_plane_menu(self):
@@ -713,15 +757,20 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             action.setData(identifier);action.setCheckable(True);action.setChecked(identifier==current)
             action.setEnabled(not self.viewport.construction_active)
             action.triggered.connect(lambda checked=False,identifier=identifier:self.guarded(lambda:self._choose_plane(identifier))())
-        self.plane_menu.addSeparator()
-        action=self.plane_menu.addAction("Add construction plane…")
-        action.setEnabled(not self.viewport.construction_active and not self.session.read_only)
-        action.triggered.connect(self._open_plane_construction)
 
     def _choose_plane(self,identifier):
         if self.viewport.construction_active:raise ValueError("Finish or cancel the current construction first")
         panel=self.panels["Construction"]
         system=panel.coordinate_systems()[identifier]
+        if self._plane_selection_active:
+            from ...model.workplanes import Workplane
+            plane=Workplane(identifier, grid_spacing=self.session.active_workplane.grid_spacing)
+            panel.system.setCurrentIndex(panel.system.findData(identifier))
+            panel.offset.setText("0")
+            self.session.active_workplane=plane
+            self.viewport.preview_construction_plane(plane,system.name)
+            self.set_status(f"Selected plane {system.name}. Create or edit planes in Construction.")
+            return
         self._begin_modelling()
         panel.select_plane(system)
         self.notebook.select("Construction")
@@ -738,7 +787,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         panel.fields["name"][0].setFocus()
 
     def _sync_selection_controls(self):
-        active='plate_edge' if getattr(self.selection.filter,'flavor','')=='plate_edge' else self.selection.mode
+        flavor=getattr(self.selection.filter,'flavor','')
+        active='plane' if self._plane_selection_active else flavor if flavor in {'plate_edge','topology_vertex'} else self.selection.mode
         index=self.selection_mode.findData(active)
         if index>=0:
             self.selection_mode.blockSignals(True)
@@ -910,6 +960,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
 
     def _on_selection_changed(self):
         if self._closing:return
+        if self._plane_selection_active and (self.selection.items or self.selection.filter != self._plane_selection_filter):
+            self._plane_selection_active=False
         self._sync_selection_controls()
         if not getattr(self.tree,"_tree_driven",False):self.viewport.dismiss_feature_highlight()
         if getattr(self.selection.domain,"value","geometry")=="geometry":
@@ -1019,6 +1071,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             panel.append_progress_batch(entries)
 
     def _set_project(self,*args,**kwargs):
+        self._plane_selection_active=False
         self.viewport.hide_location()
         self.viewport.cancel_plate()
         self.panels["Scripts"].reset()
