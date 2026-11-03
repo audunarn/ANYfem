@@ -14,7 +14,7 @@ class MetadataDataset:
             "Pa" if family=="stress" else "m" if family=="displacement" else "1",
             ("ux","uy","uz") if family=="displacement" else ("xx","yy","xy") if family in {"stress","strain"} else ())
         def read(*_):raise AssertionError("catalog read a field array")
-        return SimpleNamespace(descriptor=desc,read=read)
+        return SimpleNamespace(descriptor=desc,shape=(1,1,len(desc.components)),read=read)
 
 
 def test_catalog_groups_every_advertised_component_without_reading_arrays():

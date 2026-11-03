@@ -401,7 +401,7 @@ def glyph_harness(*,count=2000):
     polygon=np.asarray(list(mesh.nodes.values()),dtype=float)
     scene=Scene(faces=[FacePatch(MeshEntityRef('element',1),[polygon],['red'],polygon_node_ids=[tuple(range(1,count+1))])],result_mesh=mesh)
     scene.characteristic_size=lambda:100.
-    handles=[];groups=[]
+    handles=[];groups=[];messages=[]
     class Group:
         def __init__(self):self.removed=False;groups.append(self)
         def __enter__(self):return self
@@ -414,7 +414,7 @@ def glyph_harness(*,count=2000):
     access=LiveResultAccess()
     app=SimpleNamespace(panels={'Results':panel},session=object(),project=Project(),active_job_id='job',result_datasets={'job':dataset},
         viewport=SimpleNamespace(_scene=scene,canvas=canvas),_result_source_epoch=0,_closing=False,_result_loader=coordinator,
-        _live_result_access=access,set_status=lambda *args,**kwargs:None)
+        _live_result_access=access,set_status=lambda *args,**kwargs:messages.append((args,kwargs)))
     controls=SimpleNamespace(app=app,glyph_count=Value(2000),glyph_scale=Value(1),glyph_normalize=Value(True),glyph_rank=Value('All'),
         status=SimpleNamespace(setText=lambda text:None),animation_export=SimpleNamespace(state=None))
     for name in ('_request_glyphs','_glyph_context','clear_glyphs','maintain_glyphs','pause_glyphs'):
@@ -427,7 +427,7 @@ def glyph_harness(*,count=2000):
             except Empty:time.sleep(.002)
         assert not coordinator._records
     return SimpleNamespace(controls=controls,stored=stored,dataset=dataset,mesh=mesh,scene=scene,reads=reads,owner=owner,
-        entered=entered,release=release,handles=handles,groups=groups,coordinator=coordinator,access=access,settle=settle)
+        entered=entered,release=release,handles=handles,groups=groups,messages=messages,coordinator=coordinator,access=access,settle=settle)
 
 
 def test_async_glyphs_read_off_owner_and_publish_one_batch_for_2000_vectors():
@@ -482,6 +482,7 @@ def test_async_principal_axes_use_at_most_three_rank_batches():
             return np.tile([3.,2.,1.,0.,0.,0.],(8,1))
         harness.stored.read=read
         harness.controls._request_glyphs('principal');harness.settle()
+        assert not any(options.get('error') for _args,options in harness.messages), harness.messages
         assert len(harness.handles)==3
         assert all(len(batch.lines)==8*2*3 and not options['pickable'] for batch,options,thread in harness.handles)
         assert all(thread!=harness.owner for thread in harness.reads)

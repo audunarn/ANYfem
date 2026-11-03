@@ -220,6 +220,7 @@ def test_report_fails_closed_for_corrupt_quantity_descriptor(tmp_path: Path):
 def test_markdown_and_html_writers_and_results_panel_use_retained_artifact(
     tmp_path: Path, monkeypatch
 ):
+    from anyfem.model.project import Project
     dataset, _artifact = _retained_result(tmp_path)
     markdown_path = write_result_report(dataset, tmp_path / "report.md")
     html_path = write_result_report(dataset, tmp_path / "report.html")
@@ -240,30 +241,50 @@ def test_markdown_and_html_writers_and_results_panel_use_retained_artifact(
         analysis_hash="sha256:analysis",
         status=JobStatus.COMPLETED,
     )
-    project = SimpleNamespace(
+    project = Project(
         name="Panel A",
         document_id="document-123",
         analyses={analysis.id: analysis},
         jobs={job.id: job},
     )
+    from anyfem.application.workflow import WorkbenchWorkflow
+    from anyfem.application.controller import WorkbenchController
+    from anyfem.model.project import Project
+    import time
+
+    class ReportApp(WorkbenchWorkflow):
+        def __init__(self,**fields):
+            self.workbench=WorkbenchController(project)
+            for name,value in fields.items():setattr(self,name,value)
+
+    callbacks=[]
     panel = ResultsPanel.__new__(ResultsPanel)
-    panel.app = SimpleNamespace(
+    panel.app = ReportApp(
         solution=None,
         active_job_id=job.id,
         result_datasets={job.id: dataset},
-        project=project,
-        session=SimpleNamespace(
-            revision=SimpleNamespace(document_hash="sha256:current")
-        ),
         _job_is_stale=lambda _record: False,
         set_status=lambda message, **_kwargs: messages.append(message),
+        scheduler=SimpleNamespace(call_later=lambda delay,callback:callbacks.append(callback)),
+        _closing=False,
     )
     monkeypatch.setattr(
         "anyfem.ui.panels.filedialog.asksaveasfilename",
         lambda **_kwargs: str(destination),
     )
 
-    panel._export_report()
-
-    assert destination.read_text(encoding="utf-8").startswith("<!doctype html>")
-    assert messages == [f"report written to {destination}"]
+    try:
+        panel._export_report()
+        # Publication/status settle through the real owner coordinator.
+        assert messages == []
+        deadline=time.monotonic()+5
+        while not messages:
+            if callbacks:callbacks.pop(0)()
+            assert time.monotonic()<deadline,"report export did not settle"
+            time.sleep(.002)
+        assert destination.read_text(encoding="utf-8").startswith("<!doctype html>")
+        assert messages == [f"Export completed from {job.id}: {destination}"]
+    finally:
+        panel.app.close_result_access()
+        panel.app._result_retirement.result(timeout=2)
+        panel.app.workbench.close()

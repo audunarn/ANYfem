@@ -577,9 +577,8 @@ class ResultsTask(QWidget):
     def frame_count(self):
         dataset=self.app.result_datasets.get(self.app.active_job_id)
         if self.use_retained() and dataset is not None:
-            if self.field_name() in dataset.field_keys:
-                frames=dataset.field(self.field_name()).descriptor.frames
-                if frames:return len(frames)
+            # Selection/playback use root frame ordinals; each stored quantity
+            # resolves that ordinal to its own (possibly sparse) local axis.
             return len(dataset.frames)
         solution=self.app.solution
         return len(getattr(solution,"shapes",()) or (solution,)) if solution is not None else 0

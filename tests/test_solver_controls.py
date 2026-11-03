@@ -18,6 +18,7 @@ class _StopAtSolver(RuntimeError):
 
 def _built():
     return SimpleNamespace(
+        project=SimpleNamespace(),
         fe_model=SimpleNamespace(),
         load_case=SimpleNamespace(),
         mesh=SimpleNamespace(),

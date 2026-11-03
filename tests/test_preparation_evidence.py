@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import pytest
 from anyfem import _preparation_context as context
+from _caller_planning_profile import caller_planning_profile
 
 
 def test_inactive_observation_does_not_read_plan():
@@ -43,6 +44,7 @@ def test_actual_serial_preparation_observes_one_original_plan(monkeypatch):
     assert not any(name.startswith('_anyfem') for name in vars(model))
 
 
+@caller_planning_profile
 def test_actual_parallel_preparation_without_invented_callback(monkeypatch,tmp_path):
     import json
     from anygeometry import GeometryModel
@@ -100,6 +102,7 @@ def test_real_callback_phase_and_original_exception_preserved(monkeypatch,invali
 
 
 @pytest.mark.parametrize('action',['model','exception','cancel'])
+@caller_planning_profile
 def test_actual_parallel_caller_callback_terminal_after_capture(monkeypatch,tmp_path,action):
     from anygeometry import GeometryModel
     from anygeometry._planning_executor import PlannerCancelled,PlannerSourceChanged

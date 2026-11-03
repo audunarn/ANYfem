@@ -2612,14 +2612,31 @@ class Project:
         # not a success guarantee: the owner pipeline still raises its own
         # typed errors.
         from anymesher.recovery import select_curvilinear_recovery_policy
+        recovery_explicit_controls = (explicit_curvilinear_controls
+            or any(key.startswith('native_') for key in parameters)
+            or 'quad_options' in parameters or 'layout_policy' in parameters
+            or any(key.startswith('quad_t3_') for key in parameters))
+        if (geometry_approximation_error is None and automation is None
+                and not recovery_explicit_controls and resolved_order == 'linear'
+                and str(getattr(resolved_certification, 'value', resolved_certification)) == 'interactive'
+                and str(getattr(requested_curvilinear_strategy, 'value', requested_curvilinear_strategy))
+                    in ('auto', 'automatic', 'quad_first')):
+            from anymesher.approximation_policy import resolve_geometry_approximation
+            resolution = resolve_geometry_approximation(
+                working, tuple(sorted(working.faces)), cancellation_check=cancellation_check)
+            if resolution.mode != 'not_applicable':
+                geometry_approximation_error = resolution.effective_error
+                # Keep the live owner field tied to this detached source. The
+                # mesher binds it to each recovery clone; it is never persisted.
+                supported_parameters.update(
+                    geometry_approximation_error=geometry_approximation_error,
+                    geometry_approximation_resolution=resolution,
+                    geometry_approximation_source=working)
         automation, curvilinear_recovery_selection = select_curvilinear_recovery_policy(
             working, requested_strategy=requested_curvilinear_strategy,
             order=resolved_order, certification_mode=resolved_certification,
             geometry_approximation_error=geometry_approximation_error,
-            explicit_controls=(explicit_curvilinear_controls
-                or any(key.startswith('native_') for key in parameters)
-                or 'quad_options' in parameters or 'layout_policy' in parameters
-                or any(key.startswith('quad_t3_') for key in parameters)),
+            explicit_controls=recovery_explicit_controls,
             automation=automation, face_ids=tuple(sorted(working.faces)),
             cancellation_check=cancellation_check)
         automatic_selection = None
@@ -2714,6 +2731,10 @@ class Project:
             }
             if cancellation_check is not None:
                 cancellation_check("mapped generation complete")
+            if quality_policy is not None or stored_quality:
+                from anymesher.hybrid import validate_mesh_quality
+                validate_mesh_quality(working, mesh, quality_options=structure_options,
+                                      cancellation_check=cancellation_check)
         else:
             meshing_parameters = dict(
                 target_size=resolved_size,
@@ -2757,6 +2778,10 @@ class Project:
                 ),
                 **supported_parameters,
             )
+            if quality_policy is not None or stored_quality:
+                # Preserve the entire owner policy even when the selected route
+                # does not use the structured layout generator.
+                meshing_parameters["quality_options"] = structure_options
             if curvilinear_recovery_selection is not None:
                 # Preserve the caller's exact quality settings on the existing
                 # native recovery recipe; only the meshing method is selected.
@@ -2794,6 +2819,9 @@ class Project:
                 mesh = None
                 if route.parallel:
                     try:
+                        if "quality_options" in meshing_parameters:
+                            raise ParallelMeshUnsupported(
+                                "explicit quality policy requires validated serial admission")
                         mesh = run_parallel_hybrid_mesh(
                             working,
                             meshing_parameters,

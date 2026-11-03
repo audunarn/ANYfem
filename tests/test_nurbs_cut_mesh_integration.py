@@ -48,7 +48,10 @@ def principal_project():
 
 
 @pytest.fixture
-def approximation_error():
+def approximation_error(monkeypatch):
+    # The registered acceptance profile owns one meshing worker; geometry
+    # planning keeps its separately configured eight-worker production route.
+    monkeypatch.setenv('ANYFEM_MESH_WORKERS', '1')
     value = os.environ.get('ANY_NURBS_ACCEPTANCE_ERROR')
     if value is None:
         raise pytest.UsageError('set ANY_NURBS_ACCEPTANCE_ERROR to the caller-approved positive document-unit bound')

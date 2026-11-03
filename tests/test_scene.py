@@ -290,9 +290,13 @@ def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_projec
         assert mesh.hybrid_diagnostics["automation"]["solver_admission"] == "ADMITTED"
     else:
         assert "automation" not in mesh.hybrid_diagnostics
+        previous_cache = project._mesh_preparation_cache
+        previous_preparation = project._last_mesh_preparation
         with pytest.raises(MeshError, match="quality"):
             project.generate_mesh(0.25,quality_policy={"minimum_angle":30.})
         assert to_dict(project.geometry) == before
+        assert project._mesh_preparation_cache is previous_cache
+        assert project._last_mesh_preparation is previous_preparation
     scene = build_mesh_scene(project, mesh)
     beam_elements = tuple(mesh.elements_of_edge[diagonal])
     beam_lines = [
@@ -304,6 +308,235 @@ def test_coplanar_diagonal_beam_is_connected_and_drawn_continuously(plate_projec
     shell_nodes = {node for shell in mesh.shells.values() for node in shell}
     coupled_nodes = {item.beam_node for item in mesh.couplings.values()}
     assert set(mesh.nodes_of_edge[diagonal]).issubset(shell_nodes | coupled_nodes)
+
+
+@pytest.fixture(scope="module")
+def requested_quality_mesh():
+    project, _face, _edges, points = plate_project.__wrapped__()
+    diagonal = project.geometry.add_line(points[0], points[2])
+    project.add_beam_section(BeamSection(name="diagonal", profile="Flatbar", material="S355",
+                                        flange_width=.05, flange_thickness=.02))
+    project.assign_beam(diagonal, "diagonal")
+    return project.generate_mesh(.25)
+
+
+@pytest.mark.parametrize("transport", ["quality_options", "structured_options"])
+@pytest.mark.parametrize("field,value", [("minimum_scaled_jacobian",.99),
+    ("maximum_aspect_ratio",1.),("minimum_angle",30.),("maximum_angle",100.),
+    ("maximum_warpage",0.),("max_element_growth",1.)])
+def test_owner_requested_quality_preserves_every_field_and_growth(requested_quality_mesh, transport, field, value):
+    # The producer is already fixed in this component test; the actual owner
+    # checker judges real shell coordinates, including a controlled warped copy.
+    from anymesher.hybrid import _admit_requested_quality
+    from anymesher.structured import StructuredMeshingOptions
+    from anymesher.serialize import mesh_to_dict, mesh_from_dict
+    from anymesher.errors import MeshError
+    from types import SimpleNamespace
+    mesh = mesh_from_dict(mesh_to_dict(requested_quality_mesh))
+    policy = dict(minimum_scaled_jacobian=.01, maximum_aspect_ratio=100., minimum_angle=1.,
+                  maximum_angle=179., maximum_warpage=1.)
+    if field == "maximum_warpage":
+        node = next(iter(mesh.quads.values()))[0]
+        point = np.asarray(mesh.nodes[node]).copy(); point[2] += .001
+        mesh.nodes[node] = point
+    values = {"quality_policy": policy, "max_element_growth": 100.}
+    if field == "max_element_growth": values[field] = value
+    else: policy[field] = value
+    options = StructuredMeshingOptions(**values)
+    result = SimpleNamespace(mesh=mesh)
+    producer = _admit_requested_quality(lambda **kwargs: result)
+    request = {transport: options}
+    if transport == "structured_options": request["quad_options"] = object()
+    with pytest.raises(MeshError, match="quality"):
+        producer(**request)
+
+
+def test_owner_default_none_quality_preserves_result_identity_and_public_signature(monkeypatch):
+    import inspect
+    import anymesher.hybrid as owner
+    marker = object(); calls = []
+    def producer(**kwargs): calls.append(kwargs); return marker
+    def forbidden(*args, **kwargs): pytest.fail("default None introduced a quality gate")
+    monkeypatch.setattr(owner, "_structured_quality_report", forbidden)
+    monkeypatch.setattr(owner, "_check_cancellation", forbidden)
+    monkeypatch.setattr(owner, "GeometryMeshingView", forbidden)
+    guarded = owner._admit_requested_quality(producer)
+    assert guarded(target_size=.25) is marker
+    assert guarded(target_size=.25, quality_options=None) is marker
+    assert calls == [{"target_size":.25}, {"target_size":.25}]
+    assert guarded(target_size=.25, cancellation_check=forbidden) is marker
+    assert calls[-1]["cancellation_check"] is forbidden
+    assert inspect.signature(owner.generate_hybrid_mesh_result).parameters["quality_options"].default is None
+
+
+def test_requested_quality_cancellation_during_report_is_terminal(plate_project, monkeypatch):
+    import threading
+    import anymesher.hybrid as owner
+    from anymesher.mesh import Mesh
+    from anymesher.errors import MeshError
+    from anymesher.structured import StructuredMeshingOptions
+    from types import SimpleNamespace
+    project, _face, _edges, _points = plate_project
+    event = threading.Event()
+    result = SimpleNamespace(mesh=Mesh())
+    def report(*args): event.set(); return {"accepted":True}
+    monkeypatch.setattr(owner, "_structured_quality_report", report)
+    guarded = owner._admit_requested_quality(lambda *args, **kwargs: result)
+    with pytest.raises(MeshError, match="cancelled"):
+        guarded(project.geometry, quality_options=StructuredMeshingOptions(),
+                cancellation_check=lambda phase:event.is_set())
+
+
+@pytest.mark.parametrize("when", ["start", "complete"])
+def test_requested_quality_callback_exception_identity(plate_project, monkeypatch, when):
+    import anymesher.hybrid as owner
+    from anymesher.mesh import Mesh
+    from anymesher.structured import StructuredMeshingOptions
+    from types import SimpleNamespace
+    project, _face, _edges, _points = plate_project
+    class Abort(BaseException): pass
+    error = Abort("original quality callback")
+    monkeypatch.setattr(owner, "_structured_quality_report", lambda *args:{"accepted":True})
+    guarded = owner._admit_requested_quality(lambda *args, **kwargs:SimpleNamespace(mesh=Mesh()))
+    def callback(phase):
+        if phase.endswith(when): raise error
+    with pytest.raises(Abort) as caught:
+        guarded(project.geometry, quality_options=StructuredMeshingOptions(), cancellation_check=callback)
+    assert caught.value is error
+
+
+@pytest.mark.parametrize("target", ["source", "mesh"])
+def test_requested_quality_normal_callback_mutation_refuses(plate_project, monkeypatch, target):
+    import anymesher.hybrid as owner
+    from anymesher.mesh import Mesh
+    from anymesher.errors import MeshError
+    from anymesher.structured import StructuredMeshingOptions
+    from types import SimpleNamespace
+    project, _face, _edges, _points = plate_project
+    mesh = Mesh()
+    monkeypatch.setattr(owner, "_structured_quality_report", lambda *args:{"accepted":True})
+    guarded = owner._admit_requested_quality(lambda *args, **kwargs:SimpleNamespace(mesh=mesh))
+    def callback(phase):
+        if phase.endswith("complete"):
+            if target == "source":project.geometry.add_point(9.,9.,9.)
+            else:mesh.nodes[99] = np.array([9.,9.,9.])
+    with pytest.raises(MeshError):
+        guarded(project.geometry, quality_options=StructuredMeshingOptions(), cancellation_check=callback)
+
+
+def test_explicit_quality_declines_parallel_before_dispatch_and_uses_owner_serial(plate_project, monkeypatch):
+    import anyfem.mesh_execution as execution
+    from types import SimpleNamespace
+    from anygeometry import to_dict
+    project, _face, _edges, _points = plate_project
+    before = to_dict(project.geometry)
+    monkeypatch.setattr(execution, "resolve_policy", lambda *args:SimpleNamespace(requests_parallel=True))
+    monkeypatch.setattr(execution, "parallel_mesh_api", lambda:object())
+    monkeypatch.setattr(execution, "resolve_route", lambda *args, **kwargs:
+                        SimpleNamespace(parallel=True, route="parallel", workers=2, reason="unit adapter"))
+    def forbidden(*args, **kwargs): pytest.fail("explicit quality request reached worker dispatch")
+    monkeypatch.setattr(execution, "run_parallel_hybrid_mesh", forbidden)
+    mesh = project.generate_mesh(.5, quality_policy=dict(minimum_scaled_jacobian=.01,
+        maximum_aspect_ratio=100., minimum_angle=1., maximum_angle=179., maximum_warpage=1.))
+    assert mesh.shells
+    assert project._last_mesh_execution["route"] == "serial"
+    assert "quality policy" in project._last_mesh_execution["reason"]
+    assert to_dict(project.geometry) == before
+
+
+def mapped_multiface_project(*, stretched=False):
+    # The existing two-mapped-plate fixture, with an explicit stretched variant.
+    project = Project("mapped quality")
+    width = 2.3 if stretched else 1.
+    vertices = project.geometry.add_points(((0.,0.,0.),(width,0.,0.),(width,1.,0.),
+        (0.,1.,0.),(2*width,0.,0.),(2*width,1.,0.)))
+    geometry = project.geometry
+    first = geometry.add_plate(vertices[:4])
+    shared = next(use.edge for use in geometry.faces[first].loop
+                  if {geometry.edges[use.edge].start,geometry.edges[use.edge].end} == {vertices[1],vertices[2]})
+    second_edges = (geometry.add_line(vertices[1],vertices[4]),
+                    geometry.add_line(vertices[4],vertices[5]),geometry.add_line(vertices[5],vertices[2]),shared)
+    second = geometry.add_face(second_edges,surface=geometry.faces[first].surface)
+    geometry.add_sheet((first,second))
+    return project
+
+
+def test_mapped_multiface_explicit_quality_preserves_grid_and_source(monkeypatch):
+    from anygeometry import to_dict
+    import anymesher.hybrid as owner
+    from anymesher.structured import StructuredMeshingOptions
+    project = mapped_multiface_project()
+    before = to_dict(project.geometry)
+    actual = owner.validate_mesh_quality
+    requests = []
+    def record(*args, **kwargs):
+        requests.append(kwargs["quality_options"])
+        return actual(*args, **kwargs)
+    monkeypatch.setattr(owner,"validate_mesh_quality",record)
+    ordinary = project.generate_mesh(.25, strategy="mapped")
+    assert requests == []
+    explicit = project.generate_mesh(.25, strategy="mapped", quality_policy={"minimum_angle":30.})
+    assert len(requests) == 1
+    expected = StructuredMeshingOptions(quality_policy={"minimum_angle":30.})
+    assert requests[0].to_dict() == expected.to_dict()
+    assert ordinary.hybrid_diagnostics["completed_phases"] == ["mapped_generation"]
+    assert explicit.hybrid_diagnostics["completed_phases"] == ["mapped_generation"]
+    assert set(ordinary.nodes) == set(explicit.nodes)
+    for node in ordinary.nodes:
+        np.testing.assert_array_equal(ordinary.nodes[node],explicit.nodes[node])
+    for name in ("quads","tris","beams","couplings","elements_of_face","elements_of_edge",
+                 "nodes_of_edge","node_of_vertex"):
+        assert getattr(ordinary,name) == getattr(explicit,name)
+    assert to_dict(project.geometry) == before
+
+
+def test_mapped_multiface_actual_aspect_violation_refuses_atomically():
+    from anygeometry import to_dict
+    from anymesher.errors import MeshError
+    from anymesher.quality import verify_mesh_quality
+    from anymesher.serialize import mesh_to_dict
+    project = mapped_multiface_project(stretched=True)
+    before = to_dict(project.geometry)
+    ordinary = project.generate_mesh(1., strategy="mapped")
+    assert ordinary.hybrid_diagnostics["completed_phases"] == ["mapped_generation"]
+    assert verify_mesh_quality(ordinary).max_aspect_ratio > 1.1
+    prior_mesh = mesh_to_dict(ordinary)
+    prior_cache = project._mesh_preparation_cache
+    prior_preparation = project._last_mesh_preparation
+    with pytest.raises(MeshError,match="quality"):
+        project.generate_mesh(1., strategy="mapped", quality_policy={"maximum_aspect_ratio":1.1})
+    assert to_dict(project.geometry) == before
+    assert mesh_to_dict(ordinary) == prior_mesh
+    assert project._mesh_preparation_cache is prior_cache
+    assert project._last_mesh_preparation is prior_preparation
+
+
+def test_mapped_multiface_quality_report_cancellation_preserves_prior_publication(monkeypatch):
+    import threading
+    import anymesher.hybrid as owner
+    from anymesher.errors import MeshError
+    from anygeometry import to_dict
+    from anymesher.serialize import mesh_to_dict
+    project = mapped_multiface_project()
+    before = to_dict(project.geometry)
+    prior = project.generate_mesh(.25,strategy="mapped")
+    prior_payload = mesh_to_dict(prior)
+    prior_cache = project._mesh_preparation_cache
+    prior_preparation = project._last_mesh_preparation
+    event = threading.Event()
+    actual = owner._structured_quality_report
+    def report(*args):
+        result = actual(*args)
+        event.set()
+        return result
+    monkeypatch.setattr(owner,"_structured_quality_report",report)
+    with pytest.raises(MeshError,match="cancelled"):
+        project.generate_mesh(.25,strategy="mapped",quality_policy={"minimum_angle":30.},
+                              cancellation_check=lambda phase:event.is_set())
+    assert to_dict(project.geometry) == before
+    assert mesh_to_dict(prior) == prior_payload
+    assert project._mesh_preparation_cache is prior_cache
+    assert project._last_mesh_preparation is prior_preparation
 
 
 def test_arcs_are_drawn_as_curves_not_chords():

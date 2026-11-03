@@ -302,11 +302,13 @@ def test_cancelled_quad_first_job_does_not_publish_partial_mesh() -> None:
     assert not any(event.kind == "completed" for event in events)
 
 
-def test_quad_first_unsupported_beam_requests_remain_typed():
+def test_quad_first_straight_boundary_b3_and_unsupported_curves_remain_typed():
     from anymesher.hybrid import generate_hybrid_mesh_result
     from anymesher.quad.options import QuadMeshingOptions
-    from anymesher.quad.public_integration import QuadPublicUnsupported
     from anymesher.errors import MeshError
+    from anygeometry import to_dict
+    from anymesher.serialize import mesh_to_dict, mesh_from_dict
+    import numpy as np
     from anyfem import steel
     from anyfem.model import BeamSection
 
@@ -326,8 +328,25 @@ def test_quad_first_unsupported_beam_requests_remain_typed():
     ))
     project.assign_plate(face, "plate")
     project.assign_beam(boundary, "beam")
-    with pytest.raises(QuadPublicUnsupported, match="source-boundary edge"):
-        project.generate_mesh(0.5, order="quadratic", strategy="quad_first")
+    before = to_dict(geometry)
+    mesh = project.generate_mesh(0.5, order="quadratic", strategy="quad_first")
+    assert mesh.order == "quadratic"
+    beam_ids = tuple(mesh.elements_of_edge[boundary])
+    assert beam_ids and all(len(mesh.beams[item]) == 3 for item in beam_ids)
+    stations = mesh.nodes_of_edge[boundary]
+    assert len(stations) == 2 * len(beam_ids) + 1
+    shell_nodes = {node for body in (*mesh.quads.values(), *mesh.tris.values()) for node in body}
+    assert set(stations) <= shell_nodes
+    for item in beam_ids:
+        start, middle, end = mesh.beams[item]
+        assert middle in stations
+        np.testing.assert_allclose(mesh.nodes[middle],
+            .5 * (np.asarray(mesh.nodes[start]) + np.asarray(mesh.nodes[end])), atol=1e-12, rtol=0.)
+    restored = mesh_from_dict(mesh_to_dict(mesh))
+    assert restored.beams == mesh.beams
+    assert restored.nodes_of_edge[boundary] == stations
+    assert restored.elements_of_edge[boundary] == mesh.elements_of_edge[boundary]
+    assert to_dict(geometry) == before
     start = geometry.add_point(0.0, 0.0, 1.0)
     middle = geometry.add_point(0.5, 0.5, 1.0)
     end = geometry.add_point(1.0, 0.0, 1.0)

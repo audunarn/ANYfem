@@ -309,8 +309,14 @@ def prepare_structural_connectivity(
         from anygeometry.surfaces import CoonsSurface, Cone, RuledSurface
         if all(isinstance(face.surface, (CoonsSurface, Cone, RuledSurface))
                for face in geometry.faces.values()):
+            from anygeometry.nurbs import NurbsCurve
+            raw_unassigned_sweeps = (not geometry.sheets and not geometry.members
+                and all(type(face.surface) is CoonsSurface and not face.surface.has_boundaries
+                    and face.parameterization is None and not face.holes
+                    and any(type(geometry.edges[use.edge].curve) is NurbsCurve for use in face.loop)
+                    for face in geometry.faces.values()))
             unavailable = set()
-            for face in geometry.faces:
+            for face in (() if raw_unassigned_sweeps else geometry.faces):
                 try:
                     query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
                 except GeometryError as error:
@@ -320,7 +326,7 @@ def prepare_structural_connectivity(
                             f"face {face} has an unsupported intersection surface"):
                         raise StructuralPreparationError(str(error)) from error
                     unavailable.add(face)
-            if unavailable == set(geometry.faces):
+            if raw_unassigned_sweeps or unavailable == set(geometry.faces):
                 # Preserve established curved authoring/discretization. The
                 # mesher performs its qualified ownership audit on a detached
                 # candidate; general interior Coons joints are not inferred.
@@ -618,7 +624,8 @@ def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
     if shell_ids and requires_material_source_transfer(closure.working_model, mesh):
         if source_geometry is None:
             raise StructuralPreparationError(
-                'curvilinear source publication requires live source geometry')
+                'curvilinear source publication requires live source geometry '
+                'and live owner source-cell authority')
         try:
             from anymesher import publish_model_closure_mesh_to_source
         except ImportError as error:

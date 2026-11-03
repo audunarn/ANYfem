@@ -142,9 +142,24 @@ def test_qt_gif_cancel_releases_images_and_nonspatial_play_stops():
     ResultsTask._cancel_gif_capture(panel);assert panel._gif_capture is None and images==[]
     stopped=[];canvas=SimpleNamespace(begin_animation_cache=lambda:None,stop_animation=lambda:stopped.append(True))
     app=SimpleNamespace(result_datasets={},active_job_id='a',shape_index=0,session=object(),_closing=False,viewport=SimpleNamespace(canvas=canvas))
+    # Drive the current demand-driven controller with a deferred nonspatial
+    # cancellation, rather than the retired direct play/show_results shortcut.
+    pending=[]
+    app.scheduler=SimpleNamespace(call_later=lambda delay,callback:None,cancel_call=lambda token:None)
+    app.invalidate_result_requests=lambda:None
     panel=SimpleNamespace(app=app,playback_fps=lambda:10.,frame_count=lambda:1,_set_frame_index=lambda value:None,
-        show_results=lambda **kw:kw['on_cancel']())
-    ResultsTask.play(panel);assert stopped==[True]
+        animation_frames=lambda:(0,),envelope=SimpleNamespace(isChecked=lambda:False),
+        preprocess_first=SimpleNamespace(isChecked=lambda:False),_playback=None,
+        playback_status=SimpleNamespace(setText=lambda text:None),frame=SimpleNamespace(value=lambda:0),
+        _playback_context=lambda:('current nonspatial selection',),
+        show_results=lambda **kw:pending.append(kw['on_cancel']))
+    for name in ('stop_playback','_start_playback','_stream_frame','_playback_changed','cancel_pending_display'):
+        setattr(panel,name,MethodType(getattr(ResultsTask,name),panel))
+    ResultsTask.play(panel)
+    assert panel._playback.active and panel._playback.inflight and len(pending)==1
+    stopped.clear()  # Count the cancellation transition, after launch cleanup.
+    pending.pop()()
+    assert stopped==[True] and not panel._playback.active and not panel._playback.inflight
 
 
 def test_paired_nan_full_axes_are_ordinal_without_inventing_values(tmp_path):

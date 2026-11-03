@@ -266,6 +266,8 @@ def test_metadata_waiter_failure_does_not_strand_later_waiters(phase):
 
 def test_real_metadata_continuation_failure_settles_each_waiter_once():
     from anyfem.application.workflow import WorkbenchWorkflow
+    from anyfem.application.controller import WorkbenchController
+    from anyfem.model.project import Project
 
     class Scheduler:
         def __init__(self):self.callbacks=[]
@@ -274,15 +276,18 @@ def test_real_metadata_continuation_failure_settles_each_waiter_once():
             callbacks,self.callbacks=self.callbacks,[]
             for callback in callbacks:callback()
     class App(WorkbenchWorkflow):
-        solution=None;project=None;mesh=None
         def refresh_panels(self):pass
         def set_status(self,text,**options):messages.append((text,options))
-    app=App();app.scheduler=Scheduler();app._closing=False;app.panels={}
+    app=App();app.workbench=WorkbenchController(Project())
+    app.scheduler=Scheduler();app._closing=False;app.panels={}
     events=[];messages=[];entered=Event();release=Event()
     def prepare():
         entered.set()
         assert release.wait(5)
     dataset=SimpleNamespace(metadata_ready=False,prepare_metadata=prepare,close=lambda:None)
+    # Metadata continuations belong to a registered source, independently of the
+    # displayed job. An unregistered source is correctly cancelled by workflow.
+    app.result_datasets={'job':dataset}
     def fail():
         events.append('first ready');raise RuntimeError('continuation refused')
     try:
@@ -297,3 +302,4 @@ def test_real_metadata_continuation_failure_settles_each_waiter_once():
         assert not app._result_metadata_preparations
     finally:
         release.set();app.close_result_access();app._closing=True
+        app.workbench.close()
