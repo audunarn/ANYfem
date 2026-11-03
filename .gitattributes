@@ -1,1 +1,4 @@
 tools/run_qt_wsl.sh text eol=lf
+
+# Preserve qualified admission source bytes, including mixed line endings.
+src/anyfem/_preparation_context.py -text
