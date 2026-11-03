@@ -22,7 +22,25 @@ def curved_geometry():
     return project.geometry
 
 
-def test_curved_closure_requests_temporary_owner_policy_only_on_working_copy(monkeypatch):
+@pytest.fixture
+def legacy_curved_chart_refusal(monkeypatch):
+    """Exercise the fallback adapter boundary, not fresh geometric qualification."""
+    import anygeometry
+    from anygeometry.errors import GeometryError
+    from anygeometry.surfaces import CoonsSurface
+
+    def refuse(geometry, face_ids):
+        assert not geometry.sheets and not geometry.members
+        assert len(face_ids) == 1
+        handle = face_ids[0]
+        assert handle.kind == 'face' and handle.model_id == geometry.model_id
+        assert isinstance(geometry.faces[handle.id].surface, CoonsSurface)
+        raise GeometryError(f'face {handle.id} has curved Coons boundaries')
+
+    monkeypatch.setattr(anygeometry, 'query_trimmed_surface_charts', refuse)
+
+
+def test_curved_closure_requests_temporary_owner_policy_only_on_working_copy(monkeypatch, legacy_curved_chart_refusal):
     import anymesher.preparation
     source = curved_geometry()
     before = to_dict(source)
@@ -43,7 +61,7 @@ def test_curved_closure_requests_temporary_owner_policy_only_on_working_copy(mon
     assert to_dict(source) == before
 
 
-def test_curved_owner_policy_preserves_owner_refusal(monkeypatch):
+def test_curved_owner_policy_preserves_owner_refusal(monkeypatch, legacy_curved_chart_refusal):
     import anymesher.preparation
     from anymesher.errors import MeshError
     source = curved_geometry()
@@ -55,6 +73,30 @@ def test_curved_owner_policy_preserves_owner_refusal(monkeypatch):
     monkeypatch.setattr(anymesher.preparation, 'prepare_structural_closure', refuse)
     with pytest.raises(StructuralPreparationError, match='curved overlap remains unqualified'):
         prepare_structural_connectivity(source.clone())
+    assert to_dict(source) == before
+
+
+def test_admitted_curved_charts_use_public_route_without_legacy_owner_fallback(monkeypatch):
+    import anymesher.preparation
+    from anygeometry import query_trimmed_surface_charts
+    from anygeometry.surfaces import CoonsSurface
+
+    source = curved_geometry()
+    before = to_dict(source)
+    working = source.clone()
+    assert not working.sheets and not working.members
+    assert all(isinstance(face.surface, CoonsSurface) for face in working.faces.values())
+    handles = tuple(working.handle('face', face) for face in working.faces)
+    assert query_trimmed_surface_charts(working, handles) is not None
+
+    def unexpected(*args, **kwargs):
+        pytest.fail('admitted real charts entered the legacy owner fallback')
+
+    monkeypatch.setattr(anymesher.preparation, 'prepare_structural_closure', unexpected)
+    # Real owner chart admission and public serial preparation remain covered;
+    # neither this test nor the injected adapter branch issues new qualification.
+    monkeypatch.setenv('ANYGEOMETRY_EXPERIMENTAL_PARALLEL_PLANNING', '0')
+    prepare_structural_connectivity(working)
     assert to_dict(source) == before
 
 

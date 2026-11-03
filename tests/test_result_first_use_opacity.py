@@ -103,6 +103,7 @@ class Canvas:
 
 def opacity_view(mode='Shaded with edges'):
     view = SceneViewport.__new__(SceneViewport)
+    view._construction_task = None
     view.canvas = Canvas(); view._visualization = VisualizationStyle(render_mode=mode)
     face = SimpleNamespace(removed=False, mesh=SimpleNamespace(element_scalars=np.array([2.])))
     line = SimpleNamespace(removed=False, mesh=SimpleNamespace(element_scalars=np.array([3.])))

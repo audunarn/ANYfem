@@ -4,6 +4,11 @@ from types import SimpleNamespace
 import copy
 import json
 import math
+import builtins
+import hashlib
+import importlib.metadata
+from pathlib import Path
+import sys
 import numpy as np
 import pytest
 from test_pressure_remap import source_bank
@@ -27,11 +32,37 @@ from anymesher.serialize import mesh_to_dict
 
 BOTTOM=1025.*9.81*1.5
 
+def _synthetic_retained_preview(history, settings, cache_directory):
+    """Real legacy migration with explicit test-only metadata, never a BEM provider.
+
+    The owner migration needs a fingerprint to namespace its retained records.
+    This seam exists only while constructing this synthetic pressure fixture;
+    actual preview/application assertions run after every patch is restored.
+    """
+    import anyhydro.excitation_cache as hydro
+    fixture_path = Path(__file__).resolve()
+    fingerprint = dict(backend='capytaine', version='synthetic-retained-fixture-v1', path=str(fixture_path),
+        code={str(fixture_path): hashlib.sha256(fixture_path.read_bytes()).hexdigest()},
+        numpy=np.__version__, scipy=importlib.metadata.version('scipy'), recipe=hydro.RECIPE)
+    original_import = builtins.__import__
+    def forbidden(*args, **kwargs):
+        raise AssertionError('synthetic retained fixture must not prepare BEM')
+    def import_without_provider(name, *args, **kwargs):
+        if name == 'capytaine' or name.startswith('capytaine.'):
+            forbidden()
+        return original_import(name, *args, **kwargs)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(hydro, 'backend_fingerprint', lambda: dict(fingerprint))
+        patch.setattr(hydro, 'prepare_excitation_bank', forbidden)
+        patch.setattr(builtins, '__import__', import_without_provider)
+        return migrate_retained_preview(history, settings, cache_directory=cache_directory)
+
+
 
 def regular_retained(tmp_path):
     p,old,new=barge_meshes();history,bank,realization=original_history(p,old,regular=True)
     config=RegularWaveInput(height=1.,period=2*math.pi/.7,phase=math.degrees(.3))
-    payload=migrate_retained_preview(history,asdict(config),cache_directory=tmp_path)
+    payload=_synthetic_retained_preview(history,asdict(config),tmp_path)
     return p,old,new,config,payload
 
 
@@ -292,7 +323,7 @@ def test_forged_or_unpaired_static_stays_untrusted_and_still_exact(tmp_path,monk
 def retained_force_record(tmp_path):
     """Minimal retained-history fixture shared with the wave-window contract."""
     project, old, new, config, history, _ = irregular_record()
-    payload = migrate_retained_preview(history, asdict(config), cache_directory=tmp_path)
+    payload = _synthetic_retained_preview(history, asdict(config), tmp_path)
     retained = SourceAwarePressureHistory(
         history.mapped_history, history.source_payload_json, history.realization_json, history.domain_json,
         record_times=history.times, selected_window=(history.times[0], history.times[-1]),
@@ -313,3 +344,45 @@ def irregular_record():
         bank.heading, mesh_hash, bank.bank_id, json.dumps(realization.to_dict()), json.dumps(dict(settings=asdict(config))))
     history = bridge.retain_pressure_source(history, bank, realization, project)
     return project, old, new, config, history, None
+
+
+def test_synthetic_retained_fixture_restores_backend_and_preserves_source(tmp_path):
+    import anyhydro.excitation_cache as hydro
+    project, old, _ = barge_meshes()
+    history, bank, _ = original_history(project, old, regular=True)
+    config = RegularWaveInput(height=1., period=2*math.pi/.7, phase=math.degrees(.3))
+    before_history = history.to_dict()
+    before_bank = bank.to_dict()
+    before = (hydro.backend_fingerprint, hydro.prepare_excitation_bank, builtins.__import__)
+    providers = {name for name in sys.modules if name == 'capytaine' or name.startswith('capytaine.')}
+    payload = _synthetic_retained_preview(history, asdict(config), tmp_path)
+    assert (hydro.backend_fingerprint, hydro.prepare_excitation_bank, builtins.__import__) == before
+    assert providers == {name for name in sys.modules if name == 'capytaine' or name.startswith('capytaine.')}
+    assert history.to_dict() == before_history and bank.to_dict() == before_bank
+    forces = hydro.ExcitationResponseBank.from_dict(payload['excitation_bank'])
+    request = json.loads(forces.request_json)
+    assert request['backend']['version'] == 'synthetic-retained-fixture-v1'
+    assert request['migration']['original_pressure_bank_id'] == bank.bank_id
+    recovered = hydro.recover_pressure_bank(forces, cache_directory=tmp_path)
+    np.testing.assert_array_equal(recovered.vertices, bank.vertices)
+    np.testing.assert_array_equal(recovered.faces, bank.faces)
+    bound = 1e-12*max(1., float(np.max(np.abs(bank.responses))))
+    assert np.max(np.abs(recovered.responses-bank.responses)) <= bound
+
+
+@pytest.mark.parametrize('failure', ['prepare', 'provider_import', 'migration'])
+def test_synthetic_retained_fixture_blocks_bem_and_restores_after_failure(tmp_path, monkeypatch, failure):
+    import anyhydro.excitation_cache as hydro
+    before = (hydro.backend_fingerprint, hydro.prepare_excitation_bank, builtins.__import__)
+    def attempt(*args, **kwargs):
+        if failure == 'prepare':
+            return hydro.prepare_excitation_bank(None, None, None, None)
+        if failure == 'provider_import':
+            return builtins.__import__('capytaine')
+        raise RuntimeError('synthetic migration failure')
+    monkeypatch.setitem(globals(), 'migrate_retained_preview', attempt)
+    expected = RuntimeError if failure == 'migration' else AssertionError
+    message = 'synthetic migration failure' if failure == 'migration' else 'synthetic retained fixture must not prepare BEM'
+    with pytest.raises(expected, match=message):
+        _synthetic_retained_preview(object(), {}, tmp_path)
+    assert (hydro.backend_fingerprint, hydro.prepare_excitation_bank, builtins.__import__) == before

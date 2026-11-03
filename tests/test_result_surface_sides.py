@@ -35,6 +35,7 @@ class View(SceneViewport):
     def __init__(self, scene, render_mode):
         from any3dview import PickBinding, PickOwner
 
+        self._construction_task = None
         self.canvas = Canvas()
         self._visualization = VisualizationStyle(render_mode=render_mode)
         self._commercial_selection = True

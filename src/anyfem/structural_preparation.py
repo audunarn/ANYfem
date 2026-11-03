@@ -616,9 +616,26 @@ def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
         raise StructuralPreparationError(
             'the installed mesher lacks the material source-transfer routing contract') from error
     if shell_ids and requires_material_source_transfer(closure.working_model, mesh):
-        raise StructuralPreparationError(
-            'curvilinear project source remapping requires qualified owner source-cell '
-            'and parameter-transfer authority, unavailable in this delivery')
+        if source_geometry is None:
+            raise StructuralPreparationError(
+                'curvilinear source publication requires live source geometry')
+        try:
+            from anymesher import publish_model_closure_mesh_to_source
+        except ImportError as error:
+            raise StructuralPreparationError(
+                'the installed mesher lacks the owner source-publication service') from error
+        from anymesher.errors import MeshError
+        try:
+            publish_model_closure_mesh_to_source(
+                source_geometry, closure, mesh,
+                cancellation_check=cancellation_check,
+                qualification=qualification)
+        except (MeshError, GeometryError) as error:
+            raise StructuralPreparationError(str(error)) from error
+        # The owner proves coverage/parameter transfer and publishes all source
+        # associations atomically. Generic ID aggregation below cannot replace
+        # that proof and must not rewrite the owner-published record.
+        return
 
     qualified_authority: dict[str, Any] | None = None
     preparation = getattr(mesh, "structural_preparation", None)

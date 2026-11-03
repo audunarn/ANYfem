@@ -35,7 +35,8 @@ def preparation_case(elements=3, polygons_per_element=4):
     scene = Scene(faces=[patch],
                   lines=[Polyline(MeshEntityRef('element', eid), triangle[:2].copy(), color='#234567') for eid in ids],
                   result_field=field, result_mesh=mesh)
-    retained = (b'geometry', [], (np.array(polygon_ids), np.array(ids)), mesh)
+    batch_ids = (np.array(polygon_ids), np.array(ids))
+    retained = (b'geometry', [], batch_ids, mesh, (None,) * len(batch_ids))
     return field, scene, retained
 
 
@@ -121,7 +122,7 @@ def test_distinct_source_meshes_do_not_share_means(monkeypatch):
     field, scene, retained = preparation_case(elements=1)
     field.node_values = {1: .1, 2: .2, 3: .8, 4: .9}
     gpu_mesh = SimpleNamespace(shells={1: (3, 4)}, beams={})
-    retained = (*retained[:3], gpu_mesh)
+    retained = (*retained[:3], gpu_mesh, *retained[4:])
     expected = expected_outputs(field, scene, retained)
     original = np.mean
     calls = []
@@ -202,7 +203,7 @@ def test_native_mesh_avoids_rebuilding_shells_preserving_precedence_and_mutation
     mesh = Mesh(quads={1: (1, 2), 2: (1,)}, tris={2: (3, 4)},
                 beams={1: (6,), 2: (6,), 3: (5, 6)})
     scene.result_mesh = mesh
-    retained = (*retained[:3], mesh)
+    retained = (*retained[:3], mesh, *retained[4:])
     expected = expected_outputs(field, scene, retained)
     budget = {'working_bytes': estimate(scene, retained)} if tight_cap else {}
     profile = cProfile.Profile()
@@ -233,7 +234,7 @@ def test_custom_mesh_shell_property_keeps_original_access_behavior():
     field, scene, retained = preparation_case()
     mesh = CustomMesh(quads=dict(scene.result_mesh.shells), beams=dict(scene.result_mesh.beams))
     scene.result_mesh = mesh
-    retained = (*retained[:3], mesh)
+    retained = (*retained[:3], mesh, *retained[4:])
     expected = expected_outputs(field, scene, retained)
     mesh.shell_reads = 0
     prepare_warm_field(field, scene, retained, **OPTIONS)

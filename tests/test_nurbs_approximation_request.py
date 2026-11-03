@@ -36,16 +36,21 @@ def test_project_bound_reaches_mesh_and_invalidates_preparation_cache(monkeypatc
     captured = []
     before = to_dict(project.geometry)
     def generate(_geometry, **kwargs):
-        captured.append(kwargs['geometry_approximation_error'])
+        # Planar owner classification keeps the bound as metadata/cache state;
+        # only an owner-qualified curved route forwards it to the mesher.
+        captured.append('geometry_approximation_error' in kwargs)
         return SimpleNamespace(hybrid_diagnostics={})
     monkeypatch.setattr(project_module, 'generate_hybrid_mesh', generate)
     project.generate_mesh(strategy='native', geometry_approximation_error=.01,
                           execution_policy=MeshExecutionPolicy.off())
     first_key = project._mesh_preparation_cache[0]
+    assert first_key[-1] == .01
+    assert project._last_mesh_preparation['geometry_approximation_error'] == .01
     project.generate_mesh(strategy='native', geometry_approximation_error=.001,
                           execution_policy=MeshExecutionPolicy.off())
     assert first_key != project._mesh_preparation_cache[0]
-    assert captured == [.01, .001]
+    assert captured == [False, False]
+    assert project._mesh_preparation_cache[0][-1] == .001
     assert project._last_mesh_preparation['geometry_approximation_error'] == .001
     assert to_dict(project.geometry) == before
 
@@ -59,7 +64,9 @@ def test_persisted_approximation_setting_round_trips_and_reaches_component_reque
     assert dict(restored.native_mesh_settings.parameters)['geometry_approximation_error'] == .01
     seen = []
     def generate(_geometry, **kwargs):
-        seen.append(kwargs['geometry_approximation_error'])
+        # Persistence/request authority survives even when planar generation
+        # deliberately omits the unsupported curved-route mesher keyword.
+        seen.append('geometry_approximation_error' in kwargs)
         return SimpleNamespace(mesh=object(), certifiable=False, strategy_by_face={})
     monkeypatch.setattr(backend_module, 'generate_hybrid_mesh_result', generate)
     component = project.geometry.handle('sheet', sheet)
@@ -69,8 +76,9 @@ def test_persisted_approximation_setting_round_trips_and_reaches_component_reque
             snapshot=session.capture_component(component), component=component,
             settings=settings, controls=(), backend=MeshBackend.NATIVE,
             certification_mode=CertificationMode.INTERACTIVE, changes=None)
+        assert request.settings.to_dict()['parameters']['geometry_approximation_error'] == .01
         session.generate_component(request)
-    assert seen == [.01]
+    assert seen == [False]
 
 
 def test_project_positive_fraction_normalizes_before_forwarding(monkeypatch):
@@ -78,12 +86,17 @@ def test_project_positive_fraction_normalizes_before_forwarding(monkeypatch):
     project, _ = sheet_project()
     captured = []
     def generate(_geometry, **kwargs):
-        captured.append(kwargs['geometry_approximation_error'])
+        captured.append('geometry_approximation_error' in kwargs)
         return SimpleNamespace(hybrid_diagnostics={})
     monkeypatch.setattr(project_module, 'generate_hybrid_mesh', generate)
     project.generate_mesh(strategy='native', geometry_approximation_error=Fraction(1,100),
                           execution_policy=MeshExecutionPolicy.off())
-    assert captured == [.01] and type(captured[0]) is float
+    # Normalization is observed at the retained authority boundary, rather
+    # than by forwarding a curved-only keyword for this planar fixture.
+    bound = project._last_mesh_preparation['geometry_approximation_error']
+    assert captured == [False]
+    assert bound == .01 and type(bound) is float
+    assert project._mesh_preparation_cache[0][-1] == bound
 
 
 def curved_project():

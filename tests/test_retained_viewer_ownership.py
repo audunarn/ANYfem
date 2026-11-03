@@ -6,6 +6,7 @@ import pytest
 
 from anyfem.post.fields import Field
 from anyfem.presentation.viewport import SceneViewport
+from anyfem.presentation.visualization import VisualizationStyle
 from anyfem.ui.scene import Scene
 
 
@@ -62,6 +63,7 @@ class Canvas:
 class View(SceneViewport):
     def __init__(self, canvas):
         self._construction_task=None
+        self._visualization=VisualizationStyle()
         self._sketch_coordinates=SimpleNamespace(bind=lambda:None,sync=lambda:None)
         self.canvas = canvas
         self._retained_result = self._retained_result_canvas = None
@@ -74,6 +76,7 @@ class View(SceneViewport):
         self.layout = SimpleNamespace(replaceWidget=lambda old, new: None)
 
     def cancel_plate(self): pass
+    def hide_location(self): pass
     def _cancel_interaction_restore(self): pass
     def _restore_full_scene(self): pass
     def _configure_canvas(self, canvas): pass
@@ -93,7 +96,7 @@ def view(monkeypatch):
     from anyfem.presentation import retained_results
 
     def prepare(view, scene):
-        mesh = SimpleNamespace(element_scalars=np.array([0.]), element_ids=np.array([1]))
+        mesh = SimpleNamespace(element_scalars=np.array([0.]), element_ids=np.array([1]), node_scalars=None)
         return b"same-geometry", [(mesh, {})], Scene()
 
     monkeypatch.setattr(retained_results, "prepare", prepare)
