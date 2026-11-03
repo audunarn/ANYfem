@@ -374,7 +374,15 @@ def prepare_structural_connectivity(
                 isinstance(geometry.edges[use.edge].curve, NurbsCurve)
                 for use in face.loop)
             for face in geometry.faces.values()))
-    if bounded_hint:
+    faces = tuple(geometry.faces.values())
+    # Necessary family hint only: the public batch owner still proves the
+    # complete material relation, source binding and actual CONNECT ownership.
+    same_support_hint = (not active_members and len(faces) >= 2
+        and all(type(face.surface) is NurbsSurface
+            and (face.parameterization is None or face.parameterization is face.surface)
+            for face in faces)
+        and all(face.surface == faces[0].surface for face in faces))
+    if bounded_hint or same_support_hint:
         operands = tuple(geometry.handle('face', face) for face in sorted(geometry.faces))
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
