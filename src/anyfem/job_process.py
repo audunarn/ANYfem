@@ -50,6 +50,7 @@ from copy import deepcopy
 from typing import Any, Callable, Mapping
 
 from ._transport_spool import SPOOL_MEMORY_BYTES, BoundedSpool, TransportSpoolError
+from ._preparation_context import require_preparation, requires_preparation
 
 __all__ = [
     "WorkerProcessError",
@@ -108,7 +109,7 @@ def _restore_geometry_definition(document, preparation_invalidated):
     from anygeometry import from_dict
     model = from_dict(document)
     if preparation_invalidated:
-        model._anyfem_transport_requires_preparation = True
+        require_preparation(model)
     return model
 
 
@@ -125,9 +126,8 @@ class _TransportPickler(pickle.Pickler):
         # deliberately not authority that can travel to another process.
         from anygeometry import GeometryModel, to_dict
         if type(value) is GeometryModel:
-            invalidated = any(hasattr(value, name) for name in (
-                "_intersection_preparation_receipt", "_edge_subcurve_preimages_receipt",
-                "_anyfem_transport_requires_preparation"))
+            invalidated = requires_preparation(value) or any(hasattr(value, name) for name in (
+                "_intersection_preparation_receipt", "_edge_subcurve_preimages_receipt"))
             return (_restore_geometry_definition, (to_dict(value), invalidated))
         return NotImplemented
 

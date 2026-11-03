@@ -373,7 +373,8 @@ def prepare_structural_connectivity(
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
         return False
-    policy = IntersectionBatchPolicy(ConnectionIntent.CONNECT, cancellation_check=cancelled)
+    policy = IntersectionBatchPolicy(ConnectionIntent.CONNECT,
+        cancellation_check=None if cancellation_check is None else cancelled)
     # Report physical design-owner connections rather than one event per
     # cylindrical panel. Topology still retains every exact panel relation.
     sheets = _face_sheet_map(geometry)
@@ -387,6 +388,8 @@ def prepare_structural_connectivity(
         return f"face:{representatives[key]}"
     try:
         plan = plan_intersections(geometry, operands, policy=policy)
+        from ._preparation_context import _record_preparation_plan
+        _record_preparation_plan(plan)
         pairs = set()
         for arrangement in plan.arrangements:
             for path in arrangement.paths:
@@ -404,10 +407,6 @@ def prepare_structural_connectivity(
             for index, first in enumerate(members):
                 pairs.update((f"member:{first}", f"member:{second}") for second in members[index+1:])
         application = apply_intersections(geometry, plan, policy=policy)
-        # Only a successful owner preparation restores the local mapping route.
-        # A process transport itself never transfers preparation authority.
-        if hasattr(geometry, '_anyfem_transport_requires_preparation'):
-            del geometry._anyfem_transport_requires_preparation
     except GeometryError as error:
         if "positive-area" in str(error):
             raise StructuralPreparationError(
@@ -443,7 +442,19 @@ def prepare_structural_connectivity(
         tuple(dict.fromkeys(pair_relations.get((first,second), relations))))
         for first, second in sorted(pairs))
     report.working_revision = int(geometry.revision)
-    return report
+    # Report construction is part of this preparation call. Preserve the
+    # obligation if it fails or is interrupted after the owner apply succeeds.
+    from ._preparation_context import (
+        preparation_completed, require_preparation, requires_preparation,
+    )
+    required_before_completion = requires_preparation(geometry)
+    try:
+        preparation_completed(geometry)
+        return report
+    except BaseException:
+        if required_before_completion:
+            require_preparation(geometry)
+        raise
 
 
 def source_edge_paths(closure: ModelClosure) -> dict[int, tuple[tuple[int, bool], ...]]:
@@ -465,7 +476,8 @@ def source_edge_paths(closure: ModelClosure) -> dict[int, tuple[tuple[int, bool]
     try:
         binding = query(geometry)
     except GeometryError as error:
-        if getattr(geometry, '_anyfem_transport_requires_preparation', False):
+        from ._preparation_context import requires_preparation
+        if requires_preparation(geometry):
             raise StructuralPreparationError(
                 'transported geometry requires fresh owner preparation before source-edge mapping') from error
         if str(error) in ("edge subcurve provenance requires a complete current preparation",
