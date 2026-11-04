@@ -69,12 +69,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 6d302a7693c3d56a687a6300ebf773b111d7fd44
+          ref: 82a2efc0171cb1495d8d90293c0ecadbddb585c4
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 158e999992be057f069ab229b031e9528a9812bd
+          ref: 48ad3ef532dfc278d1ee69f372b8baea4c5d892e
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -233,12 +233,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 6d302a7693c3d56a687a6300ebf773b111d7fd44
+          ref: 82a2efc0171cb1495d8d90293c0ecadbddb585c4
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 158e999992be057f069ab229b031e9528a9812bd
+          ref: 48ad3ef532dfc278d1ee69f372b8baea4c5d892e
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
