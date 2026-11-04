@@ -29,12 +29,12 @@ on:
         description: Exact ANYgeometry commit with component planning and binding contracts
         required: true
         type: string
-        default: 9d2abf6ac7659350a043501b0630a3d4fd20ea18
+        default: 78fba3ac266e53e6edddab2850875aff562316e6
       mesher_ref:
         description: Exact ANYmesh commit with opt-in component parallel meshing and pool lifecycle
         required: true
         type: string
-        default: b6f7cf466865b1c4c34b8e5511ace97d00290f6c
+        default: 8cddc735022c23d540c7c1a7299ba0c9455558b1
       schema6_fixtures:
         description: Run owner-generated schema-6 consumer checks with the selected geometry/mesher candidates
         required: true
@@ -73,10 +73,16 @@ jobs:
           # Updated Q4/S3 owner laws, same as the headless matrix.
           ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
+      # Results-only API repair: preserve the physical solver revision above.
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
+          path: .ecosystem/ANYsolver-results
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: 4bcb60f0476bd4278f683653c652a909678308df
+          ref: 630133c46d286bee74c0d681984c5c0d6a210905
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
@@ -101,12 +107,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: ${{ inputs.geometry_ref || '9d2abf6ac7659350a043501b0630a3d4fd20ea18' }}
+          ref: ${{ inputs.geometry_ref || '78fba3ac266e53e6edddab2850875aff562316e6' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'b6f7cf466865b1c4c34b8e5511ace97d00290f6c' }}
+          ref: ${{ inputs.mesher_ref || '8cddc735022c23d540c7c1a7299ba0c9455558b1' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -136,7 +142,7 @@ jobs:
           ANYMESHER_REQUIRE_NATIVE: '1'
           ANYMESHER_DISABLE_NATIVE: '0'
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYhydro -e .ecosystem/ANYstability -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e .ecosystem/ANYsolver/packages/results -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYhydro -e .ecosystem/ANYstability -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e .ecosystem/ANYsolver-results/packages/results -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
           python -m pip install -e ".[dev,qt,tk]"
       - name: Default and explicit frontend launcher contracts
         run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q
