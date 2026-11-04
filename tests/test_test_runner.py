@@ -1,4 +1,5 @@
 """Execution boundaries and evidence integrity for the development runner."""
+import ast
 import importlib.util
 import json
 import os
@@ -15,6 +16,236 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("test_anyfem_runner", ROOT / "tools/test_anyfem.py")
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
+
+
+def test_owned_windows_spawn_waits_for_assignment_before_go(monkeypatch, tmp_path):
+    from tools import _owned_test_process as owned
+    calls = []
+    class Process:
+        _handle = 123
+        pid = 456
+        stdout = None
+        def kill(self): calls.append("kill")
+        def wait(self, timeout=None): return 0
+    monkeypatch.setattr(owned, "_create_kill_on_close_job", lambda: "job")
+    def assign(job, process):
+        assert not list(tmp_path.rglob("GO"))
+        calls.append((job, process._handle))
+    monkeypatch.setattr(owned, "_assign_owned_process", assign)
+    monkeypatch.setattr(owned.subprocess, "Popen", lambda argv, **kw: calls.append(argv) or Process())
+    replace = owned.os.replace
+    def publish(pending, gate):
+        assert pending.name == "GO.pending" and pending.read_text() == "GO"
+        assert not gate.exists(), "GO must not be visible before its complete contents"
+        calls.append("publish complete GO")
+        replace(pending, gate)
+    monkeypatch.setattr(owned.os, "replace", publish)
+    process = owned.start_windows_process([sys.executable, "-c", "pass"],
+                                         cwd=ROOT, env=os.environ.copy(), gate_root=tmp_path)
+    assert calls[0][1:3] == ["-I", "-S"]
+    assert calls[1] == ("job", 123)
+    assert calls[2] == "publish complete GO"
+    assert process._gate.exists()
+    # This unit uses no native Job; disposal is covered by real-child controls.
+    process._directory.cleanup()
+
+
+def test_owned_windows_assignment_failure_never_releases_go(monkeypatch, tmp_path):
+    from tools import _owned_test_process as owned
+    calls = []
+    class Process:
+        _handle = 123
+        pid = 456
+        def kill(self): calls.append("kill")
+        def wait(self, timeout=None): calls.append(("wait", timeout)); return 1
+    monkeypatch.setattr(owned, "_create_kill_on_close_job", lambda: "job")
+    def refuse(*args): raise OSError("assignment refused")
+    monkeypatch.setattr(owned, "_assign_owned_process", refuse)
+    monkeypatch.setattr(owned, "_retire_job", lambda job: calls.append(("retire", job)))
+    monkeypatch.setattr(owned.subprocess, "Popen", lambda argv, **kw: Process())
+    with pytest.raises(OSError, match="assignment refused"):
+        owned.start_windows_process([sys.executable, "-c", "pass"],
+                                    cwd=ROOT, env=os.environ.copy(), gate_root=tmp_path)
+    assert "kill" in calls and ("wait", 5) in calls
+    assert not list(tmp_path.rglob("GO"))
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_owned_bootstrap_preserves_real_exit_environment_and_cwd(tmp_path, exit_code):
+    record = tmp_path / "child.json"
+    command = [sys.executable, "-c",
+               "import os,sys,json;from pathlib import Path;"
+               "Path(sys.argv[1]).write_text(json.dumps([os.getcwd(),os.environ['OWNED_SENTINEL']]));"
+               "sys.exit(int(sys.argv[2]))", str(record), str(exit_code)]
+    env = dict(os.environ, OWNED_SENTINEL="unchanged child environment")
+    process = runner.start_owned_process(command, cwd=tmp_path, env=env,
+                                         gate_root=tmp_path, start_new_session=os.name != "nt")
+    try:
+        assert process.wait(timeout=10) == exit_code
+        assert json.loads(record.read_text()) == [str(tmp_path), env["OWNED_SENTINEL"]]
+    finally:
+        runner.stop_owned_process(process)
+
+
+def test_owned_bootstrap_go_deadline_never_launches_child(tmp_path):
+    from tools import _owned_test_process as owned
+    marker = tmp_path / "must-not-exist"
+    (tmp_path / "GO.pending").write_text("G")
+    command = [sys.executable, "-c", "from pathlib import Path;import sys;Path(sys.argv[1]).touch()", str(marker)]
+    result = subprocess.run([sys.executable, "-I", "-S", str(Path(owned.__file__)),
+                             "--bootstrap", str(tmp_path / "GO"), "0.05", json.dumps(command)],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 125
+    assert "GO deadline expired" in result.stderr
+    assert not marker.exists()
+
+
+def test_owned_job_query_failure_is_error_and_close_backstop(monkeypatch):
+    from tools import _owned_test_process as owned
+    calls = []
+    kernel = SimpleNamespace(TerminateJobObject=lambda *args: calls.append("terminate") or True,
+                             CloseHandle=lambda *args: calls.append("close") or True)
+    monkeypatch.setattr(owned, "_windows_kernel32", lambda: kernel)
+    def fail(job): calls.append("query"); raise OSError("query failed")
+    monkeypatch.setattr(owned, "_windows_job_active_processes", fail)
+    with pytest.raises(OSError, match="query failed"):
+        owned._retire_job("owned job")
+    assert calls == ["terminate", "query", "close"]
+
+
+def test_owned_job_checks_empty_before_closing(monkeypatch):
+    from tools import _owned_test_process as owned
+    calls = []
+    counts = iter([2, 1, 0])
+    kernel = SimpleNamespace(TerminateJobObject=lambda *args: calls.append("terminate") or True,
+                             CloseHandle=lambda *args: calls.append("close") or True)
+    monkeypatch.setattr(owned, "_windows_kernel32", lambda: kernel)
+    monkeypatch.setattr(owned, "_windows_job_active_processes", lambda job: calls.append("query") or next(counts))
+    monkeypatch.setattr(owned.time, "sleep", lambda delay: None)
+    owned._retire_job("owned job")
+    assert calls == ["terminate", "query", "query", "query", "close"]
+
+
+def test_owned_job_nonempty_deadline_is_error(monkeypatch):
+    from tools import _owned_test_process as owned
+    calls = []
+    ticks = iter([0, 6])
+    monkeypatch.setattr(owned, "_windows_kernel32", lambda: SimpleNamespace(
+        TerminateJobObject=lambda *args: True,
+        CloseHandle=lambda *args: calls.append("close") or True))
+    monkeypatch.setattr(owned, "_windows_job_active_processes", lambda job: 1)
+    monkeypatch.setattr(owned.time, "monotonic", lambda: next(ticks))
+    with pytest.raises(RuntimeError, match="did not become empty"):
+        owned._retire_job("owned job")
+    assert calls == ["close"]
+
+
+def test_owned_job_primitives_match_application_owner_source():
+    source = ast.parse((ROOT / "src/anyfem/job_process.py").read_text(encoding="utf-8-sig"))
+    helper = ast.parse((ROOT / "tools/_owned_test_process.py").read_text())
+    names = {"_windows_kernel32", "_create_kill_on_close_job", "_windows_job_active_processes"}
+    original = {node.name: ast.dump(node, include_attributes=False) for node in source.body
+                if isinstance(node, ast.FunctionDef) and node.name in names}
+    copied = {node.name: ast.dump(node, include_attributes=False) for node in helper.body
+              if isinstance(node, ast.FunctionDef) and node.name in names}
+    assert original == copied and set(copied) == names
+
+
+def test_windows_interrupt_retires_job_and_preserves_exception(monkeypatch, tmp_path):
+    owner = runner._process_owner()
+    calls = []
+    original = KeyboardInterrupt("actual interrupted stream")
+    class Output:
+        def __iter__(self): raise original
+        def close(self): calls.append("stdout closed")
+    directory = SimpleNamespace(cleanup=lambda: calls.append("gate removed"))
+    popen = SimpleNamespace(pid=123, stdout=Output(), poll=lambda: None,
+                            wait=lambda timeout: calls.append("wait"))
+    process = owner.WindowsOwnedProcess(popen, "retained Job", directory, None, ["bootstrap"])
+    monkeypatch.setattr(owner, "_retire_job", lambda job: calls.append(("retire", job)))
+    monkeypatch.setattr(runner, "start_owned_process", lambda *args, **kw: process)
+    if os.name != "nt":
+        # This is a Windows adapter unit with no native resource on POSIX.
+        process.stop()
+        assert calls == [("retire", "retained Job"), "wait", "gate removed"]
+    else:
+        with pytest.raises(KeyboardInterrupt) as caught:
+            runner.execute(["logical pytest"], tmp_path / "pytest.log", {})
+        assert caught.value is original
+        assert calls == [("retire", "retained Job"), "wait", "gate removed", "stdout closed"]
+
+
+def test_owned_bootstrap_real_command_failure_keeps_logical_argv(tmp_path):
+    command = [sys.executable, "-c", "print('owned scalar output');raise SystemExit(7)"]
+    assert runner.execute(command, tmp_path / "pytest.log", os.environ.copy()) == 7
+    assert "owned scalar output" in (tmp_path / "pytest.log").read_text()
+    if os.name == "nt":
+        record = json.loads((tmp_path / "pytest-process.json").read_text())
+        assert record["logical_command"] == command
+        actual = record["bootstrap_command"]
+        assert actual[:3] == [sys.executable, "-I", "-S"]
+        assert json.loads(actual[-1]) == command
+        assert record["ownership"] == "retained-kill-on-close-job-before-go"
+
+
+def test_owned_output_propagates_original_read_exception_after_queued_lines():
+    from tools import _owned_test_process as owned
+    original = UnicodeError("actual read failure")
+    calls = []
+    class Output:
+        def __iter__(self):
+            yield "already read line\n"
+            raise original
+    process = SimpleNamespace(stdout=Output(), poll=lambda: None,
+                              stop=lambda: calls.append("retired"))
+    output = owned.owned_output(process)
+    assert next(output) == "already read line\n"
+    with pytest.raises(UnicodeError) as caught:
+        next(output)
+    assert caught.value is original
+    assert calls == ["retired"]
+
+
+def test_owned_output_eof_does_not_terminate_running_command():
+    from tools import _owned_test_process as owned
+    process = SimpleNamespace(stdout=iter(["last line\n"]), poll=lambda: None,
+                              stop=lambda: pytest.fail("EOF alone cannot stop the command"))
+    assert list(owned.owned_output(process)) == ["last line\n"]
+
+
+def test_owned_output_uncertain_reader_never_enters_blocking_close():
+    from tools import _owned_test_process as owned
+    calls = []
+    process = SimpleNamespace(_output_reader=SimpleNamespace(is_alive=lambda: True),
+                              stdout=SimpleNamespace(close=lambda: pytest.fail("blocking close entered")))
+    output = SimpleNamespace(close=lambda: calls.append("generator closed"))
+    with pytest.raises(RuntimeError, match="reader remains active"):
+        owned.close_owned_output(process, output)
+    assert calls == ["generator closed"]
+
+
+def test_owned_command_exit_retires_descendant_holding_stdout(tmp_path):
+    marker = tmp_path / "descendant.pid"
+    command = [sys.executable, "-c",
+               "import subprocess,sys;from pathlib import Path;"
+               "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
+               "Path(sys.argv[1]).write_text(str(child.pid));print('retained before exit',flush=True)",
+               str(marker)]
+    if os.name != "nt":
+        # The reader/Job integration is Windows-only; exercise its actual
+        # output behavior below without creating an uncontained POSIX child.
+        from tools import _owned_test_process as owned
+        calls = []
+        process = SimpleNamespace(stdout=iter(["retained before exit\n"]), poll=lambda: 0,
+                                  stop=lambda: calls.append("retire"))
+        assert list(owned.owned_output(process)) == ["retained before exit\n"]
+        assert calls
+        return
+    started = time.monotonic()
+    assert runner.execute(command, tmp_path / "pytest.log", os.environ.copy()) == 0
+    assert time.monotonic() - started < 10, "descendant's 60-second pipe held the runner"
+    assert marker.exists()
+    assert "retained before exit" in (tmp_path / "pytest.log").read_text()
 
 
 @pytest.mark.parametrize("selector", ["--help", "../tests/x.py", "tests/../x.py",
@@ -134,7 +365,7 @@ def test_interruption_cleanup_escalates_with_bounded_wait(monkeypatch, tmp_path)
             if "kill" not in calls:
                 raise runner.subprocess.TimeoutExpired("owned pytest", timeout)
             return -9
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(runner, "start_owned_process", lambda *args, **kwargs: Process())
     monkeypatch.setattr(runner.os, "killpg", lambda pid, sig: calls.append(("signal", pid, sig)), raising=False)
     stop = runner.stop_owned_process
     monkeypatch.setattr(runner, "stop_owned_process", lambda process: stop(process, windows=False))
@@ -147,12 +378,13 @@ def test_interruption_cleanup_escalates_with_bounded_wait(monkeypatch, tmp_path)
 
 def test_windows_cleanup_targets_only_owned_tree(monkeypatch):
     calls = []
-    process = SimpleNamespace(pid=123456, wait=lambda timeout: calls.append(("wait", timeout)))
-    monkeypatch.setattr(runner.subprocess, "run", lambda command, **options: calls.append((command, options)))
+    owner = runner._process_owner()
+    process = owner.WindowsOwnedProcess(None, None, None, None, [])
+    monkeypatch.setattr(process, "stop", lambda: calls.append("retire owned Job"))
     runner.stop_owned_process(process, windows=True)
-    assert calls[0][0] == ["taskkill", "/PID", "123456", "/T", "/F"]
-    assert calls[0][1]["timeout"] == 5 and calls[0][1]["check"] is True
-    assert calls[1] == ("wait", 5)
+    assert calls == ["retire owned Job"]
+    with pytest.raises(RuntimeError, match="retained owned Job"):
+        runner.stop_owned_process(SimpleNamespace(pid=123456), windows=True)
 
 
 def test_cleanup_stops_real_owned_descendant(tmp_path):
@@ -160,8 +392,9 @@ def test_cleanup_stops_real_owned_descendant(tmp_path):
     script = ("import subprocess,sys,time;from pathlib import Path;"
               "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
               "Path(sys.argv[1]).write_text(str(child.pid));time.sleep(60)")
-    parent = subprocess.Popen([sys.executable, "-c", script, str(pid_file)],
-                              start_new_session=os.name != "nt")
+    parent = runner.start_owned_process([sys.executable, "-c", script, str(pid_file)],
+                                       cwd=ROOT, env=os.environ.copy(), gate_root=tmp_path,
+                                       start_new_session=os.name != "nt")
     try:
         deadline = time.monotonic() + 5
         while not pid_file.exists() and time.monotonic() < deadline:
@@ -250,3 +483,208 @@ def test_verification_cli_still_writes_reports_and_propagates_status(monkeypatch
     assert selections == [["CLI-TEST"]]
     assert json.loads((tmp_path / "verification.json").read_text()) == measured.to_dict()
     assert (tmp_path / "verification.md").read_text() == measured.to_markdown()
+
+
+def test_default_pytest_argv_is_byte_for_byte_compatible(monkeypatch,tmp_path):
+    seen=[]
+    def execute(command,log,environment):
+        seen.append(list(command))
+        log.write_text('passed')
+        log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0"/></testsuites>')
+        return 0
+    monkeypatch.setattr(runner,'execute',execute)
+    output=tmp_path/'default'
+    assert runner.main(['--out',str(output)])==0
+    assert seen==[[sys.executable,'-m','pytest',*runner.QUICK,'-q','--junitxml='+str(output/'pytest.xml')]]
+
+
+def test_diagnostic_execute_surfaces_failure_before_suite_completion(monkeypatch,tmp_path,capsys):
+    class Output(list):
+        def close(self):pass
+    process=SimpleNamespace(stdout=Output(['current node sentinel\n','first failure sentinel\n']),wait=lambda:1)
+    monkeypatch.setattr(runner,'start_owned_process',lambda *args,**kwargs:process)
+    assert runner.execute(['owned pytest'],tmp_path/'pytest.log',{'ANYFEM_CI_DIAGNOSTICS_DIR':str(tmp_path)})==1
+    output=capsys.readouterr().out
+    assert 'current node sentinel' in output and 'first failure sentinel' in output
+    assert (tmp_path/'pytest.log').read_text()=='current node sentinel\nfirst failure sentinel\n'
+
+
+def test_diagnostics_and_fail_fast_are_explicit_flags_with_owned_output(monkeypatch,tmp_path):
+    seen=[]
+    def execute(command,log,environment):
+        seen.append((command,dict(environment)))
+        log.write_text('failed')
+        return 1
+    monkeypatch.setattr(runner,'execute',execute)
+    monkeypatch.setenv('ANYFEM_RUN_GUI_TESTS','0')
+    monkeypatch.setenv('ANYFEM_RUN_QT_TESTS','0')
+    monkeypatch.setenv('ANYFEM_RUN_SCALE_GATES','0')
+    output=tmp_path/'diagnostics'
+    assert runner.main(['--ci-diagnostics','--fail-fast','--out',str(output)])==1
+    command,environment=seen[0]
+    assert command==[sys.executable,'-m','pytest',*runner.QUICK,'-q',
+        '-p','tools.pytest_anyfem_progress','-o','faulthandler_timeout=60',
+        '--maxfail=1','--junitxml='+str(output/'pytest.xml')]
+    assert environment['ANYFEM_CI_DIAGNOSTICS_DIR']==str(output)
+    assert {key:environment[key] for key in ('ANYFEM_RUN_GUI_TESTS','ANYFEM_RUN_QT_TESTS','ANYFEM_RUN_SCALE_GATES')}=={
+        'ANYFEM_RUN_GUI_TESTS':'0','ANYFEM_RUN_QT_TESTS':'0','ANYFEM_RUN_SCALE_GATES':'0'}
+
+
+def test_inherited_diagnostics_environment_cannot_enable_default(monkeypatch,tmp_path,capsys):
+    monkeypatch.setenv('ANYFEM_CI_DIAGNOSTICS_DIR','inherited-must-not-activate')
+    def execute(command,log,environment):
+        assert 'ANYFEM_CI_DIAGNOSTICS_DIR' not in environment
+        assert 'tools.pytest_anyfem_progress' not in command
+        log.write_text('passed')
+        log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1"/></testsuites>')
+        return 0
+    monkeypatch.setattr(runner,'execute',execute)
+    assert runner.main(['--out',str(tmp_path/'default')])==0
+
+
+def test_fail_fast_diagnostics_do_not_waive_full_verification(monkeypatch,tmp_path):
+    from anyfem import verification
+    monkeypatch.setattr(runner,'owner_capabilities',lambda:None)
+    monkeypatch.setattr(verification,'cases',lambda:[SimpleNamespace(case_id='A')])
+    def execute(command,log,environment):
+        assert '--maxfail=1' in command
+        log.write_text('pytest passed, verification incomplete')
+        log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1"/></testsuites>')
+        directory=Path(environment['ANYFEM_VERIFICATION_OUT']);directory.mkdir()
+        (directory/'verification.json').write_text(json.dumps({'status':'passed','counts':{'total':0,'passed':0,'failed':0},'results':[]}))
+        return 0
+    monkeypatch.setattr(runner,'execute',execute)
+    output=tmp_path/'full'
+    assert runner.main(['--profile','full','--ci-diagnostics','--fail-fast','--out',str(output)])==2
+    report=json.loads((output/'run.json').read_text())
+    assert report['status']=='failed' and report['exit_code']==2
+    assert 'incomplete' in report['error']
+
+
+def _scalar_diagnostic_pytest(tmp_path, body, *extra):
+    script=tmp_path/'test_scalar_child.py';script.write_text(body)
+    config=tmp_path/'pytest.ini';config.write_text('[pytest]\n')
+    output=tmp_path/'diagnostics';output.mkdir()
+    environment=os.environ.copy()
+    environment.pop('PYTEST_ADDOPTS',None)
+    environment['PYTEST_DISABLE_PLUGIN_AUTOLOAD']='1'
+    environment['ANYFEM_CI_DIAGNOSTICS_DIR']=str(output)
+    command=[sys.executable,'-m','pytest','-q','-c',str(config),'--confcutdir',str(tmp_path),
+             '-p','tools.pytest_anyfem_progress',str(script),*extra]
+    result=subprocess.run(command,cwd=ROOT,env=environment,capture_output=True,text=True,timeout=15)
+    return result,output
+
+
+def test_plugin_named_phases_are_current_before_body_and_preserve_capture(tmp_path):
+    body="""import json,os
+from pathlib import Path
+import pytest
+
+def phase():return json.loads((Path(os.environ['ANYFEM_CI_DIAGNOSTICS_DIR'])/'pytest-current.json').read_text())
+@pytest.fixture
+def resource():
+ assert phase()['event']=='phase_start' and phase()['phase']=='setup'
+ yield
+ assert phase()['event']=='phase_start' and phase()['phase']=='teardown'
+def test_sample(resource,capsys):
+ assert phase()['event']=='phase_start' and phase()['phase']=='call'
+ assert phase()['nodeid'].endswith('::test_sample')
+ print('body only')
+ assert capsys.readouterr().out=='body only\\n'
+"""
+    result,output=_scalar_diagnostic_pytest(tmp_path,body)
+    assert result.returncode==0,result.stdout+result.stderr
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    assert [row['phase'] for row in rows if row['event']=='phase_start']==['setup','call','teardown']
+    assert [row['sequence'] for row in rows]==list(range(1,len(rows)+1))
+    assert rows[-1]['event']=='session_finish' and rows[-1]['exit_status']==0
+    assert json.loads((output/'pytest-collection.json').read_text())['nodes']==['test_scalar_child.py::test_sample']
+
+
+def test_plugin_failure_is_visible_before_the_next_node(tmp_path):
+    result,output=_scalar_diagnostic_pytest(tmp_path,
+        "def test_first():assert False,'visible first failure sentinel'\ndef test_second():pass\n")
+    assert result.returncode==1
+    text=result.stdout+result.stderr
+    assert text.index('visible first failure sentinel')<text.index('"event": "node_start", "nodeid": "test_scalar_child.py::test_second"')
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    failed=[row for row in rows if row['event']=='failure']
+    assert len(failed)==1 and failed[0]['phase']=='call'
+    assert 'visible first failure sentinel' in failed[0]['longrepr']
+
+
+@pytest.mark.parametrize('phase', ['setup','teardown'])
+def test_plugin_fixture_errors_are_immediate_and_named(tmp_path,phase):
+    setup="assert False,'setup sentinel'" if phase=='setup' else 'pass'
+    teardown="assert False,'teardown sentinel'" if phase=='teardown' else 'pass'
+    body=f"import pytest\n@pytest.fixture\ndef resource():\n {setup}\n yield\n {teardown}\ndef test_sample(resource):pass\n"
+    result,output=_scalar_diagnostic_pytest(tmp_path,body)
+    assert result.returncode==1
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    failed=[row for row in rows if row['event']=='failure']
+    assert len(failed)==1 and failed[0]['phase']==phase
+    assert f'{phase} sentinel' in failed[0]['longrepr']
+    assert '[anyfem-ci failure] test_scalar_child.py::test_sample' in result.stdout
+
+
+def test_plugin_fail_fast_keeps_failure_and_never_runs_second_body(tmp_path):
+    marker=tmp_path/'second-ran'
+    body=f"from pathlib import Path\ndef test_first():assert False,'first sentinel'\ndef test_second():Path({str(marker)!r}).write_text('ran')\n"
+    result,output=_scalar_diagnostic_pytest(tmp_path,body,'--maxfail=1')
+    assert result.returncode==1 and not marker.exists()
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    assert len([row for row in rows if row['event']=='node_start'])==1
+    assert rows[-1]['exit_status']==1 and rows[-1]['collected_count']==2
+
+
+def test_plugin_collection_only_never_executes_a_body(tmp_path):
+    marker=tmp_path/'body-ran'
+    result,output=_scalar_diagnostic_pytest(tmp_path,
+        f"from pathlib import Path\ndef test_sample():Path({str(marker)!r}).write_text('ran')\n",'--collect-only')
+    assert result.returncode==0 and not marker.exists()
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    assert not any(row['event'] in {'node_start','phase_start'} for row in rows)
+    assert json.loads((output/'pytest-collection.json').read_text())['nodes']==['test_scalar_child.py::test_sample']
+
+
+def test_standard_faulthandler_dump_does_not_abort_the_scalar_test(tmp_path):
+    result,output=_scalar_diagnostic_pytest(tmp_path,
+        "import time\ndef test_sample():time.sleep(.3)\n",'-o','faulthandler_timeout=0.05')
+    assert result.returncode==0,result.stdout+result.stderr
+    assert 'Timeout (' in result.stdout+result.stderr
+    rows=[json.loads(line) for line in (output/'pytest-progress.jsonl').read_text().splitlines()]
+    assert rows[-1]['exit_status']==0
+
+
+def test_only_existing_ci_full_commands_opt_into_diagnostics_and_fail_fast():
+    text=(ROOT/'.github/workflows/tests.yml').read_text()
+    commands=[line.strip() for line in text.splitlines() if 'run:' in line and 'tools/test_anyfem.py --profile full' in line]
+    assert len(commands)==2
+    assert all('--ci-diagnostics --fail-fast' in line for line in commands)
+    assert all('--out reports/full-suite' in line for line in commands)
+
+
+def test_build_and_test_use_same_results_api_without_upgrading_physical_solver():
+    text = (ROOT / '.github/workflows/tests.yml').read_text()
+    test_job, build_job = text.split('\n  build:\n', 1)
+    expected = {
+        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', '38e9abc179b9babf02d395c2d4f3c64291ff56ed'),
+        '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
+        '.ecosystem/ANYpost': ('audunarn/ANYpost', '630133c46d286bee74c0d681984c5c0d6a210905'),
+        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '6d302a7693c3d56a687a6300ebf773b111d7fd44'),
+        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', '158e999992be057f069ab229b031e9528a9812bd'),
+    }
+    for job in (test_job, build_job):
+        actual = {}
+        for block in job.split('      - uses: actions/checkout@v4')[1:]:
+            values = {}
+            for line in block.splitlines():
+                if line.startswith('          ') and ': ' in line:
+                    key, value = line.strip().split(': ', 1)
+                    if key in {'repository', 'ref', 'path'}:
+                        values[key] = value
+            if 'path' in values:
+                actual[values['path']] = (values.get('repository'), values.get('ref'))
+        assert {path: actual.get(path) for path in expected} == expected
+        assert '.ecosystem/ANYsolver-results/packages/results' in job
+        assert '.ecosystem/ANYsolver/packages/results' not in job

@@ -69,12 +69,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: eba8f8033f6634dfd453bea9b7b0e7b8d101d609
+          ref: 6d302a7693c3d56a687a6300ebf773b111d7fd44
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 80d5d1fe87ce5335f80522142b0588d5e1139093
+          ref: 158e999992be057f069ab229b031e9528a9812bd
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -145,13 +145,13 @@ jobs:
           # Owner-approved document-unit bound for the two required NURBS
           # acceptance fixtures; their Project meshing route is serial.
           ANY_NURBS_ACCEPTANCE_ERROR: "0.0025"
-        run: xvfb-run -a python tools/test_anyfem.py --profile full --out reports/full-suite
+        run: xvfb-run -a python tools/test_anyfem.py --profile full --ci-diagnostics --fail-fast --out reports/full-suite
 
       - name: Run the test suite (Windows)
         if: runner.os == 'Windows'
         env:
           ANY_NURBS_ACCEPTANCE_ERROR: "0.0025"
-        run: python tools/test_anyfem.py --profile full --out reports/full-suite
+        run: python tools/test_anyfem.py --profile full --ci-diagnostics --fail-fast --out reports/full-suite
 
       # These unchanged consumer/adapter tests moved from ANYmesh, where the
       # full Project dependency was absent. Retain its four macOS Python lanes;
@@ -199,10 +199,16 @@ jobs:
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
           ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
           path: .ecosystem/ANYsolver
+      # Results-only API repair: keep the physical solver revision above.
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
+          path: .ecosystem/ANYsolver-results
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: 4bcb60f0476bd4278f683653c652a909678308df
+          ref: 630133c46d286bee74c0d681984c5c0d6a210905
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
@@ -227,12 +233,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: eba8f8033f6634dfd453bea9b7b0e7b8d101d609
+          ref: 6d302a7693c3d56a687a6300ebf773b111d7fd44
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 80d5d1fe87ce5335f80522142b0588d5e1139093
+          ref: 158e999992be057f069ab229b031e9528a9812bd
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -276,7 +282,7 @@ jobs:
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYgeometry
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfileIO
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver .ecosystem/ANYsolver/packages/results .ecosystem/ANYpost
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver .ecosystem/ANYsolver-results/packages/results .ecosystem/ANYpost
           .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
           .wheel-smoke/bin/python -m pip install dist/*.whl

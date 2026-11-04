@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import importlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -74,19 +75,40 @@ def validate_verification(path, expected):
         raise RuntimeError("verification counts do not match the complete case inventory")
 
 
+_PROCESS_OWNER = None
+
+
+def _process_owner():
+    global _PROCESS_OWNER
+    if _PROCESS_OWNER is None:
+        spec = importlib.util.spec_from_file_location(
+            "_anyfem_test_process_owner", ROOT / "tools/_owned_test_process.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _PROCESS_OWNER = module
+    return _PROCESS_OWNER
+
+
+def start_owned_process(command, **options):
+    if os.name == "nt":
+        return _process_owner().start_windows_process(command, **options)
+    options.pop("gate_root", None)
+    return subprocess.Popen(command, **options)
+
+
 def stop_owned_process(process, windows=None):
     """Stop the owned pytest tree, including scientific subprocesses."""
     windows = os.name == "nt" if windows is None else windows
+    if windows:
+        if not isinstance(process, _process_owner().WindowsOwnedProcess):
+            raise RuntimeError("Windows pytest cleanup requires a retained owned Job")
+        process.stop()
+        return
     try:
-        if windows:
-            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=5, check=True)
-        else:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -108,21 +130,38 @@ def stop_owned_process(process, windows=None):
 
 def execute(command, log, environment):
     with log.open("w", encoding="utf-8") as stream:
-        process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=subprocess.PIPE,
+        process = start_owned_process(command, cwd=ROOT, env=environment, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-                                   start_new_session=os.name != "nt")
+                                   start_new_session=os.name != "nt", gate_root=log.parent)
+        owned_windows = (os.name == "nt"
+                         and isinstance(process, _process_owner().WindowsOwnedProcess))
+        output = _process_owner().owned_output(process) if owned_windows else process.stdout
         try:
-            for line in process.stdout:
+            if owned_windows:
+                log.with_name("pytest-process.json").write_text(json.dumps({
+                    "logical_command": command,
+                    "bootstrap_command": process.bootstrap_command,
+                    "ownership": "retained-kill-on-close-job-before-go",
+                    "bootstrap_pid": process.pid,
+                }, indent=2), encoding="utf-8")
+            for line in output:
                 stream.write(line)
                 stream.flush()
-                if "%]" in line:
+                if environment.get("ANYFEM_CI_DIAGNOSTICS_DIR") or "%]" in line:
                     print(line.strip(), flush=True)
             return process.wait()
         except KeyboardInterrupt:
             stop_owned_process(process)
             raise
         finally:
-            process.stdout.close()
+            try:
+                if owned_windows:
+                    stop_owned_process(process)
+            finally:
+                if owned_windows:
+                    _process_owner().close_owned_output(process, output)
+                else:
+                    process.stdout.close()
 
 
 def main(argv=None):
@@ -130,6 +169,10 @@ def main(argv=None):
     parser.add_argument("--profile", choices=("quick", "focused", "qt", "full"), default="quick")
     parser.add_argument("--backend", choices=("software", "gpu"), default="software")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--ci-diagnostics", action="store_true",
+                        help="stream named pytest phases and failures; retain a live journal")
+    parser.add_argument("--fail-fast", action="store_true",
+                        help="stop pytest after its first failure; never establish partial acceptance")
     parser.add_argument("--out", type=Path, help="new evidence directory; existing paths are refused")
     parser.add_argument("tests", nargs="*")
     options = parser.parse_args(argv)
@@ -138,6 +181,10 @@ def main(argv=None):
     except ValueError as error:
         parser.error(str(error))
     command = [sys.executable, "-m", "pytest", *selected, "-q"]
+    if options.ci_diagnostics:
+        command += ["-p", "tools.pytest_anyfem_progress", "-o", "faulthandler_timeout=60"]
+    if options.fail_fast:
+        command += ["--maxfail=1"]
     if options.dry_run:
         print(json.dumps({"profile": options.profile, "command": command,
                           "acceptance": "not established"}, indent=2))
@@ -151,6 +198,10 @@ def main(argv=None):
     environment = os.environ.copy()
     # An inherited -k/--ignore/--collect-only must not silently narrow a profile.
     inherited_options = environment.pop("PYTEST_ADDOPTS", None)
+    # This private child setting cannot enable diagnostics without the flag.
+    environment.pop("ANYFEM_CI_DIAGNOSTICS_DIR", None)
+    if options.ci_diagnostics:
+        environment["ANYFEM_CI_DIAGNOSTICS_DIR"] = str(output)
     if options.profile == "qt":
         environment["ANYFEM_RUN_QT_TESTS"] = "1"
         environment["ANYFEM_QT_TEST_BACKEND"] = options.backend
@@ -158,6 +209,7 @@ def main(argv=None):
         environment["ANYFEM_VERIFICATION_OUT"] = str(output / "verification")
     command += ["--junitxml=" + str(output / "pytest.xml")]
     report = {"profile": options.profile, "command": command, "python": sys.executable,
+              "ci_diagnostics": options.ci_diagnostics, "fail_fast": options.fail_fast,
               "python_version": sys.version, "ignored_pytest_addopts": inherited_options,
               "environment": {key: environment.get(key) for key in (
                   "ANYFEM_RUN_QT_TESTS", "ANYFEM_QT_TEST_BACKEND", "ANYFEM_RUN_GUI_TESTS",
