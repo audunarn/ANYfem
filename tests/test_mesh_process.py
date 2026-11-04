@@ -110,23 +110,56 @@ def test_a_meshing_failure_keeps_its_message_and_structured_diagnostic():
     assert "details" in in_worker.payload.keys() or "details" not in in_process.payload.keys()
 
 
-def test_cancelling_reaches_the_worker():
-    from anyfem.application.examples import floating_barge_section
+def _wait_for_worker_generation(manager, events, deadline):
+    while not any(e.kind == 'progress' and e.payload.stage == 'generation' for e in events):
+        events.extend(manager.poll())
+        terminal = next((e for e in events if e.kind in ('completed', 'cancelled', 'failed')), None)
+        assert terminal is None, f'worker {terminal.kind}: {terminal.message}'
+        assert time.monotonic() < deadline, 'the worker never reported the generation stage'
+        time.sleep(0.02)
 
-    project = floating_barge_section()
+
+def test_cancelling_reaches_the_worker():
+    # Exercise cancellation IPC during actual element generation, independently
+    # of the barge's whole-example structural-preparation cost. A finer mesh on
+    # the same small plate used by the worker identity tests leaves real work
+    # in progress when the parent receives the generation event.
+    project = plate_project('worker cancellation')
     manager = MeshTaskManager(executor="process")
-    manager.submit("barge", DocumentSession(project).snapshot(), MeshSettings.create(0.7, element_order="linear"))
+    future = manager.submit("cancel", DocumentSession(project).snapshot(), MeshSettings.create(0.025, element_order="linear"))
     events, deadline = [], time.monotonic() + 120
-    while not any(e.kind == "progress" and e.payload.stage == "generation" for e in events):
-        events.extend(manager.poll())
-        assert time.monotonic() < deadline, "the worker never reported the generation stage"
-        time.sleep(0.02)
-    assert manager.cancel("barge")
-    while not any(e.kind in ("cancelled", "completed", "failed") for e in events):
-        events.extend(manager.poll())
-        assert time.monotonic() < deadline, "cancellation never took effect"
-        time.sleep(0.02)
-    assert final(events).kind == "cancelled"
+    try:
+        _wait_for_worker_generation(manager, events, deadline)
+        assert manager.cancel("cancel")
+        while not any(e.kind in ("cancelled", "completed", "failed") for e in events):
+            events.extend(manager.poll())
+            assert time.monotonic() < deadline, "cancellation never took effect"
+            time.sleep(0.02)
+        assert final(events).kind == "cancelled"
+    finally:
+        manager.shutdown()
+        future.result(timeout=20)
+        assert manager._process is None or not manager._process.is_alive()
+
+
+@pytest.mark.parametrize('kind', ('failed', 'cancelled', 'completed'))
+def test_generation_observer_reports_early_terminal_event(monkeypatch, kind):
+    """An exited worker must not be misreported as a slow preparation."""
+    from types import SimpleNamespace
+    event = SimpleNamespace(kind=kind, message='owner detail', payload=None)
+    manager = SimpleNamespace(poll=lambda: [event])
+    with pytest.raises(AssertionError, match=kind + '.*owner detail'):
+        _wait_for_worker_generation(manager, [], time.monotonic() + 120)
+
+
+def test_generation_observer_waits_for_actual_generation():
+    from types import SimpleNamespace
+    events = []
+    batches = iter(([SimpleNamespace(kind='progress', payload=SimpleNamespace(stage='preparation'))],
+                    [SimpleNamespace(kind='progress', payload=SimpleNamespace(stage='generation'))]))
+    manager = SimpleNamespace(poll=lambda: next(batches))
+    _wait_for_worker_generation(manager, events, time.monotonic() + 120)
+    assert [row.payload.stage for row in events] == ['preparation', 'generation']
 
 
 def test_shutdown_stops_the_mesh_worker_at_once():
