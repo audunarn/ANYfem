@@ -111,3 +111,54 @@ def test_cancel_before_curved_preparation_does_not_declare_owners():
         prepare_structural_connectivity(source, cancellation_check=cancel)
     assert source.revision == revision
     assert not source.sheets
+
+
+@pytest.mark.parametrize('kind', ('unknown-geometry', 'interrupt'))
+def test_chart_query_failure_never_changes_authority_route(monkeypatch, kind):
+    import anygeometry
+    import anymesher.preparation
+    source = curved_geometry()
+    before = to_dict(source)
+    error = (anygeometry.GeometryError('unrecognized chart provenance failure')
+             if kind == 'unknown-geometry' else KeyboardInterrupt('chart query interrupted'))
+    def refuse(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(anygeometry, 'query_trimmed_surface_charts', refuse)
+    monkeypatch.setattr(anymesher.preparation, 'prepare_structural_closure',
+                        lambda *args, **kwargs: pytest.fail('unknown chart failure entered fallback'))
+    with pytest.raises(StructuralPreparationError if kind == 'unknown-geometry' else KeyboardInterrupt) as caught:
+        prepare_structural_connectivity(source.clone())
+    if kind == 'unknown-geometry':
+        assert caught.value.__cause__ is error
+        assert str(caught.value) == str(error)
+    else:
+        assert caught.value is error
+    assert to_dict(source) == before
+
+
+def test_cancel_after_real_chart_admission_keeps_source_and_owner_absence(monkeypatch):
+    import anygeometry
+    import anymesher.preparation
+    source = curved_geometry()
+    before = to_dict(source)
+    working = source.clone()
+    actual_query = anygeometry.query_trimmed_surface_charts
+    admitted = []
+    def observe(*args, **kwargs):
+        result = actual_query(*args, **kwargs)
+        admitted.append(True)
+        return result
+    monkeypatch.setattr(anygeometry, 'query_trimmed_surface_charts', observe)
+    monkeypatch.setattr(anymesher.preparation, 'prepare_structural_closure',
+                        lambda *args, **kwargs: pytest.fail('admitted chart entered fallback'))
+    error = RuntimeError('cancelled after actual chart admission')
+    def cancel(phase):
+        if phase == 'structural intersection batch':
+            assert admitted
+            raise error
+    with pytest.raises(RuntimeError) as caught:
+        prepare_structural_connectivity(working, cancellation_check=cancel)
+    assert caught.value is error
+    assert admitted
+    assert not working.sheets
+    assert to_dict(source) == before

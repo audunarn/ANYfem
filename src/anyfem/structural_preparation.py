@@ -309,14 +309,8 @@ def prepare_structural_connectivity(
         from anygeometry.surfaces import CoonsSurface, Cone, RuledSurface
         if all(isinstance(face.surface, (CoonsSurface, Cone, RuledSurface))
                for face in geometry.faces.values()):
-            from anygeometry.nurbs import NurbsCurve
-            raw_unassigned_sweeps = (not geometry.sheets and not geometry.members
-                and all(type(face.surface) is CoonsSurface and not face.surface.has_boundaries
-                    and face.parameterization is None and not face.holes
-                    and any(type(geometry.edges[use.edge].curve) is NurbsCurve for use in face.loop)
-                    for face in geometry.faces.values()))
             unavailable = set()
-            for face in (() if raw_unassigned_sweeps else geometry.faces):
+            for face in geometry.faces:
                 try:
                     query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
                 except GeometryError as error:
@@ -326,7 +320,7 @@ def prepare_structural_connectivity(
                             f"face {face} has an unsupported intersection surface"):
                         raise StructuralPreparationError(str(error)) from error
                     unavailable.add(face)
-            if raw_unassigned_sweeps or unavailable == set(geometry.faces):
+            if unavailable == set(geometry.faces):
                 # Preserve established curved authoring/discretization. The
                 # mesher performs its qualified ownership audit on a detached
                 # candidate; general interior Coons joints are not inferred.
