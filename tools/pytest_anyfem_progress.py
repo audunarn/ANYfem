@@ -9,6 +9,8 @@ import time
 
 import pytest
 
+from tools._python_stack_watchdog import PassiveWatchdog
+
 
 class _Journal:
     def __init__(self, config):
@@ -64,6 +66,17 @@ class _Journal:
 class _Progress:
     def __init__(self, config):
         self.journal = _Journal(config)
+        self.watchdog = PassiveWatchdog(self.journal.directory,
+            interval=float(config.getini("anyfem_snapshot_timeout")))
+        config.add_cleanup(self.watchdog.close)
+
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_runtest_protocol(self, item, nextitem):
+        self.watchdog.arm(item.nodeid, "setup")
+        try:
+            return (yield)
+        finally:
+            self.watchdog.disarm()
 
     def pytest_sessionstart(self, session):
         self.journal.write("session_start", phase="collection", live=True)
@@ -89,14 +102,17 @@ class _Progress:
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_setup(self, item):
+        self.watchdog.phase(item.nodeid, "setup")
         self.journal.write("phase_start", nodeid=item.nodeid, phase="setup", live=True)
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_call(self, item):
+        self.watchdog.phase(item.nodeid, "call")
         self.journal.write("phase_start", nodeid=item.nodeid, phase="call", live=True)
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_teardown(self, item, nextitem):
+        self.watchdog.phase(item.nodeid, "teardown")
         self.journal.write("phase_start", nodeid=item.nodeid, phase="teardown", live=True)
 
     def pytest_runtest_logreport(self, report):
@@ -104,10 +120,16 @@ class _Progress:
                            outcome=report.outcome, duration=report.duration)
         if report.failed:
             self.journal.failure(report, report.when)
+        self.watchdog.check()
 
     def pytest_sessionfinish(self, session, exitstatus):
+        self.watchdog.close()
         self.journal.write("session_finish", phase="session", live=True,
                            exit_status=int(exitstatus), collected_count=session.testscollected)
+
+
+def pytest_addoption(parser):
+    parser.addini("anyfem_snapshot_timeout", "Passive Python-frame snapshot interval", default="60")
 
 
 def pytest_configure(config):

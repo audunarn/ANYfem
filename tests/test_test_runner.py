@@ -523,7 +523,7 @@ def test_diagnostics_and_fail_fast_are_explicit_flags_with_owned_output(monkeypa
     assert runner.main(['--ci-diagnostics','--fail-fast','--out',str(output)])==1
     command,environment=seen[0]
     assert command==[sys.executable,'-m','pytest',*runner.QUICK,'-q',
-        '-p','tools.pytest_anyfem_progress','-o','faulthandler_timeout=60',
+        '-p','tools.pytest_anyfem_progress','-o','anyfem_snapshot_timeout=60',
         '--maxfail=1','--junitxml='+str(output/'pytest.xml')]
     assert environment['ANYFEM_CI_DIAGNOSTICS_DIR']==str(output)
     assert {key:environment[key] for key in ('ANYFEM_RUN_GUI_TESTS','ANYFEM_RUN_QT_TESTS','ANYFEM_RUN_SCALE_GATES')}=={

@@ -182,7 +182,7 @@ def main(argv=None):
         parser.error(str(error))
     command = [sys.executable, "-m", "pytest", *selected, "-q"]
     if options.ci_diagnostics:
-        command += ["-p", "tools.pytest_anyfem_progress", "-o", "faulthandler_timeout=60"]
+        command += ["-p", "tools.pytest_anyfem_progress", "-o", "anyfem_snapshot_timeout=60"]
     if options.fail_fast:
         command += ["--maxfail=1"]
     if options.dry_run:
