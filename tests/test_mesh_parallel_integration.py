@@ -82,6 +82,24 @@ def test_parallel_failure_is_not_retried_or_published(monkeypatch):
     assert not project.mesh_records
 
 
+@pytest.mark.parametrize('policy',[{},dict(minimum_scaled_jacobian=.01,
+    maximum_aspect_ratio=100.,minimum_angle=1.,maximum_angle=179.,maximum_warpage=1.)])
+def test_explicit_job_quality_policy_refuses_parallel_dispatch(monkeypatch,policy):
+    """A real job preserves both empty and populated strict owner requests."""
+    import anyfem.mesh_execution as execution
+    project=separated_plates()
+    snapshot=DocumentSession(project).snapshot()
+    settings=MeshSettings.create(.5,element_order='linear',strategy='native',
+        quality_policy=policy,execution_policy=MeshExecutionPolicy.explicit(4))
+    def forbidden(*args,**kwargs):pytest.fail('explicit strict policy reached parallel dispatch')
+    monkeypatch.setattr(execution,'run_parallel_hybrid_mesh',forbidden)
+    result=run_mesh_job(snapshot.thaw(),snapshot.revision.model_hash,settings,
+        lambda *_:None,_cancellation_token())
+    assert result.mesh.shells
+    assert result.execution['route']=='serial' and result.execution['workers'] is None
+    assert result.execution['reason']=='parallel route refused before dispatch: explicit quality policy requires validated serial admission'
+
+
 def test_owner_serial_refusal_records_the_effective_route():
     project = separated_plates(1)
     mesh = project.generate_mesh(0.4, strategy="native", execution_policy=MeshExecutionPolicy.explicit(4))

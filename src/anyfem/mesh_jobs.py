@@ -105,8 +105,17 @@ class MeshSettings:
     # the same mesh inputs must share the reproducibility hash) and never
     # enters the project or the mesh artifact.
     execution_policy: object | None = None
+    # Constructor None infers legacy raw tuples; materialized settings always
+    # hold an exact bool. An explicit False survives replace/default expansion.
+    quality_policy_explicit: bool | None = dataclass_field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        explicit = self.quality_policy_explicit
+        if explicit is None:
+            explicit = bool(self.quality_policy)
+        elif type(explicit) is not bool:
+            raise TypeError("quality_policy_explicit must be a bool or None")
+        object.__setattr__(self, "quality_policy_explicit", explicit)
         if self.execution_policy is not None:
             from .mesh_execution import MeshExecutionPolicy
 
@@ -193,6 +202,10 @@ class MeshSettings:
             "quality_policy",
             tuple(sorted((key, float(value)) for key, value in quality.to_dict().items())),
         )
+        if not explicit and quality.to_dict() != MeshQualityPolicy.create({}).to_dict():
+            # replace() retains the presence bit: an edited, nondefault policy
+            # must not be silently discarded because that inherited bit is False.
+            object.__setattr__(self, "quality_policy_explicit", True)
 
     @classmethod
     def create(
@@ -235,6 +248,7 @@ class MeshSettings:
             quality_policy=tuple(
                 sorted((str(key), float(value)) for key, value in (quality_policy or {}).items())
             ),
+            quality_policy_explicit=quality_policy is not None,
         )
 
     @property
@@ -269,6 +283,11 @@ class MeshSettings:
                     else self.structured_controls.effective_dict()
                 ),
             }
+        if self.quality_policy_explicit:
+            # Explicit final-admission constraints apply to every producer.
+            # Omitted policies retain the entire established hash payload.
+            payload["quality_policy"] = dict(self.quality_policy)
+            payload["quality_policy_explicit"] = True
         if self.strategy in _QUAD_PIPELINE_STRATEGIES and (
             self.quad_t3_minimum_angle != 15.0 or self.quad_t3_angle_action != "error"
         ):
@@ -919,7 +938,7 @@ def run_mesh_job(
         order=settings.element_order,
         strategy=settings.strategy,
         structure_preference=settings.structure_preference,
-        quality_policy=dict(settings.quality_policy),
+        quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
         mesh_controls=resolved_controls,
         structured_controls=resolved_structured_controls,
         quad_options=settings.quad_options,
@@ -986,7 +1005,7 @@ def run_mesh_job(
             overrides=dict(settings.overrides),
             strategy=resolved_strategy,
             structure_preference=settings.structure_preference,
-            quality_policy=dict(settings.quality_policy),
+            quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
             controls=resolved_controls,
             structured_controls=resolved_structured_controls,
             quad_options=settings.quad_options,
