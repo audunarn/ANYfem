@@ -133,7 +133,7 @@ def test_shutdown_stops_the_mesh_worker_at_once():
     from anyfem.application.examples import floating_barge_section
 
     manager = MeshTaskManager(executor="process")
-    manager.submit("barge", DocumentSession(floating_barge_section()).snapshot(), MeshSettings.create(0.7, element_order="linear"))
+    future = manager.submit("barge", DocumentSession(floating_barge_section()).snapshot(), MeshSettings.create(0.7, element_order="linear"))
     deadline = time.monotonic() + 120
     while manager._process is None:
         assert time.monotonic() < deadline, "no worker was started"
@@ -141,8 +141,87 @@ def test_shutdown_stops_the_mesh_worker_at_once():
     process = manager._process
     assert process.is_alive()
     manager.shutdown()
-    process.join(20)
+    future.result(timeout=20)
     assert not process.is_alive()
+
+
+def _install_shutdown_observer_dependencies(monkeypatch, mode):
+    """Observer unit only: no document, mesh or real process is created."""
+    import sys
+    from types import SimpleNamespace
+    from anyfem.application import examples
+
+    calls = {'joins': [], 'results': [], 'shutdown': False, 'owner_done': False}
+    project, snapshot = object(), object()
+    timeout = TimeoutError('owner cleanup has not completed')
+
+    class Process:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout):
+            calls['joins'].append(timeout)
+            raise AssertionError('observer must not reap the SDK-owned process')
+
+    process = Process()
+
+    class Future:
+        def result(self, *, timeout):
+            assert calls['shutdown']
+            calls['results'].append(timeout)
+            assert timeout == 20
+            if mode == 'timeout':
+                raise failure
+            calls['owner_done'] = True
+            if mode != 'survivor':
+                process.alive = False
+
+    failure = timeout
+    future = Future()
+
+    class Manager:
+        def __init__(self, *, executor):
+            assert executor == 'process'
+            self._process = process
+
+        def submit(self, job_id, actual_snapshot, settings):
+            assert job_id == 'barge' and actual_snapshot is snapshot
+            return future
+
+        def shutdown(self):
+            calls['shutdown'] = True
+
+    def session(actual_project):
+        assert actual_project is project
+        return SimpleNamespace(snapshot=lambda: snapshot)
+
+    monkeypatch.setattr(examples, 'floating_barge_section', lambda: project)
+    monkeypatch.setattr(sys.modules[__name__], 'DocumentSession', session)
+    monkeypatch.setattr(sys.modules[__name__], 'MeshTaskManager', Manager)
+    return calls, failure
+
+
+def test_shutdown_observer_awaits_owner_future_without_reaping(monkeypatch, request):
+    request.node.user_properties.extend((('execution_scope', 'shutdown-observer-unit'),
+                                         ('native_worker_qualification', False)))
+    calls, _ = _install_shutdown_observer_dependencies(monkeypatch, 'success')
+    test_shutdown_stops_the_mesh_worker_at_once()
+    assert calls == {'joins': [], 'results': [20], 'shutdown': True, 'owner_done': True}
+
+
+@pytest.mark.parametrize('mode', ('timeout', 'survivor'))
+def test_shutdown_observer_does_not_hide_incomplete_owner_cleanup(monkeypatch, request, mode):
+    request.node.user_properties.extend((('execution_scope', 'shutdown-observer-unit'),
+                                         ('native_worker_qualification', False)))
+    calls, failure = _install_shutdown_observer_dependencies(monkeypatch, mode)
+    with pytest.raises(TimeoutError if mode == 'timeout' else AssertionError) as caught:
+        test_shutdown_stops_the_mesh_worker_at_once()
+    if mode == 'timeout':
+        assert caught.value is failure
+    assert calls['results'] == [20] and calls['joins'] == []
+    assert calls['owner_done'] is (mode == 'survivor')
 
 
 def test_executor_selection(monkeypatch):
