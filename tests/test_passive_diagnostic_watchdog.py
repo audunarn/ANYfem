@@ -27,6 +27,10 @@ def wait_for(predicate):
 def rows(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
+def wait_for_snapshot(watcher,path,nodeid,phase,count):
+    wait_for(lambda: watcher.snapshots > count and any(
+        record.get('nodeid')==nodeid and record.get('phase')==phase for record in rows(path)[count:]))
+
 def test_diagnostic_command_requests_passive_snapshots(monkeypatch, tmp_path):
     from test_test_runner import runner
     seen=[]
@@ -56,7 +60,7 @@ def test_passive_snapshot_has_actual_metadata_and_no_locals(tmp_path):
         assert watcher.snapshots==count
         watcher.arm('scalar::second','setup')
         watcher.phase('scalar::second','teardown')
-        wait_for(lambda: watcher.snapshots > count)
+        wait_for_snapshot(watcher,tmp_path/'python-stack-snapshots.jsonl','scalar::second','teardown',count)
         watcher.disarm()
         assert rows(tmp_path/'python-stack-snapshots.jsonl')[-1]['phase']=='teardown'
     finally:
@@ -336,3 +340,39 @@ def test_collection_error_and_failure_shutdown(tmp_path,mode):
     status=json.loads((out/'python-stack-watchdog-status.json').read_text())
     assert status['status']=='closed' and status['retirement_verified'] is True
     if mode!='failed': assert status['thread_started'] is False
+
+
+def test_snapshot_wait_rejects_premature_setup_even_when_count_advanced(tmp_path,monkeypatch):
+    """A count increment alone does not prove the requested phase was sampled."""
+    path=tmp_path/'snapshots.jsonl'
+    path.write_text(json.dumps(dict(nodeid='scalar::second',phase='setup'))+'\n')
+    watcher=SimpleNamespace(snapshots=1)
+    transitions=[]
+    def publish_matching_phase(predicate):
+        assert not predicate(), 'premature setup must not satisfy the teardown wait'
+        transitions.append('teardown')
+        with path.open('a') as stream:
+            stream.write(json.dumps(dict(nodeid='scalar::second',phase='teardown'))+'\n')
+        watcher.snapshots+=1
+        assert predicate(), 'the actual matching phase must settle the wait'
+    monkeypatch.setitem(globals(),'wait_for',publish_matching_phase)
+    wait_for_snapshot(watcher,path,'scalar::second','teardown',0)
+    assert transitions==['teardown']
+
+
+def test_snapshot_wait_rejects_stale_phase_before_baseline_count(tmp_path,monkeypatch):
+    path=tmp_path/'snapshots.jsonl'
+    history=[dict(nodeid='scalar::second',phase='teardown'),dict(nodeid='scalar::second',phase='setup')]
+    path.write_text(''.join(json.dumps(row)+'\n' for row in history))
+    watcher=SimpleNamespace(snapshots=2)
+    transitions=[]
+    def publish_new_matching_phase(predicate):
+        assert not predicate(), 'old teardown plus new setup must not settle a new teardown wait'
+        transitions.append('new teardown')
+        with path.open('a') as stream:
+            stream.write(json.dumps(dict(nodeid='scalar::second',phase='teardown'))+'\n')
+        watcher.snapshots+=1
+        assert predicate()
+    monkeypatch.setitem(globals(),'wait_for',publish_new_matching_phase)
+    wait_for_snapshot(watcher,path,'scalar::second','teardown',1)
+    assert transitions==['new teardown']
