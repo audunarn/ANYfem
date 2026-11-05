@@ -687,4 +687,16 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
                 actual[values['path']] = (values.get('repository'), values.get('ref'))
         assert {path: actual.get(path) for path in expected} == expected
         assert '.ecosystem/ANYsolver-results/packages/results' in job
+        assert '-e .ecosystem/ANYsolver-results/packages/results' not in job
+        assert 'anysolver_results.principals' in job
         assert '.ecosystem/ANYsolver/packages/results' not in job
+
+
+def test_canonical_results_runtime_install_does_not_share_editable_source_roots():
+    for name in ('tests.yml','qt-tests.yml'):
+        text=(ROOT/'.github/workflows'/name).read_text()
+        assert '-e .ecosystem/ANYsolver ' in text
+        assert '-e .ecosystem/ANYsolver-results/packages/results' not in text
+        assert 'python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results' in text
+        assert 'anysolver_results.principals' in text
+        assert "distribution('anysolver-results').locate_file('anysolver_results/__init__.py')" in text

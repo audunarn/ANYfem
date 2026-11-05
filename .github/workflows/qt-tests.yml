@@ -142,7 +142,9 @@ jobs:
           ANYMESHER_REQUIRE_NATIVE: '1'
           ANYMESHER_DISABLE_NATIVE: '0'
         run: |
-          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYhydro -e .ecosystem/ANYstability -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e .ecosystem/ANYsolver-results/packages/results -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
+          python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYhydro -e .ecosystem/ANYstability -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYsolver -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
+          python -c "import importlib.metadata,pathlib,json,anysolver_results; import anysolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anysolver-results').locate_file('anysolver_results/__init__.py')).resolve(); actual=pathlib.Path(anysolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anysolver-results'))))"
           python -m pip install -e ".[dev,qt,tk]"
       - name: Default and explicit frontend launcher contracts
         run: python -m pytest tests/test_gui_launcher.py tests/test_launcher_ecosystem_preflight.py tests/test_license_policy.py tests/test_verification.py::test_the_package_declares_its_entry_points tests/test_verification.py::test_the_viewport_is_an_optional_extra -q

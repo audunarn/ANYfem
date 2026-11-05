@@ -43,7 +43,9 @@ def test_qt_preserves_physical_solver_and_separates_results_owner():
         owners = _checkouts(text)
         assert owners['.ecosystem/ANYsolver'] == ('audunarn/ANYsolver', PHYSICAL_SOLVER)
         assert owners['.ecosystem/ANYsolver-results'] == ('audunarn/ANYsolver', RESULTS_SOLVER)
-    assert '-e .ecosystem/ANYsolver -e .ecosystem/ANYsolver-results/packages/results' in qt
+    assert '-e .ecosystem/ANYsolver -e .ecosystem/ANYpost' in qt
+    assert 'python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results' in qt
+    assert '-e .ecosystem/ANYsolver-results/packages/results' not in qt
     assert '.ecosystem/ANYsolver/packages/results' not in qt
 
 
