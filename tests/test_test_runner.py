@@ -671,7 +671,7 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
         '.ecosystem/ANYsolver': ('audunarn/ANYsolver', '38e9abc179b9babf02d395c2d4f3c64291ff56ed'),
         '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'),
-        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', 'cff449fb0b572b305bfc7d8aa712fec920c56c09'),
+        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '028421f069f0dde82d3e489ae3049346cc03f757'),
         '.ecosystem/ANYmesh': ('audunarn/ANYmesh', '8cddc735022c23d540c7c1a7299ba0c9455558b1'),
     }
     for job in (test_job, build_job):
