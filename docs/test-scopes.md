@@ -46,3 +46,14 @@ cap. These limits do not renew separately bounded scientific execution authority
 Collected receipts bind the runner's owned pytest root and preserve the first
 original collection in its fresh evidence directory. Nested scalar pytest runs
 cannot write or overwrite that parent inventory through inherited plugin settings.
+
+Manual qualification can select `qualification_case=reported-spline-four-face`
+to run only the original mandatory reported spline fixture. The default `all`
+retains the qualification tier. A case request with another scope is refused.
+`mesher_ref` must be a frozen 40-hex SHA; all three existing ANYmesh checkouts
+use that same input, defaulting to the existing pin. Inputs are environment
+values or checkout refs, never shell fragments or arbitrary test selectors.
+The focused command preserves the original fixture, workers and assertions.
+Source and result receipts bind actual ANYmesh/ANYfem commits and fixture SHA256,
+then require exactly one passing unskipped original JUnit case and collected node.
+This is partial qualification evidence; full release gates remain required.

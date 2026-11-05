@@ -13,6 +13,15 @@ on:
         type: choice
         default: full
         options: [full, unit, integration, qualification]
+      qualification_case:
+        description: 'Qualification tier inventory or original reported four-face fixture'
+        type: choice
+        default: all
+        options: [all, reported-spline-four-face]
+      mesher_ref:
+        description: 'Frozen reviewed ANYmesh commit SHA (40 hex)'
+        type: string
+        default: '8cddc735022c23d540c7c1a7299ba0c9455558b1'
 
 jobs:
   development:
@@ -26,6 +35,14 @@ jobs:
         python-version: ["3.13"]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate manual qualification dispatch contract
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          QUALIFICATION_SCOPE: ${{ inputs.scope }}
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py validate
 
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
@@ -79,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 8cddc735022c23d540c7c1a7299ba0c9455558b1
+          ref: ${{ inputs.mesher_ref || '8cddc735022c23d540c7c1a7299ba0c9455558b1' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -142,8 +159,25 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.scope == 'integration'
         run: python tools/test_anyfem.py --profile integration --out reports/development-integration
       - name: Run explicit qualification tier (partial development only)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification'
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case != 'reported-spline-four-face'
         run: python tools/test_anyfem.py --profile qualification --out reports/development-qualification
+      - name: Bind original reported four-face fixture to frozen source (partial qualification)
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
+        env:
+          QUALIFICATION_SCOPE: ${{ inputs.scope }}
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py prepare
+      - name: Run one original reported four-face fixture (partial qualification only)
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
+        run: python tools/test_anyfem.py --profile focused --ci-diagnostics --fail-fast --out reports/qualification-spline4 tests/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes
+      - name: Require one original passing case and matching source (partial qualification only)
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
+        env:
+          QUALIFICATION_SCOPE: ${{ inputs.scope }}
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py verify
       - name: Preserve development receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -164,6 +198,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate manual qualification dispatch contract
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          QUALIFICATION_SCOPE: ${{ inputs.scope }}
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py validate
 
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
@@ -217,7 +259,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 8cddc735022c23d540c7c1a7299ba0c9455558b1
+          ref: ${{ inputs.mesher_ref || '8cddc735022c23d540c7c1a7299ba0c9455558b1' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -339,6 +381,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate manual qualification dispatch contract
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          QUALIFICATION_SCOPE: ${{ inputs.scope }}
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py validate
+
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYsolver
@@ -384,7 +434,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: 8cddc735022c23d540c7c1a7299ba0c9455558b1
+          ref: ${{ inputs.mesher_ref || '8cddc735022c23d540c7c1a7299ba0c9455558b1' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
