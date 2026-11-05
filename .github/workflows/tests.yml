@@ -7,9 +7,152 @@ on:
   pull_request:
     paths-ignore: ['docs/QT_CONVERSION.md', 'reports/**']
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Full release gates or partial development tier'
+        type: choice
+        default: full
+        options: [full, unit, integration, qualification]
 
 jobs:
+  development:
+    name: Development tier (partial; no release acceptance)
+    timeout-minutes: ${{ (github.event_name != 'workflow_dispatch' || inputs.scope == 'unit') && 10 || 360 }}
+    if: github.event_name != 'workflow_dispatch' || inputs.scope != 'full'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # These packages are intentionally consumed through their public package
+      # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
+      # until normal versioned installation can replace these checkouts.
+      # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
+      - name: Allow long paths on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
+          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
+          path: .ecosystem/ANYsolver
+      # Results-only API repair: preserve the physical solver revision above.
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolver
+          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
+          path: .ecosystem/ANYsolver-results
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYpost
+          ref: fb06cacd6b98964a6748ea1c222a4bc974c00fcd
+          path: .ecosystem/ANYpost
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmaterial
+          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
+          path: .ecosystem/ANYmaterial
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYhydro
+          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          path: .ecosystem/ANYhydro
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYstability
+          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
+          path: .ecosystem/ANYstability
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYloads
+          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
+          path: .ecosystem/ANYloads
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYgeometry
+          ref: dfe70ff62a580cf26b01591ae92df0024bdb7fac
+          path: .ecosystem/ANYgeometry
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmesh
+          ref: 8cddc735022c23d540c7c1a7299ba0c9455558b1
+          path: .ecosystem/ANYmesh
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfileIO
+          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          path: .ecosystem/ANYfileIO
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANY3dView
+          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
+          path: .ecosystem/ANY3dView
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYtk3D
+          ref: 2caa92325885938c594f27145ed16069d807e364
+          path: .ecosystem/ANYtk3D
+
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsection
+          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
+          path: .ecosystem/ANYsection
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '3.14.2' || matrix.python-version }}
+
+      - name: Install headless OpenGL runtime (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+
+      - name: Install
+        env:
+          # Resource ownership helper only; no numerical native accelerator.
+          ANYGEOMETRY_REQUIRE_PLANNING_NATIVE: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '1' || '0' }}
+        run: |
+          python -m pip install --upgrade pip "xarray>=2023.1"
+          python -m pip install --no-deps -e .ecosystem/ANYmaterial
+          python -m pip install --no-deps -e .ecosystem/ANYhydro -e .ecosystem/ANYstability
+          python -m pip install --no-deps -e .ecosystem/ANYloads
+          python -m pip install --no-deps -e .ecosystem/ANYgeometry
+          python -m pip install --no-deps -e .ecosystem/ANYmesh
+          python -m pip install --no-deps -e .ecosystem/ANYfileIO
+          python -m pip install --no-deps -e .ecosystem/ANYsolver -e .ecosystem/ANYpost
+          python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results
+          python -c "import importlib.metadata,pathlib,json,anysolver_results; import anysolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anysolver-results').locate_file('anysolver_results/__init__.py')).resolve(); actual=pathlib.Path(anysolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anysolver-results'))))"
+          python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
+          python -m pip install --no-deps -e .ecosystem/ANYtk3D
+          python -m pip install --no-deps -e .ecosystem/ANYsection
+          # The matrix exercises the supported Tk/headless UI path. ModernGL
+          # backend build coverage belongs to ANY3dView and is not required
+          # for ANYfem's platform-independent GUI contract.
+          # The installed-license gate checks every declared GUI dependency,
+          # including the optional Qt candidate, even in the Tk/headless matrix.
+          python -m pip install -e ".[dev]" "Pillow>=10,<13" "PySide6>=6.10.1,<6.11"
+
+      - name: Run normal focused unit checks
+        if: github.event_name != 'workflow_dispatch' || inputs.scope == 'unit'
+        run: python tools/test_anyfem.py --profile unit --out reports/development-unit
+      - name: Run explicit integration tier (partial development only)
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'integration'
+        run: python tools/test_anyfem.py --profile integration --out reports/development-integration
+      - name: Run explicit qualification tier (partial development only)
+        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification'
+        run: python tools/test_anyfem.py --profile qualification --out reports/development-qualification
+      - name: Preserve development receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-only-evidence
+          path: reports/
+
   test:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'full'
     runs-on: ${{ matrix.os }}
     env:
       ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '1' || '0' }}
@@ -191,6 +334,7 @@ jobs:
           path: reports/
 
   build:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

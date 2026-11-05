@@ -33,6 +33,8 @@ def selectors(profile, requested):
         return list(requested)
     if requested:
         raise ValueError("selectors are allowed only with --profile focused")
+    if profile in {"unit", "fast", "integration", "qualification"}:
+        return _suite_plan().module_plan(ROOT, profile)["selected"]
     if profile == "quick":
         return list(QUICK)
     if profile == "qt":
@@ -44,6 +46,13 @@ def selectors(profile, requested):
                 "tests/test_result_browser.py",
                 "tests/test_geometry_sets_actions.py", "tests/test_application_frontend_boundary.py"]
     return ["tests"]
+
+
+def _suite_plan():
+    spec = importlib.util.spec_from_file_location("_anyfem_suite_plan", ROOT / "tools/test_suite_plan.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def owner_capabilities():
@@ -283,6 +292,7 @@ def _execute_caller_phases(command,output,environment,report):
         data['args']=[*data['args'],'--junitxml='+str(folder/'pytest.xml')]
         manifest=folder/'phase.json';manifest.write_text(json.dumps(data,indent=2),encoding='utf-8')
         env=environment.copy()
+        if name != "caller-collection":env.pop("ANYFEM_SUITE_MANIFEST", None)
         if 'ANYFEM_CI_DIAGNOSTICS_DIR' in env:env['ANYFEM_CI_DIAGNOSTICS_DIR']=str(folder)
         now=time.monotonic()
         code=execute([sys.executable,str(Path(__file__).resolve()),'--_caller-bootstrap',str(manifest)],folder/'pytest.log',env)
@@ -318,7 +328,7 @@ def _execute_caller_phases(command,output,environment,report):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("quick", "focused", "qt", "full"), default="quick")
+    parser.add_argument("--profile", choices=("quick", "unit", "fast", "integration", "qualification", "focused", "qt", "full"), default="quick")
     parser.add_argument("--backend", choices=("software", "gpu"), default="software")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ci-diagnostics", action="store_true",
@@ -332,6 +342,8 @@ def main(argv=None):
         selected = selectors(options.profile, options.tests)
     except ValueError as error:
         parser.error(str(error))
+    if not selected:
+        parser.error("profile has no test modules; refusing pytest fallback collection")
     command = [sys.executable, "-m", "pytest", *selected, "-q"]
     if options.ci_diagnostics:
         command += ["-p", "tools.pytest_anyfem_progress", "-o", "anyfem_snapshot_timeout=60"]
@@ -347,9 +359,24 @@ def main(argv=None):
         output.mkdir(parents=True, exist_ok=False)
     except OSError as error:
         parser.error(str(error))
+    planning_profile = options.profile if options.profile in {"unit", "fast", "integration", "qualification", "full"} else "full"
+    plan = _suite_plan().module_plan(ROOT, planning_profile)
+    if options.profile in {"quick", "focused", "qt"}:
+        selected_files = {value.split("::", 1)[0] for value in selected}
+        plan["selected"] = [value for value in plan["assignments"] if value in selected_files]
+        plan["excluded"] = [value for value in plan["assignments"] if value not in selected_files]
+        plan.update(profile=options.profile, scope="partial development only")
+    plan.update(requested_profile=options.profile, command_selectors=selected)
+    (output / "suite-plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     environment = os.environ.copy()
     # An inherited -k/--ignore/--collect-only must not silently narrow a profile.
     inherited_options = environment.pop("PYTEST_ADDOPTS", None)
+    # Owned collection receipt; original full argv and fresh-H partition stay exact.
+    environment["ANYFEM_SUITE_PROFILE"] = options.profile
+    environment["ANYFEM_SUITE_ROOT"] = str(ROOT.resolve())
+    environment["ANYFEM_SUITE_MANIFEST"] = str(output / "suite-collected.json")
+    plugins = [value for value in environment.get("PYTEST_PLUGINS", "").split(",") if value]
+    environment["PYTEST_PLUGINS"] = ",".join(dict.fromkeys([*plugins, "tools.pytest_anyfem_suite"]))
     # This private child setting cannot enable diagnostics without the flag.
     environment.pop("ANYFEM_CI_DIAGNOSTICS_DIR", None)
     if options.ci_diagnostics:
@@ -361,6 +388,8 @@ def main(argv=None):
         environment["ANYFEM_VERIFICATION_OUT"] = str(output / "verification")
     command += ["--junitxml=" + str(output / "pytest.xml")]
     report = {"profile": options.profile, "command": command, "python": sys.executable,
+              "scope": "full release candidate; existing gates required" if options.profile == "full" else "partial development only",
+              "suite_plan": str(output / "suite-plan.json"), "suite_collection": str(output / "suite-collected.json"),
               "ci_diagnostics": options.ci_diagnostics, "fail_fast": options.fail_fast,
               "python_version": sys.version, "ignored_pytest_addopts": inherited_options,
               "environment": {key: environment.get(key) for key in (
@@ -370,6 +399,8 @@ def main(argv=None):
     start = time.monotonic()
     code = 2
     try:
+        if options.profile == "qualification" and environment.get("ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS") == "1":
+            raise RuntimeError("partial qualification profile cannot satisfy required caller positives; use --profile full for authoritative fresh-H isolation")
         if options.profile in {"full", "qt"}:
             owner_capabilities()
         if options.profile == "qt":
