@@ -35,6 +35,9 @@ def test_owned_windows_spawn_waits_for_assignment_before_go(monkeypatch, tmp_pat
     monkeypatch.setattr(owned.subprocess, "Popen", lambda argv, **kw: calls.append(argv) or Process())
     replace = owned.os.replace
     def publish(pending, gate):
+        # The actual bootstrap argv pins this fixture's one GO destination.
+        if not calls or Path(gate) != Path(calls[0][5]):
+            return replace(pending, gate)
         assert pending.name == "GO.pending" and pending.read_text() == "GO"
         assert not gate.exists(), "GO must not be visible before its complete contents"
         calls.append("publish complete GO")

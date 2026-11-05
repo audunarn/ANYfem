@@ -44,7 +44,9 @@ def test_precommit_cancel_preserves_previous_destination(tmp_path):
 def test_cancel_after_atomic_replace_remains_committed(tmp_path,monkeypatch):
     import anyfem.ui.result_export as module
     event=Event();replace=module.os.replace
-    def commit(*args):replace(*args);event.set()
+    def commit(*args):
+        if Path(args[1])!=tmp_path/'output.csv':return replace(*args)
+        replace(*args);event.set()
     monkeypatch.setattr(module.os,'replace',commit)
     result=write_client_export(tmp_path/'output.csv','actual',event)
     assert isinstance(result,CommittedResult) and result.value.read_text()=='actual'
@@ -302,7 +304,9 @@ def test_running_atomic_replace_retirement_reports_actual_commit_only(tmp_path,m
     import anyfem.ui.result_export as module
     app=host();entered=Event();release=Event();owner=get_ident();published=[];cleanup=[]
     original=module.os.replace
-    def blocked_replace(*args):entered.set();assert release.wait(3);original(*args)
+    def blocked_replace(*args):
+        if Path(args[1])!=tmp_path/'source.csv':return original(*args)
+        entered.set();assert release.wait(3);original(*args)
     monkeypatch.setattr(module.os,'replace',blocked_replace)
     path=tmp_path/'source.csv'
     app._request_result(lambda cancel:write_client_export(path,'source',cancel,source='job-a'),
@@ -363,7 +367,9 @@ def test_retired_report_empty_race_still_delivers_committed_export(tmp_path,monk
     import anyfem.ui.result_export as module
     from queue import Empty,SimpleQueue
     app=host();entered=Event();release=Event();published=[];replace=module.os.replace
-    def blocked(*args):entered.set();assert release.wait(4);replace(*args)
+    def blocked(*args):
+        if Path(args[1])!=tmp_path/'source.csv':return replace(*args)
+        entered.set();assert release.wait(4);replace(*args)
     monkeypatch.setattr(module.os,'replace',blocked)
     path=tmp_path/'source.csv'
     app._request_result(lambda cancel:write_client_export(path,'actual',cancel,source='a'),published.append,channel='export',ordered=True)
@@ -389,7 +395,10 @@ def test_ordered_replace_error_is_failure_after_retire_or_source_invalidation(tm
     original_status=app.set_status
     def status(text,**kw):errors.append((text,kw.get('error',False)));original_status(text,**kw)
     app.set_status=status
-    def fail(*args):entered.set();assert release.wait(4);raise PermissionError('destination busy')
+    replace=module.os.replace
+    def fail(*args):
+        if Path(args[1])!=tmp_path/'source.csv':return replace(*args)
+        entered.set();assert release.wait(4);raise PermissionError('destination busy')
     monkeypatch.setattr(module.os,'replace',fail)
     path=tmp_path/'source.csv';path.write_text('previous')
     app._request_result(lambda cancel:write_client_export(path,'new',cancel),lambda value:pytest.fail('failed write publication'),
@@ -427,7 +436,9 @@ def test_late_committed_export_keeps_new_solve_status_and_reports_success(tmp_pa
     import anyfem.ui.result_export as module
     app=host();actual_status_setter(app,frontend);logs=[];app.log=SimpleNamespace(appendPlainText=logs.append)
     app.set_status('Waiting for export');entered=Event();release=Event();published=[];replace=module.os.replace
-    def blocked(*args):entered.set();assert release.wait(4);replace(*args)
+    def blocked(*args):
+        if Path(args[1])!=tmp_path/'source.csv':return replace(*args)
+        entered.set();assert release.wait(4);replace(*args)
     monkeypatch.setattr(module.os,'replace',blocked)
     path=tmp_path/'source.csv'
     app._request_result(lambda cancel:write_client_export(path,'actual',cancel,source='old-job'),published.append,channel='export',ordered=True)
@@ -493,7 +504,9 @@ def test_shutdown_commit_is_logged_exactly_once_with_source_and_value(tmp_path,m
     caplog.set_level(logging.INFO)
     app=host();cleanup=[];path=tmp_path/'source.csv';entered=Event();release=Event();replace=module.os.replace
     if pending:
-        def blocked(*args):entered.set();assert release.wait(3);replace(*args)
+        def blocked(*args):
+            if Path(args[1])!=tmp_path/'source.csv':return replace(*args)
+            entered.set();assert release.wait(3);replace(*args)
         monkeypatch.setattr(module.os,'replace',blocked)
     app._request_result(lambda cancel:write_client_export(path,'actual',cancel,source='captured-source'),
         lambda value:pytest.fail('closed publication'),channel='export',ordered=True,on_cancel=lambda:cleanup.append(True))
