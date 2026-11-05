@@ -541,7 +541,28 @@ class ResultsTask(QWidget):
         solution=self.app.solutions.get(job_id)
         if solution is None and job_id not in self.app.result_datasets:raise ValueError("This job has no available retained result")
         self.reset();self.app.active_job_id=job_id;self.app.solution=solution;self.app.shape_index=0
-        self.refresh();self.app.notebook.select("Results");self.show_results()
+        dataset=self.app.result_datasets.get(job_id)
+        request=self._activation_request=object()
+        def context():
+            return (id(self.app.session),id(self.app.project),self.app.project.document_id,
+                    getattr(self.app,"_result_source_epoch",0),self.app.active_job_id,
+                    id(self.app.solution),id(self.app.result_datasets.get(job_id)))
+        owner=context()
+        def cancel():
+            if self._activation_request is request:self._activation_request=None
+        def ready():
+            if self._activation_request is not request:return
+            if self.app._closing or context()!=owner:
+                cancel();return
+            # Header completion and catalog publication are separate events.
+            # Normalize this job's real catalog before the normal display guard.
+            self.refresh()
+            if self._activation_request is not request or self.app._closing or context()!=owner:
+                cancel();return
+            cancel();self.show_results()
+        self.app.notebook.select("Results")
+        if dataset is not None and self.app.prepare_result_dataset(dataset,on_ready=ready,on_cancel=cancel):return
+        ready()
 
     def _frame_changed(self,value):
         self.app.shape_index=value

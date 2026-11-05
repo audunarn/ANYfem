@@ -261,6 +261,7 @@ def test_full_cannot_be_narrowed_and_focused_requires_scope():
             runner.selectors(profile, paths)
     assert runner.selectors("focused", ["tests/test_io.py::test_example"]) == ["tests/test_io.py::test_example"]
     assert all((ROOT / path).is_file() for path in runner.selectors("quick", []))
+    assert "tests/test_qt_activation_readiness.py" in runner.selectors("qt", [])
 
 
 def test_dry_run_neither_imports_owners_nor_executes(monkeypatch, tmp_path, capsys):

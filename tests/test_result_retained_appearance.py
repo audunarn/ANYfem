@@ -163,16 +163,41 @@ def test_animation_interval_is_one_based_inclusive_and_validated_before_options(
     assert panel._playback is None and panel._preparation is None
 
 
-def test_frame_interval_uses_selected_quantity_frame_count(qt_panel):
+def test_frame_interval_uses_root_axis_for_sparse_quantity(qt_panel,tmp_path):
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.model.records import ResultQuantityDescriptor
+    from anypost.errors import UnavailableFieldError
     panel,_=qt_panel
-    descriptor=SimpleNamespace(frames=(10.,20.))
-    panel.app.solution=None
-    panel.app.result_datasets={'job':SimpleNamespace(frames=tuple(range(600)),field_keys=('subset',),
-        field=lambda name:SimpleNamespace(descriptor=descriptor))}
-    panel.field.blockSignals(True);panel.field.clear();panel.field.addItem('subset');panel.field.blockSignals(False)
-    assert panel.frame_count()==2
-    panel._sync_frame_interval(2)
-    assert panel.animation_frames()==(0,1)
+    frames=tuple(float(i) for i in range(600))
+    descriptor=ResultQuantityDescriptor('subset','Subset','node','m',('ux',),frames=(10.,20.))
+    values=np.array([[[1.]],[[2.]]])
+    store=ArtifactStore(tmp_path/'sparse.anyfem')
+    artifact=store.write_result(job_id='job',document_id=panel.app.project.document_id,
+        mesh_id='mesh',model_hash='model',mesh_hash='mesh',analysis_hash='analysis',
+        fields={'subset':(descriptor,values)},frames=frames,frame_kind='time',
+        tables={'subset_node_ids':np.array([17])})
+    dataset=store.open_result(artifact)
+    try:
+        panel.app.solution=None
+        panel.app.result_datasets={'job':dataset}
+        panel.field.blockSignals(True);panel.field.clear();panel.field.addItem('subset');panel.field.blockSignals(False)
+        quantity=dataset.field('subset')
+        assert tuple(dataset.frames)==frames and len(dataset.frames)==600
+        assert tuple(quantity.descriptor.frames)==(10.,20.)
+        assert quantity.root_frame_index(10)==0 and quantity.root_frame_index(20)==1
+        for missing in (0,11):
+            with pytest.raises(UnavailableFieldError):quantity.root_frame_index(missing)
+        np.testing.assert_array_equal(quantity.read(0),values[0])
+        np.testing.assert_array_equal(quantity.read(1),values[1])
+        # Playback uses root ordinals; the quantity resolves its sparse local axis.
+        assert panel.frame_count()==600
+        panel._sync_frame_interval(panel.frame_count())
+        assert panel.animation_frames()==tuple(range(600))
+        panel.from_frame.setValue(11);panel.to_frame.setValue(21)
+        assert panel.animation_frames()==tuple(range(10,21))
+    finally:
+        panel.app.result_datasets={}
+        dataset.close()
 
 
 def test_preprocessing_progress_and_completion_remain_visible(qt_panel):

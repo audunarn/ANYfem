@@ -5,6 +5,24 @@ from anyfem import _preparation_context as context
 from _caller_planning_profile import caller_planning_profile
 
 
+
+def _assert_parallel_receipt(receipt):
+    """Retain bounded exact diagnostic data; never classify a serial decline."""
+    import json
+    import os
+    from pathlib import Path
+    text=json.dumps(receipt,sort_keys=True,ensure_ascii=True,allow_nan=False)
+    if len(text.encode("utf-8"))>262144:
+        raise ValueError("caller planning receipt exceeds diagnostic byte bound")
+    print("[anyfem caller planning receipt] "+text,flush=True)
+    directory=os.environ.get("ANYFEM_CI_DIAGNOSTICS_DIR")
+    if directory:
+        path=Path(directory)/"actual-parallel-preparation-receipt.json"
+        with path.open("x",encoding="utf-8") as stream:
+            stream.write(text+"\n")
+    assert receipt['disposition']=='parallel',text
+
+
 def test_inactive_observation_does_not_read_plan():
     class Unreadable:
         @property
@@ -62,7 +80,7 @@ def test_actual_parallel_preparation_without_invented_callback(monkeypatch,tmp_p
     with context._collect_preparation_evidence() as rows,collect_runtime_records() as records:
         report=prepare_structural_connectivity(model)
     receipt=records['parallel_planning'][-1]
-    assert receipt['disposition']=='parallel',receipt
+    _assert_parallel_receipt(receipt)
     assert report.connections and len(rows)==1
     assert receipt['costs']['callback_calls']==0
     assert [stage['stage'] for stage in receipt['stages']]==['pair','face']
@@ -133,3 +151,41 @@ def test_actual_parallel_caller_callback_terminal_after_capture(monkeypatch,tmp_
     receipt=records['parallel_planning'][-1]
     assert receipt['manifest_sha256'] and receipt['disposition']=='terminal'
     assert receipt['retired'] is True and receipt['stages']==[]
+
+
+def test_parallel_receipt_evidence_retains_exact_payload(tmp_path,monkeypatch,capsys):
+    import json
+    monkeypatch.setenv("ANYFEM_CI_DIAGNOSTICS_DIR",str(tmp_path))
+    receipt={"disposition":"parallel","reason":None,"stages":[{"stage":"pair","accepted":8}],"retired":True}
+    _assert_parallel_receipt(receipt)
+    assert json.loads((tmp_path/"actual-parallel-preparation-receipt.json").read_text())==receipt
+    assert json.loads(capsys.readouterr().out.split("] ",1)[1])==receipt
+
+
+def test_serial_receipt_evidence_still_fails_with_full_reason(tmp_path,monkeypatch,capsys):
+    import json
+    monkeypatch.setenv("ANYFEM_CI_DIAGNOSTICS_DIR",str(tmp_path))
+    receipt={"disposition":"serial","reason":"unclassified original reason","attempted_stages":[],"retired":True}
+    with pytest.raises(AssertionError) as caught:_assert_parallel_receipt(receipt)
+    assert str(caught.value).startswith(json.dumps(receipt,sort_keys=True,ensure_ascii=True,allow_nan=False))
+    assert json.loads((tmp_path/"actual-parallel-preparation-receipt.json").read_text())==receipt
+    assert "unclassified original reason" in capsys.readouterr().out
+
+
+def test_parallel_receipt_evidence_refuses_overwrite(tmp_path,monkeypatch):
+    monkeypatch.setenv("ANYFEM_CI_DIAGNOSTICS_DIR",str(tmp_path))
+    path=tmp_path/"actual-parallel-preparation-receipt.json";path.write_text("original")
+    with pytest.raises(FileExistsError):_assert_parallel_receipt({"disposition":"parallel"})
+    assert path.read_text()=="original"
+
+
+def test_parallel_receipt_evidence_io_failure_remains_failure(tmp_path,monkeypatch):
+    monkeypatch.setenv("ANYFEM_CI_DIAGNOSTICS_DIR",str(tmp_path/"absent"))
+    with pytest.raises(FileNotFoundError):_assert_parallel_receipt({"disposition":"parallel"})
+
+
+@pytest.mark.parametrize("invalid",[{"disposition":"parallel","oversized":"x"*262145},{"disposition":"parallel","invalid":float("nan")}])
+def test_parallel_receipt_evidence_rejects_invalid_or_unbounded_data(tmp_path,monkeypatch,invalid):
+    monkeypatch.setenv("ANYFEM_CI_DIAGNOSTICS_DIR",str(tmp_path))
+    with pytest.raises(ValueError):_assert_parallel_receipt(invalid)
+    assert not (tmp_path/"actual-parallel-preparation-receipt.json").exists()
