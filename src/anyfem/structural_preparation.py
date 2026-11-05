@@ -309,18 +309,28 @@ def prepare_structural_connectivity(
         from anygeometry.surfaces import CoonsSurface, Cone, RuledSurface
         if all(isinstance(face.surface, (CoonsSurface, Cone, RuledSurface))
                for face in geometry.faces.values()):
+            from anygeometry.nurbs import NurbsCurve
+            # Service selection only: the mesher independently proves every
+            # original pair before finalizing this private raw working closure.
+            raw_multiface_profile = (
+                len(geometry.faces) > 1 and not geometry.sheets and not geometry.members
+                and all(type(face.surface) is CoonsSurface and face.parameterization is None
+                        for face in geometry.faces.values())
+                and any(type(geometry.edges[use.edge].curve) is NurbsCurve
+                        for face in geometry.faces.values() for use in face.loop))
             unavailable = set()
-            for face in geometry.faces:
-                try:
-                    query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
-                except GeometryError as error:
-                    if str(error) not in (
-                            f"face {face} has curved Coons boundaries",
-                            f"face {face} is not planar",
-                            f"face {face} has an unsupported intersection surface"):
-                        raise StructuralPreparationError(str(error)) from error
-                    unavailable.add(face)
-            if unavailable == set(geometry.faces):
+            if not raw_multiface_profile:
+                for face in geometry.faces:
+                    try:
+                        query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
+                    except GeometryError as error:
+                        if str(error) not in (
+                                f"face {face} has curved Coons boundaries",
+                                f"face {face} is not planar",
+                                f"face {face} has an unsupported intersection surface"):
+                            raise StructuralPreparationError(str(error)) from error
+                        unavailable.add(face)
+            if raw_multiface_profile or unavailable == set(geometry.faces):
                 # Preserve established curved authoring/discretization. The
                 # mesher performs its qualified ownership audit on a detached
                 # candidate; general interior Coons joints are not inferred.
