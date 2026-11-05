@@ -1061,6 +1061,8 @@ class ResultsTask(QWidget):
             dataset=self.app.result_datasets.get(self.app.active_job_id)
             component=self.component.text().strip() or None
             if dataset is not None:
+                if self.field_name() not in dataset.field_keys:
+                    raise ValueError("Choose a field available in this retained result.")
                 descriptor=dataset.field(self.field_name()).descriptor
                 if component is not None and component not in descriptor.components:raise ValueError("Choose a component available in this retained field")
                 if descriptor.location not in {"node","element","integration_point"}:

@@ -1806,6 +1806,7 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     source.unlink();result_path.unlink()
     window.open_project(str(path));qapp.processEvents()
     panel=window.panels["Results"];panel.activate_job(job_id);qapp.processEvents()
+    settle_result_requests(window,qapp)
     retained=window.result_datasets[job_id]
     assert set(retained.field_keys)==set(expected)
     if format=="sesam-stress":
@@ -1814,7 +1815,9 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     for key,values in expected.items():np.testing.assert_array_equal(retained.field(key).read(0),values)
     if format=="sesam-stress":assert panel.field_name()!="magnitude"
     else:assert retained.field("displacement").descriptor.components==("ux","uy","uz")
-    key=next(iter(expected));panel.field.setCurrentText(key);panel.show_results();qapp.processEvents()
+    key=next(iter(expected));panel.field.setCurrentText(key)
+    assert panel.field_name()==key
+    panel.show_results();qapp.processEvents()
     settle_result_requests(window,qapp)
     csv_path=tmp_path/"external.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(csv_path))

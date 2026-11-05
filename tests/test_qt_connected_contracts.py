@@ -84,3 +84,32 @@ def test_scalar_and_sequence_reference_adapters_stay_unchanged():
         selection=SimpleNamespace(ordered_items=[EntityRef('face',9)])))
     assert CommandEditor.value(editor,SimpleNamespace(text=lambda:''),'EntityRef',None)==EntityRef('face',9)
     assert CommandEditor.value(editor,SimpleNamespace(text=lambda:'face:2,vertex:3'),'Sequence[EntityRef]',None)==(EntityRef('face',2),EntityRef('vertex',3))
+
+
+def test_retained_field_action_refuses_unpublished_catalog_then_uses_exact_ready_key(window,qapp,retained,monkeypatch):
+    """Header completion can precede publication of the selector's new items."""
+    from PySide6.QtCore import QSignalBlocker
+    import numpy as np
+    panel=click_entry(window,qapp,('field','displacement','ux'))
+    original=retained.field('displacement').read(0).copy();scene=window.viewport._scene
+    pending=True
+    def prepare(dataset,**callbacks):
+        assert dataset is retained
+        return pending
+    monkeypatch.setattr(window,'prepare_result_dataset',prepare)
+    # Exact reopening order: refresh returns before catalog normalization.
+    blocker=QSignalBlocker(panel.field);panel.field.clear();panel.field.addItem('magnitude');del blocker
+    panel.refresh()
+    assert panel.field_name()=='magnitude'
+    pending=False # The I/O header is ready, its queued Qt publication has not run.
+    panel.field.setCurrentText('displacement')
+    assert panel.field_name()=='magnitude' # Noneditable QComboBox ignores unknown text.
+    window.guarded(panel.show_results)()
+    assert 'ValueError: Choose a field available in this retained result.' in window._status.get()
+    assert window.viewport._scene is scene
+    np.testing.assert_array_equal(retained.field('displacement').read(0),original)
+    panel.refresh();panel.field.setCurrentText('displacement')
+    assert panel.field_name()=='displacement'
+    panel.show_results();settle_result_requests(window,qapp)
+    assert window.viewport._scene.faces and panel.field_name()=='displacement'
+    np.testing.assert_array_equal(retained.field('displacement').read(0),original)
