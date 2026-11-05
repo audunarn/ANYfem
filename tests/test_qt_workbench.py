@@ -160,16 +160,29 @@ def test_feature_tree_highlights_outputs_without_selecting_assignment_targets(wi
 
 
 @pytest.mark.parametrize("disabled",[False,True])
-def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp_path,monkeypatch,disabled):
+def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp_path,monkeypatch,disabled,request):
     from anyfem.io import recovery
     monkeypatch.setattr(recovery,"default_recovery_root",lambda:tmp_path/"recovery")
     if disabled:monkeypatch.setenv("ANY3DVIEW_DISABLE_GPU","1")
     else:monkeypatch.delenv("ANY3DVIEW_DISABLE_GPU",raising=False)
+    from anyfem.ui.qt import viewport as viewport_module
+    original=viewport_module.create_viewer;attempts=[]
+    def observed(*args,**kwargs):
+        try:viewer=original(*args,**kwargs)
+        except viewport_module.GPUUnavailableError as error:
+            attempts.append((kwargs['backend'],error));raise
+        attempts.append((kwargs['backend'],None));return viewer
+    monkeypatch.setattr(viewport_module,'create_viewer',observed)
     window=QtFemWindow(viewer_backend="auto")
     try:
         window.run(cmd.AddPoint(1,2,3))
         initial=window.viewport.canvas
-        assert initial.backend_name==("software" if disabled else "webgpu")
+        if disabled:assert initial.backend_name=='software'
+        elif initial.backend_name=='software':
+            failure=next(error for backend,error in attempts if backend=='webgpu' and error is not None)
+            assert isinstance(failure,viewport_module.GPUUnavailableError)
+            assert any('Automatic WebGPU unavailable: '+str(failure) in text for text in window.viewport.backend_diagnostics)
+        else:assert initial.backend_name=='webgpu'
         window.show()
         def frames():
             canvas=window.viewport.canvas
@@ -189,7 +202,11 @@ def test_automatic_startup_renders_after_exposure_without_manual_switch(qapp,tmp
             assert window.viewport.active_backend=="software"
             assert window.viewport.backend_diagnostics
         else:
-            assert window.viewport.canvas.backend_name=="webgpu",window.viewport.backend_diagnostics
+            assert window.viewport.canvas.backend_name==initial.backend_name,window.viewport.backend_diagnostics
+        request.node.user_properties.extend((('qt_platform',qapp.platformName()),
+            ('actual_backend',initial.backend_name),('rendered_frames',frames()),
+            ('typed_gpu_unavailable_observed',any(error is not None for backend,error in attempts if backend=='webgpu')),
+            ('backend_diagnostics',str(window.viewport.backend_diagnostics))))
     finally:
         window.session.mark_saved();window.close();qapp.processEvents()
 
@@ -756,7 +773,7 @@ def test_saved_result_playback_tables_reports_gif_and_mesh_identity(window,qapp,
     window.solve();wait_until(qapp,lambda:window.solution is not None)
     window.save_project(path=str(tmp_path/"retained.anyfem"));window.flush_project_writes()
     window.new_project();window.open_project(str(tmp_path/"retained.anyfem"))
-    panel=window.panels["Results"];panel.play()
+    panel=window.panels["Results"];settle_result_requests(window,qapp);panel.play()
     wait_until(qapp,lambda:panel._playback.completed_frames>0)
     assert panel.playback_active and window.viewport.canvas.animation_frames==0
     panel.stop_playback()
@@ -894,6 +911,7 @@ def test_qt_auto_deformation_and_retained_summary_preserve_solver_data(window,qa
     saved=window.result_datasets[job_id].field("displacement").read(0).copy()
     window.new_project();window.open_project(str(path));panel.activate_job(job_id)
     dataset=window.result_datasets[job_id];summary=dataset.metadata("summary")
+    settle_result_requests(window,qapp)
     assert json.dumps(summary,indent=2,sort_keys=True) in panel.report.toPlainText()
     assert str(summary["status"]) in panel.outcome.text()
     assert "Deformation available" in panel.report.toPlainText()
@@ -1190,7 +1208,7 @@ def test_load_edit_preserves_mesh_and_invalidates_solution(window,qapp,tmp_path)
     load=window.project.load_cases["default"].point_loads[0]
     window.run(cmd.EditAttribute(replace(load,force=(0,0,-2000))))
     assert window.mesh is mesh and window.solution is None
-    qapp.processEvents()
+    settle_result_requests(window,qapp)
     assert "Retained result (stale)" in window.panels["Results"].report.toPlainText()
     assert window._job_is_stale(window.project.jobs[job_id])
     window.panels["Solve"].refresh()
@@ -1801,6 +1819,7 @@ def test_qt_imported_mesh_external_result_portable_roundtrip(window,qapp,tmp_pat
     csv_path=tmp_path/"external.csv"
     monkeypatch.setattr(window.dialogs,"save_file",lambda **_:str(csv_path))
     panel.export_csv()
+    settle_result_requests(window,qapp)
     rows=list(csv.DictReader(csv_path.read_text().splitlines()))
     assert rows
     descriptor=retained.field(key).descriptor
@@ -1832,13 +1851,14 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     assert window.project.jobs[job_id].mesh_hash==mesh_record.mesh_hash
     assert len(solution.shapes)>1
     expected=np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes])
-    panel=window.panels["Results"];panel.history()
+    panel=window.panels["Results"];panel.history();settle_result_requests(window,qapp)
     assert panel.plot.series
     assert panel.playback_fps()==20
     for fps,interval in (("0.5",2000),("2",500),("8",125)):
         panel.playback_speed.setCurrentText(fps);panel.play()
         wait_until(qapp,lambda:panel._playback.timer is not None)
-        assert panel._playback.timer.interval()==interval
+        assert panel._playback.interval_ms==interval
+        assert 0<panel._playback.timer.interval()<=interval and panel._playback.completed_frames>0
         assert window.viewport.canvas.animation_frames==0
         panel.stop_playback()
     np.testing.assert_array_equal(np.stack([np.column_stack([shape.component(name) for name in ("ux","uy","uz","rx","ry","rz")]) for shape in solution.shapes]),expected)
@@ -1857,7 +1877,8 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     for fps,interval in (("0.5",2000),("2",500),("8",125)):
         panel.playback_speed.setCurrentText(fps);panel.play()
         wait_until(qapp,lambda:panel._playback.timer is not None)
-        assert panel._playback.timer.interval()==interval
+        assert panel._playback.interval_ms==interval
+        assert 0<panel._playback.timer.interval()<=interval and panel._playback.completed_frames>0
         assert window.viewport.canvas.animation_frames==0
         panel.stop_playback()
     for index in range(len(solution.shapes)):
@@ -2109,7 +2130,8 @@ def test_qt_sketch_extrusion_selects_outputs_for_follow_on_load(window,qapp):
     window.selection.restore((made[0],))
     loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
     loads.fields["value"][0].setText("1000")
-    load=loads.execute()
+    made_loads=loads.execute();assert len(made_loads)==1
+    load,=made_loads
     assert load.ref==made[0]
     window.undo();window.undo();window.redo()
     assert window.project.geometry.features.get(feature.feature_id).parameters["extrusion"]==pytest.approx(.3)
@@ -2162,7 +2184,8 @@ def test_qt_dependent_feature_edit_preserves_engineering_attachments(window,qapp
     window.run(cmd.AssignPlate(target.id,section))
     window.selection.restore((target,))
     loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
-    loads.fields["value"][0].setText("1000");pressure=loads.execute()
+    loads.fields["value"][0].setText("1000");made_loads=loads.execute();assert len(made_loads)==1
+    pressure,=made_loads
     boundary=child.outputs["point/p1"]
     fixed=Support("sketch anchor",boundary,{"ux":0,"uy":0,"uz":0})
     window.run(cmd.AddSupport(fixed))
@@ -2332,13 +2355,15 @@ def test_qt_failed_sketch_apply_preserves_preview_and_retry(window,qapp,tmp_path
     panel.constraints.setPlainText(json.dumps(constraints))
     if failure=="extrusion":panel.extrusion.setText("invalid")
     attempted_editor=panel.constraints.toPlainText()
+    rejected=[];refusal=GeometryError("dependent feature refused the sketch update")
     with monkeypatch.context() as patch:
         if failure=="command":
             def reject(command):
                 assert isinstance(command,cmd.EditFeature if editing else cmd.AddSketch)
-                raise GeometryError("dependent feature refused the sketch update")
-            patch.setattr(window,"run",reject)
-        with pytest.raises(ValueError if failure=="extrusion" else GeometryError):panel.apply()
+                rejected.append(command);raise refusal
+            patch.setattr(panel.controller.ports,"execute",reject)
+        with pytest.raises(ValueError if failure=="extrusion" else GeometryError) as caught:panel.apply()
+        if failure=="command":assert caught.value is refusal and len(rejected)==1
     assert window.viewport.construction_task is task
     assert (task.points,tuple(task.constraints),task.close)==previous
     assert panel.constraints.toPlainText()==attempted_editor

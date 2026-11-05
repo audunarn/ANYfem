@@ -86,7 +86,10 @@ def test_frame_and_component_controls_update_display_without_show_button(window,
     assert calls[-1][1]["component"]=="uz"
     assert window.result_browser.tree.currentIndex().data(Qt.UserRole).identity==("field","displacement","uz")
     click_entry(window,qapp,("field","last_displacement","uz"))
-    assert panel.frame.maximum()==0 and panel.frame.value()==0
+    assert panel.frame.maximum()==1 and panel.frame.value()==1
+    assert retained.field('last_displacement').root_frame_index(1)==0
+    from anypost.errors import UnavailableFieldError
+    with pytest.raises(UnavailableFieldError):retained.field('last_displacement').root_frame_index(0)
     panel.component.setText("not_present")
     with pytest.raises(ValueError,match="available"):panel.show_results()
     panel.component.setText("uz");qapp.processEvents()
@@ -98,6 +101,7 @@ def test_nonspatial_quantities_inspect_components_without_changing_view(window,q
     assert window._view_mode==mode
     assert panel.table.values.rows==[[12.]] and panel.table.values.headers==["kinetic"]
     panel.frame.setValue(1);qapp.processEvents()
+    settle_result_requests(window,qapp)
     assert panel.table.values.rows==[[34.]]
     click_entry(window,qapp,("history","load_displacement",None))
     assert window._view_mode==mode
@@ -120,7 +124,11 @@ def test_live_fields_and_saved_fields_can_be_selected_in_one_result(window,qapp,
     window.solution=solution;panel=window.panels["Results"]
     monkeypatch.setattr(panel,"refresh_details",lambda:None)
     monkeypatch.setattr("anyfem.ui.qt.tasks._solution_report",lambda *_:"Synthetic live result")
-    calls=[];monkeypatch.setattr(window,"show_results",lambda:calls.append(panel.field_name()))
+    calls=[]
+    def show(*,on_ready=None,on_cancel=None):
+        calls.append(panel.field_name())
+        if on_ready is not None:on_ready()
+    monkeypatch.setattr(window,"show_results",show)
     window.refresh_panels()
     click_entry(window,qapp,("live_field","von_mises",None));assert calls==["von_mises"]
     click_entry(window,qapp,("field","strain","xy"));assert panel.use_retained() and panel.field_name()=="strain"
@@ -139,10 +147,13 @@ def test_unit_changes_preserve_expansion_and_saved_si_values(window,qapp,retaine
 
 def test_playback_uses_selected_quantity_frames_without_a_queued_redraw(window,qapp,retained):
     panel=click_entry(window,qapp,("field","last_displacement","uz"))
-    panel.play();wait_until(qapp,lambda:window.viewport.canvas.animation_frames>0)
-    assert window.viewport.canvas.animation_frames==1
-    assert window.viewport.canvas._animation_frame_active
-    window.viewport.canvas.stop_animation()
+    panel.frame.setValue(1);panel.from_frame.setValue(2);panel.to_frame.setValue(2)
+    settle_result_requests(window,qapp)
+    panel.play();wait_until(qapp,lambda:panel._playback.completed_frames>0)
+    assert panel.playback_active and panel.animation_frames()==(1,)
+    assert window.viewport._scene.faces and window.viewport.canvas.animation_frames==0
+    np.testing.assert_array_equal(retained.field('last_displacement').read(0),np.array([[.05]]*4))
+    panel.stop_playback()
 
 
 def test_results_tree_visual_layout(window,qapp,retained):

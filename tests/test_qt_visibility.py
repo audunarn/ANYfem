@@ -51,7 +51,8 @@ def test_shortcut_retains_selection_and_dims_each_entity(window,qapp,index,group
     history=window.commands.history();revision=window.project.geometry.revision
     shortcut(window,qapp,Qt.Key_H)
     assert window.viewport.visibility.is_hidden(ref) and ref in window.selection.items
-    assert item.toolTip()=='Hidden in viewport' and item.foreground().color().name()=='#8794a6'
+    from anyfem.ui.qt.theme import overlay
+    assert item.toolTip()=='Hidden in viewport' and item.foreground().color().name()==overlay('muted')
     assert not any(ref in (entry.owners or (entry.ref,)) for entries in
                    (window.viewport._scene.faces,window.viewport._scene.lines,window.viewport._scene.points) for entry in entries)
     shortcut(window,qapp,Qt.Key_H,Qt.ControlModifier|Qt.ShiftModifier)

@@ -280,6 +280,8 @@ class CommandEditor(QWidget):
             field.setPlaceholderText(PRESSURE_CODE_HINT)
         elif "Envelope" in annotation:
             field.setPlaceholderText('When it acts, e.g. {"start": 20, "stop": 300, "by": "number", "expression": "sin(omega * t)"}; empty = always')
+        elif "EntityRef" in annotation and any(word in annotation for word in ("Mapping", "Dict", "dict")):
+            field.setPlaceholderText('JSON reference map, for example {"authored-id": "face:1"}')
         elif "EntityRef" in annotation:
             field.setPlaceholderText("Selection, vertex:1 / edge:1 / face:1, or group:name")
         elif numeric_sequence_annotation(annotation):
@@ -303,6 +305,16 @@ class CommandEditor(QWidget):
         if annotation.startswith("RegionRef"):
             return RegionRef(text.removeprefix("region:"))
         if text.startswith("region:") and "RegionRef" in annotation:return RegionRef(text.split(":",1)[1])
+        if "EntityRef" in annotation and any(word in annotation for word in ("Mapping", "Dict", "dict")):
+            if not text:
+                if default is None or "None" in annotation or "Optional" in annotation:return None
+                raise ValueError("A required reference mapping is empty")
+            try:values=json.loads(text)
+            except json.JSONDecodeError:raise ValueError("Enter a JSON reference mapping") from None
+            if type(values) is not dict or any(type(key) is not str or not key.strip()
+                    or type(value) is not str or not value.strip() for key,value in values.items()):
+                raise ValueError("Reference mappings require nonblank authored IDs and reference strings")
+            return {key:reference(self.app,value) for key,value in values.items()}
         if "EntityRef" in annotation and any(word in annotation for word in ("Sequence", "List", "list", "tuple")):
             if not text:return tuple(self.app.selection.ordered_items)
             values=json.loads(text) if text.startswith("[") else text.split(",")

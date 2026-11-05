@@ -1194,6 +1194,9 @@ class ResultsTask(QWidget):
         self.playback_status.setText("Playback stopped")
 
     def play(self):
+        dataset=self.app.result_datasets.get(self.app.active_job_id)
+        if self.use_retained() and dataset is not None and self.app.prepare_result_dataset(dataset):
+            raise ValueError('Results are still loading; try Play after loading finishes.')
         fps=self.playback_fps();frames=self.animation_frames()
         if self.envelope.isChecked():raise ValueError("An envelope is a static contour; turn it off before animation")
         if self.preprocess_first.isChecked():

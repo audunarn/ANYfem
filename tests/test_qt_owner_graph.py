@@ -10,7 +10,7 @@ QT = ROOT / '.github/workflows/qt-tests.yml'
 HEADLESS = ROOT / '.github/workflows/tests.yml'
 PHYSICAL_SOLVER = '38e9abc179b9babf02d395c2d4f3c64291ff56ed'
 RESULTS_SOLVER = 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'
-POST = '630133c46d286bee74c0d681984c5c0d6a210905'
+POST = 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'
 
 
 def _checkouts(text):

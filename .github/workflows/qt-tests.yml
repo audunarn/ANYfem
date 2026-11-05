@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: 630133c46d286bee74c0d681984c5c0d6a210905
+          ref: fb06cacd6b98964a6748ea1c222a4bc974c00fcd
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
