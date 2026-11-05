@@ -141,7 +141,7 @@ def test_qt_gif_cancel_releases_images_and_nonspatial_play_stops():
     images=[object()];panel=SimpleNamespace(_gif_capture={'images':images})
     ResultsTask._cancel_gif_capture(panel);assert panel._gif_capture is None and images==[]
     stopped=[];canvas=SimpleNamespace(begin_animation_cache=lambda:None,stop_animation=lambda:stopped.append(True))
-    app=SimpleNamespace(result_datasets={},active_job_id='a',shape_index=0,session=object(),_closing=False,viewport=SimpleNamespace(canvas=canvas))
+    app=SimpleNamespace(solution=None,result_datasets={},active_job_id='a',shape_index=0,session=object(),_closing=False,viewport=SimpleNamespace(canvas=canvas))
     # Drive the current demand-driven controller with a deferred nonspatial
     # cancellation, rather than the retired direct play/show_results shortcut.
     pending=[]
@@ -153,7 +153,7 @@ def test_qt_gif_cancel_releases_images_and_nonspatial_play_stops():
         playback_status=SimpleNamespace(setText=lambda text:None),frame=SimpleNamespace(value=lambda:0),
         _playback_context=lambda:('current nonspatial selection',),
         show_results=lambda **kw:pending.append(kw['on_cancel']))
-    for name in ('stop_playback','_start_playback','_stream_frame','_playback_changed','cancel_pending_display'):
+    for name in ('use_retained','stop_playback','_start_playback','_stream_frame','_playback_changed','cancel_pending_display'):
         setattr(panel,name,MethodType(getattr(ResultsTask,name),panel))
     ResultsTask.play(panel)
     assert panel._playback.active and panel._playback.inflight and len(pending)==1

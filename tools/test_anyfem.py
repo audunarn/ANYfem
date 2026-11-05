@@ -165,6 +165,157 @@ def execute(command, log, environment):
                     process.stdout.close()
 
 
+def _caller_profile():
+    spec=importlib.util.spec_from_file_location('_anyfem_caller_profile',ROOT/'tools/ci_caller_planning_profile.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+
+def caller_phase_assignments(inventory):
+    """Partition the actual complete collection, preserving each original ID once."""
+    required=_caller_profile().REQUIRED_CASES
+    selected={key:[] for key in required}
+    for node in inventory:
+        file,_,name=node.partition('::')
+        key=Path(file).stem+'::'+name
+        if key in selected:selected[key].append(node)
+    if any(len(nodes)!=1 for nodes in selected.values()):
+        raise RuntimeError('missing or ambiguous required caller case')
+    positives=[selected[key][0] for key in sorted(required)]
+    return [[node for node in inventory if node not in positives],*([node] for node in positives)]
+
+
+def _collection_skip_key(case):
+    skip=case.find('skipped')
+    if skip is None or any(case.find(kind) is not None for kind in ('failure','error')):
+        raise RuntimeError('unknown collection result')
+    return (case.get('classname',''),case.get('name',''),tuple(sorted(skip.attrib.items())),skip.text or '')
+
+
+def merge_caller_junit(paths,target,inventory,collection_skips=()):
+    """Merge only actual rows, requiring the complete node and collection-skip union."""
+    seen=set();seen_skips=set();expected_skips={tuple_key for tuple_key in collection_skips}
+    if len(expected_skips)!=len(collection_skips):raise RuntimeError('duplicate collection skip inventory')
+    root=ET.Element('testsuites')
+    for path in paths:
+        tree=ET.parse(path).getroot()
+        suites=[tree] if tree.tag=='testsuite' else list(tree.findall('testsuite'))
+        if not suites:raise RuntimeError('missing pytest suites')
+        for suite in suites:
+            for case in suite.findall('testcase'):
+                if any(case.find(kind) is not None for kind in ('failure','error')):
+                    raise RuntimeError('ordinary test failure in full caller union')
+                nodes=[prop.get('value') for prop in case.findall('properties/property') if prop.get('name')=='anyfem_original_nodeid']
+                if not nodes:
+                    key=_collection_skip_key(case)
+                    if key not in expected_skips or key in seen_skips:raise RuntimeError('unknown or duplicate collection skip')
+                    seen_skips.add(key);continue
+                if len(nodes)!=1 or nodes[0] not in inventory or nodes[0] in seen:
+                    raise RuntimeError('missing, unknown or duplicate original node identity')
+                node=nodes[0]
+                if [case.get('classname',''),case.get('name','')]!=inventory[node]:
+                    raise RuntimeError('original JUnit identity differs')
+                seen.add(node)
+            root.append(suite)
+    if seen!=set(inventory) or seen_skips!=expected_skips:
+        raise RuntimeError('incomplete original full collection union')
+    _caller_profile().verify_junit(paths)
+    ET.ElementTree(root).write(target,encoding='utf-8',xml_declaration=True)
+
+
+def _verify_caller_positive_phase(path,node,identity):
+    cases=list(ET.parse(path).iter('testcase'))
+    if len(cases)!=1:raise RuntimeError('isolated caller phase must emit exactly one case')
+    case=cases[0]
+    ids=[p.get('value') for p in case.findall('properties/property') if p.get('name')=='anyfem_original_nodeid']
+    if ids!=[node] or [case.get('classname',''),case.get('name','')]!=identity:
+        raise RuntimeError('isolated caller original identity differs')
+    file,_,name=node.partition('::')
+    if _caller_profile().validate_case(case)!=Path(file).stem+'::'+name:
+        raise RuntimeError('isolated caller positive key differs')
+
+
+def _caller_bootstrap(path):
+    """Private fresh interpreter entry; fixtures and bodies remain ordinary pytest."""
+    sys.path.insert(0,str(ROOT))  # Same checkout import root as python -m pytest.
+    import pytest
+    from _pytest.junitxml import mangle_test_address
+    path=Path(path);data=json.loads(path.read_text(encoding='utf-8'))
+    kind=data['kind'];inventory=data.get('inventory',{});assigned=data.get('assigned',[])
+    if kind not in ('collect','core','positive'):raise RuntimeError('unknown caller phase')
+    class ExactCollection:
+        @pytest.hookimpl(trylast=True)
+        def pytest_collection_modifyitems(self,session,config,items):
+            ids=[item.nodeid for item in items]
+            if len(ids)!=len(set(ids)):raise RuntimeError('duplicate collected node')
+            if kind!='collect':
+                expected=list(inventory) if kind=='core' else assigned
+                if set(ids)!=set(expected):raise RuntimeError('full collected node universe differs')
+                chosen=set(assigned);removed=[item for item in items if item.nodeid not in chosen]
+                by_id={item.nodeid:item for item in items}
+                if removed:config.hook.pytest_deselected(items=removed)
+                items[:]=[by_id[node] for node in assigned]
+                if len(items)!=len(assigned):raise RuntimeError('assigned count differs')
+            for item in items:item.user_properties.append(('anyfem_original_nodeid',item.nodeid))
+        def pytest_collection_finish(self,session):
+            if kind=='collect':
+                collected={}
+                for item in session.items:
+                    names=mangle_test_address(item.nodeid)
+                    collected[item.nodeid]=['.'.join(names[:-1]),names[-1]]
+                data['inventory']=collected
+                path.write_text(json.dumps(data,indent=2),encoding='utf-8')
+    owner_capabilities()
+    if kind=='positive':_caller_profile().preflight(None)
+    args=list(data['args'])
+    if kind=='collect':args.append('--collect-only')
+    return pytest.main(args,plugins=[ExactCollection()])
+
+
+def _execute_caller_phases(command,output,environment,report):
+    """One original collection; core plus four fresh Hs, under the existing job cap."""
+    (output/'pytest.log').write_text('Fresh-H caller phases: see each phase/pytest.log; no renewed job allowance.\n',encoding='utf-8')
+    started=time.monotonic();report['caller_host_scope']='fresh-H-per-required-positive; fixture caches unchanged'
+    report['phases']=[];paths=[]
+    args=[arg for arg in command[3:] if not arg.startswith('--junitxml=')]
+    def phase(name,data):
+        folder=output/name;folder.mkdir(exist_ok=False)
+        data['args']=[*data['args'],'--junitxml='+str(folder/'pytest.xml')]
+        manifest=folder/'phase.json';manifest.write_text(json.dumps(data,indent=2),encoding='utf-8')
+        env=environment.copy()
+        if 'ANYFEM_CI_DIAGNOSTICS_DIR' in env:env['ANYFEM_CI_DIAGNOSTICS_DIR']=str(folder)
+        now=time.monotonic()
+        code=execute([sys.executable,str(Path(__file__).resolve()),'--_caller-bootstrap',str(manifest)],folder/'pytest.log',env)
+        row=dict(phase=name,exit_code=code,phase_seconds=time.monotonic()-now,
+                 cumulative_driver_seconds=time.monotonic()-started,scope='existing whole-job cap; no renewed allowance')
+        report['phases'].append(row)
+        with (output/'pytest.log').open('a',encoding='utf-8') as stream:stream.write(json.dumps(row)+'\n')
+        (output/'caller-phases.json').write_text(json.dumps(report['phases'],indent=2),encoding='utf-8')
+        return code,manifest,folder/'pytest.xml'
+    code,manifest,xml=phase('caller-collection',dict(kind='collect',args=args))
+    if code:return code
+    data=json.loads(manifest.read_text(encoding='utf-8'));inventory=data['inventory']
+    if not inventory:raise RuntimeError('empty full collection')
+    collection_skips=[_collection_skip_key(case) for case in ET.parse(xml).iter('testcase')]
+    assignments=caller_phase_assignments(inventory)
+    report['original_collection_items']=len(inventory);report['original_collection_skips']=len(collection_skips)
+    for i,assigned in enumerate(assignments):
+        if i==0 and not assigned:continue
+        if i==0:phase_args=args
+        else:
+            # The original full selector is tests; all other pytest options stay exact.
+            if args[0]!='tests':raise RuntimeError('unexpected full profile selector')
+            phase_args=[*assigned,*args[1:]]
+        code,_,xml=phase('caller-core' if i==0 else 'caller-positive-'+str(i),
+                        dict(kind='core' if i==0 else 'positive',args=phase_args,
+                             inventory=inventory if i==0 else {node:inventory[node] for node in assigned},assigned=assigned))
+        if code:return code
+        if i:_verify_caller_positive_phase(xml,assigned[0],inventory[assigned[0]])
+        paths.append(xml)
+    merge_caller_junit(paths,output/'pytest.xml',inventory,collection_skips)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=("quick", "focused", "qt", "full"), default="quick")
@@ -223,7 +374,10 @@ def main(argv=None):
             owner_capabilities()
         if options.profile == "qt":
             importlib.import_module("PySide6.QtWidgets")
-        code = execute(command, output / "pytest.log", environment)
+        if options.profile == "full" and environment.get("ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS")=="1":
+            code = _execute_caller_phases(command, output, environment, report)
+        else:
+            code = execute(command, output / "pytest.log", environment)
         report["status"] = "passed" if code == 0 else "failed"
         if (output / "pytest.xml").exists():
             suites = ET.parse(output / "pytest.xml").getroot().findall("testsuite")
@@ -257,4 +411,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2]==['--_caller-bootstrap']:
+        raise SystemExit(_caller_bootstrap(sys.argv[2]))
     raise SystemExit(main())

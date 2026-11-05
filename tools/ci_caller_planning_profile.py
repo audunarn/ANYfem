@@ -13,21 +13,27 @@ REQUIRED_CASES=frozenset([
       for action in ('model','exception','cancel'))])
 
 
+def validate_case(case):
+    key=case.get('classname','').rsplit('.',1)[-1]+'::'+case.get('name','')
+    if key not in REQUIRED_CASES:return None
+    props=[(p.get('name'),p.get('value')) for p in case.findall('properties/property')]
+    required=[('caller_planning_profile',CONTRACT),('execution_scope','original-caller-profile-assertions'),
+              ('original_test_body_executed','True'),('postcapture_qualification','True')]
+    if (any(case.find(kind) is not None for kind in ('failure','error','skipped')) or
+            any(props.count(row)!=1 for row in required) or
+            any(name=='execution_scope' and value!='original-caller-profile-assertions' for name,value in props) or
+            any(name=='initial_serial_fallback_executed' for name,_ in props)):
+        raise ValueError('required caller case did not complete original positive assertions: '+key)
+    return key
+
+
 def verify_junit(paths):
     seen=set()
     for path in paths:
         for case in ET.parse(path).iter('testcase'):
-            key=case.get('classname','').rsplit('.',1)[-1]+'::'+case.get('name','')
-            if key not in REQUIRED_CASES:continue
+            key=validate_case(case)
+            if key is None:continue
             if key in seen:raise ValueError('duplicate required caller profile case: '+key)
-            props=[(p.get('name'),p.get('value')) for p in case.findall('properties/property')]
-            required=[('caller_planning_profile',CONTRACT),('execution_scope','original-caller-profile-assertions'),
-                      ('original_test_body_executed','True'),('postcapture_qualification','True')]
-            if (any(case.find(kind) is not None for kind in ('failure','error','skipped')) or
-                    any(props.count(row)!=1 for row in required) or
-                    any(name=='execution_scope' and value!='original-caller-profile-assertions' for name,value in props) or
-                    any(name=='initial_serial_fallback_executed' for name,_ in props)):
-                raise ValueError('required caller case did not complete original positive assertions: '+key)
             seen.add(key)
     if seen!=REQUIRED_CASES:
         raise ValueError('missing required caller profile cases: '+', '.join(sorted(REQUIRED_CASES-seen)))
