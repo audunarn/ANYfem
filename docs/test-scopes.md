@@ -2,16 +2,14 @@
 
 The existing default `python tools/test_anyfem.py` remains the seven-module
 `quick` development check. `--profile unit` (alias `fast`) reuses those curated
-modules and adds pure suite-tooling tests. Paths are chosen before pytest imports
+modules and adds pure suite/hold/dispatch tooling tests (ten explicit modules). Paths are chosen before pytest imports
 tests; neither mode first collects the whole suite.
 
 `--profile integration` runs remaining ordinary integration modules.
 `--profile qualification` runs the explicit scientific/whole-model modules and
 `*_acceptance.py` family recorded in `tools/test_suite_plan.py`. Unknown modules
 always default to integration. Classification never changes test bodies,
-assertions, scientific tolerances, fixtures, holds or skip policy. In particular,
-`test_spline_mesh_ownership_acceptance.py`, including the failing four-face spline
-station-balancing case, remains in qualification and the full release universe.
+assertions, scientific tolerances, fixtures, holds or skip policy. The reported four-face spline mesh case remains in the qualification/full inventory with an explicit unconditional owner hold; its capability is unsupported. See `docs/REPORTED_SPLINE_MESH_RELEASE_HOLD.md`.
 
 These tiers are disjoint and exhaustive at module and original-node identity
 level. `suite-plan.json` records the entire static module inventory, assignments,
@@ -47,13 +45,11 @@ Collected receipts bind the runner's owned pytest root and preserve the first
 original collection in its fresh evidence directory. Nested scalar pytest runs
 cannot write or overwrite that parent inventory through inherited plugin settings.
 
-Manual qualification can select `qualification_case=reported-spline-four-face`
-to run only the original mandatory reported spline fixture. The default `all`
-retains the qualification tier. A case request with another scope is refused.
-`mesher_ref` must be a frozen 40-hex SHA; all three existing ANYmesh checkouts
-use that same input, defaulting to the existing pin. Inputs are environment
-values or checkout refs, never shell fragments or arbitrary test selectors.
-The focused command preserves the original fixture, workers and assertions.
-Source and result receipts bind actual ANYmesh/ANYfem commits and fixture SHA256,
-then require exactly one passing unskipped original JUnit case and collected node.
-This is partial qualification evidence; full release gates remain required.
+Manual `qualification_case=reported-spline-four-face` is explicitly owner-held
+and fails dispatch validation before any dependency installation or mesh work.
+The default `all` retains the other unheld qualification gates. Case requests
+with another scope remain refused. `mesher_ref` remains a frozen 40-hex SHA,
+with the same existing default in all three checkouts. Historical failed source,
+JUnit and focused receipts are preserved, not converted into positive evidence.
+See `docs/REPORTED_SPLINE_MESH_RELEASE_HOLD.md` for the unsupported capability
+and source amendment/fresh bounded authority required before future unhold.

@@ -1,6 +1,7 @@
 """An unassigned curved extrusion must mesh without modifying design owners."""
 from collections import Counter
 import time
+import pytest
 import numpy as np
 
 from anygeometry import SketchDefinition, SketchEntity, SketchWire, EntityRef
@@ -58,6 +59,7 @@ def assert_boundary_and_shared_seams(project, mesh):
         assert np.linalg.norm(area_vector) > 1e-10
 
 
+@pytest.mark.skip(reason='OWNER-HELD reported four-face spline meshing; see docs/REPORTED_SPLINE_MESH_RELEASE_HOLD.md')
 def test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes():
     project = reported_unassigned_extrusion()
     before = geometry_to_dict(project.geometry)

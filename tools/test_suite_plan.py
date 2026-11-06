@@ -13,6 +13,7 @@ UNIT_MODULES = (
     "tests/test_output_requests.py", "tests/test_command_recording.py",
     "tests/test_document_geometry_snapshot.py", "tests/test_selection_state.py",
     "tests/test_test_runner.py", "tests/test_suite_structure.py",
+    "tests/test_reported_spline_mesh_release_hold.py", "tests/test_focused_qualification_dispatch.py",
 )
 # Explicit whole-model/scientific routes in addition to the acceptance family.
 QUALIFICATION_MODULES = frozenset({

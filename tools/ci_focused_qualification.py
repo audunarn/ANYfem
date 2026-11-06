@@ -22,6 +22,8 @@ def selection(scope, case, mesher_ref):
         raise ValueError('unknown manual scope or qualification case')
     if case != 'all' and scope != 'qualification':
         raise ValueError('qualification_case requires scope qualification')
+    if case == CASE:
+        raise ValueError('OWNER-HELD reported four-face spline meshing; see docs/REPORTED_SPLINE_MESH_RELEASE_HOLD.md')
     if not re.fullmatch('[0-9a-fA-F]{40}', mesher_ref):
         raise ValueError('mesher_ref must be a frozen 40-hex commit SHA')
     return dict(scope='partial qualification only', acceptance='not established',

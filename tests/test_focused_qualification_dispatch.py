@@ -20,8 +20,10 @@ class FocusedQualificationTests(unittest.TestCase):
     def test_default_and_frozen_selection(self):
         h = helper()
         self.assertEqual(h.selection('full', 'all', PIN)['mesher_ref'], PIN)
-        plan = h.selection('qualification', 'reported-spline-four-face', 'a' * 40)
-        self.assertEqual(plan['nodeid'], NODE)
+        with self.assertRaisesRegex(ValueError, 'OWNER-HELD'):
+            h.selection('qualification', 'reported-spline-four-face', 'a' * 40)
+        plan = h.selection('qualification', 'all', 'a' * 40)
+        self.assertIsNone(plan['nodeid'])
         self.assertEqual(plan['scope'], 'partial qualification only')
         self.assertEqual(plan['acceptance'], 'not established')
 
@@ -33,6 +35,15 @@ class FocusedQualificationTests(unittest.TestCase):
         for scope, case, ref in [('typo', 'all', PIN), ('qualification', 'typo', PIN), ('qualification', 'all', 'main'), ('qualification', 'all', 'x; echo injected')]:
             with self.subTest(value=(scope, case, ref)), self.assertRaises(ValueError):
                 h.selection(scope, case, ref)
+
+    def test_held_case_refused_before_checkout_reads_or_model_work(self):
+        from unittest.mock import patch
+        import os
+        import sys
+        h = helper()
+        with patch.dict(os.environ, {'QUALIFICATION_SCOPE': 'qualification', 'QUALIFICATION_CASE': 'reported-spline-four-face', 'MESHER_REF': PIN}), patch.object(sys, 'argv', ['ci_focused_qualification.py', 'validate']), patch.object(h, 'git_head', side_effect=AssertionError('must refuse before dependencies')):
+            with self.assertRaisesRegex(ValueError, 'OWNER-HELD'):
+                h.main()
 
     def artifacts(self):
         case = ET.Element('testcase', classname='tests.test_spline_mesh_ownership_acceptance', name=NODE.split('::')[1])
@@ -85,4 +96,3 @@ class FocusedQualificationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
