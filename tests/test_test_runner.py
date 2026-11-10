@@ -672,7 +672,7 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
     text = (ROOT / '.github/workflows/tests.yml').read_text()
     test_job, build_job = text.split('\n  build:\n', 1)
     expected = {
-        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', '45f11201a78cdb1f7d2f433ef859ae5928f5d589'),
+        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', '95c6a8d32070ec011f8e32d96d6f100829371dc9'),
         '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'),
         '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),

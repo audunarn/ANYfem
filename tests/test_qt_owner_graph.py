@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 QT = ROOT / '.github/workflows/qt-tests.yml'
 HEADLESS = ROOT / '.github/workflows/tests.yml'
-PHYSICAL_SOLVER = '45f11201a78cdb1f7d2f433ef859ae5928f5d589'
+PHYSICAL_SOLVER = '95c6a8d32070ec011f8e32d96d6f100829371dc9'
 RESULTS_SOLVER = 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'
 POST = 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'
 

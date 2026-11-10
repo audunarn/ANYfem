@@ -18,7 +18,7 @@ if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1 for real Qt widgets", allow_module_level=True)
 pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 
 from anyfem.io import recovery
 from anyfem.model.project import Project
@@ -160,7 +160,8 @@ def test_solid_field_table_labels_rows_by_stored_cell_ids_and_quadrature_points(
 # ---- the installed action --------------------------------------------
 def test_analysis_menu_action_opens_the_dialog_and_reuses_it(window):
     action = window._actions["Submodel…"]
-    analysis = next(a.menu() for a in window.menuBar().actions() if a.text() == "Analysis")
+    menus = window.menuBar().findChildren(QMenu)
+    analysis = next(menu for menu in menus if menu.title() == "Analysis")
     assert action in analysis.actions()
     action.trigger()
     dialog = window._submodel_dialog
