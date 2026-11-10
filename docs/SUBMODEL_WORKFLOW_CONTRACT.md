@@ -765,6 +765,10 @@ definition. The solid variant requires the `solid` extra and the matched geometr
 revisions of this review. A document with solid children or solid run history uses format 20.
 Older shell documents reopen with their original policies.
 
+For this coordinated review, install from the ANYfem branch in a fresh Python environment with
+`python -m pip install -r docs/handoff/submodelling-20261009/s6/review-requirements.txt ".[qt,solid]"`.
+The requirements select the mechanics and offline results wheels from their respective source revisions.
+
 A solid footprint must fit strictly inside the material of a single flat, constant-thickness,
 isotropic plate. Its signed physical director establishes the start/end skins and four driven sides.
 A carried uniform pressure requires an explicit skin and preserves the parent traction sign.

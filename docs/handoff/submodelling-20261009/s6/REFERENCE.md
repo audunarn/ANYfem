@@ -1,7 +1,8 @@
 # S6 A5 CCX reference (continuation 2)
 
-**Status: authored, not executed.** No Python, pytest or CalculiX was run by the author in any pass. Nothing below is an
-observed result except the quoted evidence from earlier coordinator runs. The coordinator owns every run.
+This is the reference-deck author's development handoff. The author prepared the inputs and recorded
+the earlier coordinator observations below. The coordinated assessment and calibration measurements
+are recorded in [RESULTS.md](RESULTS.md).
 
 Scope: **A5 full stiffened stage fixture only.** The 3D solid child belongs to the separate solid_reference owner.
 
