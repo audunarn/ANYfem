@@ -1,6 +1,6 @@
 # Update a published mesh
 
-For this source candidate, use ANYmesh `84dc7b76cd03ff7f27f9cb0d5a0ec1c8f85cccb7` and ANYgeometry `602e4a7ac35eeeea6490e0bf25e22f03f72b86a7` with the other dependencies pinned in ANYfem’s caller workflow. These revisions provide the numbering, ownership and boundary APIs used below.
+For this source candidate, use ANYmesh `590b827eba9b842711d4dc1521219eedeb934d0d` and ANYgeometry `602e4a7ac35eeeea6490e0bf25e22f03f72b86a7` with the other dependencies pinned in ANYfem’s caller workflow. These revisions provide the numbering, ownership and boundary APIs used below.
 
 In the Mesh panel, select **Prepare mapped mesh for regional updates** and choose **Generate mesh**. After an edit, choose **Update mesh**, review the affected region, and confirm. For two independent plates, change the edge divisions on one plate. The other plate keeps its node numbers, coordinates, element numbers and ordered connectivity through saving, reopening and solver assembly.
 
