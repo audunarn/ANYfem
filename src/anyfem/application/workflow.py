@@ -532,12 +532,20 @@ class WorkbenchWorkflow:
         layout_policy: str = "adaptive",
         quad_t3_minimum_angle: float | None = None,
         quad_t3_angle_action: str | None = None,
+        regional_update: bool = False,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
         from ..native_meshing import NativeMeshSettings
 
         current = self.project.native_mesh_settings
+        if regional_update:
+            # The request already carries the controls used by the preview.
+            # Materializing defaults here changes the producer inputs of a
+            # parent that was generated through a headless mesh session.
+            if current is not None and current.target_size != target_size:
+                self.project.set_native_mesh_settings(replace(current, target_size=target_size))
+            return
         parameters = {} if current is None else current.to_dict()["parameters"]
         if strategy in _QUAD_PIPELINE_STRATEGIES:
             from ..quad_first import effective_quad_options
@@ -639,6 +647,7 @@ class WorkbenchWorkflow:
             self._store_mesh_strategy(
                 resolved_strategy,
                 target_size=float(target_size),
+                regional_update=_regional_update,
                 element_order=self.project.element_order,
                 structure_preference=resolved_preference,
                 quality_policy=quality_policy,
@@ -961,6 +970,7 @@ class WorkbenchWorkflow:
             self._store_mesh_strategy(
                 resolved_strategy,
                 target_size=settings.target_size,
+                regional_update=_regional_update,
                 element_order=settings.element_order,
                 structure_preference=resolved_preference,
                 quality_policy=quality_policy,

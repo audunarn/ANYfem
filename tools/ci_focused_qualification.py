@@ -9,7 +9,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MESHER_REF = 'a1ce9d3e655c0087825eca8eb6df711fabda8f6e'
+DEFAULT_MESHER_REF = '84dc7b76cd03ff7f27f9cb0d5a0ec1c8f85cccb7'
 CASE = 'reported-spline-four-face'
 NODE = 'tests/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes'
 OUTPUT = ROOT / 'reports/qualification-spline4'
