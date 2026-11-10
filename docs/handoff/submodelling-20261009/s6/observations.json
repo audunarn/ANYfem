@@ -1,0 +1,2289 @@
+{
+  "assessment_scope": "Engineering review of the registered finite models. Ratios are signed relative values unless identified as absolute; 0.03 denotes 3 percent.",
+  "non_author_assessor": "OpenAI Codex /root/solver",
+  "source_evidence_sha256": {
+    "formal-shell/adjudication.json": "a9ffb0cd9f76fb14e516067cb5fdb58bc60235e5f75c69683c3778d22feb7ecc",
+    "formal-hole/assessed-comparisons.json": "355c146634f08b4b28c812e56bfb7d7e3bb102eb4ec9689247f94a61cd3531f8",
+    "formal-hole/reference-decision.json": "b10c9a0ccc16e7244746b5c2500165e542a6a5d659a23ae003248cc5604c7c73",
+    "repaired-bending/adjudication.json": "be0c5be995f8c677f7f3ca0914430371cbe04af743c0215b2f80e40539e88f5b",
+    "formal-details/assessed-complete-child-fields.json": "87ed7fac42c900e483388c34aef95e1d6bba0d404367201a87bc7a7367266df2",
+    "formal-details/assessed-complete-child-traces.json": "40450bbef9f52903e3bb75c871105f23c1bac305428d407d6079a8d896bf8e6c",
+    "formal-details/a5-calibration/calibration.json": "05636622bb6348b1e860d9e0f9301937a97de85818f2756ebdd500c817b3c6c9",
+    "solid-reference-followup/manifest.json": "6455434134bd073f16e97ab70bf6fccbf0e6b7faaa41ec2567378c2d5716272b",
+    "actual-validation-timing/observations.json": "2df17b1958768e69f5e395d83d1011dae6aa12664f7fd7050d2e990504c6119a",
+    "solid-reference-followup/accepted-comparisons.json": "31b5c63dea6c34685af66489a3d9818d5ef450ff2da53df1b91112798021932b"
+  },
+  "frozen_shell_cases": [
+    {
+      "case": "A0-INTERP-Q4",
+      "grade": "pass",
+      "solves": 0,
+      "ceiling": 0,
+      "check_counts": {
+        "pass": 8
+      },
+      "worst_ratio": {
+        "ratio": 0.24903099319402935,
+        "check": "A0.interp.Q4.in_plane_residual",
+        "sensor": "affine|ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A0-INTERP-S3",
+      "grade": "pass",
+      "solves": 0,
+      "ceiling": 0,
+      "check_counts": {
+        "pass": 8
+      },
+      "worst_ratio": {
+        "ratio": 0.30517578125,
+        "check": "A0.interp.S3.affine_membrane_rotation",
+        "sensor": "affine_membrane_rotation|pt 1002 elem 1|rz"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A0-MPC-Q4",
+      "grade": "pass",
+      "solves": 1,
+      "ceiling": 2,
+      "check_counts": {
+        "pass": 4
+      },
+      "worst_ratio": {
+        "ratio": 0.031789143880208336,
+        "check": "A0.mpc.Q4.displacement",
+        "sensor": "s.ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A0-MPC-S3",
+      "grade": "pass",
+      "solves": 1,
+      "ceiling": 2,
+      "check_counts": {
+        "pass": 4
+      },
+      "worst_ratio": {
+        "ratio": 0.031789143880208336,
+        "check": "A0.mpc.S3.displacement",
+        "sensor": "s.ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A7-SOLVER",
+      "grade": "inconclusive",
+      "solves": 2,
+      "ceiling": 6,
+      "check_counts": {
+        "pass": 22
+      },
+      "worst_ratio": null,
+      "status": "exited"
+    },
+    {
+      "case": "A7-X01",
+      "grade": "pass",
+      "check_counts": {
+        "pass": 5
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A7-X02",
+      "grade": "pass",
+      "check_counts": {
+        "pass": 2
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A7-X03",
+      "grade": "pass",
+      "check_counts": {
+        "pass": 15
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A1-Q4",
+      "grade": "pass",
+      "solves": 4,
+      "ceiling": 5,
+      "check_counts": {
+        "pass": 28,
+        "reported": 13
+      },
+      "worst_ratio": {
+        "ratio": 0.0033986173122377565,
+        "check": "A1.Q4.P2.interior_rotations",
+        "sensor": "interior (4, 4)|ry"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A1-S3",
+      "grade": "pass",
+      "solves": 4,
+      "ceiling": 5,
+      "check_counts": {
+        "pass": 28,
+        "reported": 13
+      },
+      "worst_ratio": {
+        "ratio": 0.02452588689554341,
+        "check": "A1.S3.newton.per_node",
+        "sensor": "cut|node 59|ry"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-EXACT-Q4-Q4",
+      "grade": "pass",
+      "solves": 7,
+      "ceiling": 8,
+      "check_counts": {
+        "pass": 14,
+        "reported": 1
+      },
+      "worst_ratio": {
+        "ratio": 0.11196771939821723,
+        "check": "A2.exact.Q4toQ4.rigid.P2.boundary",
+        "sensor": "rigid|node 14|uz"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-EXACT-Q4-S3",
+      "grade": "pass",
+      "solves": 7,
+      "ceiling": 8,
+      "check_counts": {
+        "pass": 14,
+        "reported": 1
+      },
+      "worst_ratio": {
+        "ratio": 0.26916510549921885,
+        "check": "A2.exact.Q4toS3.affine_membrane_rotation.P2.field",
+        "sensor": "affine_membrane_rotation|node 7|rz"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-EXACT-S3-Q4",
+      "grade": "pass",
+      "solves": 7,
+      "ceiling": 8,
+      "check_counts": {
+        "pass": 14,
+        "reported": 1
+      },
+      "worst_ratio": {
+        "ratio": 0.1274998649855603,
+        "check": "A2.exact.S3toQ4.rigid.P2.boundary",
+        "sensor": "rigid|node 14|uz"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-EXACT-S3-S3",
+      "grade": "pass",
+      "solves": 7,
+      "ceiling": 8,
+      "check_counts": {
+        "pass": 14,
+        "reported": 1
+      },
+      "worst_ratio": {
+        "ratio": 0.15405729102203378,
+        "check": "A2.exact.S3toS3.rigid.P1.field",
+        "sensor": "rigid|node 6|rz"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-BEND-Q4-Q4",
+      "grade": "pass",
+      "solves": 20,
+      "ceiling": 24,
+      "check_counts": {
+        "pass": 4,
+        "reported": 20
+      },
+      "worst_ratio": {
+        "ratio": 0.0,
+        "check": "A2.bend.Q4toQ4.physical_parent.P1.boundary_equals_interpolation",
+        "sensor": "n4|A2.bend.physical_parent.Q4toQ4.P1.n4|node 1|ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-BEND-Q4-S3",
+      "grade": "pass",
+      "solves": 20,
+      "ceiling": 24,
+      "check_counts": {
+        "pass": 4,
+        "reported": 20
+      },
+      "worst_ratio": {
+        "ratio": 0.0,
+        "check": "A2.bend.Q4toS3.physical_parent.P1.boundary_equals_interpolation",
+        "sensor": "n4|A2.bend.physical_parent.Q4toS3.P1.n4|node 1|ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-BEND-S3-Q4",
+      "grade": "pass",
+      "solves": 20,
+      "ceiling": 24,
+      "check_counts": {
+        "pass": 4,
+        "reported": 20
+      },
+      "worst_ratio": {
+        "ratio": 0.0,
+        "check": "A2.bend.S3toQ4.physical_parent.P1.boundary_equals_interpolation",
+        "sensor": "n4|A2.bend.physical_parent.S3toQ4.P1.n4|node 1|ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A2-BEND-S3-S3",
+      "grade": "pass",
+      "solves": 20,
+      "ceiling": 24,
+      "check_counts": {
+        "pass": 4,
+        "reported": 20
+      },
+      "worst_ratio": {
+        "ratio": 0.0,
+        "check": "A2.bend.S3toS3.physical_parent.P1.boundary_equals_interpolation",
+        "sensor": "n4|A2.bend.physical_parent.S3toS3.P1.n4|node 1|ux"
+      },
+      "status": "exited"
+    },
+    {
+      "case": "A6",
+      "grade": "pass",
+      "check_counts": {
+        "pass": 3
+      },
+      "status": "exited"
+    }
+  ],
+  "physical_closed_end_cylinder": [
+    {
+      "policy": "drive_all",
+      "mesh_size_m": "0.1",
+      "signed_w_error": 0.001272544372980855,
+      "w_m": 4.052769822462065e-05,
+      "radial_grade": "pass",
+      "signed_hoop_error": -0.004246824693962981,
+      "hoop_grade": "pass"
+    },
+    {
+      "policy": "drive_all",
+      "mesh_size_m": "0.05",
+      "signed_w_error": 0.002478448320881732,
+      "w_m": 4.057650862251188e-05,
+      "radial_grade": "pass",
+      "signed_hoop_error": -0.0010046348180666742,
+      "hoop_grade": "pass"
+    },
+    {
+      "policy": "release_normal_rotation",
+      "mesh_size_m": "0.1",
+      "signed_w_error": 0.0013399474588104976,
+      "w_m": 4.053042644476138e-05,
+      "radial_grade": "pass",
+      "signed_hoop_error": -0.004236727114095951,
+      "hoop_grade": "pass"
+    },
+    {
+      "policy": "release_normal_rotation",
+      "mesh_size_m": "0.05",
+      "signed_w_error": 0.0025088791260325927,
+      "w_m": 4.057774034557751e-05,
+      "radial_grade": "pass",
+      "signed_hoop_error": -0.0010057186545625596,
+      "hoop_grade": "pass"
+    }
+  ],
+  "repaired_bending": [
+    {
+      "source": "Q4",
+      "target": "Q4",
+      "parent_support_ranks": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "parent_kappa_times_eta": [
+        4.979868030313737e-10,
+        2.3965843491791934e-09,
+        1.8029352876944068e-08,
+        1.1871780280342482e-07
+      ],
+      "child_grades": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "boundary_worst_ratio": 0.0
+    },
+    {
+      "source": "Q4",
+      "target": "S3",
+      "parent_support_ranks": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "parent_kappa_times_eta": [
+        4.979868030313737e-10,
+        2.3965843491791934e-09,
+        1.8029352876944068e-08,
+        1.1871780280342482e-07
+      ],
+      "child_grades": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "boundary_worst_ratio": 0.0
+    },
+    {
+      "source": "S3",
+      "target": "Q4",
+      "parent_support_ranks": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "parent_kappa_times_eta": [
+        3.1766228841449396e-12,
+        8.624381598701663e-11,
+        1.3725580890053e-09,
+        2.9936743786530674e-08
+      ],
+      "child_grades": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "boundary_worst_ratio": 0.0
+    },
+    {
+      "source": "S3",
+      "target": "S3",
+      "parent_support_ranks": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "parent_kappa_times_eta": [
+        3.1766228841449396e-12,
+        8.624381598701663e-11,
+        1.3725580890053e-09,
+        2.9936743786530674e-08
+      ],
+      "child_grades": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "boundary_worst_ratio": 0.0
+    }
+  ],
+  "A3_full_parent": {
+    "Kt8": [
+      2.825901734513538,
+      2.82590173451358
+    ],
+    "Kt16": [
+      3.085806661094954,
+      3.0858066610948716
+    ],
+    "Kt32": [
+      3.1586912048980973,
+      3.158691204898081
+    ],
+    "Kt32_half_length_1_5m": [
+      3.158690879161539,
+      3.15869087916104
+    ],
+    "observed_orders": [
+      1.83429917257586,
+      1.8342991725738573
+    ],
+    "conditional_finest_richardson_Kt": [
+      0.028404159196328122,
+      0.0284041591964087
+    ],
+    "signed_relative_fine_error_to_printed_3_14": [
+      0.005952613024871711,
+      0.005952613024866382
+    ],
+    "signed_relative_end_length_change": [
+      -1.0312390075206679e-07,
+      -1.0312405351875498e-07
+    ]
+  },
+  "A4_placements": [
+    {
+      "case": "x1.5-y1.25",
+      "spans_m": [
+        0.15000000000000002,
+        0.125
+      ],
+      "Kt_at_plus_minus": [
+        3.144596154637723,
+        3.144596154637885
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.004462307122176878,
+        -0.004462307122120368
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x1.5-y1.75",
+      "spans_m": [
+        0.15000000000000002,
+        0.17500000000000002
+      ],
+      "Kt_at_plus_minus": [
+        3.148747164739822,
+        3.148747164739822
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.003148152039317842,
+        -0.003148152039312624
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x1.5-y2.25",
+      "spans_m": [
+        0.15000000000000002,
+        0.225
+      ],
+      "Kt_at_plus_minus": [
+        3.1495951128912543,
+        3.149595112891724
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.0028797028315835638,
+        -0.002879702831429576
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x2-y1.25",
+      "spans_m": [
+        0.2,
+        0.125
+      ],
+      "Kt_at_plus_minus": [
+        3.1466559260595437,
+        3.1466559260592546
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.003810210640372458,
+        -0.003810210640458833
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x2-y1.75",
+      "spans_m": [
+        0.2,
+        0.17500000000000002
+      ],
+      "Kt_at_plus_minus": [
+        3.152020880014285,
+        3.1520208800147778
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.002111736935053621,
+        -0.0021117369348924164
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x2-y2.25",
+      "spans_m": [
+        0.2,
+        0.225
+      ],
+      "Kt_at_plus_minus": [
+        3.1529329035269065,
+        3.152932903527428
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.0018230023125596073,
+        -0.001823002312389299
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x3-y1.25",
+      "spans_m": [
+        0.30000000000000004,
+        0.125
+      ],
+      "Kt_at_plus_minus": [
+        3.148738159269678,
+        3.1487381592702777
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.003151003052462076,
+        -0.0031510030522671206
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x3-y1.75",
+      "spans_m": [
+        0.30000000000000004,
+        0.17500000000000002
+      ],
+      "Kt_at_plus_minus": [
+        3.1545889142820913,
+        3.1545889142826913
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.0012987311357453013,
+        -0.001298731135550124
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    },
+    {
+      "case": "x3-y2.25",
+      "spans_m": [
+        0.30000000000000004,
+        0.225
+      ],
+      "Kt_at_plus_minus": [
+        3.1540840744218217,
+        3.1540840744216525
+      ],
+      "errors_relative_to_finite_n32": [
+        -0.0014585567810906364,
+        -0.001458556781139042
+      ],
+      "three_percent_screen": [
+        "pass",
+        "pass"
+      ]
+    }
+  ],
+  "A8_regional_comparisons": {
+    "a8-4": {
+      "levels": [
+        4,
+        8
+      ],
+      "source": {
+        "Kt_at_plus_minus": [
+          2.2973971416167815,
+          2.297397141616785
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.27267434751004793,
+          -0.27267434751004305
+        ],
+        "three_percent_screen": [
+          "fail",
+          "fail"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.2683448593577129,
+          -0.2683448593577118
+        ],
+        "note": "original unrefined source is diagnostic"
+      },
+      "box_cut": {
+        "Kt_at_plus_minus": [
+          2.8234283347135367,
+          2.823428334713607
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.10613980551966506,
+          -0.1061398055196382
+        ],
+        "three_percent_screen": [
+          "fail",
+          "fail"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.10081900168358704,
+          -0.10081900168356472
+        ]
+      },
+      "regional": {
+        "Kt_at_plus_minus": [
+          2.825761550901139,
+          2.8257615509011162
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.10540114002935563,
+          -0.10540114002935819
+        ],
+        "three_percent_screen": [
+          "fail",
+          "fail"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.10007593920345903,
+          -0.10007593920346625
+        ]
+      },
+      "dofs": [
+        840,
+        1536,
+        2592
+      ],
+      "affected_faces": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "retained_faces": []
+    },
+    "a8-8": {
+      "levels": [
+        8,
+        16
+      ],
+      "source": {
+        "Kt_at_plus_minus": [
+          2.825901734513538,
+          2.82590173451358
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.1053567597454641,
+          -0.10535675974544612
+        ],
+        "three_percent_screen": [
+          "fail",
+          "fail"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.10003129474091155,
+          -0.10003129474089811
+        ],
+        "note": "original unrefined source is diagnostic"
+      },
+      "box_cut": {
+        "Kt_at_plus_minus": [
+          3.068488798402594,
+          3.0684887984027136
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.02855689291679686,
+          -0.028556892916754006
+        ],
+        "three_percent_screen": [
+          "pass",
+          "pass"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.022774268024651545,
+          -0.022774268024613575
+        ]
+      },
+      "regional": {
+        "Kt_at_plus_minus": [
+          3.0857047442116223,
+          3.085704744211548
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.02310655140119322,
+          -0.02310655140121165
+        ],
+        "three_percent_screen": [
+          "pass",
+          "pass"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.01729148273515213,
+          -0.01729148273517578
+        ]
+      },
+      "dofs": [
+        3024,
+        5376,
+        8976
+      ],
+      "affected_faces": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "retained_faces": []
+    },
+    "a8-16": {
+      "levels": [
+        16,
+        32
+      ],
+      "source": {
+        "Kt_at_plus_minus": [
+          3.085806661094954,
+          3.0858066610948716
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.023074285859321475,
+          -0.023074285859342458
+        ],
+        "three_percent_screen": [
+          "pass",
+          "pass"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          -0.017259025128995575,
+          -0.017259025129021888
+        ],
+        "note": "original unrefined source is diagnostic"
+      },
+      "box_cut": {
+        "Kt_at_plus_minus": [
+          3.1511568201860403,
+          3.1511568201862232
+        ],
+        "errors_relative_to_finite_n32": [
+          -0.0023852868872948907,
+          -0.002385286887231719
+        ],
+        "three_percent_screen": [
+          "pass",
+          "pass"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          0.0035531274477835773,
+          0.003553127447841753
+        ]
+      },
+      "regional": {
+        "Kt_at_plus_minus": [
+          3.158662994637536,
+          3.1586629946377633
+        ],
+        "errors_relative_to_finite_n32": [
+          -8.93099664744934e-06,
+          -8.93099657028884e-06
+        ],
+        "three_percent_screen": [
+          "pass",
+          "pass"
+        ],
+        "signed_relative_errors_to_printed_3_14": [
+          0.0059436288654572955,
+          0.005943628865529682
+        ]
+      },
+      "dofs": [
+        11424,
+        21504,
+        34848
+      ],
+      "affected_faces": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "retained_faces": []
+    }
+  },
+  "A5_calibrations": {
+    "rotation_link_rx": {
+      "measured_offset": 0.0,
+      "expected_offset": -3.571428571428571e-06,
+      "tip_w_ratio": 0.9999601895545072,
+      "clamp_reaction_closure": 1.0000000010279564e-07,
+      "link_effective": false
+    },
+    "rotation_link_ry": {
+      "measured_offset": 0.0,
+      "expected_offset": -3.571428571428571e-06,
+      "tip_w_ratio": 0.9999601895545072,
+      "clamp_reaction_closure": 1.0000000010279564e-07,
+      "link_effective": false
+    }
+  },
+  "actual_cell_validation": [
+    {
+      "mesh_sha256": "ef80b7c8bcccfbbb5b18985c7a29e5cc0c28534725875912a411e947ff5b238d",
+      "cells": 1536,
+      "nodes": 405,
+      "candidate_seconds": 0.04386469999735709,
+      "generic_seconds": 11.880563899998378,
+      "archived_oriented_boundary_match": true
+    },
+    {
+      "mesh_sha256": "42c96e5b775323caa42f023b47ae5c3f84908c05e3c7e11046732c719581ee29",
+      "cells": 12288,
+      "nodes": 2601,
+      "candidate_seconds": 0.32468669999798294,
+      "archived_oriented_boundary_match": true
+    }
+  ],
+  "loaded_solid": {
+    "assessor": "OpenAI Codex /root/solver, non-author",
+    "signed_stress_order": [
+      "xx",
+      "yy",
+      "zz",
+      "xy",
+      "xz",
+      "yz"
+    ],
+    "datum_m": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "physical_scales": {
+      "force_N": 400,
+      "length_m": 0.2,
+      "moment_Nm": 80
+    },
+    "limits": {
+      "coefficient_trace": 1e-09,
+      "core_volume": 1e-09,
+      "equilibrium": 1e-06,
+      "cross_method_accuracy": null
+    },
+    "scope": "Six numerically comparable child/reference observations. Moment and individually rounded RF closure remain unresolved for all reference levels. No blanket accuracy acceptance.",
+    "origin_note": "Five original child pairs. One separately published updated-mesher child from a source with bitwise-identical physical Q4 topology/coordinates/field and distinct document/job identities.",
+    "original_reader": {
+      "sha256": "9fd3874b8407dc96546da047078674a1bbdf5530fc7bd1434f4785407c6483a3",
+      "status": "incomplete",
+      "exit": 3,
+      "fine_case_status": "CHILD_UNBOUND: frozen reader supplied original document ID to surrogate-owned child",
+      "non_author_disposition": "verified successful published project linkage, file hashes and every original binding predicate using the authorized source document for each case"
+    },
+    "manifest_sha256": "6455434134bd073f16e97ab70bf6fccbf0e6b7faaa41ec2567378c2d5716272b",
+    "terminal_sha256": "dd438af1fe6d61df6d5cb2d60f10c2d703e491ff75981b23f13e60073d51ab80",
+    "seconds_used": 61.33966429999418,
+    "seconds_remaining": 723.6603357000058,
+    "reference": {
+      "ref_C3D8_4x4x2": {
+        "element": "C3D8",
+        "grid": [
+          4,
+          4,
+          2
+        ],
+        "u_mid_m": [
+          2.492587e-05,
+          -6.338922e-06,
+          0.002097882
+        ],
+        "u_end_m": [
+          2.492561e-05,
+          -6.338649e-06,
+          0.002097729
+        ],
+        "core_mean_stress_Pa": [
+          11131128.828125,
+          620535.90625,
+          -531079.0625,
+          -518639.98551562504,
+          0.3125,
+          0.0
+        ],
+        "volume_relative_error": 6.776263578034402e-16,
+        "work_J": 6.998631723517419,
+        "work_print_bound_J": 0.00022031160926348347,
+        "force_from_total_N": [
+          -9.458745e-11,
+          -6.91216e-10,
+          -399.99999999999983
+        ],
+        "force_from_individual_RF_N": [
+          -0.022709999997459818,
+          -0.008897999989130767,
+          -400.01799999995455
+        ],
+        "moment_at_centre_Nm": [
+          0.0011007499606421334,
+          -0.0008002499589565559,
+          -0.0020076500113646034
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 1.7441443897250569e-12,
+          "bound_relative": 1.2500028125e-07,
+          "signed_residual_N": [
+            -9.458745e-11,
+            -6.91216e-10,
+            0.0
+          ],
+          "component_resolution_N": [
+            5e-18,
+            5e-17,
+            5.00001125e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 7.578417142018977e-05,
+          "bound_relative": 0.0004558926360081774,
+          "component_resolution_N": [
+            0.10549500000000002,
+            0.10067100000000002,
+            0.10950000011250004
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 3.0317871024422654e-05,
+          "bound_relative": 0.00021177789918303238,
+          "signed_residual_Nm": [
+            0.0011007499980490998,
+            -0.0008002499987509459,
+            -0.0020076500002232933
+          ],
+          "component_resolution_Nm": [
+            0.008151541001534826,
+            0.008151541001425035,
+            0.01241547347182565
+          ]
+        },
+        "deck_sha256": "9a11259f1378e28ba40e6bb76b1f552f7283bab755bd79b468d6f7cd007d1dd9",
+        "dat_sha256": "ae7aa18eab013416b40e3ce825dec7a0fe12d404671c62044e5e4844f30b38a0"
+      },
+      "ref_C3D20_4x4x2": {
+        "element": "C3D20",
+        "grid": [
+          4,
+          4,
+          2
+        ],
+        "u_mid_m": [
+          2.493423e-05,
+          -6.347555e-06,
+          0.002102267
+        ],
+        "u_end_m": [
+          2.493397e-05,
+          -6.347276e-06,
+          0.002102105
+        ],
+        "core_mean_stress_Pa": null,
+        "volume_relative_error": null,
+        "work_J": 2.1228340418135754,
+        "work_print_bound_J": 0.00041158226702768015,
+        "force_from_total_N": [
+          3.011064e-08,
+          7.117615e-08,
+          -399.99999999999994
+        ],
+        "force_from_individual_RF_N": [
+          0.008940999995047605,
+          -0.00187109999706081,
+          -399.9571000000087
+        ],
+        "moment_at_centre_Nm": [
+          -0.0006107525055085716,
+          -0.0023057524967953213,
+          -0.0005819724997309095
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 1.932081433817141e-10,
+          "bound_relative": 1.2500059375000008e-07,
+          "signed_residual_N": [
+            3.011064e-08,
+            7.117615e-08,
+            8.304823495564051e-11
+          ],
+          "component_resolution_N": [
+            5e-15,
+            5e-15,
+            5.00002375e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 0.00010965435759722358,
+          "bound_relative": 0.0006348111453300877,
+          "component_resolution_N": [
+            0.10632700000000009,
+            0.10321705000000003,
+            0.20620000023750007
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 3.0690504438309895e-05,
+          "bound_relative": 0.0003540672033768977,
+          "signed_residual_Nm": [
+            -0.0006107525028897776,
+            -0.0023057524998674195,
+            -0.0005819724999582832
+          ],
+          "component_resolution_Nm": [
+            0.014877770481523576,
+            0.014878670473137493,
+            0.018963228925912665
+          ]
+        },
+        "deck_sha256": "4781b1ac7d74be8cf2ffd9492a28c22a8e030817f68cb3dad8b6d5b8f00eb24c",
+        "dat_sha256": "50216d276382bb30ebe2fa532b6ef29d29b63977413beb3de1e67ed32550629b"
+      },
+      "ref_C3D8_8x8x4": {
+        "element": "C3D8",
+        "grid": [
+          8,
+          8,
+          4
+        ],
+        "u_mid_m": [
+          2.493183e-05,
+          -6.345491e-06,
+          0.002097364
+        ],
+        "u_end_m": [
+          2.49317e-05,
+          -6.345349e-06,
+          0.002097091
+        ],
+        "core_mean_stress_Pa": [
+          11055487.81171875,
+          544880.6197265625,
+          59642.992050781235,
+          -516804.81052734365,
+          -0.078125,
+          -0.3125
+        ],
+        "volume_relative_error": 6.776263578034402e-16,
+        "work_J": 2.9390660380007025,
+        "work_print_bound_J": 0.00013208460196210126,
+        "force_from_total_N": [
+          1.305943e-08,
+          7.098606e-09,
+          -400.00000000000006
+        ],
+        "force_from_individual_RF_N": [
+          -0.0029620000004797475,
+          -0.001067799983502482,
+          -399.9971000000014
+        ],
+        "moment_at_centre_Nm": [
+          -0.00020550000363073195,
+          0.0002773325009002292,
+          -9.910001290336368e-05
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 3.716003557823715e-11,
+          "bound_relative": 1.2500038281250003e-07,
+          "signed_residual_N": [
+            1.305943e-08,
+            7.098606e-09,
+            0.0
+          ],
+          "component_resolution_N": [
+            5e-15,
+            5e-16,
+            5.0000153125e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 1.070153049785154e-05,
+          "bound_relative": 0.0002010748916917858,
+          "component_resolution_N": [
+            0.03357350000000003,
+            0.03032405000000006,
+            0.06650000015312507
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 4.488951316519097e-06,
+          "bound_relative": 0.0001054825297045697,
+          "signed_residual_Nm": [
+            -0.00020550000266250645,
+            0.00027733250067052406,
+            -9.910000039781153e-05
+          ],
+          "component_resolution_Nm": [
+            0.005119587894941071,
+            0.005126034151728232,
+            0.004327077966444727
+          ]
+        },
+        "deck_sha256": "530a254ea7dec29966d5b833fb04c691d232ae3836004632c7433e5a91b61f0b",
+        "dat_sha256": "ebf1d6591c56e791ce75b2bda32ab62f5dd783856be57cf9a5e0e5853a09120a"
+      },
+      "ref_C3D20_8x8x4": {
+        "element": "C3D20",
+        "grid": [
+          8,
+          8,
+          4
+        ],
+        "u_mid_m": [
+          2.493451e-05,
+          -6.348284e-06,
+          0.002098317
+        ],
+        "u_end_m": [
+          2.493441e-05,
+          -6.348178e-06,
+          0.00209803
+        ],
+        "core_mean_stress_Pa": null,
+        "volume_relative_error": null,
+        "work_J": 1.1664502869909472,
+        "work_print_bound_J": 0.0002864712062856682,
+        "force_from_total_N": [
+          4.233084e-08,
+          2.594593e-07,
+          -399.9999666666667
+        ],
+        "force_from_individual_RF_N": [
+          0.0012965000039901753,
+          0.0033505999941105813,
+          -400.0003466666624
+        ],
+        "moment_at_centre_Nm": [
+          -4.7535007979604416e-05,
+          -0.00034495124947397926,
+          -0.000480114992666536
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 8.333606187669172e-08,
+          "bound_relative": 1.2500071093750014e-07,
+          "signed_residual_N": [
+            4.233084e-08,
+            2.594593e-07,
+            3.333338810307396e-05
+          ],
+          "component_resolution_N": [
+            5e-15,
+            5e-14,
+            5.0000284375000005e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 9.023445281755041e-06,
+          "bound_relative": 0.00040771101506271664,
+          "component_resolution_N": [
+            0.05297255000000046,
+            0.05410655000000043,
+            0.1444400002843747
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 7.413684079750721e-06,
+          "bound_relative": 0.00021515220250074054,
+          "signed_residual_Nm": [
+            -4.75349971806871e-05,
+            -0.00034495125093492174,
+            -0.0004801149997462062
+          ],
+          "component_resolution_Nm": [
+            0.010944366519648387,
+            0.01093895526324405,
+            0.007537845101501483
+          ]
+        },
+        "deck_sha256": "bf4d9a14869eadcc143f7cd3338c02c3beed4b10267893afa99639b16dba7fe2",
+        "dat_sha256": "b5712f16987365b1c2ac931a75303dc74b180f27f7d97076c3c5f41ac9247c34"
+      },
+      "ref_C3D8_16x16x8": {
+        "element": "C3D8",
+        "grid": [
+          16,
+          16,
+          8
+        ],
+        "u_mid_m": [
+          2.493394e-05,
+          -6.347714e-06,
+          0.002097403
+        ],
+        "u_end_m": [
+          2.493385e-05,
+          -6.347612e-06,
+          0.002097116
+        ],
+        "core_mean_stress_Pa": [
+          10973057.231933594,
+          462446.33527832007,
+          4983.523681640625,
+          -516333.243019629,
+          -0.00341796875,
+          -0.005615234375
+        ],
+        "volume_relative_error": 6.776263578034402e-16,
+        "work_J": 1.4556829452822235,
+        "work_print_bound_J": 0.00010048722043099057,
+        "force_from_total_N": [
+          3.743025e-09,
+          1.687795e-08,
+          -400.0000000000001
+        ],
+        "force_from_individual_RF_N": [
+          -0.003389400001992726,
+          -0.0015230999987068117,
+          -399.99670000005733
+        ],
+        "moment_at_centre_Nm": [
+          0.0001691384115076744,
+          -0.00031644179040313247,
+          0.00027712999563789253
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 4.322003531010857e-11,
+          "bound_relative": 1.2500043945312504e-07,
+          "signed_residual_N": [
+            3.743025e-09,
+            1.687795e-08,
+            0.0
+          ],
+          "component_resolution_N": [
+            5e-16,
+            5e-15,
+            5.0000175781250005e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 1.242423695542672e-05,
+          "bound_relative": 0.0001936292722243963,
+          "component_resolution_N": [
+            0.044383050000000576,
+            0.03858435000000057,
+            0.050400000175781764
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 5.667122941652371e-06,
+          "bound_relative": 0.00010926464874586156,
+          "signed_residual_Nm": [
+            0.0001691383741590502,
+            -0.00031644174984366,
+            0.00027713000005746835
+          ],
+          "component_resolution_Nm": [
+            0.004062713510297314,
+            0.0040792425856537515,
+            0.0065774026059074574
+          ]
+        },
+        "deck_sha256": "7a2acc38b1e75005964e1303aee87d25d6f54d2df12f0bba39f0a3a3282e45d7",
+        "dat_sha256": "92a3e040b02058a3febc59e4f43eef34bb4587438a4ba85050f65fc8b7bfb39a"
+      },
+      "ref_C3D20_16x16x8": {
+        "element": "C3D20",
+        "grid": [
+          16,
+          16,
+          8
+        ],
+        "u_mid_m": [
+          2.493491e-05,
+          -6.348768e-06,
+          0.002097687
+        ],
+        "u_end_m": [
+          2.493482e-05,
+          -6.348666e-06,
+          0.002097394
+        ],
+        "core_mean_stress_Pa": null,
+        "volume_relative_error": null,
+        "work_J": 0.8425874078619128,
+        "work_print_bound_J": 0.00012747048522383165,
+        "force_from_total_N": [
+          8.454589e-08,
+          -2.442445e-07,
+          -400.00000000000006
+        ],
+        "force_from_individual_RF_N": [
+          -0.0016702100022314426,
+          -0.0022413620014347657,
+          -400.0012096000206
+        ],
+        "moment_at_centre_Nm": [
+          -0.0002134892652918552,
+          0.00015325656107734176,
+          -0.0004300559512309121
+        ],
+        "force_balance": {
+          "status": "pass",
+          "relative": 6.461589036849776e-10,
+          "bound_relative": 1.2500077148437427e-07,
+          "signed_residual_N": [
+            8.454589e-08,
+            -2.442445e-07,
+            1.7121237760875374e-10
+          ],
+          "component_resolution_N": [
+            5e-15,
+            5e-14,
+            5.000030859375e-05
+          ]
+        },
+        "individual_RF_balance": {
+          "status": "unresolved",
+          "relative": 7.614310868108542e-06,
+          "bound_relative": 0.00022345086071501267,
+          "component_resolution_N": [
+            0.047572060000001165,
+            0.04026671050000136,
+            0.0640651003085944
+          ]
+        },
+        "moment_balance": {
+          "status": "unresolved",
+          "relative": 6.299967365951129e-06,
+          "bound_relative": 0.00012403810807534577,
+          "signed_residual_Nm": [
+            -0.00021348928395836797,
+            0.00015325656253671605,
+            -0.0004300559499315071
+          ],
+          "component_resolution_Nm": [
+            0.0050848140104356974,
+            0.005097642412090941,
+            0.00682829427816062
+          ]
+        },
+        "deck_sha256": "8b3b8146b6f7cbcafdb1e1f1611d2148a5a549afaf1de87868b090eaa0ea4909",
+        "dat_sha256": "fc1a8d77ef370c0debda7a508c53b75de8afbba6acf954ef387ed6c89f5076c7"
+      }
+    },
+    "reference_signed_refinements": {
+      "C3D8": [
+        {
+          "level": [
+            [
+              4,
+              4,
+              2
+            ],
+            [
+              8,
+              8,
+              4
+            ]
+          ],
+          "signed_change_u_mid_m": [
+            5.960000000000194e-09,
+            -6.569000000000275e-09,
+            -5.180000000001329e-07
+          ],
+          "signed_change_u_end_m": [
+            6.0899999999991235e-09,
+            -6.700000000000292e-09,
+            -6.37999999999854e-07
+          ],
+          "signed_change_work_J": -4.059565685516716,
+          "work_change_print_bound_J": 0.0003523962112255847,
+          "signed_change_core_stress_Pa": [
+            -75641.01640624925,
+            -75655.28652343748,
+            590722.0545507813,
+            1835.1749882813892,
+            -0.390625,
+            -0.3125
+          ]
+        },
+        {
+          "level": [
+            [
+              8,
+              8,
+              4
+            ],
+            [
+              16,
+              16,
+              8
+            ]
+          ],
+          "signed_change_u_mid_m": [
+            2.110000000001916e-09,
+            -2.223000000000165e-09,
+            3.899999999985512e-08
+          ],
+          "signed_change_u_end_m": [
+            2.149999999997938e-09,
+            -2.263000000000422e-09,
+            2.499999999985153e-08
+          ],
+          "signed_change_work_J": -1.483383092718479,
+          "work_change_print_bound_J": 0.00023257182239309182,
+          "signed_change_core_stress_Pa": [
+            -82430.579785157,
+            -82434.28444824246,
+            -54659.46836914061,
+            471.5675077146734,
+            0.07470703125,
+            0.306884765625
+          ]
+        }
+      ],
+      "C3D20": [
+        {
+          "level": [
+            [
+              4,
+              4,
+              2
+            ],
+            [
+              8,
+              8,
+              4
+            ]
+          ],
+          "signed_change_u_mid_m": [
+            2.799999999992587e-10,
+            -7.290000000000061e-10,
+            -3.9499999999999605e-06
+          ],
+          "signed_change_u_end_m": [
+            4.4000000000028717e-10,
+            -9.019999999999111e-10,
+            -4.0750000000000855e-06
+          ],
+          "signed_change_work_J": -0.9563837548226282,
+          "work_change_print_bound_J": 0.0006980534733133483,
+          "signed_change_core_stress_Pa": null
+        },
+        {
+          "level": [
+            [
+              8,
+              8,
+              4
+            ],
+            [
+              16,
+              16,
+              8
+            ]
+          ],
+          "signed_change_u_mid_m": [
+            4.000000000008771e-10,
+            -4.839999999998077e-10,
+            -6.300000000001617e-07
+          ],
+          "signed_change_u_end_m": [
+            4.099999999981885e-10,
+            -4.879999999999181e-10,
+            -6.360000000000393e-07
+          ],
+          "signed_change_work_J": -0.32386287912903444,
+          "work_change_print_bound_J": 0.00041394169150949986,
+          "signed_change_core_stress_Pa": null
+        }
+      ]
+    },
+    "child_rows": [
+      {
+        "key": "C3D8_4x2_p1",
+        "source_document": "original",
+        "mesh_sha256": "66e53ffff324672abcbba596be6b8c29d2f5c9c8aa5a113418be3523de2c3153",
+        "result_sha256": "509cd47101e4ac10d9375e4671a955e0e5fabfd33b0f35a909fe318e266196e1",
+        "raw_reader_grade": "ok",
+        "audited_binding": "pass",
+        "dofs": 225,
+        "held": 144,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 1.8973538018496324e-15,
+        "u_mid_m": [
+          2.4890050700156916e-05,
+          -6.3574575418088976e-06,
+          0.002098378549372442
+        ],
+        "u_end_m": [
+          2.48906714800669e-05,
+          -6.35662621558625e-06,
+          0.002098102945914311
+        ],
+        "stress_Pa": [
+          11398138.391787516,
+          885962.7339947103,
+          194075.5305204871,
+          -526004.8290380164,
+          -36478.21656540038,
+          -36231.33865991639
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          425081.1598539222,
+          423516.3987163902,
+          189092.0068388465,
+          -9671.586018387403,
+          -36478.21314743163,
+          -36231.33304468202
+        ],
+        "work_J": 18.939755351297602,
+        "interface_force_N": [
+          3.747118171304464e-09,
+          -2.431625034660101e-08,
+          -400.000001678281
+        ],
+        "moment_at_centre_Nm": [
+          2.3425172912538983e-08,
+          -6.589084478036966e-08,
+          -5.820766091346741e-11
+        ],
+        "signed_balance_force_N": [
+          3.747118171304464e-09,
+          -2.431625034660101e-08,
+          -1.6782812508608913e-06
+        ],
+        "signed_balance_moment_Nm": [
+          2.3425172912538983e-08,
+          -6.589084478036966e-08,
+          -5.820766091346741e-11
+        ],
+        "force_balance_rel": 4.1961539517729105e-09,
+        "moment_balance_rel": 8.741375696208473e-10,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              -3.49385199331016e-08,
+              -1.7977215586250682e-08,
+              3.739459143109816e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -3.581929984308277e-08,
+              -1.8535541808897807e-08,
+              4.965493724420726e-07
+            ],
+            "signed_delta_work_J": 11.941123627780183,
+            "reference_work_print_bound_J": 0.00022031160926348347,
+            "signed_delta_force_from_total_N": [
+              3.8417056213044645e-09,
+              -2.362503434660101e-08,
+              -1.6782811940174724e-06
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              -0.0011007265354692208,
+              0.0008001840681117756,
+              0.0020076499531569425
+            ],
+            "reference_moment_resolution_Nm": [
+              0.008151541001534826,
+              0.008151541001425035,
+              0.01241547347182565
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              -4.317851993309866e-08,
+              -9.014215586249968e-09,
+              9.86945914310984e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -4.3889299843084877e-08,
+              -9.743541808897367e-09,
+              9.755493724423504e-07
+            ],
+            "signed_delta_work_J": 17.48407240601538,
+            "reference_work_print_bound_J": 0.00010048722043099057,
+            "signed_delta_force_from_total_N": [
+              4.0931713044646435e-12,
+              -4.1194200346601014e-08,
+              -1.6782809098003781e-06
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              -0.00016911498633476185,
+              0.0003163758995583521,
+              -0.00027713005384555345
+            ],
+            "reference_moment_resolution_Nm": [
+              0.004062713510297314,
+              0.0040792425856537515,
+              0.0065774026059074574
+            ]
+          }
+        }
+      },
+      {
+        "key": "C3D20_4x2_p2",
+        "source_document": "original",
+        "mesh_sha256": "7a240d5458b40677343fe399d6d5611a182267d3de14780809a1a585291033de",
+        "result_sha256": "7df2e74a27b8e869d5513477e8f01ae34fb68a024110467f6a321d3b79f022e7",
+        "raw_reader_grade": "ok",
+        "audited_binding": "pass",
+        "dofs": 1215,
+        "held": 480,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 2.1684043449710085e-15,
+        "u_mid_m": [
+          2.491746869651363e-05,
+          -6.363177617942578e-06,
+          0.00209665796973992
+        ],
+        "u_end_m": [
+          2.4921012301970126e-05,
+          -6.359465115772334e-06,
+          0.002096386297782659
+        ],
+        "stress_Pa": [
+          11053938.27986675,
+          543117.8958993163,
+          -33684.34555670473,
+          -518991.76629996963,
+          -991.8966225785672,
+          -975.4343363963278
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          80881.04793315567,
+          80671.56062099623,
+          -38667.86923834535,
+          -2658.5232803406543,
+          -991.8932046098172,
+          -975.4287211619528
+        ],
+        "work_J": 2.1298241072318826,
+        "interface_force_N": [
+          -6.0244019550737e-08,
+          1.9230355974286795e-08,
+          -399.99999953335646
+        ],
+        "moment_at_centre_Nm": [
+          -5.683887138729915e-08,
+          -2.5551798898959532e-08,
+          -4.960895694239298e-09
+        ],
+        "signed_balance_force_N": [
+          -6.0244019550737e-08,
+          1.9230355974286795e-08,
+          4.6664422370668035e-07
+        ],
+        "signed_balance_moment_Nm": [
+          -5.683884296558972e-08,
+          -2.555174205554067e-08,
+          -4.960895694239298e-09
+        ],
+        "force_balance_rel": 1.1772743414380356e-09,
+        "moment_balance_rel": 7.814405845365197e-10,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              -1.2957698029874209e-08,
+              -1.2189115772334036e-08,
+              -5.718702217340742e-06
+            ],
+            "signed_delta_mid_u_m": [
+              -1.6761303486371732e-08,
+              -1.562261794257794e-08,
+              -5.609030260080201e-06
+            ],
+            "signed_delta_work_J": 0.0069900654183072675,
+            "reference_work_print_bound_J": 0.00041158226702768015,
+            "signed_delta_force_from_total_N": [
+              -9.0354659550737e-08,
+              -5.194579402571321e-08,
+              4.6664348474223516e-07
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.0006106956666371843,
+              0.0023057269449964224,
+              0.0005819675388352152
+            ],
+            "reference_moment_resolution_Nm": [
+              0.014877770481523576,
+              0.014878670473137493,
+              0.018963228925912665
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              -1.3807698029872685e-08,
+              -1.0799115772334207e-08,
+              -1.007702217340617e-06
+            ],
+            "signed_delta_mid_u_m": [
+              -1.7441303486371868e-08,
+              -1.4409617942578126e-08,
+              -1.0290302600800792e-06
+            ],
+            "signed_delta_work_J": 1.28723669936997,
+            "reference_work_print_bound_J": 0.00012747048522383165,
+            "signed_delta_force_from_total_N": [
+              -1.44789909550737e-07,
+              2.634748559742868e-07,
+              4.666435984290729e-07
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.0002134324264204679,
+              -0.00015328211287624072,
+              0.0004300509903352179
+            ],
+            "reference_moment_resolution_Nm": [
+              0.0050848140104356974,
+              0.005097642412090941,
+              0.00682829427816062
+            ]
+          }
+        }
+      },
+      {
+        "key": "C3D8_8x4_p1",
+        "source_document": "original",
+        "mesh_sha256": "ef80b7c8bcccfbbb5b18985c7a29e5cc0c28534725875912a411e947ff5b238d",
+        "result_sha256": "75804d836f9ecf4186d0009c98424ba289b1e2e626fe60f7cf1fe14d13e5d935",
+        "raw_reader_grade": "ok",
+        "audited_binding": "pass",
+        "dofs": 1215,
+        "held": 480,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 8.131516293641281e-16,
+        "u_mid_m": [
+          2.4926398542561568e-05,
+          -6.344117267084974e-06,
+          0.0020964381752111632
+        ],
+        "u_end_m": [
+          2.4928508751867764e-05,
+          -6.341811480899304e-06,
+          0.0020961549489088523
+        ],
+        "stress_Pa": [
+          11148686.296038752,
+          637276.5208286606,
+          12409.68868990624,
+          -518634.6161585916,
+          -11421.610075901548,
+          -11371.730995159649
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          175629.06410515867,
+          174830.1855503405,
+          7426.165008265614,
+          -2301.3731389626046,
+          -11421.606657932798,
+          -11371.725379925274
+        ],
+        "work_J": 6.426707995084792,
+        "interface_force_N": [
+          -8.858296496327966e-08,
+          -6.970003596507013e-08,
+          -400.0000129937698
+        ],
+        "moment_at_centre_Nm": [
+          8.861934475135058e-08,
+          -6.385789674823172e-08,
+          -3.1395757105201483e-09
+        ],
+        "signed_balance_force_N": [
+          -8.858296496327966e-08,
+          -6.970003596507013e-08,
+          -1.2993769814784173e-05
+        ],
+        "signed_balance_moment_Nm": [
+          8.861931632964115e-08,
+          -6.385789674823172e-08,
+          -3.1395757105201483e-09
+        ],
+        "force_balance_rel": 3.248564673785674e-08,
+        "moment_balance_rel": 1.36594010320519e-09,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              -3.1912481322360754e-09,
+              3.537519100695585e-09,
+              -9.360510911477979e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -5.431457438431937e-09,
+              1.3737329150256619e-09,
+              -9.258247888367654e-07
+            ],
+            "signed_delta_work_J": 3.4876419570840893,
+            "reference_work_print_bound_J": 0.00013208460196210126,
+            "signed_delta_force_from_total_N": [
+              -1.0164239496327966e-07,
+              -7.679864196507013e-08,
+              -1.2993769757940754e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.0002055886229754833,
+              -0.00027739635879697744,
+              9.909687332765316e-05
+            ],
+            "reference_moment_resolution_Nm": [
+              0.005119587894941071,
+              0.005126034151728232,
+              0.004327077966444727
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              -5.3412481322340135e-09,
+              5.800519100696007e-09,
+              -9.610510911476494e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -7.541457438433853e-09,
+              3.5967329150258268e-09,
+              -9.648247888366206e-07
+            ],
+            "signed_delta_work_J": 4.971025049802568,
+            "reference_work_print_bound_J": 0.00010048722043099057,
+            "signed_delta_force_from_total_N": [
+              -9.232598996327966e-08,
+              -8.657798596507013e-08,
+              -1.2993769701097335e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              -0.00016904979216292304,
+              0.00031637793250638424,
+              -0.00027713313521360305
+            ],
+            "reference_moment_resolution_Nm": [
+              0.004062713510297314,
+              0.0040792425856537515,
+              0.0065774026059074574
+            ]
+          }
+        }
+      },
+      {
+        "key": "C3D20_8x4_p2",
+        "source_document": "original",
+        "mesh_sha256": "25abb3b57a85c0c55f8e43fe7195d68569dfa9aef1615a2083215d8532292c47",
+        "result_sha256": "01c1f42f25e15c24cf828c23be68b6bd3941d03571c2ca0c6625af38aa363501",
+        "raw_reader_grade": "ok",
+        "audited_binding": "pass",
+        "dofs": 7803,
+        "held": 1728,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 1.3552527156068803e-15,
+        "u_mid_m": [
+          2.493357082259873e-05,
+          -6.348585970371478e-06,
+          0.0020985712437447336
+        ],
+        "u_end_m": [
+          2.493474181619786e-05,
+          -6.347229868510373e-06,
+          0.0020982735286407335
+        ],
+        "stress_Pa": [
+          10979194.926833872,
+          468566.83650284563,
+          5460.939345229829,
+          -516684.43217522994,
+          -109.2039051010342,
+          -109.42217425096003
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          6137.694900278002,
+          6120.501224525564,
+          477.4156635892041,
+          -351.189155600965,
+          -109.2004871322842,
+          -109.41655901658503
+        ],
+        "work_J": 1.2366380683721896,
+        "interface_force_N": [
+          -1.0543499229243025e-07,
+          -1.3105272955726832e-07,
+          -400.0000083086761
+        ],
+        "moment_at_centre_Nm": [
+          1.2284903050385765e-07,
+          -1.0280476203661237e-07,
+          -9.157474778476171e-11
+        ],
+        "signed_balance_force_N": [
+          -1.0543499229243025e-07,
+          -1.3105272955726832e-07,
+          -8.308675830903667e-06
+        ],
+        "signed_balance_moment_Nm": [
+          1.2284914419069537e-07,
+          -1.0280481888003123e-07,
+          -9.157474778476171e-11
+        ],
+        "force_balance_rel": 2.07759454385605e-08,
+        "moment_balance_rel": 2.0023716952995984e-09,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              3.3181619786014686e-10,
+              9.481314896270395e-10,
+              2.4352864073364996e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -9.391774012712571e-10,
+              -3.019703714781264e-10,
+              2.542437447334775e-07
+            ],
+            "signed_delta_work_J": 0.07018778138124238,
+            "reference_work_print_bound_J": 0.0002864712062856682,
+            "signed_delta_force_from_total_N": [
+              -1.4776583229243026e-07,
+              -3.9051202955726835e-07,
+              -4.164200942113894e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              4.765785701010827e-05,
+              0.00034484844471194265,
+              0.0004801149010917882
+            ],
+            "reference_moment_resolution_Nm": [
+              0.010944366519648387,
+              0.01093895526324405,
+              0.007537845101501483
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              -7.818380213804165e-11,
+              1.4361314896269576e-09,
+              8.795286407336893e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -1.3391774012721342e-09,
+              1.8202962852168126e-10,
+              8.842437447336392e-07
+            ],
+            "signed_delta_work_J": 0.3940506605102768,
+            "reference_work_print_bound_J": 0.00012747048522383165,
+            "signed_delta_force_from_total_N": [
+              -1.8998088229243027e-07,
+              1.1319177044273167e-07,
+              -8.308676058277342e-06
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.00021361211432235905,
+              -0.00015335936583937837,
+              0.00043005585965616433
+            ],
+            "reference_moment_resolution_Nm": [
+              0.0050848140104356974,
+              0.005097642412090941,
+              0.00682829427816062
+            ]
+          }
+        }
+      },
+      {
+        "key": "C3D8_16x8_p1",
+        "source_document": "original",
+        "mesh_sha256": "42c96e5b775323caa42f023b47ae5c3f84908c05e3c7e11046732c719581ee29",
+        "result_sha256": "9ea2a01d3ca7aa949abcdca07e25cbe9b09e3aa51297af94e8ef171660846b4e",
+        "raw_reader_grade": "ok",
+        "audited_binding": "pass",
+        "dofs": 7803,
+        "held": 1728,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 4.0657581468206406e-16,
+        "u_mid_m": [
+          2.4933965217395468e-05,
+          -6.3453879606314146e-06,
+          0.002096984216384862
+        ],
+        "u_end_m": [
+          2.4936835533023553e-05,
+          -6.342328429978113e-06,
+          0.002096695045185033
+        ],
+        "stress_Pa": [
+          11024567.25712811,
+          513700.40008684027,
+          5922.235230273186,
+          -516724.73086074763,
+          -3161.8606620608075,
+          -3151.235331213925
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          51510.025194516405,
+          51254.0648085202,
+          938.7115486325611,
+          -391.487841118651,
+          -3161.8572440920575,
+          -3151.22971597955
+        ],
+        "work_J": 2.580217085793026,
+        "interface_force_N": [
+          -2.210163074778393e-07,
+          -1.598382368683815e-07,
+          -400.00005747615364
+        ],
+        "moment_at_centre_Nm": [
+          1.5289663224393735e-07,
+          -8.51514414534904e-11,
+          4.660705599235371e-09
+        ],
+        "signed_balance_force_N": [
+          -2.210163074778393e-07,
+          -1.598382368683815e-07,
+          -5.7476153642710415e-05
+        ],
+        "signed_balance_moment_Nm": [
+          1.5289660382222792e-07,
+          -8.51514414534904e-11,
+          4.660705599235371e-09
+        ],
+        "force_balance_rel": 1.4369200208324467e-07,
+        "moment_balance_rel": 1.912095581743286e-09,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              2.9855330235548723e-09,
+              5.283570021887422e-09,
+              -4.209548149667827e-07
+            ],
+            "signed_delta_mid_u_m": [
+              2.5217395466443134e-11,
+              2.326039368585619e-09,
+              -4.1878361513791526e-07
+            ],
+            "signed_delta_work_J": 1.1245341405108027,
+            "reference_work_print_bound_J": 0.00010048722043099057,
+            "signed_delta_force_from_total_N": [
+              -2.2475933247783929e-07,
+              -1.767161868683815e-07,
+              -5.747615352902358e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              -0.00016898551487543045,
+              0.000316441705251691,
+              -0.0002771253349322933
+            ],
+            "reference_moment_resolution_Nm": [
+              0.004062713510297314,
+              0.0040792425856537515,
+              0.0065774026059074574
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              2.9855330235548723e-09,
+              5.283570021887422e-09,
+              -4.209548149667827e-07
+            ],
+            "signed_delta_mid_u_m": [
+              2.5217395466443134e-11,
+              2.326039368585619e-09,
+              -4.1878361513791526e-07
+            ],
+            "signed_delta_work_J": 1.1245341405108027,
+            "reference_work_print_bound_J": 0.00010048722043099057,
+            "signed_delta_force_from_total_N": [
+              -2.2475933247783929e-07,
+              -1.767161868683815e-07,
+              -5.747615352902358e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              -0.00016898551487543045,
+              0.000316441705251691,
+              -0.0002771253349322933
+            ],
+            "reference_moment_resolution_Nm": [
+              0.004062713510297314,
+              0.0040792425856537515,
+              0.0065774026059074574
+            ]
+          }
+        }
+      },
+      {
+        "key": "C3D20_16x8_p2",
+        "source_document": "surrogate",
+        "mesh_sha256": "e201b833e32086b49e7770245e1f7fe3200568a48dbf9dc1eabb149d0e52f5ad",
+        "result_sha256": "7a0fca04027ec0932dc2b43254fe0654b6f91c76b173aa5e13e20c2ad2efc60e",
+        "raw_reader_grade": "failed",
+        "audited_binding": "pass",
+        "dofs": 55539,
+        "held": 6528,
+        "boundary_relative": 4.3033114282642495e-16,
+        "volume_relative_error": 8.131516293641281e-16,
+        "u_mid_m": [
+          2.4934521347655523e-05,
+          -6.348859162220053e-06,
+          0.0020978820476747675
+        ],
+        "u_end_m": [
+          2.493474390639365e-05,
+          -6.34844874365089e-06,
+          0.0020975880000913584
+        ],
+        "stress_Pa": [
+          10941028.590707388,
+          430414.3624500202,
+          5003.0868265362615,
+          -516225.771319417,
+          -43.52208119449588,
+          -43.62609487262043
+        ],
+        "signed_core_stress_minus_fine_C3D8_Pa": [
+          -32028.641226205975,
+          -32031.972828299855,
+          19.56314489563647,
+          107.4717002119869,
+          -43.51866322574588,
+          -43.62047963824543
+        ],
+        "work_J": 0.8862552136386289,
+        "interface_force_N": [
+          1.2855366549047176e-07,
+          1.3563749234890565e-08,
+          -400.00002776319207
+        ],
+        "moment_at_centre_Nm": [
+          3.422878478431812e-07,
+          1.881784328361391e-07,
+          -8.66072014105157e-09
+        ],
+        "signed_balance_force_N": [
+          1.2855366549047176e-07,
+          1.3563749234890565e-08,
+          -2.7763193827468058e-05
+        ],
+        "signed_balance_moment_Nm": [
+          3.42288956289849e-07,
+          1.8817752334143734e-07,
+          -8.66072014105157e-09
+        ],
+        "force_balance_rel": 6.940873691050018e-08,
+        "moment_balance_rel": 4.883766444211389e-09,
+        "comparisons": {
+          "same": {
+            "signed_delta_end_u_m": [
+              -7.609360634747652e-11,
+              2.1725634911006554e-10,
+              1.9400009135858015e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -3.8865234447892864e-10,
+              -9.116222005251841e-11,
+              1.950476747674887e-07
+            ],
+            "signed_delta_work_J": 0.04366780577671614,
+            "reference_work_print_bound_J": 0.00012747048522383165,
+            "signed_delta_force_from_total_N": [
+              4.400777549047175e-08,
+              2.5780824923489055e-07,
+              -2.7763192008478654e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.00021383155313969837,
+              -0.00015306838264450562,
+              0.00043004729051077106
+            ],
+            "reference_moment_resolution_Nm": [
+              0.0050848140104356974,
+              0.005097642412090941,
+              0.00682829427816062
+            ]
+          },
+          "finest_same_order": {
+            "signed_delta_end_u_m": [
+              -7.609360634747652e-11,
+              2.1725634911006554e-10,
+              1.9400009135858015e-07
+            ],
+            "signed_delta_mid_u_m": [
+              -3.8865234447892864e-10,
+              -9.116222005251841e-11,
+              1.950476747674887e-07
+            ],
+            "signed_delta_work_J": 0.04366780577671614,
+            "reference_work_print_bound_J": 0.00012747048522383165,
+            "signed_delta_force_from_total_N": [
+              4.400777549047175e-08,
+              2.5780824923489055e-07,
+              -2.7763192008478654e-05
+            ],
+            "signed_delta_moment_at_centre_Nm": [
+              0.00021383155313969837,
+              -0.00015306838264450562,
+              0.00043004729051077106
+            ],
+            "reference_moment_resolution_Nm": [
+              0.0050848140104356974,
+              0.005097642412090941,
+              0.00682829427816062
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

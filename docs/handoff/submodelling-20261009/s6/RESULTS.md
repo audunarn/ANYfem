@@ -54,3 +54,24 @@ The original loaded detail is 0.2 × 0.2 × 0.01 m, with 10 kPa on its positive 
 The geometry and connectivity causing the cost were preserved. The review mesher adds a fast acceptance proof on verified perturbed Cartesian Kuhn grids at `3823b6912cd54f1f6a913a661a9f6739b3f55f2d`. It uses the unmodified coordinates, cell connectivity, Jacobian, exterior and face ownership checks. It retains the generic intersection search for unrecognised meshes. On the same stored 1,536-cell grid a single cell-validation call took 11.881 seconds on the generic path and 0.044 seconds on the new path, returning identical ordered exterior facets. On the stored 12,288-cell grid the new path took 0.325 seconds and reproduced the archived oriented exterior. These times measure cell validation only. All 164 focused validation, structured-box, volume-consumer and process tests passed, and the packaged Qt test passed with the updated mesher wheel.
 
 The registered shell manifest SHA-256 is `dccf7158ac177e0a2146e2f039e2a49500d36a76906ba48309670435799e50b3`. The hole comparison manifest is `f66a559ea5cb0c3b525ddc9bbce629f218ba0bfcde19e6c47a6105531c123057`. The A5 and solid comparison manifest is `2fd248fc27a67fa9f475ed2f77dabbf76a34702cae703a91733902b0166673da`. The original prototype and failed error estimates remain available in [S0](../s0/RESULTS.md) and [S4b](../s4b/RESULTS.md).
+
+## Loaded solid against CalculiX 2.22
+
+The assessor registered the follow-up under SHA-256 `6455434134bd073f16e97ab70bf6fccbf0e6b7faaa41ec2567378c2d5716272b`. It reused the five saved children, solved the missing 16 × 16 × 8 P2 child and ran six independent brick references. The replacement source project had bitwise-identical Q4 displacement coefficients, coordinates and matching node IDs, connectivity and face lineage. Its document and job identities were recorded separately. The child took 55.68 seconds through solve, publication and reopening. The complete three-stage tranche used 61.3396643 of 785 process-wall seconds.
+
+The frozen reader initially associated the sixth child with the original document and refused it. The assessor verified the saved project registry and both artifact hashes against the authorized replacement document and job. A separate extraction reproduced all six pairs, binding each to the exact source job in its displacement result provenance. It retained all twelve unresolved reference checks for moment and individually rounded force. The archive-reader regression suite passed 41 cases.
+
+| Grid | Order | Center displacement, child / CCX (mm) | Core σxx, child (MPa) | Signed interface work, child / CCX (J) |
+|---|---|---:|---:|---:|
+| 4 × 4 × 2 | P1 | 2.098379 / 2.097882 | 11.398138 | 18.939755 / 6.998632 |
+| 4 × 4 × 2 | P2 | 2.096658 / 2.102267 | 11.053938 | 2.129824 / 2.122834 |
+| 8 × 8 × 4 | P1 | 2.096438 / 2.097364 | 11.148686 | 6.426708 / 2.939066 |
+| 8 × 8 × 4 | P2 | 2.098571 / 2.098317 | 10.979195 | 1.236638 / 1.166450 |
+| 16 × 16 × 8 | P1 | 2.096984 / 2.097403 | 11.024567 | 2.580217 / 1.455683 |
+| 16 × 16 × 8 | P2 | 2.097882 / 2.097687 | 10.941029 | 0.886255 / 0.842587 |
+
+C3D8 and C3D20 supply the same-order displacement and work comparisons. The prescribed common stress reference is C3D8, giving finest core σxx of 10.973057 MPa. The finest P2 center displacement differed by +0.195 µm. Finest signed work differed by +77.25% for P1 and +5.18% for P2. The final reference refinement changed the work by −1.483383 J for C3D8 and −0.323863 J for C3D20. Cross-method design-accuracy limits and a continuum work value remain open.
+
+All six child trace and core-volume checks passed 10⁻⁹. Child force and moment residuals were at most 1.437 × 10⁻⁷ and 4.884 × 10⁻⁹ of the physical scales. All six CCX internally summed forces met 10⁻⁶. At the same datum the precision of the individually printed reference forces leaves all six reconstructed forces and moments inconclusive at 10⁻⁶. The independent assessment includes signed displacements, six stress components, force, moment, work, resolution bounds and refinement differences. [Machine-readable observations](observations.json)
+
+The installed Windows Qt smoke passed again with the final pinned wheels. The four review branches retain their hosted check histories. The solver's separately owned contact, replay and qualification failures are tracked in its review alongside the matrix results. [Application checks](https://github.com/audunarn/ANYfem/pull/17/checks) · [Solver checks](https://github.com/audunarn/ANYsolver/pull/69/checks) · [Mesher checks](https://github.com/audunarn/ANYmesh/pull/15/checks) · [Geometry checks](https://github.com/audunarn/ANYgeometry/pull/34/checks)
