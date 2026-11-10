@@ -98,6 +98,20 @@ def build_fe_model(
 ) -> BuiltModel:
     """Build the solver model for one load case or combination."""
 
+    producing_id = getattr(mesh, "_anyfem_mesh_record_id", None)
+    active_id = project.mesh_numbering.active_mesh_id
+    if project.mesh_numbering.generation:
+        from ..application.mesh_publication import changed_mesh_sources
+        from ..mesh_jobs import mesh_semantic_hash
+        active = project.mesh_records.get(active_id)
+        if active is None or (producing_id is not None and producing_id != active_id):
+            raise ProjectError("mesh does not match the project's active published mesh")
+        changed = changed_mesh_sources(project, active)
+        if changed:
+            raise ProjectError(f"published mesh is stale after changes to {', '.join(changed)}; update the mesh")
+        if mesh_semantic_hash(mesh, model_hash=active.source_model_hash, mesh_input_hash=active.mesh_input_hash,
+                              structural_preparation=active.structural_preparation) != active.mesh_hash:
+            raise ProjectError("mesh content differs from the active publication")
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
         raise ProjectError(
@@ -2216,7 +2230,17 @@ def _attribute_targets(
     """
 
     if region_ref is None:
-        targets: tuple[Any, ...] = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
+        from ..selection import MeshEntityRef as SelectionMeshRef
+        if isinstance(fallback, SelectionMeshRef):
+            active_id = project.mesh_numbering.active_mesh_id
+            if fallback.mesh_id is None or active_id != fallback.mesh_id:
+                raise ProjectError("direct mesh reference requires re-selection on the active mesh")
+            target = (ElementFaceRef(active_id, fallback.element_id, fallback.local_face)
+                      if fallback.kind == "element_face"
+                      else MeshEntityRef(active_id, fallback.kind, fallback.id))
+            targets = (target,)
+        else:
+            targets = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
     else:
         try:
             geometry = None if project.mesh_only else project.geometry
@@ -2225,9 +2249,14 @@ def _attribute_targets(
                 feature_resolver = lambda anchor: project.geometry.features.resolve(
                     anchor, project.geometry
                 )
+            # A mesh-domain region is bound to one published mesh.  When the
+            # project knows its active mesh, a region left on another mesh is
+            # refused instead of silently reinterpreting its integer IDs.
+            numbering = getattr(project, "mesh_numbering", None)
             targets = project.regions.resolve(
                 region_ref.id,
                 geometry=geometry,
+                mesh_id=getattr(numbering, "active_mesh_id", None),
                 feature_resolver=feature_resolver,
             )
         except Exception as exc:

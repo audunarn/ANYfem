@@ -32,6 +32,7 @@ __all__ = [
     "MeshProgress",
     "MeshSettings",
     "MeshTaskManager",
+    "RegionalJobInput",
     "mesh_job_entry",
     "mesh_semantic_hash",
     "run_mesh_job",
@@ -56,7 +57,10 @@ def clone_mesh_for_job(mesh: Any) -> Any:
 
     from anymesher.serialize import mesh_from_dict, mesh_to_dict
 
-    return mesh_from_dict(mesh_to_dict(mesh))
+    detached = mesh_from_dict(mesh_to_dict(mesh))
+    if hasattr(mesh, "_anyfem_mesh_record_id"):
+        detached._anyfem_mesh_record_id = mesh._anyfem_mesh_record_id
+    return detached
 
 
 def _exception_diagnostic(error: BaseException) -> dict[str, Any]:
@@ -79,6 +83,35 @@ def _exception_diagnostic(error: BaseException) -> dict[str, Any]:
             if isinstance(details, Mapping):
                 payload["details"] = dict(details)
     return payload
+
+
+@dataclass(frozen=True)
+class RegionalJobInput:
+    """Frozen inputs of one regional update, transported to the worker.
+
+    ``baseline`` is the captured regional baseline mapping and ``old_mesh`` the
+    versioned ``anymesher.serialize.mesh_to_dict`` payload of the mesh being
+    updated.  The high-water marks are the largest node/element identifiers
+    ever issued, so new entities never reuse a retired identifier.  Both
+    mappings are deep-copied on construction and must be treated as read-only.
+    """
+
+    baseline: Mapping[str, Any]
+    old_mesh: Mapping[str, Any]
+    node_high_water: int
+    element_high_water: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.baseline, Mapping):
+            raise TypeError("regional baseline must be a mapping")
+        if not isinstance(self.old_mesh, Mapping):
+            raise TypeError("regional old_mesh must be a mapping")
+        for name in ("node_high_water", "element_high_water"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        object.__setattr__(self, "baseline", deepcopy(dict(self.baseline)))
+        object.__setattr__(self, "old_mesh", deepcopy(dict(self.old_mesh)))
 
 
 @dataclass(frozen=True)
@@ -108,8 +141,15 @@ class MeshSettings:
     # Constructor None infers legacy raw tuples; materialized settings always
     # hold an exact bool. An explicit False survives replace/default expansion.
     quality_policy_explicit: bool | None = dataclass_field(default=None, kw_only=True)
+    # Execution-only: a regional update request.  Never part of input_hash or of
+    # the full-generation semantic/settings hashes.
+    regional: RegionalJobInput | None = dataclass_field(
+        default=None, kw_only=True, compare=False
+    )
 
     def __post_init__(self) -> None:
+        if self.regional is not None and not isinstance(self.regional, RegionalJobInput):
+            raise TypeError("regional must be a RegionalJobInput")
         explicit = self.quality_policy_explicit
         if explicit is None:
             explicit = bool(self.quality_policy)
@@ -318,6 +358,13 @@ class MeshJobResult:
     # Execution-only route record (route/workers/reason, parallel summary);
     # never part of any hash or the persisted project.
     execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    # A regional job returns a numbered baseline. A full job's publisher
+    # captures the baseline after assigning the project numbers.
+    regional_baseline: Mapping[str, Any] | None = None
+    # Identifiers carried over unchanged by a regional update; empty otherwise.
+    retained_node_ids: tuple[int, ...] = ()
+    retained_element_ids: tuple[int, ...] = ()
+    mesh_input_hash: str = ""
 
 
 # Execution-route diagnostics the owner parallel block records beside the
@@ -822,9 +869,13 @@ class MeshTaskManager:
         return MeshJobResult(
             mesh=mesh_from_dict(transport.mesh),
             mesh_hash=transport.mesh_hash,
+            mesh_input_hash=transport.mesh_input_hash,
             quality=transport.quality,
             structural_preparation=transport.structural_preparation,
             execution=transport.execution,
+            regional_baseline=transport.regional_baseline,
+            retained_node_ids=tuple(transport.retained_node_ids),
+            retained_element_ids=tuple(transport.retained_element_ids),
         )
 
     def _spawn_worker(
@@ -932,7 +983,21 @@ def run_mesh_job(
             progress("generation", text, fraction)
             last_parallel_stage = text
 
-    mesh = project.generate_mesh(
+    regional_result = None
+    if settings.regional is not None:
+        # Explicit regional update; there is no silent fallback to a full rebuild.
+        from .regional_dispatch import generate_regional_update
+
+        regional_result = generate_regional_update(
+            project,
+            settings,
+            settings.regional.baseline,
+            settings.regional.old_mesh,
+            node_high_water=settings.regional.node_high_water,
+            element_high_water=settings.regional.element_high_water,
+            cancellation_check=check_and_report,
+        )
+    mesh = regional_result.mesh if regional_result is not None else project.generate_mesh(
         settings.target_size,
         overrides=dict(settings.overrides),
         order=settings.element_order,
@@ -955,7 +1020,10 @@ def run_mesh_job(
         cancellation_check=check_and_report,
         execution_policy=settings.execution_policy,
     )
-    execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
+    if regional_result is not None:
+        execution = {"route": "regional", "workers": None, "reason": "regional update"}
+    else:
+        execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
     parallel_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
     if isinstance(parallel_diagnostics, Mapping):
         runtime = parallel_diagnostics.get("runtime")
@@ -989,7 +1057,10 @@ def run_mesh_job(
     quality = verify_mesh_quality(mesh).as_dict()
     cancellation.raise_if_cancelled("mesh hashing")
     progress("hash", "hashing immutable mesh result", 0.94)
-    structural_preparation = dict(project._last_mesh_preparation)
+    if regional_result is not None:
+        structural_preparation = dict(getattr(mesh, "structural_preparation", {}) or {})
+    else:
+        structural_preparation = dict(project._last_mesh_preparation)
     resolved_settings_hash = settings.input_hash
     if (
         settings.strategy is None
@@ -1031,14 +1102,26 @@ def run_mesh_job(
         mesh_input_hash=semantic_input_hash,
         structural_preparation=structural_preparation,
     )
+    regional_baseline = None
+    retained_nodes: tuple[int, ...] = ()
+    retained_elements: tuple[int, ...] = ()
+    if regional_result is not None:
+        baseline = regional_result.baseline
+        regional_baseline = None if baseline is None else dict(baseline)
+        retained_nodes = tuple(sorted(int(i) for i in regional_result.retained_nodes))
+        retained_elements = tuple(sorted(int(i) for i in regional_result.retained_elements))
     cancellation.raise_if_cancelled("mesh completion")
     progress("complete", "mesh and quality checks complete", 1.0)
     return MeshJobResult(
         mesh=mesh,
         mesh_hash=mesh_hash,
+        mesh_input_hash=semantic_input_hash,
         quality=quality,
         structural_preparation=structural_preparation,
         execution=execution,
+        regional_baseline=regional_baseline,
+        retained_node_ids=retained_nodes,
+        retained_element_ids=retained_elements,
     )
 
 
@@ -1056,6 +1139,10 @@ class _MeshTransport:
     quality: Mapping[str, Any]
     structural_preparation: Mapping[str, Any]
     execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    regional_baseline: Mapping[str, Any] | None = None
+    retained_node_ids: tuple[int, ...] = ()
+    retained_element_ids: tuple[int, ...] = ()
+    mesh_input_hash: str = ""
 
 
 def mesh_job_entry(*, project, progress, cancellation_token, settings, model_hash):
@@ -1070,9 +1157,15 @@ def mesh_job_entry(*, project, progress, cancellation_token, settings, model_has
     return _MeshTransport(
         mesh=mesh_to_dict(result.mesh),
         mesh_hash=result.mesh_hash,
+        mesh_input_hash=result.mesh_input_hash,
         quality=dict(result.quality),
         structural_preparation=dict(result.structural_preparation),
         execution=dict(result.execution),
+        regional_baseline=(
+            None if result.regional_baseline is None else dict(result.regional_baseline)
+        ),
+        retained_node_ids=tuple(result.retained_node_ids),
+        retained_element_ids=tuple(result.retained_element_ids),
     )
 
 

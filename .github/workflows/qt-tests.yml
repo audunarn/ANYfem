@@ -29,12 +29,12 @@ on:
         description: Exact ANYgeometry commit with component planning and binding contracts
         required: true
         type: string
-        default: dfe70ff62a580cf26b01591ae92df0024bdb7fac
+        default: b74605a9a5b1ef1faa17861a2ea1d0fde392c177
       mesher_ref:
         description: Exact ANYmesh commit with opt-in component parallel meshing and pool lifecycle
         required: true
         type: string
-        default: 8cddc735022c23d540c7c1a7299ba0c9455558b1
+        default: 501bed1837425103391d06c506f19261621f6903
       schema6_fixtures:
         description: Run owner-generated schema-6 consumer checks with the selected geometry/mesher candidates
         required: true
@@ -107,12 +107,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: ${{ inputs.geometry_ref || 'dfe70ff62a580cf26b01591ae92df0024bdb7fac' }}
+          ref: ${{ inputs.geometry_ref || 'b74605a9a5b1ef1faa17861a2ea1d0fde392c177' }}
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '8cddc735022c23d540c7c1a7299ba0c9455558b1' }}
+          ref: ${{ inputs.mesher_ref || '501bed1837425103391d06c506f19261621f6903' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

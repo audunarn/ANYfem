@@ -171,7 +171,10 @@ class ArtifactStore:
                 handle.flush()
         return _artifact(uri, identifier, "mesh", destination)
 
-    def read_mesh(self, artifact: ArtifactRef | str):
+    def read_mesh(self, artifact: ArtifactRef | str, *, mesh_id: str | None = None,
+                  document_id: str | None = None, mesh_hash: str | None = None,
+                  legacy_document: bool = False):
+        """Read the mesh and verify any caller-supplied publication identity."""
         from anymesher.serialize import mesh_from_dict
 
         path = self._path_for_read(artifact, "mesh")
@@ -180,11 +183,22 @@ class ArtifactStore:
             with h5py.File(path, "r") as handle:
                 self._validate_root(handle, self.MESH_SCHEMA)
                 self._validate_artifact_identity(handle, artifact)
+                for name, expected in (("artifact_id", mesh_id), ("document_id", document_id),
+                                       ("mesh_hash", mesh_hash)):
+                    stored = _text_attribute(handle.attrs.get(name, ""))
+                    if (name == "document_id" and not stored and legacy_document
+                            and isinstance(artifact, ArtifactRef) and artifact.sha256 and mesh_id and mesh_hash):
+                        continue
+                    if expected is not None and stored != expected:
+                        raise ArtifactError(f"mesh artifact {name} differs from its publication")
                 raw = bytes(
                     np.asarray(handle["mesh/codec_json"], dtype=np.uint8)
                 ).decode("utf-8")
             payload = json.loads(raw)
-            return mesh_from_dict(payload)
+            mesh = mesh_from_dict(payload)
+            if isinstance(artifact, ArtifactRef):
+                mesh._anyfem_mesh_record_id = artifact.id
+            return mesh
         except (
             OSError,
             KeyError,

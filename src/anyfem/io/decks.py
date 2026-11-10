@@ -27,6 +27,7 @@ def export_calculix_deck(
     *,
     analysis: str = "static",
     metadata: Optional[Mapping[str, Any]] = None,
+    integer_bits: int = 32,
 ):
     """Write a CalculiX input deck for a built model.
 
@@ -38,6 +39,17 @@ def export_calculix_deck(
 
     from anysolver import write_calculix_input_deck
 
+    # Ordinary ccx uses signed int. Explicit INTSIZE64 builds can retain the
+    # project's larger labels. Validate before the writer creates any files.
+    if integer_bits not in (32, 64):
+        raise DeckExportError("CalculiX target integer width must be 32 or 64 bits")
+    limit = (1 << (integer_bits - 1)) - 1
+    for label, table in (("node", built.fe_model.mesh.nodes),
+                         ("element", built.fe_model.mesh.elements)):
+        for number in table:
+            if not 1 <= number <= limit:
+                raise DeckExportError(
+                    f"{label} number {number} exceeds the positive {integer_bits}-bit CalculiX target range")
     destination = Path(path)
     if not destination.suffix:
         destination = destination.with_suffix(".inp")

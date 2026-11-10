@@ -969,6 +969,7 @@ def build_mesh_scene(
     """
 
     scene = Scene(show_element_edges=True)
+    mesh_id = getattr(mesh, "_anyfem_mesh_record_id", None)
     shells = mesh.shells
     grouped_shells: set[int] = set()
 
@@ -995,8 +996,8 @@ def build_mesh_scene(
                 owner
                 for owner in (
                     geometry_ref,
-                    MeshEntityRef("element", element_id),
-                    MeshEntityRef("element_face", (element_id, 0)),
+                    MeshEntityRef("element", element_id, mesh_id),
+                    MeshEntityRef("element_face", (element_id, 0), mesh_id),
                 )
                 if owner is not None
             )
@@ -1029,8 +1030,8 @@ def build_mesh_scene(
                 outline=COLOR_MESH_EDGE,
                 polygon_owners=[
                     (
-                        MeshEntityRef("element", element_id),
-                        MeshEntityRef("element_face", (element_id, 0)),
+                        MeshEntityRef("element", element_id, mesh_id),
+                        MeshEntityRef("element_face", (element_id, 0), mesh_id),
                     )
                     for element_id in ungrouped_shells
                 ],
@@ -1066,7 +1067,7 @@ def build_mesh_scene(
                 owner
                 for owner in (
                     geometry_ref,
-                    MeshEntityRef("element", int(element_id)),
+                    MeshEntityRef("element", int(element_id), mesh_id),
                 )
                 if owner is not None
             )
@@ -1108,7 +1109,7 @@ def build_mesh_scene(
                 color=COLOR_BEAM,
                 width=4,
                 draw_overlay=True,
-                owners=(MeshEntityRef("element", int(element_id)),),
+                owners=(MeshEntityRef("element", int(element_id), mesh_id),),
             )
         )
 
@@ -1129,7 +1130,7 @@ def build_mesh_scene(
             geometry_ref = (
                 None if vertex_id is None else EntityRef("vertex", vertex_id)
             )
-            mesh_ref = MeshEntityRef("node", int(node_id))
+            mesh_ref = MeshEntityRef("node", int(node_id), mesh_id)
             scene.points.append(
                 PointMarker(
                     ref=mesh_ref,
@@ -1174,6 +1175,7 @@ def build_result_scene(
     from ..post.fields import Field, evaluate_field, field_unit
 
     mesh = shape.built.mesh
+    mesh_id = getattr(mesh, "_anyfem_mesh_record_id", None)
     name = field or component
     if values is None:
         resolved = evaluate_field(shape, name)
@@ -1283,7 +1285,7 @@ def build_result_scene(
                             owner
                             for owner in (
                                 geometry_ref,
-                                MeshEntityRef("element", element_id),
+                                MeshEntityRef("element", element_id, mesh_id),
                                 MeshEntityRef(
                                     "element_face", (element_id, 0)
                                 ),
@@ -1321,7 +1323,7 @@ def build_result_scene(
                 owner
                 for owner in (
                     geometry_ref,
-                    MeshEntityRef("element", int(element_id)),
+                    MeshEntityRef("element", int(element_id), mesh_id),
                 )
                 if owner is not None
             )
@@ -1357,10 +1359,10 @@ def build_result_scene(
     if show_nodes:
         scene.points.extend(
             PointMarker(
-                ref=MeshEntityRef("node", int(node)),
+                ref=MeshEntityRef("node", int(node), mesh_id),
                 position=np.asarray(deformed[node], dtype=float),
                 color=COLOR_POINT,
-                owners=(MeshEntityRef("node", int(node)),),
+                owners=(MeshEntityRef("node", int(node), mesh_id),),
             )
             for node in ordered_nodes
         )

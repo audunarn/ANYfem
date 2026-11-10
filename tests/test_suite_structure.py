@@ -62,7 +62,9 @@ class SuitePlanTests(unittest.TestCase):
 
     def test_runner_profiles_and_default_reuse_existing_quick(self):
         runner = load("suite_runner_under_test", "tools/test_anyfem.py")
-        self.assertEqual(set(runner.selectors("unit", [])), set(runner.QUICK) | {"tests/test_suite_structure.py", "tests/test_reported_spline_mesh_release_hold.py", "tests/test_focused_qualification_dispatch.py"})
+        self.assertEqual(set(runner.selectors("unit", [])), set(runner.QUICK) | {
+            "tests/test_suite_structure.py", "tests/test_reported_spline_mesh_release_hold.py",
+            "tests/test_focused_qualification_dispatch.py", "tests/test_mesh_reference_update.py"})
         self.assertEqual(runner.selectors("full", []), ["tests"])
         self.assertIn("tests/test_verification.py", runner.selectors("qualification", []))
         self.assertNotIn("tests/test_verification.py", runner.selectors("integration", []))

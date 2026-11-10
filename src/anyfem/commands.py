@@ -3816,6 +3816,10 @@ class DeleteProjectRecord(Command):
         identifier = str(self.identifier)
         if kind == "mesh":
             self._value = _pop_record(project.mesh_records, identifier, "mesh")
+            self._auxiliary = project.mesh_numbering.active_mesh_id == identifier
+            if self._auxiliary:
+                project.mesh_numbering = replace(project.mesh_numbering, active_mesh_id=None,
+                                                 generation=project.mesh_numbering.generation + 1)
             return
         if kind == "analysis":
             users = [
@@ -3921,6 +3925,9 @@ class DeleteProjectRecord(Command):
         identifier = str(self.identifier)
         if kind == "mesh":
             project.mesh_records[identifier] = self._value
+            if self._auxiliary:
+                project.mesh_numbering = replace(project.mesh_numbering, active_mesh_id=identifier,
+                                                 generation=project.mesh_numbering.generation + 1)
         elif kind == "analysis":
             project.analyses[identifier] = self._value
         elif kind == "job":

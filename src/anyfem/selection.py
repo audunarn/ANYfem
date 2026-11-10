@@ -91,6 +91,7 @@ class MeshEntityRef:
 
     kind: str
     id: int | tuple[int, int]
+    mesh_id: str | None = None
 
     def __post_init__(self) -> None:
         kind = str(self.kind)

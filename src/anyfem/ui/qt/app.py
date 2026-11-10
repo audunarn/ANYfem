@@ -1,6 +1,7 @@
 """PySide6 workbench consuming the shared application and viewer contracts."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -309,6 +310,73 @@ def _copy_current_diagnosis(app,recent_commands=()):
 class QtFemWindow(WorkbenchWorkflow, QMainWindow):
     """One window, one workbench controller, no Tk runtime."""
 
+    @contextmanager
+    def _keep_patch_highlight(self):
+        """Keep active collection overlays through the queue/status tree refresh."""
+        viewport = self.viewport
+        project = self.project
+        revision = project.geometry.revision
+        previous = viewport._collection_refs
+        selected = tuple(self.selection.items)
+        try:
+            yield
+        finally:
+            if (previous and not viewport._collection_refs and self.project is project
+                    and project.geometry.revision == revision and tuple(self.selection.items) == selected):
+                from ...selection import MeshEntityRef
+                active = project.mesh_numbering.active_mesh_id
+                viewport.set_collection_highlight(
+                    r for r in previous if not isinstance(r, MeshEntityRef) or r.mesh_id == active)
+
+    def submit_patch_update(self, **settings):
+        with self._keep_patch_highlight():
+            return self.update_mesh_async(**settings, candidate_review=self.review_prepared_patch,
+                                          reference_repairs=self.review_mesh_reference_repairs)
+
+    def _poll_mesh_jobs(self):
+        submission = self._mesh_submissions.get(self._active_mesh_task_id)
+        if submission and submission.candidate_review is not None:
+            with self._keep_patch_highlight():
+                return super()._poll_mesh_jobs()
+        return super()._poll_mesh_jobs()
+
+    def review_prepared_patch(self, *, preview, old_mesh):
+        from ...selection import entity_tag
+        from ..scene import build_mesh_scene
+
+        viewport = self.viewport
+        previous_scene = viewport._visibility_scene
+        interaction = viewport._visibility_interaction_scene
+        previous_refs = viewport._collection_refs
+        project, model_hash = self.project, self.session.revision.model_hash
+        hidden = set(viewport.visibility.hidden)
+        parent_scene = build_mesh_scene(self.project, old_mesh, show_beam_sections=False, show_nodes=False)
+        try:
+            viewport.visibility.hidden.clear()
+            viewport.show(parent_scene)
+            viewport.set_collection_highlight(preview.owners)
+            viewport.canvas.set_highlight([entity_tag(r) for r in preview.owners])
+            return self.dialogs.confirm("Publish mesh update", preview.description + "\n\nPublish this mesh?")
+        finally:
+            if self.project is project and self.session.revision.model_hash == model_hash:
+                viewport.visibility.hidden = hidden
+                try:
+                    if previous_scene is None:
+                        viewport.clear()
+                    else:
+                        viewport.show(previous_scene, interaction_scene=interaction)
+                finally:
+                    viewport.set_collection_highlight(previous_refs)
+            elif viewport._visibility_scene is parent_scene:
+                viewport.set_collection_highlight(())
+                self.refresh_views()
+
+    def review_mesh_reference_repairs(self, **candidate):
+        from .tasks import MeshRepairDialog
+
+        dialog = MeshRepairDialog(self, project=self.project, **candidate)
+        return dict(dialog.repairs) if dialog.exec() == dialog.DialogCode.Accepted else None
+
     def statusBar(self):
         # The native status-bar slot is empty while the dock tabs host it.
         status=getattr(self,"_footer_statusbar",None)
@@ -533,6 +601,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(view,"Reset workspace layout",self.reset_workspace_layout)
         analysis=self.menuBar().addMenu("Analysis")
         self._action(analysis,"Generate mesh",self.panels["Mesh"].start)
+        self._action(analysis,"Update mesh",self.panels["Mesh"].start_update)
         self._action(analysis,"Solve",self.panels["Solve"].start)
         examples=self.menuBar().addMenu("Examples")
         action=self._action(examples,"Floating barge section…",self.open_barge_example)

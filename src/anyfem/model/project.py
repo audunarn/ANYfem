@@ -23,6 +23,7 @@ from anygeometry.errors import GeometryError
 from anygeometry.model import GeometryModel
 
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh as generate_mapped_mesh
+from ..mesh_numbering import MeshNumbering
 from anymesher.hybrid import generate_hybrid_mesh
 from anymesher import check_mappable
 if TYPE_CHECKING:
@@ -297,6 +298,7 @@ class Project:
     # Appended: saved reusable wind turbine load definitions (immutable WindTurbineLoad records keyed by id).  Only a
     # floating TRANSIENT run consumes one (selected by name); standard static solves never read them.
     wind_turbine_loads: Dict[str, WindTurbineLoad] = field(default_factory=dict)
+    mesh_numbering: MeshNumbering = field(default_factory=MeshNumbering)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -2120,6 +2122,11 @@ class Project:
     # ------------------------------------------------------------------
     # meshing
     # ------------------------------------------------------------------
+    def mesh_session(self, path=None):
+        """Open a headless publication session, optionally at an existing project file."""
+        from ..mesh_session import ProjectMeshSession
+        return ProjectMeshSession(self, path)
+
     def generate_mesh(
         self,
         target_size: float | None = None,
