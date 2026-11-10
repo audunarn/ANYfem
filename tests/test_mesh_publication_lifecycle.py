@@ -179,6 +179,34 @@ class FileWorkbench(Workbench):
         pass
 
 
+def test_background_journal_refusal_finishes_original_handle(tmp_path, monkeypatch):
+    from time import monotonic, sleep
+    from anyfem.io import mesh_number_journal
+
+    app, _, _ = plates()
+    path = save_project(app.project, tmp_path / "refused.anyfem")
+    editor = FileWorkbench(app.project)
+    editor.open_project(str(path))
+    before = editor.project.mesh_numbering
+
+    def refuse_write(*args):
+        raise OSError("number journal is unavailable")
+
+    monkeypatch.setattr(mesh_number_journal, "_atomic_write", refuse_write)
+    try:
+        job = editor.generate_mesh_async(.5, strategy="mapped")
+        deadline = monotonic() + 45
+        while editor.mesh_job_running and monotonic() < deadline:
+            editor._poll_mesh_jobs()
+            sleep(.01)
+        assert editor.project.mesh_records[job.id] is job
+        assert job.status == "failed" and "number journal is unavailable" in job.diagnostics
+        assert editor.project.mesh_numbering == before and job.id not in editor._meshes
+    finally:
+        editor.mesh_task_manager.shutdown()
+        editor._project_lock.release()
+
+
 def test_workbench_and_headless_session_share_one_file_allocator(tmp_path):
     app, _, _ = plates()
     creator = app.project.mesh_session()

@@ -166,6 +166,7 @@ def test_background_update_publishes_retained_numbers(executor):
             sleep(.015)
         assert not app.mesh_task_manager.busy
         record = app.project.mesh_records[job.id]
+        assert record is job
         assert record.status == "completed", record.diagnostics
         assert app.mesh_record_id == job.id
         assert app.mesh.elements_of_face[untouched] == original.elements_of_face[untouched]

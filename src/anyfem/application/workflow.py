@@ -3,7 +3,7 @@ import json
 import os
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, fields, is_dataclass, replace
 from ..presentation.retained_results import geometry_style_key
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, NamedTuple, Optional, Sequence
@@ -79,6 +79,16 @@ class _MeshSubmission(NamedTuple):
     settings: MeshSettings
     reference_repairs: Any
     candidate_review: Callable | None
+    handle: MeshRecord
+
+    def bind_handle(self, project):
+        """Keep the caller's job handle live after staged publication or rollback."""
+        current = project.mesh_records[self.handle.id]
+        if current is not self.handle:
+            for field in fields(MeshRecord):
+                setattr(self.handle, field.name, getattr(current, field.name))
+            project.mesh_records[current.id] = self.handle
+        return self.handle
 
 
 def _metadata_channel(dataset) -> str:
@@ -1060,7 +1070,7 @@ class WorkbenchWorkflow:
             raise
         self._active_mesh_task_id = record.id
         self.__dict__.setdefault("_mesh_submissions", {})[record.id] = _MeshSubmission(
-            ticket, settings, _reference_repairs, _candidate_review)
+            ticket, settings, _reference_repairs, _candidate_review, record)
         self._mesh_details_record_id = record.id
         self.set_status("meshing in background from immutable model snapshot")
         self.refresh_panels()
@@ -1124,7 +1134,9 @@ class WorkbenchWorkflow:
                 if not isinstance(result, MeshJobResult):
                     continue
                 current = record.source_model_hash == self.session.revision.model_hash
-                ticket, settings, repairs, review = self._mesh_submissions.pop(record.id)
+                submission = self._mesh_submissions.pop(record.id)
+                ticket, settings = submission.ticket, submission.settings
+                repairs, review = submission.reference_repairs, submission.candidate_review
                 inspection_only = result.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only"
                 if current:
                     try:
@@ -1148,6 +1160,7 @@ class WorkbenchWorkflow:
                                 check_ticket(self, ticket)
                                 if not accepted:
                                     with self.session.transaction("decline prepared mesh", solver_affecting=False):
+                                        record = submission.bind_handle(self.project)
                                         record.status = "cancelled"
                                         record.summary["status"] = "cancelled"
                                     self._observe_run_event("mesh", replace(event, kind="cancelled",
@@ -1167,11 +1180,11 @@ class WorkbenchWorkflow:
                                               settings_hash=settings.input_hash)
                         result = replace(result, mesh_hash=record.mesh_hash,
                                          structural_preparation=record.structural_preparation)
-                    except (ValueError, OverflowError, RuntimeError) as error:
+                    except (ValueError, OverflowError, RuntimeError, OSError) as error:
                         if event.job_id not in self.project.mesh_records:
                             continue
                         with self.session.transaction("refused mesh publication", solver_affecting=False):
-                            refused = self.project.mesh_records[event.job_id]
+                            refused = submission.bind_handle(self.project)
                             refused.status = "failed"
                             refused.summary["status"] = "failed"
                             refused.diagnostics.append(str(error))
@@ -1189,6 +1202,7 @@ class WorkbenchWorkflow:
                 with self.session.transaction(
                     "record completed mesh", solver_affecting=False
                 ):
+                    record = submission.bind_handle(self.project)
                     record.mesh_hash = result.mesh_hash
                     record.structural_preparation = dict(
                         result.structural_preparation
@@ -1295,6 +1309,8 @@ class WorkbenchWorkflow:
                 with self.session.transaction(
                     "record cancelled mesh", solver_affecting=False
                 ):
+                    if submission is not None:
+                        record = submission.bind_handle(self.project)
                     record.status = "cancelled"
                     record.summary["status"] = "cancelled"
                 self.set_status("mesh generation cancelled")
@@ -1304,6 +1320,8 @@ class WorkbenchWorkflow:
                     and event.payload.get("type") == "MeshRecoveryIncomplete"
                 )
                 with self.session.transaction("record failed mesh", solver_affecting=False):
+                    if submission is not None:
+                        record = submission.bind_handle(self.project)
                     record.status = "incomplete" if incomplete else "failed"
                     record.summary["status"] = record.status
                     if event.payload:
