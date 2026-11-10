@@ -21,7 +21,7 @@ on:
       mesher_ref:
         description: 'Frozen reviewed ANYmesh commit SHA (40 hex)'
         type: string
-        default: '63b6c33f2e110ad8bb83895539bf0a664b25a2a1'
+        default: '770e900ad2d8f5cc422d8c56021b5793219a47f7'
 
 jobs:
   development:
@@ -55,7 +55,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
+          ref: 45f11201a78cdb1f7d2f433ef859ae5928f5d589
           path: .ecosystem/ANYsolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
@@ -91,12 +91,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 602e4a7ac35eeeea6490e0bf25e22f03f72b86a7
+          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '63b6c33f2e110ad8bb83895539bf0a664b25a2a1' }}
+          ref: ${{ inputs.mesher_ref || '770e900ad2d8f5cc422d8c56021b5793219a47f7' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -218,7 +218,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
+          ref: 45f11201a78cdb1f7d2f433ef859ae5928f5d589
           path: .ecosystem/ANYsolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
@@ -254,12 +254,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 602e4a7ac35eeeea6490e0bf25e22f03f72b86a7
+          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '63b6c33f2e110ad8bb83895539bf0a664b25a2a1' }}
+          ref: ${{ inputs.mesher_ref || '770e900ad2d8f5cc422d8c56021b5793219a47f7' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -393,7 +393,7 @@ jobs:
         with:
           repository: audunarn/ANYsolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 38e9abc179b9babf02d395c2d4f3c64291ff56ed
+          ref: 45f11201a78cdb1f7d2f433ef859ae5928f5d589
           path: .ecosystem/ANYsolver
       # Results-only API repair: keep the physical solver revision above.
       - uses: actions/checkout@v4
@@ -429,12 +429,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 602e4a7ac35eeeea6490e0bf25e22f03f72b86a7
+          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '63b6c33f2e110ad8bb83895539bf0a664b25a2a1' }}
+          ref: ${{ inputs.mesher_ref || '770e900ad2d8f5cc422d8c56021b5793219a47f7' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

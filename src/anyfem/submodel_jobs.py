@@ -288,6 +288,13 @@ def job_source(project: Any, reference: SourceReference, store: Any, *, document
     if job.model_hash != model_hash:
         raise SubmodelError("SOURCE_MODEL_CHANGED", "the parent model changed since the source job")
     # 4. mesh
+    numbering = project.mesh_numbering
+    if numbering.generation:
+        if numbering.active_mesh_id is None:
+            raise SubmodelError("SOURCE_MESH", "the project has no active published mesh")
+        if mesh_record_id is not None and str(mesh_record_id) != numbering.active_mesh_id:
+            raise SubmodelError("SOURCE_MESH", "the requested mesh is no longer the active published mesh")
+        mesh_record_id = numbering.active_mesh_id
     record = _select_mesh_record(project, job, mesh_record_id)
     if record.status != "completed" or record.source_model_hash != job.model_hash:
         raise SubmodelError("SOURCE_MESH", "the source mesh record is not a completed mesh of the job's model")
@@ -419,13 +426,27 @@ def _child_problem(store: Any, artifact: Any, kind: str, run: SubmodelRun, docum
         return f"the {kind} artifact differs from the run's manifest"
     try:
         store._path_for_read(artifact, kind)
-        if kind == "mesh":
+        if kind == "mesh" and run.child.get("child_kind") == "solid":
+            from .io.solid_submodel_artifact import read_solid_mesh, read_solid_mesh_metadata
+
+            identity = read_solid_mesh_metadata(store, artifact)
+            read_solid_mesh(store, artifact)
+        elif kind == "mesh":
             identity = store.read_mesh_metadata(artifact)
             store.read_mesh(artifact)
+        elif run.child.get("child_kind") == "solid":
+            from .io.solid_submodel_artifact import read_solid_result
+
+            identity = read_solid_result(store, artifact)["identity"]
         else:
             dataset = store.open_result(artifact)
-            dataset.validate()
-            identity = dataset.identity
+            try:
+                dataset.validate()
+                identity = dataset.identity
+            finally:
+                close = getattr(dataset, "close", None)
+                if close is not None:
+                    close()
     except (ArtifactError, OSError) as error:
         return f"the {kind} artifact does not verify: {error}"
     for key, value in _child_identity(run, document_id, kind).items():
@@ -456,6 +477,11 @@ def stage_submodel_run(snap: SubmodelSnapshot, definition_id: str, store: Any, *
     source = job_source(parent, definition.source, store, document=document,
                         model_hash=snapshot.revision.model_hash, mesh_record_id=mesh_record_id)
     binding = bind_source(source.solution)
+    if entry.get("child_kind") == "solid":
+        from .solid_submodel import stage_solid_submodel_run
+
+        return stage_solid_submodel_run(snap, parent, definition, source, binding,
+                                        definition_digest, store, cancellation_token=cancellation_token)
     child = definition.child
     _check_cancelled(cancellation_token, "child meshing")
     child_mesh = child.generate_mesh(definition.target_size)
@@ -710,6 +736,9 @@ def publish_submodel_run(session: Any, staged: StagedRun, *, cancellation_token:
     if session.revision.id != staged.revision_id:
         raise SubmodelError("SUBMODEL_INPUTS_CHANGED", "the document changed since the run's snapshot")
     project = session.project
+    numbering = project.mesh_numbering
+    if numbering.generation and numbering.active_mesh_id != staged.run.source["mesh_record_id"]:
+        raise SubmodelError("SUBMODEL_INPUTS_CHANGED", "the active published parent mesh changed")
     problem = _source_files_unchanged(project, staged.store, staged.run.source)
     if problem is not None:
         raise SubmodelError("SUBMODEL_INPUTS_CHANGED", problem)
@@ -725,7 +754,7 @@ def publish_submodel_run(session: Any, staged: StagedRun, *, cancellation_token:
     artifacts, runs = saved["artifacts"], saved["submodel_runs"]
     checked = session.revision.id
     try:
-        with session.transaction("record submodel run", solver_affecting=False):
+        with session.transaction("record submodel run", solver_affecting=False) as transaction:
             project.artifacts[mesh_ref.id] = mesh_ref
             project.artifacts[result_ref.id] = result_ref
             project.submodel_runs[staged.run.id] = staged.run
@@ -742,7 +771,7 @@ def publish_submodel_run(session: Any, staged: StagedRun, *, cancellation_token:
         runs.pop(staged.run.id, None)
         raise
     staged.published = True
-    return PublishResult(staged.run)
+    return PublishResult(staged.run, notification_error=transaction.notification_error)
 
 
 def discard_staged_run(staged: StagedRun, project: Any = None) -> None:
@@ -843,7 +872,9 @@ def submodel_run_staleness(snapshot: Any, run: SubmodelRun, store: Any, *,
         reasons.append("SOURCE_MODEL_CHANGED")
 
     record = _by_id(document, "mesh_records").get(source["mesh_record_id"])
+    numbering = document.get("mesh_numbering", {})
     if (record is None or _mesh_record_fingerprint(record) != source["mesh_record_fingerprint"]
+            or (numbering.get("generation") and numbering.get("active_mesh_id") != source["mesh_record_id"])
             or (mesh_record_id is not None and str(mesh_record_id) != source["mesh_record_id"])):
         reasons.append("SOURCE_MESH_CHANGED")
 

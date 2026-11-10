@@ -80,6 +80,7 @@ class DocumentTransaction:
     label: str
     solver_affecting: bool = True
     committed: bool = False
+    notification_error: Exception | None = field(default=None, init=False, repr=False)
     _rollback_actions: list[Callable[[], None]] = field(default_factory=list, repr=False)
     _writers: dict[object, Callable[[], None]] = field(default_factory=dict, repr=False)
 
@@ -220,7 +221,7 @@ class DocumentSession:
             raise
         else:
             if outermost:
-                self._commit(next_revision, solver_affecting=solver_affecting)
+                transaction.notification_error = self._commit(next_revision, solver_affecting=solver_affecting)
                 transaction.committed = True
         finally:
             self._transaction_depth -= 1
@@ -286,17 +287,21 @@ class DocumentSession:
             self._listeners.remove(callback)
 
     # ------------------------------------------------------------------
-    def _commit(self, next_revision: DocumentRevision, *, solver_affecting: bool) -> None:
+    def _commit(self, next_revision: DocumentRevision, *, solver_affecting: bool) -> Exception | None:
         previous_model_hash = self.revision.model_hash
         self.revision = next_revision
         self.dirty = next_revision.document_hash != self._last_saved_hash
         if solver_affecting and next_revision.model_hash != previous_model_hash:
             self.mesh_cache.clear()
+        first_error = None
         for callback in list(self._listeners):
             try:
                 callback(next_revision)
-            except Exception:
+            except Exception as error:
+                if first_error is None:
+                    first_error = error
                 logging.getLogger(__name__).exception("Revision observer failed after commit %s", next_revision.id)
+        return first_error
 
     def _make_revision(
         self,

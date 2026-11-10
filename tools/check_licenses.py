@@ -46,6 +46,7 @@ INSTALLED_LICENSE_ALIASES = {
     "anymesher": {"MPL-2.0"},
     "anysection": {"MPL-2.0"},
     "anysolver": {"MPL-2.0"},
+    "anysolid": {"MPL-2.0"},
     "anypost": {"MPL-2.0"},
     "anysolver-results": {"MPL-2.0"},
     "anytk3d": {"MPL-2.0"},

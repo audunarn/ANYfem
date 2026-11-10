@@ -499,10 +499,10 @@ class ArtifactStore:
                 f"sidecar contains {actual!r}"
             )
 
-    def _validate_root(self, handle, expected_schema: str) -> None:
+    def _validate_root(self, handle, expected_schema: str, *, max_version: int | None = None) -> None:
         if handle.attrs.get("schema") != expected_schema:
             raise ArtifactError(f"expected {expected_schema} artifact")
-        if int(handle.attrs.get("version", 0)) > self.VERSION:
+        if int(handle.attrs.get("version", 0)) > (self.VERSION if max_version is None else max_version):
             raise ArtifactError("artifact was written by a newer ANYfem")
         if not bool(handle.attrs.get("complete", False)):
             raise ArtifactError("artifact is incomplete")

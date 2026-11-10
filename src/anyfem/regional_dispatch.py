@@ -39,7 +39,16 @@ def capture_regional_baseline(project, settings, mesh):
     if regional_refusal(project):
         return None
     if project.beam_edges or (mesh.declared_plate_junction_edges and mesh.automatic_intersections):
-        return structural.capture_structural_baseline(project, settings, mesh)
+        baseline = structural.capture_structural_baseline(project, settings, mesh)
+        if baseline is not None or project.beam_edges:
+            return baseline
+        # An arc-bounded patch can meet its neighbours along ordinary complete
+        # edges recorded as plate junctions. The connected owner independently
+        # proves every shared station and accounts for the declared segments.
+        from anygeometry.curves import Arc
+        if any(type(edge.curve) is Arc for edge in project.geometry.edges.values()):
+            return connected.capture_connected_baseline(project, settings, mesh)
+        return None
     faces = project.geometry.faces
     if len(faces) == 1:
         from anygeometry import Cone, Cylinder

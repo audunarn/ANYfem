@@ -601,18 +601,25 @@ L_CW = [(0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0.6, 0), (0.6, 0.6, 0), (0.6, 0, 0)
 L_BOX = BoxVolume((-0.1, 0.2, -0.1), (0.4, 0.8, 0.1))
 
 
-def test_a_clockwise_deck_whose_cut_piece_would_turn_refuses(tmp_path):
-    """Review S4b round 3: the imprint rebuilds the cut piece's plane from its clockwise loop (-z).
-
-    That the scalar offset itself stands off on the face-normal side whatever the meshing route
-    is tested in ANYmesh (tests/test_scalar_offset_side.py); ANYfem's default meshing rejects the
-    counter-clockwise L at the sizes tried (structured quality or S3 admission), so no end-to-end
-    L-deck run is made here.
-    """
-
-    project, face = l_deck(L_CW)
-    with pytest.raises(SubmodelError, match="VOLUME_ORIENTATION"):
-        Parent(tmp_path, project, {"deck": face}).cut(L_BOX)
+@pytest.mark.parametrize("points", [L_CW, L_CW[::-1]], ids=["clockwise", "counterclockwise"])
+def test_cut_l_deck_retains_physical_stiffener_side(tmp_path, points):
+    project, face = l_deck(points)
+    parent = Parent(tmp_path, project, {"deck": face})
+    cut = parent.cut(L_BOX)
+    parent.register(cut.definition)
+    staged = stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+    try:
+        mesh = staged.result.solution.built.mesh
+        assert mesh.offset_nodes_of_edge
+        for edge, stations in mesh.offset_nodes_of_edge.items():
+            for base, stood in zip(mesh.nodes_of_edge[edge], stations):
+                np.testing.assert_allclose(np.asarray(mesh.nodes[stood]) - mesh.nodes[base],
+                                           (0.0, 0.0, SCALAR["eccentricity"]), atol=1e-10)
+        result = publish_submodel_run(parent.session, staged)
+    except BaseException:
+        discard_staged_run(staged)
+        raise
+    assert submodel_run_staleness(parent.session.snapshot(), result.run, parent.store) == ()
 
 
 @pytest.mark.parametrize("box", [BOX, BoxVolume((0.42, 0.2, -0.1), (0.48, 0.8, 0.1))], ids=["box", "between-stations"])

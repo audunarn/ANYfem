@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 QT = ROOT / '.github/workflows/qt-tests.yml'
 HEADLESS = ROOT / '.github/workflows/tests.yml'
-PHYSICAL_SOLVER = '38e9abc179b9babf02d395c2d4f3c64291ff56ed'
+PHYSICAL_SOLVER = '45f11201a78cdb1f7d2f433ef859ae5928f5d589'
 RESULTS_SOLVER = 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'
 POST = 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'
 
@@ -24,8 +24,8 @@ def _checkouts(text):
 
 
 @pytest.mark.parametrize(('input_name', 'path', 'expected'), (
-    ('geometry_ref', '.ecosystem/ANYgeometry', '602e4a7ac35eeeea6490e0bf25e22f03f72b86a7'),
-    ('mesher_ref', '.ecosystem/ANYmesh', '63b6c33f2e110ad8bb83895539bf0a664b25a2a1'),
+    ('geometry_ref', '.ecosystem/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),
+    ('mesher_ref', '.ecosystem/ANYmesh', '770e900ad2d8f5cc422d8c56021b5793219a47f7'),
 ))
 def test_qt_default_and_automatic_owner_refs_match_headless(input_name, path, expected):
     qt, headless = QT.read_text(), HEADLESS.read_text()

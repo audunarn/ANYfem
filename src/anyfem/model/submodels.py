@@ -233,6 +233,13 @@ class SubmodelDefinition:
         from ..io.project_file import project_from_dict
 
         data = _mapping(data, context)
+        child_kind = data.get("child_kind", "shell")
+        if child_kind == "solid":
+            from .solid_submodels import SolidSubmodelDefinition
+
+            return SolidSubmodelDefinition.from_dict(data, context)
+        if child_kind != "shell":
+            raise SubmodelRecordError(f"{context}: unknown child kind {child_kind!r}")
         version = _schema(data, context)
         source_faces, cut_faces = _lineage(data.get("lineage"), f"{context}.lineage")
         name = data.get("name", "")
@@ -268,6 +275,8 @@ def definition_hash(entry: Mapping[str, Any]) -> str:
 
     from ..document import _model_payload, canonical_hash
 
+    if entry.get("child_kind") == "solid":
+        return canonical_hash({k: v for k, v in entry.items() if k not in ("id", "name")})
     child = entry["child"]
     payload = {key: value for key, value in entry.items() if key not in ("id", "name", "child")}
     payload["child_model_hash"] = canonical_hash(_model_payload(child))
@@ -403,6 +412,8 @@ class SubmodelRun:
         source["result_artifact"] = _descriptor(source.get("result_artifact"), f"{context}.source.result_artifact",
                                                 "result")
         child = dict(_mapping(data.get("child"), f"{context}.child"))
+        if child.get("child_kind", "shell") not in ("shell", "solid"):
+            raise SubmodelRecordError(f"{context}.child has an unknown child kind")
         for key in ("model_hash", "loading_hash", "mesh_fingerprint"):
             _text(child.get(key), f"{context}.child.{key}")
         child["mesh_artifact"] = _descriptor(child.get("mesh_artifact"), f"{context}.child.mesh_artifact", "mesh")
