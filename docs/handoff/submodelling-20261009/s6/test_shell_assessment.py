@@ -283,6 +283,22 @@ def test_a2_exact_matrix(src, tgt):
     assert any(c["id"].endswith("zero_interface_force") for c in graded)
 
 
+@pytest.mark.parametrize("kind", ["Q4", "S3"])
+def test_bending_parent_supports_remove_all_six_rigid_modes(kind):
+    grid, _ = sa._bend_parent(sa._sdk(), kind, 4)
+    rows = []
+    components = ("ux", "uy", "uz", "rx", "ry", "rz")
+    for condition in grid.model.boundary_conditions:
+        for node in condition.node_ids:
+            position = sa.xyz(grid.model, node)
+            # The column of each rigid rotation contains omega cross x
+            # for translations and omega itself for the angular components.
+            modes = np.eye(6)
+            modes[:3, 3:] = np.cross(np.eye(3), position).T
+            rows.extend(modes[components.index(dof)] for dof in condition.dof_constraints)
+    assert np.linalg.matrix_rank(rows) == 6
+
+
 def test_a2_bend_smoke_small_configuration_and_moment_sign():
     S = sa._sdk()                                           # noqa: F841 - import failure must fail the test
     log = sa.CallLog(solve_ceiling=40, wall_ceiling_s=600.0)

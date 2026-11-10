@@ -21,7 +21,7 @@ from anyfem.submodel_jobs import (
     submodel_run_staleness,
     submodel_snapshot,
 )
-from test_submodel_jobs import make_job
+from test_submodel_jobs import make_job, refused_without_publication
 from test_submodel_workflow import PRESSURE, SIZE, global_project, node_match
 
 BOX = BoxVolume((0.2, 0.2, -0.1), (0.8, 0.8, 0.1))
@@ -204,6 +204,19 @@ def test_a_point_load_on_the_cut_skips_other_cases_and_refuses_the_chosen_one(tm
     assert set(cut.report.skipped_cases) == {"on_cut"} and "default" in cut.definition.child.load_cases
     with pytest.raises(SubmodelError, match="CUT_LOAD_UNSUPPORTED"):
         parent.cut(box, source=SourceReference(parent.job.id, "on_cut"))
+
+
+def test_chosen_clipped_distributed_load_refuses_without_mutating_parent(tmp_path):
+    project, faces = global_project()
+    pair = [vertex_at(project, 0., 0.), vertex_at(project, .3, .3)]
+    project.load_case().add_point_load(
+        project.point(pair[0]), force=(0., 0., -30.), distribution_policy="total_distributed",
+        region=point_group(project, "pair", pair))
+    parent = Parent(tmp_path, project, faces)
+
+    with refused_without_publication(parent.session, parent.store, "CUT_LOAD_UNSUPPORTED") as exc:
+        parent.cut(BOX)
+    assert "partly contains" in str(exc.value)
 
 
 def test_a_clipped_distributed_load_skips_its_case(tmp_path):

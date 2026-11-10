@@ -752,7 +752,7 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
 
 ## Shell-driven solid detail and regional source identity
 
-Open **Analysis → Submodels** to select the solved parent job and case. Preview a box cut for a shell,
+Open **Analysis → Submodel…** to select the solved parent job and case. Preview a box cut for a shell,
 or select a planar face and four interior rectangle corners for a solid. Specify the in-plane size,
 number of thickness layers, P1 or P2 displacement order, and skin for carried pressure.
 Preview lists the cut boundary and carried attributes. Create stores the definition. Run publishes

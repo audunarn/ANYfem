@@ -54,9 +54,10 @@ def cut_and_record(workflow, job):
     return cut.definition
 
 
-@pytest.mark.parametrize("changed_plate", [0, 1], ids=["inside-cut-plate", "outside-cut-plate"])
-def test_regional_source_is_bound_to_the_current_published_mesh(tmp_path, changed_plate):
-    project, faces, edges = two_plates()
+@pytest.mark.parametrize("changed_plate, clockwise", [(0, False), (1, False), (0, True), (1, True)],
+                         ids=["inside-cut-plate", "outside-cut-plate", "clockwise-inside", "clockwise-outside"])
+def test_regional_source_is_bound_to_the_current_published_mesh(tmp_path, changed_plate, clockwise):
+    project, faces, edges = two_plates(clockwise_first=clockwise)
     for face, boundary in zip(faces, edges):
         project.add_support(fixed(project.edge(boundary[3])))
         project.load_case().add_pressure(project.face(face), -100.)
@@ -72,6 +73,8 @@ def test_regional_source_is_bound_to_the_current_published_mesh(tmp_path, change
     first_job = solve_parent(workflow, analysis, store)
     first_definition = cut_and_record(workflow, first_job)
     old_run = run_submodel(workflow.session, first_definition.id, store).run
+    expected_cut_reaction = (-1 if clockwise else 1) * 100. * .6 ** 2
+    assert old_run.diagnostics["whole_cut_resultant"][2] == pytest.approx(expected_cut_reaction)
     original_snapshot = workflow.session.snapshot()
     assert submodel_run_staleness(original_snapshot, old_run, store) == ()
     assert old_run.source["mesh_record_id"] == old_id
@@ -115,6 +118,7 @@ def test_regional_source_is_bound_to_the_current_published_mesh(tmp_path, change
         second_job = solve_parent(reopened, reopened.project.analyses[analysis.id], store)
         definition = cut_and_record(reopened, second_job)
         new_run = run_submodel(reopened.session, definition.id, store).run
+        assert new_run.diagnostics["whole_cut_resultant"][2] == pytest.approx(expected_cut_reaction)
         assert new_run.source["mesh_record_id"] == new_id
         assert new_run.source["job_id"] == second_job.id
         assert new_run.source["job_mesh_hash"] != old_run.source["job_mesh_hash"]

@@ -947,8 +947,10 @@ def _bend_parent(S: SimpleNamespace, kind: str, n: int) -> Tuple[Grid, Any]:
     z = lambda *names: {c: 0.0 for c in names}  # noqa: E731
     model.add_boundary_condition(S.BoundaryCondition(name="pin0", node_ids=[node_id(n, 0, 0)],
                                                      dof_constraints=z("ux", "uy", "uz", "ry")))
+    # At (0,L,0), a rotation about world z moves the point along x.  Its y
+    # displacement is already fixed by the first pin in a rigid motion.
     model.add_boundary_condition(S.BoundaryCondition(name="pin1", node_ids=[node_id(n, 0, n)],
-                                                     dof_constraints=z("uy", "uz")))
+                                                     dof_constraints=z("ux", "uz")))
     D = E_MOD * THK ** 3 / (12.0 * (1.0 - NU ** 2))
     W = L = g.size
     # about +y at x=0: +D k W; at x=L: -D k W (virtual work with theta_y = -k(x - L/2)).
