@@ -86,6 +86,14 @@ def _metadata_channel(dataset) -> str:
     return f"metadata:{id(dataset)}"
 
 
+def _mesh_control_request(project, strategy, native, structured):
+    # Preserve omission so the ordinary source owner can choose chart defaults.
+    if project.automatic_source_mesh_candidate(strategy, project.element_order):
+        return native, structured
+    stored = project.native_mesh_settings
+    return native or MeshControls.from_settings(stored), structured or StructuredMeshControls.from_settings(stored)
+
+
 class _WorkbenchField:
     """Data descriptor keeping legacy ``app.field`` access controller-owned."""
 
@@ -616,13 +624,8 @@ class WorkbenchWorkflow:
                 quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
-        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
-        structured_controls = (
-            structured_controls
-            or StructuredMeshControls.from_settings(
-                self.project.native_mesh_settings
-            )
-        )
+        mesh_controls, structured_controls = _mesh_control_request(
+            self.project, resolved_strategy, mesh_controls, structured_controls)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -633,20 +636,19 @@ class WorkbenchWorkflow:
                 self.project.set_native_triangulation_backend(native_backend)
             if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
-            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
-                self._store_mesh_strategy(
-                    resolved_strategy,
-                    target_size=float(target_size),
-                    element_order=self.project.element_order,
-                    structure_preference=resolved_preference,
-                    quality_policy=quality_policy,
-                    mesh_controls=mesh_controls,
-                    structured_controls=structured_controls,
-                    quad_options=quad_options,
-                    layout_policy=layout_policy or "existing",
-                    quad_t3_minimum_angle=quad_t3_minimum_angle,
-                    quad_t3_angle_action=quad_t3_angle_action,
-                )
+            self._store_mesh_strategy(
+                resolved_strategy,
+                target_size=float(target_size),
+                element_order=self.project.element_order,
+                structure_preference=resolved_preference,
+                quality_policy=quality_policy,
+                mesh_controls=mesh_controls,
+                structured_controls=structured_controls,
+                quad_options=quad_options,
+                layout_policy=layout_policy or "existing",
+                quad_t3_minimum_angle=quad_t3_minimum_angle,
+                quad_t3_angle_action=quad_t3_angle_action,
+            )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
             None if resolved_strategy == "mapped" else requested_backend
@@ -715,13 +717,13 @@ class WorkbenchWorkflow:
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
                 "native_backend": effective_native_backend,
-                "controls": mesh_controls.effective_dict(resolved_strategy),
+                "controls": (None if mesh_controls is None else mesh_controls.effective_dict(resolved_strategy)),
                 "quality_policy": (
                     dict(quality_policy or {}) if resolved_strategy == "auto" else None
                 ),
                 "structured_controls": (
                     structured_controls.effective_dict()
-                    if resolved_strategy == "auto"
+                    if structured_controls is not None and resolved_strategy == "auto"
                     else None
                 ),
                 **({"automation": automation.to_dict()} if automation is not None else {}),
@@ -765,10 +767,10 @@ class WorkbenchWorkflow:
                 "strict_high_order_status": created_mesh.hybrid_diagnostics.get(
                     "high_order_geometry", {}
                 ).get("status"),
-                "controls_requested": mesh_controls.effective_dict(resolved_strategy),
+                "controls_requested": (None if mesh_controls is None else mesh_controls.effective_dict(resolved_strategy)),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
-                    if resolved_strategy == "auto"
+                    if structured_controls is not None and resolved_strategy == "auto"
                     else None
                 ),
                 "strategy_by_face": self._meshing_strategy_summary(created_mesh),
@@ -917,13 +919,8 @@ class WorkbenchWorkflow:
                 quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
-        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
-        structured_controls = (
-            structured_controls
-            or StructuredMeshControls.from_settings(
-                self.project.native_mesh_settings
-            )
-        )
+        mesh_controls, structured_controls = _mesh_control_request(
+            self.project, resolved_strategy, mesh_controls, structured_controls)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -961,20 +958,19 @@ class WorkbenchWorkflow:
                 self.project.set_native_triangulation_backend(native_backend)
             if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
-            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
-                self._store_mesh_strategy(
-                    resolved_strategy,
-                    target_size=settings.target_size,
-                    element_order=settings.element_order,
-                    structure_preference=resolved_preference,
-                    quality_policy=quality_policy,
-                    mesh_controls=mesh_controls,
-                    structured_controls=structured_controls,
-                    quad_options=quad_options,
-                    layout_policy=layout_policy or "existing",
-                    quad_t3_minimum_angle=quad_t3_minimum_angle,
-                    quad_t3_angle_action=quad_t3_angle_action,
-                )
+            self._store_mesh_strategy(
+                resolved_strategy,
+                target_size=settings.target_size,
+                element_order=settings.element_order,
+                structure_preference=resolved_preference,
+                quality_policy=quality_policy,
+                mesh_controls=mesh_controls,
+                structured_controls=structured_controls,
+                quad_options=quad_options,
+                layout_policy=layout_policy or "existing",
+                quad_t3_minimum_angle=quad_t3_minimum_angle,
+                quad_t3_angle_action=quad_t3_angle_action,
+            )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
             None if settings.strategy == "mapped" else requested_backend
@@ -1023,10 +1019,10 @@ class WorkbenchWorkflow:
                 "automation_requested": (
                     None if settings.automation is None else settings.automation.to_dict()
                 ),
-                "controls_requested": mesh_controls.effective_dict(settings.strategy),
+                "controls_requested": (None if mesh_controls is None else mesh_controls.effective_dict(settings.strategy)),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
-                    if settings.strategy == "auto"
+                    if structured_controls is not None and settings.strategy == "auto"
                     else None
                 ),
                 "structure_preference": (

@@ -15,12 +15,12 @@ from anyfem.mesh_jobs import MeshSettings
 from anyfem.native_meshing import NativeMeshSettings
 
 
-def panel(family, *, second=False):
+def panel(family, *, second=False, rise=.125):
     project = Project("ordinary authored panel")
     project.add_material(steel("S355", .01))
     project.add_plate_section("plate", .01, "S355")
     g = project.geometry
-    corners = ((0., 0., 0.), (1., 0., 0.), (1., 1., .125), (0., 1., 0.))
+    corners = ((0., 0., 0.), (1., 0., 0.), (1., 1., rise), (0., 1., 0.))
     uv = ((0., 0.), (1., 0.), (1., 1.), (0., 1.))
     if family == "extruded":
         controls = ((0., 0., 0.), (.5, 0., .0625), (1., 0., 0.))

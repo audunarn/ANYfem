@@ -1,14 +1,14 @@
-"""Regenerate complete published surface owners when no fixed internal cut is proved.
+"""Update published source faces with live cell, interface and numbering proofs.
 
-The mesher runs on the complete source closure. An unchanged isolated face may
-keep its permanent numbers only after the fresh face's ordered cells, oriented
-connectivity, coordinates and source associations all match the original.
+The mesher validates the complete source closure. Unchanged cells can keep
+their permanent numbers after their oriented connectivity, coordinates and
+source associations match the original publication.
 """
 from __future__ import annotations
 
 from contextlib import nullcontext
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -155,9 +155,16 @@ def _capture(project, settings, mesh):
     _mesh_owners(mesh, records)
     baseline = {"schema": SCHEMA, "version": VERSION, "pins": rm._pins(), "source": source,
                 "mesh": _published_mesh_digest(mesh)}
-    if len(records) > 1:
-        from anymesher.regional_source_faces import capture_reusable_source_faces
-        baseline["reusable_faces"] = capture_reusable_source_faces(source_owner, mesh)
+    from anymesher.regional_source_faces import capture_reusable_source_faces
+    proposals = capture_reusable_source_faces(source_owner, mesh)
+    baseline["reusable_faces"] = proposals
+    if len(records) == 1 and proposals:
+        from anymesher.regional_source_faces import capture_source_face_identity_rows
+        face, = records[0]["faces"]
+        if str(face) in proposals:
+            identities = capture_source_face_identity_rows(source_owner, mesh, face)
+            _validate_parent_rows(mesh, face, proposals[str(face)]["data"], identities)
+            baseline["point_patch_parent"] = identities
     return {**baseline, "digest": rm._digest(baseline)}
 
 
@@ -175,15 +182,66 @@ class GeneralPlan:
     retained: tuple[int, ...]
     reuse_candidates: tuple[int, ...] = ()
     applicable: bool = True
+    patched_face: int | None = None
+    replaced_elements: tuple[int, ...] = ()
+    interface_nodes: tuple[int, ...] = ()
+    _patch: dict | None = field(default=None, repr=False, compare=False)
 
     @property
     def is_noop(self):
-        return not self.regenerated
+        return not self.regenerated and self.patched_face is None
 
     @property
     def impact(self):
-        return {"regenerated": [[f] for f in self.regenerated], "retained": [[f] for f in self.retained],
-                "added": [], "removed": []}
+        impact = {"regenerated": [[f] for f in self.regenerated], "retained": [[f] for f in self.retained],
+                  "added": [], "removed": []}
+        if self.patched_face is not None:
+            impact.update(patched_face=self.patched_face, replaced_elements=list(self.replaced_elements),
+                          interface_nodes=list(self.interface_nodes))
+        return impact
+
+
+def _validate_parent_rows(mesh, face, data, identities):
+    """Check owner row correspondence against every oriented cell on the real parent."""
+    nodes, cells = identities["nodes"], identities["cells"]
+    shells = mesh.shells
+    face_cells, face_nodes = rm._component_mesh(mesh, [face])
+    _require(len(nodes) == len(data["node_rows"]) == len(face_nodes) and set(nodes) == face_nodes
+             and len(cells) == len(data["cells"]) == len(face_cells) and set(cells) == set(face_cells),
+             "Point patch parent rows do not bijectively cover the published face.")
+    _require(all(np.array_equal(mesh.nodes[node], row[1]) for node, row in zip(nodes, data["node_rows"]))
+             and all(tuple(nodes[n] for n in conn) == shells[e] for conn, e in zip(data["cells"], cells)),
+             "Point patch parent rows differ from the oriented source cells or their coordinates.")
+
+
+def _point_plan(project, settings, baseline, current, controls, check):
+    from anymesher.errors import MeshError
+    from anymesher.regional_source_patch import plan_source_face_point_patch
+
+    previous = baseline["source"]
+    if (len(current["faces"]) != 1 or previous["zones"] or len(current["zones"]) != 1
+            or any(previous[k] != current[k] for k in ("faces", "revision", "target"))
+            or len(project.refinements) != 1 or "point_patch_parent" not in baseline):
+        return None
+    face, = project.geometry.faces
+    identities = baseline["point_patch_parent"]
+    try:
+        proposal = baseline["reusable_faces"][str(face)]
+        patch = plan_source_face_point_patch(
+            project.geometry, proposal, project.refinements[0], target_size=settings.target_size,
+            strategy=rm._strategy(project, settings), recombine=controls.recombine, cancellation_check=check)
+        if patch is None:
+            return None
+        _require(patch["face"] == face, "Point patch belongs to a different source face.")
+        retired = tuple(sorted(identities["cells"][r] for r in patch["replaced_cell_rows"]))
+        loop = tuple(identities["nodes"][r] for r in patch["interface_rows"])
+        _require(0 < len(retired) == len(set(retired)) < len(identities["cells"])
+                 and len(loop) == len(set(loop)) >= 3, "Point patch has an invalid parent cut or interface.")
+    except (MeshError, IndexError, KeyError, ValueError, TypeError) as error:
+        raise GeneralSurfaceUnsupported(f"Point patch source or parent interface refused: {error}") from error
+    return GeneralPlan(f"Replace {len(retired)} parent cells on face {face} for the point sizing change. "
+                       f"Keep the {len(loop)} interface nodes and all cells outside the cut.",
+                       (), (), patched_face=face, replaced_elements=retired, interface_nodes=loop, _patch=patch)
 
 
 def plan_general_update(project, settings, baseline, *, cancellation_check=None):
@@ -219,6 +277,11 @@ def plan_general_update(project, settings, baseline, *, cancellation_check=None)
     from anymesher.regional_source_faces import reusable_face_for_request
     from .mesh_controls import MeshControls
     controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
+    points_changed = current["zones"] != prior["zones"]
+    if points_changed:
+        point_plan = _point_plan(project, settings, baseline, current, controls, check)
+        if point_plan is not None:
+            return point_plan
     proposals = baseline.get("reusable_faces", {})
     candidates = tuple(f for f in kept if str(f) in proposals and reusable_face_for_request(
         proposals[str(f)], rm._strategy(project, settings), controls.recombine))
@@ -226,6 +289,9 @@ def plan_general_update(project, settings, baseline, *, cancellation_check=None)
         operation = f"Reuse the stored cells of source faces {list(candidates)} after fresh owner validation."
     else:
         operation = "Regenerate the full source mesh."
+    if points_changed:
+        operation += (" A fixed cut requires one added point zone with certified size and influence "
+                      "inside an unchanged source face's interior Q4 neighbourhood.")
     return GeneralPlan(f"{operation} Replace whole faces {list(changed)} because no fixed interior cut is proved. "
                        f"Retain exact IDs on faces {list(kept)} after their cells and associations match.",
                        changed, kept, candidates)
@@ -251,6 +317,64 @@ def _retained_ids(old, candidate, records, plan):
                          f"Retained face {face} changed oriented connectivity or coordinates.")
     _require(len(nodes) == len(set(nodes.values())), "Retained face nodes have ambiguous identity.")
     return nodes, elements
+
+
+def _cut_boundary(mesh, elements):
+    """Return the oriented edges of a cell patch and reject non-manifold interiors."""
+    edges = defaultdict(list)
+    shells = mesh.shells
+    for element in elements:
+        cell = shells[element]
+        for a, b in zip(cell, cell[1:] + cell[:1]):
+            edges[min(a, b), max(a, b)].append((a, b))
+    boundary = set()
+    for sides in edges.values():
+        if len(sides) == 1:
+            boundary.add(sides[0])
+        else:
+            _require(len(sides) == 2 and sides[0] == sides[1][::-1],
+                     "Point patch has overlapping or inconsistently oriented interior edges.")
+    return boundary
+
+
+def _patch_ids(old, fresh, baseline, plan, stats):
+    """Translate receipt rows only after proving both sides of the advertised fixed cut."""
+    face = plan.patched_face
+    identity = baseline["point_patch_parent"]
+    old_nodes, old_cells = identity["nodes"], identity["cells"]
+    data = baseline["reusable_faces"][str(face)]["data"]
+    _require(set(stats.get("patched_faces", ())) == {face},
+             "Point patch received no current final owner proof for the selected face.")
+    receipt = stats["patched_faces"][face]
+    cut = set(plan._patch["replaced_cell_rows"])
+    _require(cut == set(receipt["replaced_cell_rows"])
+             and tuple(receipt["interface_rows"]) == tuple(plan._patch["interface_rows"]),
+             "Issued point patch differs from the previewed cells or interface.")
+    kept = set(range(len(old_cells))) - cut
+    rows, surviving = receipt["kept_cell_rows"], receipt["old_node_rows"]
+    # A station solely inside the retired cells gets a fresh permanent number
+    # even when the patch re-emits its exact source position.
+    shared = {n for r in kept for n in data["cells"][r]}
+    _require(set(rows) == kept and shared <= set(surviving) <= set(range(len(old_nodes)))
+             and len(set(rows.values())) == len(rows) and len(set(surviving.values())) == len(surviving),
+             "Point patch receipt lacks a unique record for every retained row.")
+    nodes = {surviving[r]: old_nodes[r] for r in shared}
+    cells = {new: old_cells[r] for r, new in rows.items()}
+    old_shells, new_shells = old.shells, fresh.shells
+    fresh_elements = set(fresh.elements_of_face[face])
+    _require(set(cells) <= fresh_elements and all(np.array_equal(fresh.nodes[a], old.nodes[b])
+             for a, b in nodes.items()), "Point patch moved a retained source node or cell to another owner.")
+    _require(all(tuple(nodes[n] for n in new_shells[a]) == old_shells[b]
+                 and fresh.activity.get(a) == old.activity.get(b) for a, b in cells.items()),
+             "Point patch changed a retained oriented source cell or its activity.")
+    before = _cut_boundary(old, plan.replaced_elements)
+    after = {(nodes[a], nodes[b]) for a, b in _cut_boundary(fresh, fresh_elements - set(cells))}
+    loop = plan.interface_nodes
+    ring = set(zip(loop, loop[1:] + loop[:1]))
+    _require((before == ring or before == {(b, a) for a, b in ring}) and after == before
+             and {(b, a) for a, b in before} <= _cut_boundary(old, list(cells.values())),
+             "Point patch did not close against the complete oriented retained interface.")
+    return nodes, cells
 
 
 def _verify_sizes(project, old_mesh, mesh, settings, records, prior, check):
@@ -291,15 +415,20 @@ def _verify_sizes(project, old_mesh, mesh, settings, records, prior, check):
                      f"Face {face} did not get finer after reducing its nominal target.")
         measured[str(face)] = {"target": view.target_size, "cells": len(sizes),
                                "mean_longest_edge": float(np.mean(sizes)), "max_edge": float(np.max(sizes))}
-        for index in active_zones:
+        for index in sorted(active_zones):
             zone = project.refinements[index]
             distances = np.linalg.norm(np.asarray(centers) - np.asarray(zone.center), axis=1)
             # Credit only a cell whose center is inside the actual constant-size
             # core. A missed footprint, including a point-only core, fails closed.
             core = distances <= zone.radius + tol
             if np.any(core):
-                _require(np.any(sizes[core] <= zone.size + tol),
+                achieved = float(np.min(sizes[core]))
+                _require(achieved <= zone.size + tol,
                          f"No generated cell in the point zone on face {face} achieves the requested size.")
+                measured[str(face)].setdefault("point_zones", []).append({
+                    "index": index, "requested_size": zone.size, "radius": zone.radius,
+                    "cells_in_core": int(np.count_nonzero(core)), "min_longest_edge": achieved,
+                })
                 met_zones.add(index)
     _require(met_zones == active_zones, "No generated cell meets the requested point-zone footprint and size.")
     return measured
@@ -323,7 +452,6 @@ def generate_general_update(project, settings, baseline, old_mesh, *, node_high_
     from .mesh_jobs import run_mesh_job
     from .mesh_numbering import number_mesh_with_maps
 
-
     check = rm._check_fn(cancellation_check)
     plan = plan_general_update(project, settings, baseline, cancellation_check=check)
     old = rm._decode(old_mesh)
@@ -333,15 +461,23 @@ def generate_general_update(project, settings, baseline, old_mesh, *, node_high_
         # published result still requires live material authority.
         _source_proof(project, old)
         return GeneralUpdateResult(old, dict(baseline), frozenset(old.nodes), frozenset(old.shells), plan, {})
-    check("generate complete source surface mesh")
+    check("generate selected source cells")
     snapshot = DocumentSession(project).snapshot()
     detached = snapshot.thaw()
     try:
+        if plan.patched_face is not None:
+            proposal = baseline["reusable_faces"][str(plan.patched_face)]
+            _validate_parent_rows(old, plan.patched_face, proposal["data"], baseline["point_patch_parent"])
         reuse = nullcontext({"reused_faces": set()})
-        if plan.reuse_candidates:
+        if plan.reuse_candidates or plan.patched_face is not None:
             from anymesher.regional_source_faces import reuse_source_faces
             candidates = {str(f): baseline["reusable_faces"][str(f)] for f in plan.reuse_candidates}
-            reuse = reuse_source_faces(detached.geometry, candidates)
+            options = {}
+            if plan.patched_face is not None:
+                key = str(plan.patched_face)
+                candidates[key] = baseline["reusable_faces"][key]
+                options["point_patches"] = {key: plan._patch}
+            reuse = reuse_source_faces(detached.geometry, candidates, **options)
         with reuse as stats:
             fresh = run_mesh_job(detached, snapshot.revision.model_hash, replace(settings, regional=None),
                                  lambda *_: None, _Cancellation(check)).mesh
@@ -352,11 +488,22 @@ def generate_general_update(project, settings, baseline, old_mesh, *, node_high_
         records, _ = _inputs(detached, settings)
         _mesh_owners(fresh, records)
         source = _source_proof(detached, fresh)
-        kept_nodes, kept_elems = _retained_ids(old, fresh, records, plan)
+        if plan.patched_face is None:
+            kept_nodes, kept_elems = _retained_ids(old, fresh, records, plan)
+        else:
+            kept_nodes, kept_elems = _patch_ids(old, fresh, baseline, plan, stats)
         allocation = raise_high_water(MeshNumbering(node_high_water, element_high_water), old)
         nodes = {**kept_nodes, **_fresh_ids(fresh.nodes.keys() - kept_nodes.keys(), allocation.node_high_water, False)}
         cells = {**kept_elems, **_fresh_ids(fresh.shells.keys() - kept_elems.keys(), allocation.element_high_water, False)}
         numbered = number_mesh_with_maps(fresh, nodes, cells, source_geometry=source)
+        if plan.patched_face is not None:
+            _require(set(old.shells) - set(numbered.shells) == set(plan.replaced_elements)
+                     and set(old.nodes) & set(numbered.nodes) == set(kept_nodes.values())
+                     and old.nodes_of_edge == numbered.nodes_of_edge
+                     and old.elements_of_edge == numbered.elements_of_edge
+                     and old.node_of_vertex == numbered.node_of_vertex
+                     and old.thickness_of_face == numbered.thickness_of_face,
+                     "Numbered point patch changed a parent cell, boundary or association outside its preview.")
         for record in records:
             if record["faces"][0] in plan.retained:
                 old_ids = rm._component_mesh(old, record["faces"])
@@ -370,12 +517,15 @@ def generate_general_update(project, settings, baseline, old_mesh, *, node_high_
                  and np.isfinite(quality.max_aspect_ratio), "Whole-mesh shell validity failed.")
         rm._validate_quality(detached, numbered, settings, check)
         updated = _capture(detached, settings, numbered)
-    except (MeshError, rm._Ineligible, KeyError, ValueError) as error:
-        raise GeneralSurfaceUnsupported(f"Full source surface generation or validation refused: {error}") from error
+    except (MeshError, rm._Ineligible, KeyError, IndexError, ValueError, TypeError) as error:
+        raise GeneralSurfaceUnsupported(f"Source surface generation or validation refused: {error}") from error
     check("complete general surface update")
     provenance = {"generation_scope": "selected faces" if reused else "full source mesh",
                   "generated_faces": sorted(set(detached.geometry.faces) - reused),
                   "reused_source_faces": sorted(reused), "impact": plan.impact, "sizing": measured, "quality": quality.as_dict()}
+    if plan.patched_face is not None:
+        provenance.update(generation_scope="fixed interior cell patch", generated_faces=[],
+                          patched_face=plan.patched_face, new_elements=sorted(numbered.shells.keys() - old.shells.keys()))
     updated["last_update"] = provenance
     updated["digest"] = rm._digest({k: v for k, v in updated.items() if k != "digest"})
     return GeneralUpdateResult(numbered, updated, frozenset(kept_nodes.values()), frozenset(kept_elems.values()),

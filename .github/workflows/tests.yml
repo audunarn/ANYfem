@@ -21,7 +21,7 @@ on:
       mesher_ref:
         description: 'Frozen reviewed ANYmesh commit SHA (40 hex)'
         type: string
-        default: 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8'
+        default: 'c6837d8b359c5ae235667ed89581f3b92d72c493'
 
 jobs:
   development:
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
+          ref: ${{ inputs.mesher_ref || 'c6837d8b359c5ae235667ed89581f3b92d72c493' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -259,7 +259,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
+          ref: ${{ inputs.mesher_ref || 'c6837d8b359c5ae235667ed89581f3b92d72c493' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -434,7 +434,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
+          ref: ${{ inputs.mesher_ref || 'c6837d8b359c5ae235667ed89581f3b92d72c493' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

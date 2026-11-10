@@ -58,6 +58,8 @@ def mesh_update_preview(plan, baseline, parent_mesh, parent_id):
             description += "\n\nCell selection occurs during generation. Review the selected parent elements before publication."
 
     owners = [EntityRef("face", int(fid)) for fid in sorted(faces)]
+    if isinstance(plan, GeneralPlan) and plan.patched_face is not None:
+        owners.extend(MeshEntityRef("element", elem, parent_id) for elem in plan.replaced_elements)
     owners.extend(EntityRef("edge", int(eid)) for eid in sorted(edges))
     retired = {int(e) for fid in removed_faces for e in parent_mesh.elements_of_face.get(fid, ())}
     owners.extend(MeshEntityRef("element", eid, parent_id) for eid in sorted(retired))

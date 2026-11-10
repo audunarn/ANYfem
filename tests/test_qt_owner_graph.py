@@ -25,7 +25,7 @@ def _checkouts(text):
 
 @pytest.mark.parametrize(('input_name', 'path', 'expected'), (
     ('geometry_ref', '.ecosystem/ANYgeometry', '0bcc1b397cfa07ffa8bba26d8c7c5b5a2939baf4'),
-    ('mesher_ref', '.ecosystem/ANYmesh', 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8'),
+    ('mesher_ref', '.ecosystem/ANYmesh', 'c6837d8b359c5ae235667ed89581f3b92d72c493'),
 ))
 def test_qt_default_and_automatic_owner_refs_match_headless(input_name, path, expected):
     qt, headless = QT.read_text(), HEADLESS.read_text()

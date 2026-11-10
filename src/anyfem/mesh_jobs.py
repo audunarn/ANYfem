@@ -948,6 +948,15 @@ def run_mesh_job(
         else MeshingStrategy(requested_strategy).value
     )
     resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
+    classify_source = getattr(project, "automatic_source_mesh_candidate", None)
+    auto_source = classify_source is not None and classify_source(resolved_strategy, settings.element_order)
+    stored_parameters = dict(getattr(project.native_mesh_settings, "parameters", ()))
+    inherit_native = auto_source and settings.controls is None and not any(
+        key.startswith("native_") for key in stored_parameters
+    )
+    inherit_structured = auto_source and settings.structured_controls is None and not any(
+        key.startswith("structured_") for key in stored_parameters
+    )
     resolved_structured_controls = (
         settings.structured_controls
         or StructuredMeshControls.from_settings(
@@ -1010,10 +1019,12 @@ def run_mesh_job(
         strategy=settings.strategy,
         structure_preference=settings.structure_preference,
         quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
-        mesh_controls=resolved_controls,
-        structured_controls=resolved_structured_controls,
+        # An omitted native point-placement choice lets the source owner select
+        # its chart algorithm. Project resolves the remaining controls as usual.
+        mesh_controls=settings.controls if inherit_native else resolved_controls,
+        structured_controls=None if inherit_structured else resolved_structured_controls,
         quad_options=settings.quad_options,
-        layout_policy=settings.layout_policy,
+        layout_policy=None if auto_source else settings.layout_policy,
         quad_t3_minimum_angle=(
             settings.quad_t3_minimum_angle
             if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None
@@ -1070,28 +1081,13 @@ def run_mesh_job(
         structural_preparation = dict(getattr(mesh, "structural_preparation", {}) or {})
     else:
         structural_preparation = dict(project._last_mesh_preparation)
-    resolved_settings_hash = settings.input_hash
-    if (
-        settings.strategy is None
-        or settings.controls is None
-        or settings.structured_controls is None
-    ):
-        # Older/headless callers inherit the snapshotted project
-        # strategy. Canonicalize that resolved value so their hash is
-        # identical to an explicit UI submission of the same method.
-        resolved_settings_hash = MeshSettings.create(
-            settings.target_size,
-            element_order=settings.element_order,
-            overrides=dict(settings.overrides),
-            strategy=resolved_strategy,
-            structure_preference=settings.structure_preference,
-            quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
-            controls=resolved_controls,
-            structured_controls=resolved_structured_controls,
-            quad_options=settings.quad_options,
-            layout_policy=settings.layout_policy,
-            automation=settings.automation,
-        ).input_hash
+    # Inherited source methods and explicitly authored legacy options can
+    # select different algorithms. Preserve that distinction in the input hash.
+    resolved_settings_hash = replace(
+        settings, strategy=resolved_strategy,
+        controls=None if inherit_native else resolved_controls,
+        structured_controls=None if inherit_structured else resolved_structured_controls,
+    ).input_hash
     semantic_input_hash = canonical_hash(
         {
             "mesh_settings": resolved_settings_hash,

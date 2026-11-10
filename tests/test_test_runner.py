@@ -676,7 +676,7 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
         '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'),
         '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '0bcc1b397cfa07ffa8bba26d8c7c5b5a2939baf4'),
-        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}"),
+        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || 'c6837d8b359c5ae235667ed89581f3b92d72c493' }}"),
     }
     for job in (test_job, build_job):
         actual = {}

@@ -2127,6 +2127,22 @@ class Project:
         from ..mesh_session import ProjectMeshSession
         return ProjectMeshSession(self, path)
 
+    def automatic_source_mesh_candidate(self, strategy, order):
+        """Whether ordinary Automatic generation can ask for independent shell source proofs."""
+        if strategy != "auto" or order != "linear" or self.beam_edges:
+            return False
+        geometry = self.geometry
+        if geometry.members or geometry.junctions or geometry.attachments:
+            return False
+        try:
+            import anymesher.regional_source_faces as source_faces
+        except ModuleNotFoundError as error:
+            if error.name != "anymesher.regional_source_faces":
+                raise
+            return False
+        classify = getattr(source_faces, "independent_source_faces", None)
+        return classify is not None and classify(geometry)
+
     def generate_mesh(
         self,
         target_size: float | None = None,
@@ -2366,6 +2382,7 @@ class Project:
         if quad_options is not None:
             native_backend = "python"
         source_geometry = self.geometry
+        auto_source = self.automatic_source_mesh_candidate(requested_curvilinear_strategy, resolved_order)
         source_members = {
             member_id
             for edge_id in self.beam_edges
@@ -2395,6 +2412,7 @@ class Project:
             tuple(sorted(int(face) for face in source_geometry.faces)),
             tuple(sorted(int(edge) for edge in self.beam_edges)),
             tuple(sorted(int(member) for member in source_members)),
+            auto_source,
             geometry_approximation_error,
         )
         cached = self._mesh_preparation_cache
@@ -2427,8 +2445,8 @@ class Project:
         if not cache_hit:
             # Planar input keeps the scalar bound without source publication;
             # a curved route needs both owner services or is refused.
-            if (geometry_approximation_error is not None
-                    and source_publication_required(source_geometry)):
+            if auto_source or (geometry_approximation_error is not None
+                               and source_publication_required(source_geometry)):
                 qualify_model_closure_source_publication = source_publication_service(
                     "anymesher", "qualify_model_closure_source_publication")
                 clone_prepared_geometry = source_publication_service(
@@ -2439,19 +2457,21 @@ class Project:
                     raise ProjectError(
                         "curved source publication returned no owner qualification; "
                         "curved publication is refused")
+        owner_tensor_layout = False
         if qualification is not None:
             # A curved bound is never dropped; planar input keeps it as metadata.
-            supported_parameters['geometry_approximation_error'] = geometry_approximation_error
-            if (resolved_strategy == 'mapped' and structured_controls == StructuredMeshControls()
-                    and quality_policy is None and not stored_quality
+            if geometry_approximation_error is not None:
+                supported_parameters['geometry_approximation_error'] = geometry_approximation_error
+            if auto_source and mesh_controls is None and not any(key.startswith('native_') for key in parameters):
+                # Automatic selects its source-chart point placement in the mesher.
+                supported_parameters.pop('native_options', None)
+            if (structured_controls == StructuredMeshControls()
                     and (structure_preference or parameters.get('structure_preference', 'balanced')) == 'balanced'):
-                # On an exact tensor chart the source owner supplies the mapped
-                # layout. Requesting a second, default block planner prevents
-                # the material-cell route from running. Explicit policies stay
-                # on their usual owner admission path.
-                from anygeometry import source_tensor_chart
-                if all(source_tensor_chart(source_geometry, fid) is not None for fid in source_geometry.faces):
-                    structure_options = None
+                owner_tensor_layout = auto_source
+                if resolved_strategy == 'mapped':
+                    from anygeometry import source_tensor_chart
+                    owner_tensor_layout = all(source_tensor_chart(source_geometry, fid) is not None
+                                              for fid in source_geometry.faces)
         working = closure.working_model
         working_member_ids = tuple(
             sorted(
@@ -2631,6 +2651,7 @@ class Project:
         from anymesher.recovery import select_curvilinear_recovery_policy
         recovery_explicit_controls = (explicit_curvilinear_controls
             or any(key.startswith('native_') for key in parameters)
+            or (auto_source and any(key.startswith('structured_') for key in parameters))
             or 'quad_options' in parameters or 'layout_policy' in parameters
             or any(key.startswith('quad_t3_') for key in parameters))
         if (geometry_approximation_error is None and automation is None
@@ -2791,7 +2812,7 @@ class Project:
                     # so retain the existing topology and let refinement-aware
                     # global seeding solve it.
                     None
-                    if resolved_strategy in ("native", "smart_mapped") or working_refinements
+                    if resolved_strategy in ("native", "smart_mapped") or working_refinements or owner_tensor_layout
                     else structure_options
                 ),
                 **supported_parameters,
@@ -2879,7 +2900,7 @@ class Project:
                     **({'curvilinear_recovery_selection': curvilinear_recovery_selection}
                        if curvilinear_recovery_selection is not None else {}),
                     fallback_structured_options=(
-                        None if working_refinements else structure_options
+                        None if working_refinements or owner_tensor_layout else structure_options
                     ),
                     **meshing_parameters,
                 ).mesh

@@ -239,13 +239,19 @@ class MeshTask(QWidget):
         self.options.setToolTip("Extra keyword options as a JSON object. Leave {} unless instructed.")
         from ...mesh_controls import MeshControls,StructuredMeshControls
         self.native_controls=OptionForm.record(MeshControls,MeshControls.display_values(app.project.native_mesh_settings))
-        self.structured_controls=OptionForm.record(StructuredMeshControls)
+        self.structured_controls=OptionForm.record(StructuredMeshControls,StructuredMeshControls.display_values(app.project.native_mesh_settings))
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
         from anymesher.quad.options import QuadMeshingOptions
         from ...quad_first import sg1_quad_options
         self.quality_controls=OptionForm.record(MeshQualityPolicy)
         self.quad_controls=OptionForm.record(QuadMeshingOptions,asdict(sg1_quad_options()))
         self.automation_controls=OptionForm.record(MeshAutomationOptions)
+        self._edited_mesh_forms = set()
+        for control_form in (self.native_controls, self.structured_controls, self.automation_controls):
+            for widget, _, _ in control_form.fields.values():
+                signal = (widget.clicked if isinstance(widget, QCheckBox) else
+                          widget.activated if isinstance(widget, QComboBox) else widget.textEdited)
+                signal.connect(lambda *_, edited=control_form: self._edited_mesh_forms.add(edited))
         self.regional_generation.toggled.connect(self._set_regional_generation)
         self.order=QComboBox();self.order.addItems(["linear","quadratic"]);self.order.setCurrentText(app.project.element_order);form.addRow("Element order",self.order)
         actions=QHBoxLayout();actions.setSpacing(6)
@@ -293,6 +299,16 @@ class MeshTask(QWidget):
         layout.addWidget(preview_section)
         settings=Collapsible("Advanced settings",hint="Backend, quality, quad-first and recovery controls. Defaults suit most models.")
         settings.addLayout(advanced)
+        self.source_controls_hint = QLabel(
+            "Automatic inherits saved native and layout settings and lets the surface mesher choose recovery. "
+            "Editing a control group applies its displayed values. Element quality limits always apply.")
+        self.source_controls_hint.setObjectName("Hint")
+        self.source_controls_hint.setWordWrap(True)
+        settings.addWidget(self.source_controls_hint)
+        self._source_hint_key = None
+        self.strategy.currentIndexChanged.connect(self._sync_source_hint)
+        self.order.currentIndexChanged.connect(self._sync_source_hint)
+        self._sync_source_hint()
         for label,widget in [("Native meshing controls",self.native_controls),("Structured layout controls",self.structured_controls),
                              ("Element quality policy",self.quality_controls),("Quad-first controls",self.quad_controls),
                              ("Mesh recovery policy",self.automation_controls)]:
@@ -316,6 +332,14 @@ class MeshTask(QWidget):
         index=self.strategy.findData(str(token),Qt.UserRole)
         self.strategy.setCurrentIndex(index) if index>=0 else self.strategy.setCurrentText(str(token))
 
+    def _sync_source_hint(self, *_):
+        project = self.app.project
+        strategy, order = self.strategy_token(), self.order.currentText()
+        key = (id(project.geometry), project.geometry.revision, strategy, order, tuple(project.beam_edges))
+        if key != self._source_hint_key:
+            self._source_hint_key = key
+            self.source_controls_hint.setVisible(project.automatic_source_mesh_candidate(strategy, order))
+
     def _set_regional_generation(self, enabled):
         if enabled:
             self.set_strategy("mapped")
@@ -332,11 +356,25 @@ class MeshTask(QWidget):
         options=json.loads(self.options.toPlainText())
         if not isinstance(options,dict):
             raise ValueError("Mesh options must be an object")
-        from ...mesh_controls import MeshControls,StructuredMeshControls
-        for name,record in [("mesh_controls",MeshControls),("structured_controls",StructuredMeshControls)]:
-            raw=options.get(name)
-            options[name]=record(**raw) if isinstance(raw,dict) else raw or record(**(self.native_controls if name=="mesh_controls" else self.structured_controls).values())
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
+        from ...mesh_controls import MeshControls,StructuredMeshControls
+        project = self.app.project
+        stored = project.native_mesh_settings
+        source = project.automatic_source_mesh_candidate(self.strategy_token(), self.order.currentText())
+
+        def request(name, form, record, inherited):
+            if name in options and (source or options[name] is not None):
+                raw = options[name]
+                return record(**raw) if isinstance(raw, dict) else raw
+            value = record(**form.values())
+            if source and form not in self._edited_mesh_forms and asdict(value) == inherited:
+                return None
+            return value
+
+        options["mesh_controls"] = request("mesh_controls", self.native_controls, MeshControls,
+                                           MeshControls.display_values(stored))
+        options["structured_controls"] = request("structured_controls", self.structured_controls, StructuredMeshControls,
+                                                 StructuredMeshControls.display_values(stored))
         options.setdefault("native_backend",self.backend.currentText())
         raw=options.get("automation")
         if self.regional_generation.isChecked():
@@ -345,7 +383,8 @@ class MeshTask(QWidget):
                                  "Remove automation from Additional mesh options.")
             options["automation"] = None
         else:
-            options["automation"]=MeshAutomationOptions(**raw) if isinstance(raw,dict) else raw or MeshAutomationOptions(**self.automation_controls.values())
+            options["automation"] = request("automation", self.automation_controls, MeshAutomationOptions,
+                                            asdict(MeshAutomationOptions()))
         if self.strategy_token()=="auto":options.setdefault("quality_policy",MeshQualityPolicy(**self.quality_controls.values()).to_dict())
         if self.strategy_token() in ("quad_first","smart_mapped"):
             from anymesher.quad.options import QuadMeshingOptions
@@ -435,6 +474,7 @@ class MeshTask(QWidget):
         from ...mesh_controls import MeshControls,StructuredMeshControls
         self.size.setText(str(self.app.project.target_size or 0.25))
         settings=self.app.project.native_mesh_settings
+        self._edited_mesh_forms.clear()
         self.native_controls.set_values(MeshControls.display_values(settings))
         self.structured_controls.set_values(StructuredMeshControls.display_values(settings))
         self.set_strategy(self.app._project_mesh_strategy(self.app.project,None))
@@ -459,6 +499,7 @@ class MeshTask(QWidget):
         self.execution.setCurrentText("Automatic");self.workers.setValue(4)
 
     def refresh(self):
+        self._sync_source_hint()
         self.generate.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only)
         parent_id = self.app.project.mesh_numbering.active_mesh_id
         parent = self.app.project.mesh_records.get(parent_id)
