@@ -146,3 +146,20 @@ def test_failed_mesh_snapshot_does_not_leave_an_orphan_analysis(
         app_module.AnyFemApp.solve(application, "Linear static")
 
     assert project.analyses == {}
+def test_prepared_geometry_id_maps_keep_historical_hash_after_json_transport():
+    import json
+    from anymesher.mesh import Mesh
+    from anyfem.mesh_jobs import matches_mesh_hash, mesh_semantic_hash
+
+    mesh = Mesh()
+    inputs = dict(model_hash="model", mesh_input_hash="settings")
+    prep = {"prepared_boundary_provenance": {"prepared_seeding": {
+        "divisions": {2: 4, 10: 6}, "classes": {2: 2, 10: 10}}}}
+    restored = json.loads(json.dumps(prep))
+    numeric = mesh_semantic_hash(mesh, **inputs, structural_preparation=prep)
+    textual = mesh_semantic_hash(mesh, **inputs, structural_preparation=restored, _text_seeding_keys=True)
+    assert numeric != textual
+    assert mesh_semantic_hash(mesh, **inputs, structural_preparation=restored) == numeric
+    assert all(matches_mesh_hash(mesh, h, **inputs, structural_preparation=restored) for h in (numeric, textual))
+    restored["prepared_boundary_provenance"]["prepared_seeding"]["divisions"]["2"] += 1
+    assert all(not matches_mesh_hash(mesh, h, **inputs, structural_preparation=restored) for h in (numeric, textual))

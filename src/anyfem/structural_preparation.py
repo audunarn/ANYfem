@@ -305,6 +305,26 @@ def prepare_structural_connectivity(
     _check(cancellation_check, "structural intersection batch planning")
     active_members = tuple(sorted(geometry.members if member_ids is None else set(member_ids)))
     if not active_members and geometry.faces:
+        # A proved edge-only contact inside one authored Sheet is already
+        # connected. The control-hull proof covers every other pair as well.
+        from anygeometry.surfaces import CoonsSurface, ExtrudedSurface, RuledSurface
+        if (not geometry.junctions and not geometry.attachments and len(geometry.faces) > 1
+                and all(type(f.surface) in (CoonsSurface, ExtrudedSurface, RuledSurface)
+                        for f in geometry.faces.values())):
+            sheets = _face_sheet_map(geometry)
+            if len(geometry.face_uses) == len(geometry.faces) and set(sheets) == set(geometry.faces):
+                try:
+                    from anygeometry.tensor_interfaces import tensor_boundary_contacts
+                except ModuleNotFoundError as error:
+                    if error.name != 'anygeometry.tensor_interfaces':
+                        raise
+                else:
+                    contacts = tensor_boundary_contacts(geometry)
+                    if contacts and all(sheets[a] == sheets[b] for a, b in contacts):
+                        report.working_revision = geometry.revision
+                        report.diagnostics.append(
+                            f"Certified {len(contacts)} shared tensor boundaries within their authored Sheets")
+                        return report
         from anygeometry import query_trimmed_surface_charts
         from anygeometry.surfaces import CoonsSurface, Cone, RuledSurface
         if all(isinstance(face.surface, (CoonsSurface, Cone, RuledSurface))
@@ -384,6 +404,20 @@ def prepare_structural_connectivity(
                 isinstance(geometry.edges[use.edge].curve, NurbsCurve)
                 for use in face.loop)
             for face in geometry.faces.values()))
+    if (not active_members and not geometry.junctions and not geometry.attachments
+            and len(geometry.face_uses) == len(geometry.faces)
+            and set(_face_sheet_map(geometry)) == set(geometry.faces)
+            and {type(face.surface) for face in geometry.faces.values()} == {Plane, NurbsSurface}):
+        try:
+            from anygeometry.tensor_interfaces import disjoint_plane_nurbs_faces
+        except ModuleNotFoundError as error:
+            if error.name != 'anygeometry.tensor_interfaces':
+                raise
+        else:
+            if disjoint_plane_nurbs_faces(geometry):
+                report.working_revision = geometry.revision
+                report.diagnostics.append("Separated finite planar and NURBS source faces by their control hulls")
+                return report
     faces = tuple(geometry.faces.values())
     # Necessary family hint only: the public batch owner still proves the
     # complete material relation, source binding and actual CONNECT ownership.

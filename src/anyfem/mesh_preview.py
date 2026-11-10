@@ -47,6 +47,7 @@ def mesh_update_preview(plan, baseline, parent_mesh, parent_id):
                 edges.update(record["members"].values())
         elif isinstance(plan, GeneralPlan):
             faces.update(plan.regenerated)
+            edges.update(plan.hole_edges)
         elif isinstance(plan, PeriodicPlan):
             faces.update(plan.faces)
         elif isinstance(plan, WholePlatePlan):

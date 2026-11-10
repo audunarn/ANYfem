@@ -85,11 +85,12 @@ def plan_regional_update(project, settings, baseline, **kwargs):
     return plan
 
 
-def generate_regional_update(project, settings, baseline, old_mesh, **kwargs):
+def generate_regional_update(project, settings, baseline, old_mesh, *, mesh_cancellation=None, **kwargs):
     if baseline.get('schema') == periodic.SCHEMA:
         return periodic.generate_periodic_update(project, settings, baseline, old_mesh, **kwargs)
     if baseline.get('schema') == general.SCHEMA:
-        return general.generate_general_update(project, settings, baseline, old_mesh, **kwargs)
+        return general.generate_general_update(project, settings, baseline, old_mesh,
+                                              mesh_cancellation=mesh_cancellation, **kwargs)
     refusal = regional_refusal(project)
     if refusal:
         raise component.RegionalUpdateUnsupported(refusal)

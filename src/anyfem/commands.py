@@ -155,6 +155,7 @@ __all__ = [
     "SetAcceleration",
     "SetFaceCorners",
     "SetElementOrder",
+    "SetS3ReferenceSurface",
     "SetFollowerPressure",
     "SetUnitProfile",
     "SplitEdge",
@@ -2908,6 +2909,23 @@ class SetElementOrder(Command):
 
     def undo(self, project: Project) -> None:
         project.element_order = self._previous
+
+
+@dataclass(eq=False)
+class SetS3ReferenceSurface(Command):
+    """Choose the reference surface of V2D triangles for this project."""
+
+    surface: str = "source"
+    label: str = "set triangle reference surface"
+    _previous: str = field(default="source", init=False)
+
+    def do(self, project: Project) -> None:
+        policy = project.shell_formulation_policy
+        self._previous = policy.s3_reference_surface
+        project.shell_formulation_policy = replace(policy, s3_reference_surface=self.surface)
+
+    def undo(self, project: Project) -> None:
+        project.shell_formulation_policy = replace(project.shell_formulation_policy, s3_reference_surface=self._previous)
 
 
 @dataclass(eq=False)

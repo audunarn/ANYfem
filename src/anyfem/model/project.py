@@ -2127,13 +2127,21 @@ class Project:
         from ..mesh_session import ProjectMeshSession
         return ProjectMeshSession(self, path)
 
-    def automatic_source_mesh_candidate(self, strategy, order):
+    def automatic_source_mesh_candidate(self, strategy, order, *, updating=False):
         """Whether ordinary Automatic generation can ask for independent shell source proofs."""
         if strategy != "auto" or order != "linear" or self.beam_edges:
             return False
         geometry = self.geometry
         if geometry.members or geometry.junctions or geometry.attachments:
             return False
+        if updating:
+            from ..mesh_general_update import SCHEMA
+            parent = self.mesh_records.get(self.mesh_numbering.active_mesh_id)
+            baseline = parent.summary.get("regional_baseline") if parent else None
+            if baseline and baseline.get("schema") == SCHEMA:
+                # Preserve omission of source-owner defaults during preview. The
+                # planner still proves that the edited geometry can be updated.
+                return True
         try:
             import anymesher.regional_source_faces as source_faces
         except ModuleNotFoundError as error:
@@ -2141,7 +2149,9 @@ class Project:
                 raise
             return False
         classify = getattr(source_faces, "independent_source_faces", None)
-        return classify is not None and classify(geometry)
+        staged_trim = getattr(source_faces, "active_source_trim", None)
+        return ((staged_trim is not None and staged_trim(geometry))
+                or (classify is not None and classify(geometry)))
 
     def generate_mesh(
         self,
@@ -2165,6 +2175,7 @@ class Project:
         automation: MeshAutomationOptions | None = None,
         change_set: object | None = None,
         cancellation_check: Callable[[str], None] | None = None,
+        _source_cancellation=None,
         execution_policy: object | None = None,
         pool_lease: object | None = None,
     ) -> Mesh:
@@ -2383,6 +2394,12 @@ class Project:
             native_backend = "python"
         source_geometry = self.geometry
         auto_source = self.automatic_source_mesh_candidate(requested_curvilinear_strategy, resolved_order)
+        source_check = cancellation_check
+        if auto_source and _source_cancellation is not None:
+            from anygeometry import is_cancellation_signal
+            if not is_cancellation_signal(_source_cancellation):
+                raise ProjectError("source cancellation requires an owner-issued signal")
+            source_check = _source_cancellation
         source_members = {
             member_id
             for edge_id in self.beam_edges
@@ -2452,7 +2469,7 @@ class Project:
                 clone_prepared_geometry = source_publication_service(
                     "anygeometry", "clone_prepared_geometry")
                 qualification = qualify_model_closure_source_publication(
-                    source_geometry, closure, cancellation_check=cancellation_check)
+                    source_geometry, closure, cancellation_check=source_check)
                 if qualification is None:
                     raise ProjectError(
                         "curved source publication returned no owner qualification; "
@@ -2661,7 +2678,7 @@ class Project:
                     in ('auto', 'automatic', 'quad_first')):
             from anymesher.approximation_policy import resolve_geometry_approximation
             resolution = resolve_geometry_approximation(
-                working, tuple(sorted(working.faces)), cancellation_check=cancellation_check)
+                working, tuple(sorted(working.faces)), cancellation_check=source_check)
             if resolution.mode != 'not_applicable':
                 geometry_approximation_error = resolution.effective_error
                 # Keep the live owner field tied to this detached source. The
@@ -2676,7 +2693,7 @@ class Project:
             geometry_approximation_error=geometry_approximation_error,
             explicit_controls=recovery_explicit_controls,
             automation=automation, face_ids=tuple(sorted(working.faces)),
-            cancellation_check=cancellation_check)
+            cancellation_check=source_check)
         automatic_selection = None
         if (
             curvilinear_recovery_selection is None
@@ -2773,7 +2790,7 @@ class Project:
             if quality_policy is not None or stored_quality:
                 from anymesher.hybrid import validate_mesh_quality
                 validate_mesh_quality(working, mesh, quality_options=structure_options,
-                                      cancellation_check=cancellation_check)
+                                      cancellation_check=source_check)
         else:
             meshing_parameters = dict(
                 target_size=resolved_size,
@@ -2880,6 +2897,7 @@ class Project:
                         }
                         mesh = None
                 if mesh is None:
+                    meshing_parameters["cancellation_check"] = source_check
                     mesh = generate_hybrid_mesh(working, **meshing_parameters)
             else:
                 self._last_mesh_execution = {
@@ -2894,6 +2912,7 @@ class Project:
                         "automatic mesh recovery requires an ANYmesher installation "
                         "with the MeshAutomationOptions owner API"
                     ) from error
+                meshing_parameters["cancellation_check"] = source_check
                 mesh = generate_automatic_mesh_result(
                     working,
                     automation=automation,
@@ -2947,7 +2966,7 @@ class Project:
                 )
             )
             remap_mesh_to_source(mesh, closure, edge_paths=preparation.source_edge_paths,
-                source_geometry=self.geometry, cancellation_check=cancellation_check,
+                source_geometry=self.geometry, cancellation_check=source_check,
                 **({'qualification': qualification} if qualification is not None else {}))
         if automatic_selection is not None:
             # Recorded after the source remap so the provenance is the final

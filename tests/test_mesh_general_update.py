@@ -255,3 +255,26 @@ def test_extrusion_nominal_size_matches_independent_full_generation():
     assert len(new.elements_of_face[face]) == len(direct.elements_of_face[face])
     for a, b in zip(new.elements_of_face[face], direct.elements_of_face[face], strict=True):
         np.testing.assert_array_equal([new.nodes[n] for n in new.shells[a]], [direct.nodes[n] for n in direct.shells[b]])
+
+
+def test_bezier_automatic_approximation_publishes_regional_child_after_reopen(tmp_path):
+    from anyfem.io.project_file import load_project
+
+    project, _, face, _ = panel("extruded")
+    project.native_mesh_settings = None
+    session = project.mesh_session()
+    initial = MeshSettings.create(.25, strategy="auto", element_order="linear")
+    old = session.generate_mesh(initial)
+    assert old.hybrid_diagnostics["geometry_approximation"]["mode"] == "automatic"
+    path = session.save(tmp_path / "bezier.anyfem")
+
+    session = load_project(path).mesh_session()
+    requested = replace(initial, target_size=.20)
+    assert session.preview_update(requested).regenerated == (face,)
+    child = session.update_mesh(requested)
+    assert child.hybrid_diagnostics["geometry_approximation"]["mode"] == "automatic"
+    assert set(child.elements_of_face[face]) == set(child.shells)
+    assert min(child.shells) > max(old.shells)
+    assert session.preview_update(requested).is_noop
+    session.save()
+    assert load_project(path).mesh_session().mesh.shells == child.shells

@@ -102,15 +102,15 @@ def build_fe_model(
     active_id = project.mesh_numbering.active_mesh_id
     if project.mesh_numbering.generation:
         from ..application.mesh_publication import changed_mesh_sources
-        from ..mesh_jobs import mesh_semantic_hash
+        from ..mesh_jobs import matches_mesh_hash
         active = project.mesh_records.get(active_id)
         if active is None or (producing_id is not None and producing_id != active_id):
             raise ProjectError("mesh does not match the project's active published mesh")
         changed = changed_mesh_sources(project, active)
         if changed:
             raise ProjectError(f"published mesh is stale after changes to {', '.join(changed)}; update the mesh")
-        if mesh_semantic_hash(mesh, model_hash=active.source_model_hash, mesh_input_hash=active.mesh_input_hash,
-                              structural_preparation=active.structural_preparation) != active.mesh_hash:
+        if not matches_mesh_hash(mesh, active.mesh_hash, model_hash=active.source_model_hash,
+                                 mesh_input_hash=active.mesh_input_hash, structural_preparation=active.structural_preparation):
             raise ProjectError("mesh content differs from the active publication")
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
@@ -283,7 +283,17 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             )
             extra: dict[str, Any] = {}
             if formulation == "e4-pl-s3-v2d":
-                extra["reference_normal"] = owner_normals[int(element_id)]
+                reference = owner_normals[int(element_id)]
+                if project.shell_formulation_policy.s3_reference_surface == "faceted":
+                    # Source normals have already passed signed-area, owner alignment
+                    # and shape admission above. Keep their physical side on each chord facet.
+                    a, b, c = (np.asarray(mesh.nodes[n], dtype=float) for n in node_ids)
+                    facet = np.cross(b - a, c - a)
+                    length = np.linalg.norm(facet)
+                    if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
+                        raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
+                    reference = facet / length
+                extra["reference_normal"] = reference
             # The application policy is explicit and persisted, so the solver's
             # user-facing deprecation warning would otherwise be repeated once
             # per legacy Q4 element.  Keep the warning for direct solver callers.

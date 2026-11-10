@@ -86,9 +86,9 @@ def _metadata_channel(dataset) -> str:
     return f"metadata:{id(dataset)}"
 
 
-def _mesh_control_request(project, strategy, native, structured):
+def _mesh_control_request(project, strategy, native, structured, *, updating=False):
     # Preserve omission so the ordinary source owner can choose chart defaults.
-    if project.automatic_source_mesh_candidate(strategy, project.element_order):
+    if project.automatic_source_mesh_candidate(strategy, project.element_order, updating=updating):
         return native, structured
     stored = project.native_mesh_settings
     return native or MeshControls.from_settings(stored), structured or StructuredMeshControls.from_settings(stored)
@@ -625,7 +625,7 @@ class WorkbenchWorkflow:
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
         mesh_controls, structured_controls = _mesh_control_request(
-            self.project, resolved_strategy, mesh_controls, structured_controls)
+            self.project, resolved_strategy, mesh_controls, structured_controls, updating=_regional_update)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -920,7 +920,7 @@ class WorkbenchWorkflow:
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
         mesh_controls, structured_controls = _mesh_control_request(
-            self.project, resolved_strategy, mesh_controls, structured_controls)
+            self.project, resolved_strategy, mesh_controls, structured_controls, updating=_regional_update or _preview_update)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )

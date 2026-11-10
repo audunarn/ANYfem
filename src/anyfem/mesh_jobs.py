@@ -389,12 +389,37 @@ _PARALLEL_ROUTE_KEYS = frozenset(
 )
 
 
+def _seeding_hash_order(preparation, *, text_keys):
+    """Canonicalize the two geometry-ID maps that JSON key serialization changes."""
+    source = preparation.get("prepared_boundary_provenance")
+    seeding = source.get("prepared_seeding") if isinstance(source, Mapping) else None
+    if not isinstance(seeding, Mapping):
+        return
+    seeding = dict(seeding)
+    for name in ("divisions", "classes"):
+        if name not in seeding:
+            continue
+        if not isinstance(seeding[name], Mapping):
+            raise ValueError(f"invalid prepared seeding {name} map")
+        values = {}
+        for key, value in seeding[name].items():
+            if type(key) not in (int, str) or str(int(key)) != str(key):
+                raise ValueError(f"invalid geometry key in prepared seeding {name}")
+            canonical = str(key) if text_keys else int(key)
+            if canonical in values:
+                raise ValueError(f"duplicate geometry key in prepared seeding {name}")
+            values[canonical] = value
+        seeding[name] = values
+    preparation["prepared_boundary_provenance"] = dict(source, prepared_seeding=seeding)
+
+
 def mesh_semantic_hash(
     mesh: Any,
     *,
     model_hash: str,
     mesh_input_hash: str,
     structural_preparation: Mapping[str, Any] | None = None,
+    _text_seeding_keys: bool = False,
 ) -> str:
     """Hash solver-affecting mesh semantics, excluding owner bookkeeping."""
 
@@ -456,6 +481,7 @@ def mesh_semantic_hash(
             hybrid_diagnostics
         )
     preparation = dict(structural_preparation or {})
+    _seeding_hash_order(preparation, text_keys=_text_seeding_keys)
     preparation.pop("working_model_id", None)
     preparation.pop("working_revision", None)
     preparation.pop("source_revision", None)
@@ -503,6 +529,18 @@ def mesh_semantic_hash(
             "mesh": mesh_payload,
         }
     )
+
+
+def matches_mesh_hash(mesh, expected, *, model_hash, mesh_input_hash, structural_preparation):
+    inputs = dict(model_hash=model_hash, mesh_input_hash=mesh_input_hash,
+                  structural_preparation=structural_preparation)
+    if mesh_semantic_hash(mesh, **inputs) == expected:
+        return True
+    # An older save could first hash the neutral (text-keyed) transport.
+    # Only the ordering of these two typed maps may differ on that route.
+    origin = (structural_preparation or {}).get("prepared_boundary_provenance")
+    return (isinstance(origin, Mapping) and isinstance(origin.get("prepared_seeding"), Mapping)
+            and mesh_semantic_hash(mesh, _text_seeding_keys=True, **inputs) == expected)
 
 
 @dataclass(frozen=True)
@@ -913,6 +951,8 @@ def run_mesh_job(
     settings: "MeshSettings",
     progress: Any,
     cancellation: Any,
+    *,
+    _regional_stage_check=None,
 ) -> "MeshJobResult":
     """Generate, check and hash one mesh.
 
@@ -971,6 +1011,8 @@ def run_mesh_job(
     def check_and_report(stage):
         nonlocal last_parallel_stage
         cancellation.raise_if_cancelled(stage)
+        if _regional_stage_check is not None:
+            _regional_stage_check(stage)
         # The owner polls cancellation repeatedly while waiting. Forward only
         # changed public component stages so the run monitor remains useful
         # without flooding the GUI thread with identical updates.
@@ -998,6 +1040,9 @@ def run_mesh_job(
             progress("generation", text, fraction)
             last_parallel_stage = text
 
+    from .native_meshing import NativeMeshingCancellation
+
+    native_token = cancellation if type(cancellation) is NativeMeshingCancellation else None
     regional_result = None
     if settings.regional is not None:
         # Explicit regional update; there is no silent fallback to a full rebuild.
@@ -1011,6 +1056,7 @@ def run_mesh_job(
             node_high_water=settings.regional.node_high_water,
             element_high_water=settings.regional.element_high_water,
             cancellation_check=check_and_report,
+            **({"mesh_cancellation": native_token} if native_token is not None else {}),
         )
     mesh = regional_result.mesh if regional_result is not None else project.generate_mesh(
         settings.target_size,
@@ -1035,6 +1081,8 @@ def run_mesh_job(
         ),
         automation=settings.automation,
         cancellation_check=check_and_report,
+        **({"_source_cancellation": native_token.geometry_cancellation}
+           if native_token is not None and auto_source else {}),
         execution_policy=settings.execution_policy,
     )
     if regional_result is not None:
@@ -1181,29 +1229,11 @@ def mesh_job_entry(*, project, progress, cancellation_token, settings, model_has
 mesh_job_entry.error_diagnostic = _exception_diagnostic
 
 def _cancellation_token():
-    try:
-        from anysolver import CancellationToken
+    from .native_meshing import NativeMeshingCancellation
+    return NativeMeshingCancellation()
 
-        return CancellationToken()
-    except ImportError:  # pragma: no cover - ANYsolver is a normal dependency
-        class Token:
-            def __init__(self) -> None:
-                self._cancelled = threading.Event()
 
-            @property
-            def is_cancelled(self) -> bool:
-                return self._cancelled.is_set()
-
-            def cancel(self, _reason: str = "") -> bool:
-                changed = not self._cancelled.is_set()
-                self._cancelled.set()
-                return changed
-
-            def raise_if_cancelled(self, _stage: str = "") -> None:
-                if self.is_cancelled:
-                    raise RuntimeError("mesh cancelled")
-
-        return Token()
+mesh_job_entry.cancellation_token_factory = _cancellation_token
 
 
 def _is_cancelled(token: Any) -> bool:

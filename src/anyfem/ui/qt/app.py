@@ -341,9 +341,22 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         return super()._poll_mesh_jobs()
 
     def review_prepared_patch(self, *, preview, old_mesh):
-        from ...selection import entity_tag
-        from ..scene import build_mesh_scene
+        return self.review_parent_cells(preview, old_mesh, "Publish mesh update", "Publish this mesh?")
 
+    def review_parent_cells(self, preview, old_mesh, title, question):
+        from ...selection import MeshEntityRef, entity_tag
+        from ..scene import Polyline, build_mesh_scene
+        import numpy as np
+
+        if old_mesh is None:
+            from ...application.mesh_publication import retained_mesh
+            parent_ids = {ref.mesh_id for ref in preview.owners if isinstance(ref, MeshEntityRef)}
+            active_id = self.project.mesh_numbering.active_mesh_id
+            if active_id is None or parent_ids != {active_id}:
+                raise ValueError("Update preview refers to a superseded parent mesh")
+            old_mesh = retained_mesh(self, active_id)
+            if old_mesh is None:
+                raise ValueError("The parent mesh is unavailable for update preview")
         viewport = self.viewport
         previous_scene = viewport._visibility_scene
         interaction = viewport._visibility_interaction_scene
@@ -351,12 +364,17 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         project, model_hash = self.project, self.session.revision.model_hash
         hidden = set(viewport.visibility.hidden)
         parent_scene = build_mesh_scene(self.project, old_mesh, show_beam_sections=False, show_nodes=False)
+        geometry = project.geometry
+        for ref in preview.owners:
+            if ref.kind == "edge" and ref.id in geometry.edges:
+                points = geometry.sample_edge(ref.id, np.linspace(0., 1., 25))
+                parent_scene.lines.append(Polyline(ref, np.asarray(points), draw_overlay=True))
         try:
             viewport.visibility.hidden.clear()
             viewport.show(parent_scene)
             viewport.set_collection_highlight(preview.owners)
             viewport.canvas.set_highlight([entity_tag(r) for r in preview.owners])
-            return self.dialogs.confirm("Publish mesh update", preview.description + "\n\nPublish this mesh?")
+            return self.dialogs.confirm(title, preview.description + "\n\n" + question)
         finally:
             if self.project is project and self.session.revision.model_hash == model_hash:
                 viewport.visibility.hidden = hidden

@@ -1,6 +1,8 @@
 """Publish a regional update and reselect an actual retired reference in the Qt panel."""
 import os
 import time
+import json
+from dataclasses import asdict
 
 import pytest
 
@@ -19,6 +21,7 @@ from anyfem.model.regions import ManualRegion, MeshEntityRef, Region, RegionRef
 from anyfem.ui.qt.app import QtFemWindow
 from anyfem.ui.qt.tasks import MeshRepairDialog, MeshTask
 from test_regional_mesh import two_plates
+from test_mesh_general_interior import published_panel
 
 
 def _finish(window, app, expected="completed"):
@@ -324,6 +327,68 @@ def test_edit_during_prepared_review_rejects_the_stale_candidate(tmp_path, monke
         assert window._meshes[parent.id] is old and project.mesh_numbering == ledger
         assert window._view_mode == "geometry"
         assert not any(isinstance(r, SceneMeshRef) for r in window.viewport._collection_refs)
+    finally:
+        window.session.mark_saved()
+        window.close()
+        app.processEvents()
+
+
+def test_trim_preview_refuses_changed_source_or_mesh_drafts_at_confirmation(published_panel, tmp_path, monkeypatch):
+    from test_mesh_source_trim import _edit_hole
+
+    session, _, edited, _, _, ring, _ = _edit_hole(published_panel, aligned=False)
+    parent = session.mesh_record_id
+    project = session.project
+    ledger = project.mesh_numbering
+    records = set(project.mesh_records)
+    monkeypatch.setattr(recovery, "default_recovery_root", lambda: tmp_path/"recovery")
+    app = QApplication.instance() or QApplication([])
+    window = QtFemWindow(project, viewer_backend="software")
+    try:
+        window.path = published_panel[0]
+        window.show_geometry()
+        panel = window.panels["Mesh"]
+        panel.set_strategy(edited.strategy)
+        panel.size.setText(str(edited.target_size))
+        panel.options.setPlainText(json.dumps({"mesh_controls": asdict(edited.controls), "quality_policy": None,
+                                              "structured_controls": None, "automation": None}))
+        window.seeding_overrides.update(edited.overrides)
+        monkeypatch.setattr(window, "update_mesh_async", lambda **kw: pytest.fail("submitted superseded trim"))
+
+        def change_size(title, message):
+            assert title == "Update mesh" and "Remesh the material" in message
+            panel.size.setText(".25")
+            return accept
+
+        monkeypatch.setattr(window.dialogs, "confirm", change_size)
+        accept = False
+        panel.start_update()
+        assert panel.size.text() == ".25"
+        panel.size.setText(str(edited.target_size))
+        accept = True
+        with pytest.raises(ValueError, match="Mesh settings changed"):
+            panel.start_update()
+        panel.size.setText(str(edited.target_size))
+
+        def change_seeding(*_):
+            window.seeding_overrides[ring[0]] = 2
+            return True
+
+        monkeypatch.setattr(window.dialogs, "confirm", change_seeding)
+        with pytest.raises(ValueError, match="Mesh settings changed|superseded"):
+            panel.start_update()
+        window.seeding_overrides.update(edited.overrides)
+
+        def change_geometry(*_):
+            with window.session.transaction("edit geometry during trim review"):
+                project.geometry.add_point(4., 4., 4.)
+            return True
+
+        monkeypatch.setattr(window.dialogs, "confirm", change_geometry)
+        with pytest.raises(ValueError, match="superseded"):
+            panel.start_update()
+        assert project.mesh_numbering == ledger and session.mesh_record_id == parent
+        assert set(project.mesh_records) == records and not window.mesh_job_running
     finally:
         window.session.mark_saved()
         window.close()

@@ -39,9 +39,9 @@ def changed_mesh_sources(project, record):
 def verify_published_content(record, mesh):
     if record is None or "mesh_sources" not in record.summary:
         return
-    actual = mesh_semantic_hash(mesh, model_hash=record.source_model_hash, mesh_input_hash=record.mesh_input_hash,
-                                structural_preparation=record.structural_preparation)
-    if actual != record.mesh_hash:
+    from ..mesh_jobs import matches_mesh_hash
+    if not matches_mesh_hash(mesh, record.mesh_hash, model_hash=record.source_model_hash,
+                             mesh_input_hash=record.mesh_input_hash, structural_preparation=record.structural_preparation):
         raise ValueError(f"mesh content differs from publication {record.id}")
 
 

@@ -299,6 +299,15 @@ class MeshTask(QWidget):
         layout.addWidget(preview_section)
         settings=Collapsible("Advanced settings",hint="Backend, quality, quad-first and recovery controls. Defaults suit most models.")
         settings.addLayout(advanced)
+        self.s3_reference = QComboBox()
+        self.s3_reference.addItem("Source surface normal", "source")
+        self.s3_reference.addItem("Flat triangle normal, oriented by source", "faceted")
+        self.s3_reference.setToolTip("V2D uses flat triangles. The faceted option follows each triangle plane and keeps the source sheet's physical side.")
+        policy = app.project.shell_formulation_policy
+        self.s3_reference.setCurrentIndex(self.s3_reference.findData(policy.s3_reference_surface))
+        self.s3_reference.setEnabled(policy.s3 == "e4-pl-s3-v2d")
+        settings.addWidget(section_label("V2D triangle reference surface"))
+        settings.addWidget(self.s3_reference)
         self.source_controls_hint = QLabel(
             "Automatic inherits saved native and layout settings and lets the surface mesher choose recovery. "
             "Editing a control group applies its displayed values. Element quality limits always apply.")
@@ -352,7 +361,7 @@ class MeshTask(QWidget):
         subprocess.Popen([sys.executable,"-m","anymesher.gui"])
         self.app.set_status("Opened standalone ANYmesher; save its neutral mesh from that window")
 
-    def settings(self):
+    def settings(self, *, updating=False):
         options=json.loads(self.options.toPlainText())
         if not isinstance(options,dict):
             raise ValueError("Mesh options must be an object")
@@ -360,7 +369,7 @@ class MeshTask(QWidget):
         from ...mesh_controls import MeshControls,StructuredMeshControls
         project = self.app.project
         stored = project.native_mesh_settings
-        source = project.automatic_source_mesh_candidate(self.strategy_token(), self.order.currentText())
+        source = project.automatic_source_mesh_candidate(self.strategy_token(), self.order.currentText(), updating=updating)
 
         def request(name, form, record, inherited):
             if name in options and (source or options[name] is not None):
@@ -402,18 +411,28 @@ class MeshTask(QWidget):
 
     def start(self):
         options=self.settings()
+        reference = self.s3_reference.currentData()
         if self.order.currentText()!=self.app.project.element_order:
             from ...commands import SetElementOrder
             self.app.run(SetElementOrder(self.order.currentText()))
+        if reference != self.app.project.shell_formulation_policy.s3_reference_surface:
+            from ...commands import SetS3ReferenceSurface
+            self.app.run(SetS3ReferenceSurface(reference))
         self.app.generate_mesh_async(**options)
 
     def start_update(self):
         """Regional update with the same settings as Generate mesh; never a hidden full rebuild."""
-        options=self.settings()
+        from ...application.mesh_publication import check_ticket, publication_ticket
+
+        options=self.settings(updating=True)
         if self.order.currentText()!=self.app.project.element_order:
             raise ValueError("Element order differs from the current mesh; use Generate mesh for a full rebuild")
+        if self.s3_reference.currentData() != self.app.project.shell_formulation_policy.s3_reference_surface:
+            raise ValueError("Triangle reference surface changed; use Generate mesh to apply it")
         # The preview raises an accurate error (for example no regional baseline) before anything is submitted.
         from ...mesh_preview import MeshUpdatePreview
+        ticket = publication_ticket(self.app)
+        seeding = dict(self.app.seeding_overrides)
         impact = self.app.preview_regional_update(include_impact=True, **options)
         if isinstance(impact, MeshUpdatePreview) and impact.review_prepared_cells:
             self.app.submit_patch_update(**options)
@@ -423,16 +442,30 @@ class MeshTask(QWidget):
         highlight = (isinstance(impact, MeshUpdatePreview) and impact.owners and viewport is not None
                      and self.app._view_mode in ("geometry", "mesh"))
         previous = viewport._collection_refs if highlight else None
-        try:
-            if highlight:
-                viewport.set_collection_highlight(previous.union(impact.owners))
-            confirmed = self.app.dialogs.confirm("Update mesh", f"{description}\n\nUpdate the mesh now?")
-        finally:
-            if highlight:
-                viewport.set_collection_highlight(previous)
+        from ...selection import MeshEntityRef
+        if (highlight and any(isinstance(ref, MeshEntityRef) for ref in impact.owners)
+                and hasattr(self.app, "review_parent_cells")):
+            confirmed = self.app.review_parent_cells(impact, None, "Update mesh", "Update the mesh now?")
+        else:
+            try:
+                if highlight:
+                    viewport.set_collection_highlight(previous.union(impact.owners))
+                confirmed = self.app.dialogs.confirm("Update mesh", f"{description}\n\nUpdate the mesh now?")
+            finally:
+                if highlight:
+                    viewport.set_collection_highlight(previous)
         if not confirmed:
             self.app.set_status("Mesh update cancelled")
             return
+        # A modal confirmation runs a nested event loop. The user approved
+        # this parent's cut and the settings that produced its preview.
+        check_ticket(self.app, ticket)
+        if not ticket.expected.generation and self.app.mesh_record_id != ticket.parent_id:
+            raise ValueError("Update preview refers to a superseded parent mesh")
+        if (seeding != self.app.seeding_overrides or options != self.settings(updating=True)
+                or self.order.currentText() != self.app.project.element_order
+                or self.s3_reference.currentData() != self.app.project.shell_formulation_policy.s3_reference_surface):
+            raise ValueError("Mesh settings changed during confirmation. Review the updated preview.")
         self.app.update_mesh_async(**options, reference_repairs=self.app.review_mesh_reference_repairs)
 
     def preview(self):
@@ -472,6 +505,9 @@ class MeshTask(QWidget):
 
     def reset_mesh_drafts(self):
         from ...mesh_controls import MeshControls,StructuredMeshControls
+        policy = self.app.project.shell_formulation_policy
+        self.s3_reference.setCurrentIndex(self.s3_reference.findData(policy.s3_reference_surface))
+        self.s3_reference.setEnabled(policy.s3 == "e4-pl-s3-v2d")
         self.size.setText(str(self.app.project.target_size or 0.25))
         settings=self.app.project.native_mesh_settings
         self._edited_mesh_forms.clear()
