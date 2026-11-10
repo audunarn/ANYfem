@@ -1,6 +1,8 @@
 """Choose the owner of a regional baseline when its numbered mesh is published."""
 
 from . import mesh_connected_update as connected
+from . import mesh_general_update as general
+from . import mesh_periodic_component_update as periodic
 from . import mesh_curved_update as curved
 from . import mesh_source_chart_update as chart
 from . import mesh_surface_update as surface
@@ -15,8 +17,8 @@ def regional_refusal(project):
     faces = project.geometry.faces.values()
     families = {type(face.surface).__name__ for face in faces}
     if families and source_publication_required(project.geometry):
-        return (f"Regional update unsupported for {', '.join(sorted(families))}. The geometry requires live source-cell "
-                "publication from ANYmesh. A regional splice cannot reissue that proof.")
+        return (f"Regional update unsupported for this {', '.join(sorted(families))} baseline. "
+                "It requires live source-cell publication and complete verified surface ownership.")
     unsupported = families & {"RuledSurface", "ExtrudedSurface", "NurbsSurface"}
     if unsupported:
         return f"Regional update unsupported. No verified regional adapter for {', '.join(sorted(unsupported))}."
@@ -28,6 +30,12 @@ def regional_refusal(project):
 
 
 def capture_regional_baseline(project, settings, mesh):
+    if periodic.periodic_ring_family(project):
+        baseline = periodic.capture_periodic_baseline(project, settings, mesh)
+        if baseline is not None:
+            return baseline
+    if general.general_family(project):
+        return general.capture_general_baseline(project, settings, mesh)
     if regional_refusal(project):
         return None
     if project.beam_edges or (mesh.declared_plate_junction_edges and mesh.automatic_intersections):
@@ -54,6 +62,10 @@ def capture_regional_baseline(project, settings, mesh):
 
 
 def plan_regional_update(project, settings, baseline, **kwargs):
+    if baseline.get('schema') == periodic.SCHEMA:
+        return periodic.plan_periodic_update(project, settings, baseline, **kwargs)
+    if baseline.get('schema') == general.SCHEMA:
+        return general.plan_general_update(project, settings, baseline, **kwargs)
     refusal = regional_refusal(project)
     if refusal:
         raise component.RegionalUpdateUnsupported(refusal)
@@ -74,6 +86,10 @@ def plan_regional_update(project, settings, baseline, **kwargs):
 
 
 def generate_regional_update(project, settings, baseline, old_mesh, **kwargs):
+    if baseline.get('schema') == periodic.SCHEMA:
+        return periodic.generate_periodic_update(project, settings, baseline, old_mesh, **kwargs)
+    if baseline.get('schema') == general.SCHEMA:
+        return general.generate_general_update(project, settings, baseline, old_mesh, **kwargs)
     refusal = regional_refusal(project)
     if refusal:
         raise component.RegionalUpdateUnsupported(refusal)

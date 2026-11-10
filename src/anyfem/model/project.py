@@ -2442,6 +2442,16 @@ class Project:
         if qualification is not None:
             # A curved bound is never dropped; planar input keeps it as metadata.
             supported_parameters['geometry_approximation_error'] = geometry_approximation_error
+            if (resolved_strategy == 'mapped' and structured_controls == StructuredMeshControls()
+                    and quality_policy is None and not stored_quality
+                    and (structure_preference or parameters.get('structure_preference', 'balanced')) == 'balanced'):
+                # On an exact tensor chart the source owner supplies the mapped
+                # layout. Requesting a second, default block planner prevents
+                # the material-cell route from running. Explicit policies stay
+                # on their usual owner admission path.
+                from anygeometry import source_tensor_chart
+                if all(source_tensor_chart(source_geometry, fid) is not None for fid in source_geometry.faces):
+                    structure_options = None
         working = closure.working_model
         working_member_ids = tuple(
             sorted(
@@ -2677,7 +2687,8 @@ class Project:
                 native_backend = "python"
 
         mapped_fast_path = (
-            automation is None
+            qualification is None
+            and automation is None
             and resolved_strategy != "native"
             and quad_options is None
             and already_structured

@@ -78,12 +78,17 @@ def _numbered_boundary_registry(registry, nodes):
 
 
 def number_full_mesh(mesh, state, *, source_geometry=None):
-    """Translate permanent IDs only when the geometry owner needs no live rebinding."""
+    """Assign fresh permanent IDs while the generating source is available."""
     nodes = _fresh_ids(mesh.nodes, state.node_high_water, state.generation == 0)
     elements = _fresh_ids(element_numbers(mesh), state.element_high_water, state.generation == 0)
     if all(key == value for key, value in nodes.items()) and all(key == value for key, value in elements.items()):
         # Already a detached generator result. No references need rewriting.
         return mesh
+    return number_mesh_with_maps(mesh, nodes, elements, source_geometry=source_geometry)
+
+
+def number_mesh_with_maps(mesh, nodes, elements, *, source_geometry):
+    """Translate the generator's complete label maps with their source evidence."""
     from anymesher import requires_material_source_transfer
     from anymesher.boundary import GlobalEdgeBoundaryRegistry
     try:
@@ -107,7 +112,8 @@ def number_full_mesh(mesh, state, *, source_geometry=None):
         ):
             raise ValueError("permanent numbering requires the shell mesh's current source geometry")
         if source_geometry is not None and requires_material_source_transfer(source_geometry, mesh):
-            raise ValueError("permanent numbering requires live material source authority to be rebound")
+            from anymesher import remap_source_mesh_ids
+            return remap_source_mesh_ids(mesh, nodes, elements, source_geometry=source_geometry)
         if (registry is not None and registry.view.source is not source_geometry
                 and requires_material_source_transfer(registry.view.source, None)):
             raise ValueError("permanent numbering requires live material source authority to be rebound")

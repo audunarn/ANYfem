@@ -411,7 +411,10 @@ def _qualified_s3_owner_normals(
         raise ProjectError("qualified S3 source-model authority is malformed")
     if (
         type(authority["prepared_revision"]) is not int
-        or authority["scope"] != "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE"
+        or authority["scope"] not in (
+            "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+            "SOURCE_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+        )
         or type(authority["source_model_id"]) is not str
         or type(authority["source_revision"]) is not int
     ):
@@ -431,6 +434,17 @@ def _qualified_s3_owner_normals(
         or authority["source_revision"] != mesh_revision
     ):
         raise ProjectError("qualified S3 mesh authority is stale for the source geometry")
+
+    source_face_scope = authority["scope"] == "SOURCE_GEOMETRY_ORIENTED_SHEET_FACE_USE"
+    if source_face_scope:
+        transfer = mesh.structural_preparation.get("closure_source_transfer")
+        if (
+            not isinstance(transfer, Mapping)
+            or transfer.get("source_model_id") != project_model_id
+            or transfer.get("source_revision") != project_revision
+            or authority["prepared_revision"] != project_revision
+        ):
+            raise ProjectError("qualified S3 source-face normals lack a matching closure publication")
 
     shell_ids = tuple(sorted(int(value) for value in mesh.shells))
     expected_normal_keys = {str(value) for value in shell_ids}
@@ -459,6 +473,21 @@ def _qualified_s3_owner_normals(
             raise ProjectError(
                 f"qualified S3 physical owner source {key!r} is malformed"
             )
+
+    if source_face_scope:
+        uses_by_face = {}
+        for use_id, use in sorted(project.geometry.face_uses.items()):
+            uses_by_face.setdefault(use.face_id, []).append((use_id, use.sheet_id))
+        seen = set()
+        for face, elements in mesh.elements_of_face.items():
+            for element in elements:
+                owner = raw_sources.get(str(element))
+                if (owner is None or element in seen or owner["face_id"] != face
+                        or list(zip(owner["face_use_ids"], owner["sheet_ids"])) != uses_by_face.get(face)):
+                    raise ProjectError(f"qualified S3 source face uses differ for element {element}")
+                seen.add(element)
+        if seen != set(shell_ids):
+            raise ProjectError("qualified S3 source face coverage differs from the mesh")
 
     nodal_normals = record["nodal_normals"]
     shell_node_ids = {

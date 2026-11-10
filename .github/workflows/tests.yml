@@ -21,7 +21,7 @@ on:
       mesher_ref:
         description: 'Frozen reviewed ANYmesh commit SHA (40 hex)'
         type: string
-        default: '501bed1837425103391d06c506f19261621f6903'
+        default: 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8'
 
 jobs:
   development:
@@ -91,12 +91,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: b74605a9a5b1ef1faa17861a2ea1d0fde392c177
+          ref: 0bcc1b397cfa07ffa8bba26d8c7c5b5a2939baf4
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '501bed1837425103391d06c506f19261621f6903' }}
+          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -254,12 +254,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: b74605a9a5b1ef1faa17861a2ea1d0fde392c177
+          ref: 0bcc1b397cfa07ffa8bba26d8c7c5b5a2939baf4
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '501bed1837425103391d06c506f19261621f6903' }}
+          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:
@@ -429,12 +429,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: b74605a9a5b1ef1faa17861a2ea1d0fde392c177
+          ref: 0bcc1b397cfa07ffa8bba26d8c7c5b5a2939baf4
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '501bed1837425103391d06c506f19261621f6903' }}
+          ref: ${{ inputs.mesher_ref || 'c1630dc81688bcc1a6d96bfa68277e25d76eb1d8' }}
           path: .ecosystem/ANYmesh
       - uses: actions/checkout@v4
         with:

@@ -24,6 +24,7 @@ from .document import ProjectSnapshot, canonical_hash
 from .job_process import WorkerProcessError, run_in_worker_process
 from .jobs import _resolve_executor
 from .mesh_controls import MeshControls, StructuredMeshControls
+from .mesh_numbering import MeshNumbering, number_full_mesh
 
 __all__ = [
     "clone_mesh_for_job",
@@ -146,10 +147,15 @@ class MeshSettings:
     regional: RegionalJobInput | None = dataclass_field(
         default=None, kw_only=True, compare=False
     )
+    publication_allocation: MeshNumbering | None = dataclass_field(default=None, kw_only=True, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.regional is not None and not isinstance(self.regional, RegionalJobInput):
             raise TypeError("regional must be a RegionalJobInput")
+        if self.publication_allocation is not None and (
+            not isinstance(self.publication_allocation, MeshNumbering) or self.regional is not None
+        ):
+            raise ValueError("a full publication allocation requires an independent full generation")
         explicit = self.quality_policy_explicit
         if explicit is None:
             explicit = bool(self.quality_policy)
@@ -1054,6 +1060,9 @@ def run_mesh_job(
     progress("quality", "checking element quality", 0.85)
     from anymesher import verify_mesh_quality
 
+    if settings.publication_allocation is not None and mesh.hybrid_diagnostics.get("automation", {}).get("status") != "inspection_only":
+        # Source-cell receipts belong to this generation and cannot be pickled.
+        mesh = number_full_mesh(mesh, settings.publication_allocation, source_geometry=project.geometry)
     quality = verify_mesh_quality(mesh).as_dict()
     cancellation.raise_if_cancelled("mesh hashing")
     progress("hash", "hashing immutable mesh result", 0.94)
@@ -1110,6 +1119,9 @@ def run_mesh_job(
         regional_baseline = None if baseline is None else dict(baseline)
         retained_nodes = tuple(sorted(int(i) for i in regional_result.retained_nodes))
         retained_elements = tuple(sorted(int(i) for i in regional_result.retained_elements))
+    elif settings.publication_allocation is not None and mesh.hybrid_diagnostics.get("automation", {}).get("status") != "inspection_only":
+        from .regional_dispatch import capture_regional_baseline
+        regional_baseline = capture_regional_baseline(project, settings, mesh)
     cancellation.raise_if_cancelled("mesh completion")
     progress("complete", "mesh and quality checks complete", 1.0)
     return MeshJobResult(

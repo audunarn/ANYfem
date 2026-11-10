@@ -157,8 +157,8 @@ def test_journal_advances_only_on_outer_commit(tmp_path, monkeypatch):
 class FileWorkbench(Workbench):
     """Use the real open/save commands with widget plumbing omitted."""
 
-    def __init__(self, project):
-        super().__init__(project)
+    def __init__(self, project, **options):
+        super().__init__(project, **options)
         self._project_lock = None
         self._artifact_futures = {}
         self._log_futures = {}

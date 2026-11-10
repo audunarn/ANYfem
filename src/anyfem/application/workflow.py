@@ -992,6 +992,8 @@ class WorkbenchWorkflow:
                                         ticket.allocation.node_high_water,
                                         ticket.allocation.element_high_water)
             settings = replace(settings, regional=regional)
+        else:
+            settings = replace(settings, publication_allocation=ticket.allocation)
         snapshot = self.session.snapshot()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
@@ -1125,14 +1127,8 @@ class WorkbenchWorkflow:
                         current = False
                 if current and not inspection_only:
                     try:
-                        from ..regional_dispatch import capture_regional_baseline
-                        if settings.regional is None:
-                            from anymesher import verify_mesh_quality
-                            numbered = number_full_mesh(result.mesh, ticket.allocation, source_geometry=self.project.geometry)
-                            baseline = capture_regional_baseline(self.project, settings, numbered)
-                            result = replace(result, mesh=numbered, quality=verify_mesh_quality(numbered).as_dict())
-                        else:
-                            baseline = result.regional_baseline
+                        baseline = result.regional_baseline
+                        if settings.regional is not None:
                             if review is not None:
                                 from ..mesh_preview import prepared_cell_preview
                                 old = retained_mesh(self, ticket.parent_id)

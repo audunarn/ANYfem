@@ -174,6 +174,33 @@ def _document(geometry: Any) -> dict[str, Any]:
     }
 
 
+def _fixed_meshing_inputs(meshing):
+    """Keep model meshing policies outside the explicit size and edge inputs."""
+    fixed = dict(meshing)
+    for key in ("target_size", "seeding_overrides"):
+        fixed.pop(key, None)
+    if fixed.get("native") is not None:
+        # The Workbench stores the current global target here as well.
+        # The per-control target sizes inside 'controls' remain model inputs.
+        fixed["native"] = dict(fixed["native"])
+        fixed["native"].pop("target_size", None)
+    return fixed
+
+
+def _surface_model_inputs(project):
+    from .document import _model_payload
+    from .io.project_file import project_to_dict
+
+    document = project_to_dict(project)
+    model = _model_payload(document)
+    # Manual mesh regions are resolved against the producing artifact during
+    # atomic publication. A retained pressure face changes its mesh UUID there.
+    model["regions"] = [region for region in model.get("regions", ()) if region["domain"] != "mesh"]
+    for key in ("generator_properties", "mesh_size_properties"):
+        model[key] = document[key]
+    return model
+
+
 def _assignment_maps(project: Any) -> dict[str, dict[int, str | None]]:
     """The effective face/edge section assignments (canonical records folded in)."""
 
@@ -268,10 +295,11 @@ def _auto_mappable(geometry: Any, faces: Any) -> bool:
 
 
 def _component_record(geometry: Any, document: Mapping[str, Any], faces: list[int],
-                      settings: Any, assignments: Mapping[str, Mapping[int, Any]] | None = None
+                      settings: Any, assignments: Mapping[str, Mapping[int, Any]] | None = None,
+                      *, sheets_in_scope=None
                       ) -> dict[str, Any]:
     face_set = set(faces)
-    order = [int(f) for f in geometry.faces if int(f) in face_set]
+    order = [int(faces[0])] if len(faces) == 1 else [int(f) for f in geometry.faces if int(f) in face_set]
     edges: set[int] = set()
     vertices: set[int] = set()
     for face_id in faces:
@@ -302,7 +330,9 @@ def _component_record(geometry: Any, document: Mapping[str, Any], faces: list[in
         "vertices": {str(v): document["vertices"][v] for v in sorted(vertices)},
     }
     sheets = {}
-    for sheet_id, sheet in geometry.sheets.items():
+    sheet_ids = geometry.sheets if sheets_in_scope is None else sheets_in_scope
+    for sheet_id in sheet_ids:
+        sheet = geometry.sheets[sheet_id]
         uses = [geometry.face_uses[use] for use in sheet.face_use_ids]
         covered = {int(use.face_id) for use in uses}
         if covered & face_set:

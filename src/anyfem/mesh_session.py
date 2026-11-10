@@ -14,7 +14,6 @@ from .io.artifacts import ArtifactStore
 from .io.project_file import save_project
 from .io.recovery import ProjectLock
 from .mesh_jobs import MeshSettings, RegionalJobInput, _cancellation_token, run_mesh_job
-from .mesh_numbering import number_full_mesh
 from .model.records import MeshRecord
 
 
@@ -104,11 +103,10 @@ class ProjectMeshSession:
 
     def _generate(self, settings, regional, cancellation, progress, repairs):
         from anymesher.serialize import mesh_to_dict
-        from .regional_dispatch import capture_regional_baseline
 
         if self._closed:
             raise ValueError("mesh session is closed")
-        if not isinstance(settings, MeshSettings) or settings.regional is not None:
+        if not isinstance(settings, MeshSettings) or settings.regional is not None or settings.publication_allocation is not None:
             raise ValueError("expected MeshSettings without a preselected parent")
         ticket = publication_ticket(self)
         if regional:
@@ -117,18 +115,16 @@ class ProjectMeshSession:
             request = RegionalJobInput(self._baseline(), mesh_to_dict(self.mesh),
                                        ticket.allocation.node_high_water, ticket.allocation.element_high_water)
             settings = replace(settings, regional=request)
+        else:
+            settings = replace(settings, publication_allocation=ticket.allocation)
         snapshot = self.session.snapshot().thaw()
         token = cancellation if cancellation is not None else _cancellation_token()
         result = run_mesh_job(snapshot, ticket.model_hash, settings, progress or (lambda *_: None), token)
         if result.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":
             raise ValueError("an inspection-only candidate cannot become the active project mesh")
-        mesh = result.mesh if regional else number_full_mesh(
-            result.mesh, ticket.allocation, source_geometry=self.project.geometry)
-        baseline = result.regional_baseline if regional else capture_regional_baseline(self.project, settings, mesh)
+        mesh = result.mesh
+        baseline = result.regional_baseline
         quality = result.quality
-        if mesh is not result.mesh:
-            from anymesher import verify_mesh_quality
-            quality = verify_mesh_quality(mesh).as_dict()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=ticket.model_hash, mesh_input_hash=result.mesh_input_hash,

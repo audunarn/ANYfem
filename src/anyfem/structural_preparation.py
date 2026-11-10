@@ -324,6 +324,12 @@ def prepare_structural_connectivity(
                     try:
                         query_trimmed_surface_charts(geometry, (geometry.handle("face", face),))
                     except GeometryError as error:
+                        if (str(error) == f"face {face} has a non-planar support"
+                                and isinstance(geometry.faces[face].surface, RuledSurface)):
+                            from anygeometry import source_tensor_chart
+                            if source_tensor_chart(geometry, face) is not None:
+                                unavailable.add(face)
+                                continue
                         if str(error) not in (
                                 f"face {face} has curved Coons boundaries",
                                 f"face {face} is not planar",

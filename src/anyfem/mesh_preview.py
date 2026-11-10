@@ -16,11 +16,13 @@ class MeshUpdatePreview:
 
 def mesh_update_preview(plan, baseline, parent_mesh, parent_id):
     from .mesh_connected_update import ConnectedPlan
+    from .mesh_general_update import GeneralPlan
     from .mesh_curved_update import CurvedPlan
     from .mesh_source_chart_update import SourceChartPlan
     from .mesh_structural_update import StructuralPlan
     from .mesh_surface_update import SurfacePlan
     from .mesh_whole_plate_update import WholePlatePlan
+    from .mesh_periodic_component_update import PeriodicPlan
     from .regional_mesh import RegionalPlan
 
     description = plan.description
@@ -43,6 +45,10 @@ def mesh_update_preview(plan, baseline, parent_mesh, parent_id):
                 record = plan.records[index]
                 faces.update(record["faces"])
                 edges.update(record["members"].values())
+        elif isinstance(plan, GeneralPlan):
+            faces.update(plan.regenerated)
+        elif isinstance(plan, PeriodicPlan):
+            faces.update(plan.faces)
         elif isinstance(plan, WholePlatePlan):
             faces.add(plan.face)
         elif isinstance(plan, (SurfacePlan, CurvedPlan, SourceChartPlan)):
