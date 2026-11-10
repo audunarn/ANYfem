@@ -280,6 +280,23 @@ class RegionRegistry:
         self._validate_cycles()
         return region
 
+    def replace(self, region: Region) -> Region:
+        """Swap the object stored under an existing ID, keeping registry order.
+
+        Used by mesh-reference staging so the previous (immutable-by-contract)
+        region object can be restored exactly on undo.
+        """
+        if region.id not in self._regions:
+            raise RegionError(f"unknown region {region.id!r}")
+        previous = self._regions[region.id]
+        self._regions[region.id] = region
+        try:
+            self._validate_cycles()
+        except RegionError:
+            self._regions[region.id] = previous
+            raise
+        return previous
+
     def remove(self, region_id: str, *, cascade: bool = False) -> tuple[str, ...]:
         dependents = self.dependents(region_id, transitive=True)
         if dependents and not cascade:

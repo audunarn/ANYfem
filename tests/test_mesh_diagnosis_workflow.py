@@ -265,6 +265,7 @@ def test_mesh_refresh_tolerates_open_ended_persisted_target(target, expected, qa
     app.mesh_record_id = record.id
     texts = []
     widget = SimpleNamespace(app=app, generate=SimpleNamespace(setEnabled=lambda enabled: None),
+                             update_mesh=SimpleNamespace(setEnabled=lambda enabled: None, setToolTip=lambda text: None),
                              summary=SimpleNamespace(setText=texts.append))
     MeshTask.refresh(widget)
     assert f"generated target {expected}" in texts[-1]

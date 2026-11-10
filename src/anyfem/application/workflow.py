@@ -3,10 +3,10 @@ import json
 import os
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass, replace
 from ..presentation.retained_results import geometry_style_key
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, NamedTuple, Optional, Sequence
 
 import numpy as np
 
@@ -51,6 +51,11 @@ from ..solve.run import (
 
 from ..presentation.scene import (Polyline, Scene, build_attribute_overlay, build_collision_overlay, build_geometry_scene, build_mesh_scene, build_persisted_result_scene, build_result_scene, geometry_display_resolution)
 from .worker import JobWorkerFacade
+from .mesh_publication import (
+    PublicationTicket, check_ticket, commit_generated_mesh, publication_ticket, retained_mesh, unchanged_record,
+    verify_published_content,
+)
+from ..mesh_numbering import number_full_mesh
 
 ANALYSES = {
     "Linear static": solve_linear_static,
@@ -69,9 +74,34 @@ ANALYSES = {
 _QUAD_PIPELINE_STRATEGIES = ("quad_first", "smart_mapped")
 
 
+class _MeshSubmission(NamedTuple):
+    ticket: PublicationTicket
+    settings: MeshSettings
+    reference_repairs: Any
+    candidate_review: Callable | None
+    handle: MeshRecord
+
+    def bind_handle(self, project):
+        """Keep the caller's job handle live after staged publication or rollback."""
+        current = project.mesh_records[self.handle.id]
+        if current is not self.handle:
+            for field in fields(MeshRecord):
+                setattr(self.handle, field.name, getattr(current, field.name))
+            project.mesh_records[current.id] = self.handle
+        return self.handle
+
+
 def _metadata_channel(dataset) -> str:
     """One loader channel per dataset so distinct header reads never coalesce."""
     return f"metadata:{id(dataset)}"
+
+
+def _mesh_control_request(project, strategy, native, structured, *, updating=False):
+    # Preserve omission so the ordinary source owner can choose chart defaults.
+    if project.automatic_source_mesh_candidate(strategy, project.element_order, updating=updating):
+        return native, structured
+    stored = project.native_mesh_settings
+    return native or MeshControls.from_settings(stored), structured or StructuredMeshControls.from_settings(stored)
 
 
 class _WorkbenchField:
@@ -157,6 +187,7 @@ class WorkbenchWorkflow:
         self._log_futures: Dict[str, Future] = {}
         self._log_destinations: Dict[str, Path] = {}
         self._active_mesh_task_id: Optional[str] = None
+        self._mesh_submissions = {}
         self._mesh_details_record_id: Optional[str] = None
         self._mesh_layout_preview: tuple[Any, Any] | None = None
         self._inspection_mesh = None
@@ -222,12 +253,28 @@ class WorkbenchWorkflow:
 
     def undo(self) -> None:
         if self.session.undo():
+            self._restore_numbered_mesh()
             self.set_status("undone")
 
 
     def redo(self) -> None:
         if self.session.redo():
+            self._restore_numbered_mesh()
             self.set_status("redone")
+
+    def _restore_numbered_mesh(self):
+        numbering = self.project.mesh_numbering
+        if not numbering.generation:
+            return
+        self.mesh_record_id = numbering.active_mesh_id
+        record = self.project.mesh_records.get(self.mesh_record_id)
+        self.mesh = (retained_mesh(self, record.id) if record is not None
+                     and self.mesh_record_state(record) == "completed" else None)
+        self.solution = None
+        if self.mesh is not None:
+            self.show_mesh()
+        else:
+            self.show_geometry()
 
 
     def _undo_shortcut(self, _event: object | None = None) -> str:
@@ -495,12 +542,20 @@ class WorkbenchWorkflow:
         layout_policy: str = "adaptive",
         quad_t3_minimum_angle: float | None = None,
         quad_t3_angle_action: str | None = None,
+        regional_update: bool = False,
     ) -> None:
         """Persist a UI strategy through the existing native-settings schema."""
 
         from ..native_meshing import NativeMeshSettings
 
         current = self.project.native_mesh_settings
+        if regional_update:
+            # The request already carries the controls used by the preview.
+            # Materializing defaults here changes the producer inputs of a
+            # parent that was generated through a headless mesh session.
+            if current is not None and current.target_size != target_size:
+                self.project.set_native_mesh_settings(replace(current, target_size=target_size))
+            return
         parameters = {} if current is None else current.to_dict()["parameters"]
         if strategy in _QUAD_PIPELINE_STRATEGIES:
             from ..quad_first import effective_quad_options
@@ -555,6 +610,8 @@ class WorkbenchWorkflow:
         automation: object | None = None,
         execution_policy: object | None = None,
         pool_lease: object | None = None,
+        _regional_update: bool = False,
+        _reference_repairs=None,
     ):
         """Generate a mesh synchronously for scripts and legacy integrations.
 
@@ -585,13 +642,8 @@ class WorkbenchWorkflow:
                 quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
-        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
-        structured_controls = (
-            structured_controls
-            or StructuredMeshControls.from_settings(
-                self.project.native_mesh_settings
-            )
-        )
+        mesh_controls, structured_controls = _mesh_control_request(
+            self.project, resolved_strategy, mesh_controls, structured_controls, updating=_regional_update)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -602,42 +654,66 @@ class WorkbenchWorkflow:
                 self.project.set_native_triangulation_backend(native_backend)
             if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
-            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
-                self._store_mesh_strategy(
-                    resolved_strategy,
-                    target_size=float(target_size),
-                    element_order=self.project.element_order,
-                    structure_preference=resolved_preference,
-                    quality_policy=quality_policy,
-                    mesh_controls=mesh_controls,
-                    structured_controls=structured_controls,
-                    quad_options=quad_options,
-                    layout_policy=layout_policy or "existing",
-                    quad_t3_minimum_angle=quad_t3_minimum_angle,
-                    quad_t3_angle_action=quad_t3_angle_action,
-                )
+            self._store_mesh_strategy(
+                resolved_strategy,
+                target_size=float(target_size),
+                regional_update=_regional_update,
+                element_order=self.project.element_order,
+                structure_preference=resolved_preference,
+                quality_policy=quality_policy,
+                mesh_controls=mesh_controls,
+                structured_controls=structured_controls,
+                quad_options=quad_options,
+                layout_policy=layout_policy or "existing",
+                quad_t3_minimum_angle=quad_t3_minimum_angle,
+                quad_t3_angle_action=quad_t3_angle_action,
+            )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
             None if resolved_strategy == "mapped" else requested_backend
         )
-        created_mesh = self.project.generate_mesh(
-            target_size,
-            overrides=self.seeding_overrides,
-            strategy=resolved_strategy,
-            structure_preference=resolved_preference,
-            quality_policy=quality_policy,
-            mesh_controls=mesh_controls,
-            structured_controls=structured_controls,
-            quad_options=quad_options,
-            layout_policy=layout_policy,
-            quad_t3_minimum_angle=quad_t3_minimum_angle,
-            quad_t3_angle_action=quad_t3_angle_action,
-            automation=automation,
-            execution_policy=execution_policy,
-            pool_lease=pool_lease,
-        )
+        ticket = publication_ticket(self)
+        settings = MeshSettings.create(
+            target_size, element_order=self.project.element_order, overrides=self.seeding_overrides,
+            strategy=resolved_strategy, structure_preference=resolved_preference,
+            quality_policy=quality_policy, controls=mesh_controls, structured_controls=structured_controls,
+            quad_options=quad_options, layout_policy=layout_policy,
+            quad_t3_minimum_angle=15.0 if quad_t3_minimum_angle is None else quad_t3_minimum_angle,
+            quad_t3_angle_action=quad_t3_angle_action or "error", automation=automation,
+            execution_policy=execution_policy)
+        from ..regional_dispatch import capture_regional_baseline, generate_regional_update
+        update = None
+        if _regional_update:
+            parent, baseline = self._regional_parent(ticket)
+            if unchanged_record(self, ticket, settings, baseline):
+                self.set_status("mesh is up to date")
+                return parent
+            update = generate_regional_update(
+                self.project, settings, baseline, parent,
+                node_high_water=ticket.allocation.node_high_water,
+                element_high_water=ticket.allocation.element_high_water)
+            created_mesh = update.mesh
+        else:
+            created_mesh = self.project.generate_mesh(
+                target_size,
+                overrides=self.seeding_overrides,
+                strategy=resolved_strategy,
+                structure_preference=resolved_preference,
+                quality_policy=quality_policy,
+                mesh_controls=mesh_controls,
+                structured_controls=structured_controls,
+                quad_options=quad_options,
+                layout_policy=layout_policy,
+                quad_t3_minimum_angle=quad_t3_minimum_angle,
+                quad_t3_angle_action=quad_t3_angle_action,
+                automation=automation,
+                execution_policy=execution_policy,
+                pool_lease=pool_lease,
+            )
         automation_result = created_mesh.hybrid_diagnostics.get("automation", {})
         inspection_only = automation_result.get("status") == "inspection_only"
+        if update is None and not inspection_only:
+            created_mesh = number_full_mesh(created_mesh, ticket.allocation, source_geometry=self.project.geometry)
         from anymesher import verify_mesh_quality
 
         mesh_input_hash = canonical_hash(
@@ -660,19 +736,20 @@ class WorkbenchWorkflow:
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
                 "native_backend": effective_native_backend,
-                "controls": mesh_controls.effective_dict(resolved_strategy),
+                "controls": (None if mesh_controls is None else mesh_controls.effective_dict(resolved_strategy)),
                 "quality_policy": (
                     dict(quality_policy or {}) if resolved_strategy == "auto" else None
                 ),
                 "structured_controls": (
                     structured_controls.effective_dict()
-                    if resolved_strategy == "auto"
+                    if structured_controls is not None and resolved_strategy == "auto"
                     else None
                 ),
                 **({"automation": automation.to_dict()} if automation is not None else {}),
             }
         )
-        preparation = dict(self.project._last_mesh_preparation)
+        preparation = dict(created_mesh.structural_preparation if update is not None
+                           else self.project._last_mesh_preparation)
         mesh_hash = mesh_semantic_hash(
             created_mesh,
             model_hash=self.session.revision.model_hash,
@@ -709,10 +786,10 @@ class WorkbenchWorkflow:
                 "strict_high_order_status": created_mesh.hybrid_diagnostics.get(
                     "high_order_geometry", {}
                 ).get("status"),
-                "controls_requested": mesh_controls.effective_dict(resolved_strategy),
+                "controls_requested": (None if mesh_controls is None else mesh_controls.effective_dict(resolved_strategy)),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
-                    if resolved_strategy == "auto"
+                    if structured_controls is not None and resolved_strategy == "auto"
                     else None
                 ),
                 "strategy_by_face": self._meshing_strategy_summary(created_mesh),
@@ -751,8 +828,16 @@ class WorkbenchWorkflow:
                 "solver_admission": "BLOCKED" if inspection_only else "ADMITTED",
             },
         )
-        with self.session.transaction("record mesh", solver_affecting=False):
-            self.project.mesh_records[record.id] = record
+        if inspection_only:
+            with self.session.transaction("record inspection mesh", solver_affecting=False):
+                self.project.mesh_records[record.id] = record
+        else:
+            baseline = (update.baseline if update is not None
+                        else capture_regional_baseline(self.project, settings, created_mesh))
+            commit_generated_mesh(self, ticket, record, created_mesh, baseline,
+                                  retained_nodes=update.retained_nodes if update else (),
+                                  retained_elements=update.retained_elements if update else (),
+                                  repairs=_reference_repairs, settings_hash=settings.input_hash)
         self._mesh_details_record_id = record.id
         self._meshes[record.id] = created_mesh
         if inspection_only:
@@ -780,6 +865,27 @@ class WorkbenchWorkflow:
         self.refresh_panels()
         return created_mesh
 
+    def _regional_parent(self, ticket):
+        record = self.project.mesh_records.get(ticket.parent_id)
+        baseline = record.summary.get("regional_baseline") if record else None
+        if baseline is None:
+            if record is not None and record.summary.get("regional_refusal"):
+                raise ValueError(record.summary["regional_refusal"])
+            raise ValueError("Update mesh requires a supported generated baseline. Use Generate mesh to rebuild.")
+        return retained_mesh(self, record.id), baseline
+
+    def update_mesh(self, target_size, *, reference_repairs=None, **settings):
+        """Regenerate the affected part of the last published mesh synchronously."""
+        return self.generate_mesh(target_size, _regional_update=True, _reference_repairs=reference_repairs, **settings)
+
+    def update_mesh_async(self, target_size, *, reference_repairs=None, candidate_review=None, **settings):
+        return self.generate_mesh_async(target_size, _regional_update=True, _reference_repairs=reference_repairs,
+                                        _candidate_review=candidate_review, **settings)
+
+    def preview_regional_update(self, target_size, *, include_impact=False, **settings):
+        """Describe the update and optionally return its confirmed source owners."""
+        return self.generate_mesh_async(target_size, _preview_update=True, _preview_impact=include_impact, **settings)
+
 
     def generate_mesh_async(
         self,
@@ -797,6 +903,11 @@ class WorkbenchWorkflow:
         quad_t3_angle_action: str | None = None,
         automation: object | None = None,
         execution_policy: object | None = None,
+        _regional_update: bool = False,
+        _preview_update: bool = False,
+        _preview_impact: bool = False,
+        _reference_repairs=None,
+        _candidate_review=None,
     ) -> MeshRecord:
         """Submit meshing from an immutable snapshot and return immediately.
 
@@ -827,13 +938,8 @@ class WorkbenchWorkflow:
                 quad_t3_minimum_angle = stored_quad_parameters.get("quad_t3_minimum_angle", 15.0)
             if quad_t3_angle_action is None:
                 quad_t3_angle_action = stored_quad_parameters.get("quad_t3_angle_action", "error")
-        mesh_controls = mesh_controls or MeshControls.from_settings(self.project.native_mesh_settings)
-        structured_controls = (
-            structured_controls
-            or StructuredMeshControls.from_settings(
-                self.project.native_mesh_settings
-            )
-        )
+        mesh_controls, structured_controls = _mesh_control_request(
+            self.project, resolved_strategy, mesh_controls, structured_controls, updating=_regional_update or _preview_update)
         resolved_preference = self._project_structure_preference(
             self.project, structure_preference
         )
@@ -855,6 +961,15 @@ class WorkbenchWorkflow:
             automation=automation,
             execution_policy=execution_policy,
         )
+        if _preview_update:
+            from ..regional_dispatch import plan_regional_update
+            ticket = publication_ticket(self)
+            parent_mesh, baseline = self._regional_parent(ticket)
+            plan = plan_regional_update(self.project, settings, baseline)
+            if _preview_impact:
+                from ..mesh_preview import mesh_update_preview
+                return mesh_update_preview(plan, baseline, parent_mesh, ticket.parent_id)
+            return plan.description
         with self.session.transaction("mesh settings"):
             self.project.target_size = settings.target_size
             self.project.seeding_overrides = dict(settings.overrides)
@@ -862,24 +977,39 @@ class WorkbenchWorkflow:
                 self.project.set_native_triangulation_backend(native_backend)
             if resolved_strategy in _QUAD_PIPELINE_STRATEGIES:
                 self.project.set_native_triangulation_backend("python")
-            if strategy is not None or structure_preference is not None or quality_policy is not None or mesh_controls is not None:
-                self._store_mesh_strategy(
-                    resolved_strategy,
-                    target_size=settings.target_size,
-                    element_order=settings.element_order,
-                    structure_preference=resolved_preference,
-                    quality_policy=quality_policy,
-                    mesh_controls=mesh_controls,
-                    structured_controls=structured_controls,
-                    quad_options=quad_options,
-                    layout_policy=layout_policy or "existing",
-                    quad_t3_minimum_angle=quad_t3_minimum_angle,
-                    quad_t3_angle_action=quad_t3_angle_action,
-                )
+            self._store_mesh_strategy(
+                resolved_strategy,
+                target_size=settings.target_size,
+                regional_update=_regional_update,
+                element_order=settings.element_order,
+                structure_preference=resolved_preference,
+                quality_policy=quality_policy,
+                mesh_controls=mesh_controls,
+                structured_controls=structured_controls,
+                quad_options=quad_options,
+                layout_policy=layout_policy or "existing",
+                quad_t3_minimum_angle=quad_t3_minimum_angle,
+                quad_t3_angle_action=quad_t3_angle_action,
+            )
         requested_backend = self.project.native_triangulation_backend
         effective_native_backend = (
             None if settings.strategy == "mapped" else requested_backend
         )
+        ticket = publication_ticket(self)
+        if _regional_update:
+            from ..mesh_jobs import RegionalJobInput
+            from anymesher.serialize import mesh_to_dict
+            parent, baseline = self._regional_parent(ticket)
+            unchanged = unchanged_record(self, ticket, settings, baseline)
+            if unchanged:
+                self.set_status("mesh is up to date")
+                return unchanged
+            regional = RegionalJobInput(baseline, mesh_to_dict(parent),
+                                        ticket.allocation.node_high_water,
+                                        ticket.allocation.element_high_water)
+            settings = replace(settings, regional=regional)
+        else:
+            settings = replace(settings, publication_allocation=ticket.allocation)
         snapshot = self.session.snapshot()
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
@@ -909,10 +1039,10 @@ class WorkbenchWorkflow:
                 "automation_requested": (
                     None if settings.automation is None else settings.automation.to_dict()
                 ),
-                "controls_requested": mesh_controls.effective_dict(settings.strategy),
+                "controls_requested": (None if mesh_controls is None else mesh_controls.effective_dict(settings.strategy)),
                 "structured_controls_requested": (
                     structured_controls.effective_dict()
-                    if settings.strategy == "auto"
+                    if structured_controls is not None and settings.strategy == "auto"
                     else None
                 ),
                 "structure_preference": (
@@ -939,6 +1069,8 @@ class WorkbenchWorkflow:
                 self.project.mesh_records.pop(record.id, None)
             raise
         self._active_mesh_task_id = record.id
+        self.__dict__.setdefault("_mesh_submissions", {})[record.id] = _MeshSubmission(
+            ticket, settings, _reference_repairs, _candidate_review, record)
         self._mesh_details_record_id = record.id
         self.set_status("meshing in background from immutable model snapshot")
         self.refresh_panels()
@@ -973,6 +1105,10 @@ class WorkbenchWorkflow:
             record.source_model_hash
             and record.source_model_hash != self.session.revision.model_hash
         ):
+            if record.summary.get("mesh_sources") is not None:
+                from .mesh_publication import changed_mesh_sources
+                if not changed_mesh_sources(self.project, record):
+                    return str(record.status)
             return "stale"
         return str(record.status)
 
@@ -982,7 +1118,10 @@ class WorkbenchWorkflow:
             record = self.project.mesh_records.get(event.job_id)
             if record is None:
                 continue
-            self._observe_run_event("mesh", event)
+            submission = self._mesh_submissions.get(record.id)
+            review_pending = event.kind == "completed" and submission is not None and submission.candidate_review is not None
+            if not review_pending:
+                self._observe_run_event("mesh", event)
             if event.kind in ("started", "progress"):
                 self.set_status(event.message)
                 continue
@@ -995,9 +1134,75 @@ class WorkbenchWorkflow:
                 if not isinstance(result, MeshJobResult):
                     continue
                 current = record.source_model_hash == self.session.revision.model_hash
+                submission = self._mesh_submissions.pop(record.id)
+                ticket, settings = submission.ticket, submission.settings
+                repairs, review = submission.reference_repairs, submission.candidate_review
+                inspection_only = result.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only"
+                if current:
+                    try:
+                        check_ticket(self, ticket)
+                    except ValueError:
+                        current = False
+                if current and not inspection_only:
+                    try:
+                        baseline = result.regional_baseline
+                        if settings.regional is not None:
+                            if review is not None:
+                                from ..mesh_preview import prepared_cell_preview
+                                old = retained_mesh(self, ticket.parent_id)
+                                verify_published_content(self.project.mesh_records.get(ticket.parent_id), old)
+                                preview = prepared_cell_preview(ticket.parent_id, old, result.mesh,
+                                                               result.retained_element_ids, (baseline or {}).get("last_update", {}))
+                                try:
+                                    accepted = review(preview=preview, old_mesh=old)
+                                except Exception as error:
+                                    raise RuntimeError(f"Prepared mesh review failed: {error}") from error
+                                check_ticket(self, ticket)
+                                if not accepted:
+                                    with self.session.transaction("decline prepared mesh", solver_affecting=False):
+                                        record = submission.bind_handle(self.project)
+                                        record.status = "cancelled"
+                                        record.summary["status"] = "cancelled"
+                                    self._observe_run_event("mesh", replace(event, kind="cancelled",
+                                                                            message="Prepared mesh update declined", payload=None))
+                                    if self._active_mesh_task_id == event.job_id:
+                                        self._active_mesh_task_id = None
+                                    self.set_status("Prepared mesh update cancelled")
+                                    self.refresh_all()
+                                    continue
+                        # Stage the public record separately from its running row.
+                        record = replace(record, summary=dict(record.summary), status="completed",
+                                         mesh_input_hash=result.mesh_input_hash or record.mesh_input_hash,
+                                         structural_preparation=dict(result.structural_preparation))
+                        commit_generated_mesh(self, ticket, record, result.mesh, baseline,
+                                              retained_nodes=result.retained_node_ids,
+                                              retained_elements=result.retained_element_ids, repairs=repairs,
+                                              settings_hash=settings.input_hash)
+                        result = replace(result, mesh_hash=record.mesh_hash,
+                                         structural_preparation=record.structural_preparation)
+                    except (ValueError, OverflowError, RuntimeError, OSError) as error:
+                        if event.job_id not in self.project.mesh_records:
+                            continue
+                        with self.session.transaction("refused mesh publication", solver_affecting=False):
+                            refused = submission.bind_handle(self.project)
+                            refused.status = "failed"
+                            refused.summary["status"] = "failed"
+                            refused.diagnostics.append(str(error))
+                        self.set_status(str(error), error=True)
+                        if review_pending:
+                            self._observe_run_event("mesh", replace(event, kind="failed", message=str(error), payload=None))
+                        if self._active_mesh_task_id == event.job_id:
+                            self._active_mesh_task_id = None
+                        self.refresh_all()
+                        continue
+                if review_pending:
+                    self._observe_run_event("mesh", event)
+                if not current or inspection_only:
+                    record.summary["provisional_numbers"] = True
                 with self.session.transaction(
                     "record completed mesh", solver_affecting=False
                 ):
+                    record = submission.bind_handle(self.project)
                     record.mesh_hash = result.mesh_hash
                     record.structural_preparation = dict(
                         result.structural_preparation
@@ -1104,6 +1309,8 @@ class WorkbenchWorkflow:
                 with self.session.transaction(
                     "record cancelled mesh", solver_affecting=False
                 ):
+                    if submission is not None:
+                        record = submission.bind_handle(self.project)
                     record.status = "cancelled"
                     record.summary["status"] = "cancelled"
                 self.set_status("mesh generation cancelled")
@@ -1113,6 +1320,8 @@ class WorkbenchWorkflow:
                     and event.payload.get("type") == "MeshRecoveryIncomplete"
                 )
                 with self.session.transaction("record failed mesh", solver_affecting=False):
+                    if submission is not None:
+                        record = submission.bind_handle(self.project)
                     record.status = "incomplete" if incomplete else "failed"
                     record.summary["status"] = record.status
                     if event.payload:
@@ -1123,6 +1332,7 @@ class WorkbenchWorkflow:
                     diagnostic=event.payload,
                 )
             self._active_mesh_task_id = None
+            self._mesh_submissions.pop(record.id, None)
             self.refresh_all()
 
 
@@ -1161,7 +1371,14 @@ class WorkbenchWorkflow:
         if self.mesh is None:
             if self._inspection_mesh is not None:
                 raise ValueError("inspection-only mesh cannot be solved; generate an admitted mesh first")
+            if self.project.mesh_numbering.active_mesh_id:
+                raise ValueError("the published mesh is stale after a model edit; update or rebuild the mesh before solving")
             raise ValueError("generate a mesh first")
+        if self.project.mesh_numbering.active_mesh_id:
+            active = self.project.mesh_records.get(self.project.mesh_numbering.active_mesh_id)
+            if (active is None or active.id != self.mesh_record_id
+                    or self.mesh_record_state(active) != "completed"):
+                raise ValueError("the selected mesh is stale; update or rebuild the mesh before solving")
         if getattr(self.mesh, "hybrid_diagnostics", {}).get("automation", {}).get("status") == "inspection_only":
             raise ValueError("inspection-only mesh cannot be solved")
         try:
@@ -1456,25 +1673,41 @@ class WorkbenchWorkflow:
 
     def retained_result_mesh(self, job_id):
         """Resolve the submitted mesh without replacing the editable active mesh."""
-        job=self.project.jobs.get(job_id)
-        solution=self.solutions.get(job_id)
-        built=getattr(solution,"built",None)
-        if built is not None:return built.mesh
-        dataset=self.result_datasets.get(job_id)
-        identity=dataset.identity if dataset is not None else {}
-        mesh_id=identity.get("mesh_id") or (self._result_mesh_id(job) if job is not None else "")
-        if mesh_id in self._meshes:return self._meshes[mesh_id]
-        record=self.project.mesh_records.get(mesh_id)
-        if record is not None and self.path is not None:
-            artifact=self.project.artifacts.get(record.artifact_id or "")
-            if artifact is not None:
+        job = self.project.jobs.get(job_id)
+        solution = self.solutions.get(job_id)
+        built = getattr(solution, "built", None)
+        dataset = self.result_datasets.get(job_id)
+        if dataset is None and built is not None:
+            return built.mesh
+        identity = dataset.identity if dataset is not None else {}
+        if identity.get("document_id") and identity["document_id"] != self.project.document_id:
+            raise ValueError("The submitted result belongs to another document")
+        job_hash = getattr(job, "mesh_hash", None)
+        expected_hash = identity.get("mesh_hash") or job_hash
+        if job_hash and expected_hash != job_hash:
+            raise ValueError("The result mesh hash differs from its submitted job")
+        explicit_id = identity.get("mesh_id")
+        legacy_identity = not explicit_id or explicit_id == "active-mesh"
+        mesh_id = self._result_mesh_id(job) if legacy_identity and job is not None else explicit_id
+        record = self.project.mesh_records.get(mesh_id)
+        if record is not None:
+            if expected_hash and expected_hash != record.mesh_hash:
+                raise ValueError("The result mesh hash differs from its publication")
+            return retained_mesh(self, record.id)
+        if (not legacy_identity and built is not None
+                and getattr(built.mesh, "_anyfem_mesh_record_id", None) == mesh_id):
+            return built.mesh
+        if not legacy_identity and self.path is not None:
+            # A deleted tree row may still have an immutable mesh and result sidecar.
+            artifact = self.project.artifacts.get(mesh_id)
+            if artifact is not None and artifact.kind == "mesh":
                 from ..io.artifacts import ArtifactStore
-                mesh=ArtifactStore(self.path).read_mesh(artifact)
-                self._meshes[mesh_id]=mesh;return mesh
-        # Legacy sidecars may predate explicit mesh IDs. Hash matching still
-        # prevents rendering old fields on an unrelated current remesh.
-        current=self.project.mesh_records.get(self.mesh_record_id or "")
-        if self.mesh is not None and (job is None or current is not None and current.mesh_hash==job.mesh_hash):return self.mesh
+                return ArtifactStore(self.path).read_mesh(
+                    artifact, mesh_id=mesh_id, document_id=self.project.document_id, mesh_hash=expected_hash)
+        current = self.project.mesh_records.get(self.mesh_record_id or "")
+        if (legacy_identity and self.mesh is not None and current is not None
+                and expected_hash and current.mesh_hash == expected_hash):
+            return self.mesh
         raise ValueError("The submitted result mesh is unavailable; restore its mesh artifact")
 
     def _result_artifact_provenance(self, job_id: str) -> dict[str, Any]:
@@ -1953,7 +2186,7 @@ class WorkbenchWorkflow:
                 from ..ui.scene import read_persisted_display_field
                 field,descriptor=read_persisted_display_field(dataset,field_key,frame=frame,component=component)
                 return field,descriptor
-            result_mesh=self.retained_result_mesh(self.active_job_id)
+            result_mesh=self.retained_result_mesh(job_id)
             scene = build_persisted_result_scene(
                 self.project,
                 result_mesh,
@@ -3278,11 +3511,13 @@ class WorkbenchWorkflow:
         )
         # Generated and imported meshes are optional artifacts; failure to
         # locate one never prevents the editable document from opening.
+        mesh_restore_error = None
         try:
             from ..io.artifacts import ArtifactStore
 
             store = ArtifactStore(path)
-            if loaded.mesh_records:
+            numbering = loaded.mesh_numbering
+            if loaded.mesh_records and (numbering.active_mesh_id is not None or not numbering.generation):
                 # UUID-sorted project registries do not preserve creation order.
                 # Prefer the saved active record, then the imported semantics
                 # association, then a usable legacy artifact by creation time.
@@ -3290,15 +3525,17 @@ class WorkbenchWorkflow:
                 def priority(record):
                     artifact=loaded.artifacts.get(record.artifact_id or "")
                     return (bool(record.summary.get("active_mesh")),bool(record.artifact_id and record.artifact_id==loaded.imported_semantics_artifact_id),artifact is not None,artifact.created_utc if artifact is not None else "",record.id)
-                latest=max(candidates,key=priority)
+                latest = (loaded.mesh_records[numbering.active_mesh_id]
+                          if numbering.active_mesh_id is not None else max(candidates, key=priority))
                 self._mesh_details_record_id = latest.id
                 artifact = loaded.artifacts.get(latest.artifact_id or "")
                 if artifact is not None:
-                    loaded_mesh = store.read_mesh(artifact)
-                    self._meshes[latest.id] = loaded_mesh
+                    loaded_mesh = retained_mesh(self, latest.id)
                     if self.mesh_record_state(latest) == "inspection_only":
                         self._inspection_mesh = loaded_mesh
-                    elif latest.kind == "imported" or self.mesh_record_state(latest) != "stale":
+                    elif (latest.kind == "imported" or
+                          (self.mesh_record_state(latest) == "completed" and
+                           (not numbering.generation or numbering.active_mesh_id == latest.id))):
                         self.mesh_record_id = latest.id
                         self.mesh = loaded_mesh
                     if loaded.mesh_only and loaded.imported_format == "sesam_fem":
@@ -3308,19 +3545,19 @@ class WorkbenchWorkflow:
                         # Use the verified sidecar association map so mesh
                         # regions and result IDs are byte-for-byte those saved.
                         self.imported.mesh = loaded_mesh
-                if self._inspection_mesh is not None:
+                if self._inspection_mesh is not None and not numbering.generation:
                     for prior in reversed(list(loaded.mesh_records.values())[:-1]):
                         if self.mesh_record_state(prior) != "completed":
                             continue
                         prior_artifact = loaded.artifacts.get(prior.artifact_id or "")
                         if prior_artifact is None:
                             continue
-                        self.mesh = store.read_mesh(prior_artifact)
+                        self.mesh = retained_mesh(self, prior.id)
                         self.mesh_record_id = prior.id
-                        self._meshes[prior.id] = self.mesh
                         break
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
             self.mesh = None
+            mesh_restore_error = str(error)
         try:
             from ..io.artifacts import ArtifactStore
 
@@ -3346,6 +3583,7 @@ class WorkbenchWorkflow:
         self.set_status(
             f"opened {self.path.name}"
             + (f" read-only: {decision.reason}" if decision.read_only else "")
+            + (f"; mesh unavailable: {mesh_restore_error}" if mesh_restore_error else "")
         )
         self.refresh_all()
         if loaded.mesh_only and self.mesh is not None:
@@ -3424,18 +3662,14 @@ class WorkbenchWorkflow:
             embedded_source = None
             if self.imported is not None:
                 imported_metadata, embedded_source = self.imported.artifact_embedding()
-            artifact = store.write_mesh(
-                self.mesh,
-                mesh_id=mesh_record.id,
-                document_id=self.project.document_id,
-                model_hash=mesh_record.source_model_hash,
-                mesh_hash=mesh_record.mesh_hash,
-                structural_preparation=(
-                    mesh_record.structural_preparation
-                ),
-                imported_model=imported_metadata,
-                embedded_source=embedded_source,
-            )
+            artifact = self._existing_numbered_artifact(store, mesh_record)
+            if artifact is None:
+                verify_published_content(mesh_record, self.mesh)
+                artifact = store.write_mesh(
+                    self.mesh, mesh_id=mesh_record.id,
+                    document_id=self.project.document_id, model_hash=mesh_record.source_model_hash,
+                    mesh_hash=mesh_record.mesh_hash, structural_preparation=mesh_record.structural_preparation,
+                    imported_model=imported_metadata, embedded_source=embedded_source)
             mesh_record.artifact_id = artifact.id
             with self.session.transaction("record saved mesh", solver_affecting=False):
                 self.project.mesh_records[mesh_record.id] = mesh_record
@@ -3449,7 +3683,27 @@ class WorkbenchWorkflow:
             self._meshes[mesh_record.id] = self.mesh
             saved_mesh_ids.add(mesh_record.id)
         self._persist_cached_mesh_artifacts(destination, exclude=saved_mesh_ids)
+        from ..io.artifacts import ArtifactStore
+        target_store = ArtifactStore(destination)
+        if self.path is not None:
+            source_store = ArtifactStore(self.path)
+            if source_store.root.resolve() != target_store.root.resolve():
+                for artifact in self.project.artifacts.values():
+                    if artifact.kind == "mesh" and not target_store.verify(artifact):
+                        target_store.copy_from(source_store, artifact)
         self._persist_result_artifacts(destination)
+
+    def _existing_numbered_artifact(self, store, record):
+        """Reuse the immutable artifact, including when saving the project under a new name."""
+        from ..io.artifacts import ArtifactStore
+        artifact = self.project.artifacts.get(record.artifact_id)
+        if artifact is None or "mesh_sources" not in record.summary:
+            return None
+        if store.verify(artifact):
+            return artifact
+        if self.path and ArtifactStore(self.path).root.resolve() != store.root.resolve():
+            return store.copy_from(ArtifactStore(self.path), artifact)
+        return None
 
 
     def _persist_cached_mesh_artifacts(
@@ -3468,6 +3722,9 @@ class WorkbenchWorkflow:
             record = self.project.mesh_records.get(mesh_id)
             if record is None or record.kind == "imported":
                 continue
+            if self._existing_numbered_artifact(store, record) is not None:
+                continue
+            verify_published_content(record, mesh)
             artifact = store.write_mesh(
                 mesh,
                 mesh_id=record.id,

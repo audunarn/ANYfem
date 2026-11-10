@@ -613,11 +613,18 @@ class QtViewport(SceneViewport):
         if (self._feature_ids or self._collection_refs) and self._scene is not None:
             from anygeometry import feature_entity_owners
             owners=feature_entity_owners(self._window.project.geometry) if self._feature_ids else {}
-            for group in (self._scene.faces,self._scene.lines,self._scene.points):
+            from ...selection import MeshEntityRef, entity_tag
+            for group in (self._scene.faces, self._scene.lines, self._scene.points):
                 for item in group:
-                    refs=item.owners or (() if item.ref is None else (item.ref,))
-                    from ...selection import entity_tag
-                    tags.update(entity_tag(ref) for ref in refs if ref in self._collection_refs or owners.get(ref) in self._feature_ids)
+                    refs = item.owners or (() if item.ref is None else (item.ref,))
+                    tags.update(entity_tag(ref) for ref in refs
+                                if ref in self._collection_refs or owners.get(ref) in self._feature_ids)
+            # Grouped mesh face patches can have a separate scoped element
+            # owner for each polygon, even when their geometry face is gone.
+            if any(isinstance(ref, MeshEntityRef) for ref in self._collection_refs):
+                for patch in self._scene.faces:
+                    for refs in patch.polygon_owners or ():
+                        tags.update(entity_tag(ref) for ref in refs if ref in self._collection_refs)
         return sorted(tags)
 
     def _watch_backend(self,parent):

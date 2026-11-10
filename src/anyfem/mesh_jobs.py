@@ -24,6 +24,7 @@ from .document import ProjectSnapshot, canonical_hash
 from .job_process import WorkerProcessError, run_in_worker_process
 from .jobs import _resolve_executor
 from .mesh_controls import MeshControls, StructuredMeshControls
+from .mesh_numbering import MeshNumbering, number_full_mesh
 
 __all__ = [
     "clone_mesh_for_job",
@@ -32,6 +33,7 @@ __all__ = [
     "MeshProgress",
     "MeshSettings",
     "MeshTaskManager",
+    "RegionalJobInput",
     "mesh_job_entry",
     "mesh_semantic_hash",
     "run_mesh_job",
@@ -56,7 +58,10 @@ def clone_mesh_for_job(mesh: Any) -> Any:
 
     from anymesher.serialize import mesh_from_dict, mesh_to_dict
 
-    return mesh_from_dict(mesh_to_dict(mesh))
+    detached = mesh_from_dict(mesh_to_dict(mesh))
+    if hasattr(mesh, "_anyfem_mesh_record_id"):
+        detached._anyfem_mesh_record_id = mesh._anyfem_mesh_record_id
+    return detached
 
 
 def _exception_diagnostic(error: BaseException) -> dict[str, Any]:
@@ -79,6 +84,35 @@ def _exception_diagnostic(error: BaseException) -> dict[str, Any]:
             if isinstance(details, Mapping):
                 payload["details"] = dict(details)
     return payload
+
+
+@dataclass(frozen=True)
+class RegionalJobInput:
+    """Frozen inputs of one regional update, transported to the worker.
+
+    ``baseline`` is the captured regional baseline mapping and ``old_mesh`` the
+    versioned ``anymesher.serialize.mesh_to_dict`` payload of the mesh being
+    updated.  The high-water marks are the largest node/element identifiers
+    ever issued, so new entities never reuse a retired identifier.  Both
+    mappings are deep-copied on construction and must be treated as read-only.
+    """
+
+    baseline: Mapping[str, Any]
+    old_mesh: Mapping[str, Any]
+    node_high_water: int
+    element_high_water: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.baseline, Mapping):
+            raise TypeError("regional baseline must be a mapping")
+        if not isinstance(self.old_mesh, Mapping):
+            raise TypeError("regional old_mesh must be a mapping")
+        for name in ("node_high_water", "element_high_water"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        object.__setattr__(self, "baseline", deepcopy(dict(self.baseline)))
+        object.__setattr__(self, "old_mesh", deepcopy(dict(self.old_mesh)))
 
 
 @dataclass(frozen=True)
@@ -108,8 +142,20 @@ class MeshSettings:
     # Constructor None infers legacy raw tuples; materialized settings always
     # hold an exact bool. An explicit False survives replace/default expansion.
     quality_policy_explicit: bool | None = dataclass_field(default=None, kw_only=True)
+    # Execution-only: a regional update request.  Never part of input_hash or of
+    # the full-generation semantic/settings hashes.
+    regional: RegionalJobInput | None = dataclass_field(
+        default=None, kw_only=True, compare=False
+    )
+    publication_allocation: MeshNumbering | None = dataclass_field(default=None, kw_only=True, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.regional is not None and not isinstance(self.regional, RegionalJobInput):
+            raise TypeError("regional must be a RegionalJobInput")
+        if self.publication_allocation is not None and (
+            not isinstance(self.publication_allocation, MeshNumbering) or self.regional is not None
+        ):
+            raise ValueError("a full publication allocation requires an independent full generation")
         explicit = self.quality_policy_explicit
         if explicit is None:
             explicit = bool(self.quality_policy)
@@ -318,6 +364,13 @@ class MeshJobResult:
     # Execution-only route record (route/workers/reason, parallel summary);
     # never part of any hash or the persisted project.
     execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    # A regional job returns a numbered baseline. A full job's publisher
+    # captures the baseline after assigning the project numbers.
+    regional_baseline: Mapping[str, Any] | None = None
+    # Identifiers carried over unchanged by a regional update; empty otherwise.
+    retained_node_ids: tuple[int, ...] = ()
+    retained_element_ids: tuple[int, ...] = ()
+    mesh_input_hash: str = ""
 
 
 # Execution-route diagnostics the owner parallel block records beside the
@@ -336,12 +389,37 @@ _PARALLEL_ROUTE_KEYS = frozenset(
 )
 
 
+def _seeding_hash_order(preparation, *, text_keys):
+    """Canonicalize the two geometry-ID maps that JSON key serialization changes."""
+    source = preparation.get("prepared_boundary_provenance")
+    seeding = source.get("prepared_seeding") if isinstance(source, Mapping) else None
+    if not isinstance(seeding, Mapping):
+        return
+    seeding = dict(seeding)
+    for name in ("divisions", "classes"):
+        if name not in seeding:
+            continue
+        if not isinstance(seeding[name], Mapping):
+            raise ValueError(f"invalid prepared seeding {name} map")
+        values = {}
+        for key, value in seeding[name].items():
+            if type(key) not in (int, str) or str(int(key)) != str(key):
+                raise ValueError(f"invalid geometry key in prepared seeding {name}")
+            canonical = str(key) if text_keys else int(key)
+            if canonical in values:
+                raise ValueError(f"duplicate geometry key in prepared seeding {name}")
+            values[canonical] = value
+        seeding[name] = values
+    preparation["prepared_boundary_provenance"] = dict(source, prepared_seeding=seeding)
+
+
 def mesh_semantic_hash(
     mesh: Any,
     *,
     model_hash: str,
     mesh_input_hash: str,
     structural_preparation: Mapping[str, Any] | None = None,
+    _text_seeding_keys: bool = False,
 ) -> str:
     """Hash solver-affecting mesh semantics, excluding owner bookkeeping."""
 
@@ -403,6 +481,7 @@ def mesh_semantic_hash(
             hybrid_diagnostics
         )
     preparation = dict(structural_preparation or {})
+    _seeding_hash_order(preparation, text_keys=_text_seeding_keys)
     preparation.pop("working_model_id", None)
     preparation.pop("working_revision", None)
     preparation.pop("source_revision", None)
@@ -450,6 +529,18 @@ def mesh_semantic_hash(
             "mesh": mesh_payload,
         }
     )
+
+
+def matches_mesh_hash(mesh, expected, *, model_hash, mesh_input_hash, structural_preparation):
+    inputs = dict(model_hash=model_hash, mesh_input_hash=mesh_input_hash,
+                  structural_preparation=structural_preparation)
+    if mesh_semantic_hash(mesh, **inputs) == expected:
+        return True
+    # An older save could first hash the neutral (text-keyed) transport.
+    # Only the ordering of these two typed maps may differ on that route.
+    origin = (structural_preparation or {}).get("prepared_boundary_provenance")
+    return (isinstance(origin, Mapping) and isinstance(origin.get("prepared_seeding"), Mapping)
+            and mesh_semantic_hash(mesh, _text_seeding_keys=True, **inputs) == expected)
 
 
 @dataclass(frozen=True)
@@ -822,9 +913,13 @@ class MeshTaskManager:
         return MeshJobResult(
             mesh=mesh_from_dict(transport.mesh),
             mesh_hash=transport.mesh_hash,
+            mesh_input_hash=transport.mesh_input_hash,
             quality=transport.quality,
             structural_preparation=transport.structural_preparation,
             execution=transport.execution,
+            regional_baseline=transport.regional_baseline,
+            retained_node_ids=tuple(transport.retained_node_ids),
+            retained_element_ids=tuple(transport.retained_element_ids),
         )
 
     def _spawn_worker(
@@ -856,6 +951,8 @@ def run_mesh_job(
     settings: "MeshSettings",
     progress: Any,
     cancellation: Any,
+    *,
+    _regional_stage_check=None,
 ) -> "MeshJobResult":
     """Generate, check and hash one mesh.
 
@@ -891,6 +988,15 @@ def run_mesh_job(
         else MeshingStrategy(requested_strategy).value
     )
     resolved_controls = settings.controls or MeshControls.from_settings(project.native_mesh_settings)
+    classify_source = getattr(project, "automatic_source_mesh_candidate", None)
+    auto_source = classify_source is not None and classify_source(resolved_strategy, settings.element_order)
+    stored_parameters = dict(getattr(project.native_mesh_settings, "parameters", ()))
+    inherit_native = auto_source and settings.controls is None and not any(
+        key.startswith("native_") for key in stored_parameters
+    )
+    inherit_structured = auto_source and settings.structured_controls is None and not any(
+        key.startswith("structured_") for key in stored_parameters
+    )
     resolved_structured_controls = (
         settings.structured_controls
         or StructuredMeshControls.from_settings(
@@ -905,6 +1011,8 @@ def run_mesh_job(
     def check_and_report(stage):
         nonlocal last_parallel_stage
         cancellation.raise_if_cancelled(stage)
+        if _regional_stage_check is not None:
+            _regional_stage_check(stage)
         # The owner polls cancellation repeatedly while waiting. Forward only
         # changed public component stages so the run monitor remains useful
         # without flooding the GUI thread with identical updates.
@@ -932,17 +1040,37 @@ def run_mesh_job(
             progress("generation", text, fraction)
             last_parallel_stage = text
 
-    mesh = project.generate_mesh(
+    from .native_meshing import NativeMeshingCancellation
+
+    native_token = cancellation if type(cancellation) is NativeMeshingCancellation else None
+    regional_result = None
+    if settings.regional is not None:
+        # Explicit regional update; there is no silent fallback to a full rebuild.
+        from .regional_dispatch import generate_regional_update
+
+        regional_result = generate_regional_update(
+            project,
+            settings,
+            settings.regional.baseline,
+            settings.regional.old_mesh,
+            node_high_water=settings.regional.node_high_water,
+            element_high_water=settings.regional.element_high_water,
+            cancellation_check=check_and_report,
+            **({"mesh_cancellation": native_token} if native_token is not None else {}),
+        )
+    mesh = regional_result.mesh if regional_result is not None else project.generate_mesh(
         settings.target_size,
         overrides=dict(settings.overrides),
         order=settings.element_order,
         strategy=settings.strategy,
         structure_preference=settings.structure_preference,
         quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
-        mesh_controls=resolved_controls,
-        structured_controls=resolved_structured_controls,
+        # An omitted native point-placement choice lets the source owner select
+        # its chart algorithm. Project resolves the remaining controls as usual.
+        mesh_controls=settings.controls if inherit_native else resolved_controls,
+        structured_controls=None if inherit_structured else resolved_structured_controls,
         quad_options=settings.quad_options,
-        layout_policy=settings.layout_policy,
+        layout_policy=None if auto_source else settings.layout_policy,
         quad_t3_minimum_angle=(
             settings.quad_t3_minimum_angle
             if settings.strategy in _QUAD_PIPELINE_STRATEGIES else None
@@ -953,9 +1081,14 @@ def run_mesh_job(
         ),
         automation=settings.automation,
         cancellation_check=check_and_report,
+        **({"_source_cancellation": native_token.geometry_cancellation}
+           if native_token is not None and auto_source else {}),
         execution_policy=settings.execution_policy,
     )
-    execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
+    if regional_result is not None:
+        execution = {"route": "regional", "workers": None, "reason": "regional update"}
+    else:
+        execution = dict(getattr(project, "_last_mesh_execution", {}) or {})
     parallel_diagnostics = getattr(mesh, "hybrid_diagnostics", {})
     if isinstance(parallel_diagnostics, Mapping):
         runtime = parallel_diagnostics.get("runtime")
@@ -986,32 +1119,23 @@ def run_mesh_job(
     progress("quality", "checking element quality", 0.85)
     from anymesher import verify_mesh_quality
 
+    if settings.publication_allocation is not None and mesh.hybrid_diagnostics.get("automation", {}).get("status") != "inspection_only":
+        # Source-cell receipts belong to this generation and cannot be pickled.
+        mesh = number_full_mesh(mesh, settings.publication_allocation, source_geometry=project.geometry)
     quality = verify_mesh_quality(mesh).as_dict()
     cancellation.raise_if_cancelled("mesh hashing")
     progress("hash", "hashing immutable mesh result", 0.94)
-    structural_preparation = dict(project._last_mesh_preparation)
-    resolved_settings_hash = settings.input_hash
-    if (
-        settings.strategy is None
-        or settings.controls is None
-        or settings.structured_controls is None
-    ):
-        # Older/headless callers inherit the snapshotted project
-        # strategy. Canonicalize that resolved value so their hash is
-        # identical to an explicit UI submission of the same method.
-        resolved_settings_hash = MeshSettings.create(
-            settings.target_size,
-            element_order=settings.element_order,
-            overrides=dict(settings.overrides),
-            strategy=resolved_strategy,
-            structure_preference=settings.structure_preference,
-            quality_policy=(dict(settings.quality_policy) if settings.quality_policy_explicit else None),
-            controls=resolved_controls,
-            structured_controls=resolved_structured_controls,
-            quad_options=settings.quad_options,
-            layout_policy=settings.layout_policy,
-            automation=settings.automation,
-        ).input_hash
+    if regional_result is not None:
+        structural_preparation = dict(getattr(mesh, "structural_preparation", {}) or {})
+    else:
+        structural_preparation = dict(project._last_mesh_preparation)
+    # Inherited source methods and explicitly authored legacy options can
+    # select different algorithms. Preserve that distinction in the input hash.
+    resolved_settings_hash = replace(
+        settings, strategy=resolved_strategy,
+        controls=None if inherit_native else resolved_controls,
+        structured_controls=None if inherit_structured else resolved_structured_controls,
+    ).input_hash
     semantic_input_hash = canonical_hash(
         {
             "mesh_settings": resolved_settings_hash,
@@ -1031,14 +1155,29 @@ def run_mesh_job(
         mesh_input_hash=semantic_input_hash,
         structural_preparation=structural_preparation,
     )
+    regional_baseline = None
+    retained_nodes: tuple[int, ...] = ()
+    retained_elements: tuple[int, ...] = ()
+    if regional_result is not None:
+        baseline = regional_result.baseline
+        regional_baseline = None if baseline is None else dict(baseline)
+        retained_nodes = tuple(sorted(int(i) for i in regional_result.retained_nodes))
+        retained_elements = tuple(sorted(int(i) for i in regional_result.retained_elements))
+    elif settings.publication_allocation is not None and mesh.hybrid_diagnostics.get("automation", {}).get("status") != "inspection_only":
+        from .regional_dispatch import capture_regional_baseline
+        regional_baseline = capture_regional_baseline(project, settings, mesh)
     cancellation.raise_if_cancelled("mesh completion")
     progress("complete", "mesh and quality checks complete", 1.0)
     return MeshJobResult(
         mesh=mesh,
         mesh_hash=mesh_hash,
+        mesh_input_hash=semantic_input_hash,
         quality=quality,
         structural_preparation=structural_preparation,
         execution=execution,
+        regional_baseline=regional_baseline,
+        retained_node_ids=retained_nodes,
+        retained_element_ids=retained_elements,
     )
 
 
@@ -1056,6 +1195,10 @@ class _MeshTransport:
     quality: Mapping[str, Any]
     structural_preparation: Mapping[str, Any]
     execution: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    regional_baseline: Mapping[str, Any] | None = None
+    retained_node_ids: tuple[int, ...] = ()
+    retained_element_ids: tuple[int, ...] = ()
+    mesh_input_hash: str = ""
 
 
 def mesh_job_entry(*, project, progress, cancellation_token, settings, model_hash):
@@ -1070,9 +1213,15 @@ def mesh_job_entry(*, project, progress, cancellation_token, settings, model_has
     return _MeshTransport(
         mesh=mesh_to_dict(result.mesh),
         mesh_hash=result.mesh_hash,
+        mesh_input_hash=result.mesh_input_hash,
         quality=dict(result.quality),
         structural_preparation=dict(result.structural_preparation),
         execution=dict(result.execution),
+        regional_baseline=(
+            None if result.regional_baseline is None else dict(result.regional_baseline)
+        ),
+        retained_node_ids=tuple(result.retained_node_ids),
+        retained_element_ids=tuple(result.retained_element_ids),
     )
 
 
@@ -1080,29 +1229,11 @@ def mesh_job_entry(*, project, progress, cancellation_token, settings, model_has
 mesh_job_entry.error_diagnostic = _exception_diagnostic
 
 def _cancellation_token():
-    try:
-        from anysolver import CancellationToken
+    from .native_meshing import NativeMeshingCancellation
+    return NativeMeshingCancellation()
 
-        return CancellationToken()
-    except ImportError:  # pragma: no cover - ANYsolver is a normal dependency
-        class Token:
-            def __init__(self) -> None:
-                self._cancelled = threading.Event()
 
-            @property
-            def is_cancelled(self) -> bool:
-                return self._cancelled.is_set()
-
-            def cancel(self, _reason: str = "") -> bool:
-                changed = not self._cancelled.is_set()
-                self._cancelled.set()
-                return changed
-
-            def raise_if_cancelled(self, _stage: str = "") -> None:
-                if self.is_cancelled:
-                    raise RuntimeError("mesh cancelled")
-
-        return Token()
+mesh_job_entry.cancellation_token_factory = _cancellation_token
 
 
 def _is_cancelled(token: Any) -> bool:

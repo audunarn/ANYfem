@@ -21,6 +21,8 @@ ANYfem owns the application layer across the focused ecosystem packages:
 
 The dependency direction is one-way. ANYfem never imports ANYstructure.
 
+The Mesh panel and Python project sessions can update supported regions while preserving permanent node and element numbers elsewhere. [Update a published mesh](docs/REGIONAL_REMESHING.md)
+
 ### Qualified latest-only release graph
 
 | Distribution | Qualified version | Role |

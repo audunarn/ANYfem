@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping
 from uuid import uuid4
@@ -79,6 +80,18 @@ class DocumentTransaction:
     label: str
     solver_affecting: bool = True
     committed: bool = False
+    _rollback_actions: list[Callable[[], None]] = field(default_factory=list, repr=False)
+    _writers: dict[object, Callable[[], None]] = field(default_factory=dict, repr=False)
+
+    def on_rollback(self, action: Callable[[], None]) -> None:
+        """Restore session-owned state if the outer document transaction fails."""
+        self._rollback_actions.append(action)
+
+    def persist_on_commit(self, resource: object, write: Callable[[], None]) -> None:
+        """Replace one durable resource after the outer revision validates."""
+        if self._writers and resource not in self._writers:
+            raise ValueError("one transaction cannot atomically replace two independent files")
+        self._writers[resource] = write
 
 
 class DocumentSession:
@@ -109,6 +122,8 @@ class DocumentSession:
         self.active_workplane = Workplane()
         self._listeners: list[Callable[[DocumentRevision], None]] = []
         self._transaction_depth = 0
+        self._transaction_rollbacks = []
+        self._transaction_writers = {}
         self._last_saved_hash = ""
         self.revision = self._make_revision(sequence=0, label="opened")
         self._last_saved_hash = self.revision.document_hash
@@ -116,16 +131,20 @@ class DocumentSession:
     # ------------------------------------------------------------------
     @contextmanager
     def transaction(
-        self, label: str, *, solver_affecting: bool = True
+        self, label: str, *, solver_affecting: bool = True, persist: Callable[[], None] | None = None
     ) -> Iterator[DocumentTransaction]:
         if self.read_only:
             raise PermissionError("this project is open read-only")
-        transaction = DocumentTransaction(label, solver_affecting)
+        transaction = DocumentTransaction(label, solver_affecting, _rollback_actions=self._transaction_rollbacks,
+                                          _writers=self._transaction_writers)
         outermost = self._transaction_depth == 0
+        if persist is not None and not outermost:
+            raise ValueError("finish the active document transaction before saving")
         if outermost:
             from .io.project_file import project_to_dict
 
             before = deepcopy(project_to_dict(self.project))
+            file_base = getattr(self.project, "_mesh_file_base", None)
         else:
             before = None
         before_selection = (
@@ -150,6 +169,8 @@ class DocumentSession:
         before_undone = list(self.commands._undone) if outermost else None
         self._transaction_depth += 1
         try:
+            if persist is not None:
+                transaction.persist_on_commit("document", persist)
             yield transaction
             if outermost:
                 # Serialization is validation: a refused revision must roll back
@@ -159,13 +180,22 @@ class DocumentSession:
                     label=label,
                     model_hash=None if solver_affecting else self.revision.model_hash,
                 )
+                for write in self._transaction_writers.values():
+                    write()
         except BaseException:
             if outermost and before is not None:
                 from .io.project_file import project_from_dict
 
+                for action in reversed(self._transaction_rollbacks):
+                    try:
+                        action()
+                    except Exception:
+                        logging.getLogger(__name__).exception("Session rollback callback failed")
                 restored = project_from_dict(deepcopy(before))
                 self.project.__dict__.clear()
                 self.project.__dict__.update(restored.__dict__)
+                if file_base is not None:
+                    self.project._mesh_file_base = file_base
                 self.commands.project = self.project
                 # Trusted scripts and bulk workflows may perform several
                 # low-level command-stack operations inside one transaction.
@@ -194,6 +224,9 @@ class DocumentSession:
                 transaction.committed = True
         finally:
             self._transaction_depth -= 1
+            if outermost:
+                self._transaction_rollbacks.clear()
+                self._transaction_writers.clear()
 
     def execute(self, command: Command, *, solver_affecting: bool = True) -> Any:
         with self.transaction(command.label, solver_affecting=solver_affecting):
@@ -260,7 +293,10 @@ class DocumentSession:
         if solver_affecting and next_revision.model_hash != previous_model_hash:
             self.mesh_cache.clear()
         for callback in list(self._listeners):
-            callback(next_revision)
+            try:
+                callback(next_revision)
+            except Exception:
+                logging.getLogger(__name__).exception("Revision observer failed after commit %s", next_revision.id)
 
     def _make_revision(
         self,

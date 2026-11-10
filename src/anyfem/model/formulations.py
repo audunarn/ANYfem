@@ -39,6 +39,7 @@ class ShellFormulationPolicy:
     q4: str = "e4-pl"
     s3: str = "e4-pl-s3-v2d"
     higher_order: str = "legacy"
+    s3_reference_surface: str = "source"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "q4", _token(self.q4, field="q4", allowed=_Q4))
@@ -48,6 +49,11 @@ class ShellFormulationPolicy:
             "higher_order",
             _token(self.higher_order, field="higher_order", allowed=_HIGHER),
         )
+        reference = _token(self.s3_reference_surface, field="s3_reference_surface",
+                           allowed={"source", "faceted"})
+        if reference == "faceted" and self.s3 != "e4-pl-s3-v2d":
+            raise ValueError("faceted reference requires the V2D S3 formulation")
+        object.__setattr__(self, "s3_reference_surface", reference)
 
     @classmethod
     def current_default(cls) -> "ShellFormulationPolicy":
@@ -89,7 +95,7 @@ class ShellFormulationPolicy:
         return "LEGACY_SHELL_ELEMENT_HIGHER_ORDER"
 
     def to_dict(self) -> dict[str, str]:
-        return {
+        result = {
             "schema": "anyfem.shell-formulation-policy-v1",
             "q4": self.q4,
             "s3": self.s3,
@@ -98,6 +104,9 @@ class ShellFormulationPolicy:
             "s3_formulation_id": self.formulation_id_for_node_count(3),
             "higher_order_formulation_id": self.formulation_id_for_node_count(8),
         }
+        if self.s3_reference_surface == "faceted":
+            result.update(schema="anyfem.shell-formulation-policy-v2", s3_reference_surface="faceted")
+        return result
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> "ShellFormulationPolicy":
@@ -112,17 +121,20 @@ class ShellFormulationPolicy:
             "s3_formulation_id",
             "higher_order_formulation_id",
         }
+        if data.get("schema") == "anyfem.shell-formulation-policy-v2":
+            expected.add("s3_reference_surface")
+        elif data.get("schema") != "anyfem.shell-formulation-policy-v1":
+            raise ValueError("unsupported shell formulation policy schema")
         if set(data) != expected:
             raise ValueError(
                 "shell_formulations must contain exactly "
                 + ", ".join(sorted(expected))
             )
-        if data["schema"] != "anyfem.shell-formulation-policy-v1":
-            raise ValueError("unsupported shell formulation policy schema")
         made = cls(
             q4=data["q4"],  # type: ignore[arg-type]
             s3=data["s3"],  # type: ignore[arg-type]
             higher_order=data["higher_order"],  # type: ignore[arg-type]
+            s3_reference_surface=data.get("s3_reference_surface", "source"),
         )
         expected_ids = made.to_dict()
         for key in (

@@ -155,6 +155,7 @@ __all__ = [
     "SetAcceleration",
     "SetFaceCorners",
     "SetElementOrder",
+    "SetS3ReferenceSurface",
     "SetFollowerPressure",
     "SetUnitProfile",
     "SplitEdge",
@@ -2911,6 +2912,23 @@ class SetElementOrder(Command):
 
 
 @dataclass(eq=False)
+class SetS3ReferenceSurface(Command):
+    """Choose the reference surface of V2D triangles for this project."""
+
+    surface: str = "source"
+    label: str = "set triangle reference surface"
+    _previous: str = field(default="source", init=False)
+
+    def do(self, project: Project) -> None:
+        policy = project.shell_formulation_policy
+        self._previous = policy.s3_reference_surface
+        project.shell_formulation_policy = replace(policy, s3_reference_surface=self.surface)
+
+    def undo(self, project: Project) -> None:
+        project.shell_formulation_policy = replace(project.shell_formulation_policy, s3_reference_surface=self._previous)
+
+
+@dataclass(eq=False)
 class RefineForImpact(GeometryCommand):
     """Decompose the struck plate and refine the mesh under the sphere.
 
@@ -3816,6 +3834,10 @@ class DeleteProjectRecord(Command):
         identifier = str(self.identifier)
         if kind == "mesh":
             self._value = _pop_record(project.mesh_records, identifier, "mesh")
+            self._auxiliary = project.mesh_numbering.active_mesh_id == identifier
+            if self._auxiliary:
+                project.mesh_numbering = replace(project.mesh_numbering, active_mesh_id=None,
+                                                 generation=project.mesh_numbering.generation + 1)
             return
         if kind == "analysis":
             users = [
@@ -3921,6 +3943,9 @@ class DeleteProjectRecord(Command):
         identifier = str(self.identifier)
         if kind == "mesh":
             project.mesh_records[identifier] = self._value
+            if self._auxiliary:
+                project.mesh_numbering = replace(project.mesh_numbering, active_mesh_id=identifier,
+                                                 generation=project.mesh_numbering.generation + 1)
         elif kind == "analysis":
             project.analyses[identifier] = self._value
         elif kind == "job":

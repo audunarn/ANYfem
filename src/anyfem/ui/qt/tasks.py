@@ -2,6 +2,7 @@
 import json
 import inspect
 import math
+from bisect import bisect_left
 from .theme import overlay
 from dataclasses import replace, fields,asdict
 
@@ -9,7 +10,8 @@ from PySide6.QtCore import Qt, QSignalBlocker, QTimer
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox,
     QLineEdit, QPushButton, QPlainTextEdit, QSpinBox, QCheckBox, QLabel,QColorDialog,
-    QListWidget, QListWidgetItem, QAbstractItemView, QSlider, QProgressBar, QSizePolicy)
+    QListWidget, QListWidgetItem, QAbstractItemView, QSlider, QProgressBar, QSizePolicy,
+    QDialog, QDialogButtonBox)
 
 from ...application.workflow import ANALYSES, _solution_report
 from ...post.fields import available_fields
@@ -21,6 +23,190 @@ from ..numeric_input import parse_numeric_sequence
 from .plot import HistoryPlot
 from .forms import OptionForm
 from .table import ResultTable
+
+
+class MeshRepairDialog(QDialog):
+    """Explicitly choose replacement references on the staged, permanently numbered mesh."""
+
+    PAGE_SIZE = 75
+
+    def __init__(self, parent, *, project, parent_id, child_id, old_mesh, new_mesh, diagnostics):
+        super().__init__(parent)
+        self.setWindowTitle("Repair mesh references")
+        self.resize(760, 650)
+        self.parent_id, self.child_id = parent_id, child_id
+        self.old, self.new = old_mesh, new_mesh
+        self.repairs = {}
+        self.page = 0
+        self.candidate_ids = {
+            "node": sorted(new_mesh.nodes),
+            "element": sorted(e for family in ("quads", "tris", "beams", "couplings")
+                              for e in getattr(new_mesh, family)),
+            "element_face": sorted((*new_mesh.quads, *new_mesh.tris)),
+        }
+        layout = QVBoxLayout(self)
+        self.issues = QPlainTextEdit()
+        self.issues.setReadOnly(True)
+        self.issues.setPlainText("\n".join(diagnostics))
+        layout.addWidget(self.issues)
+        guidance = QLabel("Choose a replacement on the candidate mesh. A node, element or local-face "
+                          "repair applies to every reference to that parent target. Turbine repairs "
+                          "apply to the selected turbine field.")
+        guidance.setWordWrap(True)
+        layout.addWidget(guidance)
+        form = QFormLayout()
+        layout.addLayout(form)
+        self.kind = QComboBox()
+        for label, kind in (("Node", "node"), ("Element", "element"), ("Element face", "element_face")):
+            self.kind.addItem(label, (kind, None, None))
+        for turbine in getattr(project, "wind_turbine_loads", {}).values():
+            for name, kind, label in (("hub_node_id", "node", "hub node"),
+                                      ("attachment_element_id", "element", "attachment element")):
+                number = getattr(turbine, name)
+                if number is not None:
+                    key = ("wind_turbine", str(turbine.id), name)
+                    self.kind.addItem(f"{turbine.name} ({turbine.id}) — {label}", (kind, key, number))
+        form.addRow("Reference to repair", self.kind)
+        self.source = QLineEdit()
+        self.source.setPlaceholderText("Number named in the diagnostics")
+        form.addRow("Parent mesh number", self.source)
+        self.source_info = QLabel()
+        self.source_info.setWordWrap(True)
+        form.addRow("Parent entity", self.source_info)
+        self.old_face, self.new_face = QLineEdit(), QLineEdit()
+        self.old_face.setPlaceholderText("Local index, starting at 0")
+        self.new_face.setPlaceholderText("Local index, starting at 0")
+        form.addRow("Parent local face", self.old_face)
+        form.addRow("Replacement local face", self.new_face)
+        self.find_number = QLineEdit()
+        self.find_number.setPlaceholderText("First candidate number to display")
+        form.addRow("Find replacement", self.find_number)
+        self.candidates = ResultTable()
+        self.candidates.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.candidates.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(self.candidates)
+        nav = QHBoxLayout()
+        layout.addLayout(nav)
+        self.previous, self.next = QPushButton("Previous"), QPushButton("Next")
+        nav.addWidget(self.previous)
+        nav.addWidget(self.next)
+        self.add = QPushButton("Use selected replacement")
+        nav.addWidget(self.add)
+        self.chosen = QListWidget()
+        layout.addWidget(self.chosen)
+        self.remove = QPushButton("Remove selected repair")
+        layout.addWidget(self.remove)
+        self.feedback = QLabel()
+        layout.addWidget(self.feedback)
+        self.actions = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.actions.button(QDialogButtonBox.Ok).setText("Apply repairs and update")
+        self.actions.button(QDialogButtonBox.Ok).setEnabled(False)
+        layout.addWidget(self.actions)
+        self.actions.accepted.connect(self.accept)
+        self.actions.rejected.connect(self.reject)
+        self.previous.clicked.connect(lambda: self._show_page(self.page - self.PAGE_SIZE))
+        self.next.clicked.connect(lambda: self._show_page(self.page + self.PAGE_SIZE))
+        self.find_number.textChanged.connect(self._find)
+        self.source.textChanged.connect(self._describe_source)
+        self.kind.currentIndexChanged.connect(self._kind_changed)
+        self.add.clicked.connect(self._add)
+        self.remove.clicked.connect(self._remove)
+        self._kind_changed()
+
+    def _kind_changed(self, *_):
+        kind, _, number = self.kind.currentData()
+        self.source.setReadOnly(number is not None)
+        self.source.setText("" if number is None else str(number))
+        self.old_face.setEnabled(kind == "element_face")
+        self.new_face.setEnabled(kind == "element_face")
+        self.find_number.clear()
+        self._show_page(0)
+        self._describe_source()
+
+    def _describe_source(self):
+        kind = self.kind.currentData()[0]
+        value = self.source.text().strip()
+        info = self._entity_info(self.old, kind, int(value)) if value.isdecimal() else ""
+        self.source_info.setText(info)
+
+    def _find(self, text):
+        ids = self.candidate_ids[self.kind.currentData()[0]]
+        if not text or text.isdecimal():
+            self._show_page(bisect_left(ids, int(text or "0")))
+
+    @staticmethod
+    def _entity_info(mesh, kind, number):
+        if kind == "node":
+            return (", ".join(format(float(x), ".12g") for x in mesh.nodes[number]) + " m"
+                    if number in mesh.nodes else "")
+        if number in mesh.couplings:
+            c = mesh.couplings[number]
+            return f"coupling {c.beam_node} to {list(c.plate_nodes)}"
+        for family in ("quads", "tris", "beams"):
+            if number in getattr(mesh, family):
+                return f"{family}  " + ", ".join(map(str, getattr(mesh, family)[number]))
+        return ""
+
+    def _show_page(self, start):
+        kind = self.kind.currentData()[0]
+        ids = self.candidate_ids[kind]
+        self.page = min(max(0, start), len(ids))
+        rows = [(i, self._entity_info(self.new, kind, i))
+                for i in ids[self.page:self.page + self.PAGE_SIZE]]
+        self.candidates.show_rows(["Candidate number", "Coordinates (m)" if kind == "node" else "Connectivity"], rows)
+        self.previous.setEnabled(self.page > 0)
+        self.next.setEnabled(self.page + self.PAGE_SIZE < len(ids))
+
+    @staticmethod
+    def _anchor(mesh, mesh_id, kind, number, local):
+        from ...model.regions import MeshEntityRef, ElementFaceRef
+        if kind == "node" and number in mesh.nodes:
+            return MeshEntityRef(mesh_id, kind, number)
+        if kind == "element" and any(number in getattr(mesh, f) for f in ("quads", "tris", "beams", "couplings")):
+            return MeshEntityRef(mesh_id, kind, number)
+        if kind == "element_face":
+            if not local.isdecimal() or number not in mesh.quads and number not in mesh.tris:
+                raise ValueError("Choose a shell element and enter its local face index.")
+            face = int(local)
+            if face < (4 if number in mesh.quads else 3):
+                return ElementFaceRef(mesh_id, number, face)
+            raise ValueError("The selected local face is outside the shell.")
+        raise ValueError(f"{kind.title()} {number} is absent from its mesh.")
+
+    def _add(self):
+        kind, scope, _ = self.kind.currentData()
+        rows = self.candidates.selectionModel().selectedRows()
+        try:
+            if len(rows) != 1 or not self.source.text().strip().isdecimal():
+                raise ValueError("Enter the parent number and select one candidate row.")
+            old = int(self.source.text().strip())
+            new = self.candidate_ids[kind][self.page + rows[0].row()]
+            source = self._anchor(self.old, self.parent_id, kind, old, self.old_face.text())
+            target = self._anchor(self.new, self.child_id, kind, new, self.new_face.text())
+            if kind == "element_face" and target.local_face != 0:
+                raise ValueError("Choose shell surface 0 on the candidate element.")
+            key = tuple(scope) if scope is not None else source
+            if key in self.repairs:
+                raise ValueError("Remove the existing repair before changing its replacement.")
+        except ValueError as error:
+            self.feedback.setText(str(error))
+            return
+        self.repairs[key] = new if scope is not None else target
+        label = self.kind.currentText()
+        if kind == "element_face":
+            label += f"  {old}/{source.local_face} → {new}/{target.local_face}"
+        else:
+            label += f"  {old} → {new}"
+        self.chosen.addItem(label)
+        self.feedback.clear()
+        self.actions.button(QDialogButtonBox.Ok).setEnabled(True)
+
+    def _remove(self):
+        index = self.chosen.currentRow()
+        if index >= 0:
+            del self.repairs[list(self.repairs)[index]]
+            self.chosen.takeItem(index)
+            self.actions.button(QDialogButtonBox.Ok).setEnabled(bool(self.repairs))
 
 
 class MeshTask(QWidget):
@@ -42,23 +228,39 @@ class MeshTask(QWidget):
                                     "Preserves regular quadrilaterals on planar plates, with local transitions around holes and angled boundaries.")):
             self.strategy.setItemData(index,tip,Qt.ToolTipRole)
         self.strategy.setItemData(4,"SmartMapped",Qt.AccessibleTextRole)
+        self.regional_generation = QCheckBox("Prepare mapped mesh for regional updates")
+        self.regional_generation.setToolTip(
+            "Generate a mapped mesh without method recovery. Supported plate meshes can then "
+            "retain permanent numbers when you choose Update mesh.")
+        form.addRow(self.regional_generation)
         from anymesher.structured import StructurePreference
         self.preference=QComboBox();self.preference.addItems([item.value for item in StructurePreference]);form.addRow("Structure preference",self.preference)
         self.options=QPlainTextEdit("{}");self.options.setMaximumHeight(90)
         self.options.setToolTip("Extra keyword options as a JSON object. Leave {} unless instructed.")
         from ...mesh_controls import MeshControls,StructuredMeshControls
         self.native_controls=OptionForm.record(MeshControls,MeshControls.display_values(app.project.native_mesh_settings))
-        self.structured_controls=OptionForm.record(StructuredMeshControls)
+        self.structured_controls=OptionForm.record(StructuredMeshControls,StructuredMeshControls.display_values(app.project.native_mesh_settings))
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
         from anymesher.quad.options import QuadMeshingOptions
         from ...quad_first import sg1_quad_options
         self.quality_controls=OptionForm.record(MeshQualityPolicy)
         self.quad_controls=OptionForm.record(QuadMeshingOptions,asdict(sg1_quad_options()))
         self.automation_controls=OptionForm.record(MeshAutomationOptions)
+        self._edited_mesh_forms = set()
+        for control_form in (self.native_controls, self.structured_controls, self.automation_controls):
+            for widget, _, _ in control_form.fields.values():
+                signal = (widget.clicked if isinstance(widget, QCheckBox) else
+                          widget.activated if isinstance(widget, QComboBox) else widget.textEdited)
+                signal.connect(lambda *_, edited=control_form: self._edited_mesh_forms.add(edited))
+        self.regional_generation.toggled.connect(self._set_regional_generation)
         self.order=QComboBox();self.order.addItems(["linear","quadratic"]);self.order.setCurrentText(app.project.element_order);form.addRow("Element order",self.order)
         actions=QHBoxLayout();actions.setSpacing(6)
         self.generate=QPushButton("Generate mesh");self.generate.setProperty("primary",True)
         self.generate.clicked.connect(app.guarded(self.start));actions.addWidget(self.generate,1)
+        self.update_mesh=QPushButton("Update mesh")
+        self.update_mesh.setToolTip("Regenerate only the changed region of the current mesh using the settings below. "
+                                    "Generate mesh always performs a full rebuild.")
+        self.update_mesh.clicked.connect(app.guarded(self.start_update));actions.addWidget(self.update_mesh)
         cancel=QPushButton("Cancel mesh")
         cancel.clicked.connect(app.guarded(app.cancel_mesh));actions.addWidget(cancel)
         layout.addLayout(actions)
@@ -97,6 +299,25 @@ class MeshTask(QWidget):
         layout.addWidget(preview_section)
         settings=Collapsible("Advanced settings",hint="Backend, quality, quad-first and recovery controls. Defaults suit most models.")
         settings.addLayout(advanced)
+        self.s3_reference = QComboBox()
+        self.s3_reference.addItem("Source surface normal", "source")
+        self.s3_reference.addItem("Flat triangle normal, oriented by source", "faceted")
+        self.s3_reference.setToolTip("V2D uses flat triangles. The faceted option follows each triangle plane and keeps the source sheet's physical side.")
+        policy = app.project.shell_formulation_policy
+        self.s3_reference.setCurrentIndex(self.s3_reference.findData(policy.s3_reference_surface))
+        self.s3_reference.setEnabled(policy.s3 == "e4-pl-s3-v2d")
+        settings.addWidget(section_label("V2D triangle reference surface"))
+        settings.addWidget(self.s3_reference)
+        self.source_controls_hint = QLabel(
+            "Automatic inherits saved native and layout settings and lets the surface mesher choose recovery. "
+            "Editing a control group applies its displayed values. Element quality limits always apply.")
+        self.source_controls_hint.setObjectName("Hint")
+        self.source_controls_hint.setWordWrap(True)
+        settings.addWidget(self.source_controls_hint)
+        self._source_hint_key = None
+        self.strategy.currentIndexChanged.connect(self._sync_source_hint)
+        self.order.currentIndexChanged.connect(self._sync_source_hint)
+        self._sync_source_hint()
         for label,widget in [("Native meshing controls",self.native_controls),("Structured layout controls",self.structured_controls),
                              ("Element quality policy",self.quality_controls),("Quad-first controls",self.quad_controls),
                              ("Mesh recovery policy",self.automation_controls)]:
@@ -108,6 +329,8 @@ class MeshTask(QWidget):
         layout.addWidget(tools)
         self.sections={"seeding":seeding,"preview":preview_section,"advanced":settings,"tools":tools}
         layout.addStretch()
+        if app.project.mesh_numbering.active_mesh_id in app.project.mesh_records:
+            self.reset_mesh_drafts()
 
     def strategy_token(self):
         """The strategy token behind the visible label (SmartMapped -> smart_mapped)."""
@@ -118,24 +341,59 @@ class MeshTask(QWidget):
         index=self.strategy.findData(str(token),Qt.UserRole)
         self.strategy.setCurrentIndex(index) if index>=0 else self.strategy.setCurrentText(str(token))
 
+    def _sync_source_hint(self, *_):
+        project = self.app.project
+        strategy, order = self.strategy_token(), self.order.currentText()
+        key = (id(project.geometry), project.geometry.revision, strategy, order, tuple(project.beam_edges))
+        if key != self._source_hint_key:
+            self._source_hint_key = key
+            self.source_controls_hint.setVisible(project.automatic_source_mesh_candidate(strategy, order))
+
+    def _set_regional_generation(self, enabled):
+        if enabled:
+            self.set_strategy("mapped")
+        self.strategy.setEnabled(not enabled)
+        self.automation_controls.setEnabled(not enabled)
+
     def open_mesher(self):
         """Launch the owner's standalone tool in its own process."""
         import subprocess,sys
         subprocess.Popen([sys.executable,"-m","anymesher.gui"])
         self.app.set_status("Opened standalone ANYmesher; save its neutral mesh from that window")
 
-    def settings(self):
+    def settings(self, *, updating=False):
         options=json.loads(self.options.toPlainText())
         if not isinstance(options,dict):
             raise ValueError("Mesh options must be an object")
-        from ...mesh_controls import MeshControls,StructuredMeshControls
-        for name,record in [("mesh_controls",MeshControls),("structured_controls",StructuredMeshControls)]:
-            raw=options.get(name)
-            options[name]=record(**raw) if isinstance(raw,dict) else raw or record(**(self.native_controls if name=="mesh_controls" else self.structured_controls).values())
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
+        from ...mesh_controls import MeshControls,StructuredMeshControls
+        project = self.app.project
+        stored = project.native_mesh_settings
+        source = project.automatic_source_mesh_candidate(self.strategy_token(), self.order.currentText(), updating=updating)
+
+        def request(name, form, record, inherited):
+            if name in options and (source or options[name] is not None):
+                raw = options[name]
+                return record(**raw) if isinstance(raw, dict) else raw
+            value = record(**form.values())
+            if source and form not in self._edited_mesh_forms and asdict(value) == inherited:
+                return None
+            return value
+
+        options["mesh_controls"] = request("mesh_controls", self.native_controls, MeshControls,
+                                           MeshControls.display_values(stored))
+        options["structured_controls"] = request("structured_controls", self.structured_controls, StructuredMeshControls,
+                                                 StructuredMeshControls.display_values(stored))
         options.setdefault("native_backend",self.backend.currentText())
         raw=options.get("automation")
-        options["automation"]=MeshAutomationOptions(**raw) if isinstance(raw,dict) else raw or MeshAutomationOptions(**self.automation_controls.values())
+        if self.regional_generation.isChecked():
+            if raw is not None:
+                raise ValueError("Regional mapped generation requires method recovery to be off. "
+                                 "Remove automation from Additional mesh options.")
+            options["automation"] = None
+        else:
+            options["automation"] = request("automation", self.automation_controls, MeshAutomationOptions,
+                                            asdict(MeshAutomationOptions()))
         if self.strategy_token()=="auto":options.setdefault("quality_policy",MeshQualityPolicy(**self.quality_controls.values()).to_dict())
         if self.strategy_token() in ("quad_first","smart_mapped"):
             from anymesher.quad.options import QuadMeshingOptions
@@ -153,10 +411,62 @@ class MeshTask(QWidget):
 
     def start(self):
         options=self.settings()
+        reference = self.s3_reference.currentData()
         if self.order.currentText()!=self.app.project.element_order:
             from ...commands import SetElementOrder
             self.app.run(SetElementOrder(self.order.currentText()))
+        if reference != self.app.project.shell_formulation_policy.s3_reference_surface:
+            from ...commands import SetS3ReferenceSurface
+            self.app.run(SetS3ReferenceSurface(reference))
         self.app.generate_mesh_async(**options)
+
+    def start_update(self):
+        """Regional update with the same settings as Generate mesh; never a hidden full rebuild."""
+        from ...application.mesh_publication import check_ticket, publication_ticket
+
+        options=self.settings(updating=True)
+        if self.order.currentText()!=self.app.project.element_order:
+            raise ValueError("Element order differs from the current mesh; use Generate mesh for a full rebuild")
+        if self.s3_reference.currentData() != self.app.project.shell_formulation_policy.s3_reference_surface:
+            raise ValueError("Triangle reference surface changed; use Generate mesh to apply it")
+        # The preview raises an accurate error (for example no regional baseline) before anything is submitted.
+        from ...mesh_preview import MeshUpdatePreview
+        ticket = publication_ticket(self.app)
+        seeding = dict(self.app.seeding_overrides)
+        impact = self.app.preview_regional_update(include_impact=True, **options)
+        if isinstance(impact, MeshUpdatePreview) and impact.review_prepared_cells:
+            self.app.submit_patch_update(**options)
+            return
+        description = impact.description if isinstance(impact, MeshUpdatePreview) else impact
+        viewport = getattr(self.app, "viewport", None)
+        highlight = (isinstance(impact, MeshUpdatePreview) and impact.owners and viewport is not None
+                     and self.app._view_mode in ("geometry", "mesh"))
+        previous = viewport._collection_refs if highlight else None
+        from ...selection import MeshEntityRef
+        if (highlight and any(isinstance(ref, MeshEntityRef) for ref in impact.owners)
+                and hasattr(self.app, "review_parent_cells")):
+            confirmed = self.app.review_parent_cells(impact, None, "Update mesh", "Update the mesh now?")
+        else:
+            try:
+                if highlight:
+                    viewport.set_collection_highlight(previous.union(impact.owners))
+                confirmed = self.app.dialogs.confirm("Update mesh", f"{description}\n\nUpdate the mesh now?")
+            finally:
+                if highlight:
+                    viewport.set_collection_highlight(previous)
+        if not confirmed:
+            self.app.set_status("Mesh update cancelled")
+            return
+        # A modal confirmation runs a nested event loop. The user approved
+        # this parent's cut and the settings that produced its preview.
+        check_ticket(self.app, ticket)
+        if not ticket.expected.generation and self.app.mesh_record_id != ticket.parent_id:
+            raise ValueError("Update preview refers to a superseded parent mesh")
+        if (seeding != self.app.seeding_overrides or options != self.settings(updating=True)
+                or self.order.currentText() != self.app.project.element_order
+                or self.s3_reference.currentData() != self.app.project.shell_formulation_policy.s3_reference_surface):
+            raise ValueError("Mesh settings changed during confirmation. Review the updated preview.")
+        self.app.update_mesh_async(**options, reference_repairs=self.app.review_mesh_reference_repairs)
 
     def preview(self):
         options=self.settings()
@@ -195,11 +505,19 @@ class MeshTask(QWidget):
 
     def reset_mesh_drafts(self):
         from ...mesh_controls import MeshControls,StructuredMeshControls
+        policy = self.app.project.shell_formulation_policy
+        self.s3_reference.setCurrentIndex(self.s3_reference.findData(policy.s3_reference_surface))
+        self.s3_reference.setEnabled(policy.s3 == "e4-pl-s3-v2d")
         self.size.setText(str(self.app.project.target_size or 0.25))
         settings=self.app.project.native_mesh_settings
+        self._edited_mesh_forms.clear()
         self.native_controls.set_values(MeshControls.display_values(settings))
         self.structured_controls.set_values(StructuredMeshControls.display_values(settings))
         self.set_strategy(self.app._project_mesh_strategy(self.app.project,None))
+        parent = self.app.project.mesh_records.get(self.app.project.mesh_numbering.active_mesh_id)
+        self.regional_generation.setChecked(bool(
+            parent and "regional_baseline" in parent.summary and self.strategy_token() == "mapped"
+            and parent.summary.get("automation_requested") is None))
         self.preference.setCurrentText(self.app._project_structure_preference(self.app.project,None))
         self.options.setPlainText("{}")
         from anymesher import MeshAutomationOptions,MeshQualityPolicy
@@ -217,7 +535,19 @@ class MeshTask(QWidget):
         self.execution.setCurrentText("Automatic");self.workers.setValue(4)
 
     def refresh(self):
+        self._sync_source_hint()
         self.generate.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only)
+        parent_id = self.app.project.mesh_numbering.active_mesh_id
+        parent = self.app.project.mesh_records.get(parent_id)
+        self.update_mesh.setEnabled(not self.app.mesh_job_running and not self.app.session.read_only
+                                    and parent is not None and "regional_baseline" in parent.summary)
+        if parent is None or "regional_baseline" not in parent.summary:
+            self.update_mesh.setToolTip((parent.summary.get("regional_refusal") if parent else None) or
+                                        "Choose Prepare mapped mesh for regional updates, then Generate mesh "
+                                        "on a supported plate model.")
+        else:
+            self.update_mesh.setToolTip("Preview the affected region and update the current mesh. "
+                                        "Review any mesh references that need new targets before publication.")
         mesh=self.app.mesh
         if mesh is None:
             self.summary.setText("No active mesh")

@@ -260,7 +260,7 @@ def job_source(project: Any, reference: SourceReference, store: Any, *, document
 
     from .io.artifacts import ArtifactError
     from .jobs import analysis_hash
-    from .mesh_jobs import mesh_semantic_hash
+    from .mesh_jobs import matches_mesh_hash
     from .model.records import JobStatus, OutputRequest
     from .post.results import LinearSolution
     from .solve.build import build_fe_model
@@ -297,9 +297,8 @@ def job_source(project: Any, reference: SourceReference, store: Any, *, document
         mesh = store.read_mesh(mesh_artifact)
     except (ArtifactError, OSError) as error:
         raise SubmodelError("SOURCE_ARTIFACT", f"the source mesh artifact does not decode: {error}") from error
-    decoded_hash = mesh_semantic_hash(mesh, model_hash=record.source_model_hash, mesh_input_hash=record.mesh_input_hash,
-                                      structural_preparation=record.structural_preparation)
-    if decoded_hash != job.mesh_hash:
+    if not matches_mesh_hash(mesh, job.mesh_hash, model_hash=record.source_model_hash,
+                             mesh_input_hash=record.mesh_input_hash, structural_preparation=record.structural_preparation):
         raise SubmodelError("SOURCE_MESH", "the decoded source mesh does not have the job's mesh hash")
     # 5. result artifact
     result_artifact = _registered(project, job.result_artifact_id, "result", "source result")

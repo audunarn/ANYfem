@@ -24,17 +24,20 @@ def _checkouts(text):
 
 
 @pytest.mark.parametrize(('input_name', 'path', 'expected'), (
-    ('geometry_ref', '.ecosystem/ANYgeometry', 'dfe70ff62a580cf26b01591ae92df0024bdb7fac'),
-    ('mesher_ref', '.ecosystem/ANYmesh', '8cddc735022c23d540c7c1a7299ba0c9455558b1'),
+    ('geometry_ref', '.ecosystem/ANYgeometry', '602e4a7ac35eeeea6490e0bf25e22f03f72b86a7'),
+    ('mesher_ref', '.ecosystem/ANYmesh', '63b6c33f2e110ad8bb83895539bf0a664b25a2a1'),
 ))
 def test_qt_default_and_automatic_owner_refs_match_headless(input_name, path, expected):
     qt, headless = QT.read_text(), HEADLESS.read_text()
-    assert _checkouts(headless)[path][1] == expected
+    default_ref = "${{ inputs." + input_name + " || '" + expected + "' }}"
+    assert _checkouts(headless)[path][1] == (default_ref if input_name == 'mesher_ref' else expected)
+    if input_name == 'mesher_ref':
+        assert re.search(rf"^      mesher_ref:\n.*?^        default: '{expected}'$", headless, re.M | re.S)
     block = re.search(rf'^      {input_name}:\n(.*?)(?=^      \w+:|^permissions:)',
                       qt, re.M | re.S)
     assert block is not None
     assert re.search(rf'^        default: {expected}$', block[1], re.M)
-    assert _checkouts(qt)[path][1] == "${{ inputs." + input_name + " || '" + expected + "' }}"
+    assert _checkouts(qt)[path][1] == default_ref
 
 
 def test_qt_preserves_physical_solver_and_separates_results_owner():

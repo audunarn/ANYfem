@@ -13,6 +13,7 @@ reload cannot collide with entities that already exist.
 
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 import os
 from copy import deepcopy
@@ -437,6 +438,9 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
             item.to_dict()
             for item in sorted(project.analyses.values(), key=lambda value: value.id)
         ],
+        **({"mesh_numbering": project.mesh_numbering.to_dict()}
+           if (project.mesh_numbering.generation or project.mesh_numbering.node_high_water
+               or project.mesh_numbering.element_high_water) else {}),
         "mesh_records": [
             item.to_dict()
             for item in sorted(project.mesh_records.values(), key=lambda value: value.id)
@@ -464,12 +468,16 @@ def project_to_dict(project: Project) -> Dict[str, Any]:
 
 def save_project(project: Project, path: str | Path) -> Path:
     """Atomically write a project, preserving the prior valid file."""
+    from .mesh_number_journal import saved_allocation
 
     destination = Path(path)
     if not destination.suffix:
         destination = destination.with_suffix(SUFFIX)
     destination.parent.mkdir(parents=True, exist_ok=True)
     document = project_to_dict(project)
+    allocation = saved_allocation(project, destination)
+    if allocation != project.mesh_numbering:
+        document["mesh_numbering"] = allocation.to_dict()
     document["anyfem"]["artifact_root"] = f"{destination.name}-data"
     payload = json.dumps(document, indent=2, allow_nan=False)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -488,6 +496,8 @@ def save_project(project: Project, path: str | Path) -> Path:
             backup = destination.with_suffix(destination.suffix + ".bak")
             backup.write_bytes(destination.read_bytes())
         os.replace(temporary, destination)
+        project.mesh_numbering = allocation
+        project._mesh_file_base = (destination.resolve(), sha256(payload.encode("utf-8")).digest())
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -1130,6 +1140,15 @@ def _project_from_dict(data: Mapping[str, Any]) -> Project:
         project.add_analysis(analysis)
     for entry in data.get("mesh_records", ()):
         project.add_mesh_record(MeshRecord.from_dict(entry))
+    if "mesh_numbering" in data:
+        from ..mesh_numbering import MeshNumbering
+        try:
+            project.mesh_numbering = MeshNumbering(**data["mesh_numbering"])
+        except (TypeError, ValueError) as error:
+            raise ProjectFileError(f"invalid mesh numbering: {error}") from error
+        active = project.mesh_numbering.active_mesh_id
+        if active is not None and active not in project.mesh_records:
+            raise ProjectFileError("active mesh number allocation names an unknown mesh")
     for entry in data.get("jobs", ()):
         project.add_job(JobRecord.from_dict(entry))
     for entry in data.get("artifacts", ()):
@@ -1373,7 +1392,7 @@ def load_project(path: str | Path) -> Project:
 
     source = Path(path)
     try:
-        raw = source.read_text(encoding="utf-8")
+        raw = source.read_bytes()
     except OSError as error:
         raise ProjectFileError(f"cannot read {source}: {error}") from None
     try:
@@ -1382,7 +1401,11 @@ def load_project(path: str | Path) -> Project:
         raise ProjectFileError(f"{source} is not valid JSON: {error}") from None
     project=project_from_dict(data)
     from ..application.pressure_transfer import upgrade_legacy_wave_sources
-    return upgrade_legacy_wave_sources(project,source)
+    project = upgrade_legacy_wave_sources(project,source)
+    project._mesh_file_base = (source.resolve(), sha256(raw).digest())
+    from .mesh_number_journal import saved_allocation
+    project.mesh_numbering = saved_allocation(project, source)
+    return project
 
 
 def _uses_entity_sizes(project: Project) -> bool:
@@ -1527,6 +1550,10 @@ def _vector(values) -> List[float]:
 
 
 def _ref(ref: EntityRef) -> Dict[str, Any]:
+    from ..selection import MeshEntityRef
+    if isinstance(ref, MeshEntityRef):
+        return {"domain": "mesh", "mesh_id": ref.mesh_id, "kind": ref.kind,
+                "id": list(ref.id) if ref.kind == "element_face" else ref.id}
     return {"kind": ref.kind, "id": int(ref.id)}
 
 
@@ -1578,6 +1605,9 @@ def _existing_ref(
     """
 
     try:
+        if data.get("domain") == "mesh":
+            from ..selection import MeshEntityRef
+            return MeshEntityRef(str(data["kind"]), data["id"], data.get("mesh_id"))
         ref = _ref_from(data)
         if project.mesh_only:
             # Imported groups use the EntityRef vocabulary but intentionally

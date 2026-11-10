@@ -98,6 +98,20 @@ def build_fe_model(
 ) -> BuiltModel:
     """Build the solver model for one load case or combination."""
 
+    producing_id = getattr(mesh, "_anyfem_mesh_record_id", None)
+    active_id = project.mesh_numbering.active_mesh_id
+    if project.mesh_numbering.generation:
+        from ..application.mesh_publication import changed_mesh_sources
+        from ..mesh_jobs import matches_mesh_hash
+        active = project.mesh_records.get(active_id)
+        if active is None or (producing_id is not None and producing_id != active_id):
+            raise ProjectError("mesh does not match the project's active published mesh")
+        changed = changed_mesh_sources(project, active)
+        if changed:
+            raise ProjectError(f"published mesh is stale after changes to {', '.join(changed)}; update the mesh")
+        if not matches_mesh_hash(mesh, active.mesh_hash, model_hash=active.source_model_hash,
+                                 mesh_input_hash=active.mesh_input_hash, structural_preparation=active.structural_preparation):
+            raise ProjectError("mesh content differs from the active publication")
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
         raise ProjectError(
@@ -269,7 +283,17 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             )
             extra: dict[str, Any] = {}
             if formulation == "e4-pl-s3-v2d":
-                extra["reference_normal"] = owner_normals[int(element_id)]
+                reference = owner_normals[int(element_id)]
+                if project.shell_formulation_policy.s3_reference_surface == "faceted":
+                    # Source normals have already passed signed-area, owner alignment
+                    # and shape admission above. Keep their physical side on each chord facet.
+                    a, b, c = (np.asarray(mesh.nodes[n], dtype=float) for n in node_ids)
+                    facet = np.cross(b - a, c - a)
+                    length = np.linalg.norm(facet)
+                    if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
+                        raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
+                    reference = facet / length
+                extra["reference_normal"] = reference
             # The application policy is explicit and persisted, so the solver's
             # user-facing deprecation warning would otherwise be repeated once
             # per legacy Q4 element.  Keep the warning for direct solver callers.
@@ -397,7 +421,10 @@ def _qualified_s3_owner_normals(
         raise ProjectError("qualified S3 source-model authority is malformed")
     if (
         type(authority["prepared_revision"]) is not int
-        or authority["scope"] != "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE"
+        or authority["scope"] not in (
+            "PREPARED_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+            "SOURCE_GEOMETRY_ORIENTED_SHEET_FACE_USE",
+        )
         or type(authority["source_model_id"]) is not str
         or type(authority["source_revision"]) is not int
     ):
@@ -417,6 +444,17 @@ def _qualified_s3_owner_normals(
         or authority["source_revision"] != mesh_revision
     ):
         raise ProjectError("qualified S3 mesh authority is stale for the source geometry")
+
+    source_face_scope = authority["scope"] == "SOURCE_GEOMETRY_ORIENTED_SHEET_FACE_USE"
+    if source_face_scope:
+        transfer = mesh.structural_preparation.get("closure_source_transfer")
+        if (
+            not isinstance(transfer, Mapping)
+            or transfer.get("source_model_id") != project_model_id
+            or transfer.get("source_revision") != project_revision
+            or authority["prepared_revision"] != project_revision
+        ):
+            raise ProjectError("qualified S3 source-face normals lack a matching closure publication")
 
     shell_ids = tuple(sorted(int(value) for value in mesh.shells))
     expected_normal_keys = {str(value) for value in shell_ids}
@@ -445,6 +483,21 @@ def _qualified_s3_owner_normals(
             raise ProjectError(
                 f"qualified S3 physical owner source {key!r} is malformed"
             )
+
+    if source_face_scope:
+        uses_by_face = {}
+        for use_id, use in sorted(project.geometry.face_uses.items()):
+            uses_by_face.setdefault(use.face_id, []).append((use_id, use.sheet_id))
+        seen = set()
+        for face, elements in mesh.elements_of_face.items():
+            for element in elements:
+                owner = raw_sources.get(str(element))
+                if (owner is None or element in seen or owner["face_id"] != face
+                        or list(zip(owner["face_use_ids"], owner["sheet_ids"])) != uses_by_face.get(face)):
+                    raise ProjectError(f"qualified S3 source face uses differ for element {element}")
+                seen.add(element)
+        if seen != set(shell_ids):
+            raise ProjectError("qualified S3 source face coverage differs from the mesh")
 
     nodal_normals = record["nodal_normals"]
     shell_node_ids = {
@@ -2216,7 +2269,17 @@ def _attribute_targets(
     """
 
     if region_ref is None:
-        targets: tuple[Any, ...] = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
+        from ..selection import MeshEntityRef as SelectionMeshRef
+        if isinstance(fallback, SelectionMeshRef):
+            active_id = project.mesh_numbering.active_mesh_id
+            if fallback.mesh_id is None or active_id != fallback.mesh_id:
+                raise ProjectError("direct mesh reference requires re-selection on the active mesh")
+            target = (ElementFaceRef(active_id, fallback.element_id, fallback.local_face)
+                      if fallback.kind == "element_face"
+                      else MeshEntityRef(active_id, fallback.kind, fallback.id))
+            targets = (target,)
+        else:
+            targets = (fallback,) if project.mesh_only else tuple(project.geometry.resolve_ref(fallback))
     else:
         try:
             geometry = None if project.mesh_only else project.geometry
@@ -2225,9 +2288,14 @@ def _attribute_targets(
                 feature_resolver = lambda anchor: project.geometry.features.resolve(
                     anchor, project.geometry
                 )
+            # A mesh-domain region is bound to one published mesh.  When the
+            # project knows its active mesh, a region left on another mesh is
+            # refused instead of silently reinterpreting its integer IDs.
+            numbering = getattr(project, "mesh_numbering", None)
             targets = project.regions.resolve(
                 region_ref.id,
                 geometry=geometry,
+                mesh_id=getattr(numbering, "active_mesh_id", None),
                 feature_resolver=feature_resolver,
             )
         except Exception as exc:

@@ -981,7 +981,8 @@ def _worker_main(
                     os._exit(4)
             except (EOFError, OSError):
                 os._exit(4)
-        token = _cancellation_token()
+        token_factory = getattr(spec["function"], "cancellation_token_factory", _cancellation_token)
+        token = token_factory()
 
         def forward_cancellation() -> None:
             cancel_event.wait()

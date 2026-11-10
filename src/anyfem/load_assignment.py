@@ -85,7 +85,7 @@ def attribute_targets(project,record):
     from .selection import MeshEntityRef
     region=getattr(record,'region',None) or project.raw_geometry_attachment_region(record)
     if region is not None:
-        refs=project.regions.resolve(region.id,geometry=project.geometry,feature_resolver=lambda anchor:project.geometry.features.resolve(anchor,project.geometry))
+        refs=project.regions.resolve(region.id,geometry=project.geometry,mesh_id=project.mesh_numbering.active_mesh_id,feature_resolver=lambda anchor:project.geometry.features.resolve(anchor,project.geometry))
     elif hasattr(record,'ref'):
         refs=(record.ref,) if project.mesh_only else project.geometry.resolve_ref(record.ref)
     elif hasattr(record,'connection'):
@@ -98,7 +98,7 @@ def attribute_targets(project,record):
         surface=next(item for item in project.wet_surfaces if item.id==record.surface or item.name==record.surface)
         return attribute_targets(project,surface)
     else:return ()
-    return tuple(dict.fromkeys(MeshEntityRef(ref.kind,ref.id) if isinstance(ref,RegionMeshRef) else MeshEntityRef('element_face',(ref.element_id,ref.local_face)) if isinstance(ref,ElementFaceRef) else ref for ref in refs))
+    return tuple(dict.fromkeys(MeshEntityRef(ref.kind,ref.id,ref.mesh_id) if isinstance(ref,RegionMeshRef) else MeshEntityRef('element_face',(ref.element_id,ref.local_face),ref.mesh_id) if isinstance(ref,ElementFaceRef) else ref for ref in refs))
 
 
 @dataclass(frozen=True)

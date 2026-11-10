@@ -101,6 +101,8 @@ def region_from_selection(
 
     mesh_anchors: list[RegionMeshEntityRef | ElementFaceRef] = []
     for item in selected:
+        if item.mesh_id is not None and item.mesh_id != mesh_id:
+            raise ValueError("the selection belongs to a different mesh")
         if item.kind == "element_face":
             mesh_anchors.append(
                 ElementFaceRef(
