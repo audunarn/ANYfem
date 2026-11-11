@@ -17,8 +17,8 @@ remain governed by the notices shipped by their distributors.
 | ANYhydro | optional floating-body hydrodynamics | MPL-2.0 | https://github.com/audunarn/ANYhydro |
 | ANYsection | optional beam-section library | MPL-2.0 | https://github.com/audunarn/ANYsection |
 | ANYsolid | optional solid child | MPL-2.0 | https://github.com/audunarn/ANYsolid |
-| ANYsolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYsolver |
-| ANYsolver-results | runtime | MPL-2.0 | https://github.com/audunarn/ANYsolver |
+| ANYfeSolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYfeSolver |
+| ANYfeSolver-results | runtime | MPL-2.0 | https://github.com/audunarn/ANYfeSolver |
 | ANYstability | optional floating-body equilibrium | MPL-2.0 | https://github.com/audunarn/ANYstability |
 | ANYtk3D | optional legacy Tk extra | MPL-2.0 | https://github.com/audunarn/ANYtk3D |
 | build | development | MIT | https://github.com/pypa/build |

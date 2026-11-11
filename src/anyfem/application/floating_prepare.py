@@ -180,7 +180,7 @@ def collect_snapshots(cache_dir, settings, source, pose, *, cancel=None, progres
 
 def _panel_wrench_body(snap, p, Q0, cg):
     """Force of the fluid on the body from native panel pressures, as a mean-body-axes generalized force (6x6 basis)."""
-    from anysolver import floating_response as fr
+    from anyfesolver import floating_response as fr
     f = -(p[:, None] * snap.normals * snap.areas[:, None])
     w = np.concatenate([f.sum(axis=0), np.cross(snap.centers - np.asarray(cg), f).sum(axis=0)])
     return fr.world_to_body_generalized_force(w, Q0)
@@ -204,7 +204,7 @@ def prepare_from_pose(project, mesh, settings, pose_record, *, cache_dir, built=
 
 def assemble_prepared(project, mesh, settings, pose_record, source, snaps, *, built, props, target=None, evaluator=None):
     """Response + pressure work + history from a stored source and families (no cache access, no BEM)."""
-    from anysolver import floating_response as fr
+    from anyfesolver import floating_response as fr
     from anyloads.floating_history import FloatingCoupledLoadHistory
     _check_components(settings)
     fe_model = built.fe_model

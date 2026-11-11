@@ -206,7 +206,7 @@ def _structure_runtime_entrypoint_checks(folder, case, h):
     )
     from anyfem.solve.build import build_fe_model
     from anyfem.solve.run import solve_linear_static
-    from anysolver import ResourceConfig, assemble_load_vector
+    from anyfesolver import ResourceConfig, assemble_load_vector
 
     snapshot = active_line_snapshot(example_runtime_app(
         "girder_panel" if case == "structure_panel" else "cylinder"
@@ -328,11 +328,11 @@ def run(spec, folder: Path):
     from benchmarks.sg1.measure import audit, promotion_checks, mesh_signature
     from anyfem.solve.build import build_fe_model
     from anyfem.solve.run import solve_linear_static
-    from anysolver import assemble_load_vector
-    from anysolver.assembly import compute_reactions
-    from anysolver import ResourceConfig
-    from anysolver.matrix_assembly import assemble_stiffness_matrix
-    from anysolver.assembly import build_constraint_transformation
+    from anyfesolver import assemble_load_vector
+    from anyfesolver.assembly import compute_reactions
+    from anyfesolver import ResourceConfig
+    from anyfesolver.matrix_assembly import assemble_stiffness_matrix
+    from anyfesolver.assembly import build_constraint_transformation
     from benchmarks.sg1.consumer import probe
 
     case, h, order, refined = spec["case"], float(spec["h"]), spec["order"], bool(spec["refined"])

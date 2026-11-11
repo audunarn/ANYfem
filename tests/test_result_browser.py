@@ -47,7 +47,7 @@ def test_unknown_saved_component_refuses_before_reading_or_rendering():
 
 
 def test_owner_live_quantity_descriptors_keep_every_advertised_component():
-    from anysolver import ResultQuantity
+    from anyfesolver import ResultQuantity
     descriptor=ResultQuantity("strain.tensor","Strain tensor","element",("xx","yy","xy"),"1")
     entries=result_entries(live_quantities=(descriptor,))
     assert {entry.component for entry in entries}=={None,"xx","yy","xy"}

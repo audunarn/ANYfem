@@ -89,15 +89,15 @@ def peak_working_set_bytes():
 
 
 def runtime_identity() -> dict:
-    import anyfem, anysolver, anyloads
+    import anyfem, anyfesolver, anyloads
     info = {
         "python": sys.version, "executable": sys.executable,
         "cpu_count": os.cpu_count(),
         "thread_environment": {key: os.environ.get(key) for key in (
             "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-            "NUMEXPR_NUM_THREADS", "ANYSOLVER_THREADS")},
+            "NUMEXPR_NUM_THREADS", "ANYFESOLVER_THREADS")},
         "numpy": np.__version__,
-        "origins": {"anyfem": anyfem.__file__, "anysolver": anysolver.__file__,
+        "origins": {"anyfem": anyfem.__file__, "anyfesolver": anyfesolver.__file__,
                     "anyloads": anyloads.__file__},
         "source_sha256": {rel: hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
                           for rel in SOURCES if (ROOT / rel).exists()},
@@ -319,7 +319,7 @@ def load_inputs(shared: Path, n_frames: int, stages: dict):
 def measured_solve(shared: Path, n_frames: int, *, load_tolerance=1.0e-6,
                    project_mesh=None) -> tuple[dict, np.ndarray, object]:
     from anyfem.solve import build as builder, run
-    import anysolver
+    import anyfesolver
 
     stages: dict = {}
     if project_mesh is None:
@@ -348,7 +348,7 @@ def measured_solve(shared: Path, n_frames: int, *, load_tolerance=1.0e-6,
     load_prep, owner, compressed, proxy, modes = (Accumulator() for _ in range(5))
     messages: list[str] = []
     with wrapped(builder, "_build_load_case", load_prep), \
-            wrapped(anysolver, "solve_linear_many", owner, record_shape=True), \
+            wrapped(anyfesolver, "solve_linear_many", owner, record_shape=True), \
             wrapped(run, "_solve_compressed", compressed), \
             wrapped(run, "_nodal_force_proxy", proxy), \
             wrapped(run, "_modes", modes):
@@ -554,7 +554,7 @@ def s3_fixture_scaling() -> dict:
     from anyfem import result_transport as rt
     from anyfem.job_process import dumps, loads
     from anyfem.post.results import LinearBatchSolution, LinearSolution
-    from anysolver import LoadCase
+    from anyfesolver import LoadCase
 
     rows = []
     for n in (1, 10, 50, 200):

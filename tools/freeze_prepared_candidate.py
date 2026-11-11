@@ -37,7 +37,7 @@ def freeze():
         imports.append(str(global_site))
     fingerprints = {}
     components = {}
-    for name in ('anygeometry', 'anymesher', 'anyfem', 'anysolver', 'anymaterial',
+    for name in ('anygeometry', 'anymesher', 'anyfem', 'anyfesolver', 'anymaterial',
                  'anyfileio', 'numpy', 'scipy', 'h5py', 'platformdirs', 'psutil', 'shapely'):
         spec = importlib.machinery.PathFinder.find_spec(name, imports)
         if spec is None or not spec.origin:

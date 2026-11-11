@@ -1,4 +1,4 @@
-"""ANYsolver's authoritative quantity resolver at the ANYfem boundary."""
+"""ANYfeSolver's authoritative quantity resolver at the ANYfem boundary."""
 
 from __future__ import annotations
 
@@ -97,9 +97,9 @@ def resolve_solution_quantity(
     *,
     recovered: Any = None,
 ):
-    """Resolve one canonical ID through ANYsolver, or fail as unavailable."""
+    """Resolve one canonical ID through ANYfeSolver, or fail as unavailable."""
 
-    from anysolver import QuantityUnavailableError, resolve_result_quantity
+    from anyfesolver import QuantityUnavailableError, resolve_result_quantity
 
     key = str(quantity_id)
     info=_safe_getattr(solution,"info")
@@ -123,7 +123,7 @@ def available_solution_quantities(
 ) -> tuple[Any, ...]:
     """Resolve, rather than merely describe, every available canonical ID."""
 
-    from anysolver import (
+    from anyfesolver import (
         QuantityUnavailableError,
         registered_result_quantity_ids,
     )
@@ -145,7 +145,7 @@ def solution_quantity_descriptors(solution):
     No stress recovery is launched and no multishape displacement stack is
     assembled merely to populate the browser.
     """
-    from anysolver import describe_result_quantities
+    from anyfesolver import describe_result_quantities
     info=_safe_getattr(solution,"info")
     raw=info.get("raw") if isinstance(info,Mapping) else None
     direct=_safe_getattr(solution,"raw_result")

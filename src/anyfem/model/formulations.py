@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from anysolver import QUALIFIED_Q4_FORMULATION_ID, S3_V2D_FORMULATION_ID
+from anyfesolver import QUALIFIED_Q4_FORMULATION_ID, S3_V2D_FORMULATION_ID
 
 __all__ = ["ShellFormulationPolicy"]
 

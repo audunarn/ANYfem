@@ -4,7 +4,7 @@ Everything here is derived from ONE supplied source manifest (the fixed coarse B
 refined here) and the structural wet target at ONE mean pose, through the existing owners:
 
 * ``floating_source.prepare_target_cells`` / ``build_overlap_map`` (geometry-owner clipping, actual overlap polygons);
-* the solver owner's region integration (``anysolver.floating_pressure_regions.region_nodal_vectors``) exactly as
+* the solver owner's region integration (``anyfesolver.floating_pressure_regions.region_nodal_vectors``) exactly as
   ``floating_source.map_pressure_nodal`` uses it, once per (target cell, source panel) overlap pair, so the conservative
   panel operator ``T`` (n_nodes, 6, n_panels) satisfies ``T @ p == map_pressure_nodal(p)`` for every panel-constant
   pressure ``p`` (checked on the mean pressure before the operator is returned);
@@ -86,7 +86,7 @@ def source_panel_ids(source: SourceManifest) -> tuple:
 def panel_operator(fe_model, node_ids, target: TargetCells, omap: OverlapMap, n_panels: int,
                    kernel_proof: Optional[dict] = None) -> np.ndarray:
     """(n_nodes, 6, n_panels) operator through the owner region integration, once per overlap pair."""
-    from anysolver.floating_pressure_regions import region_nodal_vectors
+    from anyfesolver.floating_pressure_regions import region_nodal_vectors
     n = len(node_ids)
     need = n * 6 * int(n_panels) * 8
     if not 1 <= int(n_panels) <= MAX_SOURCE_PANELS:

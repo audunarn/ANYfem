@@ -99,7 +99,7 @@ def in_clean_interpreter(script: str) -> str:
     ecosystem = repository.parent
     source_roots = [
         repository / "src",
-        ecosystem / "ANYsolver" / "src",
+        ecosystem / "ANYfeSolver" / "src",
         ecosystem / "ANYmaterial" / "src",
         ecosystem / "ANYgeometry" / "src",
         ecosystem / "ANYmesh" / "src",

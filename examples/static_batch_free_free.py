@@ -2,8 +2,8 @@
 
 from anyfem import Project, StaticLoadRequest, iter_linear_static_batches, steel
 from anyfem.model import BeamSection
-from anysolver import RecoveryConfig, StaticBatchError
-from anysolver.static_envelopes import EnvelopeReducer
+from anyfesolver import RecoveryConfig, StaticBatchError
+from anyfesolver.static_envelopes import EnvelopeReducer
 
 
 def main():

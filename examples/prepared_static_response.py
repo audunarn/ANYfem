@@ -1,14 +1,14 @@
 """Experimental periodic source responses with original-time canonical replay.
 
 python examples/prepared_static_response.py [--stop-after 1] [--cancel-after 1]
-Requires the coordinated experimental ANYsolver response API. No speed claim.
+Requires the coordinated experimental ANYfeSolver response API. No speed claim.
 """
 import argparse
 import math
 from anyfem import Project, commands, fixed, steel
 from anyfem.model import WetSurface
 from anyfem.solve import PeriodicLoadSource, prepare_linear_static_response_evaluator
-from anysolver import CancellationToken, RecoveryConfig, ResourceConfig, SolveCancelled
+from anyfesolver import CancellationToken, RecoveryConfig, ResourceConfig, SolveCancelled
 
 
 def build_example():

@@ -252,7 +252,7 @@ def job_source(project: Any, reference: SourceReference, store: Any, *, document
     ``model_hash`` the snapshot's document and revision model hash.
     """
 
-    from anysolver.submodel_transfer import (
+    from anyfesolver.submodel_transfer import (
         SubmodelTransferError,
         _CERTIFIED_BACKWARD_ERROR,
         estimate_static_error_allowance,

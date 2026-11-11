@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from anysolver import assemble_load_vector
+from anyfesolver import assemble_load_vector
 
 from anyfem import (
     Project,

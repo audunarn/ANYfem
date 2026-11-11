@@ -180,7 +180,7 @@ class WindTurbineLoad:
             raise WindTurbineLoadError("hub_reference must be absolute or attachment")
         if self.mass_mode not in ("already_modelled", "additional"):
             raise WindTurbineLoadError("mass_mode must be already_modelled or additional")
-        from anysolver.concentrated_mass import ConcentratedMass
+        from anyfesolver.concentrated_mass import ConcentratedMass
         try:
             physical = ConcentratedMass(_scalar(self.mass, "mass"), self.mass_cg_offset, self.inertia_cg)
         except (TypeError, ValueError) as error:

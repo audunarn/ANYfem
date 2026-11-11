@@ -1,6 +1,6 @@
 """Authoritative DRY mass properties of the assembled FE model: ONE public owner call, nothing invented, rescaled or symmetrised.
 
-``anysolver.calculate_mass_properties`` projects the same assembled mass matrix used by dynamics and validates the physical
+``anyfesolver.calculate_mass_properties`` projects the same assembled mass matrix used by dynamics and validates the physical
 spatial-inertia blocks, point masses and generalized sections; its validation is carried (a refusal propagates).  This module only
 adds the sparse M and the local node->DOF map needed to apply ``-M a`` and ``M g`` to nodal vectors.
 """
@@ -29,8 +29,8 @@ class DryMassProperties:
 
 
 def dry_mass_properties(fe_model) -> DryMassProperties:
-    from anysolver import calculate_mass_properties
-    from anysolver.matrix_assembly import assemble_mass_matrix
+    from anyfesolver import calculate_mass_properties
+    from anyfesolver.matrix_assembly import assemble_mass_matrix
     owner = calculate_mass_properties(fe_model)
     m = float(owner.total_mass)
     if not np.isfinite(m) or m <= 0.0:

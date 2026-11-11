@@ -15,7 +15,7 @@ from anyfem.mesh_jobs import MeshJobEvent,MeshProgress
 from anyfem.model.records import JobRecord,MeshRecord
 from anyfem.post.history import Series
 from anyfem.presentation.run_progress import PROGRESS_GRAPH
-from anysolver import ProgressEvent
+from anyfesolver import ProgressEvent
 
 
 @pytest.fixture(scope='module')

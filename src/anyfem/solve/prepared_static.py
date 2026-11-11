@@ -8,7 +8,7 @@ captures an owned snapshot of everything load construction reads -- the
 project's structural geometry, coordinate frames, wet surfaces, load-case
 definitions and combinations, the ANYmesh mesh data and the resolved
 connections -- and hands the fixed solver model to
-``anysolver.prepare_static_evaluator``.  After preparation no case build
+``anyfesolver.prepare_static_evaluator``.  After preparation no case build
 touches the mutable source model, so later source edits or deletions cannot
 change results, and no per-case structural freeze is needed.
 
@@ -22,7 +22,7 @@ revision token is checked after each evaluation so a provider that mutates the
 observed geometry fails closed instead of yielding bogus loads.
 
 This route requires the solver's prepared evaluator.  When the installed
-``anysolver`` cannot provide it the request fails with
+``anyfesolver`` cannot provide it the request fails with
 :class:`PreparedStaticUnavailableError`; there is never a silent fallback to
 the live stream.
 """
@@ -578,7 +578,7 @@ class PreparedStaticEvaluator:
         of the captured project.  Close the iterator when stopping early.
         """
 
-        from anysolver.control import cancellation_safe_point
+        from anyfesolver.control import cancellation_safe_point
         from ..post.prepared_static import PreparedStaticBlock
         from .run import _step_reporter
 
@@ -683,14 +683,14 @@ def _prepare_linear_static_evaluator(
     """
 
     try:
-        import anysolver
-        prepare_static_evaluator = getattr(anysolver, _factory_name)
+        import anyfesolver
+        prepare_static_evaluator = getattr(anyfesolver, _factory_name)
     except (ImportError, AttributeError) as error:
         raise PreparedStaticUnavailableError(
-            "this anysolver build cannot prepare a static evaluator; the "
-            f"prepared static route requires anysolver.{_factory_name}"
+            "this anyfesolver build cannot prepare a static evaluator; the "
+            f"prepared static route requires anyfesolver.{_factory_name}"
         ) from error
-    from anysolver.control import cancellation_safe_point
+    from anyfesolver.control import cancellation_safe_point
     from .run import _resolve_built, _step_reporter
 
     cancellation_safe_point(cancellation_token, "prepared_static.prepare_start")
@@ -705,7 +705,7 @@ def _prepare_linear_static_evaluator(
     if mesh is not None and mesh is not built.mesh:
         raise ValueError("mesh conflicts with the built structural model")
 
-    from anysolver.prepared_static_snapshot import capture_source_witness
+    from anyfesolver.prepared_static_snapshot import capture_source_witness
     # Boundary application is the solver's canonical normalization, preceding
     # the composite witness. Both captures below must then observe one state.
     built.fe_model.apply_boundary_conditions()

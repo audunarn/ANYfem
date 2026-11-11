@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from anysolver import CancellationToken
+from anyfesolver import CancellationToken
 from anyfem.application import floating_apply as fa
 from anyfem.application.floating_job import owned_publication_workspace
 from anyfem.application.floating_prepare import FloatingPrepareError, FloatingSettings, FloatingComponent, _check_components

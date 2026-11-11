@@ -252,7 +252,7 @@ class LinearSolution(ShapeView):
         """
 
         if self._stress is None or kwargs:
-            from anysolver import recover_stress_result
+            from anyfesolver import recover_stress_result
 
             result = recover_stress_result(
                 self.built.fe_model, self.displacements, **kwargs
@@ -532,7 +532,7 @@ def _recover_committed_stresses(view, kwargs):
     """Consume owner recovery with the retained state and its kinematics."""
     if view._stress is not None and not kwargs:
         return view._stress
-    from anysolver import recover_stress_result
+    from anyfesolver import recover_stress_result
     caller_options = bool(kwargs)
     if view.raw_result is not None and "nonlinear_result" not in kwargs and "element_states" not in kwargs:
         kwargs["nonlinear_result"] = view.raw_result
@@ -615,7 +615,7 @@ class NonlinearSolution(ShapeView):
 
         A nonlinear end displacement is not, by itself, enough to reconstruct
         a yielded stress state.  The retained raw solver result supplies the
-        committed shell-layer/beam-fibre states to ANYsolver's unified
+        committed shell-layer/beam-fibre states to ANYfeSolver's unified
         recovery.  Callers can still explicitly supply ``element_states`` or a
         different ``nonlinear_result`` for restart/diagnostic comparisons.
         """

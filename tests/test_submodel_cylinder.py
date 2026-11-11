@@ -140,8 +140,8 @@ def sources():
 @pytest.mark.parametrize("policy", ["drive_all", "release_normal_rotation"])
 def test_rigid_motion_is_reproduced_on_a_cylinder(sources, policy):
     from anymesher.submodel_correspondence import CylinderFrame, locate_for_transfer
-    from anysolver import solve_linear
-    from anysolver.submodel_transfer import TransferPoint, apply_driven_trace, build_driven_trace, interpolate_nodal_field
+    from anyfesolver import solve_linear
+    from anyfesolver.submodel_transfer import TransferPoint, apply_driven_trace, build_driven_trace, interpolate_nodal_field
     from anyfem.solve.build import build_fe_model
 
     gproject, gmesh, gsolution, _binding = sources[0.25]

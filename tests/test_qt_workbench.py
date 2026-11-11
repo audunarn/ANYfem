@@ -1570,15 +1570,15 @@ def test_qt_patch_recovery_keeps_owner_qualification_through_export(window,qapp,
     monkeypatch.setenv("ANYFEM_JOB_EXECUTOR","thread");window.job_manager.executor="thread"
     import csv
     import numpy as np
-    import anysolver
+    import anyfesolver
     from test_io import write_sesam_plate
     from anyfem.selection import MeshEntityRef
     from anyfem.model.records import OutputRequest
     if fallback:
-        config=anysolver.PatchRecoveryConfig
+        config=anyfesolver.PatchRecoveryConfig
         # Tighten the owner guard to exercise its real continuity-preserving
         # fallback; do not weaken qualification or substitute application values.
-        monkeypatch.setattr(anysolver,"PatchRecoveryConfig",lambda:config(condition_limit=1.01))
+        monkeypatch.setattr(anyfesolver,"PatchRecoveryConfig",lambda:config(condition_limit=1.01))
     monkeypatch.setattr(window,"_confirm_discard",lambda:True)
     window.import_sesam_model(str(write_sesam_plate(tmp_path/"patch.FEM")))
     loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))
@@ -1639,7 +1639,7 @@ def test_qt_committed_nonlinear_stress_frames_solve_reopen_export(window,qapp,tm
     from test_io import write_sesam_plate
     from anyfem.selection import MeshEntityRef
     from anyfem.model.records import OutputRequest
-    from anysolver import recover_stress_result,PatchRecoveryConfig
+    from anyfesolver import recover_stress_result,PatchRecoveryConfig
     monkeypatch.setattr(window,"_confirm_discard",lambda:True)
     window.import_sesam_model(str(write_sesam_plate(tmp_path/"increments.FEM")))
     loads=window.panels["Loads & BC"];loads.choice.setCurrentIndex(loads.choice.findData("AddPressure"))

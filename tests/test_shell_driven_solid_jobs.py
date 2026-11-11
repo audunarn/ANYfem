@@ -4,7 +4,7 @@ Layout
 ------
 * Record tests and the stub-based reach/direction tests need no solver stack.
 * Numerical tests (cut, stage, artifacts, run/save/reopen) need the solid stack
-  (ANYgeometry shell_detail, ANYmesher structured_box, ANYsolid, ANYsolver
+  (ANYgeometry shell_detail, ANYmesher structured_box, ANYsolid, ANYfeSolver
   solid_submodel).  A build without it skips them -- unless the integration
   profile sets ``ANYFEM_REQUIRE_SOLID_STACK=1``, in which case an incomplete
   stack is a collection error for this whole module.
@@ -28,8 +28,8 @@ from anyfem.model.solid_submodels import SolidSubmodelDefinition, solid_definiti
 from anyfem.model.submodels import SourceReference, SubmodelDefinition, SubmodelRecordError, definition_hash
 from anyfem.submodel import SubmodelError
 
-_STACK = ("anygeometry.shell_detail", "anymesher.structured_box", "anysolid", "anysolver.solid_submodel",
-          "anysolver.submodel_transfer")
+_STACK = ("anygeometry.shell_detail", "anymesher.structured_box", "anysolid", "anyfesolver.solid_submodel",
+          "anyfesolver.submodel_transfer")
 
 
 def _missing():
@@ -582,7 +582,7 @@ def test_each_run_reverifies_the_source(setup):
 # ----------------------------------------------------------------------
 @needs_stack
 def test_solver_refusals_and_cancellation_map_to_submodel_errors_and_leave_no_files(setup, monkeypatch):
-    import anysolver.solid_submodel as solver
+    import anyfesolver.solid_submodel as solver
 
     definition = cut(setup).definition
     before = _files(setup.store)
@@ -612,7 +612,7 @@ def test_solver_refusals_and_cancellation_map_to_submodel_errors_and_leave_no_fi
                                           ("nan_coefficients", "SOLID_RESULT_COEFFICIENTS"),
                                           ("uncertified", "SOLID_RESULT_UNCERTIFIED")])
 def test_a_solver_result_that_fails_verification_is_refused_before_anything_is_written(setup, monkeypatch, damage, code):
-    import anysolver.solid_submodel as solver
+    import anyfesolver.solid_submodel as solver
 
     real = solver.solve_shell_driven_solid
 
@@ -634,7 +634,7 @@ def test_a_solver_result_that_fails_verification_is_refused_before_anything_is_w
 
 @needs_stack
 def test_cancellation_and_writer_failures_leave_no_files(setup, monkeypatch):
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
 
     definition = cut(setup).definition
     before = _files(setup.store)
@@ -800,8 +800,8 @@ def interface_problems(arrays, meta, q, coords, comps):
 
 
 def test_the_attribution_convention_is_the_solvers():
-    pytest.importorskip("anysolver.solid_submodel")
-    import anysolver.solid_submodel as solver
+    pytest.importorskip("anyfesolver.solid_submodel")
+    import anyfesolver.solid_submodel as solver
 
     assert artifact.ATTRIBUTION_RULE == solver.ATTRIBUTION_RULE
 
@@ -1087,7 +1087,7 @@ def test_swapped_or_foreign_owners_are_refused_against_the_region(setup, mode):
 @pytest.mark.parametrize("mode", ["groups_and_handles", "groups_only", "handles_only", "foreign_model"])
 def test_staging_refuses_a_swapped_mesh_before_any_load_is_applied(setup, monkeypatch, mode):
     import anymesher.structured_box as box
-    import anysolver.solid_submodel as solver
+    import anyfesolver.solid_submodel as solver
     from anygeometry.identity import EntityHandle
 
     real = box.generate_structured_box_mesh

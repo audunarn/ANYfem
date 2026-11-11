@@ -5,7 +5,7 @@ meshing, loads and boundary conditions, solving, and postprocessing.
 
 ANYfem owns the application layer across the focused ecosystem packages:
 
-- [**ANYsolver**](https://github.com/audunarn/ANYsolver) — the headless FE
+- [**ANYfeSolver**](https://github.com/audunarn/ANYfeSolver) — the headless FE
   solver (6 DOF per node, SI units, linear through nonlinear and transient).
 - [**ANYmaterial**](https://github.com/audunarn/ANYmaterial) — validated,
   serializable isotropic and orthotropic material specifications.
@@ -23,7 +23,7 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 
 The Mesh panel and Python project sessions can update supported regions while preserving permanent node and element numbers elsewhere. [Update a published mesh](docs/REGIONAL_REMESHING.md)
 
-### Qualified latest-only release graph
+### Previously qualified release graph
 
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
@@ -38,15 +38,15 @@ The Mesh panel and Python project sessions can update supported regions while pr
 | ANYbuckling | 0.1.1 | compatible independent buckling adapter |
 | ANYstructure | 6.3.1 | downstream application consumer |
 
-Only these latest package generations are qualified together. Historical
+This graph records the previous qualification. Historical
 ANYfem project formats 1--6 remain readable through the v7 migration path;
 that file compatibility does not qualify older installed package generations.
 ANYtimeseries remains independent of this release graph.
 
-Current development requires ANYsolver >=0.4.7. CI and the solver installation
-command below pin `bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5`, which includes
+Current development requires ANYfeSolver 0.5.x and ANYfeSolver-results 2.2 or later in major version 2. CI and the solver installation
+command below pin `2ebd6b3445a703b2e725e4ffbb2038542eac08e4`, which includes
 the Q4 assumed-strain plastic route, unified Q4 elastic response and S3 von
-Karman response. Version 0.4.7 alone does not identify these law updates.
+Karman response. A package version alone does not identify these law updates.
 The application integration regressions exercise public build, nonlinear solve,
 committed recovery, cancellation and S3 admission; they do not extend the
 qualified release graph above. Solver capability and material-domain refusals
@@ -136,7 +136,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu,qt]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYsolver\packages\results" -e "C:\Github\ANYpost" -e "C:\Github\ANYfem[qt,tk]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu,qt]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYfeSolver" "C:\Github\ANYfeSolver\packages\results" -e "C:\Github\ANYpost" -e "C:\Github\ANYfem[qt,tk]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
@@ -164,7 +164,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@bac246c2c55e82101efc7b99d0f3cf6fd3fea5a5" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
+python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@2ebd6b3445a703b2e725e4ffbb2038542eac08e4" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f"
 python -m pip install -e ".[gui]"
 ```
@@ -422,7 +422,7 @@ cannot disagree.
 **Q8 is a large accuracy win**: 1.07% on a 16-element plate, where Q4 needs 256
 elements for the same 2%. Mid-side nodes sit on the curve, so a Q8 on a cylinder
 stays exactly on the cylinder. The 3-node beam is a different matter and worth
-being plain about — ANYsolver's 2-node Timoshenko beam is already *exact* for a
+being plain about — ANYfeSolver's 2-node Timoshenko beam is already *exact* for a
 tip-loaded cantilever, which a parabola cannot be, so B3 exists here so a
 stiffener can share the mid-side nodes of a Q8 shell edge, not because it is
 more accurate. A quadratic beam on a curved line is refused: the solver's B3 is

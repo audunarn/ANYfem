@@ -13,7 +13,7 @@ from anyfem.model.project import ProjectError
 from anyfem.solve.build import build_fe_model
 import anyfem.solve.build as build_module
 from anymesher import QUALIFIED_S3_PRODUCTION_CONTRACT_ID, Mesh
-from anysolver import (
+from anyfesolver import (
     LegacyShellElement,
     NativeParityE4PLS3V2DShellElement,
     QualifiedE4PLShellElement,

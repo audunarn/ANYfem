@@ -5,8 +5,8 @@ from copy import copy
 import numpy as np
 import pytest
 
-from anysolver import RecoveryConfig
-from anysolver.assembly import compute_reactions
+from anyfesolver import RecoveryConfig
+from anyfesolver.assembly import compute_reactions
 from anyfem import StaticLoadRequest, iter_linear_static_batches, solve_linear_static
 from anyfem.solve.build import build_fe_model
 from test_static_batch_envelope_factors import _project
@@ -39,7 +39,7 @@ def test_selected_nonproportional_public_stream_matches_independent_cases():
         recovery_config=RecoveryConfig(element_ids=[element], components=["von_mises"],
                                        include_displacements=False, include_reactions=True),
     ))
-    from anysolver.static_envelopes import EnvelopeReducer
+    from anyfesolver.static_envelopes import EnvelopeReducer
     envelopes = EnvelopeReducer()
     for block in blocks:
         envelopes.update_batch(block)
@@ -82,7 +82,7 @@ def test_selected_nonproportional_public_stream_matches_independent_cases():
 
 
 def test_free_free_public_stream_preserves_rejection_and_balanced_response():
-    from anysolver import StaticBatchError
+    from anyfesolver import StaticBatchError
     from anyfem import Project, steel
     from anyfem.model import BeamSection
 
@@ -108,7 +108,7 @@ def test_free_free_public_stream_preserves_rejection_and_balanced_response():
 
 
 def test_cancelled_public_stream_does_not_consume_load_provider():
-    from anysolver import CancellationToken, SolveCancelled
+    from anyfesolver import CancellationToken, SolveCancelled
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(1, 0, 0))
     token = CancellationToken()
@@ -142,7 +142,7 @@ def test_explicit_rotation_row_is_independent_of_full_node_recovery():
 
 
 def test_resource_limit_is_forwarded_after_only_bounded_first_record_peek():
-    from anysolver import ResourceConfig, ResourcePolicyError
+    from anyfesolver import ResourceConfig, ResourcePolicyError
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(1, 0, 0))
     consumed = []

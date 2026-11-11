@@ -15,7 +15,7 @@ class WaveCalculation(QThread):
     progress_changed=Signal(str)
     def __init__(self,kwargs,parent=None):
         super().__init__(parent);self.kwargs=dict(kwargs);self.stage=self.kwargs.pop('_wave_stage','preview');self.cancelled=False;self.tree=None
-        from anysolver import CancellationToken
+        from anyfesolver import CancellationToken
         self.token=CancellationToken()
     def run(self):
         try:

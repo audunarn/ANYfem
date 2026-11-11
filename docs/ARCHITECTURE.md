@@ -13,7 +13,7 @@ not a commitment to migrate the interface. Historical gate evidence is preserved
 ## Boundaries
 
 ```text
-ANYfem  ->  ANYsolver     analysis
+ANYfem  ->  ANYfeSolver     analysis
         ->  ANYmaterial   material specifications
         ->  ANYgeometry   shared geometry and topology
         ->  ANYmesher     neutral and mapped meshing
@@ -26,7 +26,7 @@ including `migration.py`, which reads ANYstructure's saved state as plain JSON.
 That is the rule paying for itself: ANYfem consumes ANYstructure's output
 without depending on ANYstructure, and there is a test asserting no
 `anystruct` module is ever loaded.
-ANYsolver owns the physics and its qualification. ANYmaterial owns material
+ANYfeSolver owns the physics and its qualification. ANYmaterial owns material
 behavior, ANYgeometry owns persistent geometry identity and topology,
 ANYmesher owns neutral mesh construction and mapped-mesh policy, and ANYfileio
 owns interchange syntax. ANYfem owns attribution, application workflow and
@@ -104,7 +104,7 @@ points -> edges -> faces            (ANYgeometry, persistent IDs/groups/tags)
               |
         association map             (entity -> nodes, elements)
               v
-        FEModel + LoadCase          (anysolver)
+        FEModel + LoadCase          (anyfesolver)
               v
         analysis                    (static, modal, buckling, nonlinear,
               |                      arc length, transient, impact, capacity)
@@ -128,7 +128,7 @@ tree/selection round trip are idempotent.
 
 ## Scope
 
-Shell and beam structure, within ANYsolver's qualified envelope. Not solids,
+Shell and beam structure, within ANYfeSolver's qualified envelope. Not solids,
 not tetrahedra, not a general CAD/NURBS kernel, not general contact.
 ANYgeometry is a lightweight structural-surface kernel; ANYfem's production
 meshing remains mapped because the qualified element envelope is

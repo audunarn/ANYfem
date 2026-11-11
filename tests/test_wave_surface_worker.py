@@ -97,7 +97,7 @@ def test_reopened_project_needs_no_cache_and_no_bem(no_bem, tmp_path, monkeypatc
 
 @pytest.mark.skipif(os.environ.get('ANYFEM_NATIVE_WAVE_FIELD') != '1', reason='native BEM field capture is scheduled by the parent')
 def test_native_worker_prepare_then_warm_prepare_apply_save_reopen(tmp_path):
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
     from anyfem.job_process import run_in_worker_process
     p, mesh, _ = barge(divisions=(2, 4))
     config = settings(period=6., height=1., duration=1., dt=.5, name='Native')

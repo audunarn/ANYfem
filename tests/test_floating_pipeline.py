@@ -514,7 +514,7 @@ def test_production_worker_irregular_selected_interval_apply_undo_reopen_and_eac
     interval, ONE undoable project load, project save/reopen with dialog-input restore, stale refusal and each-frame
     scalar-vs-batch solves through the finished IR route on the default native S3 mesh."""
     from dataclasses import asdict
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
     from anyfem.application.floating_job import prepare_floating_job, reopen_floating_job
     from anyfem.application.irregular_wave_input import IrregularWaveInput
     from anyfem.document import canonical_hash

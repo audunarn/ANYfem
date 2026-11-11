@@ -68,7 +68,7 @@ def _qualified_anymesher_project() -> Path:
         or os.environ.get("ANYMESHER_025_SOURCE", "").strip()
     )
     release_checkout = (
-        _ECOSYSTEM_WORKSPACE / "ANYsolver" / ".compat_anymesher_025"
+        _ECOSYSTEM_WORKSPACE / "ANYfeSolver" / ".compat_anymesher_025"
     )
     candidates = ([Path(override)] if override else []) + [
         _ECOSYSTEM_WORKSPACE / "ANYmesh",
@@ -84,9 +84,9 @@ def _qualified_anymesher_project() -> Path:
 _ANY3DVIEW_PROJECT = _ECOSYSTEM_WORKSPACE / "ANY3dView"
 _ANYTK3D_PROJECT = _ECOSYSTEM_WORKSPACE / "ANYtk3D"
 _ANYMESHER_PROJECT = _qualified_anymesher_project()
-_ANYSOLVER_PROJECT = Path(
-    os.environ.get("ANYSOLVER_SOURCE", "").strip()
-    or _ECOSYSTEM_WORKSPACE / "ANYsolver"
+_ANYFESOLVER_PROJECT = Path(
+    os.environ.get("ANYFESOLVER_SOURCE", "").strip()
+    or _ECOSYSTEM_WORKSPACE / "ANYfeSolver"
 )
 _SOURCE_PROJECTS = (
     (
@@ -109,8 +109,8 @@ _SOURCE_PROJECTS = (
     ("ANYmesher", "anymesher", _ANYMESHER_PROJECT / "src"),
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
-    ("ANYsolver", "anysolver", _ANYSOLVER_PROJECT / "src"),
-    ("ANYsolver-results", "anysolver_results", _ANYSOLVER_PROJECT / "src"),
+    ("ANYfeSolver", "anyfesolver", _ANYFESOLVER_PROJECT / "src"),
+    ("ANYfeSolver-results", "anyfesolver_results", _ANYFESOLVER_PROJECT / "src"),
     ("ANYpost", "anypost", _ECOSYSTEM_WORKSPACE / "ANYpost" / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
@@ -125,8 +125,8 @@ def _active_distribution_version(distribution: str) -> str:
     be evaluated against those source trees rather than stale dist-info.
     """
 
-    if distribution == "ANYsolver-results":
-        declared=_declared_project_version(_ANYSOLVER_PROJECT / "packages" / "results")
+    if distribution == "ANYfeSolver-results":
+        declared=_declared_project_version(_ANYFESOLVER_PROJECT / "packages" / "results")
         if declared is not None:return declared
     for candidate_distribution, _module, source in _SOURCE_PROJECTS:
         if candidate_distribution != distribution:
@@ -178,9 +178,9 @@ ECOSYSTEM_REQUIREMENTS = (
     ("ANYmesher", "ANYmesher>=0.5.1,<0.6", "0.5.1"),
     ("ANY3dView", "ANY3dView[gpu]>=0.5.6,<0.6", "0.5.6"),
     ("ANYtk3D", "ANYtk3D>=0.5.5,<0.6", "0.5.5"),
-    ("ANYsolver", "ANYsolver>=0.4.7,<0.5", "0.4.7"),
-    ("ANYpost", "ANYpost>=0.1.2,<0.2", "0.1.2"),
-    ("ANYsolver-results", "ANYsolver-results>=2.1.1,<3", "2.1.1"),
+    ("ANYfeSolver", "ANYfeSolver>=0.5.0,<0.6", "0.5.0"),
+    ("ANYpost", "ANYpost>=0.1.3,<0.2", "0.1.3"),
+    ("ANYfeSolver-results", "ANYfeSolver-results>=2.2.0,<3", "2.2.0"),
     ("ANYfem", "ANYfem>=0.4,<0.5", "0.4.0"),
 )
 
@@ -260,8 +260,8 @@ def editable_repair_command() -> str:
         str(_ECOSYSTEM_WORKSPACE / "ANYfileIO"),
         str(_ANY3DVIEW_PROJECT) + "[gpu,qt]",
         str(_ANYTK3D_PROJECT),
-        str(_ANYSOLVER_PROJECT),
-        str(_ANYSOLVER_PROJECT / "packages" / "results"),
+        str(_ANYFESOLVER_PROJECT),
+        str(_ANYFESOLVER_PROJECT / "packages" / "results"),
         str(_ECOSYSTEM_WORKSPACE / "ANYpost"),
         str(_ROOT) + "[qt,tk]",
     )
@@ -284,12 +284,12 @@ def require_compatible_ecosystem(
         from importlib import import_module
         try:
             post = import_module("anypost")
-            runtime = import_module("anysolver_results")
+            runtime = import_module("anyfesolver_results")
             viewer = import_module("any3dview")
             if not callable(getattr(post, "open_memory_results", None)):
                 problems += ("ANYpost: open_memory_results capability is missing",)
             if not callable(getattr(runtime, "shell_surface_component", None)):
-                problems += ("ANYsolver-results: shell_surface_component capability is missing",)
+                problems += ("ANYfeSolver-results: shell_surface_component capability is missing",)
             for method in ("read_stored_field","resize_cache"):
                 if not callable(getattr(getattr(post,"MemoryResultsReader",None),method,None)):
                     problems += (f"ANYpost: MemoryResultsReader.{method} capability is missing",)
@@ -299,7 +299,7 @@ def require_compatible_ecosystem(
             problems += (f"result engine import failed: {error}",)
     if problems:
         raise RuntimeError(
-            "ANYfem 0.4.2 cannot start with this mixed ecosystem:\n- "
+            "ANYfem 0.4.3 cannot start with this mixed ecosystem:\n- "
             + "\n- ".join(problems)
             + "\nRepair the editable environment, then restart:\n"
             + editable_repair_command()

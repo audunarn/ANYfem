@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from anysolver import ReactionFrame, SolveOutcome
+from anyfesolver import ReactionFrame, SolveOutcome
 
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.result_artifact import (

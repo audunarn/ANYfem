@@ -7,7 +7,7 @@ a reader can audit instead of something the authors assert.
 What this is *not*: a claim that ANYfem is correct for every geometry and load.
 These are closed-form comparisons on simple cases.  The solver's own
 qualification -- element validity, plasticity, recovery policy, external
-CalculiX comparison -- lives in ANYsolver and is not restated here.
+CalculiX comparison -- lives in ANYfeSolver and is not restated here.
 """
 
 from __future__ import annotations
@@ -188,7 +188,7 @@ class VerificationReport:
             "simplification, and ELEM-01 against a converged finite element "
             "answer rather than a series solution. They do not claim ANYfem "
             "is correct for every geometry or load regime, and they do not "
-            "restate ANYsolver's own qualification evidence.",
+            "restate ANYfeSolver's own qualification evidence.",
             "",
         ]
         return "\n".join(lines)
@@ -445,7 +445,7 @@ def _step_response():
 
 
 def _self_weight():
-    from anysolver import assemble_load_vector
+    from anyfesolver import assemble_load_vector
 
     from anyfem import solve_linear_static
 

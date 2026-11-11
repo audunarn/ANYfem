@@ -106,7 +106,7 @@ class ShapeProvider:
             mesh = shape.built.mesh
             admit((len(mesh.shells)+len(mesh.beams))*64+1024)
             all_ids = sorted(mesh.shells) + sorted(mesh.beams)
-            # Mechanical recovery is owned by ANYsolver and runs on the
+            # Mechanical recovery is owned by ANYfeSolver and runs on the
             # source worker before opening the engine snapshot. Its memory is
             # not represented as an ANYpost query-workspace guarantee.
             recovered = recover(shape) if stresses is None else stresses
@@ -129,7 +129,7 @@ class ShapeProvider:
                         pair_shape=np.broadcast_shapes(source_shape(record["membrane_"+component]),source_shape(record["bending_"+component]))
                         count=int(np.prod(pair_shape))
                         admit(len(all_ids)*64+row_bytes+(len(rows)+1)*(max(width,count,1)*16+128)+count*16)
-                        from anysolver_results import shell_surface_component
+                        from anyfesolver_results import shell_surface_component
                         raw = shell_surface_component(record, side, component)
                 if raw is None:
                     missing.append(eid)

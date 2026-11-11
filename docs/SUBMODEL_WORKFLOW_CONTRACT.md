@@ -12,7 +12,7 @@ ANYfem owns the submodel workflow: the definition, source admission, identity-ma
 composition, attribute carry-over, staleness, persistence, jobs and reporting. Mechanics,
 correspondence and geometry belong to their owners:
 
-- `C:/Github/ANYsolver/docs/SUBMODEL_TRANSFER_CONTRACT.md`
+- `C:/Github/ANYfeSolver/docs/SUBMODEL_TRANSFER_CONTRACT.md`
 - `C:/Github/ANYmesh/docs/SUBMODEL_CORRESPONDENCE_CONTRACT.md`
 - `C:/Github/ANYgeometry/docs/SUBMODEL_VOLUME_CUT_CONTRACT.md`
 
@@ -46,7 +46,7 @@ Names below are proposals.
 
 The source job must be completed and successful, with analysis type linear static and a
 result artifact present. Its hash must match, it must carry the full six-component nodal
-field, and its model and mesh hashes must be current. ANYsolver's capability check must
+field, and its model and mesh hashes must be current. ANYfeSolver's capability check must
 admit every source element the hits touch. Anything else is a typed refusal before any work.
 
 ## 4. Attribute carry-over
@@ -56,7 +56,7 @@ admit every source element the hits touch. Anything else is a typed refusal befo
 | Materials, plate and beam sections, beam offsets and orientation | Carried to every inside descendant through the identity map; an unresolved assignment refuses |
 | Coordinate systems, units | Copied unchanged; geometry is not transformed |
 | Supports inside, including on original boundaries | Carried |
-| Supports touching the cut | Carried. The driven trace treats a consistent support row as redundant and refuses an inconsistent one (ANYsolver contract, section 3). This replaces the plan's blanket refusal; S0 and C0 showed carried supports on the cut are consistent with the global solution |
+| Supports touching the cut | Carried. The driven trace treats a consistent support row as redundant and refuses an inconsistent one (ANYfeSolver contract, section 3). This replaces the plan's blanket refusal; S0 and C0 showed carried supports on the cut are consistent with the global solution |
 | Pressure, surface traction, line load (intensities) | Carried to inside descendants with the same intensity, side and frame |
 | Point load, mass, `per_target` | Carried when the target is inside; refused when on the cut |
 | Point load, mass, `total_distributed` | Carried only when the whole original scope is inside; otherwise refused, since clipping would raise the density |
@@ -97,7 +97,7 @@ Results use the ordinary `ShapeView` and `Field` path on the child project. The
 **transfer/equilibrium diagnostic** reports:
 
 - interface force and moment resultants per cut face, the corner records and the whole-cut
-  resultant (ANYsolver contract, section 5);
+  resultant (ANYfeSolver contract, section 5);
 - the free-body residual against the applied loads inside;
 - interior errors near the cut and away from it separately. S0 found a shear boundary layer:
   rotation error near the cut is 2 to 10 times the error further in;
@@ -617,7 +617,7 @@ ANYfem (S4c-1):
   locator call per surface group, analytic P1 normals and the `cylindrical` diagnostic in
   `src/anyfem/submodel.py` (`claude/submodel-s4c`); tests in `tests/test_submodel_cylinder.py`.
 - The hit's `inverse_residual` is converted by ANYmesher to a physical position uncertainty,
-  because ANYsolver's interpolation allowance reads it as one: the parameter residual times
+  because ANYfeSolver's interpolation allowance reads it as one: the parameter residual times
   `max |J_phys| / min sigma_min(J_param)` over the slack-expanded natural domain. Both Jacobians
   are affine in the natural coordinates (constant for T3), so `F(a) - F(b) = J_F(mid)(a - b)`
   exactly; `max |J_phys|` is attained at a corner and `sigma_min(J_param)` is bounded below by

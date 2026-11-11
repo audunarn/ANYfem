@@ -147,7 +147,7 @@ def test_project_meshes_crossing_plates_with_shared_intersection_nodes(tmp_path)
         require_supports=True,
     )
     assert len(built.fe_model.mesh.elements) == len(mesh.shells)
-    from anysolver import assemble_load_vector
+    from anyfesolver import assemble_load_vector
     import numpy as np
     force=assemble_load_vector(built.fe_model,built.load_case)
     if isinstance(force,tuple):
