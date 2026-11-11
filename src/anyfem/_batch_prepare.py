@@ -175,9 +175,24 @@ def smoke_digest() -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _labels(value, count=None) -> tuple:
+    if not isinstance(value, (list, tuple)) or (count is not None and len(value) != count):
+        raise ValueError("malformed label list")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError("labels must be strings")
+    return tuple(value)
+
+
 def rows_from_json(payload: Mapping[str, Any]) -> BatchRows:
-    pairs = frozenset(tuple(pair) for pair in payload["pairs"])
-    pair_relations = {(first, second): list(labels) for first, second, labels in payload["pair_relations"]}
-    if not all(isinstance(name, str) for pair in pairs for name in pair):
-        raise ValueError("pair labels must be strings")
-    return BatchRows(pairs, pair_relations, tuple(payload["relations"]), bool(payload["reused"]))
+    """Strict decoding: anything that is not exactly what ``rows_to_json`` writes is rejected."""
+    if not isinstance(payload, Mapping) or set(payload) != {"pairs", "pair_relations", "relations", "reused"}:
+        raise ValueError("malformed rows")
+    if type(payload["reused"]) is not bool:
+        raise ValueError("reused must be a boolean")
+    pairs = frozenset(_labels(pair, 2) for pair in payload["pairs"])
+    pair_relations = {}
+    for entry in payload["pair_relations"]:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+            raise ValueError("malformed pair relation")
+        pair_relations[_labels(entry[:2], 2)] = list(_labels(entry[2]))
+    return BatchRows(pairs, pair_relations, _labels(payload["relations"]), payload["reused"])

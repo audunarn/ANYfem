@@ -193,14 +193,123 @@ def test_runtime_locator_order_and_never_path(monkeypatch, tmp_path):
 # ------------------------------------------------------------------------------------------ happy path
 
 @needs_runtime
-def test_child_route_equals_route_off_and_reports_progress(route_on, jobs_dir):
+def test_child_result_without_owner_proof_is_refused_and_serial_keeps_the_proof(route_on, jobs_dir):
+    """Fail closed: a document cannot carry the owner's process-local preparation receipt (measured: source_edge_paths
+    8 serial vs 0 for adopted proof-less geometry), so today every ok child result is refused and serial runs."""
+    import anygeometry
+    from anyfem.structural_preparation import source_edge_paths
+    events = []
+    model = crossing()
+    closure = model.extract_model_closure([model.handle("face", i) for i in sorted(model.faces)],
+                                          include_structural_closure=True, include_features=False)
+    tr._INJECT.update(temp_root=str(jobs_dir), progress_cb=events.append)
+    prepare_structural_connectivity(closure.working_model, source_model_id=str(closure.source_model_id),
+                                    source_revision=closure.source_revision, member_ids=())
+    assert tr.last_outcome.status == tr.UNAVAILABLE and "proof" in tr.last_outcome.reason
+    assert anygeometry.has_current_intersection_preparation(closure.working_model)
+    assert len(source_edge_paths(closure)) == 8
+    assert {"start", "imports_done", "document_loaded", "planned_and_applied"} <= {e["event"] for e in events}
+    assert list(jobs_dir.iterdir()) == []
+
+
+@needs_runtime
+def test_child_result_is_adopted_when_the_owner_can_vouch(route_on, jobs_dir, monkeypatch):
+    """What an owner adoption API would enable: with the proof gate satisfied the child result is used and equal to serial."""
+    monkeypatch.setattr(tr, "_has_owner_proof", lambda candidate: True)
     expected = reference(crossing)
     events = []
     model, report, _ = run_on(crossing, temp_root=str(jobs_dir), progress_cb=events.append)
     assert tr.last_outcome.status == tr.OK and tr.last_outcome.temp_removed
     assert result_of(model, report) == expected
-    assert {"start", "imports_done", "document_loaded", "planned_and_applied"} <= {e["event"] for e in events}
     assert list(jobs_dir.iterdir()) == []
+
+
+@needs_runtime
+def test_failure_on_the_staging_copy_leaves_the_geometry_untouched(route_on, jobs_dir, monkeypatch):
+    monkeypatch.setattr(tr, "_has_owner_proof", lambda candidate: True)
+    real_clone = GeometryModel.clone
+
+    def clone(self, *args, **kwargs):
+        made = real_clone(self, *args, **kwargs)
+        made.restore_topology = lambda snapshot: (_ for _ in ()).throw(GeometryError("staging refused"))
+        return made
+
+    monkeypatch.setattr(GeometryModel, "clone", clone)
+    expected = reference(crossing)
+    model = crossing()
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    rows = tr.try_prepare(model, tuple(model.handle("face", i) for i in sorted(model.faces)))
+    assert rows is None and "staging copy" in tr.last_outcome.reason
+    assert digest(to_dict(model)) == digest(to_dict(crossing())) and model.revision == crossing().revision
+    report = prepare_structural_connectivity(model)  # serial continues on the untouched geometry
+    assert result_of(model, report) == expected
+
+
+@needs_runtime
+def test_job_object_failure_kills_the_child_and_falls_back(route_on, jobs_dir, tmp_path, monkeypatch):
+    if os.name != "nt":
+        pytest.skip("job objects are Windows only")
+    monkeypatch.setattr(tr._KillOnCloseJob, "assign", lambda self, pid: False)
+    pidfile = tmp_path / "pid.txt"
+    child = stub(tmp_path, "time.sleep(60)\n")
+    assert_serial_fallback(crossing, jobs_dir, "job object", child_main=child, extra_env={"STUB_PIDFILE": str(pidfile)})
+    deadline = time.time() + 10
+    while pidfile.exists() and pidfile.read_text() and psutil.pid_exists(int(pidfile.read_text())) and time.time() < deadline:
+        time.sleep(0.1)
+    assert not pidfile.exists() or not pidfile.read_text() or not psutil.pid_exists(int(pidfile.read_text()))
+
+
+@needs_runtime
+def test_cancel_during_the_health_check_stops_the_health_child(jobs_dir, tmp_path, monkeypatch):
+    tr.configure(enabled=True, min_faces=0, runtime=str(RUNTIME_ROOT))
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: "1" * 64)  # fresh cache key: forces a new health run
+    pidfile = tmp_path / "pid.txt"
+    child = stub(tmp_path, "time.sleep(60)\n")
+
+    def check(phase):
+        if pidfile.exists() and pidfile.read_text():
+            raise Cancel(phase)
+
+    tr._INJECT.update(temp_root=str(jobs_dir), child_main_health=child, extra_env={"STUB_PIDFILE": str(pidfile)})
+    started = time.time()
+    with pytest.raises(Cancel):
+        prepare_structural_connectivity(crossing(), cancellation_check=check)
+    assert time.time() - started < 30
+    assert not psutil.pid_exists(int(pidfile.read_text()))
+    assert list(jobs_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("rows", [
+    {"pairs": [["face:1"]], "pair_relations": [], "relations": [], "reused": False},
+    {"pairs": [], "pair_relations": [["face:1", "face:2", [{"x": 1}]]], "relations": [], "reused": False},
+    {"pairs": [], "pair_relations": [], "relations": [], "reused": "false"},
+    {"pairs": [], "pair_relations": [], "relations": [1], "reused": False},
+    {"pairs": [], "pair_relations": [["a", "b"]], "relations": [], "reused": False},
+    {"pairs": [], "pair_relations": [], "relations": [], "reused": False, "extra": 1},
+    [],
+])
+def test_malformed_rows_are_rejected_before_publication(rows):
+    with pytest.raises(ValueError):
+        _batch_prepare.rows_from_json(rows)
+
+
+def test_rows_round_trip_is_exact():
+    rows = _batch_prepare.BatchRows(frozenset({("face:1", "face:2")}), {("face:1", "face:2"): ["edge:3"]}, ("edge:3",), False)
+    assert _batch_prepare.rows_from_json(json.loads(json.dumps(_batch_prepare.rows_to_json(rows)))) == rows
+
+
+def test_lock_lookup_for_both_runtime_layouts(tmp_path):
+    root = tmp_path / "rt"
+    (root / "Scripts").mkdir(parents=True)
+    assert tr._runtime_root(root / "python.exe") == root
+    assert tr._runtime_root(root / "Scripts" / "python.exe") == root
+    (root / "runtime.lock.json").write_text(json.dumps({"numpy": "0.0.1"}))
+    assert "pins NumPy" in tr.check_health(root / "python.exe").reason  # production lookup finds <runtime>/runtime.lock.json
+
+
+def test_vanished_interpreter_is_unavailable_not_an_exception(tmp_path):
+    outcome = tr.check_health(tmp_path / "gone" / "python.exe")
+    assert outcome.status == tr.UNAVAILABLE and "cannot be inspected" in outcome.reason
 
 
 @needs_runtime
@@ -437,8 +546,8 @@ def test_child_dies_with_the_parent(tmp_path):
         import threading
         threading.Timer(1.0, lambda: os._exit(0)).start()
         tr.run_child(Path(%r), dict(kind="x"), None, threads=1, timeout=100, child_main=Path(%r),
-                     extra_env={"STUB_PIDFILE": %r})
-    ''' % ([p for p in sys.path if p], str(PYTHON), str(child), str(pidfile))))
+                     extra_env={"STUB_PIDFILE": %r}, temp_root=%r)
+    ''' % ([p for p in sys.path if p], str(PYTHON), str(child), str(pidfile), str(tmp_path))))
     import subprocess
     subprocess.run([sys.executable, str(script)], timeout=60)
     pid = int(pidfile.read_text())

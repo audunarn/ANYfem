@@ -97,7 +97,7 @@ def main(job_dir):
                 rows = batch.report_rows_phase(model, state)
             except GeometryError as exc:  # typed refusal: reported as is, never retried
                 _write_result(job_dir, job_id, "refusal", dict(
-                    phase=phase, type=type(exc).__name__, message=str(exc)[:4000], health=health))
+                    phase=phase, type=type(exc).__name__, message=str(exc), health=health))
                 return 0
             prepared = to_dict(model)
             _emit(job_dir, "prepared_serialised")

@@ -123,6 +123,11 @@ def _app_dir() -> Path:
     return HERE.parent.parent  # <app>\src\anyfem -> <app>
 
 
+def _runtime_root(python: Path) -> Path:
+    """Folder holding ``runtime.lock.json``: the runtime root for both ``<root>/python.exe`` and ``<root>/Scripts/python.exe``."""
+    return python.parent.parent if python.parent.name in ("Scripts", "bin") else python.parent
+
+
 def _runtime_python(root: Path) -> Optional[Path]:
     for candidate in (root / "python.exe", root / "Scripts" / "python.exe", root / "bin" / "python"):
         if candidate.is_file():
@@ -289,7 +294,12 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
             outcome.reason = "cannot start child: %r" % (exc,)
             return outcome
         outcome.pid = process.pid
-        job_object.assign(process.pid)
+        if os.name == "nt" and not job_object.assign(process.pid):
+            # Without kill-on-close containment the child could outlive a dying parent: fail closed.
+            _stop(process, job_object)
+            outcome.exit_code = process.poll()
+            outcome.reason = "child could not be placed in a kill-on-close job object"
+            return outcome
         t_spawned = time.perf_counter()
         deadline = t_spawned + timeout
         state = dict(offset=0, pending="")
@@ -396,21 +406,25 @@ def _check_lock(lock: Path) -> str:
     return ""
 
 
-def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Path] = None, **injection) -> ChildOutcome:
+def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Path] = None,
+                 cancellation_check: Optional[Callable[[str], None]] = None, **injection) -> ChildOutcome:
     """Selftest child: GIL off after imports, NumPy pin, source digest, frozen smoke.  Cached by interpreter + lock + sources."""
-    lock = Path(lock_path) if lock_path else Path(python).parent.parent / "runtime.lock.json"
-    problem = _check_lock(lock)
-    if problem:
-        return ChildOutcome(status=UNAVAILABLE, reason=problem)
-    lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
-    stat = Path(python).stat()
+    try:
+        lock = Path(lock_path) if lock_path else _runtime_root(Path(python)) / "runtime.lock.json"
+        problem = _check_lock(lock)
+        if problem:
+            return ChildOutcome(status=UNAVAILABLE, reason=problem)
+        lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
+        stat = Path(python).stat()
+    except OSError as exc:  # unreadable lock, interpreter removed after discovery
+        return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
     key = (str(python), stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
            EXPECT_NUMPY, tuple(sorted((k, repr(v)) for k, v in injection.items())))
     cached = _health_cache.get(key)
     if cached is not None:
         return cached
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
-    outcome = run_child(python, job, None, threads=1, timeout=timeout, **injection)
+    outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
     if outcome.status == OK and (outcome.body or {}).get("smoke") != _batch_prepare.SMOKE_DIGEST:
         outcome.status, outcome.reason = UNAVAILABLE, "smoke digest mismatch"
     if outcome.status in (OK, UNAVAILABLE):
@@ -419,6 +433,11 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
 
 
 # ------------------------------------------------------------------------------------------------ the hook
+
+def _has_owner_proof(candidate) -> bool:
+    from anygeometry import has_current_intersection_preparation
+    return bool(has_current_intersection_preparation(candidate))
+
 
 def _unavailable(reason: str, outcome: Optional[ChildOutcome] = None) -> None:
     global last_outcome
@@ -450,7 +469,9 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     health_kwargs = {k: v for k, v in injection.items() if k in ("temp_root", "python_args_health", "extra_env", "lock_path")}
     if "python_args_health" in health_kwargs:
         health_kwargs["python_args"] = health_kwargs.pop("python_args_health")
-    health = check_health(python, **health_kwargs)
+    if "child_main_health" in injection:
+        health_kwargs["child_main"] = injection["child_main_health"]
+    health = check_health(python, cancellation_check=cancellation_check, **health_kwargs)
     if health.status != OK:
         return _unavailable("health check failed: %s" % (health.reason or health.status), health)
     from anygeometry.errors import GeometryError as _GeometryError
@@ -461,7 +482,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
                    source_digest=_parent_source_digest())
     except (_GeometryError, TypeError, ValueError) as exc:
         return _unavailable("document cannot be serialised: %s" % exc)
-    run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path")}
+    run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path", "child_main_health")}
     outcome = run_child(python, job, document, threads=thread_count(), timeout=timeout,
                         cancellation_check=cancellation_check, **run_kwargs)
     last_outcome = outcome
@@ -482,12 +503,20 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
         snapshot = candidate.topology_snapshot()
     except (KeyError, TypeError, ValueError, _GeometryError) as exc:
         return _unavailable("invalid child result: %s" % exc, outcome)
-    before = geometry.topology_snapshot()
+    if not _has_owner_proof(candidate):
+        # The owner's preparation receipt is a process-local proof; a document cannot carry it, and downstream
+        # (source_edge_paths, prepared remaps) needs it.  Adopting proof-less geometry would silently lose
+        # authenticated source-edge mappings, so the child result is refused (fail closed) until the owner
+        # offers a verified adoption API.
+        return _unavailable("owner preparation proof cannot cross the process boundary; child result not adopted", outcome)
+    # Verify on a staging copy first: restore_topology keeps revision and allocator high-water marks, so a
+    # publication cannot be undone exactly; a failing check must happen before the real geometry changes.
     try:
-        geometry.restore_topology(snapshot)
-        if to_dict(geometry)["checksum"]["value"] != claimed:
+        staging = geometry.clone(preserve_identity=True)
+        staging.restore_topology(snapshot)
+        if to_dict(staging)["checksum"]["value"] != claimed:
             raise ValueError("restored topology differs from the child's prepared document")
     except (ValueError, _GeometryError) as exc:
-        geometry.restore_topology(before)
-        return _unavailable("applying the child result failed: %s" % exc, outcome)
+        return _unavailable("applying the child result failed on the staging copy: %s" % exc, outcome)
+    geometry.restore_topology(snapshot)  # the identical operation that just succeeded on the staging copy
     return rows
