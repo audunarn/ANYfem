@@ -428,77 +428,30 @@ def prepare_structural_connectivity(
         and all(face.surface == faces[0].surface for face in faces))
     if bounded_hint or same_support_hint:
         operands = tuple(geometry.handle('face', face) for face in sorted(geometry.faces))
-    def cancelled():
-        _check(cancellation_check, "structural intersection batch")
-        return False
-    policy = IntersectionBatchPolicy(ConnectionIntent.CONNECT,
-        cancellation_check=None if cancellation_check is None else cancelled)
-    # Report physical design-owner connections rather than one event per
-    # cylindrical panel. Topology still retains every exact panel relation.
-    sheets = _face_sheet_map(geometry)
-    original_faces = tuple(sorted(geometry.faces))
-    representatives = {}
-    for face in sorted(geometry.faces):
-        key = ("sheet", sheets[face]) if face in sheets else ("face", face)
-        representatives.setdefault(key, face)
-    def face_label(face):
-        key = ("sheet", sheets[face]) if face in sheets else ("face", face)
-        return f"face:{representatives[key]}"
+    from . import thread_route
+    from ._batch_prepare import plan_apply_phase, report_rows_phase
+    from ._preparation_context import _record_preparation_plan
     try:
-        plan = plan_intersections(geometry, operands, policy=policy)
-        from ._preparation_context import _record_preparation_plan
-        _record_preparation_plan(plan)
-        pairs = set()
-        for arrangement in plan.arrangements:
-            for path in arrangement.paths:
-                for index, first in enumerate(path.owners):
-                    for second in path.owners[index+1:]:
-                        labels = (face_label(first), face_label(second))
-                        if labels[0] != labels[1]:
-                            pairs.add(tuple(sorted(labels)))
-                for member in path.member_ids:
-                    pairs.add((face_label(arrangement.face_id), f"member:{member}"))
-        for contact in plan.contacts:
-            members = sorted({member for member, _parameter in contact.member_parameters})
-            if contact.face_id is not None:
-                pairs.update((face_label(contact.face_id), f"member:{member}") for member in members)
-            for index, first in enumerate(members):
-                pairs.update((f"member:{first}", f"member:{second}") for second in members[index+1:])
-        application = apply_intersections(geometry, plan, policy=policy)
+        # Opt-in child-process route (off by default): returns the report rows after applying the
+        # prepared topology to ``geometry``, or None to run the ordinary in-process path below.
+        rows = thread_route.try_prepare(geometry, operands, cancellation_check=cancellation_check)
+        if rows is None:
+            state = plan_apply_phase(geometry, operands, cancellation_check=cancellation_check,
+                                     record_plan=_record_preparation_plan)
+    except thread_route.PhaseTwoRefusal:
+        raise
     except GeometryError as error:
         if "positive-area" in str(error):
             raise StructuralPreparationError(
                 "coplanar plate overlap must be resolved with Fragment Overlaps before meshing: "
                 + str(error)) from error
         raise StructuralPreparationError(f"cannot prepare structural intersection batch: {error}") from error
-    # Some certified owners publish a complete application without legacy
-    # ArrangementPath records. Report only owners that actually share one of
-    # its issued joint edges, using explicit face replacement lineage.
-    descendant_owners = {}
-    for parent in original_faces:
-        descendants = tuple(geometry.resolve_ref(EntityRef('face', parent)))
-        if not descendants and parent in geometry.faces:
-            descendants = (EntityRef('face', parent),)
-        for descendant in descendants:
-            if descendant.kind == 'face' and descendant.id in geometry.faces:
-                descendant_owners.setdefault(descendant.id, set()).add(parent)
-    pair_relations = {}
-    for edge in application.joint_edges:
-        incident = geometry.faces_using_edge(edge.id)
-        labels = sorted({face_label(parent) for face in incident
-                         for parent in descendant_owners.get(face, ())})
-        # This combination is local to one actual shared edge, not the global
-        # operand set. Faces of the same original Sheet share one label.
-        for index, first in enumerate(labels):
-            for second in labels[index+1:]:
-                pair = (first, second)
-                pairs.add(pair)
-                pair_relations.setdefault(pair, []).append(_label(edge))
-    relations = tuple(_label(handle) for handle in application.joint_edges)
+    if rows is None:
+        rows = report_rows_phase(geometry, state)
     report.connections.extend(PreparedConnection(first, second, "intersection_curve",
-        "batch_arrangement", application.reused,
-        tuple(dict.fromkeys(pair_relations.get((first,second), relations))))
-        for first, second in sorted(pairs))
+        "batch_arrangement", rows.reused,
+        tuple(dict.fromkeys(rows.pair_relations.get((first,second), rows.relations))))
+        for first, second in sorted(rows.pairs))
     report.working_revision = int(geometry.revision)
     # Report construction is part of this preparation call. Preserve the
     # obligation if it fails or is interrupted after the owner apply succeeds.
