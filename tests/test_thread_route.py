@@ -93,6 +93,7 @@ def _isolate(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
     tr.configure(reset=True)
     monkeypatch.setattr(tr, "_INJECT", {})
+    monkeypatch.setattr(tr, "OWNER_ADOPTION_AVAILABLE", True)  # most tests exercise the child; one test pins the real default
     monkeypatch.setattr(tr, "last_outcome", None)
     yield
     tr.configure(reset=True)
@@ -221,6 +222,16 @@ def test_runtime_locator_order_and_never_path(monkeypatch, tmp_path):
 
 
 # ------------------------------------------------------------------------------------------ happy path
+
+def test_without_an_owner_adoption_api_the_route_never_spawns_a_child(route_on, monkeypatch):
+    """Real default: a child result could never be adopted, so spawning one would only double the time."""
+    monkeypatch.setattr(tr, "OWNER_ADOPTION_AVAILABLE", False)
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned although its result cannot be adopted"))
+    expected = reference(crossing)
+    model, report, _ = run_on(crossing)
+    assert tr.last_outcome.status == tr.UNAVAILABLE and "adopt" in tr.last_outcome.reason
+    assert result_of(model, report) == expected
+
 
 @needs_runtime
 def test_child_result_without_owner_proof_is_refused_and_serial_keeps_the_proof(route_on, jobs_dir):

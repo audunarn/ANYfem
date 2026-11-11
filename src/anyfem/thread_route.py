@@ -57,6 +57,10 @@ HERE = Path(__file__).resolve().parent
 CHILD_MAIN = HERE / "_thread_child.py"
 CHILD_SOURCES = (HERE / "_batch_prepare.py", HERE / "_thread_child.py")
 
+#: The owner's preparation proof cannot cross a process boundary today (measured: source_edge_paths 223 -> 0 on sector60), so
+#: a child result can never be adopted.  Until ANYgeometry offers a verified adoption API, the route stops BEFORE spawning
+#: (otherwise it would only double the preparation time: measured 33.9 s vs 16.8 s on sector60).  Set True by that API's glue.
+OWNER_ADOPTION_AVAILABLE = False
 _override: dict = {}
 _health_cache: dict = {}
 _digest_cache: dict = {}
@@ -513,6 +517,8 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     faces = len(geometry.faces)
     if faces < _min_faces():
         return None
+    if not OWNER_ADOPTION_AVAILABLE:
+        return _unavailable("no verified way to adopt a child-prepared model yet (owner preparation proof); running serially")
     python = injection.pop("python", None) or locate_runtime()
     if python is None:
         return _unavailable("runtime missing (set %s or install runtime-314t beside the application)" % ENV_RUNTIME)
