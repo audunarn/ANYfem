@@ -19,15 +19,17 @@ from anyfem.regional_mesh import (
 )
 
 
-def two_plates(widths=(1.0, 1.0)):
+def two_plates(widths=(1.0, 1.0), *, clockwise_first=False):
     """Two unit-height plates at x=0 and x=5; construction order fixes every entity id."""
     project = Project("two plates")
     project.add_material(steel("S355", 0.01))
     project.add_plate_section("plate", thickness=0.01, material="S355")
     faces, edges = [], []
     for x, width in zip((0, 5), widths):
-        points = project.geometry.add_points(
-            [(x, 0, 0), (x + width, 0, 0), (x + width, 1, 0), (x, 1, 0)])
+        corners = [(x, 0, 0), (x + width, 0, 0), (x + width, 1, 0), (x, 1, 0)]
+        if clockwise_first and not faces:
+            corners = [corners[0], *corners[:0:-1]]
+        points = project.geometry.add_points(corners)
         boundary = project.geometry.add_polyline(points, close=True)
         face = project.geometry.add_face(boundary)
         project.assign_plate(face, "plate")

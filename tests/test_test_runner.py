@@ -672,11 +672,11 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
     text = (ROOT / '.github/workflows/tests.yml').read_text()
     test_job, build_job = text.split('\n  build:\n', 1)
     expected = {
-        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', '38e9abc179b9babf02d395c2d4f3c64291ff56ed'),
+        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', 'adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2'),
         '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'),
-        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '602e4a7ac35eeeea6490e0bf25e22f03f72b86a7'),
-        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '63b6c33f2e110ad8bb83895539bf0a664b25a2a1' }}"),
+        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),
+        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '3823b6912cd54f1f6a913a661a9f6739b3f55f2d' }}"),
     }
     for job in (test_job, build_job):
         actual = {}

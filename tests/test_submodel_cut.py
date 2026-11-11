@@ -21,7 +21,7 @@ from anyfem.submodel_jobs import (
     submodel_run_staleness,
     submodel_snapshot,
 )
-from test_submodel_jobs import make_job
+from test_submodel_jobs import make_job, refused_without_publication
 from test_submodel_workflow import PRESSURE, SIZE, global_project, node_match
 
 BOX = BoxVolume((0.2, 0.2, -0.1), (0.8, 0.8, 0.1))
@@ -204,6 +204,19 @@ def test_a_point_load_on_the_cut_skips_other_cases_and_refuses_the_chosen_one(tm
     assert set(cut.report.skipped_cases) == {"on_cut"} and "default" in cut.definition.child.load_cases
     with pytest.raises(SubmodelError, match="CUT_LOAD_UNSUPPORTED"):
         parent.cut(box, source=SourceReference(parent.job.id, "on_cut"))
+
+
+def test_chosen_clipped_distributed_load_refuses_without_mutating_parent(tmp_path):
+    project, faces = global_project()
+    pair = [vertex_at(project, 0., 0.), vertex_at(project, .3, .3)]
+    project.load_case().add_point_load(
+        project.point(pair[0]), force=(0., 0., -30.), distribution_policy="total_distributed",
+        region=point_group(project, "pair", pair))
+    parent = Parent(tmp_path, project, faces)
+
+    with refused_without_publication(parent.session, parent.store, "CUT_LOAD_UNSUPPORTED") as exc:
+        parent.cut(BOX)
+    assert "partly contains" in str(exc.value)
 
 
 def test_a_clipped_distributed_load_skips_its_case(tmp_path):
@@ -601,18 +614,25 @@ L_CW = [(0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0.6, 0), (0.6, 0.6, 0), (0.6, 0, 0)
 L_BOX = BoxVolume((-0.1, 0.2, -0.1), (0.4, 0.8, 0.1))
 
 
-def test_a_clockwise_deck_whose_cut_piece_would_turn_refuses(tmp_path):
-    """Review S4b round 3: the imprint rebuilds the cut piece's plane from its clockwise loop (-z).
-
-    That the scalar offset itself stands off on the face-normal side whatever the meshing route
-    is tested in ANYmesh (tests/test_scalar_offset_side.py); ANYfem's default meshing rejects the
-    counter-clockwise L at the sizes tried (structured quality or S3 admission), so no end-to-end
-    L-deck run is made here.
-    """
-
-    project, face = l_deck(L_CW)
-    with pytest.raises(SubmodelError, match="VOLUME_ORIENTATION"):
-        Parent(tmp_path, project, {"deck": face}).cut(L_BOX)
+@pytest.mark.parametrize("points", [L_CW, L_CW[::-1]], ids=["clockwise", "counterclockwise"])
+def test_cut_l_deck_retains_physical_stiffener_side(tmp_path, points):
+    project, face = l_deck(points)
+    parent = Parent(tmp_path, project, {"deck": face})
+    cut = parent.cut(L_BOX)
+    parent.register(cut.definition)
+    staged = stage_submodel_run(submodel_snapshot(parent.session), cut.definition.id, parent.store)
+    try:
+        mesh = staged.result.solution.built.mesh
+        assert mesh.offset_nodes_of_edge
+        for edge, stations in mesh.offset_nodes_of_edge.items():
+            for base, stood in zip(mesh.nodes_of_edge[edge], stations):
+                np.testing.assert_allclose(np.asarray(mesh.nodes[stood]) - mesh.nodes[base],
+                                           (0.0, 0.0, SCALAR["eccentricity"]), atol=1e-10)
+        result = publish_submodel_run(parent.session, staged)
+    except BaseException:
+        discard_staged_run(staged)
+        raise
+    assert submodel_run_staleness(parent.session.snapshot(), result.run, parent.store) == ()
 
 
 @pytest.mark.parametrize("box", [BOX, BoxVolume((0.42, 0.2, -0.1), (0.48, 0.8, 0.1))], ids=["box", "between-stations"])

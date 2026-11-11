@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 QT = ROOT / '.github/workflows/qt-tests.yml'
 HEADLESS = ROOT / '.github/workflows/tests.yml'
-PHYSICAL_SOLVER = '38e9abc179b9babf02d395c2d4f3c64291ff56ed'
+PHYSICAL_SOLVER = 'adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2'
 RESULTS_SOLVER = 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'
 POST = 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'
 
@@ -24,8 +24,8 @@ def _checkouts(text):
 
 
 @pytest.mark.parametrize(('input_name', 'path', 'expected'), (
-    ('geometry_ref', '.ecosystem/ANYgeometry', '602e4a7ac35eeeea6490e0bf25e22f03f72b86a7'),
-    ('mesher_ref', '.ecosystem/ANYmesh', '63b6c33f2e110ad8bb83895539bf0a664b25a2a1'),
+    ('geometry_ref', '.ecosystem/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),
+    ('mesher_ref', '.ecosystem/ANYmesh', '3823b6912cd54f1f6a913a661a9f6739b3f55f2d'),
 ))
 def test_qt_default_and_automatic_owner_refs_match_headless(input_name, path, expected):
     qt, headless = QT.read_text(), HEADLESS.read_text()
@@ -62,7 +62,8 @@ def test_qt_keeps_viewer_runtime_matrix_and_opt_in_schema6_gates():
     viewer = '6fa628bc3a9e1c74548901678ff2ee8033e6c5dc'
     assert f'default: {viewer}' in qt
     assert _checkouts(qt)['.ecosystem/ANY3dView'][1] == "${{ inputs.viewer_ref || '" + viewer + "' }}"
-    assert 'timeout-minutes: 30' in qt
+    assert '    timeout-minutes: 40' in qt.split('  qt:\n', 1)[1].split('    strategy:', 1)[0]
+    assert 'name: Shell and solid submodel jobs and Qt results\n        timeout-minutes: 10' in qt
     assert 'os: [windows-latest, ubuntu-latest]' in qt
     assert "python: ['3.11', '3.14']" in qt
     assert re.search(r'^      schema6_fixtures:\n.*?^        default: false$', qt, re.M | re.S)

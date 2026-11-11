@@ -8,6 +8,8 @@ import os
 import subprocess
 import sys
 import threading
+from contextlib import contextmanager
+from hashlib import sha256
 
 import numpy as np
 import pytest
@@ -137,6 +139,22 @@ def _files(store):
 
 def _document_hash(project):
     return canonical_hash(_document_payload(project_to_dict(project)))
+
+
+@contextmanager
+def refused_without_publication(session, store, code):
+    def stored_bytes():
+        return {p.relative_to(store.root): sha256(p.read_bytes()).digest()
+                for p in store.root.rglob("*") if p.is_file()}
+
+    before = session.snapshot()
+    files = stored_bytes()
+    with pytest.raises(SubmodelError) as error:
+        yield error
+    assert error.value.code == code
+    assert session.revision.id == before.revision.id
+    assert session.snapshot().document == before.document
+    assert stored_bytes() == files
 
 
 # ----------------------------------------------------------------------
@@ -304,17 +322,17 @@ def test_deleted_definition_and_unregistered_artifact_survive_save_and_reopen(se
 ])
 def test_job_source_refusals(setup, change, code):
     setup.edit(lambda _p: change(setup), solver_affecting=True)
-    with pytest.raises(SubmodelError, match=code):
+    with refused_without_publication(setup.session, setup.store, code):
         setup.source()
 
 
 def test_wrong_case_and_foreign_mesh_selection_refuse(setup):
-    with pytest.raises(SubmodelError, match="SOURCE_RECIPE_UNSUPPORTED"):
+    with refused_without_publication(setup.session, setup.store, "SOURCE_RECIPE_UNSUPPORTED"):
         setup.source(SourceReference(setup.job.id, "other"))
     other = MeshRecord(name="other", source_model_hash=setup.record.source_model_hash, mesh_input_hash="x",
                        mesh_hash="sha256:other", id="other")
     setup.edit(lambda p: p.mesh_records.__setitem__("other", other))
-    with pytest.raises(SubmodelError, match="SOURCE_MESH"):
+    with refused_without_publication(setup.session, setup.store, "SOURCE_MESH"):
         setup.source(mesh_record_id="other")
     assert setup.source(mesh_record_id=setup.record.id).manifest["mesh_selection"] == "explicit"
 
@@ -323,6 +341,7 @@ def test_wrong_case_and_foreign_mesh_selection_refuse(setup):
     ({"load_case": "default", "solver": "pardiso"}, None),  # an extra recorded setting
     ({"load_case": "alt"}, None),  # a conflicting selector; the archived field would revalidate
     ({"combination": "c1"}, None),
+    ({"load_case": "default"}, {"type": "nonlinear_static"}),
 ])
 def test_recipe_is_checked_independently_of_the_numerical_gate(tmp_path, settings, overrides):
     project, gfaces = global_project()
@@ -331,7 +350,7 @@ def test_recipe_is_checked_independently_of_the_numerical_gate(tmp_path, setting
     store = ArtifactStore(tmp_path / "parent.anyfem")
     job, *_ = make_job(session, store, settings=settings, analysis_overrides=overrides)
     snap = session.snapshot()
-    with pytest.raises(SubmodelError, match="SOURCE_RECIPE_UNSUPPORTED"):
+    with refused_without_publication(session, store, "SOURCE_RECIPE_UNSUPPORTED"):
         job_source(snap.thaw(), SourceReference(job.id, "default"), store, document=snap.document,
                    model_hash=snap.revision.model_hash)
 

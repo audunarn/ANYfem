@@ -45,11 +45,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+solid = ["ANYsolid[skfem]>=0.1,<0.2"]
 post = ["ANYpost[results]>=0.1,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [
-  "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@dda8c70a1f6205ae601e8288a1624f52aa76e24a",
+  "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@33dfbaad89a76dd9e925fd6c628602213ce8c2b8",
   "ANY3dView[gpu,qt]>=0.5.6,<0.6",
   "ANYmesher>=0.5.1,<0.6",
   "Pillow>=10,<13",

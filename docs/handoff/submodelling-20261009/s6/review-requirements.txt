@@ -1,0 +1,16 @@
+# Sibling sources for the Qt shell/solid review. Install with the checked-out ANYfem[qt,solid].
+# ANYsolver-results is distributed separately from the mechanics package in the same repository.
+ANYgeometry @ git+https://github.com/audunarn/ANYgeometry.git@33dfbaad89a76dd9e925fd6c628602213ce8c2b8
+ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@3823b6912cd54f1f6a913a661a9f6739b3f55f2d
+ANYsolver @ git+https://github.com/audunarn/ANYsolver.git@adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2
+anysolver-results @ git+https://github.com/audunarn/ANYsolver.git@e78cccd3a76feb1793a38568f59d6d68f8224cb5#subdirectory=packages/results
+ANYsolid @ git+https://github.com/audunarn/ANYsolid.git@06f3276d9207376316502aca651c3455db984104
+ANY3dView @ git+https://github.com/audunarn/ANY3dView.git@6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
+ANYpost @ git+https://github.com/audunarn/ANYpost.git@fb06cacd6b98964a6748ea1c222a4bc974c00fcd
+ANYmaterial @ git+https://github.com/audunarn/ANYmaterial.git@d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
+ANYhydro @ git+https://github.com/audunarn/ANYhydro.git@a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+ANYstability @ git+https://github.com/audunarn/ANYstability.git@eab0737d3a44bcc41faa353459c8791404f9fad2
+ANYloads @ git+https://github.com/audunarn/ANYloads.git@445ccbe5ea18f42f4c60907672769ca3d5aee301
+ANYfileIO @ git+https://github.com/audunarn/ANYfileIO.git@32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+ANYtk3D @ git+https://github.com/audunarn/ANYtk3D.git@2caa92325885938c594f27145ed16069d807e364
+ANYsection @ git+https://github.com/audunarn/ANYsection.git@940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb

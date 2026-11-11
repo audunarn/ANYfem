@@ -44,7 +44,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYgeometry",
-      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@dda8c70a1f6205ae601e8288a1624f52aa76e24a",
+      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@33dfbaad89a76dd9e925fd6c628602213ce8c2b8",
       "scope": "optional:gui",
       "upstream": "https://github.com/audunarn/ANYgeometry"
     },
@@ -127,6 +127,14 @@
       "requirement": "ANYsection[gui]>=0.1,<0.2",
       "scope": "optional:sections",
       "upstream": "https://github.com/audunarn/ANYsection"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYsolid",
+      "requirement": "ANYsolid[skfem]>=0.1,<0.2",
+      "scope": "optional:solid",
+      "upstream": "https://github.com/audunarn/ANYsolid"
     },
     {
       "bundled": false,

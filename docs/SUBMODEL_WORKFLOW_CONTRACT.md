@@ -721,10 +721,10 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
     along the plate normal. An inclined plate hinged on x = 0.3 refuses with `CUT_BEAM_OFFSET`
     both where a box side cuts the stiffener there (review round 1) and where it meets the
     stiffener strictly inside the box (round 2); a box clear of it carries the same stiffeners.
-    A scalar-offset stiffener on a cylinder seam refuses (curved plating, round 2). A clockwise
-    L-shaped deck on an explicit +z plane, whose cut piece the imprint would turn to -z, refuses
-    with `VOLUME_ORIENTATION` (round 3); route independence of the offset side is tested in
-    ANYmesh (`tests/test_scalar_offset_side.py`). A parent whose archived mesh has the scalar
+    A scalar-offset stiffener on a cylinder seam refuses (curved plating, round 2). On an explicit +z plane, the geometry imprint preserves the physical plane
+    orientation for both loop windings. The extraction guard still refuses a contradictory
+    orientation. ANYmesh tests the offset side across meshing routes in
+    `tests/test_scalar_offset_side.py`. A parent whose archived mesh has the scalar
     offset on the other side (simulated by mirroring its offset nodes and couplings) refuses the
     run with `SUBMODEL_OFFSET_SIDE` (round 4); a stiffener ending at a wall outside the box, whose
     parent offset tilts there, runs (round 5), also when the box touches the wall's element at a
@@ -748,3 +748,38 @@ committed parent snapshot and an ANYgeometry `BoxVolume`. The parent is only rea
   `CoonsSurface`, not a `Plane`; S2a first refused it. The volume cut now accepts a Coons patch
   with straight coplanar boundaries (the support ANYgeometry's own intersection planning
   accepts).
+
+
+## Shell-driven solid detail and regional source identity
+
+Open **Analysis → Submodel…** to select the solved parent job and case. Preview a box cut for a shell,
+or select a planar face and four interior rectangle corners for a solid. Specify the in-plane size,
+number of thickness layers, P1 or P2 displacement order, and skin for carried pressure.
+Preview lists the cut boundary and carried attributes. Create stores the definition. Run publishes
+child mesh and results together. History reopens the archived child mesh, physical fields and its
+source job. New shell definitions preselect `drive_all`; either saved rotation policy is preserved.
+
+The headless entry points are `cut_submodel` and `cut_solid_submodel`. Register their returned
+`definition` with `add_submodel`. `run_submodel` and the split staging/publication APIs accept either
+definition. The solid variant requires the `solid` extra and the matched geometry, mesh and solver
+revisions of this review. A document with solid children or solid run history uses format 20.
+Older shell documents reopen with their original policies.
+
+For this coordinated review, install from the ANYfem branch in a fresh Python environment with
+`python -m pip install -r docs/handoff/submodelling-20261009/s6/review-requirements.txt ".[qt,solid]"`.
+The requirements select the mechanics and offline results wheels from their respective source revisions.
+
+A solid footprint must fit strictly inside the material of a single flat, constant-thickness,
+isotropic plate. Its signed physical director establishes the start/end skins and four driven sides.
+A carried uniform pressure requires an explicit skin and preserves the parent traction sign.
+The run refuses unsupported intersecting attributes, uncertain containment, mismatched source
+artifacts or incompatible cut values. The structured-box generator checks every boundary facet
+against its geometry face. The result stores world displacements, cut coefficients and signed
+reactions, applied/interface forces and moments about the world origin, and stress/strain tensors
+with physical quadrature coordinates, weights and cell IDs. Reactions shared by multiple sides are
+identified explicitly. Side totals use equal allocation, while total work uses each coefficient once.
+
+An active numbered parent mesh binds new work to its precise solved mesh generation. Following a
+regional change, solve the updated parent and select that job when creating a child. Historic runs
+retain their original artifacts and stale reasons. Publication rechecks the source and definition
+after staging. Cancellation and supersession discard the attempted child artifacts.

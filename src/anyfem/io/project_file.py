@@ -98,7 +98,8 @@ FLOATING_TRANSIENT_RESULTS_FORMAT = 17
 # silently drop them on the next save, so a file holding any is format 18 and refused there.
 WIND_TURBINE_LOADS_FORMAT = 18
 TURBINE_MASS_FORMAT = 19
-MAX_READ_FORMAT = TURBINE_MASS_FORMAT
+SOLID_SUBMODELS_FORMAT = 20
+MAX_READ_FORMAT = SOLID_SUBMODELS_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -1227,12 +1228,22 @@ def _read_submodels(project: Project, data: Mapping[str, Any], version: int) -> 
             raise ProjectFileError(f"{key} must be a list")
         for index, entry in enumerate(entries):
             try:
+                if _submodel_child_kind(key, entry) == "solid" and version < SOLID_SUBMODELS_FORMAT:
+                    raise ProjectFileError(f"solid children require project format {SOLID_SUBMODELS_FORMAT}")
                 record = record_type.from_dict(entry, f"{key}[{index}]")
             except (SubmodelRecordError, ProjectFileError) as error:
                 raise ProjectFileError(f"{key}[{index}]: {error}") from None
             if record.id in registry:
                 raise ProjectFileError(f"{key}[{index}]: duplicate id {record.id!r}")
             registry[record.id] = record
+
+
+def _submodel_child_kind(key: str, entry: Any) -> Any:
+    if isinstance(entry, Mapping):
+        child = entry if key == "submodels" else entry.get("child")
+        if isinstance(child, Mapping):
+            return child.get("child_kind", "shell")
+    return None
 
 
 def _recover_detached_feature_corruption(
@@ -2241,6 +2252,9 @@ _base_project_from_dict = project_from_dict
 
 def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper over the established writer
     data = _base_project_to_dict(project, *args, **kwargs)
+    if any(_submodel_child_kind(key, entry) == "solid"
+           for key in ("submodels", "submodel_runs") for entry in data.get(key, ())):
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], SOLID_SUBMODELS_FORMAT)
     results = getattr(project, "floating_transient_results", None) or {}
     if results:
         data[FLOATING_TRANSIENT_RESULTS_KEY] = {name: ref.to_dict() for name, ref in sorted(results.items())}

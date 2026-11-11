@@ -621,6 +621,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(analysis,"Generate mesh",self.panels["Mesh"].start)
         self._action(analysis,"Update mesh",self.panels["Mesh"].start_update)
         self._action(analysis,"Solve",self.panels["Solve"].start)
+        from .submodel_task import open_submodel_dialog
+        submodel_action=self._action(analysis,"Submodel…",lambda:open_submodel_dialog(self))
+        submodel_action.setToolTip("Cut a shell or solid submodel from a completed job, run it in the background and browse its runs")
+        submodel_action.setStatusTip(submodel_action.toolTip())
         examples=self.menuBar().addMenu("Examples")
         action=self._action(examples,"Floating barge section…",self.open_barge_example)
         action.setToolTip("Create an S355 barge section: 700 mm stiffeners, 4000 mm girders, fixed end and bending load for approximately 200 MPa")
@@ -1177,6 +1181,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         settings=QSettings("ANY","ANYfem-Qt")
         settings.setValue("geometry",self.saveGeometry());settings.setValue("docks",self.saveState())
         self._closing=True
+        from .submodel_task import shutdown_submodel
+        shutdown_submodel(self)
         self.run_monitor.stop()
         self.button_help.close()
         self.panels["Solve"].graph_timer.stop()

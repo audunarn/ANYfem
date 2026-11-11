@@ -172,12 +172,32 @@ def _pins() -> dict:
 
 
 def _eligible_inputs(project: Any, settings: Any) -> None:
-    from anygeometry.curves import Straight
-    from anygeometry.surfaces import CoonsSurface, Plane
+    from anymesher import regional_mapped
     from .mesh_controls import MeshControls
 
     geometry = project.geometry
-    rm._geometry_gate(geometry)
+    face_supported = getattr(regional_mapped, "mapped_regional_face_supported", None)
+    if face_supported is None:
+        # Older mesher pins publish the original straight-sided route.
+        rm._geometry_gate(geometry)
+    else:
+        if not geometry.faces or geometry.members or geometry.attachments or geometry.junctions:
+            raise _Refuse("connected update requires plate faces without structural relations")
+        for face_id in geometry.faces:
+            if not face_supported(geometry, face_id):
+                raise _Refuse(f"face {face_id} is outside the mapped regional face contract")
+            # The connected plate route is planar even when the mapped face
+            # kernel admits a warped straight-sided Coons surface.
+            face = geometry.faces[face_id]
+            corners = np.array([geometry.vertex_position(geometry.oriented_start_vertex(use))
+                                for use in face.loop])
+            extent = float(np.linalg.norm(np.ptp(corners, axis=0)))
+            normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+            magnitude = np.linalg.norm(normal)
+            if (magnitude <= geometry.tolerance.effective_area(extent) or
+                    abs(np.dot(corners[3] - corners[0], normal / magnitude)) >
+                    geometry.tolerance.effective_length(extent)):
+                raise _Refuse(f"face {face_id} does not define a planar plate")
     if (project.read_only_reason or project.refinements or project.edge_sections
             or settings.automation is not None
             or project.sheet_join_intent_problems() or project._feature_materialization_problems()):
@@ -188,13 +208,6 @@ def _eligible_inputs(project: Any, settings: Any) -> None:
     active_edges = {use.edge for face in geometry.faces.values() for use in face.loop}
     if any(edge not in active_edges for edge, _ in settings.overrides):
         raise _Refuse("edge division override names an edge outside the supported plates")
-    for face in geometry.faces.values():
-        surface = face.surface
-        if (len(face.loop) != 4 or face.parameterization is not None
-                or not (type(surface) is Plane or
-                        type(surface) is CoonsSurface and surface.bottom is None)
-                or any(type(geometry.edges[use.edge].curve) is not Straight for use in face.loop)):
-            raise _Refuse("only four straight edges on a plane or topology-backed Coons plate are supported")
 
 
 def _junction_segments(stations: Mapping, edge_ids: Any, order: str) -> set[tuple[int, int]]:
@@ -266,7 +279,7 @@ def _capture(project: Any, settings: Any, mesh: Any) -> dict:
         record = rm._component_record(geometry, document, [f], settings)
         faces_out[str(f)] = {
             "fingerprint": record["fingerprint"], "local_hash": record["local"]["hash"],
-            "faces": [f], "edges": face_edges[f], "vertices": face_vertices[f],
+            "faces": [f], "edges": face_edges[f], "vertices": record["vertices"],
             "sheets": record["sheets"], "mesh": rm._binding(mesh, record, elements, nodes),
         }
     if set().union(*face_nodes.values()) != {int(n) for n in mesh.nodes}:
