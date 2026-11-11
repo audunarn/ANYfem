@@ -35,6 +35,26 @@ class Cancel(Exception):
     pass
 
 
+def alive(pid: int) -> bool:
+    """True while the process still runs (a terminated process whose handle is still open elsewhere is not alive)."""
+    if os.name != "nt":
+        return psutil.pid_exists(pid)
+    import ctypes
+    k = ctypes.WinDLL("kernel32")
+    k.OpenProcess.restype = ctypes.c_void_p
+    k.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    k.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    k.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_uint32()
+        return bool(k.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+    finally:
+        k.CloseHandle(handle)
+
+
 def crossing() -> GeometryModel:
     model = GeometryModel(model_id=MODEL_ID)
     model.add_plate(model.add_points(((0, 0, 0), (4, 0, 0), (4, 4, 0), (0, 4, 0))))
@@ -254,9 +274,9 @@ def test_job_object_failure_kills_the_child_and_falls_back(route_on, jobs_dir, t
     child = stub(tmp_path, "time.sleep(60)\n")
     assert_serial_fallback(crossing, jobs_dir, "job object", child_main=child, extra_env={"STUB_PIDFILE": str(pidfile)})
     deadline = time.time() + 10
-    while pidfile.exists() and pidfile.read_text() and psutil.pid_exists(int(pidfile.read_text())) and time.time() < deadline:
+    while pidfile.exists() and pidfile.read_text() and alive(int(pidfile.read_text())) and time.time() < deadline:
         time.sleep(0.1)
-    assert not pidfile.exists() or not pidfile.read_text() or not psutil.pid_exists(int(pidfile.read_text()))
+    assert not pidfile.exists() or not pidfile.read_text() or not alive(int(pidfile.read_text()))
 
 
 @needs_runtime
@@ -275,7 +295,7 @@ def test_cancel_during_the_health_check_stops_the_health_child(jobs_dir, tmp_pat
     with pytest.raises(Cancel):
         prepare_structural_connectivity(crossing(), cancellation_check=check)
     assert time.time() - started < 30
-    assert not psutil.pid_exists(int(pidfile.read_text()))
+    assert not alive(int(pidfile.read_text()))
     assert list(jobs_dir.iterdir()) == []
 
 
@@ -399,7 +419,7 @@ def test_child_timeout_falls_back_and_kills_the_child(route_on, jobs_dir, tmp_pa
     child = stub(tmp_path, "time.sleep(60)\n")
     assert_serial_fallback(crossing, jobs_dir, "timeout", child_main=child, timeout=1.5,
                            extra_env={"STUB_PIDFILE": str(pidfile)})
-    assert not psutil.pid_exists(int(pidfile.read_text()))
+    assert not alive(int(pidfile.read_text()))
 
 
 @needs_runtime
@@ -503,7 +523,7 @@ def test_cancel_kills_only_the_child_removes_temp_and_leaves_geometry_untouched(
         with pytest.raises(Cancel):
             prepare_structural_connectivity(model, cancellation_check=check)
         pid = int(pidfile.read_text())
-        assert not psutil.pid_exists(pid)  # the child is gone
+        assert not alive(pid)  # the child is gone
         assert bystander.is_running()  # an unrelated python process is untouched
         assert list(jobs_dir.iterdir()) == []
         assert digest(to_dict(model)) == expected_before
@@ -555,9 +575,9 @@ def test_child_dies_with_the_parent(tmp_path):
     subprocess.run([sys.executable, str(script)], timeout=60)
     pid = int(pidfile.read_text())
     deadline = time.time() + 10
-    while psutil.pid_exists(pid) and time.time() < deadline:
+    while alive(pid) and time.time() < deadline:
         time.sleep(0.1)
-    assert not psutil.pid_exists(pid)
+    assert not alive(pid)
 
 
 @needs_runtime
@@ -594,8 +614,7 @@ def test_every_child_run_sweeps_stale_job_folders(jobs_dir, tmp_path):
     old.mkdir()
     long_ago = time.time() - 3 * 24 * 3600
     os.utime(old, (long_ago, long_ago))
-    child = stub(tmp_path, 'write("unavailable", dict(reason="x"))
-')
+    child = stub(tmp_path, 'write("unavailable", dict(reason="x"))\n')
     outcome = tr.run_child(PYTHON, dict(kind="x"), None, threads=1, timeout=60, child_main=child, temp_root=str(jobs_dir))
     assert outcome.status == tr.UNAVAILABLE and not old.exists()
 
