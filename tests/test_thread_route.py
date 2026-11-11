@@ -16,7 +16,11 @@ from pathlib import Path
 
 import pytest
 
-psutil = pytest.importorskip("psutil")
+try:
+    import psutil
+except ImportError:  # only the process-inspection tests need it; the rest must still run
+    psutil = None
+needs_psutil = pytest.mark.skipif(psutil is None, reason="psutil not installed")
 
 from anygeometry import GeometryModel, to_dict  # noqa: E402
 from anygeometry.errors import GeometryError  # noqa: E402
@@ -38,7 +42,13 @@ class Cancel(Exception):
 def alive(pid: int) -> bool:
     """True while the process still runs (a terminated process whose handle is still open elsewhere is not alive)."""
     if os.name != "nt":
-        return psutil.pid_exists(pid)
+        if psutil is not None:
+            return psutil.pid_exists(pid)
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
     import ctypes
     k = ctypes.WinDLL("kernel32")
     k.OpenProcess.restype = ctypes.c_void_p
@@ -386,6 +396,14 @@ def test_unreadable_progress_file_falls_back_instead_of_aborting(route_on, jobs_
 
 
 @needs_runtime
+def test_unreadable_source_file_falls_back_instead_of_aborting(route_on, jobs_dir, monkeypatch):
+    def broken():
+        raise PermissionError("source file locked")
+    monkeypatch.setattr(tr, "_parent_source_digest", broken)
+    assert_serial_fallback(crossing, jobs_dir, "could not read")
+
+
+@needs_runtime
 def test_phase_two_refusal_propagates_unwrapped(route_on, tmp_path, jobs_dir):
     child = stub(tmp_path, '''
         write("refusal", dict(phase=2, type="GeometryError", message="rows refused", health={}))
@@ -539,6 +557,7 @@ def test_health_check_is_cached_and_invalidated_by_a_changed_lock(route_on, jobs
 
 # ------------------------------------------------------------------------------------------ cancel
 
+@needs_psutil
 @needs_runtime
 def test_cancel_kills_only_the_child_removes_temp_and_leaves_geometry_untouched(route_on, jobs_dir, tmp_path):
     pidfile = tmp_path / "pid.txt"

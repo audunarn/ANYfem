@@ -522,7 +522,10 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
         health_kwargs["python_args"] = health_kwargs.pop("python_args_health")
     if "child_main_health" in injection:
         health_kwargs["child_main"] = injection["child_main_health"]
-    health = check_health(python, cancellation_check=cancellation_check, **health_kwargs)
+    try:
+        health = check_health(python, cancellation_check=cancellation_check, **health_kwargs)
+    except OSError as exc:  # e.g. an unreadable source file while computing the source digest
+        return _unavailable("health check could not read the runtime or sources: %r" % (exc,))
     if health.status != OK:
         return _unavailable("health check failed: %s" % (health.reason or health.status), health)
     from anygeometry.errors import GeometryError as _GeometryError
@@ -531,7 +534,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
         document = json.dumps(to_dict(geometry), sort_keys=True, separators=(",", ":")).encode("utf-8")
         job = dict(kind="batch_prepare", operands=[[h.kind, h.id] for h in operands],
                    source_digest=_parent_source_digest())
-    except (_GeometryError, TypeError, ValueError) as exc:
+    except (_GeometryError, TypeError, ValueError, OSError) as exc:
         return _unavailable("document cannot be serialised: %s" % exc)
     run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path", "child_main_health")}
     outcome = run_child(python, job, document, threads=thread_count(), timeout=timeout,
