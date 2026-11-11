@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use the ANYfeSolver 0.5 package for structural analyses.
+
 ## 0.4.1 - 2026-09-17
 
 - Present multi-entity generators as lightweight feature objects: generated

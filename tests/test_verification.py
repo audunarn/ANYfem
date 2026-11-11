@@ -104,7 +104,7 @@ def test_the_report_writes_json_and_markdown(report):
         assert "# ANYfem verification" in text
         # It states the limits of what it claims.
         assert "do not claim" in text
-        assert "ANYsolver" in text
+        assert "ANYfeSolver" in text
 
 
 def test_the_summary_says_pass_or_fail(report):
@@ -296,9 +296,9 @@ def test_the_viewport_is_an_optional_extra():
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
     assert '"ANY3dView[gpu]>=0.5.5,<0.6"' in text
     assert '"ANYtk3D>=0.5.5,<0.6"' in text
-    # ANYsolver is required; concrete viewers are not.
+    # ANYfeSolver is required; concrete viewers are not.
     dependencies = text.split("dependencies = [", 1)[1].split("]", 1)[0]
-    assert "ANYsolver" in dependencies
+    assert "ANYfeSolver" in dependencies
     assert "ANYgeometry" in dependencies
     assert "ANY3dView" not in dependencies
     assert "ANYtk3D" not in dependencies

@@ -542,10 +542,10 @@ class MeshTaskManager:
 
 def _cancellation_token():
     try:
-        from anysolver import CancellationToken
+        from anyfesolver import CancellationToken
 
         return CancellationToken()
-    except ImportError:  # pragma: no cover - ANYsolver is a normal dependency
+    except ImportError:  # pragma: no cover - ANYfeSolver is a normal dependency
         class Token:
             def __init__(self) -> None:
                 self._cancelled = threading.Event()

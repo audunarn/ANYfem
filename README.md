@@ -5,7 +5,7 @@ meshing, loads and boundary conditions, solving, and postprocessing.
 
 ANYfem owns the application layer across the focused ecosystem packages:
 
-- [**ANYsolver**](https://github.com/audunarn/ANYsolver) — the headless FE
+- [**ANYfeSolver**](https://github.com/audunarn/ANYfeSolver) — the headless FE
   solver (6 DOF per node, SI units, linear through nonlinear and transient).
 - [**ANYmaterial**](https://github.com/audunarn/ANYmaterial) — validated,
   serializable isotropic and orthotropic material specifications.
@@ -21,7 +21,9 @@ ANYfem owns the application layer across the focused ecosystem packages:
 
 The dependency direction is one-way. ANYfem never imports ANYstructure.
 
-### Qualified latest-only release graph
+The maintenance candidate requires ANYfeSolver 0.5.x. It reads existing project files using the same project migrations.
+
+### Previously qualified release graph
 
 | Distribution | Qualified version | Role |
 | --- | ---: | --- |
@@ -36,7 +38,7 @@ The dependency direction is one-way. ANYfem never imports ANYstructure.
 | ANYbuckling | 0.1.1 | compatible independent buckling adapter |
 | ANYstructure | 6.3.1 | downstream application consumer |
 
-Only these latest package generations are qualified together. Historical
+This graph records the previous qualification. Historical
 ANYfem project formats 1--6 remain readable through the v7 migration path;
 that file compatibility does not qualify older installed package generations.
 ANYtimeseries remains independent of this release graph.
@@ -116,7 +118,7 @@ latest-only graph with one command.  The arguments are kept in dependency
 order so the same line is also printed by `run_gui.py` when metadata is stale:
 
 ```powershell
-python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYsolver" -e "C:\Github\ANYfem[gui]"
+python -m pip install --upgrade -e "C:\Github\ANYmaterial" -e "C:\Github\ANYgeometry[planar]" -e "C:\Github\ANYmesh" -e "C:\Github\ANYfileIO" -e "C:\Github\ANY3dView[gpu]" -e "C:\Github\ANYtk3D" -e "C:\Github\ANYfeSolver" -e "C:\Github\ANYfem[gui]"
 ```
 
 The launcher uses the sibling ANY3dView and ANYtk3D 0.5 source trees directly,
@@ -364,7 +366,7 @@ cannot disagree.
 **Q8 is a large accuracy win**: 1.07% on a 16-element plate, where Q4 needs 256
 elements for the same 2%. Mid-side nodes sit on the curve, so a Q8 on a cylinder
 stays exactly on the cylinder. The 3-node beam is a different matter and worth
-being plain about — ANYsolver's 2-node Timoshenko beam is already *exact* for a
+being plain about — ANYfeSolver's 2-node Timoshenko beam is already *exact* for a
 tip-loaded cantilever, which a parabola cannot be, so B3 exists here so a
 stiffener can share the mid-side nodes of a Q8 shell edge, not because it is
 more accurate. A quadratic beam on a curved line is refused: the solver's B3 is

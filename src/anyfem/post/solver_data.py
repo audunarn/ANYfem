@@ -1,4 +1,4 @@
-"""ANYsolver's authoritative quantity resolver at the ANYfem boundary."""
+"""ANYfeSolver's authoritative quantity resolver at the ANYfem boundary."""
 
 from __future__ import annotations
 
@@ -95,9 +95,9 @@ def resolve_solution_quantity(
     *,
     recovered: Any = None,
 ):
-    """Resolve one canonical ID through ANYsolver, or fail as unavailable."""
+    """Resolve one canonical ID through ANYfeSolver, or fail as unavailable."""
 
-    from anysolver import QuantityUnavailableError, resolve_result_quantity
+    from anyfesolver import QuantityUnavailableError, resolve_result_quantity
 
     key = str(quantity_id)
     for candidate in solver_result_candidates(solution, recovered=recovered):
@@ -118,7 +118,7 @@ def available_solution_quantities(
 ) -> tuple[Any, ...]:
     """Resolve, rather than merely describe, every available canonical ID."""
 
-    from anysolver import (
+    from anyfesolver import (
         QuantityUnavailableError,
         registered_result_quantity_ids,
     )

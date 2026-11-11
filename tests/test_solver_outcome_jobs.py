@@ -1,4 +1,4 @@
-"""Job orchestration follows ANYsolver's common outcome contract."""
+"""Job orchestration follows ANYfeSolver's common outcome contract."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from anysolver import SolveOutcome
-from anysolver.nonlinear_static import NonlinearStaticResult
+from anyfesolver import SolveOutcome
+from anyfesolver.nonlinear_static import NonlinearStaticResult
 
 from anyfem.document import DocumentSession
 from anyfem.jobs import JobManager

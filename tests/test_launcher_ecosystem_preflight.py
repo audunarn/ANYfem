@@ -24,7 +24,7 @@ def _versions() -> dict[str, str]:
         "ANYmesher": "0.5.0",
         "ANY3dView": "0.5.5",
         "ANYtk3D": "0.5.5",
-        "ANYsolver": "0.4.6",
+        "ANYfeSolver": "0.5.0",
         "ANYfem": "0.4.0",
     }
 
@@ -51,7 +51,7 @@ def test_launcher_recognizes_hosted_ecosystem_checkout_layout(monkeypatch):
     assert namespace["_ECOSYSTEM_WORKSPACE"] == ecosystem
     assert namespace["_ANY3DVIEW_PROJECT"] == ecosystem / "ANY3dView"
     assert namespace["_ANYTK3D_PROJECT"] == ecosystem / "ANYtk3D"
-    assert namespace["_ANYSOLVER_PROJECT"] == ecosystem / "ANYsolver"
+    assert namespace["_ANYFESOLVER_PROJECT"] == ecosystem / "ANYfeSolver"
 
 
 def test_latest_sources_and_metadata_pass_without_importing_tk():
@@ -116,7 +116,7 @@ def test_newer_major_generations_are_not_rejected_by_version_alone():
         {
             "ANYgeometry": "4.0.0",
             "ANYmesher": "3.0.0",
-            "ANYsolver": "1.0.0",
+            "ANYfeSolver": "1.0.0",
             "ANYfem": "1.0.0",
         }
     )
@@ -130,7 +130,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
     namespace = _namespace()
     versions = _versions()
     origins = _origins(namespace)
-    versions["ANYsolver"] = "0.2.9"
+    versions["ANYfeSolver"] = "0.2.9"
 
     with pytest.raises(RuntimeError) as raised:
         namespace["require_compatible_ecosystem"](
@@ -138,14 +138,14 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4.6,<0.5: installed metadata reports 0.2.9" in message
+    assert "ANYfeSolver>=0.5.0,<0.6: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
     assert command.index(mesh_project) < command.index("ANYfileIO")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
-    solver_project = str(namespace["_ANYSOLVER_PROJECT"])
+    solver_project = str(namespace["_ANYFESOLVER_PROJECT"])
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
     assert command.index(f'-e "{solver_project}"') < command.index(

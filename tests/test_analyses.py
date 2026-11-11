@@ -103,7 +103,7 @@ def flexural_rigidity(thickness: float) -> float:
 
 
 def test_batch_linear_cases_share_one_factorization(monkeypatch):
-    import anysolver.assembly as assembly
+    import anyfesolver.assembly as assembly
 
     project, _section, _start, end = strut_project(load=1000.0)
     project.load_case("double").add_point_load(
@@ -330,11 +330,11 @@ def test_buckling_resource_policy_covers_both_solver_stages(
 ):
     """The static prestress stage and eigensolve use one requested policy."""
 
-    import anysolver
+    import anyfesolver
 
     project, _section, _start, _end = strut_project()
-    original_linear = anysolver.solve_linear
-    original_buckling = anysolver.solve_eigenvalue_buckling
+    original_linear = anyfesolver.solve_linear
+    original_buckling = anyfesolver.solve_eigenvalue_buckling
     observed = {}
 
     def recording_linear(*args, **kwargs):
@@ -345,9 +345,9 @@ def test_buckling_resource_policy_covers_both_solver_stages(
         observed["buckling"] = kwargs.get("resource_config", "omitted")
         return original_buckling(*args, **kwargs)
 
-    monkeypatch.setattr(anysolver, "solve_linear", recording_linear)
+    monkeypatch.setattr(anyfesolver, "solve_linear", recording_linear)
     monkeypatch.setattr(
-        anysolver, "solve_eigenvalue_buckling", recording_buckling
+        anyfesolver, "solve_eigenvalue_buckling", recording_buckling
     )
 
     options = {}
@@ -374,7 +374,7 @@ def test_buckling_resource_policy_covers_both_solver_stages(
 def test_buckling_reuses_static_stiffness_assembly(monkeypatch):
     """The prestress solve and eigensolve share one immutable stiffness plan."""
 
-    import anysolver.matrix_assembly as matrix_assembly
+    import anyfesolver.matrix_assembly as matrix_assembly
 
     project, _section, _start, _end = strut_project()
     original = matrix_assembly.assemble_stiffness_matrix
@@ -467,7 +467,7 @@ def test_arc_length_traces_a_path_and_reports_a_peak():
     buckling = solve_buckling(project, mesh=mesh, num_modes=1)
     imperfection = eigenmode_imperfection(buckling, 1, amplitude=length / 500)
 
-    from anysolver import ArcLengthControl
+    from anyfesolver import ArcLengthControl
 
     solution = solve_arc_length(
         project,
@@ -494,7 +494,7 @@ def test_arc_length_accepts_a_plate_driven_only_by_prescribed_displacement():
     project.add_support(fixed(project.edge(edges[1])))
     project.add_support(prescribed(project.edge(edges[3]), uy=0.01))
 
-    from anysolver import ArcLengthControl
+    from anyfesolver import ArcLengthControl
 
     solution = solve_arc_length(
         project,
@@ -516,7 +516,7 @@ def test_an_imperfection_lowers_the_capacity():
     """A bigger bow has to reduce what the strut can carry."""
 
     length, load = 2.0, 40_000.0
-    from anysolver import ArcLengthControl
+    from anyfesolver import ArcLengthControl
 
     peaks = []
     for amplitude in (length / 2000.0, length / 200.0):

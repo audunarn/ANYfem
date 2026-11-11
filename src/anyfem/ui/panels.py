@@ -4685,7 +4685,7 @@ class SolvePanel(StagePanel):
                 ),
             )
         elif analysis == "Arc length":
-            from anysolver import ArcLengthControl
+            from anyfesolver import ArcLengthControl
 
             kwargs["control"] = ArcLengthControl(
                 initial_load_increment=self._advanced_number(
@@ -4771,7 +4771,7 @@ class SolvePanel(StagePanel):
             )
         elif analysis == "Impact":
             from ..model.collision import Collision
-            from anysolver import SphereContactConfig
+            from anyfesolver import SphereContactConfig
 
             # An impact does not need a load case; the sphere is the load.
             kwargs.pop("combination", None)

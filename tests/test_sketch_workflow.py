@@ -25,7 +25,7 @@ from anyfem.geometry.sketching import FaceSketchTask
 from anyfem.io.project_file import project_from_dict, project_to_dict
 from anyfem.mesh_jobs import mesh_semantic_hash
 from anyfem.solve.build import build_fe_model
-from anysolver import audit_constraints
+from anyfesolver import audit_constraints
 
 
 def _geometry_intent(geometry):

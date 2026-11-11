@@ -9,7 +9,7 @@ import numpy as np
 from anyfem.post.fields import evaluate_field, recover
 from anyfem.post.results import NonlinearSolution
 from anyfem.solve.build import BuiltModel
-from anysolver import generate_simple_panel_mesh, recover_stress_result
+from anyfesolver import generate_simple_panel_mesh, recover_stress_result
 
 
 def test_nonlinear_solution_recovers_yielded_committed_state_not_elastic_guess():

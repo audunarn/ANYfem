@@ -340,7 +340,7 @@ def recover(shape, **kwargs: Any):
     if cached is not None and not caller_options:
         return cached
 
-    from anysolver import recover_stress_result
+    from anyfesolver import recover_stress_result
 
     nonlinear_result = getattr(shape, "raw_result", None)
     if (
@@ -363,7 +363,7 @@ def recover(shape, **kwargs: Any):
 def _plasticity_field(shape, name: str) -> Field:
     """Recover element PEEQ from committed constitutive state, never elastically."""
 
-    from anysolver import QuantityUnavailableError
+    from anyfesolver import QuantityUnavailableError
 
     from .solver_data import resolve_solution_quantity
 

@@ -322,7 +322,7 @@ def test_a_resource_policy_validates_its_own_numbers():
 # orthotropic materials must keep working
 # ----------------------------------------------------------------------
 def orthotropic():
-    from anysolver import OrthotropicMaterial
+    from anyfesolver import OrthotropicMaterial
 
     return OrthotropicMaterial(
         name="S355", elastic_modulus_1=120e9, elastic_modulus_2=180e9,

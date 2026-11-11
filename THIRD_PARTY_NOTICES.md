@@ -12,7 +12,7 @@ remain governed by the notices shipped by their distributors.
 | ANYgeometry | runtime | MPL-2.0 | https://github.com/audunarn/ANYgeometry |
 | ANYmaterial | runtime | MPL-2.0 | https://github.com/audunarn/ANYmaterial |
 | ANYmesher | runtime | MPL-2.0 | https://github.com/audunarn/ANYmesh |
-| ANYsolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYsolver |
+| ANYfeSolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYfeSolver |
 | ANYtk3D | optional GUI | MPL-2.0 | https://github.com/audunarn/ANYtk3D |
 | build | development | MIT | https://github.com/pypa/build |
 | h5py | runtime | BSD-3-Clause | https://www.h5py.org/ |

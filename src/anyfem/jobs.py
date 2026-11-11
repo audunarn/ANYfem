@@ -24,7 +24,7 @@ def _now() -> str:
 
 def _cancellation_token():
     try:
-        from anysolver import CancellationToken
+        from anyfesolver import CancellationToken
 
         return CancellationToken()
     except ImportError:
@@ -484,7 +484,7 @@ class JobManager:
                 event = JobEvent(request.record.id, "cancelled", "cancelled", result)
             else:
                 # JobManager remains useful for non-solver background callables;
-                # qualified ANYsolver results always take the outcome branches
+                # qualified ANYfeSolver results always take the outcome branches
                 # above.
                 self._results[request.record.id] = result
                 request.record.status = JobStatus.COMPLETED
@@ -538,7 +538,7 @@ class JobManager:
 
 
 def _is_cancelled(token: Any) -> bool:
-    """Support both the public ANYsolver token and the legacy fallback."""
+    """Support both the public ANYfeSolver token and the legacy fallback."""
 
     value = getattr(token, "is_cancelled", None)
     if value is None:
@@ -547,10 +547,10 @@ def _is_cancelled(token: Any) -> bool:
 
 
 def _result_outcome(result: Any):
-    """Resolve the common ANYsolver outcome carried by an ANYfem wrapper."""
+    """Resolve the common ANYfeSolver outcome carried by an ANYfem wrapper."""
 
     try:
-        from anysolver import SolveOutcome, solve_outcome
+        from anyfesolver import SolveOutcome, solve_outcome
     except ImportError:  # pragma: no cover - legacy fallback environment
         return None
 

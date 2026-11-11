@@ -1,7 +1,7 @@
 """Analysis dispatch.
 
 Every analysis follows the same shape: validate, build, hand the FEModel to
-``anysolver``, and wrap the raw DOF vectors in something addressed by geometry.
+``anyfesolver``, and wrap the raw DOF vectors in something addressed by geometry.
 What differs is only what the solver needs and what comes back.
 
 Long-running analyses take a ``progress`` callable.  It is called from whatever
@@ -22,7 +22,7 @@ from ..model.project import Project, ProjectError
 from .build import BuiltModel, build_fe_model
 
 if TYPE_CHECKING:
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
 
 __all__ = [
     "ContactConfigurationError",
@@ -129,7 +129,7 @@ def solve_linear_static(
     one.
     """
 
-    from anysolver import solve_linear
+    from anyfesolver import solve_linear
 
     from ..post.results import LinearSolution
 
@@ -173,7 +173,7 @@ def solve_linear_static_many(
     masses, imperfections, and affine constraints are assembled only once.
     """
 
-    from anysolver import solve_linear_many
+    from anyfesolver import solve_linear_many
 
     from ..post.results import LinearBatchSolution, LinearSolution
     from .build import _build_load_case, _resolve_load_case
@@ -265,7 +265,7 @@ def solve_modal(
     indefensible.  Pass ``shift=None`` for the solver's unshifted path.
     """
 
-    from anysolver import solve_free_vibration
+    from anyfesolver import solve_free_vibration
 
     from ..post.results import ModalSolution, ShapeView
 
@@ -334,7 +334,7 @@ def solve_buckling(
     supply ``session=...`` and retain ownership of that session.
     """
 
-    from anysolver import (
+    from anyfesolver import (
         AnalysisSession,
         recover_prestress_from_static_result,
         solve_eigenvalue_buckling,
@@ -435,7 +435,7 @@ def eigenmode_imperfection(
     run that produced it.
     """
 
-    from anysolver import imperfection_from_buckling_mode
+    from anyfesolver import imperfection_from_buckling_mode
 
     raw = buckling_solution.info.get("raw")
     if raw is None:
@@ -495,7 +495,7 @@ def solve_capacity(
     and committed element state at each nonlinear increment for true playback.
     """
 
-    from anysolver import CapacityWorkflowConfig, run_nonlinear_capacity_workflow
+    from anyfesolver import CapacityWorkflowConfig, run_nonlinear_capacity_workflow
 
     from ..post.results import BucklingSolution, CapacitySolution, ShapeView
 
@@ -614,7 +614,7 @@ def solve_nonlinear_static(
     committed element-state snapshots for postprocessing and animation.
     """
 
-    from anysolver import solve_static_nonlinear
+    from anyfesolver import solve_static_nonlinear
 
     from ..post.results import NonlinearSolution
 
@@ -684,7 +684,7 @@ def solve_arc_length(
     continuation path rather than only the final committed state.
     """
 
-    from anysolver import solve_static_arc_length
+    from anyfesolver import solve_static_arc_length
 
     from ..post.results import NonlinearSolution
 
@@ -918,7 +918,7 @@ def solve_transient(
 ):
     """Implicit Newmark transient response to a constant load case."""
 
-    from anysolver import TransientConfig, solve_transient_newmark
+    from anyfesolver import TransientConfig, solve_transient_newmark
 
     from ..post.results import ShapeView, TransientSolution
 
@@ -1026,7 +1026,7 @@ def solve_impact(
     fail loudly, it produces a plausible-looking answer, which is worse.
     """
 
-    from anysolver import (
+    from anyfesolver import (
         SphereContactConfig,
         TransientConfig,
         recommend_sphere_contact_penalty,
@@ -1113,7 +1113,7 @@ def solve_impact(
 
     nonlinear_config = None
     if nonlinear:
-        from anysolver import NonlinearTransientConfig
+        from anyfesolver import NonlinearTransientConfig
 
         nonlinear_config = NonlinearTransientConfig(enabled=True)
 
@@ -1359,7 +1359,7 @@ def preflight(
     scope statements stay the solver's to make.
     """
 
-    from anysolver import validate_production_model
+    from anyfesolver import validate_production_model
 
     normalized = (
         None

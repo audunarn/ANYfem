@@ -11,7 +11,7 @@ from anyfem.native_meshing import NativeMeshSettings
 from anyfem.solve.build import build_fe_model
 import anyfem.solve.build as build_module
 from anymesher import Mesh
-from anysolver import (
+from anyfesolver import (
     LegacyShellElement,
     NativeParityE4PLS3V2DShellElement,
     QualifiedE4PLShellElement,

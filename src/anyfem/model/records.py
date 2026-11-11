@@ -264,7 +264,7 @@ class AnalysisDefinition:
     resource_policy: dict[str, Any] = field(default_factory=dict)
     # B3-GE is a standalone, exact-definition solver workflow.  It must never
     # replace the ordinary quadratic-beam element just because a project is
-    # reopened with a newer ANYsolver.  Missing data therefore means legacy
+    # reopened with a newer ANYfeSolver.  Missing data therefore means legacy
     # B3, while the opt-in requires its own analysis type and authenticated
     # B3GENativeOptIn payload.
     beam_formulation: str = "legacy-b3"
@@ -332,7 +332,7 @@ class AnalysisDefinition:
         *,
         retained_refinement: bool = False,
     ):
-        """Materialize this exact opt-in through ANYsolver's public facade."""
+        """Materialize this exact opt-in through ANYfeSolver's public facade."""
 
         if self.beam_formulation != "b3-ge" or self.type != "b3_ge_native":
             raise ValueError("this analysis uses legacy B3, not explicit b3-ge")

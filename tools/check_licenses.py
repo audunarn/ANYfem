@@ -40,7 +40,7 @@ INSTALLED_LICENSE_ALIASES = {
     "anygeometry": {"MPL-2.0"},
     "anymaterial": {"MPL-2.0"},
     "anymesher": {"MPL-2.0"},
-    "anysolver": {"MPL-2.0"},
+    "anyfesolver": {"MPL-2.0"},
     "anytk3d": {"MPL-2.0"},
     "build": {"MIT"},
     "h5py": {"BSD-3-Clause", "BSD License"},

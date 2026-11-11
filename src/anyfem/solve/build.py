@@ -1,4 +1,4 @@
-"""Resolve a meshed project into an ``anysolver`` FEModel.
+"""Resolve a meshed project into an ``anyfesolver`` FEModel.
 
 This is the only place ANYfem speaks the solver's vocabulary.  Everything
 upstream talks about plates, lines and points; everything downstream talks
@@ -15,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 import numpy as np
 from anygeometry.entities import EntityRef
-from anysolver import (
+from anyfesolver import (
     BeamElement,
     BoundaryCondition,
     CoupledBeamShellElement,
@@ -25,7 +25,7 @@ from anysolver import (
     QuadraticBeamElement,
     create_shell_element,
 )
-from anysolver import LoadCase as SolverLoadCase
+from anyfesolver import LoadCase as SolverLoadCase
 from anymesher import (
     QUALIFIED_S3_FORMULATION_ID,
     QUALIFIED_S3_PRODUCTION_CONTRACT_ID,
@@ -535,8 +535,8 @@ def _add_couplings(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             )
         else:
             # This remains solver functionality: ANYmesher describes the
-            # interpolation, while ANYsolver turns it into exact MPC equations.
-            from anysolver import InterpolatedBeamShellMPCElement
+            # interpolation, while ANYfeSolver turns it into exact MPC equations.
+            from anyfesolver import InterpolatedBeamShellMPCElement
 
             element = InterpolatedBeamShellMPCElement(
                 element_id,
@@ -1075,7 +1075,7 @@ def _apply_imperfections(
 ) -> FEModel:
     """Move the stress-free geometry, through the solver's own builders."""
 
-    from anysolver import (
+    from anyfesolver import (
         CompositeImperfection,
         apply_imperfection,
         standard_member_bow,

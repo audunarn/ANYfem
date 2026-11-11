@@ -75,9 +75,9 @@ capability counts as covered only when ANYfem can do the same job.
 
 - **Not a claim of general correctness.** These are closed-form comparisons on
   simple cases. They say nothing about geometry or load regimes outside them.
-- **Not a restatement of ANYsolver's qualification.** Element validity,
+- **Not a restatement of ANYfeSolver's qualification.** Element validity,
   plasticity, recovery policy and external CalculiX comparison live in
-  ANYsolver, which has its own evidence and its own scope statements. ANYfem
+  ANYfeSolver, which has its own evidence and its own scope statements. ANYfem
   does not repeat, summarise or extend those claims.
 - **Not an engineering judgement.** A generated report states what was asked
   for and what the solver returned. Whether an answer is acceptable is the
@@ -127,7 +127,7 @@ they would otherwise look like wrapper gaps:
 - **Plasticity is the layered-shell path.** Beam elements stay elastic in a
   nonlinear solve, so a stiffener carrying most of the moment will not yield,
   whatever hardening curve its material holds.
-- **The 3-node beam is not more accurate than the 2-node one.** ANYsolver's
+- **The 3-node beam is not more accurate than the 2-node one.** ANYfeSolver's
   2-node Timoshenko beam is exact for a tip-loaded cantilever; B3 gives
   `PL³/4EI` against `PL³/3EI` on one element. Both are exact in pure bending, so
   B3 is correct — it exists in ANYfem for compatibility with Q8 shell edges, not

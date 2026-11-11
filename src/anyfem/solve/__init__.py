@@ -1,4 +1,4 @@
-"""Solver adapter: build an anysolver FEModel and dispatch analyses."""
+"""Solver adapter: build an anyfesolver FEModel and dispatch analyses."""
 
 from .build import BuiltModel, build_fe_model
 from .policy import history_modes, recovery_policy, resource_policy
