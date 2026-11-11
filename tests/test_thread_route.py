@@ -412,6 +412,9 @@ def test_child_timeout_falls_back_and_kills_the_child(route_on, jobs_dir, tmp_pa
     ("missing-prepared", 'write("ok", {})', "invalid child result"),
     ("bad-rows", 'write("ok", dict(prepared={}, prepared_checksum="x", rows={"pairs": 1}))', "invalid child result"),
     ("unavailable-status", 'write("unavailable", dict(reason="child said no"))', "child said no"),
+    ("empty-refusal", 'write("refusal", {})', "malformed refusal"),
+    ("refusal-bad-phase", 'write("refusal", dict(phase=3, type="GeometryError", message="m"))', "malformed refusal"),
+    ("refusal-no-message", 'write("refusal", dict(phase=1, type="GeometryError", message=""))', "malformed refusal"),
 ])
 def test_malformed_or_partial_results_fall_back(route_on, jobs_dir, tmp_path, name, body, part):
     child = stub(tmp_path, body + "\n")
@@ -555,6 +558,46 @@ def test_child_dies_with_the_parent(tmp_path):
     while psutil.pid_exists(pid) and time.time() < deadline:
         time.sleep(0.1)
     assert not psutil.pid_exists(pid)
+
+
+@needs_runtime
+def test_child_exits_when_its_parent_is_already_gone(tmp_path):
+    """The window before job-object containment: a child whose parent died must not keep running."""
+    import subprocess
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text(json.dumps(dict(job_id="x", kind="selftest", threads=1, expect_numpy=tr.EXPECT_NUMPY,
+                                                      src_paths=tr._src_paths(), parent_pid=dead.pid)))
+    started = time.time()
+    code = subprocess.run([str(PYTHON), "-I", "-B", str(tr.CHILD_MAIN), str(job_dir)], timeout=60).returncode
+    if os.name == "nt":
+        assert code == 4 and not (job_dir / "result.json").exists() and time.time() - started < 30
+
+
+def test_stale_job_folders_are_swept_but_fresh_ones_and_strangers_are_kept(tmp_path):
+    old, fresh, stranger = (tmp_path / "anyfem-thread-old"), (tmp_path / "anyfem-thread-new"), (tmp_path / "other-old")
+    for folder in (old, fresh, stranger):
+        folder.mkdir()
+        (folder / "document.json").write_text("{}")
+    long_ago = time.time() - 3 * 24 * 3600
+    os.utime(old, (long_ago, long_ago))
+    os.utime(stranger, (long_ago, long_ago))
+    tr._sweep_stale(str(tmp_path))
+    assert not old.exists() and fresh.exists() and stranger.exists()
+
+
+@needs_runtime
+def test_every_child_run_sweeps_stale_job_folders(jobs_dir, tmp_path):
+    old = jobs_dir / "anyfem-thread-abandoned"
+    old.mkdir()
+    long_ago = time.time() - 3 * 24 * 3600
+    os.utime(old, (long_ago, long_ago))
+    child = stub(tmp_path, 'write("unavailable", dict(reason="x"))
+')
+    outcome = tr.run_child(PYTHON, dict(kind="x"), None, threads=1, timeout=60, child_main=child, temp_root=str(jobs_dir))
+    assert outcome.status == tr.UNAVAILABLE and not old.exists()
 
 
 # ------------------------------------------------------------------------------------------ route-off regression

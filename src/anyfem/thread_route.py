@@ -219,6 +219,22 @@ class _KillOnCloseJob:
             self.handle = None
 
 
+FOLDER_PREFIX = "anyfem-thread-"
+STALE_SECONDS = 24 * 3600
+
+
+def _sweep_stale(temp_root: Optional[str]) -> None:
+    """Remove job folders an abruptly killed parent could not clean (older than a day, our prefix only)."""
+    try:
+        base = Path(temp_root or tempfile.gettempdir())
+        now = time.time()
+        for entry in base.iterdir():
+            if entry.name.startswith(FOLDER_PREFIX) and entry.is_dir() and now - entry.stat().st_mtime > STALE_SECONDS:
+                shutil.rmtree(entry, ignore_errors=True)
+    except OSError:
+        pass
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
     with open(tmp, "wb") as handle:
@@ -271,13 +287,14 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
     process: Optional[subprocess.Popen] = None
     job_object = _KillOnCloseJob()
     try:
+        _sweep_stale(temp_root)
         try:
-            folder = Path(tempfile.mkdtemp(prefix="anyfem-thread-", dir=temp_root))
+            folder = Path(tempfile.mkdtemp(prefix=FOLDER_PREFIX, dir=temp_root))
             outcome.temp_dir = str(folder)
             (folder / "tmp").mkdir()
             job_id = uuid.uuid4().hex
             spec = dict(job, job_id=job_id, threads=threads, expect_numpy=EXPECT_NUMPY, src_paths=_src_paths(),
-                        document=None)
+                        document=None, parent_pid=os.getpid())
             if document is not None:
                 _atomic_write(folder / "document.json", document)
                 spec["document"] = "document.json"
@@ -374,7 +391,11 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
         if status == "ok":
             outcome.status = OK
         elif status == "refusal":
-            outcome.status, outcome.reason = REFUSAL, "%s: %s" % (body.get("type"), body.get("message"))
+            if (body.get("phase") not in (1, 2) or not isinstance(body.get("type"), str)
+                    or not isinstance(body.get("message"), str) or not body["message"]):
+                outcome.reason = "malformed refusal body"
+                return outcome
+            outcome.status, outcome.reason = REFUSAL, "%s: %s" % (body["type"], body["message"])
         else:
             outcome.status, outcome.reason = UNAVAILABLE, str(body.get("reason", status))
         return outcome

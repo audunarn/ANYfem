@@ -43,9 +43,34 @@ def _load_batch_module():
     return module
 
 
+def _watch_parent(parent_pid):
+    """Exit when the parent is gone (covers the window before the parent's job object contains this process).
+
+    The handle is opened first and kept, so a recycled PID cannot be mistaken for the parent."""
+    if os.name != "nt" or not parent_pid:
+        return
+    import ctypes
+    import threading
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = ctypes.c_void_p
+    k.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    handle = k.OpenProcess(0x00100000, False, int(parent_pid))  # SYNCHRONIZE
+    if not handle:
+        os._exit(4)  # the parent is already gone
+
+    def watch():
+        while k.WaitForSingleObject(handle, 1000) == 0x102:  # WAIT_TIMEOUT: parent still alive
+            pass
+        os._exit(4)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main(job_dir):
     with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as handle:
         job = json.load(handle)
+    _watch_parent(job.get("parent_pid"))
     job_id = job["job_id"]
     os.environ["ANYGEOMETRY_PLANNING_THREADS"] = str(job["threads"])
     for path in reversed(job["src_paths"]):
