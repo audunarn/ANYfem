@@ -1868,7 +1868,7 @@ def test_qt_imported_transient_retained_playback_reports_and_gif(window,qapp,tmp
     path=tmp_path/"transient.anyfem"
     window.save_project(path=str(path));window.flush_project_writes()
     window.new_project();window.open_project(str(path));qapp.processEvents()
-    panel.activate_job(job_id);qapp.processEvents()
+    panel.activate_job(job_id);settle_result_requests(window,qapp)
     dataset=window.result_datasets[job_id]
     assert dataset.identity["mesh_id"]==mesh_id
     assert dataset.identity["mesh_hash"]==mesh_record.mesh_hash
