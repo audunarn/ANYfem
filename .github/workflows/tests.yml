@@ -55,13 +55,13 @@ jobs:
         with:
           repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfeSolver
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -218,13 +218,13 @@ jobs:
         with:
           repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfeSolver
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
@@ -264,7 +264,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -393,13 +393,13 @@ jobs:
         with:
           repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver
       # Results-only API repair: keep the physical solver revision above.
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfeSolver
-          ref: 2ebd6b3445a703b2e725e4ffbb2038542eac08e4
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
           path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
@@ -439,7 +439,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:

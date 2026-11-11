@@ -23,7 +23,7 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.2.0",
         "ANYloads": "0.1.0",
         "ANYgeometry": "0.4.3",
-        "ANYfileio": "0.3.2",
+        "ANYfileio": "0.3.3",
         "ANYmesher": "0.5.1",
         "ANY3dView": "0.5.6",
         "ANYpost": "0.1.3",

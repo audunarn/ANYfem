@@ -30,7 +30,7 @@ The Mesh panel and Python project sessions can update supported regions while pr
 | ANYmaterial | 0.2.0 | material definitions and nonlinear curves |
 | ANYgeometry | 0.4.3 | exact frozen features, topology, structural ownership and automation contracts |
 | ANYmesher | 0.5.0 | global structured/hybrid planning, native-v2 surface filling, repair and mixed-topology provenance |
-| ANYfileio | 0.3.2 | neutral and solver-file semantics |
+| ANYfileio | 0.3.3 | neutral and solver-file semantics |
 | ANY3dView | 0.5.5 | viewer contract and ModernGL renderer |
 | ANYtk3D | 0.5.5 | compatible software renderer |
 | ANYsolver | 0.4.6 | qualified shell/beam formulations, analyses, recovery and provenance |
@@ -44,7 +44,7 @@ that file compatibility does not qualify older installed package generations.
 ANYtimeseries remains independent of this release graph.
 
 Current development requires ANYfeSolver 0.5.x and ANYfeSolver-results 2.2 or later in major version 2. CI and the solver installation
-command below pin `2ebd6b3445a703b2e725e4ffbb2038542eac08e4`, which includes
+command below pin `f54e3cde5abf70cb8c989eb106119eedd3e33025`, which includes
 the Q4 assumed-strain plastic route, unified Q4 elastic response and S3 von
 Karman response. A package version alone does not identify these law updates.
 The application integration regressions exercise public build, nonlinear solve,
@@ -164,7 +164,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@2ebd6b3445a703b2e725e4ffbb2038542eac08e4" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
+python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f"
 python -m pip install -e ".[gui]"
 ```

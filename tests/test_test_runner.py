@@ -672,8 +672,8 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
     text = (ROOT / '.github/workflows/tests.yml').read_text()
     test_job, build_job = text.split('\n  build:\n', 1)
     expected = {
-        '.ecosystem/ANYfeSolver': ('audunarn/ANYfeSolver', '2ebd6b3445a703b2e725e4ffbb2038542eac08e4'),
-        '.ecosystem/ANYfeSolver-results': ('audunarn/ANYfeSolver', '2ebd6b3445a703b2e725e4ffbb2038542eac08e4'),
+        '.ecosystem/ANYfeSolver': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
+        '.ecosystem/ANYfeSolver-results': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', '9eb9713b92c1b3a476301150b5e89e350d515844'),
         '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),
         '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '3823b6912cd54f1f6a913a661a9f6739b3f55f2d' }}"),
