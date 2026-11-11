@@ -20,7 +20,7 @@ def _versions() -> dict[str, str]:
     return {
         "ANYmaterial": "0.2.0",
         "ANYgeometry": "0.4.3",
-        "ANYfileio": "0.3.2",
+        "ANYfileio": "0.3.3",
         "ANYmesher": "0.5.0",
         "ANY3dView": "0.5.5",
         "ANYtk3D": "0.5.5",

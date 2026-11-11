@@ -30,7 +30,7 @@ The maintenance candidate requires ANYfeSolver 0.5.x. It reads existing project 
 | ANYmaterial | 0.2.0 | material definitions and nonlinear curves |
 | ANYgeometry | 0.4.3 | exact frozen features, topology, structural ownership and automation contracts |
 | ANYmesher | 0.5.0 | global structured/hybrid planning, native-v2 surface filling, repair and mixed-topology provenance |
-| ANYfileio | 0.3.2 | neutral and solver-file semantics |
+| ANYfileio | 0.3.3 | neutral and solver-file semantics |
 | ANY3dView | 0.5.5 | viewer contract and ModernGL renderer |
 | ANYtk3D | 0.5.5 | compatible software renderer |
 | ANYsolver | 0.4.6 | qualified shell/beam formulations, analyses, recovery and provenance |
