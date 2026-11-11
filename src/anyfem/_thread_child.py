@@ -121,8 +121,21 @@ def main(job_dir):
                 phase = 2
                 rows = batch.report_rows_phase(model, state)
             except GeometryError as exc:  # typed refusal: reported as is, never retried
+                diagnostic, diagnostic_type, cause, seen = None, None, exc, set()
+                while cause is not None and id(cause) not in seen:  # the owner's structured evidence, if any
+                    seen.add(id(cause))
+                    provider = getattr(cause, "to_diagnostic", None)
+                    if callable(provider):
+                        try:
+                            diagnostic = json.loads(json.dumps(dict(provider()), default=repr))
+                            diagnostic_type = type(cause).__name__
+                        except Exception:
+                            diagnostic = None
+                        break
+                    cause = cause.__cause__
                 _write_result(job_dir, job_id, "refusal", dict(
-                    phase=phase, type=type(exc).__name__, message=str(exc), health=health))
+                    phase=phase, type=type(exc).__name__, message=str(exc), health=health,
+                    diagnostic=diagnostic, diagnostic_type=diagnostic_type))
                 return 0
             prepared = to_dict(model)
             _emit(job_dir, "prepared_serialised")

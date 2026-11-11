@@ -342,12 +342,47 @@ def test_typed_refusal_is_reported_as_serial_would_and_not_retried(route_on, job
     original = tr.run_child
     monkeypatch.setattr(tr, "run_child", lambda *a, **k: runs.append(a[1]["kind"]) or original(*a, **k))
     tr._INJECT.update(temp_root=str(jobs_dir))
+    serial_calls = []
+    real_plan_apply = _batch_prepare.plan_apply_phase
+    monkeypatch.setattr(_batch_prepare, "plan_apply_phase", lambda *a, **k: serial_calls.append(1) or real_plan_apply(*a, **k))
     with pytest.raises(StructuralPreparationError) as routed:
         prepare_structural_connectivity(overlapping())
+    assert serial_calls == []  # the refusal is final: no in-process planning after it
     assert str(routed.value) == str(serial.value)
     assert tr.last_outcome.status == tr.REFUSAL
     assert runs.count("batch_prepare") == 1  # one child, no retry, no serial repeat
     assert list(jobs_dir.iterdir()) == []
+
+
+@needs_runtime
+def test_owner_diagnostic_of_a_child_refusal_survives_to_the_wrapper(route_on, jobs_dir, tmp_path):
+    child = stub(tmp_path, '''
+        write("refusal", dict(phase=1, type="GeometryError", message="face 1 vs 2 refused", health={},
+                              diagnostic={"reason": "residual", "pair": [1, 2], "tolerance": 1e-9},
+                              diagnostic_type="PlaneRuledSupportError"))
+    ''')
+    tr._INJECT.update(temp_root=str(jobs_dir), child_main=child)
+    with pytest.raises(StructuralPreparationError) as routed:
+        prepare_structural_connectivity(crossing())
+    payload = routed.value.to_diagnostic()
+    assert payload["cause"] == {"reason": "residual", "pair": [1, 2], "tolerance": 1e-9}
+    assert payload["cause_type"] == "PlaneRuledSupportError"
+
+
+@needs_runtime
+def test_unreadable_progress_file_falls_back_instead_of_aborting(route_on, jobs_dir, tmp_path, monkeypatch):
+    child = stub(tmp_path, "time.sleep(30)\n")
+    real_open = open
+
+    def flaky_open(path, *args, **kwargs):
+        if str(path).endswith("progress.jsonl"):
+            raise PermissionError("locked by a scanner")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(tr, "open", flaky_open, raising=False)
+    # the progress file must exist for drain() to try opening it: the stub creates it
+    child = stub(tmp_path, "open(os.path.join(job_dir, 'progress.jsonl'), 'w').write('{}' + chr(10))\ntime.sleep(30)\n")
+    assert_serial_fallback(crossing, jobs_dir, "progress file unreadable", child_main=child)
 
 
 @needs_runtime

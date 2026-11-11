@@ -64,6 +64,26 @@ last_outcome: Optional["ChildOutcome"] = None
 _INJECT: dict = {}  # tests only: extra keyword arguments merged into every try_prepare call
 
 
+class RoutedRefusal(GeometryError):
+    """A child refusal; carries the owner's structured diagnostic so ``to_diagnostic()`` chains keep their evidence."""
+
+    diagnostic: Optional[dict] = None
+
+    def to_diagnostic(self):
+        return dict(self.diagnostic or {})
+
+
+def _refusal_error(base, body: dict) -> GeometryError:
+    name = body.get("diagnostic_type") or body.get("type") or "GeometryError"
+    kind = type(str(name), (RoutedRefusal, base), {})  # same class name as the owner's exception in cause records
+    error = kind(str(body["message"]))
+    if isinstance(body.get("diagnostic"), dict):
+        error.diagnostic = body["diagnostic"]
+    else:
+        error.to_diagnostic = None  # type: ignore[assignment]  # no evidence was sent: do not pretend to have any
+    return error
+
+
 class PhaseTwoRefusal(GeometryError):
     """The child refused while deriving report rows; serial raises the same error unwrapped."""
 
@@ -341,7 +361,11 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
         forced = None
         try:
             while True:
-                drain()
+                try:
+                    drain()
+                except OSError as exc:  # progress file unreadable: the route is unavailable, not cancelled
+                    forced = "progress file unreadable: %r" % (exc,)
+                    break
                 if cancellation_check is not None:
                     cancellation_check("structural intersection batch")  # raises the caller's cancellation
                 code = process.poll()
@@ -360,13 +384,19 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
             outcome.exit_code = process.poll()
             outcome.reason = forced
             return outcome
-        drain()
+        try:
+            drain()
+        except OSError:
+            pass  # the result envelope is authoritative; progress is advisory
         outcome.exit_code = process.returncode
         outcome.timings["child_wall_s"] = time.perf_counter() - t_spawned
         result_path = folder / "result.json"
         if not result_path.is_file():
             outcome.reason = "child exited with code %s and no result" % process.returncode
-            outcome.stderr_tail = (folder / "stderr.txt").read_text("utf-8", "replace")[-1500:]
+            try:
+                outcome.stderr_tail = (folder / "stderr.txt").read_text("utf-8", "replace")[-1500:]
+            except OSError:
+                pass
             return outcome
         try:
             raw = result_path.read_bytes()
@@ -510,7 +540,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     if outcome.status == REFUSAL:
         body = outcome.body or {}
         message = str(body.get("message", outcome.reason))
-        raise (PhaseTwoRefusal if body.get("phase") == 2 else _GeometryError)(message)
+        raise _refusal_error(PhaseTwoRefusal if body.get("phase") == 2 else _GeometryError, body)
     if outcome.status != OK:
         return _unavailable(outcome.reason or outcome.status, outcome)
     body = outcome.body or {}
