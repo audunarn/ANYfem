@@ -697,7 +697,10 @@ class FatigueDialog(QDialog):
         header = f"Selected shell elements · {count}"
         if prepared.face_id is not None:
             readout = prepared.location.readout
-            header = (f"Eligible shell elements on plate face {prepared.face_id} · {count}\n"
+            faces = self.data.face_groups.get(prepared.face_id, (prepared.face_id,))
+            plate_label = (f"Receiving sheet · {len(faces)} connected faces · {count} shells" if len(faces) > 1
+                           else f"Eligible shell elements on plate face {prepared.face_id} · {count}")
+            header = (f"{plate_label}\n"
                       f"{self.surface.currentData()} · method A (0.5t, 1.5t) · "
                       f"t = {readout.thickness_mm:g} mm")
         def vector(values):

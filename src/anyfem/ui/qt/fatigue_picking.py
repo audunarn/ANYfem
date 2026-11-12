@@ -328,7 +328,7 @@ class FatiguePicking(QObject):
         self.on_miss = on_miss
         self._display = None
         self._kind = None
-        self._software_query = None
+        self._projection_query = None
         self._preview_group = None
         self._preview_inputs = None
         self._highlights = None
@@ -532,20 +532,25 @@ class FatiguePicking(QObject):
 
     def _front_shell(self, x, y):
         canvas = self._display.canvas
-        if canvas.backend_name == "software" and self._software_query is None:
+        # The OpenGL ID buffer can answer only integer-pixel queries.
+        projected = (canvas.backend_name == "software"
+                     or (canvas.backend_name == "gpu" and (x != round(x) or y != round(y))))
+        if projected and self._projection_query is None:
             # This CPU service culls screen regions before applying ANY3dView's
             # canonical retained clipping, visibility and owner resolution.
             # Older viewer packages only expose the full-scene point query.
             try:
                 from any3dview.webgpu.picking import PointQuery
             except ImportError:
-                self._software_query = False
+                self._projection_query = False
             else:
-                self._software_query = PointQuery(canvas)
-        if self._software_query:
-            hits = self._software_query.query(round(x), round(y), _SHELL_FILTER, 0)
+                self._projection_query = PointQuery(canvas)
+        # Points on a projected side have fractional framebuffer coordinates.
+        # Rounding can move the depth sample across a foreground silhouette.
+        if projected and self._projection_query:
+            hits = self._projection_query.query(x, y, _SHELL_FILTER, 0)
         else:
-            hits = canvas.query_point(round(x), round(y), selection_filter=_SHELL_FILTER, radius=0)
+            hits = canvas.query_point(x, y, selection_filter=_SHELL_FILTER, radius=0)
         for hit in hits:
             ref = owner_to_ref(hit.owner)
             if hit.visible and isinstance(ref, MeshEntityRef) and ref.id in self._display.polygons:
@@ -691,9 +696,9 @@ class FatiguePicking(QObject):
         if self._kind is None and self._preview_group is None and not self._selected:
             self._timer.stop()
             self._display = None
-            if self._software_query:
-                self._software_query.close()
-            self._software_query = None
+            if self._projection_query:
+                self._projection_query.close()
+            self._projection_query = None
 
     def preview(self, mesh, element_ids, stations, *, governing_index=None):
         """Draw the shell patch, station normals, readout directions and probe positions."""

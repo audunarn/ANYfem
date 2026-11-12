@@ -29,11 +29,18 @@ class FatigueInput:
     source: Any
     mesh: Any
     face_thicknesses_m: dict[int, float] = field(default_factory=dict)
+    face_groups: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def plate_scope_for(self, element_ids):
-        """The submitted receiving face and all its shells, without reading stresses."""
-        face = _plate_face(self.mesh, element_ids)
-        return face, tuple(sorted(self.mesh.elements_of_face[face]))
+        """The seed face and compatible charts of its submitted receiving sheet."""
+        faces = {_plate_face(self.mesh, (eid,)) for eid in element_ids}
+        if not faces:
+            raise ValueError("Select shell elements belonging to one identifiable plate face for the hot spot.")
+        face = min(faces)
+        group = self.face_groups.get(face, (face,))
+        if not faces.issubset(group):
+            raise ValueError("Select shell elements belonging to one identifiable plate face or connected receiving sheet.")
+        return face, tuple(sorted({eid for fid in group for eid in self.mesh.elements_of_face[fid]}))
 
     def for_cases(self, labels, *, cancelled=None):
         """Limit extraction to the frames referenced by the fatigue settings."""
@@ -143,7 +150,79 @@ def load_fatigue_input(*, solution=None, dataset=None, mesh, project=None):
         if not all(np.array_equal(getattr(source.mesh, key), getattr(submitted, key))
                    for key in ("element_ids", "element_corner_ids", "node_ids", "node_xyz")):
             raise ValueError("The picked shell mesh does not match the stress result.")
-    return FatigueInput(source, mesh, thicknesses)
+    groups = {}
+    if project is not None:
+        geometry = None
+        if solution is not None:
+            candidate = solution.built.project.geometry
+            if (getattr(mesh, "geometry_model_id", None) is not None
+                    and mesh.geometry_model_id == candidate.model_id
+                    and mesh.geometry_revision == candidate.revision):
+                geometry = candidate
+        elif identity.get("model_hash"):
+            from ..document import DocumentSession
+            if DocumentSession(project).snapshot().revision.model_hash == identity["model_hash"]:
+                geometry = project.geometry
+        if geometry is not None:
+            groups = _receiving_sheet_groups(mesh, geometry, thicknesses)
+    return FatigueInput(source, mesh, thicknesses, groups)
+
+
+def _receiving_sheet_groups(mesh, geometry, thicknesses):
+    """Join charts only within an explicit sheet and compatible submitted shell planes."""
+    groups = {}
+    memberships = {}
+    for sheet in geometry.sheets.values():
+        for use in sheet.face_use_ids:
+            memberships.setdefault(geometry.face_uses[use].face_id, set()).add(sheet.id)
+    for sheet in geometry.sheets.values():
+        faces = {geometry.face_uses[use].face_id for use in sheet.face_use_ids}
+        faces.intersection_update(mesh.elements_of_face)
+        faces = {fid for fid in faces if len(memberships[fid]) == 1}
+        compatible = {}
+        for fid in faces:
+            elements = mesh.elements_of_face[fid]
+            if not elements or fid not in thicknesses:
+                continue
+            # Native corner orientation is available before a live result has
+            # recovered any stresses. Physical directors are checked by the
+            # plate stress source when preparing the assessment.
+            polygons = [np.array([mesh.nodes[n] for n in mesh.corners_of(eid)]) for eid in elements]
+            normals = np.array([np.cross(p[1] - p[0], p[2] - p[0]) for p in polygons])
+            lengths = np.linalg.norm(normals, axis=1)
+            if np.any(lengths == 0):
+                continue
+            normals /= lengths[:, None]
+            node_ids = {n for eid in elements for n in mesh.corners_of(eid)}
+            points = np.array([mesh.nodes[n] for n in node_ids])
+            normal = normals[0]
+            if np.any(normals @ normal < 1 - 1.e-10):
+                continue
+            if np.max(np.abs((points - points[0]) @ normal)) > 1.e-8:
+                continue
+            sides = {frozenset((a, b)) for eid in elements
+                     for ring in (mesh.corners_of(eid),)
+                     for a, b in zip(ring, ring[1:] + ring[:1])}
+            compatible[fid] = (points[0], normal, sides)
+        remaining = set(compatible)
+        while remaining:
+            seed = remaining.pop()
+            group = {seed}
+            frontier = [seed]
+            while frontier:
+                fid = frontier.pop()
+                origin, normal, sides = compatible[fid]
+                neighbors = {other for other in remaining
+                             if thicknesses[other] == thicknesses[fid]
+                             and compatible[other][1] @ normal > 1 - 1.e-10
+                             and abs((compatible[other][0] - origin) @ normal) < 1.e-8
+                             and sides.intersection(compatible[other][2])}
+                remaining.difference_update(neighbors)
+                group.update(neighbors)
+                frontier.extend(neighbors)
+            for fid in group:
+                groups[fid] = tuple(sorted(group))
+    return groups
 
 
 def _plate_face(mesh, selected):

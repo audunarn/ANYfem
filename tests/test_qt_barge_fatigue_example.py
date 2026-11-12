@@ -12,7 +12,10 @@ import pytest
 if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1 for Qt example checks", allow_module_level=True)
 pytest.importorskip("anyfatigue.plate")
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
+from anygeometry.entities import EntityRef
 
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.ui.qt import barge_fatigue_example as example
@@ -128,6 +131,31 @@ def test_saved_example_opens_with_rainflow_ready_and_saves_a_portable_copy(windo
     wait_until(qapp, lambda: dialog.result is not None)
     assert max(point.damage for point in dialog.result.points) > 0
     assert dialog.table.rowCount() == len(dialog.result.points)
+    # The two terminal halves are separate charts of the same physical flange.
+    # Both must be hoverable and calculable from the example's receiving plate.
+    mesh = dialog.data.mesh
+    assert 74 in dialog.data.face_groups[75]
+    dialog.tabs.setCurrentIndex(0)
+    dialog.pick_target.click()
+    surface = window.viewport.canvas.event_widget
+    for edge, modifiers in ((433, Qt.NoModifier), (430, Qt.ShiftModifier)):
+        nodes = mesh.nodes_of_edge[edge]
+        pair = nodes[len(nodes) // 2 - 1:len(nodes) // 2 + 1]
+        xyz = np.mean([dialog.picking._display.nodes[n] for n in pair], axis=0)
+        projected = window.viewport.project_point(window.viewport._point3d(*xyz))
+        pixel = QPoint(round(projected[0] / surface.devicePixelRatioF()),
+                       round(projected[1] / surface.devicePixelRatioF()))
+        event = QMouseEvent(QEvent.MouseMove, QPointF(pixel), QPointF(surface.mapToGlobal(pixel)),
+                            Qt.NoButton, Qt.NoButton, modifiers)
+        qapp.sendEvent(surface, event)
+        assert dialog.picking._hover_ref == EntityRef("edge", edge)
+        QTest.mouseClick(surface, Qt.LeftButton, modifiers, pixel)
+    assert dialog.targets == (EntityRef("edge", 433), EntityRef("edge", 430))
+    dialog.run_button.click()
+    wait_until(qapp, lambda: dialog.result is not None)
+    assert len(dialog.prepared.locations) == 2
+    assert dialog.table.rowCount() == len(mesh.nodes_of_edge[433]) + len(mesh.nodes_of_edge[430])
+    assert dialog.result.critical.damage > 0
     dialog.close()
     destination = tmp_path / "My bracket study.anyfem"
     monkeypatch.setattr(window.dialogs, "save_file", lambda **_: str(destination))

@@ -394,6 +394,64 @@ def test_software_culled_query_and_preview_match_displayed_section(window, qapp,
             a, b = (canvas.project_point(p) for p in polygon[:2])
             assert bool(img.pixelColor(round(a[0]), round(a[1])).alpha()) == (clip == "none")
             assert img.pixelColor(round(b[0]), round(b[1])).name() == "#97003c"
-        assert picker._software_query is not None
+        assert picker._projection_query is not None
+    finally:
+        picker.clear()
+
+
+@pytest.mark.parametrize("backend", ["software", "gpu", "webgpu"])
+def test_subpixel_foreground_boundary_does_not_mask_the_visible_weld(window, qapp, backend):
+    from anyfem.presentation.workspace import camera_record, apply_camera
+    from any3dview.errors import GPUUnavailableError
+
+    view = window.viewport
+    if backend != "software":
+        try:
+            view.switch_backend(backend)
+        except GPUUnavailableError as error:
+            pytest.skip(str(error))
+        qapp.processEvents()
+    view.set_view("top")
+    canvas = view.canvas
+    camera = camera_record(canvas)
+    width, height = canvas.viewport_size
+    x, y = width // 2, height // 2
+    z = camera["target"][2]
+
+    def rectangle(left, right, top, bottom, elevation):
+        return [canvas.unproject_to_plane(px, py, (0, 0, elevation), (0, 0, 1)).to_tuple()
+                for px, py in ((left, bottom), (right, bottom), (right, top), (left, top))]
+
+    # The receiving side projects to x+.35. In the lower half the foreground
+    # stops at x+.15, while in the upper half it genuinely covers the side.
+    dz = .1 * (camera["position"][2] - z)
+    xyz = np.array(rectangle(x - 70, x + .35, y - 80, y + 80, z)
+                   + rectangle(x - 60, x + .15, y + 10, y + 70, z + dz)
+                   + rectangle(x - 60, x + 5, y - 70, y - 10, z + dz))
+    mesh = Mesh(nodes=dict(enumerate(xyz, 1)),
+                quads={1: (1, 2, 3, 4), 2: (5, 6, 7, 8), 3: (9, 10, 11, 12)},
+                elements_of_face={1: [1], 2: [2], 3: [3]}, nodes_of_edge={81: [2, 3]})
+    shape = SimpleNamespace(built=SimpleNamespace(mesh=mesh, project=window.project),
+                            deformed_positions=lambda scale: xyz)
+    window.solutions["weld"] = shape
+    window.active_job_id = "weld"
+    window._view_mode = "results"
+    view.show(build_result_scene(shape, values=Field("stress", "Pa", element_values=dict.fromkeys(mesh.quads, 1.))))
+    apply_camera(canvas, camera)
+    qapp.processEvents()
+    kept, missed = [], []
+    picker = FatiguePicking(window, None, lambda: None,
+                            on_selection=lambda ref, add: kept.append(ref), on_miss=missed.append)
+    surface = canvas.event_widget
+    try:
+        picker.start("line", mesh, element_ids=(1,))
+        assert picker._front_shell(x, y + 35) == 2
+        ratio = surface.devicePixelRatioF()
+        for offset, expected in ((35, EntityRef("edge", 81)), (-35, None)):
+            pos = QPoint(round(x / ratio), round((y + offset) / ratio))
+            _move(surface, pos)
+            assert picker._hover_ref == expected
+            QTest.mouseClick(surface, Qt.LeftButton, pos=pos)
+        assert kept == [EntityRef("edge", 81)] and len(missed) == 1
     finally:
         picker.clear()

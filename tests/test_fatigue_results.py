@@ -15,6 +15,7 @@ from anymesher.mesh import Mesh
 
 from anyfem.application.fatigue import (
     FatigueInput, FatigueMeshEdgeRef, load_fatigue_input, prepare_fatigue_location, prepare_fatigue_locations,
+    _receiving_sheet_groups,
 )
 from anyfem.selection import MeshEntityRef
 
@@ -30,6 +31,31 @@ def junction():
     stress = np.zeros((1, 2, 6))
     stress[0, :, 1] = [10., 90.]
     return FatigueInput(ArrayStressSource(shell_mesh, ["case"], stress, -stress), mesh)
+
+
+def test_receiver_joins_connected_sheet_charts_without_crossing_the_web():
+    xyz = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+           (2, 0, 0), (2, 1, 0), (1, 0, 1), (1, 1, 1))
+    mesh = Mesh(nodes={i: np.array(p, dtype=float) for i, p in enumerate(xyz, 1)},
+                quads={17: (1, 2, 3, 4), 42: (2, 5, 6, 3), 99: (2, 3, 8, 7)},
+                elements_of_face={8: [17], 9: [42], 10: [99]})
+    surface, _, _ = surface_mesh_from_anyfem(mesh)
+    geometry = SimpleNamespace(
+        sheets={1: SimpleNamespace(id=1, face_use_ids=(8, 9, 10))},
+        face_uses={fid: SimpleNamespace(face_id=fid) for fid in (8, 9, 10)})
+    thicknesses = {8: .02, 9: .02, 10: .02}
+    groups = _receiving_sheet_groups(mesh, geometry, thicknesses)
+    assert groups == {8: (8, 9), 9: (8, 9), 10: (10,)}
+    source = ArrayStressSource(surface, ["case"], np.zeros((1, 3, 6)), np.zeros((1, 3, 6)))
+    data = FatigueInput(source, mesh, thicknesses, groups)
+    assert data.plate_scope_for((17, 42)) == (8, (17, 42))
+    prepared = prepare_fatigue_location(data, (17,), target=FatigueMeshEdgeRef((5, 6)), thickness_mm=20)
+    assert prepared.element_ids == (17, 42) and len(prepared.stations) == 2
+    with pytest.raises(ValueError, match="connected receiving sheet"):
+        data.plate_scope_for((17, 99))
+    assert _receiving_sheet_groups(mesh, geometry, {**thicknesses, 9: .01})[8] == (8,)
+    geometry.sheets[2] = SimpleNamespace(id=2, face_use_ids=(9,))
+    assert _receiving_sheet_groups(mesh, geometry, thicknesses)[8] == (8,)
 
 
 @pytest.mark.parametrize("target,kwargs", [
