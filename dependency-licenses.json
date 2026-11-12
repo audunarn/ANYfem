@@ -108,8 +108,16 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYmesher",
-      "requirement": "ANYmesher>=0.5.1,<0.6",
+      "requirement": "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@946b9353924dbca6f326feb8cb0327bcae5c4ccc",
       "scope": "optional:gui",
+      "upstream": "https://github.com/audunarn/ANYmesh"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYmesher",
+      "requirement": "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@946b9353924dbca6f326feb8cb0327bcae5c4ccc",
+      "scope": "optional:orcawave",
       "upstream": "https://github.com/audunarn/ANYmesh"
     },
     {
