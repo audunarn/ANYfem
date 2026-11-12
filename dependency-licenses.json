@@ -311,6 +311,14 @@
       "requirement": "wheel",
       "scope": "build",
       "upstream": "https://github.com/pypa/wheel"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYfatigue",
+      "requirement": "ANYfatigue>=0.1,<0.2",
+      "scope": "optional:fatigue",
+      "upstream": "https://github.com/audunarn/ANYfatigue"
     }
   ],
   "project": "ANYfem",

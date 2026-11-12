@@ -50,6 +50,7 @@ INSTALLED_LICENSE_ALIASES = {
     "anypost": {"MPL-2.0"},
     "anyfesolver-results": {"MPL-2.0"},
     "anytk3d": {"MPL-2.0"},
+    "anyfatigue": {"MPL-2.0"},
     "ezdxf": {"MIT"},
     "shapely": {"BSD-3-Clause"},
     "build": {"MIT"},

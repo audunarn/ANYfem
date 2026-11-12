@@ -47,3 +47,5 @@ Qt modules are not authorized by this entry; commercial licensing is a separate
 distribution choice.
 
 Optional drawing exports use ezdxf (MIT) and Shapely (BSD-3-Clause), installed separately.
+
+The optional fatigue workflow uses ANYfatigue (MPL-2.0), installed separately.
