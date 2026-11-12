@@ -157,6 +157,11 @@ def format_report(report: Any) -> str:
     for name, value in items:
         if name in ("cut", "detail"):
             continue  # in-memory geometry result
+        if name == "attached":
+            for member in value:
+                lines.append(f"Stiffener {member.parent_member} on plate {member.parent_face} "
+                             f"continues as child member {member.child_member}.")
+            continue
         title = name.replace("_", " ")
         if isinstance(value, Mapping):
             lines.append(f"{title}:" + ("" if value else " none"))
@@ -171,6 +176,8 @@ def format_report(report: Any) -> str:
 
 def describe_error(error: BaseException) -> str:
     code = getattr(error, "code", None)
+    if code and str(error).startswith(f"{code}:"):
+        return str(error)
     return f"{code}: {error}" if code else f"{type(error).__name__}: {error}"
 
 
@@ -426,6 +433,16 @@ def solid_boundary_scene(mesh: Any) -> Any:
     return Scene(faces=[patch], show_element_edges=True)
 
 
+def _design() -> Any:
+    """The shared design operations (``anyfem.submodel_design``), imported on first use."""
+
+    try:
+        from ... import submodel_design
+    except ImportError as error:
+        raise ValueError(f"Submodel design operations are unavailable: {error}") from error
+    return submodel_design
+
+
 def submodel_task(app: Any) -> "SubmodelTask":
     """The one task of a window (created on first use); the dialog and headless callers share it."""
 
@@ -472,10 +489,19 @@ class SubmodelTask:
         self._token: Optional[CancelToken] = None
         self._history_epoch = 0
         self._inspect_epoch = 0
+        self._preview_epoch = 0
+        self.preview_request: Optional[SubmodelRequest] = None  # the request the current preview answers
 
     # -- plumbing ------------------------------------------------------
     def add_listener(self, callback: Callable[[], None]) -> None:
-        self.listeners.append(callback)
+        if callback not in self.listeners:
+            self.listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[], None]) -> None:
+        try:
+            self.listeners.remove(callback)
+        except ValueError:
+            pass
 
     def _notify(self) -> None:
         for callback in list(self.listeners):
@@ -636,9 +662,24 @@ class SubmodelTask:
         snapshot = self.app.session.snapshot()
         revision = self.app.session.revision.id
         self.preview = None
+        self.preview_request = None
+        self._preview_epoch += 1
+        epoch = self._preview_epoch
         self.state = self.PREVIEWING
         self._say("Previewing the cut…")
-        self._submit(self._cut, lambda future: self._previewed(future, revision), snapshot, request)
+        self._submit(self._cut, lambda future: self._previewed(future, revision, epoch, request), snapshot, request)
+
+    def invalidate_preview(self, reason: str = "") -> None:
+        """Drop a ready preview and discard one still being computed (the form it answered changed)."""
+
+        self._preview_epoch += 1
+        had = self.preview is not None
+        self.preview = None
+        self.preview_request = None
+        if had or self.state == self.PREVIEWING:
+            if reason:
+                self.message = reason
+            self._notify()
 
     @staticmethod
     def _cut(snapshot: Any, request: SubmodelRequest) -> Any:
@@ -657,15 +698,23 @@ class SubmodelTask:
         return cut_submodel(snapshot, volume, source=request.source, policy=request.policy,
                             target_size=request.target_size, name=request.name)
 
-    def _previewed(self, future: Any, revision: str) -> None:
+    def _previewed(self, future: Any, revision: str, epoch: Optional[int] = None,
+                   request: Optional[SubmodelRequest] = None) -> None:
         self.state = self.IDLE
+        if epoch is not None and epoch != self._preview_epoch:
+            self.preview = None  # the form changed or the preview was cancelled meanwhile: never publish it
+            self.preview_request = None
+            self._say("Preview discarded; preview again")
+            return
         try:
             cut = future.result()
         except Exception as error:  # noqa: BLE001 - refusal text is the product
             self.preview = None
+            self.preview_request = None
             self._say(f"Cut refused — {describe_error(error)}", error=True)
             return
         self.preview = (revision, cut)
+        self.preview_request = request
         self._say(f"Cut ready: {cut.definition.name!r}. Create it to keep it in the project.")
 
     def preview_text(self) -> str:
@@ -689,8 +738,61 @@ class SubmodelTask:
         # One validated, reversible command (one revision): undo removes exactly this definition.
         self.app.session.execute(AddSubmodelDefinition(definition), solver_affecting=False)
         self.preview = None
+        self.preview_request = None
         self._say(f"Submodel {definition.name!r} created")
         return definition.id
+
+    def replace(self, definition_id: str, expected_record: Optional[Mapping[str, Any]] = None) -> str:
+        """Replace one solid definition by the previewed one (same id and source; runs are untouched).
+
+        ``expected_record`` (the ``to_dict()`` of the definition when editing began) refuses the
+        replacement when the stored definition was changed meanwhile.
+        """
+
+        self._require_writable()
+        if self.busy:
+            raise ValueError(f"A submodel operation is already {self.state}")
+        if self.preview is None:
+            raise ValueError("Preview the replacement first")
+        revision, cut = self.preview
+        if self.app.session.revision.id != revision:
+            self.preview = None
+            self.preview_request = None
+            raise ValueError("The document changed since the preview; preview again")
+        previous = self.app.project.submodels.get(definition_id)
+        if previous is None:
+            raise ValueError("The solid submodel to replace no longer exists")
+        if expected_record is not None and previous.to_dict() != expected_record:
+            self.preview = None
+            self.preview_request = None
+            raise ValueError("The solid submodel changed since you began editing it; cancel the edit and reopen it")
+        if getattr(previous, "child_kind", "shell") != "solid" or getattr(cut.definition, "child_kind", "shell") != "solid":
+            raise ValueError("Only a solid submodel can be replaced by a solid preview")
+        if previous.source != cut.definition.source:
+            raise ValueError("A replacement keeps the original source job and case")
+        replacement = dataclasses.replace(cut.definition, id=previous.id)
+        replacement.validate()
+        self.app.session.execute(_design().ReplaceSubmodelDefinition(previous, replacement), solver_affecting=False)
+        self.preview = None
+        self.preview_request = None
+        self._say(f"Solid submodel {replacement.name!r} replaced; earlier runs are kept")
+        return previous.id
+
+    def remove(self, definition_id: str) -> None:
+        """Delete one solid definition (undoable); its stored runs stay in the project history."""
+
+        self._require_writable()
+        if self.busy:
+            raise ValueError(f"A submodel operation is already {self.state}")
+        previous = self.app.project.submodels.get(definition_id)
+        if previous is None:
+            raise ValueError("That submodel is not in the project")
+        if getattr(previous, "child_kind", "shell") != "solid":
+            raise ValueError("Only a solid submodel is deleted here")
+        self.app.session.execute(_design().RemoveSubmodelDefinition(previous), solver_affecting=False)
+        self.preview = None
+        self.preview_request = None
+        self._say(f"Solid submodel {previous.name!r} deleted; its stored runs are kept")
 
     def definitions(self) -> List[Tuple[str, str]]:
         out = []
@@ -727,7 +829,11 @@ class SubmodelTask:
     def cancel(self) -> bool:
         """Request cancellation; effective at the next stage boundary or before publication."""
 
-        if self.state in (self.RUNNING, self.PREVIEWING) and self._token is not None:
+        if self.state == self.PREVIEWING:
+            self._preview_epoch += 1  # the cut cannot be interrupted; its result is discarded on arrival
+            self._say("Cancelling the preview…")
+            return True
+        if self.state == self.RUNNING and self._token is not None:
             self._token.cancel()
             self._say("Cancelling…")
             return True
@@ -874,16 +980,33 @@ class SubmodelTask:
             self.app.viewport.show(scene)
             return
         definition = self.app.project.submodels.get(run.definition_id)
-        if definition is None:
-            raise ValueError("The submodel definition was deleted; its child model is unavailable for display")
         from ...presentation.scene import build_mesh_scene
 
+        # The stored mesh belongs to the definition the run answered.  When that definition was edited or
+        # deleted, its current child (geometry, sections) would not match the mesh: draw the mesh alone.
+        if definition is not None and self._definition_matches(definition, run):
+            owner = definition.child
+        else:
+            from ...model.project import Project
+
+            owner = Project(name="submodel result")
         try:
-            scene = build_mesh_scene(definition.child, info["child_mesh"], show_beam_sections=False, show_nodes=False)
+            scene = build_mesh_scene(owner, info["child_mesh"], show_beam_sections=False, show_nodes=False)
         except Exception as error:  # noqa: BLE001
             raise ValueError(f"The viewport cannot draw this child mesh ({describe_error(error)}); "
                              "use the field table") from error
         self.app.viewport.show(scene)
+
+    @staticmethod
+    def _definition_matches(definition: Any, run: Any) -> bool:
+        """True when ``definition`` is still exactly the one the run recorded (by its definition hash)."""
+
+        from ...model.submodels import definition_hash
+
+        try:
+            return definition_hash(definition.to_dict()) == run.definition_hash
+        except Exception:  # noqa: BLE001 - an unhashable definition cannot vouch for the stored mesh
+            return False
 
     def restore_view(self) -> None:
         self.app.refresh_views()

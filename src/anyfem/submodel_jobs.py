@@ -144,9 +144,28 @@ def _require_recipe(analysis: Any, reference: SourceReference) -> None:
         raise SubmodelError("SOURCE_RECIPE_UNSUPPORTED",
                             f"the source job solved case {analysis.target_id!r}, not {reference.case!r}")
     settings = dict(analysis.settings or {})
-    if settings not in ({}, {"load_case": reference.case}):
+    # The desktop records explicit static defaults and its thread policy.
+    # These describe the same supported load case and fixed-support problem.
+    # The archived field still has to satisfy the rebuilt operator below.
+    resources = settings.pop("resource_config", None)
+    if resources is not None:
+        from anyfesolver import ResourceConfig
+
+        try:
+            ResourceConfig(**resources)
+        except (TypeError, ValueError) as error:
+            raise SubmodelError("SOURCE_RECIPE_UNSUPPORTED", "the recorded solver resource settings are invalid") from error
+    same_static_case = (
+        settings.pop("load_case", reference.case) == reference.case
+        and settings.pop("constraint_mode", "auto") in ("auto", "transformation")
+        and settings.pop("inertia_relief", False) is False
+        and settings.pop("allow_unbalanced_free_free", False) is False
+        and settings.pop("reference_point", None) is None
+        and settings.pop("combination", None) is None
+    )
+    if settings or not same_static_case:
         raise SubmodelError("SOURCE_RECIPE_UNSUPPORTED",
-                            f"the source job's recorded settings {sorted(settings)} are not the admitted recipe")
+                            f"the source job's recorded settings {sorted(analysis.settings)} are not the admitted recipe")
     if (analysis.beam_formulation != defaults.beam_formulation
             or dict(analysis.beam_formulation_options or {}) != defaults.beam_formulation_options):
         raise SubmodelError("SOURCE_RECIPE_UNSUPPORTED", "the source job uses a non-default beam formulation")
@@ -487,6 +506,8 @@ def stage_submodel_run(snap: SubmodelSnapshot, definition_id: str, store: Any, *
     child_mesh = child.generate_mesh(definition.target_size)
     _require_scalar_offset_sides(parent, source.solution.built.mesh, definition)
     _require_scalar_offset_sides(child, child_mesh, None)
+    from .submodel_attached_cut import check_cut_beam_connections
+    check_cut_beam_connections(definition, child_mesh)
     _check_cancelled(cancellation_token, "submodel solve")
     result = solve_submodel(
         source.solution, binding, child, child_mesh,

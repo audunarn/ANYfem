@@ -429,6 +429,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Export":"Capture images and export animations of the selected result frame interval.",
         "Scripts":"Run Python commands as one undoable edit.",
         "Definitions":"Sets, unit profile and other project definitions.",
+        "Submodelling":"Cut a detail from a parent model and drive it from a solved load case.",
     }
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
@@ -483,6 +484,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Sectioning"]=SectioningTask(self,self.panels["Visualization"].presentation_controls)
         self.panels["Export"]=ExportTask(self,self.panels["Visualization"].presentation_controls)
         self.panels.update({"Scripts":ScriptTask(self),"Definitions":DefinitionsTask(self)})
+        from .submodel_workspace import SubmodelWorkspace
+        self.panels["Submodelling"] = SubmodelWorkspace(self)
         from .result_browser import QtResultBrowser
         self.result_browser=QtResultBrowser(self);self.left_tabs.addTab(self.result_browser,"Results")
         from .navigation import install_option_icons,ActionIcons
@@ -1182,6 +1185,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         settings.setValue("geometry",self.saveGeometry());settings.setValue("docks",self.saveState())
         self._closing=True
         from .submodel_task import shutdown_submodel
+        self.panels["Submodelling"].dispose()
         shutdown_submodel(self)
         self.run_monitor.stop()
         self.button_help.close()

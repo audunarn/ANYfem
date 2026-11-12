@@ -372,6 +372,23 @@ def test_recipe_refuses_non_default_beam_formulation():
             _require_recipe(SimpleNamespace(**{**base, **change}), SourceReference("job", "default"))
 
 
+def test_source_admits_the_desktop_static_recipe_only_for_the_supported_problem():
+    from anyfesolver import ResourceConfig
+    from anyfem.submodel_jobs import _require_recipe
+
+    reference = SourceReference("job", "default")
+    settings = dict(load_case="default", constraint_mode="transformation", reference_point=None,
+                    inertia_relief=False, allow_unbalanced_free_free=False,
+                    resource_config=ResourceConfig(solver_threads=2).to_dict())
+    analysis = AnalysisDefinition(name="Linear static", target_id="default", settings=settings)
+    _require_recipe(analysis, reference)
+    for unsupported in ({"constraint_mode": "nullspace"}, {"inertia_relief": True},
+                        {"combination": "uls"}, {"resource_config": {"solver_threads": -1}}):
+        analysis.settings = {**settings, **unsupported}
+        with pytest.raises(SubmodelError, match="SOURCE_RECIPE_UNSUPPORTED"):
+            _require_recipe(analysis, reference)
+
+
 def _rewrite_result(setup, *, displacements=None, mesh_id=None, document_id=None, fields=None, tables=None):
     """Replace the source result with a new, checksum-valid artifact (registry updated)."""
 

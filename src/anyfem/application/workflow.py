@@ -3688,8 +3688,13 @@ class WorkbenchWorkflow:
         if self.path is not None:
             source_store = ArtifactStore(self.path)
             if source_store.root.resolve() != target_store.root.resolve():
+                child_artifacts = {
+                    run.child[key]["id"]
+                    for run in self.project.submodel_runs.values()
+                    for key in ("mesh_artifact", "result_artifact")
+                }
                 for artifact in self.project.artifacts.values():
-                    if artifact.kind == "mesh" and not target_store.verify(artifact):
+                    if (artifact.kind == "mesh" or artifact.id in child_artifacts) and not target_store.verify(artifact):
                         target_store.copy_from(source_store, artifact)
         self._persist_result_artifacts(destination)
 
@@ -3769,6 +3774,12 @@ class WorkbenchWorkflow:
         for job_id, solution in tuple(self.solutions.items()):
             record = self.project.jobs.get(job_id)
             if record is None:
+                continue
+            existing = self.project.artifacts.get(record.result_artifact_id)
+            if existing is not None and existing.kind == "result" and store.verify(existing):
+                # A completed job already owns this immutable file. The result
+                # viewer can have it open, which also prevents replacement on Windows.
+                written.add(existing.id)
                 continue
             mesh_id=self._result_mesh_id(record)
             artifact = write_solution_artifact(

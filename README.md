@@ -181,6 +181,16 @@ For the retained legacy frontend, install `.[tk]` and use `anyfem-tk`,
 `python -m anyfem.ui.tk`, or `python run_gui.py --tk`. Conflicting frontend flags
 are rejected. The View menu provides **Reset workspace layout**; saved custom
 dock arrangements remain supported.
+
+In the Qt workbench, open **Submodelling** after saving and solving a linear-static
+parent. On **Define**, choose its job and set the box limits, take them from selected
+geometry or use the current axis-aligned section box. **Shell cut** retains the shell
+structure inside the box. Use **Children → Edit** to change the detached child, then
+**Apply to submodel** and run it from the parent. **Shell–solid boundary** makes a
+full-thickness rectangular solid inside one selected planar plate. Its footprint,
+mesh size and thickness layers can be edited. Replacing or deleting a solid keeps
+earlier runs available under **Results**.
+
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
 ANYgeometry 0.4.5 now publishes that API. The coordinated pins above match merged
 PR10 and its paired mesher/solver inputs; package version numbers alone do not

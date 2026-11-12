@@ -29,6 +29,7 @@ import numpy as np
 from .model.project import Project
 from .model.submodels import SourceReference, SubmodelDefinition, SubmodelRecordError
 from .submodel import SubmodelError
+from .submodel_attached_cut import carry_attached_members, plan_attached_members
 
 __all__ = ["CutReport", "CutSubmodel", "cut_submodel"]
 
@@ -48,6 +49,7 @@ class CutReport:
     original_boundary_edges: int
     notes: Tuple[str, ...]
     cut: Any  # anygeometry.volume_cut.VolumeCutResult (in memory only)
+    attached: Tuple[Any, ...] = ()  # AttachedCarry per plate-interior member rebuilt in the child
 
 
 @dataclass(frozen=True)
@@ -82,7 +84,7 @@ def _targets(parent: Project, region: Any, ref: Any, what: str) -> Tuple[Any, ..
 class _Lineage:
     """Source-to-child entity maps from the volume cut."""
 
-    def __init__(self, cut: Any, volume: Any, tolerance: float) -> None:
+    def __init__(self, cut: Any, volume: Any, tolerance: float, attached=()) -> None:
         self.cut = cut
         self.volume = volume
         self.tolerance = tolerance
@@ -105,6 +107,24 @@ class _Lineage:
             if via is not None:
                 vertices.add(int(via))
             vertices.update(int(v) for v in getattr(edge.curve, "control_vertices", ()))
+        # An interior member can end midway along a straight artificial plate
+        # edge. Loads and masses at that station follow the same cut policy.
+        for member in attached:
+            member_vertices = {v for e in member.child_edges
+                               for v in (geometry.edges[e].start, geometry.edges[e].end)}
+            for e in self.cut_edge_ids:
+                if member.child_face not in geometry.faces_using_edge(e):
+                    continue
+                a, b = geometry.sample_edge(e, np.array([0.0, 1.0]))
+                vector = b - a
+                length2 = float(vector @ vector)
+                if length2 == 0:
+                    continue
+                for vid in member_vertices:
+                    point = np.asarray(geometry.vertex_position(vid))
+                    t = np.clip((point - a) @ vector / length2, 0.0, 1.0)
+                    if np.linalg.norm(point - (a + t * vector)) <= tolerance:
+                        vertices.add(vid)
         self.cut_vertex_ids = vertices
 
     def children(self, targets: Sequence[Any]) -> List[Tuple[str, int]]:
@@ -191,7 +211,12 @@ def cut_submodel(
         _refuse("CUT_SOURCE_JOB_MISSING", f"the source job {source.job_id!r} is not in the parent project")
     child_case = source.case if child_case is None else child_case
     tolerance = parent.geometry.tolerance.effective_length(volume.diagonal)
+    # Straight members attached to a plate's interior are carried as detached geometry; the
+    # relations of members clear of the box are filtered on a clone (the parent is untouched).
+    attached = plan_attached_members(parent, volume, tolerance)
     for edge_id in sorted(parent.edge_sections):  # beams on plate edges are partitioned with their plates
+        if edge_id in attached.cleared_edges:
+            continue
         if (edge_id in parent.geometry.edges and not parent.geometry.faces_using_edge(edge_id)
                 and volume.reaches(_edge_extent(parent.geometry, edge_id, volume), tolerance)):
             _refuse("CUT_BEAMS_UNSUPPORTED",
@@ -199,7 +224,7 @@ def cut_submodel(
 
     # ---- the cut.  Members none of whose edges carries a beam section are not meshed
     # as beams and carry no structure: they may be left out of the child (reported).
-    geometry = parent.geometry
+    geometry = attached.geometry
     unassigned = [
         member_id for member_id, member in geometry.members.items()
         if not any(geometry.member_edge_uses[use].edge_id in parent.edge_sections for use in member.edge_use_ids)
@@ -216,7 +241,8 @@ def cut_submodel(
     if cut.unresolved:
         _refuse("CUT_LINEAGE_UNRESOLVED",
                 f"the cut left extracted entities without a source or a cut origin: {list(cut.unresolved)}")
-    lineage = _Lineage(cut, volume, tolerance)
+    attached_carry = carry_attached_members(parent, cut, volume, tolerance, attached)
+    lineage = _Lineage(cut, volume, tolerance, attached_carry)
 
     # ---- the detached child
     child = Project(name=f"{parent.name} submodel", geometry=cut.closure.working_model)
@@ -235,6 +261,16 @@ def cut_submodel(
         dropped["unassigned_members"] = count_dropped
         notes.append(f"{count_dropped} member(s) with no beam section reach the box and are not carried: "
                      f"{list(cut.dropped_members)}")
+    if attached_carry:
+        count_attached = len(attached_carry)
+        carried["attached_members"] = count_attached
+        notes.append(f"{count_attached} member(s) attached to a plate interior were rebuilt in the child: "
+                     f"{[(c.parent_member, c.child_member) for c in attached_carry]}")
+    if attached.filtered_attachments or attached.filtered_junctions or attached.cleared_members:
+        dropped["remote_attachment_relations"] = attached.filtered_attachments + attached.filtered_junctions
+        notes.append(f"filtered {attached.filtered_attachments} attachment(s) and {attached.filtered_junctions} "
+                     f"junction(s) of members clear of the box (exact clip); members whose bounds met the box but "
+                     f"whose axis misses it: {list(attached.cleared_members)}")
 
     def count(table: Dict[str, int], kind: str, n: int = 1) -> None:
         table[kind] = table.get(kind, 0) + n
@@ -385,6 +421,7 @@ def cut_submodel(
         carried=carried, dropped_outside=dropped, skipped_cases=skipped,
         cut_edges={side: len(edges) for side, edges in cut.cut_edges.items()},
         original_boundary_edges=len(cut.original_boundary_edges), notes=tuple(notes), cut=cut,
+        attached=attached_carry,
     )
     return CutSubmodel(definition, report)
 
