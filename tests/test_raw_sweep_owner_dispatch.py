@@ -13,6 +13,7 @@ class OldRoute(BaseException): pass
 def source():
     curve=NurbsCurve(1,(0.,0.,1.,1.),((0.,0.,0.),(0.,1.,0.)))
     geometry=SimpleNamespace(model_id='routing-only',revision=7,members={},sheets={},
+        junctions={},attachments={},face_uses={},
         faces={i:SimpleNamespace(surface=CoonsSurface(),parameterization=None,
             loop=(SimpleNamespace(edge=i),)) for i in (1,2)},
         edges={i:SimpleNamespace(curve=curve) for i in (1,2)},transport_marker=object())
@@ -47,7 +48,9 @@ def test_nonhint_scope_preserves_existing_chart_path(monkeypatch,variant):
     if variant=='single':geometry.faces.pop(2)
     elif variant=='installed':geometry.faces[1].parameterization=object()
     elif variant=='members':geometry.members[9]=object()
-    elif variant=='sheets':geometry.sheets[9]=object()
+    elif variant=='sheets':
+        geometry.face_uses[3]=SimpleNamespace(face_id=1)
+        geometry.sheets[9]=SimpleNamespace(id=9,face_use_ids=(3,))
     else:
         for edge in geometry.edges.values():edge.curve=object()
     sentinel=OldRoute();seen=[]
