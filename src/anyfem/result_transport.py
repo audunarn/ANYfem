@@ -139,7 +139,7 @@ def _class_location(cls: type) -> str:
 
 
 def _is_solver_mesh(value: Any) -> bool:
-    from anysolver.fe_core import FEMesh
+    from anyfesolver.fe_core import FEMesh
 
     return type(value) is FEMesh
 
@@ -396,7 +396,7 @@ def _require_built(built: Any) -> Any:
 
 
 def _require_fe_model(fe_model: Any) -> Any:
-    from anysolver.fe_core import FEModel
+    from anyfesolver.fe_core import FEModel
 
     if type(fe_model) is not FEModel:
         raise ResultTransportError(
@@ -409,7 +409,7 @@ def _require_fe_model(fe_model: Any) -> Any:
 
 
 def _require_mesh(mesh: Any) -> Any:
-    from anysolver.fe_core import FEMesh
+    from anyfesolver.fe_core import FEMesh
 
     if type(mesh) is not FEMesh:
         raise ResultTransportError(
@@ -491,7 +491,7 @@ class _Decoder:
         return obj
 
     def is_mesh(self, encoded: Any) -> bool:
-        from anysolver.fe_core import FEMesh
+        from anyfesolver.fe_core import FEMesh
 
         index = encoded.get("ref") if isinstance(encoded, dict) else None
         if type(index) is not int or not 0 <= index < len(self.objects):
@@ -509,7 +509,7 @@ class _Decoder:
         shell formulation policy) must survive identically or the transfer fails.
         """
 
-        from anysolver.fe_core import FEMesh, FEModel
+        from anyfesolver.fe_core import FEMesh, FEModel
         from .post.results import LinearSolution
         from .solve.build import BuiltModel
 

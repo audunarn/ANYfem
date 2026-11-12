@@ -25,7 +25,7 @@ def _surface(surface_id, **changes):
 
 
 def _evaluator():
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     project, series, points, _ = _project()
     series.add_point_load(project.point(points[0]), force=(2, 0, 0))
     mesh = project.generate_mesh(1.0)
@@ -101,7 +101,7 @@ def _same_pressures(left, right):
 
 
 def test_prepared_wet_pressures_equal_the_uncached_path(solver_spy):
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     from anyfem.solve import build as builder
     project, cases = _wet_wall_cases()
     mesh = project.generate_mesh(0.5)
@@ -128,7 +128,7 @@ def test_prepared_wet_pressures_equal_the_uncached_path(solver_spy):
 
 
 def test_fluid_side_is_evaluated_only_for_loaded_elements(solver_spy):
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     from anyfem.solve import build as builder
     project, cases = _wet_wall_cases()
     mesh = project.generate_mesh(0.5)
@@ -178,7 +178,7 @@ def test_kept_wet_sets_are_keyed_by_surface_identity_and_content(solver_spy, mon
 
 
 def _prepared(project, mesh):
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     return prepare_linear_static_evaluator(project, mesh=mesh,
                                            resource_config=ResourceConfig(memory_limit_bytes=50_000_000))
 
@@ -251,7 +251,7 @@ def test_public_records_own_fresh_writable_arrays(solver_spy):
 
 
 def test_solver_loads_equal_the_uncached_path(solver_spy):
-    from anysolver import LoadCase as SolverLoadCase
+    from anyfesolver import LoadCase as SolverLoadCase
     from anyfem.solve import build as builder
     project, cases = _wet_wall_cases()
     mesh = project.generate_mesh(0.5)

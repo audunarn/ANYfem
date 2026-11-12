@@ -63,7 +63,7 @@ def test_numbered_curved_worker_artifact_can_solve_after_reopen(tmp_path):
 def test_source_triangle_solver_receives_issued_normals_and_rejects_foreign_transfer():
     from anyfem.model.project import ProjectError
     from anyfem.solve.build import _qualified_s3_owner_normals
-    from anysolver.e4_pl_s3_v2d_element import NativeParityCapabilityError
+    from anyfesolver.e4_pl_s3_v2d_element import NativeParityCapabilityError
 
     project, settings, face, edges = panel('nurbs')
     for edge in edges:

@@ -672,9 +672,9 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
     text = (ROOT / '.github/workflows/tests.yml').read_text()
     test_job, build_job = text.split('\n  build:\n', 1)
     expected = {
-        '.ecosystem/ANYsolver': ('audunarn/ANYsolver', 'adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2'),
-        '.ecosystem/ANYsolver-results': ('audunarn/ANYsolver', 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'),
-        '.ecosystem/ANYpost': ('audunarn/ANYpost', 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'),
+        '.ecosystem/ANYfeSolver': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
+        '.ecosystem/ANYfeSolver-results': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
+        '.ecosystem/ANYpost': ('audunarn/ANYpost', '9eb9713b92c1b3a476301150b5e89e350d515844'),
         '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '33dfbaad89a76dd9e925fd6c628602213ce8c2b8'),
         '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '3823b6912cd54f1f6a913a661a9f6739b3f55f2d' }}"),
     }
@@ -690,17 +690,17 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
             if 'path' in values:
                 actual[values['path']] = (values.get('repository'), values.get('ref'))
         assert {path: actual.get(path) for path in expected} == expected
-        assert '.ecosystem/ANYsolver-results/packages/results' in job
-        assert '-e .ecosystem/ANYsolver-results/packages/results' not in job
-        assert 'anysolver_results.principals' in job
-        assert '.ecosystem/ANYsolver/packages/results' not in job
+        assert '.ecosystem/ANYfeSolver-results/packages/results' in job
+        assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in job
+        assert 'anyfesolver_results.principals' in job
+        assert '.ecosystem/ANYfeSolver/packages/results' not in job
 
 
 def test_canonical_results_runtime_install_does_not_share_editable_source_roots():
     for name in ('tests.yml','qt-tests.yml'):
         text=(ROOT/'.github/workflows'/name).read_text()
-        assert '-e .ecosystem/ANYsolver ' in text
-        assert '-e .ecosystem/ANYsolver-results/packages/results' not in text
-        assert 'python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results' in text
-        assert 'anysolver_results.principals' in text
-        assert "distribution('anysolver-results').locate_file('anysolver_results/__init__.py')" in text
+        assert '-e .ecosystem/ANYfeSolver ' in text
+        assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in text
+        assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in text
+        assert 'anyfesolver_results.principals' in text
+        assert "distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')" in text

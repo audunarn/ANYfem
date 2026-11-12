@@ -20,7 +20,7 @@ __all__ = ["ErrorDiagnostic", "build_current_state", "build_diagnostic_report"]
 
 _PACKAGES = (
     ("ANYfem", "anyfem"),
-    ("ANYsolver", "anysolver"),
+    ("ANYfeSolver", "anyfesolver"),
     ("ANYmesher", "anymesher"),
     ("ANYgeometry", "anygeometry"),
     ("ANYmaterial", "anymaterial"),

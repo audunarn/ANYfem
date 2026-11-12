@@ -1,6 +1,6 @@
 """Experimental prepared static history: supported or balanced free-free beam.
 
-Run with coordinated ANYfem/ANYsolver packages installed or on PYTHONPATH:
+Run with coordinated ANYfem/ANYfeSolver packages installed or on PYTHONPATH:
     python examples/prepared_static_time_history.py
     python examples/prepared_static_time_history.py --free-free
     python examples/prepared_static_time_history.py --stop-after 1
@@ -17,7 +17,7 @@ import sys
 from anyfem import Project, StaticLoadRequest, fixed, steel
 from anyfem.model import BeamSection, ProjectError
 from anyfem.solve import prepare_linear_static_evaluator
-from anysolver import (CancellationToken, PreparedStaticError, RecoveryConfig,
+from anyfesolver import (CancellationToken, PreparedStaticError, RecoveryConfig,
                        ResourceConfig, ResourcePolicyError, SolveCancelled)
 
 

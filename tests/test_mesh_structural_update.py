@@ -63,7 +63,7 @@ def test_beam_on_plate_edge_regenerates_only_its_component_and_assembles(monkeyp
     assert set(mesh.nodes_of_edge[beam_edge]) <= {n for e in mesh.elements_of_face[faces[0]] for n in mesh.quads[e]}
     built = build_fe_model(project, mesh, load_case=None, require_loads=False, require_supports=False)
     assert len(built.fe_model.mesh.elements) == len(mesh.quads) + len(mesh.beams)
-    from anysolver.matrix_assembly import assemble_stiffness_matrix
+    from anyfesolver.matrix_assembly import assemble_stiffness_matrix
     initial = build_fe_model(project, old, load_case=None, require_loads=False, require_supports=False).fe_model
     old_k, _ = assemble_stiffness_matrix(initial)
     new_k, _ = assemble_stiffness_matrix(built.fe_model)
@@ -152,7 +152,7 @@ def test_saved_session_creates_then_removes_beam_plate_intersection(tmp_path):
         assert len(new.structural_preparation["source_to_working_faces"][str(faces[0])]) == (4 if count else 1)
         assert len(new.structural_preparation["source_to_working_edges"][str(beam)]) == (2 if count else 1)
         built = build_fe_model(session.project, new, load_case=None, require_loads=False, require_supports=False)
-        from anysolver.matrix_assembly import assemble_stiffness_matrix
+        from anyfesolver.matrix_assembly import assemble_stiffness_matrix
         stiffness, _ = assemble_stiffness_matrix(built.fe_model)
         assert np.isfinite(stiffness.data).all() and stiffness.nnz > 0
         session.save()
@@ -171,7 +171,7 @@ def test_saved_session_creates_then_removes_beam_plate_intersection(tmp_path):
 
 def test_selected_tee_reseeding_preserves_distant_plate_and_rebuilds_junction(tmp_path):
     from anyfem import Project, steel
-    from anysolver.matrix_assembly import assemble_stiffness_matrix
+    from anyfesolver.matrix_assembly import assemble_stiffness_matrix
 
     project = Project("isolated web and flange")
     project.add_material(steel("S355", .01))

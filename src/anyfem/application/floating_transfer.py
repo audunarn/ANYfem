@@ -15,7 +15,7 @@ from .floating_loads import (FloatingLoadError, NodalDofMap, compose_component, 
 
 
 def _fr():
-    from anysolver import floating_response
+    from anyfesolver import floating_response
     return floating_response
 
 

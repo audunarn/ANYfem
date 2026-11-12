@@ -6,7 +6,7 @@ import pytest
 from anyfem import pinned
 from anyfem.io.project_file import load_project
 from anyfem.solve import build_fe_model
-from anysolver.matrix_assembly import assemble_load_vector
+from anyfesolver.matrix_assembly import assemble_load_vector
 from test_mesh_general_update import panel
 from test_mesh_source_trim import _edit_hole
 

@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from anysolver import BeamElement, FEModel, solve_inertia_relief
-from anysolver.matrix_assembly import assemble_mass_matrix
+from anyfesolver import BeamElement, FEModel, solve_inertia_relief
+from anyfesolver.matrix_assembly import assemble_mass_matrix
 
 from anyfem.application.floating_loads import NodalDofMap
 from anyfem.solve import floating_batch as fb

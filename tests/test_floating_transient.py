@@ -9,8 +9,8 @@ attachment-load virtual work, and the zero generalised residual of the total fra
 import numpy as np
 import pytest
 
-from anysolver import BeamElement, FEModel
-from anysolver.floating_transient import numeric_array_digest
+from anyfesolver import BeamElement, FEModel
+from anyfesolver.floating_transient import numeric_array_digest
 
 from anyfem.application import floating_transient as ft
 from anyfem.application.floating_loads import nodal_wrench
@@ -450,7 +450,7 @@ def test_recorded_pointwise_bound_must_be_the_actual_guard_envelope(world):
 
 
 def test_rigid_and_field_limits_are_forwarded_and_tiny_max_steps_refuses_before_integration(world, monkeypatch):
-    import anysolver.floating_transient as sft
+    import anyfesolver.floating_transient as sft
     import anyhydro.radiation_field_kernel as rfk
     import anyhydro.floating_transient_fields as ftf
     seen = {}
@@ -484,7 +484,7 @@ def test_rigid_and_field_limits_are_forwarded_and_tiny_max_steps_refuses_before_
 
 
 def test_q8_shell_stress_layout_is_counted_from_the_owner_contract():
-    from anysolver import FEModel, ShellElement
+    from anyfesolver import FEModel, ShellElement
     m = FEModel("q8-layout")
     m.add_material("steel", 1e7, .3, density=5.)
     for i, (x, y) in enumerate([(-1, -1), (1, -1), (1, 1), (-1, 1), (0, -1), (1, 0), (0, 1), (-1, 0)], 1):
@@ -575,7 +575,7 @@ def test_memory_preflight_counts_fields_and_every_frame_component(world):
         ft.transient_memory_preflight(inp, n_nodes=world["n"], n_elements=n_el,
                                       max_work_bytes=ft.MAX_WORK_BYTES + 1)
     called = []
-    import anysolver.floating_transient as sft
+    import anyfesolver.floating_transient as sft
     import anyhydro.radiation_field_kernel as rfk
     orig_solve, orig_field = sft.solve_floating_transient, rfk.field_history_from_transient
     try:                                             # a tighter limit refuses BEFORE trajectory / field allocation
@@ -627,7 +627,7 @@ def test_self_equilibrated_high_frequency_panel_pressure_sets_the_loading_band()
 
 
 def test_changed_modulus_with_the_same_mass_changes_the_structural_identity(world):
-    from anysolver import BeamElement, FEModel
+    from anyfesolver import BeamElement, FEModel
     model = FEModel("floating-transient-bar")
     model.add_material("steel", 2.0e7, 0.3, density=5.0)
     for i, x in enumerate(np.linspace(0.0, 2.0, 5), 1):
@@ -645,7 +645,7 @@ def test_an_added_constraint_equation_with_the_same_k_and_m_is_a_different_struc
     d1, d2 = list(b.mesh.nodes[1].dofs), list(b.mesh.nodes[2].dofs)
     b.add_constraint_equation(terms=((int(d1[2]), 1.0), (int(d2[2]), -1.0)), source_id="test-mpc")
     from scipy import sparse
-    from anysolver.matrix_assembly import assemble_stiffness_matrix
+    from anyfesolver.matrix_assembly import assemble_stiffness_matrix
     Ka, Kb = assemble_stiffness_matrix(a)[0], assemble_stiffness_matrix(b)[0]
     assert abs(sparse.csr_matrix(Ka) - sparse.csr_matrix(Kb)).max() == 0.0      # unreduced K unchanged by the MPC
     assert ft.structural_identity(a) != ft.structural_identity(b)              # ... but the structural model differs
@@ -702,8 +702,8 @@ def test_guard_coordinates_must_be_the_kernels_bound_query_points(world):
 
 
 def test_batch_effective_load_stresses_match_the_scalar_reference(world):
-    from anysolver import solve_inertia_relief
-    from anysolver.recovery import RecoveryConfig, recover_stress_result
+    from anyfesolver import solve_inertia_relief
+    from anyfesolver.recovery import RecoveryConfig, recover_stress_result
     from anyfem.solve import floating_batch as fb
     model, dry = world["model"], world["dry"]
     rng = np.random.default_rng(9)

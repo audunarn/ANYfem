@@ -34,8 +34,8 @@ from anyfem.result_transport import (
     encode_result,
 )
 from anyfem.solve.build import BuiltModel
-from anysolver.e4_pl_s3_v2d_element import NativeParityE4PLS3V2DShellElement
-from anysolver.fe_core import FEModel, FEMesh
+from anyfesolver.e4_pl_s3_v2d_element import NativeParityE4PLS3V2DShellElement
+from anyfesolver.fe_core import FEModel, FEMesh
 
 
 def run(function, *, kwargs=None, timeout=60.0):
@@ -545,7 +545,7 @@ def test_a_decode_failure_is_structured_and_attaches_nothing(monkeypatch):
 
 
 def test_postprocessing_on_the_transferred_result_uses_fake_recovery(monkeypatch):
-    import anysolver
+    import anyfesolver
 
     captured = {}
 
@@ -554,7 +554,7 @@ def test_postprocessing_on_the_transferred_result_uses_fake_recovery(monkeypatch
         captured["displacements"] = displacements
         return {"element_stresses": {101: {"von_mises": np.array([3.0, 4.0])}}}
 
-    monkeypatch.setattr(anysolver, "recover_stress_result", fake_recover)
+    monkeypatch.setattr(anyfesolver, "recover_stress_result", fake_recover)
     manager, record, _ = run(helpers.s3_linear_result)
     result = manager.result(record.id)
     stresses = result.stresses()

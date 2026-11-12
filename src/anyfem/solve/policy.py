@@ -37,7 +37,7 @@ def history_modes() -> tuple[str, ...]:
     solver rejects is worse than no menu.
     """
 
-    from anysolver import recovery
+    from anyfesolver import recovery
 
     modes = getattr(recovery, "_HISTORY_MODES", None)
     if not modes:
@@ -68,7 +68,7 @@ def recovery_policy(
     ``None`` unless you want exactly the ones you list.
     """
 
-    from anysolver import RecoveryConfig
+    from anyfesolver import RecoveryConfig
 
     return RecoveryConfig(
         node_ids=node_ids,
@@ -111,7 +111,7 @@ def resource_policy(
     phases. Omitting the policy preserves the solver backend defaults.
     """
 
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
 
     return ResourceConfig(
         solver_threads=solver_threads,

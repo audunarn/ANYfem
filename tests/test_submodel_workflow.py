@@ -12,7 +12,7 @@ import copy
 import numpy as np
 import pytest
 
-pytest.importorskip("anysolver.submodel_transfer")
+pytest.importorskip("anyfesolver.submodel_transfer")
 pytest.importorskip("anymesher.submodel_correspondence")
 
 from anyfem import Project, solve_linear_static, solve_modal, steel  # noqa: E402
@@ -552,7 +552,7 @@ def test_coupling_coefficient_edit_after_binding_is_stale():
     interpolation weight after binding changes the bound operator rows."""
 
     from anymesher import Coupling
-    from anysolver.mesh_gen import InterpolatedBeamShellMPCElement
+    from anyfesolver.mesh_gen import InterpolatedBeamShellMPCElement
 
     gproject, gfaces = global_project()
     mesh = gproject.generate_mesh(SIZE)

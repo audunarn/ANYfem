@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import anysolver
+import anyfesolver
 
 from anyfem.model import ProjectError
 from anyfem.solve import (
@@ -95,7 +95,7 @@ def solver_spy(monkeypatch):
         state["arguments"] = kwargs
         return _SpyOwner(model, output_dofs, kwargs, state)
 
-    monkeypatch.setattr(anysolver, "prepare_static_evaluator", prepare, raising=False)
+    monkeypatch.setattr(anyfesolver, "prepare_static_evaluator", prepare, raising=False)
     return state
 
 
@@ -104,7 +104,7 @@ def _solver_load(record):
 
 
 def test_envelope_configuration_and_detached_facade(solver_spy):
-    from anysolver import RecoveryConfig
+    from anyfesolver import RecoveryConfig
     project, _series, _points, _face = _project()
     config = RecoveryConfig(components=["membrane_xx"], include_stresses=True)
     with prepare_linear_static_evaluator(project, target_size=1.0,
@@ -317,7 +317,7 @@ def test_provider_mutating_observed_geometry_fails_closed(solver_spy, monkeypatc
 
 
 def test_missing_solver_api_fails_closed_without_falling_back(monkeypatch):
-    monkeypatch.delattr(anysolver, "prepare_static_evaluator", raising=False)
+    monkeypatch.delattr(anyfesolver, "prepare_static_evaluator", raising=False)
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(1, 0, 0))
     mesh = project.generate_mesh(1.0)
@@ -387,7 +387,7 @@ def test_output_selection_and_facade_metadata_cannot_mutate_the_snapshot(solver_
 
 
 def test_selection_conflicts_are_explicit(solver_spy):
-    from anysolver import RecoveryConfig
+    from anyfesolver import RecoveryConfig
 
     project, _series, _points, _face = _project()
     mesh = project.generate_mesh(1.0)
@@ -542,7 +542,7 @@ def test_close_active_stream_and_preserve_primary_cleanup_error(solver_spy):
 
 
 def test_cancellation_stops_ingress_and_closes_requests(solver_spy):
-    from anysolver.control import CancellationToken, SolveCancelled
+    from anyfesolver.control import CancellationToken, SolveCancelled
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(2, 0, 0))
     name = project.series_children("series")[0].name
@@ -565,7 +565,7 @@ def test_cancellation_stops_ingress_and_closes_requests(solver_spy):
 
 
 def test_application_snapshot_storage_is_reserved_before_solver(solver_spy):
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     project, _series, _points, _face = _project()
     mesh = project.generate_mesh(1.0)
     budget = 10_000_000
@@ -685,7 +685,7 @@ def test_joint_capture_refuses_mixed_source_snapshot(mutation, solver_spy, monke
 
 
 def test_case_caches_have_reserved_bound_and_clear_on_case_error(solver_spy):
-    from anysolver import ResourceConfig
+    from anyfesolver import ResourceConfig
     project, series, points, _ = _project()
     series.add_point_load(project.point(points[0]), force=(2, 0, 0))
     mesh = project.generate_mesh(1.0)

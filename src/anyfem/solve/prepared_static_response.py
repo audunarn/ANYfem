@@ -140,7 +140,7 @@ def _phase(time, origin, step, count):
 
 
 def _prepare_sources(owned, context, token, patterns, baseline, periodic, memory_limit=None):
-    from anysolver.control import cancellation_safe_point
+    from anyfesolver.control import cancellation_safe_point
     native = {}
     retained = _input_storage_bytes((owned.project, owned.mesh, owned.connections))
 
@@ -267,7 +267,7 @@ class PreparedStaticResponseEvaluator(PreparedStaticEvaluator):
         return super().iter_batches(load_cases, **kwargs)
 
     def _resolve_prepared_request(self, request):
-        from anysolver import PatternCase, StaticCase
+        from anyfesolver import PatternCase, StaticCase
         if type(request) in (PatternCase, StaticCase):
             return request
         if isinstance(request, PatternLoadRequest):

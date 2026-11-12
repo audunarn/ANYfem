@@ -23,13 +23,13 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.2.0",
         "ANYloads": "0.1.0",
         "ANYgeometry": "0.4.3",
-        "ANYfileio": "0.3.2",
+        "ANYfileio": "0.3.3",
         "ANYmesher": "0.5.1",
         "ANY3dView": "0.5.6",
-        "ANYpost": "0.1.2",
-        "ANYsolver-results": "2.1.1",
+        "ANYpost": "0.1.3",
+        "ANYfeSolver-results": "2.2.0",
         "ANYtk3D": "0.5.5",
-        "ANYsolver": "0.4.7",
+        "ANYfeSolver": "0.5.0",
         "ANYfem": "0.4.2",
     }
 
@@ -56,7 +56,7 @@ def test_launcher_recognizes_hosted_ecosystem_checkout_layout(monkeypatch):
     assert namespace["_ECOSYSTEM_WORKSPACE"] == ecosystem
     assert namespace["_ANY3DVIEW_PROJECT"] == ecosystem / "ANY3dView"
     assert namespace["_ANYTK3D_PROJECT"] == ecosystem / "ANYtk3D"
-    assert namespace["_ANYSOLVER_PROJECT"] == ecosystem / "ANYsolver"
+    assert namespace["_ANYFESOLVER_PROJECT"] == ecosystem / "ANYfeSolver"
 
 
 def test_existing_editable_paths_are_promoted_ahead_of_installed_packages(monkeypatch, tmp_path):
@@ -115,21 +115,21 @@ def test_launcher_selects_a_compatible_anymesher_checkout():
 
 def test_mesher_selector_skips_below_floor_checkout(tmp_path,monkeypatch):
     namespace=_namespace();select=namespace['_qualified_anymesher_project']
-    for relative,version in [('ANYmesh','0.5.0'),('ANYsolver/.compat_anymesher_025','0.5.1')]:
+    for relative,version in [('ANYmesh','0.5.0'),('ANYfeSolver/.compat_anymesher_025','0.5.1')]:
         path=tmp_path/relative;path.mkdir(parents=True)
         (path/'pyproject.toml').write_text('[project]\nversion = "'+version+'"\n')
     monkeypatch.delenv('ANYMESHER_SOURCE',raising=False);monkeypatch.delenv('ANYMESHER_025_SOURCE',raising=False)
     monkeypatch.setitem(select.__globals__,'_ECOSYSTEM_WORKSPACE',tmp_path)
-    assert select()==tmp_path/'ANYsolver/.compat_anymesher_025'
+    assert select()==tmp_path/'ANYfeSolver/.compat_anymesher_025'
 
 
 def test_runtime_source_version_and_origin_are_separately_checked(monkeypatch):
     namespace=_namespace();read=namespace['_active_distribution_version']
     monkeypatch.setattr(namespace['metadata'],'version',lambda name:'2.0.0')
-    declared=namespace['_declared_project_version'](namespace['_ANYSOLVER_PROJECT']/'packages/results')
-    assert read('ANYsolver-results')==declared
-    origins=_origins(namespace);origins['anysolver_results']='C:/unrelated/site-packages/anysolver_results/__init__.py'
-    assert any('anysolver_results' in error for error in namespace['ecosystem_origin_problems'](origins.__getitem__))
+    declared=namespace['_declared_project_version'](namespace['_ANYFESOLVER_PROJECT']/'packages/results')
+    assert read('ANYfeSolver-results')==declared
+    origins=_origins(namespace);origins['anyfesolver_results']='C:/unrelated/site-packages/anyfesolver_results/__init__.py'
+    assert any('anyfesolver_results' in error for error in namespace['ecosystem_origin_problems'](origins.__getitem__))
 
 
 @pytest.mark.parametrize("source_version", ["0.5.1", "0.5.2", "1.0.0"])
@@ -168,7 +168,7 @@ def test_newer_major_generations_are_not_rejected_by_version_alone():
         {
             "ANYgeometry": "4.0.0",
             "ANYmesher": "3.0.0",
-            "ANYsolver": "1.0.0",
+            "ANYfeSolver": "1.0.0",
             "ANYfem": "1.0.0",
         }
     )
@@ -182,7 +182,7 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
     namespace = _namespace()
     versions = _versions()
     origins = _origins(namespace)
-    versions["ANYsolver"] = "0.2.9"
+    versions["ANYfeSolver"] = "0.2.9"
 
     with pytest.raises(RuntimeError) as raised:
         namespace["require_compatible_ecosystem"](
@@ -190,20 +190,20 @@ def test_stale_metadata_fails_with_one_dependency_order_repair_command():
         )
 
     message = str(raised.value)
-    assert "ANYsolver>=0.4.7,<0.5: installed metadata reports 0.2.9" in message
+    assert "ANYfeSolver>=0.5.0,<0.6: installed metadata reports 0.2.9" in message
     command = namespace["editable_repair_command"]()
     assert command in message
     mesh_project = str(namespace["_ANYMESHER_PROJECT"])
     assert command.index("ANYgeometry") < command.index(mesh_project)
     assert command.index(mesh_project) < command.index("ANYfileIO")
     tk_project = str(namespace["_ANYTK3D_PROJECT"])
-    solver_project = str(namespace["_ANYSOLVER_PROJECT"])
+    solver_project = str(namespace["_ANYFESOLVER_PROJECT"])
     assert command.index(mesh_project) < command.index(tk_project)
     assert command.index(tk_project) < command.index(f'-e "{solver_project}"')
     assert command.index(f'-e "{solver_project}"') < command.index(
         f'-e "{ROOT}[qt,tk]"'
     )
-    runtime_project=str(namespace["_ANYSOLVER_PROJECT"] / "packages" / "results")
+    runtime_project=str(namespace["_ANYFESOLVER_PROJECT"] / "packages" / "results")
     assert command.index(f'-e "{solver_project}"') < command.index(runtime_project)
     assert command.index(runtime_project) < command.index("ANYpost")
 

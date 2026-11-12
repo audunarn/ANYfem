@@ -3,8 +3,8 @@ from copy import copy
 import math
 import numpy as np
 import pytest
-import anysolver
-from anysolver import RecoveryConfig
+import anyfesolver
+from anyfesolver import RecoveryConfig
 from anyfem.solve import (PatternLoadRequest, PeriodicLoadSource, PeriodicSample,
     StaticLoadRequest, prepare_linear_static_evaluator,
     prepare_linear_static_response_evaluator, PreparedStaticUnavailableError)
@@ -50,7 +50,7 @@ def assert_nested(actual, expected):
 
 
 def test_missing_response_api_fails_closed(monkeypatch):
-    monkeypatch.delattr(anysolver, "prepare_static_response_evaluator", raising=False)
+    monkeypatch.delattr(anyfesolver, "prepare_static_response_evaluator", raising=False)
     with pytest.raises(PreparedStaticUnavailableError, match="prepare_static_response_evaluator"):
         prepare_linear_static_response_evaluator()
 
@@ -139,7 +139,7 @@ def test_periodic_absent_time_refuses_without_snapping():
     project, series, mesh = fixture()
     with prepare_linear_static_response_evaluator(project, mesh=mesh,
             periodic_source=PeriodicLoadSource("series", 2., .5), recovery_config=recovery(mesh)) as owner:
-        with pytest.raises(anysolver.PreparedStaticError, match="static case provider failed") as caught:
+        with pytest.raises(anyfesolver.PreparedStaticError, match="static case provider failed") as caught:
             list(owner.iter_batches([PeriodicSample("absent", np.nextafter(.5, 1.))]))
         assert isinstance(caught.value.__cause__, ValueError)
         assert "outside the declared original grid" in str(caught.value.__cause__)
@@ -164,7 +164,7 @@ def test_balanced_free_source_response_keeps_canonical_recovery():
 
 
 def test_cancellation_and_phase_library_resource_refusal():
-    from anysolver import CancellationToken, SolveCancelled, ResourceConfig
+    from anyfesolver import CancellationToken, SolveCancelled, ResourceConfig
     token = CancellationToken()
     token.cancel("before app capture")
     with pytest.raises(SolveCancelled):

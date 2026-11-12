@@ -250,7 +250,7 @@ def test_the_contact_history_lines_up_with_the_steps(struck):
 
 
 def test_the_penalty_is_taken_from_the_solver_recommendation(struck):
-    from anysolver import recommend_sphere_contact_penalty
+    from anyfesolver import recommend_sphere_contact_penalty
 
     project, mesh, solution = struck
     used = solution.info["contact"].penalty_stiffness

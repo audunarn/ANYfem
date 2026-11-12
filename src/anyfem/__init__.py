@@ -1,7 +1,7 @@
 """ANYfem -- a shell and beam finite element application.
 
 Geometry modelling, mapped meshing, loads and boundary conditions, solving and
-postprocessing, built on ``anysolver`` for analysis and ``any3dview`` for the
+postprocessing, built on ``anyfesolver`` for analysis and ``any3dview`` for the
 renderer-neutral viewport contract.
 
 Modelling is bottom-up and point-driven::
@@ -150,7 +150,7 @@ from .solve import (
     solve_transient,
 )
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 __all__ = [
     "LinearStaticBatchResult",

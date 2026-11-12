@@ -186,7 +186,7 @@ class FloatingTransientRun(QThread):
 
     def __init__(self, function, kwargs, parent=None):
         super().__init__(parent)
-        from anysolver import CancellationToken
+        from anyfesolver import CancellationToken
         self.function, self.kwargs, self.cancelled = function, dict(kwargs), False
         self.token = CancellationToken()
 

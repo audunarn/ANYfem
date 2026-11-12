@@ -89,8 +89,8 @@ def test_curved_point_patch_exact_mesh_preview_numbering_and_reopen(published_pa
     assert evidence["quality"]["num_shell_elements"] == len(child.shells)
     measured, = evidence["sizing"][str(face)]["point_zones"]
     assert measured["min_longest_edge"] == min(achieved) and measured["requested_size"] == zone.size
-    from anysolver.assembly import compute_reactions
-    from anysolver.matrix_assembly import assemble_load_vector
+    from anyfesolver.assembly import compute_reactions
+    from anyfesolver.matrix_assembly import assemble_load_vector
 
     built = build_fe_model(session.project, child)
     solved = solve_linear_static(built=built)

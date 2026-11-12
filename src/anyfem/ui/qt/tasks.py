@@ -601,7 +601,7 @@ class SolveTask(QWidget):
         self.output_section.addWidget(self.output_requests);layout.addWidget(self.output_section)
         self._output_request_signature=None
         resources=Collapsible("Solver resources",hint="Thread limits for the native solver.")
-        from anysolver import ResourceConfig
+        from anyfesolver import ResourceConfig
         self.use_resources=QCheckBox("Use explicit solver resource policy");resources.addWidget(self.use_resources)
         import os
         gui_threads=min(2,max(1,(os.cpu_count() or 2)-1))
@@ -643,7 +643,7 @@ class SolveTask(QWidget):
             parameters=[(key,annotation,"transformation" if key=="constraint_mode" else default)
                         for key,annotation,default in parameters]
         if name in {"Nonlinear static","Arc length","Capacity"}:
-            from anysolver import solve_static_nonlinear,solve_static_arc_length
+            from anyfesolver import solve_static_nonlinear,solve_static_arc_length
             signature=inspect.signature(solve_static_arc_length if name=="Arc length" else solve_static_nonlinear)
             wanted={"max_iterations","tolerance","num_layers","min_step_fraction","arc_tolerance","kinematics","corotational_tangent"}
             if name=="Arc length":wanted.discard("min_step_fraction")
@@ -654,11 +654,11 @@ class SolveTask(QWidget):
         self.controls=OptionForm(parameters);self.controls_layout.addWidget(self.controls);self.record_controls={}
         records={}
         if name=="Arc length":
-            from anysolver import ArcLengthControl
+            from anyfesolver import ArcLengthControl
             records["control"]=ArcLengthControl
         if name=="Impact":
             from ...model.collision import Collision
-            from anysolver import SphereContactConfig
+            from anyfesolver import SphereContactConfig
             records.update(collision=Collision,contact=SphereContactConfig)
         for key,record in records.items():
             self.controls_layout.addWidget(QLabel(key.capitalize()))
@@ -703,7 +703,7 @@ class SolveTask(QWidget):
                    else [case for case in self.app.project.load_cases.values() if not case.is_template])
             options.setdefault('load_cases',[case.name for case in cases])
         if self.use_resources.isChecked():
-            from anysolver import ResourceConfig
+            from anyfesolver import ResourceConfig
             key="resources" if self.analysis.currentText() in {"Nonlinear static","Capacity"} else "resource_config"
             raw=options.get(key)
             options[key]=ResourceConfig(**raw) if isinstance(raw,dict) else raw or ResourceConfig(**self.resources.values())

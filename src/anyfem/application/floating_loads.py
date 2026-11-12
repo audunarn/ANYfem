@@ -23,7 +23,7 @@ class FloatingLoadError(ValueError):
 
 
 def _fr():
-    from anysolver import floating_response
+    from anyfesolver import floating_response
     return floating_response
 
 

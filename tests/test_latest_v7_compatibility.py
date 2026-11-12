@@ -12,7 +12,7 @@ import pytest
 from anygeometry import EntityRef, GeometryModel, extract_model_closure
 from anygeometry.serialization import to_dict as geometry_to_dict
 from anymesher.hybrid import generate_hybrid_mesh
-from anysolver import audit_constraints
+from anyfesolver import audit_constraints
 
 from anyfem import Project, ProjectError, steel
 from anyfem.document import DocumentSession

@@ -4,7 +4,7 @@ The posed hull (world = Q0 x_body + t) is clipped at z_world=0 by ``anygeometry.
 independent, budgeted plate panelisation (``anymesher.floating_source_mesh``) that does NOT depend on the structural
 mesh; the TARGET manifest is the structural wet cells.  Mapping keeps the actual overlap POLYGONS (source panel x target
 cell); ``map_pressure_nodal`` integrates the element's own pressure virtual work over each physical region through the
-solver owner (``anysolver.floating_pressure_regions``), so dry portions never load and force, moment and native S3 rotational
+solver owner (``anyfesolver.floating_pressure_regions``), so dry portions never load and force, moment and native S3 rotational
 work follow the actual shape functions.  No averaging, no nearest panel, no global rescale.
 """
 from __future__ import annotations
@@ -246,8 +246,8 @@ def _scatter(nodal, node_row, rv):
 
 def map_pressure_nodal(fe_model, node_ids, target: TargetCells, omap: OverlapMap, source_pressure, kernel_proof=None):
     """Mapped source-panel pressure as consistent nodal (n,6) vectors: element pressure work over each overlap region.
-    ``kernel_proof``: caller-owned (job-lifetime) dict for the owner element-kernel equivalence proof (see ANYsolver)."""
-    from anysolver.floating_pressure_regions import region_nodal_vectors
+    ``kernel_proof``: caller-owned (job-lifetime) dict for the owner element-kernel equivalence proof (see ANYfeSolver)."""
+    from anyfesolver.floating_pressure_regions import region_nodal_vectors
     p = np.asarray(source_pressure)
     row = {int(n): i for i, n in enumerate(node_ids)}
     nodal = np.zeros((len(node_ids), 6), dtype=p.dtype)
@@ -261,7 +261,7 @@ def map_pressure_nodal(fe_model, node_ids, target: TargetCells, omap: OverlapMap
 
 def wet_region_nodal(fe_model, node_ids, target: TargetCells, pose: MeanPose, magnitude_world, kernel_proof=None):
     """Direct field on the mean WET region of each element: ``magnitude_world(points_world) -> (m,)`` (affine hydrostatics)."""
-    from anysolver.floating_pressure_regions import region_nodal_vectors
+    from anyfesolver.floating_pressure_regions import region_nodal_vectors
     row = {int(n): i for i, n in enumerate(node_ids)}
     probe = np.asarray(magnitude_world(np.zeros((1, 3))))
     nodal = np.zeros((len(node_ids), 6), dtype=probe.dtype)

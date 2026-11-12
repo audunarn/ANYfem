@@ -939,7 +939,7 @@ def stage_solid_submodel_run(snap: Any, parent: Any, definition: SolidSubmodelDe
     import anysolid
     from anymesher.structured_box import generate_structured_box_mesh
     from anymesher.volume import VolumeMeshError, VolumeMeshingCancelled
-    from anysolver.solid_submodel import SolidSubmodelCancelled, SolidSubmodelError, solve_shell_driven_solid
+    from anyfesolver.solid_submodel import SolidSubmodelCancelled, SolidSubmodelError, solve_shell_driven_solid
 
     try:
         region = analysis.detail.solid_region_snapshot(analysis.region_id)

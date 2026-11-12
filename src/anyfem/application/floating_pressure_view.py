@@ -31,7 +31,7 @@ def _validate_current_inputs(history, project, mesh) -> None:
 def _context(history, project, mesh):
     """Uncached inspection context (defensive, small scope): validated inputs, recovered record, mean wet regions."""
     _validate_current_inputs(history, project, mesh)
-    from anysolver import floating_response as fr
+    from anyfesolver import floating_response as fr
     prepared = recover_prepared(history.payload)
     st = prepared.settings
     rec = prepared.pose

@@ -205,7 +205,7 @@ def test_supports_do_not_land_on_slaved_offset_nodes():
 # the built model and the solve
 # ----------------------------------------------------------------------
 def test_couplings_reach_the_solver_as_mpc_elements():
-    from anysolver import CoupledBeamShellElement
+    from anyfesolver import CoupledBeamShellElement
 
     from anyfem.solve.build import build_fe_model
 
@@ -286,8 +286,8 @@ def test_triangular_neutral_mesh_reaches_solver_shells():
 
 def test_interpolated_coupling_record_becomes_weighted_solver_mpc():
     from anymesher import Coupling, Mesh
-    from anysolver import FEModel
-    from anysolver.mesh_gen import InterpolatedBeamShellMPCElement
+    from anyfesolver import FEModel
+    from anyfesolver.mesh_gen import InterpolatedBeamShellMPCElement
 
     from anyfem.solve.build import _add_couplings
 
@@ -331,7 +331,7 @@ def test_identical_shared_station_couplings_make_one_solver_mpc_element():
     """Adjacent stiffener spans may repeat their common end-station record."""
 
     from anymesher import Coupling, Mesh
-    from anysolver import CoupledBeamShellElement, FEModel
+    from anyfesolver import CoupledBeamShellElement, FEModel
 
     from anyfem.solve.build import _add_couplings
 
@@ -363,7 +363,7 @@ def test_identical_shared_station_couplings_make_one_solver_mpc_element():
 
 def test_conflicting_shared_station_couplings_are_refused_concisely():
     from anymesher import Coupling, Mesh
-    from anysolver import FEModel
+    from anyfesolver import FEModel
 
     from anyfem.model.project import ProjectError
     from anyfem.solve.build import _add_couplings
@@ -550,7 +550,7 @@ def test_a_hardening_material_makes_the_solve_inelastic():
 # fracture
 # ----------------------------------------------------------------------
 def test_fracture_builds_the_solver_configuration():
-    from anysolver import FractureConfig
+    from anyfesolver import FractureConfig
 
     config = fracture(0.15)
     assert isinstance(config, FractureConfig)

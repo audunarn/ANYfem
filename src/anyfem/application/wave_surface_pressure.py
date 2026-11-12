@@ -2,7 +2,7 @@
 
 Adopted physics (z relative to the mean waterline, eta/pd incident+diffraction, components summed BEFORE the
 wet/dry operation) lives in ``anyloads.wave_surface_pressure``; clipping in ``anygeometry``; consistent partial
-region integration in ``anysolver.pressure_regions``; retained same-solution fields in
+region integration in ``anyfesolver.pressure_regions``; retained same-solution fields in
 ``anyhydro.wave_surface_fields``.  This module only binds them to the admitted 60 m barge:
 
 * the BEM source (236 submerged panels, old 5-surface domain) is unchanged;
@@ -83,7 +83,7 @@ class SurfaceTarget:
 
 def _minimal_fe_model(project,mesh):
     """The project's ACTUAL shell formulations on the mesh nodes (existing builder helpers); no loads, no stiffness."""
-    from anysolver import FEModel
+    from anyfesolver import FEModel
     from ..solve.build import _add_shells
     fe=FEModel(name=project.name)
     for specification in project.materials.values():fe.register_material(specification.build())
@@ -125,7 +125,7 @@ class SurfaceJob:
     def elements(self):
         """(mesh, elements, kernels, areas, corner_areas) from the actual admitted formulations."""
         if self._elements is None:
-            from anysolver.pressure_regions import element_kernel
+            from anyfesolver.pressure_regions import element_kernel
             fe=_minimal_fe_model(self.project,self.mesh)
             elements=[fe.mesh.get_element(int(e)) for e in self.target.element_ids]
             if any(e is None for e in elements):raise SurfaceTargetError('target element has no solver element')
@@ -214,11 +214,11 @@ class FrameLoads:
 
 
 def frame_loads(project,mesh,history,time,job=None):
-    """Equivalent loads of one frame through ANYsolver's consistent partial-region integration.
+    """Equivalent loads of one frame through ANYfeSolver's consistent partial-region integration.
 
     The ONLY integration route: Apply/assembly, preview resultants and inspection all report these numbers.
     """
-    from anysolver.pressure_regions import wet_region_load
+    from anyfesolver.pressure_regions import wet_region_load
     if not is_surface_history(history):raise SurfaceTargetError('wave surface history required')
     job=resolve_job(project,mesh,job,history.target_sha256);target=job.target
     if tuple(history.element_ids)!=target.element_ids or tuple(history.element_corners)!=target.element_corners:

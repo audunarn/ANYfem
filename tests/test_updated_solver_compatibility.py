@@ -9,7 +9,7 @@ from anyfem.io.project_file import project_to_dict
 from anyfem.native_meshing import NativeMeshSettings
 from anyfem.post.fields import evaluate_field
 from anyfem.solve.build import build_fe_model
-from anysolver import CancellationToken, SolveCancelled, QUALIFIED_Q4_FORMULATION_ID, S3_V2D_FORMULATION_ID
+from anyfesolver import CancellationToken, SolveCancelled, QUALIFIED_Q4_FORMULATION_ID, S3_V2D_FORMULATION_ID
 
 
 def _panel(*, triangles=False, plastic=False, force=None):
@@ -160,7 +160,7 @@ def test_q4_zero_plastic_hardening_material_uses_the_same_elastic_law():
 
 
 def test_updated_plastic_q4_warped_reference_refuses_without_fallback_or_project_mutation():
-    from anysolver._q4_assumed_strain_plasticity import UnsupportedQ4PlasticRouteError
+    from anyfesolver._q4_assumed_strain_plasticity import UnsupportedQ4PlasticRouteError
 
     project, mesh, _ = _panel(plastic=True)
     before = deepcopy(project_to_dict(project))

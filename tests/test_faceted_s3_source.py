@@ -7,8 +7,8 @@ from anyfem import pinned, solve_linear_static
 from anyfem.io.project_file import load_project
 from anyfem.model.formulations import ShellFormulationPolicy
 from anyfem.solve.build import build_fe_model
-from anysolver.assembly import compute_reactions
-from anysolver.matrix_assembly import assemble_load_vector
+from anyfesolver.assembly import compute_reactions
+from anyfesolver.matrix_assembly import assemble_load_vector
 from test_mesh_general_update import panel
 
 

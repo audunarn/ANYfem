@@ -1,8 +1,8 @@
 # Default result processing
 
-ANYfem 0.4.2 requires ANYpost 0.1.2, ANYsolver-results 2.1.1, ANYmesher 0.5.1 and, for the desktop viewers, ANY3dView 0.5.6. The normal result workflow uses ANYpost; the archive demonstration remains an additional entry point.
+ANYfem 0.4.3 requires ANYpost 0.1.3, ANYfeSolver-results 2.2.0, ANYmesher 0.5.1 and, for the desktop viewers, ANY3dView 0.5.6. The normal result workflow uses ANYpost; the archive demonstration remains an additional entry point.
 
-`post.access.ShapeProvider` extracts actual source displacement and recovered components through existing owner APIs. `LiveResultAccess` retains one query session per result revision, with an aggregate 2 GiB LRU budget. Public `evaluate_field` still observes mutable legacy shapes on each independent call. Generic native-sample reductions and envelopes run in ANYpost. Shell membrane/bending surface pairs use `anysolver_results.shell_surface_component`; ANYfem does not introduce stress equations.
+`post.access.ShapeProvider` extracts actual source displacement and recovered components through existing owner APIs. `LiveResultAccess` retains one query session per result revision, with an aggregate 2 GiB LRU budget. Public `evaluate_field` still observes mutable legacy shapes on each independent call. Generic native-sample reductions and envelopes run in ANYpost. Shell membrane/bending surface pairs use `anyfesolver_results.shell_surface_component`; ANYfem does not introduce stress equations.
 
 The 128 MiB working limit covers query snapshots, extraction, reductions and display conversions. Source mechanical recovery has a separate memory cost: its retained arrays and containers are charged to the application cache after recovery; its execution workspace and the model itself remain source/RSS costs. This limit is not a bound on the whole solver process.
 

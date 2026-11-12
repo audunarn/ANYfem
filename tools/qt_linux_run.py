@@ -24,7 +24,7 @@ def main():
               "platform": platform.platform(), "python": sys.version,
               "physical_linux_gpu_acceptance": False, "packages": {}}
     for distribution, module in (("ANYfem", "anyfem"), ("ANYgeometry", "anygeometry"),
-                                 ("ANYmesher", "anymesher"), ("ANYsolver", "anysolver"),
+                                 ("ANYmesher", "anymesher"), ("ANYfeSolver", "anyfesolver"),
                                  ("ANY3dView", "any3dview"), ("PySide6", "PySide6")):
         report["packages"][distribution] = {"version": metadata.version(distribution),
                                            "origin": import_module(module).__file__}
