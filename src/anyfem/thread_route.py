@@ -488,6 +488,13 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         return cached
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
     outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
+    if outcome.status == OK and lock.is_file():
+        try:
+            pinned = json.loads(lock.read_bytes()).get("python_version_full")
+        except (OSError, ValueError):
+            pinned = None
+        if pinned is not None and pinned != ((outcome.body or {}).get("health") or {}).get("version_full"):
+            outcome.status, outcome.reason = UNAVAILABLE, "runtime.lock.json pins a different interpreter build"
     if outcome.status == OK and (outcome.body or {}).get("smoke") != _batch_prepare.SMOKE_DIGEST:
         outcome.status, outcome.reason = UNAVAILABLE, "smoke digest mismatch"
     if outcome.status in (OK, UNAVAILABLE):
@@ -571,7 +578,17 @@ def _same_file(first, second) -> bool:
         return False
 
 
-def _check_runtime(body: dict, python: Optional[Path] = None) -> str:
+def _identity_of(health_body: Optional[dict]) -> Optional[dict]:
+    """Interpreter identity the health check measured for this runtime (full ``sys.version`` incl. build/compiler)."""
+    health = (health_body or {}).get("health")
+    if not isinstance(health, dict):
+        return None
+    keys = ("version_full", "cache_tag", "executable")
+    return {key: health.get(key) for key in keys} if all(isinstance(health.get(key), str) for key in keys) else None
+
+
+def _check_runtime(body: dict, python: Optional[Path] = None, route: Optional[list] = None,
+                   identity: Optional[dict] = None) -> str:
     """Per-job wrong-runtime exclusion for EVERY planning answer (plan or refusal): GIL off, NumPy pin, free-threaded
     build, interpreter identity, and a digest over the anygeometry files the child actually loaded.  Returns a reason or ""."""
     import anygeometry
@@ -586,6 +603,12 @@ def _check_runtime(body: dict, python: Optional[Path] = None) -> str:
     if (not isinstance(version, str) or not version.startswith(EXPECT_VERSION_PREFIX) or tag != EXPECT_CACHE_TAG
             or not isinstance(executable, str) or (python is not None and not _same_file(executable, python))):
         return "unexpected interpreter identity (version %r, cache tag %r, executable %r)" % (version, tag, executable)
+    if identity is not None and {key: health.get(key) for key in identity} != identity:
+        return "unexpected interpreter identity: not the build that passed the health check"
+    if body.get("gil_final") is not False:
+        return "the GIL was enabled (or not reported) after planning"
+    if route is not None and body.get("route") != route:
+        return "planning configuration differs from this application's (child %r, parent %r)" % (body.get("route"), route)
     modules = body.get("modules")
     if (not isinstance(modules, list) or not modules or not all(isinstance(name, str) for name in modules)):
         return "child reported no loaded-module list"
@@ -598,11 +621,12 @@ def _check_runtime(body: dict, python: Optional[Path] = None) -> str:
     return ""
 
 
-def _check_plan_body(body: dict, python: Optional[Path] = None) -> tuple:
+def _check_plan_body(body: dict, python: Optional[Path] = None, route: Optional[list] = None,
+                     identity: Optional[dict] = None) -> tuple:
     """Validate the child's ok body.  Returns (packet bytes, "") or (None, reason)."""
     import base64
     import binascii
-    problem = _check_runtime(body, python)
+    problem = _check_runtime(body, python, route, identity)
     if problem:
         return None, problem
     try:
@@ -637,6 +661,10 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     adoption = _adoption_api()
     if adoption is None:
         return _unavailable("this ANYgeometry offers no verified plan adoption API; running serially")
+    try:
+        parent_route = _batch_prepare.resolved_route()
+    except GeometryError as exc:  # the serial path reports the invalid planning configuration itself
+        return _unavailable("planning configuration is invalid in this process: %s" % exc)
     declined = _declined_before_spawn(adoption, geometry, operands)
     if declined:
         return _unavailable("plan adoption declines this model before any child is spawned (%s)" % declined)
@@ -672,7 +700,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     last_outcome = outcome
     last_adoption = {}
     if outcome.status == REFUSAL:
-        problem = _check_runtime(outcome.body or {}, python)
+        problem = _check_runtime(outcome.body or {}, python, parent_route, _identity_of(health.body))
         if problem:  # a planning answer from a runtime we do not trust is not final either
             return _unavailable("invalid child refusal: %s" % problem, outcome)
         # A refusal is final only for the geometry it was computed on: if the parent changed meanwhile, the serial
@@ -687,7 +715,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     if outcome.status != OK:
         return _unavailable(outcome.reason or outcome.status, outcome)
     body = outcome.body or {}
-    packet, problem = _check_plan_body(body, python)
+    packet, problem = _check_plan_body(body, python, parent_route, _identity_of(health.body))
     if packet is None:
         return _unavailable("invalid child result: %s" % problem, outcome)
     adopted = {"plan": None}

@@ -26,6 +26,7 @@ __all__ = [
     "make_policy",
     "plan_apply_phase",
     "plan_only",
+    "resolved_route",
     "report_rows_phase",
     "rows_to_json",
 ]
@@ -71,6 +72,13 @@ def make_policy(cancellation_check=None) -> IntersectionBatchPolicy:
         return False
     return IntersectionBatchPolicy(ConnectionIntent.CONNECT,
         cancellation_check=None if cancellation_check is None else cancelled)
+
+
+def resolved_route() -> list:
+    """The planning mode and seam policy the OWNER resolves for this process (environment included), as strings."""
+    from anygeometry.batch_intersections import resolve_planning_mode, resolve_seam_policy
+    policy = make_policy(None)
+    return [str(resolve_planning_mode(policy)), str(resolve_seam_policy(policy))]
 
 
 def plan_only(geometry, operands):

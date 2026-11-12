@@ -86,7 +86,7 @@ def main(job_dir):
     batch = _load_batch_module()
     gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
     health = dict(numpy=numpy.__version__, gil_enabled=gil_enabled, anygeometry=anygeometry.__file__,
-                  version=sys.version.split()[0], cache_tag=sys.implementation.cache_tag,
+                  version=sys.version.split()[0], version_full=sys.version, cache_tag=sys.implementation.cache_tag,
                   gil_disabled_build=bool(sysconfig.get_config_var("Py_GIL_DISABLED")), executable=sys.executable)
     _emit(job_dir, "imports_done", **health)
 
@@ -94,7 +94,9 @@ def main(job_dir):
         """Loaded anygeometry modules and their digest, reported with every planning answer (plan or refusal)."""
         package_dir = os.path.dirname(os.path.abspath(anygeometry.__file__))
         modules = batch.loaded_modules(package_dir)
-        return dict(modules=modules, loaded_digest=batch.files_digest(package_dir, modules))
+        return dict(modules=modules, loaded_digest=batch.files_digest(package_dir, modules),
+                    gil_final=sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True,  # sampled AFTER planning
+                    route=batch.resolved_route())
 
     def unavailable(reason):
         _write_result(job_dir, job_id, "unavailable", dict(reason=reason, **health))

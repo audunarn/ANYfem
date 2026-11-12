@@ -154,14 +154,17 @@ STUB_PRELUDE = textwrap.dedent('''
 
 
 def valid_health():
-    return dict(numpy=tr.EXPECT_NUMPY, gil_enabled=False, gil_disabled_build=True, version="3.14.10",
-                cache_tag=tr.EXPECT_CACHE_TAG, executable=str(PYTHON))
+    """Exactly what the real runtime reports (the stub child stands in for a refusing planner on that runtime)."""
+    measured = tr.check_health(PYTHON)
+    assert measured.status == tr.OK
+    return dict(measured.body["health"])
 
 
 def valid_modules():
     import anygeometry
     package = Path(anygeometry.__file__).resolve().parent
-    return dict(modules=["errors.py"], loaded_digest=_batch_prepare.files_digest(package, ["errors.py"]))
+    return dict(modules=["errors.py"], loaded_digest=_batch_prepare.files_digest(package, ["errors.py"]),
+                gil_final=False, route=_batch_prepare.resolved_route())
 
 
 def stub(tmp_path, body: str) -> Path:
@@ -425,6 +428,10 @@ def _flip_packet(outcome, job, fix_hash=True):
     ("other-numpy-reported", lambda o, j: o.body["health"].update(numpy="2.0.0"), "NumPy"),
     ("not-a-free-threaded-build", lambda o, j: o.body["health"].update(gil_disabled_build=False), "free-threaded"),
     ("other-loaded-code", lambda o, j: o.body.update(loaded_digest="0" * 64), "different anygeometry code"),
+    ("other-build-same-version", lambda o, j: o.body["health"].update(version_full="3.14.10 (another build)"),
+     "interpreter identity"),
+    ("gil-enabled-after-planning", lambda o, j: o.body.update(gil_final=True), "after planning"),
+    ("planning-configuration-differs", lambda o, j: o.body.update(route=["other", "route"]), "planning configuration differs"),
     ("module-list-with-escape", lambda o, j: o.body.update(modules=["../secret.py"]), "digest could not be recomputed"),
     ("module-list-empty", lambda o, j: o.body.update(modules=[]), "loaded-module list"),
     ("packet-not-base64", lambda o, j: o.body.update(packet="***"), "base64"),
@@ -478,6 +485,21 @@ def test_child_refusal_of_a_stale_job_is_not_final_serial_decides_on_the_current
         prepare_structural_connectivity(model)
     assert serial_calls == [1] and tr.last_outcome.status == tr.UNAVAILABLE and "stale" in tr.last_outcome.reason
     assert list(jobs_dir.iterdir()) == []
+
+
+def test_invalid_planning_configuration_in_the_parent_never_spawns_a_child(route_on, monkeypatch):
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned despite an invalid planning configuration"))
+    monkeypatch.setattr(_batch_prepare, "resolved_route", lambda: (_ for _ in ()).throw(GeometryError("bad planning mode")))
+    model = crossing()
+    assert tr.try_prepare(model, tuple(model.handle("face", i) for i in sorted(model.faces))) is None
+    assert "planning configuration is invalid" in tr.last_outcome.reason
+
+
+@needs_runtime
+def test_runtime_lock_can_pin_the_interpreter_build(route_on, jobs_dir, tmp_path):
+    lock = tmp_path / "runtime.lock.json"
+    lock.write_text(json.dumps({"python_version_full": "3.14.0 (a different build)"}))
+    assert_serial_fallback(crossing, jobs_dir, "different interpreter build", lock_path=lock)
 
 
 @needs_runtime
@@ -657,6 +679,10 @@ def test_typed_refusal_is_reported_as_serial_would_and_not_retried(route_on, job
 @pytest.mark.parametrize("name, body_change, part", [
     ("gil-on", lambda b: b["health"].update(gil_enabled=True), "GIL-disabled"),
     ("other-version", lambda b: b["health"].update(version="3.13.1"), "interpreter identity"),
+    ("other-build-same-version", lambda b: b["health"].update(version_full=b["health"]["version_full"] + " [other build]"),
+     "interpreter identity"),
+    ("gil-enabled-after-planning", lambda b: b.update(gil_final=True), "after planning"),
+    ("planning-configuration-differs", lambda b: b.update(route=["other", "route"]), "planning configuration differs"),
     ("other-code", lambda b: b.update(loaded_digest="0" * 64), "different anygeometry code"),
     ("no-modules", lambda b: b.pop("modules"), "loaded-module list"),
 ])
