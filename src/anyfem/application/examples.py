@@ -1,6 +1,8 @@
 """Editable teaching models built with public owner APIs, without UI imports."""
 from dataclasses import dataclass
 
+import numpy as np
+
 from anygeometry.entities import EntityRef, OrientedEdge
 from anygeometry.operations import trim_face
 from anygeometry.surfaces import Plane
@@ -124,6 +126,10 @@ def floating_barge_section(
     openings: tuple[BulkheadOpening, ...] = (),
     opening_bar: tuple[float, float] = BARGE_LARGE_OPENING_BAR,
     bulkhead_stiffener: tuple[float, float, float, float] | None = None,
+    bulkhead_stiffener_splits: dict[tuple[float, float], tuple[float, ...]] | None = None,
+    longitudinal_stiffener_splits: dict[tuple[str, float], tuple[float, ...]] | None = None,
+    shell_deck_longitudinals: tuple[float, ...] = (),
+    shell_mount_charts: bool = False,
     stress_scale: float = BARGE_LINEAR_STRESS_SCALE,
     target_size: float = .7,
     name: str = "Floating barge — midship section",
@@ -154,6 +160,11 @@ def floating_barge_section(
     The defaults are the 5 m example.
     """
 
+    if shell_mount_charts and (
+            (length,breadth,depth) != (5.,11.,2.5) or tuple(bulkheads) != (2.5,)
+            or tuple(girders) != (0.,4.) or openings or centerline_bulkhead
+            or stiffener_spacing != .7):
+        raise ValueError("The shell mounting charts are defined for the 5 × 11 × 2.5 m example geometry")
     if end_loading not in BARGE_END_LOADINGS:
         raise ValueError(f"end_loading must be one of {', '.join(BARGE_END_LOADINGS)}")
     if min(length, breadth, depth, stiffener_spacing, target_size, *plate_thicknesses) <= 0.:
@@ -206,22 +217,64 @@ def floating_barge_section(
             positions[0], positions[1]-positions[0], positions[3]-positions[0]))
         faces.setdefault(name, []).append(EntityRef("face", identifier))
 
+    def mount_charts(name, stations, point, *, reverse=False, divided_top=False, levels=None, start_stations=()):
+        # Only the middle bays host the two local bracket details. Both end
+        # edges of the deck remain continuous load/support entities.
+        transverse = levels or (-half_breadth, -4.1, -3.4, 3.6, 4.3, half_breadth)
+        for index,(u0,u1) in enumerate(zip(stations,stations[1:])):
+            divided = 0 < index < len(stations)-2 or (divided_top and index == len(stations)-2)
+            ys_here = transverse if divided else (transverse[0], transverse[-1])
+            for y0,y1 in zip(ys_here,ys_here[1:]):
+                cross = [t for t in transverse if y0 <= t <= y1]
+                right = cross if index < len(stations)-2 else [y0,y1]
+                left = cross[::-1] if index else [y1,*sorted(start_stations,reverse=True),y0]
+                if name == "Transverse bulkhead" and (y0,y1) == (-3.4,3.6):
+                    # Half-pitch stations meet the adjacent local bays while
+                    # the seven-metre central plate keeps its coarse target.
+                    if u1 == 1.55:
+                        right = [y0,-3.05,3.25,y1]
+                    if u0 == 1.55:
+                        left = [y1,3.25,-3.05,y0]
+                ring = [point(u0,y0),*(point(u1,t) for t in right),*(point(u0,t) for t in left[:-1])]
+                if reverse:
+                    ring = [ring[0],*ring[:0:-1]]
+                logical = [point(u0,y0),point(u1,y0),point(u1,y1),point(u0,y1)]
+                if reverse:
+                    logical = [logical[0],*logical[:0:-1]]
+                loop = tuple(edge(a,b) for a,b in zip(ring,ring[1:]+ring[:1]))
+                a,b,_,d=map(np.asarray,logical)
+                fid=geometry.add_face_from_loop(loop,tuple(ring.index(p) for p in logical),
+                                                 surface=Plane(a,b-a,d-a))
+                faces.setdefault(name,[]).append(EntityRef("face",fid))
+
     # Plates are physical surfaces, not a grid of reinforcement bays. Beam
     # intersections retain their own topology and declared surface attachments.
     opening_edges = []  # (bulkhead name, edge) of every opening side, one flat bar each
     opening_vertices = set()
     with geometry.transaction():
-        plate("Deck", ((0.,-half_breadth,depth),(end_x,-half_breadth,depth),
-                       (end_x,half_breadth,depth),(0.,half_breadth,depth)))
+        if shell_mount_charts:
+            mount_charts("Deck",(0.,1.4,2.15,3.55,4.3,end_x),lambda x,y:(x,y,depth))
+        else:
+            plate("Deck", ((0.,-half_breadth,depth),(end_x,-half_breadth,depth),
+                           (end_x,half_breadth,depth),(0.,half_breadth,depth)))
         plate("Bottom", ((0.,-half_breadth,0.),(0.,half_breadth,0.),
                          (end_x,half_breadth,0.),(end_x,-half_breadth,0.)))
-        plate("Port side", ((0.,-half_breadth,0.),(end_x,-half_breadth,0.),
-                            (end_x,-half_breadth,depth),(0.,-half_breadth,depth)))
-        plate("Starboard side", ((0.,half_breadth,0.),(0.,half_breadth,depth),
-                                 (end_x,half_breadth,depth),(end_x,half_breadth,0.)))
+        if shell_mount_charts:
+            for side, y, reverse in (("Port side",-half_breadth,False),("Starboard side",half_breadth,True)):
+                mount_charts(side,(0.,1.4,2.15,3.55,4.3,end_x),lambda x,z:(x,y,z),
+                             levels=(0.,1.4,2.1,depth),reverse=reverse)
+        else:
+            plate("Port side", ((0.,-half_breadth,0.),(end_x,-half_breadth,0.),
+                                (end_x,-half_breadth,depth),(0.,-half_breadth,depth)))
+            plate("Starboard side", ((0.,half_breadth,0.),(0.,half_breadth,depth),
+                                     (end_x,half_breadth,depth),(end_x,half_breadth,0.)))
         for x, bulkhead in bulkhead_names.items():
-            plate(bulkhead, ((x,-half_breadth,0.),(x,half_breadth,0.),
-                             (x,half_breadth,depth),(x,-half_breadth,depth)))
+            if shell_mount_charts:
+                mount_charts(bulkhead,(0.,.95,1.55,depth),lambda z,y:(x,y,z),reverse=True,divided_top=True,
+                             start_stations=(-5.15,))
+            else:
+                plate(bulkhead, ((x,-half_breadth,0.),(x,half_breadth,0.),
+                                 (x,half_breadth,depth),(x,-half_breadth,depth)))
             holes = []
             for opening in openings:
                 y0, y1 = opening.y - opening.width/2., opening.y + opening.width/2.
@@ -256,7 +309,7 @@ def floating_barge_section(
                         for z in (0.,depth))
         geometry.add_to_group(USER_POINT_GROUP, corners)
         part = geometry.add_part(name="Barge midship section")
-        sheets = {name: geometry.add_sheet((refs[0].id,), part_id=part, name=name)
+        sheets = {name: geometry.add_sheet(tuple(ref.id for ref in refs), part_id=part, name=name)
                   for name,refs in faces.items()}
 
     def region(name, refs, kind):
@@ -276,6 +329,9 @@ def floating_barge_section(
         first, last = geometry.edges[chain[0].edge], geometry.edges[chain[-1].edge]
         endpoints = (first.start if chain[0].forward else first.end,
                      last.end if chain[-1].forward else last.start)
+        if len(faces[surface]) > 1:
+            middle = np.mean([geometry.vertex_position(v) for v in endpoints],axis=0)
+            face_id = min((ref.id for ref in faces[surface]),key=lambda f: geometry.project_to_face(f,middle)[2])
         samples = [geometry.project_to_face(face_id, geometry.vertex_position(identifier))
                    for identifier in endpoints]
         if any(distance > 1.e-9 for _,_,distance in samples):
@@ -296,8 +352,14 @@ def floating_barge_section(
     all_stiffeners, all_girders = [], []
     girder_stations = tuple(float(x) for x in girders)
     for surface, stations, point, inward in surfaces:
-        stiffener_chains = [tuple(edge(point(a,s),point(b,s)) for a,b in zip(xs,xs[1:]))
-                            for s in stations[1:-1]]
+        stiffener_chains = []
+        for s in stations[1:-1]:
+            if surface == "Deck" and s in shell_deck_longitudinals:
+                continue
+            local_xs = sorted({*xs, *(longitudinal_stiffener_splits or {}).get((surface, s), ())})
+            if shell_mount_charts and surface in ("Deck","Port side","Starboard side"):
+                local_xs = sorted({*local_xs, 1.4, 2.15, 3.55, 4.3})
+            stiffener_chains.append(tuple(edge(point(a,s),point(b,s)) for a,b in zip(local_xs,local_xs[1:])))
         girder_chains = [tuple(edge(point(x,a),point(x,b)) for a,b in zip(stations,stations[1:]))
                          for x in girder_stations]
         stiffeners = [EntityRef("edge", use.edge) for chain in stiffener_chains for use in chain]
@@ -310,6 +372,21 @@ def floating_barge_section(
                 web_height=h, web_thickness=tw, flange_width=b, flange_thickness=tf,
                 web_direction=inward, offset_mode="automatic")))
             chains = stiffener_chains if kind == "stiffeners" else girder_chains
+            if len(faces[surface]) > 1:
+                # Each segment has one complete, unambiguous material-chart
+                # attachment. Shared topology keeps the beam runs continuous.
+                charts = []
+                for chain in chains:
+                    groups = []
+                    for use in chain:
+                        e = geometry.edges[use.edge]
+                        mid = (geometry.vertex_position(e.start)+geometry.vertex_position(e.end))*.5
+                        fid = min((r.id for r in faces[surface]),key=lambda f:geometry.project_to_face(f,mid)[2])
+                        if not groups or groups[-1][0] != fid:
+                            groups.append((fid,[]))
+                        groups[-1][1].append(use)
+                    charts.extend(tuple(items) for _,items in groups)
+                chains=charts
             members = [geometry.add_member(chain, part_id=part, name=f"{name} {index}")
                        for index,chain in enumerate(chains, 1)]
             project.assign_beam_region(region(name, refs, "edge"), name)
@@ -351,10 +428,13 @@ def floating_barge_section(
         refs = []
         for x, bulkhead in bulkhead_names.items():
             for y in clear:
-                chain = (edge((x,y,0.), (x,y,2.5)),)
+                if bulkhead_stiffener_splits is not None and (x, y) not in bulkhead_stiffener_splits:
+                    continue
+                zs_on_member = (0., *(bulkhead_stiffener_splits or {}).get((x, y), ()), depth)
+                chain = tuple(edge((x, y, a), (x, y, b)) for a, b in zip(zs_on_member, zs_on_member[1:]))
                 member = geometry.add_member(chain, part_id=part, name=f"{stiffener} X = {x:g} m Y = {y:g} m")
                 attach(member, chain, bulkhead)
-                refs.append(EntityRef("edge", chain[0].edge))
+                refs.extend(EntityRef("edge", item.edge) for item in chain)
         project.assign_beam_region(region(stiffener, refs, "edge"), stiffener)
     # Continuous surfaces no longer share a subdivided bulkhead boundary.
     # Declare the existing beam intersection points and bulkhead corners as
@@ -370,7 +450,8 @@ def floating_barge_section(
             targets = ["Bottom" if z == 0. else "Deck",
                        "Port side" if y < 0. else "Starboard side"]
         for target in targets:
-            face_id = faces[target][0].id
+            face_id = min((ref.id for ref in faces[target]), key=lambda f: geometry.project_to_face(
+                f, geometry.vertex_position(identifier))[2])
             _, uv, distance = geometry.project_to_face(face_id, geometry.vertex_position(identifier))
             if distance > 1.e-9:
                 raise ValueError("Barge joint point is outside its declared plate")
@@ -386,8 +467,8 @@ def floating_barge_section(
     moment = bending_moment if bending_moment is not None else barge_bending_moment(project, stress_scale)
     end_edges = {}
     for surface, sign in (("Deck", 1.), ("Bottom", -1.)):
-        face = geometry.faces[faces[surface][0].id]
-        loaded = [item.edge for item in face.loop
+        surface_faces = [geometry.faces[ref.id] for ref in faces[surface]]
+        loaded = [item.edge for face in surface_faces for item in face.loop
                   if geometry.vertex_position(geometry.edges[item.edge].start)[0]
                   == geometry.vertex_position(geometry.edges[item.edge].end)[0] == end_x]
         if len(loaded) != 1:

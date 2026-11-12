@@ -40,6 +40,13 @@ __all__ = [
 _DOF_INDEX = {"ux": 0, "uy": 1, "uz": 2, "rx": 3, "ry": 4, "rz": 5}
 
 
+def submitted_plate_thicknesses(built) -> dict[int, float]:
+    """Physical thickness in metres for the face assignments used in this solve."""
+    project = getattr(built, "project", None)
+    return {int(face): project.plate_sections[section].thickness
+            for face, section in getattr(project, "face_sections", {}).items()}
+
+
 @dataclass
 class ShapeView:
     """One displacement field over the model.
@@ -53,6 +60,14 @@ class ShapeView:
     built: BuiltModel
     label: str = "result"
     value: float = 0.0
+
+    def retained_stress_recovery(self, kind: str):
+        """Return a previously recovered stress bundle without invoking the solver."""
+        attributes = {"native": "_stress", "global": "_requested_global_stress",
+                      "patch": "_requested_patch_stress"}
+        if kind not in attributes:
+            raise ValueError(f"Unknown retained stress recovery {kind!r}")
+        return getattr(self, attributes[kind], None)
 
     # ------------------------------------------------------------------
     # displacement access
@@ -773,6 +788,22 @@ class TransientSolution(MultiShapeSolution):
     times: np.ndarray = field(default_factory=lambda: np.zeros(0))
     peak_displacement: float = 0.0
     peak_node: Optional[int] = None
+
+    def elastic_stress_frames(self) -> tuple[ShapeView, ...]:
+        """Full Newmark displacement states for linear elastic stress recovery."""
+        raw = self.info.get("raw")
+        times = np.asarray(self.times, dtype=float)
+        if self.status not in {"ok", "completed"}:
+            raise ValueError("Stress history requires a completed linear transient result.")
+        if (times.ndim != 1 or not len(times) or len(times) != len(self.shapes)
+                or not np.all(np.isfinite(times)) or np.any(np.diff(times) <= 0)):
+            raise ValueError("Stress recovery needs one strictly increasing time per stored frame.")
+        size = self.built.fe_model.mesh.dof_manager.total_dofs
+        if (getattr(raw, "history_storage_mode", "full") != "full"
+                or any(frame.built is not self.built or np.shape(frame.displacements) != (size,)
+                       for frame in self.shapes)):
+            raise ValueError("Select full displacement history for transient shell stress recovery.")
+        return tuple(self.shapes)
 
     def at_time(self, time: float) -> ShapeView:
         """The stored step nearest a given time."""

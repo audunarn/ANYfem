@@ -111,6 +111,8 @@ _SOURCE_PROJECTS = (
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
     ("ANYfeSolver", "anyfesolver", _ANYFESOLVER_PROJECT / "src"),
     ("ANYfeSolver-results", "anyfesolver_results", _ANYFESOLVER_PROJECT / "src"),
+    ("ANYfatigue", "anyfatigue", _WORKSPACE / "ANYfatigue" / "src"),
+    ("anytimes", "anyqats", _WORKSPACE / "ANYtimeseries"),
     ("ANYpost", "anypost", _ECOSYSTEM_WORKSPACE / "ANYpost" / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )

@@ -45,6 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fatigue = ["ANYfatigue>=0.1,<0.2"]
 solid = ["ANYsolid[skfem]>=0.1,<0.2"]
 post = ["ANYpost[results]>=0.1.3,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
@@ -92,6 +93,9 @@ Issues = "https://github.com/audunarn/ANYfem/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+anyfem = ["example_data/*.zip"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

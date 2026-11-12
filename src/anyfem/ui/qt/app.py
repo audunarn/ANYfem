@@ -629,6 +629,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         submodel_action.setToolTip("Cut a shell or solid submodel from a completed job, run it in the background and browse its runs")
         submodel_action.setStatusTip(submodel_action.toolTip())
         examples=self.menuBar().addMenu("Examples")
+        from .barge_fatigue_example import open_barge_fatigue_example
+        self._action(examples, "5 m barge — internal bracket weld fatigue…", lambda: open_barge_fatigue_example(self))
         action=self._action(examples,"Floating barge section…",self.open_barge_example)
         action.setToolTip("Create an S355 barge section: 700 mm stiffeners, 4000 mm girders, fixed end and bending load for approximately 200 MPa")
         action.setStatusTip(action.toolTip())
@@ -1194,6 +1196,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Results"].reset()
         self.panels["Visualization"].presentation_controls.close()
         self.close_result_access()
+        from .barge_fatigue_example import release_example_copy
+        release_example_copy(self)
         self.scheduler.close()
         self.worker.stop();self.workbench.close()
         self.workbench.remove_listener(self._on_workbench_event)

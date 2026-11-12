@@ -242,6 +242,11 @@ def result_artifact_payload(
     patch_stress = getattr(solution, "_requested_patch_stress", None)
     if patch_stress is not None:
         _add_patch_stresses(builder, (patch_stress,), _recovery_frames(patch_stress))
+    if "stress_global_xx_top" in builder.fields:
+        from ..post.results import submitted_plate_thicknesses
+        thicknesses = submitted_plate_thicknesses(solution.built)
+        if thicknesses:
+            builder.add_table("shell_face_thickness_m", thicknesses)
     outcome = _solution_outcome(solution, raw)
 
     resolved_solver_quantities = (
@@ -783,6 +788,10 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
         provenance={"load_cases": list(names), "shared_factorization": True},
     )
     builder.add_table("load_case_names", np.asarray(names, dtype=object))
+    cases = getattr(getattr(solution.built, "project", None), "load_cases", {})
+    if any(getattr(cases.get(name), "time", None) is not None for name in names):
+        builder.add_table("load_case_times_s", np.array(
+            [getattr(cases.get(name), "time", None) for name in names], dtype=float))
     recovered = tuple(getattr(shape, "_stress", None) for shape in shapes)
     if any(value is not None for value in recovered):
         builder.add_table("batch_stress_recovery", {
@@ -797,16 +806,30 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
             provenance={"load_cases": list(names), "shared_factorization": True,
                         "case_recovery": [_stress_provenance(value) for value in recovered]},
         )
+    _add_requested_surface_history(builder, shapes, names)
+
+
+def _add_requested_surface_history(builder, shapes, names=()):
     global_recovered = tuple(getattr(shape, "_requested_global_stress", None) for shape in shapes)
     if global_recovered and all(value is not None for value in global_recovered):
+        frames = []
+        for result in global_recovered:
+            shell_fields = {}
+            for eid, components in result.element_stresses.items():
+                fields = {k: v for k, v in components.items() if k in _GLOBAL_SURFACE_STRESSES}
+                if fields:
+                    shell_fields[eid] = fields
+            frames.append(shell_fields)
+        first = global_recovered[0].element_stresses
+        directors = {str(eid): _json_safe(first[eid]["physical_director"])
+                     for eid in frames[0] if "physical_director" in first[eid]}
+        if directors:
+            builder.add_table("shell_surface_directors", directors)
+        provenance = {"case_recovery": [_stress_provenance(value) for value in global_recovered]}
+        if names:
+            provenance["load_cases"] = list(names)
         _add_stress_history(
-            builder, tuple({element: {key: value for key, value in components.items()
-                                     if key in _GLOBAL_SURFACE_STRESSES}
-                            for element, components in result.element_stresses.items()}
-                           for result in global_recovered),
-            builder.frames, prefix="stress", recovery="recovered",
-            provenance={"load_cases": list(names),
-                        "case_recovery": [_stress_provenance(value) for value in global_recovered]},
+            builder, frames, builder.frames, prefix="stress", recovery="recovered", provenance=provenance,
         )
     patch_recovered = tuple(getattr(shape, "_requested_patch_stress", None) for shape in shapes)
     if patch_recovered and all(value is not None for value in patch_recovered):
@@ -969,6 +992,9 @@ def _adapt_transient(
     times = _time_values(solution, raw)
     builder.frames = times
     builder.frame_kind = "time"
+
+    if not impact:
+        _add_requested_surface_history(builder, getattr(solution, "shapes", ()))
 
     if raw is None:
         vectors = _stack_present(

@@ -780,6 +780,7 @@ class SolveTask(QWidget):
 class ResultsTask(QWidget):
     def __init__(self,app):
         super().__init__();self.app=app
+        self.fatigue_dialog=None
         self._display_source=None;self._selected_entry=None;self._quantity_component=None
         self._live_quantity_descriptors=();self._display_pending=False;self._syncing_controls=False
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
@@ -840,7 +841,7 @@ class ResultsTask(QWidget):
         self._preview_owner=None
         button_grid([("Inspect quantity / table",self.inspect_quantity),("Probe selection",self._probe),
                      ("Sample along selected line",self.along_line),("Plot history",self.history),
-                     ("Plot at selected point",self.history_at_selection)])
+                     ("Plot at selected point",self.history_at_selection),("Fatigue…",self.open_fatigue)])
         self.table=ResultTable();layout.addWidget(self.table)
         self.plot=HistoryPlot();layout.addWidget(self.plot)
         layout.addWidget(section_label("Export"))
@@ -911,6 +912,24 @@ class ResultsTask(QWidget):
 
     def use_retained(self):
         return self.app.solution is None or self._display_source=="retained"
+
+    def open_fatigue(self):
+        from ...application.fatigue import require_fatigue
+        from .fatigue import FatigueDialog
+        try:
+            require_fatigue()
+        except (ValueError, ImportError) as error:
+            self.report.setPlainText(str(error))
+            self.app.set_status(str(error), error=True)
+            return
+        if self.fatigue_dialog is None:
+            self.fatigue_dialog = FatigueDialog(self)
+            self.fatigue_dialog.finished.connect(lambda _: setattr(self, "fatigue_dialog", None))
+        self.fatigue_dialog.show()
+        self.fatigue_dialog.raise_()
+        self.fatigue_dialog.activateWindow()
+        self.fatigue_dialog.sync_source()
+        return self.fatigue_dialog
 
     def live_field_names(self):
         solution=self.app.solution
@@ -1323,6 +1342,8 @@ class ResultsTask(QWidget):
             raise
 
     def reset(self):
+        if self.fatigue_dialog is not None:
+            self.fatigue_dialog.close()
         self.stop_playback(clear_prepared=True)
         self._range_owner=None
         self._inspection_active=False

@@ -203,6 +203,7 @@ class QtViewport(SceneViewport):
         self._visibility_interaction_scene = None
         self._visibility_mesh = None
         self._visibility_job = None
+        self.displayed_result_identity = None
         self._window = parent
         self.sketcher=getattr(parent,"sketcher",None)
         self._sketch_timer=QTimer(self.widget);self._sketch_timer.setSingleShot(True);self._sketch_timer.timeout.connect(self.refresh_construction_overlay)
@@ -262,6 +263,9 @@ class QtViewport(SceneViewport):
             # Node/element IDs belong to one mesh/result realization.
             self.visibility.hidden={key for key in self.visibility.hidden if key[0] in {"vertex","edge","face","plane"}}
             self._visibility_mesh=mesh;self._visibility_job=job
+        # Visibility and style can redraw a previous contour while a new job
+        # is loading. Only a newly published result owns a new document/job ID.
+        new_result = scene is not self._visibility_scene and scene is not getattr(self, "_scene", None)
         self._visibility_scene = scene
         self._visibility_interaction_scene = interaction_scene
         visible = self.visibility.filter_scene(scene)
@@ -273,6 +277,10 @@ class QtViewport(SceneViewport):
         super().show(visible,
             interaction_scene=None if interaction_scene is None else self.visibility.filter_scene(interaction_scene),
             reset_view=reset_view)
+        if scene.result_mesh is None:
+            self.displayed_result_identity = None
+        elif new_result:
+            self.displayed_result_identity = (self._window.project.document_id, job)
 
     def refresh_visibility(self):
         if self._visibility_scene is not None:
@@ -296,6 +304,7 @@ class QtViewport(SceneViewport):
     def clear(self):
         self.hide_location()
         self.cancel_plate()
+        self.displayed_result_identity = None
         self._plane_preview = None
         self._visibility_scene = None
         self._visibility_interaction_scene = None

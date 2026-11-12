@@ -634,8 +634,12 @@ class LazyResultDataset:
         reader=self.result_reader()
         metadata=reader.metadata()
         identity=self.identity
-        self._header=dict(identity=identity,metadata=metadata,fields=tuple(sorted({d["quantity_id"] for d in reader.components()})),
-                          descriptors={d["quantity_id"]:d for d in reader.components()},
+        components = metadata.get("descriptors")
+        if components is None:
+            components = reader.components()
+        descriptors = {d["quantity_id"]: d for d in components}
+        self._header=dict(identity=identity,metadata=metadata,fields=tuple(sorted(descriptors)),
+                          descriptors=descriptors,
                           originals={d["source_key"]:d for d in metadata.get("original_descriptors",())},
                           frames=reader.frames(),tables=reader.table_keys())
         return self

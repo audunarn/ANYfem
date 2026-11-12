@@ -1138,3 +1138,16 @@ whole-detail queries raise the reader's `WorkingSetError`; no incomplete details
 are substituted into the old API. Source certification/field rendering is unchanged.
 
 Native archive sample maps read associations cooperatively on the loader without holding their state lock. Geometry/header proofs are cached at attachment. Counts/diagnostics for cached maps stay responsive; uncached synchronous selectors refuse while worker I/O is active, directing callers to `request_native_sample`. Only the latest generation installs a sample map.
+
+### Fatigue in Results
+
+Install the `fatigue` extra and choose **Results → Fatigue**. Pick the receiving
+plate, then weld lines or toe points. Hover highlights the candidate in cyan.
+Click replaces the selection and Shift-click adds targets. Esc finishes picking.
+Use the location preview to check shell surface, plate thickness and readout direction.
+Both simplified and rainflow assessments evaluate all selected targets.
+
+Choose **Examples → 5 m barge — internal bracket weld fatigue…** to open the
+solved example with internal shell-supported brackets and local toe refinement.
+Its nine signed quasi-static load steps are ready for rainflow. Use Save As to
+retain an editable copy of the project, submitted mesh and stress history.

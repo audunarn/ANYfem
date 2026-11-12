@@ -3398,6 +3398,8 @@ class WorkbenchWorkflow:
 
 
     def _remember_recent(self, path: Path) -> None:
+        if path == getattr(self, "_opening_example_path", None):
+            return
         resolved = str(path.resolve())
         self._recent_paths = [
             resolved,
@@ -3462,6 +3464,9 @@ class WorkbenchWorkflow:
         if confirm and not self._confirm_discard():
             return
         self._set_project(default_project())
+        release_example = getattr(self, "_release_fatigue_example", None)
+        if release_example is not None:
+            release_example()
         self.set_status("new model")
         self.refresh_all()
         self.show_geometry(reset_view=True)
@@ -3594,6 +3599,9 @@ class WorkbenchWorkflow:
 
 
     def save_project(self, ask: bool = False, path: Optional[str] = None) -> None:
+        example_copy = getattr(self, "_fatigue_example_copy", None)
+        if example_copy is not None and self.path is not None and self.path.parent == Path(example_copy.name):
+            ask = True
         if path is None:
             path = str(self.path) if self.path and not ask else ""
         if not path:
@@ -3938,6 +3946,7 @@ class WorkbenchWorkflow:
         self._project_lock = project_lock
         self._recovery_epoch += 1
         self._recovery_pending = None
+        self.close_result_access()
         self.workbench.replace_project(
             project,
             path=path,
@@ -4653,25 +4662,33 @@ def _execute_analysis_job(
         resolved["cancellation_token"] = cancellation_token
     solution = solver_function(**resolved)
     if requested_stress:
-        from ..post.results import LinearBatchSolution, NonlinearSolution
+        from ..post.results import LinearBatchSolution, NonlinearSolution, TransientSolution
         recovery_solutions = (solution,)
-        if isinstance(solution, LinearBatchSolution):
+        if isinstance(solution, TransientSolution):
+            recovery_solutions = solution.elastic_stress_frames() if requested_global_stress or requested_patch_stress else ()
+        elif isinstance(solution, LinearBatchSolution):
             recovery_solutions = solution.shapes
         elif isinstance(solution, NonlinearSolution) and solution.shapes:
             recovery_solutions = solution.shapes
         for case_solution in recovery_solutions:
-            if not callable(getattr(case_solution, "stresses", None)):
+            recovery = getattr(case_solution, "stresses", None)
+            if isinstance(solution, TransientSolution):
+                from functools import partial
+                from ..post.fields import recover
+                recovery = partial(recover, case_solution)
+            if not callable(recovery):
                 continue
             if cancellation_token is not None:
                 cancellation_token.raise_if_cancelled("requested stress recovery")
             progress(f"recovering requested stresses: {case_solution.label}" if hasattr(case_solution,"label")
                      else "recovering requested stresses")
-            case_solution.stresses()
+            if not isinstance(solution, TransientSolution):
+                recovery()
             if cancellation_token is not None:
                 cancellation_token.raise_if_cancelled("requested stress recovery")
             if requested_global_stress:
                 progress("recovering requested global stresses")
-                case_solution._requested_global_stress = case_solution.stresses(return_global=True)
+                case_solution._requested_global_stress = recovery(return_global=True)
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested global stress recovery")
             if requested_patch_stress:
@@ -4679,7 +4696,7 @@ def _execute_analysis_job(
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
                 progress("recovering requested patch stresses")
-                case_solution._requested_patch_stress = case_solution.stresses(patch_config=PatchRecoveryConfig())
+                case_solution._requested_patch_stress = recovery(patch_config=PatchRecoveryConfig())
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
     return solution
