@@ -30,6 +30,7 @@ _DRAWINGS={
     "scripts": '<path d="M11 8 3 16 11 24 M21 8 29 16 21 24 M19 5 13 27"/>',
     "definitions": '<path d="M7 3V29 M16 3V29 M25 3V29"/><path d="M3 9H11V15H3Z M12 19H20V25H12Z M21 6H29V12H21Z" fill="#dbeafe"/>',
     "submodelling": '<path d="M3 8 13 3 23 8 23 19 13 24 3 19Z M3 8 13 13 23 8 M13 13V24" stroke-dasharray="3 2"/><path d="M13 16 21 12 29 16V25L21 29 13 25Z" fill="#dbeafe"/><path d="M13 16 21 20 29 16 M21 20V29"/>',
+    "drawings": '<path d="M5 3H21L27 9V29H5Z" fill="#eff9f8"/><path d="M21 3V9H27 M9 20 12 13 22 16 19 23Z M10 26H22" stroke="#177578"/>',
     "point": '<path d="M4 16H28 M16 4V28" opacity=".35"/><circle cx="16" cy="16" r="4" fill="#2563b4"/>',
     "line": '<path d="M5 26 27 6"/><circle cx="5" cy="26" r="3" fill="#dbeafe"/><circle cx="27" cy="6" r="3" fill="#dbeafe"/>',
     "plate": '<path d="M3 22 11 7 29 11 21 27Z" fill="#dbeafe"/>',

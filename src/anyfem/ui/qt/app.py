@@ -430,6 +430,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         "Scripts":"Run Python commands as one undoable edit.",
         "Definitions":"Sets, unit profile and other project definitions.",
         "Submodelling":"Cut a detail from a parent model and drive it from a solved load case.",
+        "Drawings":"Generate plate developments, bounded sections and assembly drawings.",
     }
     def __init__(self, project=None, *, viewer_backend="auto"):
         QMainWindow.__init__(self)
@@ -486,6 +487,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels.update({"Scripts":ScriptTask(self),"Definitions":DefinitionsTask(self)})
         from .submodel_workspace import SubmodelWorkspace
         self.panels["Submodelling"] = SubmodelWorkspace(self)
+        from .drawing_workspace import DrawingWorkspace
+        self.panels["Drawings"] = DrawingWorkspace(self)
         from .result_browser import QtResultBrowser
         self.result_browser=QtResultBrowser(self);self.left_tabs.addTab(self.result_browser,"Results")
         from .navigation import install_option_icons,ActionIcons
@@ -585,6 +588,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(file,"Import CalculiX results",self.import_calculix_result)
         self._action(file,"Import SESAM results",self.import_sesam_result)
         self._action(file,"Export CalculiX deck",self.export_deck)
+        from .plate_drawings import create_plate_drawings
+        self._action(file,"Create plate drawings…",lambda: create_plate_drawings(self))
         self._action(file,"Close",self.close,"Ctrl+Q")
         edit=self.menuBar().addMenu("Edit")
         self._action(edit,"Undo",self.undo,"Ctrl+Z")
@@ -629,8 +634,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         submodel_action.setToolTip("Cut a shell or solid submodel from a completed job, run it in the background and browse its runs")
         submodel_action.setStatusTip(submodel_action.toolTip())
         examples=self.menuBar().addMenu("Examples")
-        from .barge_fatigue_example import open_barge_fatigue_example
-        self._action(examples, "5 m barge — internal bracket weld fatigue…", lambda: open_barge_fatigue_example(self))
+        self._action(examples,"Support B — plate drawings…",self.open_support_drawing_example)
         action=self._action(examples,"Floating barge section…",self.open_barge_example)
         action.setToolTip("Create an S355 barge section: 700 mm stiffeners, 4000 mm girders, fixed end and bending load for approximately 200 MPa")
         action.setStatusTip(action.toolTip())
@@ -670,6 +674,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
             toolbar.widgetForAction(self._actions[name]).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         toolbar.widgetForAction(self._actions["Solve"]).setObjectName("PrimaryToolButton")
         from .navigation import navigation_icon
+        self.addToolBarBreak()
         workspaces=self.addToolBar("Workspaces");workspaces.setObjectName("Workspaces")
         workspaces.setIconSize(QSize(22,22));workspaces.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         workspace_menu=self.menuBar().insertMenu(self.menuBar().actions()[-1],QMenu("Workspace",self)).menu()
@@ -769,6 +774,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.workspace_summary.setText(self.WORKSPACE_SUMMARIES.get(name,""))
 
     def _workspace_changed(self,index):
+        if self.details.tabText(index)=="Drawings":
+            self.panels["Drawings"].activate()
         if self.details.tabText(index) in {"Geometry", "Construction", "Generators"}:
             self._begin_modelling()
 
@@ -1078,6 +1085,22 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
                         else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
         self._schedule_autosave()
 
+    def open_support_drawing_example(self):
+        from ...application.drawing_views import load_support_b_example
+        if not self._confirm_discard():
+            return
+        self._set_project(load_support_b_example())
+        self.session.dirty = True
+        self.show_geometry(reset_view=True)
+        self.workspace_actions["Drawings"].trigger()
+        panel = self.panels["Drawings"]
+        panel.mode.setCurrentIndex(0)
+        panel.quantity.setValue(4)
+        panel.basis.setCurrentIndex(1)
+        panel.density.setValue(7850)
+        panel._preview()
+        self._schedule_autosave()
+
     def _update_view_label(self):pass
 
     def _refresh_recent_menu(self):
@@ -1188,6 +1211,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._closing=True
         from .submodel_task import shutdown_submodel
         self.panels["Submodelling"].dispose()
+        self.panels["Drawings"].dispose()
         shutdown_submodel(self)
         self.run_monitor.stop()
         self.button_help.close()
@@ -1196,8 +1220,6 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.panels["Results"].reset()
         self.panels["Visualization"].presentation_controls.close()
         self.close_result_access()
-        from .barge_fatigue_example import release_example_copy
-        release_example_copy(self)
         self.scheduler.close()
         self.worker.stop();self.workbench.close()
         self.workbench.remove_listener(self._on_workbench_event)

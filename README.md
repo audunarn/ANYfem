@@ -1139,6 +1139,10 @@ are substituted into the old API. Source certification/field rendering is unchan
 
 Native archive sample maps read associations cooperatively on the loader without holding their state lock. Geometry/header proofs are cached at attachment. Counts/diagnostics for cached maps stay responsive; uncached synchronous selectors refuse while worker I/O is active, directing callers to `request_native_sample`. Only the latest generation installs a sample map.
 
+## Drawings
+
+Open **Examples → Support B — plate drawings…** for the editable support example, or **Drawings** beside **Submodelling** for the current project. Generate plate profiles, cylindrical developments with attached stiffeners, bounded plane sections, assembly views, a plate index and weight takeoff. Export printable PDF and true-size DXF or DWG. A notice and **Locate…** button appear if OpenCAD Studio is missing. See [Plate drawings](docs/plate-drawings.md) for the workflow and supported geometry.
+
 ### Fatigue in Results
 
 Install the `fatigue` extra and choose **Results → Fatigue**. Pick the receiving

@@ -35,6 +35,22 @@
     {
       "bundled": false,
       "license_expression": "MPL-2.0",
+      "name": "ANYfeSolver",
+      "requirement": "ANYfeSolver>=0.5.0,<0.6",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYfeSolver"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
+      "name": "ANYfeSolver-results",
+      "requirement": "ANYfeSolver-results>=2.2.0,<3",
+      "scope": "runtime",
+      "upstream": "https://github.com/audunarn/ANYfeSolver"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MPL-2.0",
       "name": "ANYfileio",
       "requirement": "ANYfileio>=0.3.2,<0.4",
       "scope": "runtime",
@@ -139,22 +155,6 @@
     {
       "bundled": false,
       "license_expression": "MPL-2.0",
-      "name": "ANYfeSolver",
-      "requirement": "ANYfeSolver>=0.5.0,<0.6",
-      "scope": "runtime",
-      "upstream": "https://github.com/audunarn/ANYfeSolver"
-    },
-    {
-      "bundled": false,
-      "license_expression": "MPL-2.0",
-      "name": "ANYfeSolver-results",
-      "requirement": "ANYfeSolver-results>=2.2.0,<3",
-      "scope": "runtime",
-      "upstream": "https://github.com/audunarn/ANYfeSolver"
-    },
-    {
-      "bundled": false,
-      "license_expression": "MPL-2.0",
       "name": "ANYstability",
       "requirement": "ANYstability[floating]",
       "scope": "optional:floating",
@@ -175,6 +175,14 @@
       "requirement": "build>=1.2",
       "scope": "development",
       "upstream": "https://github.com/pypa/build"
+    },
+    {
+      "bundled": false,
+      "license_expression": "MIT",
+      "name": "ezdxf",
+      "requirement": "ezdxf>=1.4,<2",
+      "scope": "optional:drawings",
+      "upstream": "https://github.com/mozman/ezdxf"
     },
     {
       "bundled": false,
@@ -279,6 +287,14 @@
       "requirement": "setuptools>=77.0.3",
       "scope": "build",
       "upstream": "https://github.com/pypa/setuptools"
+    },
+    {
+      "bundled": false,
+      "license_expression": "BSD-3-Clause",
+      "name": "shapely",
+      "requirement": "shapely>=2,<3",
+      "scope": "optional:drawings",
+      "upstream": "https://github.com/shapely/shapely"
     },
     {
       "bundled": false,

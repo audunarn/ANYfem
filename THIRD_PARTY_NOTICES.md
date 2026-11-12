@@ -45,3 +45,5 @@ instructions and undergo the existing installed-artifact release review. This
 development dependency entry does not establish installer compliance. GPL-only
 Qt modules are not authorized by this entry; commercial licensing is a separate
 distribution choice.
+
+Optional drawing exports use ezdxf (MIT) and Shapely (BSD-3-Clause), installed separately.

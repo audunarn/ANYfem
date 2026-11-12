@@ -486,6 +486,43 @@ def face_display_polygons(
             if np.dot(np.cross(vertices[1]-vertices[0],vertices[2]-vertices[0]),normal) < 0:vertices=vertices[::-1]
             polygons.append(vertices)
         return polygons
+    if isinstance(face.surface, Plane) and face.parameterization is None:
+        # A native Plane carries an unbounded support. Use the real 3D edge
+        # trims in its orthonormal frame; the face chart may cover only a
+        # transport patch and is unsuitable for drawing or picking these faces.
+        from shapely.geometry import Polygon
+        from shapely.ops import triangulate
+        plane = face.surface
+        u = np.asarray(plane.u_vector) / np.linalg.norm(plane.u_vector)
+        frame = np.column_stack((u, np.cross(plane.normal,u)))
+        rings = []
+        for loop in (face.loop, *face.holes):
+            points = []
+            for item in loop:
+                edge = geometry.edges[item.edge]
+                n = 1 if isinstance(edge.curve,Straight) else max(24,4*divisions)
+                param = np.arange(n,dtype=float)/n
+                samples = geometry.evaluate_edge_many(item.edge,param if item.forward else 1-param).copy()
+                samples[0] = geometry.vertex_position(geometry.oriented_start_vertex(item))
+                points.extend(samples)
+            rings.append((np.asarray(points)-plane.origin) @ frame)
+        boundary = Polygon(rings[0],rings[1:])
+        if not boundary.is_valid or boundary.is_empty:
+            raise ValueError(f"face {face_id} has an invalid planar display boundary")
+        import shapely
+        if hasattr(shapely, "constrained_delaunay_triangles"):
+            pieces = shapely.constrained_delaunay_triangles(boundary).geoms
+        else:
+            pieces = [p for p in triangulate(boundary) if boundary.covers(p)]
+        ring = rings[0]
+        positive = (ring[:,0] @ np.roll(ring[:,1],-1) - ring[:,1] @ np.roll(ring[:,0],-1)) > 0
+        triangles = []
+        for triangle in pieces:
+            uv = np.asarray(triangle.exterior.coords)[:-1]
+            if bool(triangle.exterior.is_ccw) != positive:
+                uv = uv[::-1]
+            triangles.append(plane.origin + uv @ frame.T)
+        return triangles
     if face.holes:
         # ANYgeometry owns the trim loops; Shapely supplies a constrained
         # planar triangulation which is then mapped back to the authoritative
@@ -892,7 +929,9 @@ def build_geometry_scene(
                 polygons=polygons,
                 colors=[COLOR_PLATE] * len(polygons),
                 outline="",
-                outline_groups=[face_id]*len(polygons) if feature_id in smooth_feature_ids else None,
+                outline_groups=([face_id]*len(polygons) if feature_id in smooth_feature_ids
+                                or isinstance(geometry.faces[face_id].surface, Plane)
+                                and geometry.faces[face_id].parameterization is None else None),
             )
         )
     for feature_id, patch in collapsed_face_patches.items():

@@ -45,7 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-fatigue = ["ANYfatigue>=0.1,<0.2"]
+drawings = ["ezdxf>=1.4,<2", "shapely>=2,<3"]
 solid = ["ANYsolid[skfem]>=0.1,<0.2"]
 post = ["ANYpost[results]>=0.1.3,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
@@ -81,6 +81,7 @@ anyfem-qt = "anyfem.ui.qt:main"
 anyfem-tk = "anyfem.ui.tk:main"
 
 [project.scripts]
+anyfem-plate-drawings = "anyfem.application.plate_drawings:main"
 anyfem-archive = "anyfem.post.archive:main"
 anyfem-verify = "anyfem.verification:main"
 anyfem-parity = "anyfem.parity:main"
@@ -95,7 +96,7 @@ Issues = "https://github.com/audunarn/ANYfem/issues"
 package-dir = { "" = "src" }
 
 [tool.setuptools.package-data]
-anyfem = ["example_data/*.zip"]
+anyfem = ["example_data/*.anyfem"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
