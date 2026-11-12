@@ -921,10 +921,12 @@ def _worker_main(
     cancel_event: Any,
     payload: bytes,
     control: Any = None,
+    worker_priority: str = "background",
 ) -> None:
     from .jobs import _cancellation_token
 
-    _lower_priority()
+    if worker_priority == "background":
+        _lower_priority()
 
     transport_lock = threading.Lock()
     transport_failed = False
@@ -1274,6 +1276,8 @@ def run_in_worker_process(
     on_process: Callable[[Any], None] | None = None,
     containment: bool = False,
     on_tree: Callable[[Any, Any], None] | None = None,
+    terminate_on_cancel: bool = False,
+    worker_priority: str = "background",
 ) -> Any:
     """Run ``function`` in a fresh worker process and return its result.
 
@@ -1289,8 +1293,18 @@ def run_in_worker_process(
     cannot be established the job never starts and
     ``WorkerProcessError(remote_type="ContainmentUnavailable")`` explains why,
     so the caller can fall back to serial execution.
+
+    ``terminate_on_cancel`` opts contained read-only work into immediate owned
+    tree retirement without touching a shared Event after external termination.
+    The default remains cooperative cancellation. ``worker_priority="normal"``
+    preserves application priority during bootstrap; the default remains the
+    existing background policy. No high or real-time priority is supported.
     """
 
+    if terminate_on_cancel and not containment:
+        raise ValueError("terminate_on_cancel requires an owned contained process tree")
+    if worker_priority not in ("background", "normal"):
+        raise ValueError("worker_priority must be 'background' or 'normal'")
     try:
         payload = dumps(
             {
@@ -1345,9 +1359,12 @@ def run_in_worker_process(
                 "process-tree containment is only supported on Linux and Windows",
                 remote_type="ContainmentUnavailable",
             )
+    worker_arguments = (sender, cancel_event, payload, control_child)
+    if worker_priority == "normal":
+        worker_arguments += (worker_priority,)
     process = context.Process(
         target=_worker_main,
-        args=(sender, cancel_event, payload, control_child),
+        args=worker_arguments,
         name="anyfem-mesh" if containment else "anyfem-solve",
         daemon=not containment,
     )
@@ -1426,8 +1443,16 @@ def run_in_worker_process(
         outcome: tuple | None = None
         connection_error = None
         while outcome is None:
-            if _is_cancelled(token) and not cancel_event.is_set():
-                cancel_event.set()
+            if _is_cancelled(token):
+                # A hard-stopped child may have held the shared Event lock.
+                # Contained read-only jobs retire without touching that Event.
+                if terminate_on_cancel:
+                    raise WorkerProcessError(
+                        "the contained computation was cancelled; retiring its owned process tree",
+                        remote_type="CancelledByCaller",
+                    )
+                if not cancel_event.is_set():
+                    cancel_event.set()
             if incoming.buffer is not None and incoming.kind in ("result","encoded_result") and _is_cancelled(token):
                 raise WorkerProcessError("cancelled during worker result transfer; nothing attached", remote_type="CancelledDuringTransfer")
             try:

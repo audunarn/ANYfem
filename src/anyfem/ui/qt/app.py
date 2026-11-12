@@ -575,6 +575,10 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         return action
 
 
+    def open_geometry_cleaner(self):
+        from .geometry_cleaner import open_geometry_cleaner
+        return open_geometry_cleaner(self)
+
     def _menus(self):
         file=self.menuBar().addMenu("File")
         self._action(file,"New",lambda:self.new_project(confirm=True),"Ctrl+N")
@@ -605,6 +609,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(edit,"Copy geometry…",lambda:self.geometry_actions.vector_dialog("Copy"))
         self._action(edit,"Move geometry…",lambda:self.geometry_actions.vector_dialog("Move"))
         self._action(edit,"Geometry properties…",self.geometry_actions.properties)
+        self._action(edit,"Review and clean geometry…",self.open_geometry_cleaner)
         self._action(edit,"Commands",self.show_command_palette,"Ctrl+P")
         view=self.menuBar().addMenu("View")
         self._action(view,"Hide selected",lambda:self.set_selection_hidden(True),"Ctrl+H")
