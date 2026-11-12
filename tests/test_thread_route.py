@@ -93,7 +93,7 @@ def _isolate(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
     tr.configure(reset=True)
     monkeypatch.setattr(tr, "_INJECT", {})
-    monkeypatch.setattr(tr, "OWNER_ADOPTION_AVAILABLE", True)  # most tests exercise the child; one test pins the real default
+    monkeypatch.setattr(tr, "last_adoption", {})
     monkeypatch.setattr(tr, "last_outcome", None)
     yield
     tr.configure(reset=True)
@@ -223,66 +223,302 @@ def test_runtime_locator_order_and_never_path(monkeypatch, tmp_path):
 
 # ------------------------------------------------------------------------------------------ happy path
 
-def test_without_an_owner_adoption_api_the_route_never_spawns_a_child(route_on, monkeypatch):
-    """Real default: a child result could never be adopted, so spawning one would only double the time."""
-    monkeypatch.setattr(tr, "OWNER_ADOPTION_AVAILABLE", False)
-    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned although its result cannot be adopted"))
-    expected = reference(crossing)
-    model, report, _ = run_on(crossing)
-    assert tr.last_outcome.status == tr.UNAVAILABLE and "adopt" in tr.last_outcome.reason
-    assert result_of(model, report) == expected
+HELPERS_MARK = None
 
 
-@needs_runtime
-def test_child_result_without_owner_proof_is_refused_and_serial_keeps_the_proof(route_on, jobs_dir):
-    """Fail closed: a document cannot carry the owner's process-local preparation receipt (measured: source_edge_paths
-    8 serial vs 0 for adopted proof-less geometry), so today every ok child result is refused and serial runs."""
+def closure_of(builder):
+    model = builder()
+    return model.extract_model_closure([model.handle("face", i) for i in sorted(model.faces)],
+                                       include_structural_closure=True, include_features=False)
+
+
+def prepare_closure(closure, **kwargs):
+    return prepare_structural_connectivity(closure.working_model, source_model_id=str(closure.source_model_id),
+                                           source_revision=closure.source_revision, member_ids=(), **kwargs)
+
+
+def proof_facts(closure):
+    """What downstream consumes: the boolean proof, the authenticated source-edge paths and the binding contents."""
     import anygeometry
     from anyfem.structural_preparation import source_edge_paths
-    events = []
-    model = crossing()
-    closure = model.extract_model_closure([model.handle("face", i) for i in sorted(model.faces)],
-                                          include_structural_closure=True, include_features=False)
-    tr._INJECT.update(temp_root=str(jobs_dir), progress_cb=events.append)
-    prepare_structural_connectivity(closure.working_model, source_model_id=str(closure.source_model_id),
-                                    source_revision=closure.source_revision, member_ids=())
-    assert tr.last_outcome.status == tr.UNAVAILABLE and "proof" in tr.last_outcome.reason
-    assert anygeometry.has_current_intersection_preparation(closure.working_model)
-    assert len(source_edge_paths(closure)) == 8
-    assert {"start", "imports_done", "document_loaded", "planned_and_applied"} <= {e["event"] for e in events}
-    assert list(jobs_dir.iterdir()) == []
+    paths = source_edge_paths(closure)
+    return dict(proof=bool(anygeometry.has_current_intersection_preparation(closure.working_model)),
+                paths=len(paths), path_values=sorted(map(repr, paths.items())),
+                fingerprint=tr.binding_fingerprint(closure.working_model))
+
+
+def serial_facts(builder=crossing):
+    tr.configure(enabled=False)
+    closure = closure_of(builder)
+    prepare_closure(closure)
+    facts = proof_facts(closure)
+    tr.configure(enabled=True)
+    return facts
+
+
+def tamper_plan_result(monkeypatch, change):
+    """Let the real child run, then edit its (already validated) result the way a faulty or hostile child could."""
+    original = tr.run_child
+
+    def wrapped(python, job, document, **kwargs):
+        outcome = original(python, job, document, **kwargs)
+        if job["kind"] == "plan" and outcome.status == tr.OK:
+            change(outcome, job)
+        return outcome
+
+    monkeypatch.setattr(tr, "run_child", wrapped)
+
+
+def spy_owner_calls(monkeypatch):
+    """Record the owner's adopt and apply calls made through the route (the parent must apply the adopted plan itself)."""
+    from anygeometry import plan_adoption
+    import anyfem._batch_prepare as batch
+    calls = {"adopt": [], "apply": []}
+    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, batch.apply_intersections
+
+    def adopt(*args, **kwargs):
+        plan = real_adopt(*args, **kwargs)
+        if kwargs.get("job_id") != "probe":
+            calls["adopt"].append((plan, kwargs))
+        return plan
+
+    def apply(geometry, plan, **kwargs):
+        calls["apply"].append((geometry, plan, kwargs))
+        return real_apply(geometry, plan, **kwargs)
+
+    monkeypatch.setattr(plan_adoption, "adopt_intersection_plan", adopt)
+    monkeypatch.setattr(batch, "apply_intersections", apply)
+    return calls
 
 
 @needs_runtime
-def test_child_result_is_adopted_when_the_owner_can_vouch(route_on, jobs_dir, monkeypatch):
-    """What an owner adoption API would enable: with the proof gate satisfied the child result is used and equal to serial."""
-    monkeypatch.setattr(tr, "_has_owner_proof", lambda candidate: True)
+def test_adopted_child_plan_gives_the_genuine_proof_equal_to_serial(route_on, jobs_dir, monkeypatch):
+    """The point of the slice: with the route ON the parent holds the owner proof and the same authenticated bindings as
+    serial (source_edge_paths 8 == 8, binding fingerprint equal), the report equals route-off, and the parent itself applied
+    the plan it adopted (receipts are minted by the owner's own apply in this process)."""
     expected = reference(crossing)
-    events = []
-    model, report, _ = run_on(crossing, temp_root=str(jobs_dir), progress_cb=events.append)
-    assert tr.last_outcome.status == tr.OK and tr.last_outcome.temp_removed
-    assert result_of(model, report) == expected
-    assert list(jobs_dir.iterdir()) == []
-
-
-@needs_runtime
-def test_failure_on_the_staging_copy_leaves_the_geometry_untouched(route_on, jobs_dir, monkeypatch):
-    monkeypatch.setattr(tr, "_has_owner_proof", lambda candidate: True)
-    real_clone = GeometryModel.clone
-
-    def clone(self, *args, **kwargs):
-        made = real_clone(self, *args, **kwargs)
-        made.restore_topology = lambda snapshot: (_ for _ in ()).throw(GeometryError("staging refused"))
-        return made
-
-    monkeypatch.setattr(GeometryModel, "clone", clone)
-    expected = reference(crossing)
-    model = crossing()
+    serial = serial_facts()
+    assert serial["proof"] and serial["paths"] == 8
+    calls = spy_owner_calls(monkeypatch)
+    kinds = []
+    original = tr.run_child
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: kinds.append(a[1]["kind"]) or original(*a, **k))
     tr._INJECT.update(temp_root=str(jobs_dir))
-    rows = tr.try_prepare(model, tuple(model.handle("face", i) for i in sorted(model.faces)))
-    assert rows is None and "staging copy" in tr.last_outcome.reason
-    assert digest(to_dict(model)) == digest(to_dict(crossing())) and model.revision == crossing().revision
-    report = prepare_structural_connectivity(model)  # serial continues on the untouched geometry
+    closure = closure_of(crossing)
+    prepare_closure(closure)
+    assert tr.last_adoption.get("adopted") is True and tr.last_outcome.status == tr.OK
+    assert proof_facts(closure) == serial
+    assert tr.last_adoption["fingerprint"] == serial["fingerprint"]
+    assert len(calls["adopt"]) == 1 and len(calls["apply"]) == 1
+    (adopted_plan, _), (applied_to, applied_plan, _) = calls["adopt"][0], calls["apply"][0]
+    assert applied_plan is adopted_plan and applied_to is closure.working_model
+    assert closure.working_model._intersection_preparation_receipt[0] is adopted_plan  # minted by the owner's apply here
+    assert kinds.count("plan") == 1 and "batch_prepare" not in kinds
+    assert list(jobs_dir.iterdir()) == []
+    model, report, _ = run_on(crossing, temp_root=str(jobs_dir))
+    assert result_of(model, report) == expected
+
+
+@needs_runtime
+def test_parent_adopts_and_applies_with_one_policy_carrying_its_own_cancellation(route_on, jobs_dir, monkeypatch):
+    from anygeometry import plan_adoption
+    import anyfem._batch_prepare as batch
+    seen = {}
+    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, batch.apply_intersections
+
+    def adopt(model, packet, **kwargs):
+        if kwargs["job_id"] != "probe":
+            seen["adopt"] = kwargs["policy"]
+        return real_adopt(model, packet, **kwargs)
+
+    def apply(geometry, plan, **kwargs):
+        seen["apply"] = kwargs["policy"]
+        return real_apply(geometry, plan, **kwargs)
+
+    monkeypatch.setattr(plan_adoption, "adopt_intersection_plan", adopt)
+    monkeypatch.setattr(batch, "apply_intersections", apply)
+    phases = []
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    prepare_structural_connectivity(crossing(), cancellation_check=phases.append)
+    assert seen["adopt"] is seen["apply"]  # ONE policy object, built in the parent
+    assert seen["apply"].cancellation_check is not None
+    assert seen["apply"].cancellation_check() is False
+    assert "structural intersection batch" in phases
+
+
+@needs_runtime
+def test_parent_cancellation_during_adopt_and_apply_propagates_without_a_serial_rerun(route_on, jobs_dir, monkeypatch):
+    done = []
+    original = tr.run_child
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: done.append(a[1]["kind"]) or original(*a, **k))
+    serial_calls = []
+    real = _batch_prepare.plan_intersections
+    monkeypatch.setattr(_batch_prepare, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
+
+    def check(phase):
+        if "plan" in done:
+            raise Cancel(phase)
+
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    with pytest.raises(Cancel):
+        prepare_structural_connectivity(crossing(), cancellation_check=check)
+    assert serial_calls == [] and list(jobs_dir.iterdir()) == []
+
+
+@needs_runtime
+def test_stale_job_is_refused_and_serial_runs_on_the_edited_geometry(route_on, jobs_dir, monkeypatch):
+    def edit_parent_geometry(outcome, job):
+        edited[0].add_points(((9, 9, 9),))
+
+    edited = [None]
+    tamper_plan_result(monkeypatch, edit_parent_geometry)
+    model = crossing()
+    edited[0] = model
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    report = prepare_structural_connectivity(model)
+    assert tr.last_outcome.status == tr.UNAVAILABLE and "plan adoption refused" in tr.last_outcome.reason
+    twin = crossing()
+    twin.add_points(((9, 9, 9),))
+    tr.configure(enabled=False)
+    expected_report = prepare_structural_connectivity(twin)
+    # the report's source_revision was read at entry (before the concurrent edit); topology and connections must equal serial
+    assert digest(to_dict(model)) == digest(to_dict(twin)) and report.connections == expected_report.connections
+    assert list(jobs_dir.iterdir()) == []
+
+
+def _flip_packet(outcome, job, fix_hash=True):
+    import base64
+    raw = bytearray(base64.b64decode(outcome.body["packet"]))
+    raw[len(raw) // 2] ^= 0x01
+    outcome.body["packet"] = base64.b64encode(bytes(raw)).decode("ascii")
+    if fix_hash:
+        outcome.body["packet_sha256"] = hashlib.sha256(bytes(raw)).hexdigest()
+
+
+@needs_runtime
+@pytest.mark.parametrize("name, change, part", [
+    ("packet-bytes-flipped-hash-fixed", _flip_packet, "plan adoption refused"),
+    ("packet-bytes-flipped", lambda o, j: _flip_packet(o, j, fix_hash=False), "packet checksum mismatch"),
+    ("job-id-of-another-job", lambda o, j: setattr(o, "job_id", "0" * 32), "plan adoption refused (job)"),
+    ("gil-enabled-reported", lambda o, j: o.body["health"].update(gil_enabled=True), "GIL-disabled"),
+    ("other-numpy-reported", lambda o, j: o.body["health"].update(numpy="2.0.0"), "NumPy"),
+    ("not-a-free-threaded-build", lambda o, j: o.body["health"].update(gil_disabled_build=False), "free-threaded"),
+    ("other-loaded-code", lambda o, j: o.body.update(loaded_digest="0" * 64), "different anygeometry code"),
+    ("module-list-with-escape", lambda o, j: o.body.update(modules=["../secret.py"]), "digest could not be recomputed"),
+    ("module-list-empty", lambda o, j: o.body.update(modules=[]), "loaded-module list"),
+    ("packet-not-base64", lambda o, j: o.body.update(packet="***"), "base64"),
+])
+def test_forged_or_foreign_child_results_are_refused_and_serial_runs(route_on, jobs_dir, monkeypatch, name, change, part):
+    expected = reference(crossing)
+    tamper_plan_result(monkeypatch, change)
+    model, report, _ = run_on(crossing, temp_root=str(jobs_dir))
+    assert tr.last_outcome.status == tr.UNAVAILABLE and part in tr.last_outcome.reason, tr.last_outcome.reason
+    assert result_of(model, report) == expected  # the serial fallback equals route-off
+    assert tr.last_adoption == {}
+    import anygeometry
+    assert anygeometry.has_current_intersection_preparation(model)
+
+
+@needs_runtime
+def test_child_that_planned_other_operands_is_refused(route_on, jobs_dir, monkeypatch):
+    original = tr.run_child
+
+    def wrapped(python, job, document, **kwargs):
+        if job["kind"] == "plan":
+            job = dict(job, operands=job["operands"][:1])
+        return original(python, job, document, **kwargs)
+
+    monkeypatch.setattr(tr, "run_child", wrapped)
+    expected = reference(crossing)
+    model, report, _ = run_on(crossing, temp_root=str(jobs_dir))
+    assert "plan adoption refused (operands)" in tr.last_outcome.reason
+    assert result_of(model, report) == expected
+
+
+@needs_runtime
+def test_missing_proof_after_the_apply_is_a_hard_failure_and_disables_the_route(route_on, jobs_dir, monkeypatch):
+    """If the parent's own apply did not leave the genuine owner proof, the adopted result must never be used silently:
+    typed failure, route off for the session, no serial rerun on the (unsoundly rollbackable) geometry."""
+    import anygeometry
+    serial_calls = []
+    real = _batch_prepare.plan_intersections
+    monkeypatch.setattr(_batch_prepare, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
+    monkeypatch.setattr(anygeometry, "has_current_intersection_preparation", lambda *a, **k: False)
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    with pytest.raises(StructuralPreparationError, match="owner proof check"):
+        prepare_structural_connectivity(crossing())
+    assert tr._session["disabled"] and serial_calls == [] and tr.last_adoption == {}
+    assert list(jobs_dir.iterdir()) == []
+
+
+@needs_runtime
+def test_unusable_bindings_after_the_apply_are_a_hard_failure(route_on, jobs_dir, monkeypatch):
+    def broken(geometry):
+        raise GeometryError("edge subcurve provenance is unavailable")
+
+    monkeypatch.setattr(tr, "binding_fingerprint", broken)
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    with pytest.raises(StructuralPreparationError, match="owner bindings unusable"):
+        prepare_structural_connectivity(crossing())
+    assert tr._session["disabled"] and tr.last_adoption == {}
+
+
+@needs_runtime
+def test_application_checksum_mismatch_is_a_hard_failure_and_disables_the_route_for_the_session(route_on, jobs_dir, monkeypatch):
+    tr.configure(verify_apply=True)
+    tamper_plan_result(monkeypatch, lambda outcome, job: outcome.body.update(apply_checksum="0" * 64))
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    with pytest.raises(StructuralPreparationError, match="application checksum differs"):
+        prepare_structural_connectivity(crossing())
+    assert tr._session["disabled"]
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("route used after it was disabled"))
+    expected = reference(crossing)  # route-off baseline is unaffected
+    tr.configure(enabled=True)
+    model, report, _ = run_on(crossing)  # disabled for the session: ordinary serial path, no child
+    assert result_of(model, report) == expected
+    tr.configure(reset=True)
+    assert tr._session["disabled"] == ""
+
+
+@needs_runtime
+def test_matching_application_checksum_is_adopted(route_on, jobs_dir):
+    tr.configure(verify_apply=True)
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    prepare_structural_connectivity(crossing())
+    assert tr.last_adoption.get("adopted") is True and not tr._session["disabled"]
+
+
+@pytest.mark.parametrize("make", ["journaled", "registry"])
+def test_models_the_owner_declines_never_spawn_a_child(route_on, jobs_dir, monkeypatch, make):
+    """journaled / existing-material / bounded / epoch models: decided from the parent's own model, before any child."""
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned for a model the owner declines"))
+    model = crossing()
+    if make == "journaled":
+        model._transaction_journal = object()
+    else:
+        from anygeometry import existing_material_preparation
+        monkeypatch.setattr(existing_material_preparation, "eligible", lambda *a, **k: True)
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    operands = tuple(model.handle("face", i) for i in sorted(model.faces))
+    state = tr.try_prepare(model, operands)
+    assert state is None and "before any child is spawned" in tr.last_outcome.reason
+
+
+def test_epoch_models_never_spawn_a_child(route_on, monkeypatch):
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned for an epoch model"))
+    from anygeometry import preparation_epochs
+    monkeypatch.setattr(preparation_epochs, "_epoch_plan_required", lambda model: True)
+    model = crossing()
+    assert tr.try_prepare(model, tuple(model.handle("face", i) for i in sorted(model.faces))) is None
+    assert "epoch_model" in tr.last_outcome.reason
+
+
+def test_without_the_owner_adoption_api_the_route_runs_serially(route_on, monkeypatch):
+    monkeypatch.setattr(tr, "_adoption_api", lambda: None)
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned without an adoption API"))
+    expected = reference(crossing)
+    model, report, _ = run_on(crossing)
+    assert "no verified plan adoption API" in tr.last_outcome.reason
     assert result_of(model, report) == expected
 
 
@@ -320,25 +556,6 @@ def test_cancel_during_the_health_check_stops_the_health_child(jobs_dir, tmp_pat
     assert list(jobs_dir.iterdir()) == []
 
 
-@pytest.mark.parametrize("rows", [
-    {"pairs": [["face:1"]], "pair_relations": [], "relations": [], "reused": False},
-    {"pairs": [], "pair_relations": [["face:1", "face:2", [{"x": 1}]]], "relations": [], "reused": False},
-    {"pairs": [], "pair_relations": [], "relations": [], "reused": "false"},
-    {"pairs": [], "pair_relations": [], "relations": [1], "reused": False},
-    {"pairs": [], "pair_relations": [["a", "b"]], "relations": [], "reused": False},
-    {"pairs": [], "pair_relations": [], "relations": [], "reused": False, "extra": 1},
-    [],
-])
-def test_malformed_rows_are_rejected_before_publication(rows):
-    with pytest.raises(ValueError):
-        _batch_prepare.rows_from_json(rows)
-
-
-def test_rows_round_trip_is_exact():
-    rows = _batch_prepare.BatchRows(frozenset({("face:1", "face:2")}), {("face:1", "face:2"): ["edge:3"]}, ("edge:3",), False)
-    assert _batch_prepare.rows_from_json(json.loads(json.dumps(_batch_prepare.rows_to_json(rows)))) == rows
-
-
 def test_lock_lookup_for_both_runtime_layouts(tmp_path):
     root = tmp_path / "rt"
     (root / "Scripts").mkdir(parents=True)
@@ -371,7 +588,7 @@ def test_typed_refusal_is_reported_as_serial_would_and_not_retried(route_on, job
     assert serial_calls == []  # the refusal is final: no in-process planning after it
     assert str(routed.value) == str(serial.value)
     assert tr.last_outcome.status == tr.REFUSAL
-    assert runs.count("batch_prepare") == 1  # one child, no retry, no serial repeat
+    assert runs.count("plan") == 1  # one child, no retry, no serial repeat
     assert list(jobs_dir.iterdir()) == []
 
 
@@ -412,18 +629,6 @@ def test_unreadable_source_file_falls_back_instead_of_aborting(route_on, jobs_di
         raise PermissionError("source file locked")
     monkeypatch.setattr(tr, "_parent_source_digest", broken)
     assert_serial_fallback(crossing, jobs_dir, "could not read")
-
-
-@needs_runtime
-def test_phase_two_refusal_propagates_unwrapped(route_on, tmp_path, jobs_dir):
-    child = stub(tmp_path, '''
-        write("refusal", dict(phase=2, type="GeometryError", message="rows refused", health={}))
-    ''')
-    model = crossing()
-    tr._INJECT.update(temp_root=str(jobs_dir), child_main=child)
-    with pytest.raises(tr.PhaseTwoRefusal, match="rows refused"):
-        prepare_structural_connectivity(model)
-    assert digest(to_dict(model)) == digest(to_dict(crossing()))  # geometry untouched
 
 
 # ------------------------------------------------------------------------------------------ route_unavailable -> serial
@@ -493,8 +698,7 @@ def test_child_timeout_falls_back_and_kills_the_child(route_on, jobs_dir, tmp_pa
     ("bad-checksum", 'write("ok", {"x": 1}, sha="0" * 64)', "checksum mismatch"),
     ("truncated", 'write("ok", {}, text=\'{"format":1,"job_id":"\')', "malformed"),
     ("no-result-exit-0", "pass", "no result"),
-    ("missing-prepared", 'write("ok", {})', "invalid child result"),
-    ("bad-rows", 'write("ok", dict(prepared={}, prepared_checksum="x", rows={"pairs": 1}))', "invalid child result"),
+    ("missing-packet", 'write("ok", {})', "invalid child result"),
     ("unavailable-status", 'write("unavailable", dict(reason="child said no"))', "child said no"),
     ("empty-refusal", 'write("refusal", {})', "malformed refusal"),
     ("refusal-bad-phase", 'write("refusal", dict(phase=3, type="GeometryError", message="m"))', "malformed refusal"),
@@ -503,27 +707,6 @@ def test_child_timeout_falls_back_and_kills_the_child(route_on, jobs_dir, tmp_pa
 def test_malformed_or_partial_results_fall_back(route_on, jobs_dir, tmp_path, name, body, part):
     child = stub(tmp_path, body + "\n")
     assert_serial_fallback(crossing, jobs_dir, part, child_main=child)
-
-
-@needs_runtime
-def test_prepared_document_of_another_model_is_refused(route_on, jobs_dir, tmp_path):
-    other = GeometryModel()  # different model id, valid document
-    other.add_plate(other.add_points(((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0))))
-    document = to_dict(other)
-    body = dict(prepared=document, prepared_checksum=document["checksum"]["value"],
-                rows=dict(pairs=[], pair_relations=[], relations=[], reused=False))
-    child = stub(tmp_path, "write('ok', json.loads(%r))\n" % json.dumps(body))
-    assert_serial_fallback(crossing, jobs_dir, "does not match", child_main=child)
-
-
-@needs_runtime
-def test_claimed_checksum_mismatch_is_refused(route_on, jobs_dir, tmp_path):
-    model = crossing()
-    document = to_dict(model)
-    body = dict(prepared=document, prepared_checksum="0" * 64,
-                rows=dict(pairs=[], pair_relations=[], relations=[], reused=False))
-    child = stub(tmp_path, "write('ok', json.loads(%r))\n" % json.dumps(body))
-    assert_serial_fallback(crossing, jobs_dir, "does not match", child_main=child)
 
 
 def test_disk_full_on_the_temp_folder_falls_back(route_on, tmp_path):
@@ -555,7 +738,7 @@ def test_health_check_is_cached_and_invalidated_by_a_changed_lock(route_on, jobs
     tr._INJECT.update(temp_root=str(jobs_dir))
     prepare_structural_connectivity(crossing())
     prepare_structural_connectivity(crossing())
-    assert runs.count("selftest") <= 1 and runs.count("batch_prepare") == 2
+    assert runs.count("selftest") <= 1 and runs.count("plan") == 2
     lock = tmp_path / "lock.json"
     lock.write_text("{}")
     tr._INJECT.update(lock_path=lock)

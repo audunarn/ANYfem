@@ -6,11 +6,13 @@ thread switch ``ANYGEOMETRY_PLANNING_THREADS``, imports, verifies the runtime (G
 frozen smoke), runs the job, writes JSONL progress and an atomic result envelope (job id + body sha256).  No pickle crosses the
 interpreter boundary.  A crash leaves no result file; the parent classifies that itself.
 """
+import base64
 import hashlib
 import importlib.util
 import json
 import os
 import sys
+import sysconfig
 import time
 
 T0 = time.perf_counter()
@@ -106,7 +108,7 @@ def main(job_dir):
                 return unavailable("smoke digest %s != frozen %s" % (smoke, job["smoke_digest"]))
             _write_result(job_dir, job_id, "ok", dict(health=health, smoke=smoke))
             return 0
-        if job["kind"] == "batch_prepare":
+        if job["kind"] == "plan":
             with open(os.path.join(job_dir, job["document"]), "rb") as handle:
                 document = json.loads(handle.read())
             _emit(job_dir, "document_read")
@@ -116,12 +118,10 @@ def main(job_dir):
             phase = 1
             try:
                 t = time.perf_counter()
-                state = batch.plan_apply_phase(model, operands)
-                _emit(job_dir, "planned_and_applied", seconds=time.perf_counter() - t)
-                phase = 2
-                rows = batch.report_rows_phase(model, state)
+                plan = batch.plan_only(model, operands)
+                _emit(job_dir, "planned", seconds=time.perf_counter() - t)
             except GeometryError as exc:  # typed refusal: reported as is, never retried
-                diagnostic, diagnostic_type, cause, seen = None, None, exc, set()
+                diagnostic, diagnostic_type, cause, seen = None, None, exc, set()  # phase is always 1: only planning runs here
                 while cause is not None and id(cause) not in seen:  # the owner's structured evidence, if any
                     seen.add(id(cause))
                     provider = getattr(cause, "to_diagnostic", None)
@@ -137,11 +137,25 @@ def main(job_dir):
                     phase=phase, type=type(exc).__name__, message=str(exc), health=health,
                     diagnostic=diagnostic, diagnostic_type=diagnostic_type))
                 return 0
-            prepared = to_dict(model)
-            _emit(job_dir, "prepared_serialised")
-            _write_result(job_dir, job_id, "ok", dict(
-                health=health, prepared=prepared, prepared_checksum=prepared["checksum"]["value"],
-                rows=batch.rows_to_json(rows), faces_out=len(model.faces)))
+            try:
+                from anygeometry.plan_adoption import encode_intersection_plan
+                packet = encode_intersection_plan(plan, job_id=job_id)
+                package_dir = os.path.dirname(os.path.abspath(anygeometry.__file__))
+                modules = batch.loaded_modules(package_dir)
+                loaded_digest = batch.files_digest(package_dir, modules)
+            except Exception as exc:  # a plan the codec cannot carry: the parent plans serially
+                return unavailable("plan cannot be encoded: %s: %s" % (type(exc).__name__, str(exc)[:500]))
+            _emit(job_dir, "plan_encoded", bytes=len(packet))
+            body = dict(
+                health=dict(health, version=sys.version.split()[0], cache_tag=sys.implementation.cache_tag,
+                            gil_disabled_build=bool(sysconfig.get_config_var("Py_GIL_DISABLED")), executable=sys.executable),
+                packet=base64.b64encode(packet).decode("ascii"), packet_sha256=hashlib.sha256(packet).hexdigest(),
+                modules=modules, loaded_digest=loaded_digest, faces=len(model.faces))
+            if job.get("verify_apply"):  # diagnostic only: the child applies the same plan and reports the checksum
+                from anygeometry import apply_intersections
+                apply_intersections(model, plan, policy=batch.make_policy(None))
+                body["apply_checksum"] = to_dict(model)["checksum"]["value"]
+            _write_result(job_dir, job_id, "ok", body)
             return 0
         return unavailable("unknown job kind %r" % job["kind"])
     except Exception as exc:  # anything untyped: route unavailable, parent runs serially

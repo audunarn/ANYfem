@@ -6,9 +6,14 @@ OFF by default.  When enabled (``ANYFEM_THREAD_ROUTE=1`` or ``configure(enabled=
 ordinary serial in-process path on the untouched geometry; a typed geometry refusal is reported as is and never retried.
 
 Contract with the child (``_thread_child.py``): the document goes in as ``to_dict`` JSON (checksum verified by the child's
-``from_dict``), the result comes back as an atomic envelope (job id + body sha256) holding the prepared topology (``to_dict``)
-and the report rows.  The parent re-validates the prepared document (``from_dict`` checksum, claimed checksum, model id) and
-re-checks the checksum after ``restore_topology``; a mismatch restores the previous topology and falls back to serial.
+``from_dict``); the child runs the PLAN stage only and returns an atomic envelope (job id + body sha256) holding the encoded
+plan packet of ``anygeometry.plan_adoption``.  The parent adopts the plan with ``adopt_intersection_plan`` (every check against
+the parent's own model, operands, policy and job) and runs the ordinary ``apply_intersections`` with one policy built in the
+parent, so the owner's preparation receipts are minted by the owner's own code in this process.  After the apply the
+route checks the genuine proof (``has_current_intersection_preparation`` AND the edge-subcurve / face-preimage bindings);
+a failure there cannot be rolled back soundly, so it raises ``AdoptedPreparationFailed`` and disables the route for the session.
+Every refusal BEFORE the apply (adoption, packet, runtime, child) falls back to the serial path on the untouched geometry.  Guarantee: fresh owner application of a TRUSTED
+child plan (same source digest, runtime lock, NumPy pin, GIL off, smoke digest); a self-consistent wrong plan is not detected.
 Outcomes: ``ok`` / ``refusal`` / ``route_unavailable`` / ``cancelled``.
 """
 
@@ -34,7 +39,6 @@ from . import _batch_prepare
 
 __all__ = [
     "ChildOutcome",
-    "PhaseTwoRefusal",
     "configure",
     "locate_runtime",
     "check_health",
@@ -57,15 +61,17 @@ HERE = Path(__file__).resolve().parent
 CHILD_MAIN = HERE / "_thread_child.py"
 CHILD_SOURCES = (HERE / "_batch_prepare.py", HERE / "_thread_child.py")
 
-#: The owner's preparation proof cannot cross a process boundary today (measured: source_edge_paths 223 -> 0 on sector60), so
-#: a child result can never be adopted.  Until ANYgeometry offers a verified adoption API, the route stops BEFORE spawning
-#: (otherwise it would only double the preparation time: measured 33.9 s vs 16.8 s on sector60).  Set True by that API's glue.
-OWNER_ADOPTION_AVAILABLE = False
 _override: dict = {}
+_session: dict = {"disabled": ""}  # reason, once the route has been switched off for the rest of the session
+last_adoption: dict = {}
 _health_cache: dict = {}
 _digest_cache: dict = {}
 last_outcome: Optional["ChildOutcome"] = None
 _INJECT: dict = {}  # tests only: extra keyword arguments merged into every try_prepare call
+
+
+class AdoptedPreparationFailed(GeometryError):
+    """The parent's own apply of an adopted plan did not leave the genuine owner proof (should never happen)."""
 
 
 class RoutedRefusal(GeometryError):
@@ -88,10 +94,6 @@ def _refusal_error(base, body: dict) -> GeometryError:
     return error
 
 
-class PhaseTwoRefusal(GeometryError):
-    """The child refused while deriving report rows; serial raises the same error unwrapped."""
-
-
 @dataclass
 class ChildOutcome:
     status: str
@@ -100,6 +102,7 @@ class ChildOutcome:
     timings: dict = field(default_factory=dict)
     pid: Optional[int] = None
     exit_code: Optional[int] = None
+    job_id: str = ""
     temp_dir: str = ""
     temp_removed: bool = False
     stderr_tail: str = ""
@@ -107,11 +110,13 @@ class ChildOutcome:
 
 
 def configure(*, enabled: Optional[bool] = None, threads: Optional[int] = None, min_faces: Optional[int] = None,
-              runtime: Optional[str] = None, reset: bool = False) -> None:
+              runtime: Optional[str] = None, verify_apply: Optional[bool] = None, reset: bool = False) -> None:
     """Programmatic setting (an application checkbox would call this); ``reset=True`` drops all overrides."""
     if reset:
         _override.clear()
-    for key, value in (("enabled", enabled), ("threads", threads), ("min_faces", min_faces), ("runtime", runtime)):
+        _session["disabled"] = ""
+    for key, value in (("enabled", enabled), ("threads", threads), ("min_faces", min_faces), ("runtime", runtime),
+                       ("verify_apply", verify_apply)):
         if value is not None:
             _override[key] = value
 
@@ -317,6 +322,7 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
             outcome.temp_dir = str(folder)
             (folder / "tmp").mkdir()
             job_id = uuid.uuid4().hex
+            outcome.job_id = job_id
             spec = dict(job, job_id=job_id, threads=threads, expect_numpy=EXPECT_NUMPY, src_paths=_src_paths(),
                         document=None, parent_pid=os.getpid())
             if document is not None:
@@ -489,9 +495,15 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
 
 # ------------------------------------------------------------------------------------------------ the hook
 
-def _has_owner_proof(candidate) -> bool:
-    from anygeometry import has_current_intersection_preparation
-    return bool(has_current_intersection_preparation(candidate))
+def _adoption_api():
+    """The owner's plan adoption module, or None when this ANYgeometry does not offer it."""
+    try:
+        from anygeometry import plan_adoption
+    except ImportError:
+        return None
+    if not all(hasattr(plan_adoption, name) for name in ("adopt_intersection_plan", "PlanAdoptionRefused")):
+        return None
+    return plan_adoption
 
 
 def _unavailable(reason: str, outcome: Optional[ChildOutcome] = None) -> None:
@@ -502,23 +514,107 @@ def _unavailable(reason: str, outcome: Optional[ChildOutcome] = None) -> None:
     return None
 
 
+def disable_for_session(reason: str) -> None:
+    _session["disabled"] = reason
+    LOG.error("thread route disabled for this session: %s", reason)
+
+
+def binding_fingerprint(geometry) -> str:
+    """sha256 over the owner's authenticated bindings of the CURRENT preparation (edge-subcurve ancestry and face
+    preimages), without ids that differ per run.  Raises GeometryError when the geometry carries no usable proof."""
+    import anygeometry
+    edges = anygeometry.query_prepared_edge_subcurve_preimages(geometry)
+    faces = anygeometry.query_prepared_face_preimages(geometry)
+
+    def rows(records):
+        return tuple((row.edge_id, row.ancestor.definition.edge_id, tuple(row.interval)) for row in records)
+
+    material = repr((rows(edges.records), rows(edges.alias_records), tuple(edges.unavailable_edge_ids),
+                     tuple(edges.coverage), tuple(faces.face_descendants), tuple(faces.coverage)))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _genuine_proof(geometry) -> str:
+    """Empty string when the geometry carries the owner's proof AND usable bindings; otherwise the reason."""
+    import anygeometry
+    if not anygeometry.has_current_intersection_preparation(geometry):
+        return "no current owner preparation proof after the apply"
+    try:
+        binding_fingerprint(geometry)
+    except GeometryError as exc:
+        return "owner bindings unusable after the apply: %s" % exc
+    return ""
+
+
+def _declined_before_spawn(adoption, geometry, operands) -> str:
+    """Owner-side refusals that depend only on the parent's model and operands (journaled, epoch, existing-material or
+    bounded routes): the owner adopt call decides them before it looks at the packet, so an empty probe packet is enough
+    and no child is wasted on a plan that could never be adopted."""
+    try:
+        adoption.adopt_intersection_plan(geometry, b"", policy=_batch_prepare.make_policy(None), operands=operands,
+                                         job_id="probe", expected_source_checksum="0" * 64)
+    except adoption.PlanAdoptionRefused as exc:
+        reason = getattr(exc, "reason", "")
+        if reason in ("journaled_model", "epoch_model", "registry_route"):
+            return reason
+    except GeometryError:
+        pass
+    return ""
+
+
+def _check_plan_body(body: dict, python_info: Optional[dict] = None) -> tuple:
+    """Validate the child's ok body.  Returns (packet bytes, "") or (None, reason)."""
+    import base64
+    import binascii
+    import anygeometry
+    health = body.get("health")
+    if not isinstance(health, dict) or health.get("gil_enabled") is not False:
+        return None, "child did not report a GIL-disabled runtime"
+    if health.get("numpy") != EXPECT_NUMPY:
+        return None, "child NumPy %s != %s" % (health.get("numpy"), EXPECT_NUMPY)
+    if health.get("gil_disabled_build") is not True:
+        return None, "child is not a free-threaded build"
+    try:
+        packet = base64.b64decode(str(body["packet"]), validate=True)
+    except (KeyError, binascii.Error, ValueError):
+        return None, "child packet is not valid base64"
+    if hashlib.sha256(packet).hexdigest() != body.get("packet_sha256"):
+        return None, "child packet checksum mismatch"
+    modules = body.get("modules")
+    if (not isinstance(modules, list) or not modules or not all(isinstance(name, str) for name in modules)):
+        return None, "child reported no loaded-module list"
+    try:
+        digest = _batch_prepare.files_digest(Path(anygeometry.__file__).resolve().parent, modules)
+    except (OSError, ValueError) as exc:
+        return None, "loaded-module digest could not be recomputed: %s" % exc
+    if digest != body.get("loaded_digest"):
+        return None, "child loaded different anygeometry code than this application"
+    return packet, ""
+
+
 def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[str], None]] = None, **injection):
-    """Return the report rows after applying the child's prepared topology to ``geometry``, or None for the serial path.
+    """Run plan in the child, adopt + apply in this process.  Returns the applied ``BatchState`` or None (serial path).
 
     ``injection`` is for tests only (``temp_root``, ``child_main``, ``python_args``, ``extra_env``, ``timeout``, ``python``).
     """
-    global last_outcome
+    global last_outcome, last_adoption
     if not route_enabled():
+        return None
+    if _session["disabled"]:
         return None
     injection = {**_INJECT, **injection}
     from ._preparation_context import _preparation_evidence
     if _preparation_evidence.get():
-        return None  # an evidence collector needs the live plan object, which cannot cross the process boundary
+        return None  # an evidence collector needs the live plan object of this process
     faces = len(geometry.faces)
     if faces < _min_faces():
         return None
-    if not OWNER_ADOPTION_AVAILABLE:
-        return _unavailable("no verified way to adopt a child-prepared model yet (owner preparation proof); running serially")
+    adoption = _adoption_api()
+    if adoption is None:
+        return _unavailable("this ANYgeometry offers no verified plan adoption API; running serially")
+    declined = _declined_before_spawn(adoption, geometry, operands)
+    if declined:
+        return _unavailable("plan adoption declines this model before any child is spawned (%s)" % declined)
     python = injection.pop("python", None) or locate_runtime()
     if python is None:
         return _unavailable("runtime missing (set %s or install runtime-314t beside the application)" % ENV_RUNTIME)
@@ -535,48 +631,54 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     if health.status != OK:
         return _unavailable("health check failed: %s" % (health.reason or health.status), health)
     from anygeometry.errors import GeometryError as _GeometryError
-    from anygeometry.serialization import from_dict, to_dict
+    from anygeometry.serialization import to_dict
+    verify = bool(_override.get("verify_apply"))
     try:
-        document = json.dumps(to_dict(geometry), sort_keys=True, separators=(",", ":")).encode("utf-8")
-        job = dict(kind="batch_prepare", operands=[[h.kind, h.id] for h in operands],
-                   source_digest=_parent_source_digest())
+        source = to_dict(geometry)
+        expected_checksum = str(source["checksum"]["value"])
+        document = json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        job = dict(kind="plan", operands=[[h.kind, h.id] for h in operands], source_digest=_parent_source_digest(),
+                   verify_apply=verify)
     except (_GeometryError, TypeError, ValueError, OSError) as exc:
         return _unavailable("document cannot be serialised: %s" % exc)
     run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path", "child_main_health")}
     outcome = run_child(python, job, document, threads=thread_count(), timeout=timeout,
                         cancellation_check=cancellation_check, **run_kwargs)
     last_outcome = outcome
+    last_adoption = {}
     if outcome.status == REFUSAL:
-        body = outcome.body or {}
-        message = str(body.get("message", outcome.reason))
-        raise _refusal_error(PhaseTwoRefusal if body.get("phase") == 2 else _GeometryError, body)
+        raise _refusal_error(_GeometryError, outcome.body or {})
     if outcome.status != OK:
         return _unavailable(outcome.reason or outcome.status, outcome)
     body = outcome.body or {}
-    try:
-        prepared = body["prepared"]
-        claimed = str(body["prepared_checksum"])
-        rows = _batch_prepare.rows_from_json(body["rows"])
-        candidate = from_dict(prepared)  # verifies the document checksum
-        if to_dict(candidate)["checksum"]["value"] != claimed or str(candidate.model_id) != str(geometry.model_id):
-            raise ValueError("prepared document does not match its claimed checksum or model")
-        snapshot = candidate.topology_snapshot()
-    except (KeyError, TypeError, ValueError, _GeometryError) as exc:
-        return _unavailable("invalid child result: %s" % exc, outcome)
-    if not _has_owner_proof(candidate):
-        # The owner's preparation receipt is a process-local proof; a document cannot carry it, and downstream
-        # (source_edge_paths, prepared remaps) needs it.  Adopting proof-less geometry would silently lose
-        # authenticated source-edge mappings, so the child result is refused (fail closed) until the owner
-        # offers a verified adoption API.
-        return _unavailable("owner preparation proof cannot cross the process boundary; child result not adopted", outcome)
-    # Verify on a staging copy first: restore_topology keeps revision and allocator high-water marks, so a
-    # publication cannot be undone exactly; a failing check must happen before the real geometry changes.
-    try:
-        staging = geometry.clone(preserve_identity=True)
-        staging.restore_topology(snapshot)
-        if to_dict(staging)["checksum"]["value"] != claimed:
-            raise ValueError("restored topology differs from the child's prepared document")
-    except (ValueError, _GeometryError) as exc:
-        return _unavailable("applying the child result failed on the staging copy: %s" % exc, outcome)
-    geometry.restore_topology(snapshot)  # the identical operation that just succeeded on the staging copy
-    return rows
+    packet, problem = _check_plan_body(body)
+    if packet is None:
+        return _unavailable("invalid child result: %s" % problem, outcome)
+    adopted = {"plan": None}
+
+    def plan_source(policy):
+        try:
+            adopted["plan"] = adoption.adopt_intersection_plan(
+                geometry, packet, policy=policy, operands=operands, job_id=outcome.job_id,
+                expected_source_checksum=expected_checksum)
+        except adoption.PlanAdoptionRefused as exc:
+            _unavailable("plan adoption refused (%s): %s" % (getattr(exc, "reason", "?"), exc), outcome)
+        return adopted["plan"]  # None -> plan_apply_phase plans serially on the untouched geometry
+
+    state = _batch_prepare.plan_apply_phase(geometry, operands, cancellation_check=cancellation_check,
+                                            plan_source=plan_source)
+    if adopted["plan"] is None:
+        return state  # adoption refused: the ordinary serial plan + apply has just run
+    failure = _genuine_proof(geometry)
+    if not failure and verify and body.get("apply_checksum") != to_dict(geometry)["checksum"]["value"]:
+        failure = "application checksum differs between child and parent"
+    if failure:
+        # The owner's own apply has already run here.  Rolling back with restore_topology is NOT sound (measured: it
+        # leaves the previous receipts behind and a later serial apply then publishes a preparation receipt whose edge
+        # bindings are stale), so this should-never-happen case is a hard, typed failure and the route is switched off
+        # for the rest of the session; the caller reports it as a failed preparation and discards the working geometry.
+        disable_for_session(failure)
+        _unavailable("adopted result failed the owner proof check: %s" % failure, outcome)
+        raise AdoptedPreparationFailed("adopted child plan failed the owner proof check after the apply: %s" % failure)
+    last_adoption = dict(adopted=True, fingerprint=binding_fingerprint(geometry))
+    return state

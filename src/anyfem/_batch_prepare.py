@@ -23,9 +23,10 @@ __all__ = [
     "BatchState",
     "face_sheet_map",
     "handle_label",
+    "make_policy",
     "plan_apply_phase",
+    "plan_only",
     "report_rows_phase",
-    "rows_from_json",
     "rows_to_json",
 ]
 
@@ -63,12 +64,23 @@ def _check(cancellation_check, phase: str) -> None:
         cancellation_check(phase)
 
 
-def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan=None) -> BatchState:
+def make_policy(cancellation_check=None) -> IntersectionBatchPolicy:
+    """The ONE policy of a preparation call (parent: with its cancellation check; thread-route child: without)."""
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
         return False
-    policy = IntersectionBatchPolicy(ConnectionIntent.CONNECT,
+    return IntersectionBatchPolicy(ConnectionIntent.CONNECT,
         cancellation_check=None if cancellation_check is None else cancelled)
+
+
+def plan_only(geometry, operands):
+    """Plan stage alone (what the thread-route child runs); the parent adopts and applies the plan."""
+    return plan_intersections(geometry, operands, policy=make_policy(None))
+
+
+def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan=None, plan_source=None) -> BatchState:
+    """``plan_source(policy)`` may supply an adopted plan instead of planning here; None (or a None result) plans serially."""
+    policy = make_policy(cancellation_check)
     # Report physical design-owner connections rather than one event per
     # cylindrical panel. Topology still retains every exact panel relation.
     sheets = face_sheet_map(geometry)
@@ -80,7 +92,9 @@ def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan
     def face_label(face):
         key = ("sheet", sheets[face]) if face in sheets else ("face", face)
         return f"face:{representatives[key]}"
-    plan = plan_intersections(geometry, operands, policy=policy)
+    plan = plan_source(policy) if plan_source is not None else None
+    if plan is None:
+        plan = plan_intersections(geometry, operands, policy=policy)
     if record_plan is not None:
         record_plan(plan)
     pairs = set()
@@ -158,6 +172,37 @@ def source_digest(anygeometry_dir, anyfem_files) -> str:
     return digest.hexdigest()
 
 
+def loaded_modules(package_dir) -> list:
+    """Relative paths of the ``.py`` files of every loaded ``anygeometry*`` module (child side).  A module that was not
+    loaded from a plain ``.py`` file under ``package_dir`` (extension, bytecode only, other tree) is an error."""
+    import sys
+    from pathlib import Path
+    base = Path(package_dir).resolve()
+    found = set()
+    for name, module in list(sys.modules.items()):
+        if name == "anygeometry" or name.startswith("anygeometry."):
+            path = getattr(module, "__file__", None)
+            if not path or not str(path).endswith(".py"):
+                raise ValueError("module %s is not loaded from a .py file" % name)
+            found.add(Path(path).resolve().relative_to(base).as_posix())
+    return sorted(found)
+
+
+def files_digest(package_dir, relative_paths) -> str:
+    """sha256 over (relative name, bytes) of exactly the named ``.py`` files under ``package_dir``."""
+    import hashlib
+    from pathlib import Path, PurePosixPath
+    base = Path(package_dir).resolve()
+    digest = hashlib.sha256()
+    for name in relative_paths:
+        pure = PurePosixPath(name)
+        if pure.is_absolute() or ".." in pure.parts or pure.suffix != ".py":
+            raise ValueError("unacceptable module path %r" % (name,))
+        digest.update(name.encode() + b"\0")
+        digest.update((base / pure).read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
 SMOKE_DIGEST = "161bbdbb399dcdd190eba88964f91a06670f04b0468aea9e7687f0fed04b4b4f"  # frozen: identical on CPython 3.14.2 and 3.14.10t
 
 
@@ -175,24 +220,4 @@ def smoke_digest() -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _labels(value, count=None) -> tuple:
-    if not isinstance(value, (list, tuple)) or (count is not None and len(value) != count):
-        raise ValueError("malformed label list")
-    if not all(isinstance(item, str) for item in value):
-        raise ValueError("labels must be strings")
-    return tuple(value)
 
-
-def rows_from_json(payload: Mapping[str, Any]) -> BatchRows:
-    """Strict decoding: anything that is not exactly what ``rows_to_json`` writes is rejected."""
-    if not isinstance(payload, Mapping) or set(payload) != {"pairs", "pair_relations", "relations", "reused"}:
-        raise ValueError("malformed rows")
-    if type(payload["reused"]) is not bool:
-        raise ValueError("reused must be a boolean")
-    pairs = frozenset(_labels(pair, 2) for pair in payload["pairs"])
-    pair_relations = {}
-    for entry in payload["pair_relations"]:
-        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
-            raise ValueError("malformed pair relation")
-        pair_relations[_labels(entry[:2], 2)] = list(_labels(entry[2]))
-    return BatchRows(pairs, pair_relations, _labels(payload["relations"]), payload["reused"])

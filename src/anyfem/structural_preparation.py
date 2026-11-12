@@ -432,22 +432,19 @@ def prepare_structural_connectivity(
     from ._batch_prepare import plan_apply_phase, report_rows_phase
     from ._preparation_context import _record_preparation_plan
     try:
-        # Opt-in child-process route (off by default): returns the report rows after applying the
-        # prepared topology to ``geometry``, or None to run the ordinary in-process path below.
-        rows = thread_route.try_prepare(geometry, operands, cancellation_check=cancellation_check)
-        if rows is None:
+        # Opt-in child-process route (off by default): the child plans, this process adopts the plan through the
+        # owner's verified adoption API and applies it; None means: run the ordinary in-process path below.
+        state = thread_route.try_prepare(geometry, operands, cancellation_check=cancellation_check)
+        if state is None:
             state = plan_apply_phase(geometry, operands, cancellation_check=cancellation_check,
                                      record_plan=_record_preparation_plan)
-    except thread_route.PhaseTwoRefusal:
-        raise
     except GeometryError as error:
         if "positive-area" in str(error):
             raise StructuralPreparationError(
                 "coplanar plate overlap must be resolved with Fragment Overlaps before meshing: "
                 + str(error)) from error
         raise StructuralPreparationError(f"cannot prepare structural intersection batch: {error}") from error
-    if rows is None:
-        rows = report_rows_phase(geometry, state)
+    rows = report_rows_phase(geometry, state)
     report.connections.extend(PreparedConnection(first, second, "intersection_curve",
         "batch_arrangement", rows.reused,
         tuple(dict.fromkeys(rows.pair_relations.get((first,second), rows.relations))))
