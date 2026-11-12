@@ -330,6 +330,15 @@ def test_full_rejects_unusable_scientific_evidence(tmp_path, mutation):
         runner.validate_verification(path, {"A", "B"})
 
 
+def _stub_completed_full_run(monkeypatch, execute):
+    """Supply completed pytest artifacts for tests of main's final evidence checks."""
+    def completed_caller_phases(command, output, environment, report):
+        return execute(command, output / "pytest.log", environment)
+
+    monkeypatch.setattr(runner, "execute", execute)
+    monkeypatch.setattr(runner, "_execute_caller_phases", completed_caller_phases)
+
+
 @pytest.mark.parametrize("data", [[], {"results": [None]}, {"results": [{"case_id": []}]},
                                   {"results": None}])
 def test_malformed_evidence_is_recorded_as_failure(monkeypatch, tmp_path, data):
@@ -343,12 +352,13 @@ def test_malformed_evidence_is_recorded_as_failure(monkeypatch, tmp_path, data):
         report_dir.mkdir()
         (report_dir / "verification.json").write_text(json.dumps(data))
         return 0
-    monkeypatch.setattr(runner, "execute", execute)
+    _stub_completed_full_run(monkeypatch, execute)
     output = tmp_path / "run"
     assert runner.main(["--profile", "full", "--out", str(output)]) == 2
     report = json.loads((output / "run.json").read_text())
     assert report["status"] == "failed"
     assert report["exit_code"] == 2
+    assert report["error"].startswith("RuntimeError: verification ")
 
 
 def test_interruption_cleanup_escalates_with_bounded_wait(monkeypatch, tmp_path):
@@ -557,7 +567,7 @@ def test_fail_fast_diagnostics_do_not_waive_full_verification(monkeypatch,tmp_pa
         directory=Path(environment['ANYFEM_VERIFICATION_OUT']);directory.mkdir()
         (directory/'verification.json').write_text(json.dumps({'status':'passed','counts':{'total':0,'passed':0,'failed':0},'results':[]}))
         return 0
-    monkeypatch.setattr(runner,'execute',execute)
+    _stub_completed_full_run(monkeypatch, execute)
     output=tmp_path/'full'
     assert runner.main(['--profile','full','--ci-diagnostics','--fail-fast','--out',str(output)])==2
     report=json.loads((output/'run.json').read_text())
