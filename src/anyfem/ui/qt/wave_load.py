@@ -56,6 +56,12 @@ class WaveLoadDialog(QDialog):
         self.setWindowTitle('Hydrodynamic wave load');self.setObjectName('HydrodynamicWaveLoadDialog')
         self.resize(1180,680);self.setMinimumSize(980,600)
         layout=QVBoxLayout(self);body=QHBoxLayout();layout.addLayout(body,1)
+        external=QPushButton('OrcaWave / ANYhydro pressures…');external.setObjectName('OpenOrcaWavePressure')
+        layout.addWidget(external)
+        def open_external():
+            from .orcawave_pressure import OrcaWavePressureDialog
+            self.orcawave_dialog=OrcaWavePressureDialog(self.panel);self.orcawave_dialog.show()
+        external.clicked.connect(open_external)
         inputs_widget=QWidget();left=QVBoxLayout(inputs_widget);form=QFormLayout();self.form=form;left.addLayout(form)
         form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(inputs_widget);scroll.setMinimumWidth(340);scroll.setMaximumWidth(430)

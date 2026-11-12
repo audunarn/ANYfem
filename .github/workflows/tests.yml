@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -86,12 +86,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYloads
-          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
+          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
+          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 409754bd1289d635a7717179b0addd6797f9f25b
+          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -239,7 +239,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -249,12 +249,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYloads
-          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
+          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
+          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -264,7 +264,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 409754bd1289d635a7717179b0addd6797f9f25b
+          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -414,7 +414,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: a3be2f1eeb634f93e5e5a557c1f6bff89b25e714
+          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -424,12 +424,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYloads
-          ref: 445ccbe5ea18f42f4c60907672769ca3d5aee301
+          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
           path: .ecosystem/ANYloads
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 33dfbaad89a76dd9e925fd6c628602213ce8c2b8
+          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -439,7 +439,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 409754bd1289d635a7717179b0addd6797f9f25b
+          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:

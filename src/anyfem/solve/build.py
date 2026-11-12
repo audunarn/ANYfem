@@ -1708,6 +1708,22 @@ def _wet_pressure_accumulation(
         note_load = getattr(_load_context, "note_load", None)
         if note_load is not None:
             note_load(load)
+        if load.history is not None and _is_prescribed_history(load.history):
+            if case.follower_pressure:raise ProjectError('prescribed OrcaWave pressure supports dead loads only')
+            from ..application.orcawave_pressure import validate_prescribed_scope
+            try:validate_prescribed_scope(project,load)
+            except ValueError as error:raise ProjectError(str(error)) from error
+            if surface_mode != 'skip':
+                from ..application.orcawave_pressure import prescribed_element_pressures
+                if case.time is None:raise ProjectError('prescribed pressure needs an absolute case time')
+                try:ids,values=prescribed_element_pressures(project,mesh,load.history,float(case.time))
+                except ValueError as error:raise ProjectError(str(error)) from error
+                scale=load.scale*_envelope_factor(case,load)
+                for eid,value in zip(ids,values):
+                    centroid,normal=_element_centroid_normal(mesh,int(eid))
+                    old=accumulated.get(int(eid),(0.,centroid,normal,False))[0]
+                    accumulated[int(eid)]=(old+scale*float(value),centroid,normal,False)
+            continue
         if load.history is not None and _is_surface_history(load.history):
             # Separate exact route for the wave-following history: its loads are assembled as consistent nodal
             # vectors (_accumulate_wave_surface); inspection only sees full-area element averages.
@@ -1881,7 +1897,7 @@ def _supported_mapped_history(history: Any) -> bool:
     if type(history) is SourceAwarePressureHistory:
         history = getattr(history, "mapped_history", None)
     # The wave-following history is an exact immutable ANYloads record whose evaluation runs no caller code.
-    return type(history) in (MappedPressureHistory, SpectralMappedPressureHistory, WaveSurfacePressureHistory)
+    return type(history) in (MappedPressureHistory, SpectralMappedPressureHistory, WaveSurfacePressureHistory) or _is_prescribed_history(history)
 
 
 class _BatchLoadContext:
@@ -1904,6 +1920,7 @@ class _BatchLoadContext:
         self._trusted = False
         self._wet: dict[Any, tuple] = {}
         self._effective: dict[Any, tuple] = {}
+        self._prescribed: dict[Any, tuple] = {}
         geometry = self.project.geometry
         self._token = (id(geometry), geometry.model_id, geometry.revision)
         self.reuses = {"mesh_hash": 0, "wet_elements": 0, "remapped_history": 0}
@@ -1941,6 +1958,7 @@ class _BatchLoadContext:
         self._hash = None
         self._wet.clear()
         self._effective.clear()
+        self._prescribed.clear()
 
     @staticmethod
     def _content_hash(mesh: Any) -> str:
@@ -2007,6 +2025,33 @@ class _BatchLoadContext:
         self._effective[key] = (load.history, made.history, made.mesh_content_sha256)
         return made
 
+    def effective_prescribed_history(self,project,mesh,load):
+        from ..application.orcawave_pressure import effective_prescribed_history,validate_prescribed_scope,_region_binding
+        if project is not self.project or mesh is not self.mesh or not self._trusted:
+            return effective_prescribed_history(project,mesh,load.history)
+        self.require_unchanged('prescribed pressure evaluation')
+        validate_prescribed_scope(project,load)
+        if project.imperfections:raise ProjectError('prescribed pressure does not admit imperfect reference geometry')
+        surface_states=tuple(_wet_surface_state(s) for s in project.wet_surfaces)
+        if any(s is None for s in surface_states):
+            self._drop()
+            return effective_prescribed_history(project,mesh,load.history)
+        # Ignore Python shared-key dictionary allocation sizes: only owner
+        # values bind the physical load; serialization can change those sizes.
+        state=(repr(project.shell_formulation_policy.to_dict()),tuple(s[:7] for s in surface_states),
+               repr(_region_binding(project)))
+        key=(load.id,id(load.history))
+        hit=self._prescribed.get(key)
+        if hit is not None and hit[0] is load.history:
+            if hit[1]!=state:raise ProjectError('prescribed pressure binding changed during batch')
+            self.reuses['remapped_history']+=1
+            return hit[2]
+        self.mesh_content_hash(mesh)  # verified again at end of batch
+        made=effective_prescribed_history(project,mesh,load.history)
+        if sum(h[2].responses.nbytes for h in self._prescribed.values())+made.responses.nbytes<=256*1024**2:
+            self._prescribed[key]=(load.history,state,made)
+        return made
+
     def wet_elements(self, selected):
         state = tuple(_wet_surface_state(surface) for surface in selected)
         if not self._trusted or any(item is None for item in state):
@@ -2046,8 +2091,27 @@ def _accumulate_wet_pressures(
     for load in case.wet_pressures:
         if load.history is not None and _is_surface_history(load.history):
             _accumulate_wave_surface(project, mesh, case, factor, target, load, _load_context)
+        elif load.history is not None and _is_prescribed_history(load.history):
+            from ..application.orcawave_pressure import effective_prescribed_history,validate_prescribed_scope
+            if case.time is None:raise ProjectError('prescribed pressure needs an absolute case time')
+            if any(_is_floating_history(x.history) for x in case.wet_pressures if x.history is not None):
+                raise ProjectError('prescribed pressure cannot be combined with coupled floating response')
+            try:
+                validate_prescribed_scope(project,load)
+                history=(_load_context.effective_prescribed_history(project,mesh,load) if _load_context is not None
+                    else effective_prescribed_history(project,mesh,load.history))
+                nodal=history.evaluate(float(case.time))*factor*load.scale*_envelope_factor(case,load)
+            except ValueError as error:raise ProjectError(str(error)) from error
+            for node_id,vector in zip(history.node_ids,nodal):
+                if node_id not in mesh.nodes:raise ProjectError('prescribed pressure node is absent from mesh')
+                _add_nodal(target,int(node_id),vector[:3],vector[3:])
         elif load.history is not None and _is_floating_history(load.history):
             _accumulate_floating(project, mesh, case, factor, target, load, _load_context)
+
+
+def _is_prescribed_history(history):
+    from ..model.attributes import _prescribed_pressure_types
+    return type(history) in _prescribed_pressure_types()
 
 
 def _is_floating_history(history: Any) -> bool:
