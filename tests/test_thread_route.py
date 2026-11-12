@@ -22,6 +22,7 @@ except ImportError:  # only the process-inspection tests need it; the rest must 
     psutil = None
 needs_psutil = pytest.mark.skipif(psutil is None, reason="psutil not installed")
 
+import anygeometry  # noqa: E402
 from anygeometry import GeometryModel, to_dict  # noqa: E402
 from anygeometry.errors import GeometryError  # noqa: E402
 
@@ -294,7 +295,7 @@ def spy_owner_calls(monkeypatch):
     from anygeometry import plan_adoption
     import anyfem._batch_prepare as batch
     calls = {"adopt": [], "apply": []}
-    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, batch.apply_intersections
+    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, anygeometry.apply_intersections
 
     def adopt(*args, **kwargs):
         plan = real_adopt(*args, **kwargs)
@@ -307,7 +308,7 @@ def spy_owner_calls(monkeypatch):
         return real_apply(geometry, plan, **kwargs)
 
     monkeypatch.setattr(plan_adoption, "adopt_intersection_plan", adopt)
-    monkeypatch.setattr(batch, "apply_intersections", apply)
+    monkeypatch.setattr(anygeometry, "apply_intersections", apply)
     return calls
 
 
@@ -344,7 +345,7 @@ def test_parent_adopts_and_applies_with_one_policy_carrying_its_own_cancellation
     from anygeometry import plan_adoption
     import anyfem._batch_prepare as batch
     seen = {}
-    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, batch.apply_intersections
+    real_adopt, real_apply = plan_adoption.adopt_intersection_plan, anygeometry.apply_intersections
 
     def adopt(model, packet, **kwargs):
         if kwargs["job_id"] != "probe":
@@ -356,7 +357,7 @@ def test_parent_adopts_and_applies_with_one_policy_carrying_its_own_cancellation
         return real_apply(geometry, plan, **kwargs)
 
     monkeypatch.setattr(plan_adoption, "adopt_intersection_plan", adopt)
-    monkeypatch.setattr(batch, "apply_intersections", apply)
+    monkeypatch.setattr(anygeometry, "apply_intersections", apply)
     phases = []
     tr._INJECT.update(temp_root=str(jobs_dir))
     prepare_structural_connectivity(crossing(), cancellation_check=phases.append)
@@ -378,8 +379,8 @@ def test_parent_cancellation_during_adopt_and_apply_propagates_without_a_serial_
 
     monkeypatch.setattr(tr, "run_child", wrapped)
     serial_calls = []
-    real = _batch_prepare.plan_intersections
-    monkeypatch.setattr(_batch_prepare, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
+    real = anygeometry.plan_intersections
+    monkeypatch.setattr(anygeometry, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
 
     reached = []
 
@@ -530,8 +531,8 @@ def test_missing_proof_after_the_apply_is_a_hard_failure_and_disables_the_route(
     typed failure, route off for the session, no serial rerun on the (unsoundly rollbackable) geometry."""
     import anygeometry
     serial_calls = []
-    real = _batch_prepare.plan_intersections
-    monkeypatch.setattr(_batch_prepare, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
+    real = anygeometry.plan_intersections
+    monkeypatch.setattr(anygeometry, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
     monkeypatch.setattr(anygeometry, "has_current_intersection_preparation", lambda *a, **k: False)
     tr._INJECT.update(temp_root=str(jobs_dir))
     with pytest.raises(StructuralPreparationError, match="owner proof check"):
@@ -1025,8 +1026,6 @@ def test_shared_core_equals_frozen_smoke():
 @pytest.mark.parametrize("name", ["plan_intersections", "apply_intersections"])
 def test_owner_entry_points_are_looked_up_at_call_time(monkeypatch, name):
     """Tests and diagnostics replace ``anygeometry.<entry point>``; the batch phases must call the replacement."""
-    import anygeometry
-
     class Seen(Exception):
         pass
 
