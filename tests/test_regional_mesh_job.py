@@ -191,13 +191,16 @@ def test_mesh_job_entry_packs_regional_fields(monkeypatch):
     pickle.dumps(transport)
 
 
-def test_qt_update_requires_preview_and_confirmation():
+@pytest.fixture
+def regional_update_panel():
     pytest.importorskip("PySide6")
-    from anyfem.ui.qt.tasks import MeshTask
+    from anyfem import Project
+    from anyfem.document import DocumentSession
 
     events = []
+    project = Project("regional preview")
     app = SimpleNamespace(
-        project=SimpleNamespace(element_order="linear"),
+        project=project, session=DocumentSession(project), mesh_record_id=None, seeding_overrides={},
         review_mesh_reference_repairs=object(),
         preview_regional_update=lambda **o: events.append(("preview", o)) or "3 faces change",
         update_mesh_async=lambda **o: events.append(("update", o)),
@@ -205,10 +208,24 @@ def test_qt_update_requires_preview_and_confirmation():
         dialogs=SimpleNamespace(confirm=lambda title, message: events.append(("confirm", message)) or answer[0]),
     )
     answer = [False]
+
+    def settings(*, updating):
+        assert updating is True
+        return {"target_size": 0.5}
+
     panel = SimpleNamespace(
         app=app, order=SimpleNamespace(currentText=lambda: "linear"),
-        settings=lambda: {"target_size": 0.5},
+        s3_reference=SimpleNamespace(currentData=lambda: project.shell_formulation_policy.s3_reference_surface),
+        settings=settings,
     )
+    return panel, events, answer
+
+
+def test_qt_update_requires_preview_and_confirmation(regional_update_panel):
+    from anyfem.ui.qt.tasks import MeshTask
+
+    panel, events, answer = regional_update_panel
+    app = panel.app
     MeshTask.start_update(panel)
     assert [e[0] for e in events] == ["preview", "confirm", "status"]
     assert "3 faces change" in events[1][1]
@@ -222,3 +239,26 @@ def test_qt_update_requires_preview_and_confirmation():
     with pytest.raises(ValueError, match="full rebuild"):
         MeshTask.start_update(panel)
     assert events == []
+
+
+@pytest.mark.parametrize(("change", "reason"), [
+    ("seeding", "settings changed during confirmation"),
+    ("geometry", "superseded by a model edit"),
+])
+def test_modal_confirmation_refuses_a_stale_regional_preview(regional_update_panel, change, reason):
+    from anyfem.ui.qt.tasks import MeshTask
+
+    panel, events, _ = regional_update_panel
+
+    def confirm(title, message):
+        events.append(("confirm", message))
+        if change == "seeding":
+            panel.app.seeding_overrides[1] = 4
+        else:
+            panel.app.project.geometry.add_points([(0.0, 0.0, 0.0)])
+        return True
+
+    panel.app.dialogs.confirm = confirm
+    with pytest.raises(ValueError, match=reason):
+        MeshTask.start_update(panel)
+    assert [event[0] for event in events] == ["preview", "confirm"]
