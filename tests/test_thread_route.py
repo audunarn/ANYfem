@@ -1020,3 +1020,24 @@ def test_route_off_result_is_frozen():
 
 def test_shared_core_equals_frozen_smoke():
     assert _batch_prepare.smoke_digest() == _batch_prepare.SMOKE_DIGEST
+
+
+@pytest.mark.parametrize("name", ["plan_intersections", "apply_intersections"])
+def test_owner_entry_points_are_looked_up_at_call_time(monkeypatch, name):
+    """Tests and diagnostics replace ``anygeometry.<entry point>``; the batch phases must call the replacement."""
+    import anygeometry
+
+    class Seen(Exception):
+        pass
+
+    def spy(*args, **kwargs):
+        raise Seen(name)
+    model = crossing()
+    operands = tuple(model.handle("face", i) for i in sorted(model.faces))
+    real_plan = _batch_prepare.plan_only(model, operands)
+    monkeypatch.setattr(anygeometry, name, spy)
+    with pytest.raises(Seen):
+        if name == "plan_intersections":
+            _batch_prepare.plan_only(model, operands)
+        else:
+            _batch_prepare.plan_apply_phase(model, operands, plan_source=lambda policy: real_plan)
