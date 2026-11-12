@@ -18,7 +18,7 @@ from anygeometry.curves import Straight
 from anygeometry.entities import Edge, EntityRef, Vertex
 from anygeometry.model import GeometryModel
 from anygeometry.operations import surface_point
-from anygeometry.surfaces import Plane
+from anygeometry.surfaces import Cylinder, Plane
 
 from ..mesh.mapped import Mesh
 from ..model.project import Project
@@ -412,6 +412,42 @@ def face_display_polygons(
     """
 
     face = geometry.faces[face_id]
+    if isinstance(face.surface, Cylinder) and face.parameterization is None and not face.corners:
+        from shapely.geometry import Polygon, box
+        from shapely.ops import triangulate
+
+        surface = face.surface
+        rings = []
+        for loop in (face.loop, *face.holes):
+            points = []
+            for item in loop:
+                parameters = np.arange(max(24, 4*divisions)) / max(24, 4*divisions)
+                if not item.forward:
+                    parameters = 1-parameters
+                samples = geometry.evaluate_edge_many(item.edge, parameters)
+                # Display endpoints follow the admitted native topology. The
+                # analytic curve and its source precision stay in the model.
+                samples[0] = geometry.vertex_position(geometry.oriented_start_vertex(item))
+                points.extend(surface.local_uv(point) for point in samples)
+            rings.append(np.asarray(points))
+        polygon = Polygon(rings[0], holes=rings[1:])
+        if not polygon.is_valid or polygon.is_empty:
+            raise ValueError(f"face {face_id} has an invalid cylindrical display trim")
+        low_u, low_v, high_u, high_v = polygon.bounds
+        u_values = np.linspace(low_u, high_u, max(2, divisions)+1)
+        v_values = np.linspace(low_v, high_v, max(2, divisions)+1)
+        triangles = []
+        for u0, u1 in zip(u_values, u_values[1:]):
+            for v0, v1 in zip(v_values, v_values[1:]):
+                cell = polygon.intersection(box(u0, v0, u1, v1))
+                for triangle in triangulate(cell):
+                    if not cell.covers(triangle):
+                        continue
+                    uv = np.asarray(triangle.exterior.coords)[:-1]
+                    if not triangle.exterior.is_ccw:
+                        uv = uv[::-1]
+                    triangles.append(np.asarray([surface.evaluate(u, v) for u, v in uv]))
+        return triangles
     if (
         isinstance(face.surface, Plane)
         and face.parameterization is None

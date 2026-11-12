@@ -589,6 +589,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(file,"Recover autosave",self.recover_autosave)
         self._action(file,"Open file inspector",self.open_file_inspector)
         self._action(file,"Import SESAM model",self.import_sesam_model)
+        from .sat_import import open_sat_import
+        self._action(file,"Import SAT geometry…",lambda: open_sat_import(self))
         self._action(file,"Import CalculiX results",self.import_calculix_result)
         self._action(file,"Import SESAM results",self.import_sesam_result)
         self._action(file,"Export CalculiX deck",self.export_deck)
@@ -1216,6 +1218,8 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         settings=QSettings("ANY","ANYfem-Qt")
         settings.setValue("geometry",self.saveGeometry());settings.setValue("docks",self.saveState())
         self._closing=True
+        if getattr(self,"_sat_import",None) is not None:
+            self._sat_import.cancel()
         self.panels["Submodelling"].dispose()
         from .submodel_task import shutdown_submodel
         self.panels["Drawings"].dispose()

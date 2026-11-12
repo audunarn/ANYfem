@@ -30,3 +30,9 @@ The part number is the persistent structural Part ID displayed in the drawing di
 - A drawing-basis file identifying the project snapshot, Part, global elevation of the local datum, density basis, quantity and file formats.
 
 The assembly takeoff covers planar plate-only Parts. The plate picker also handles cylindrical developments and modelled stiffeners. A developed cylindrical contour is a reference-surface profile. Forming allowance depends on the fabrication process. Plane sections represent assigned plate thickness, straight beam sections and supported cylindrical walls. The preview reports omitted geometry, including unsupported cylindrical trims or curved member sweeps.
+
+## SAT geometry
+
+Choose **File → Import SAT geometry…** to create an editable project from an indexed ACIS SAT file. Surface pieces become individually selectable, unassigned Sheets. Join connected pieces belonging to one physical plate before assigning its material and section and generating a plate index or weight takeoff. Source coordinates convert to metres using the SAT units header. The saved project retains source identity, precision and topology maps.
+
+Curved SAT import uses a local FreeCAD Python installation with InventorLoader. A missing reader or CAD adapter produces an actionable message. The supported reader covers planar and cylindrical faces, straight curves, analytic ellipse intervals and supported rational spline laws. Unsupported geometry produces entity diagnostics. Cancel or close the import to retain the current document.

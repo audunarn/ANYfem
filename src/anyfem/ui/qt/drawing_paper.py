@@ -37,11 +37,13 @@ def _draw(p, rect, view, *, preview=False):
     for curve in view.paths:
         if len(curve.points) < 2:
             continue
-        color = TEAL if curve.layer in {"STIFFENERS","SECTION"} else INK
+        color = TEAL if curve.layer in {"STIFFENERS","SECTION","CUT_PLANE"} else INK
         pen = QPen(QColor(color))
         pen.setWidthF(1.25 if preview else 1.65)
         if curve.layer=="STIFFENERS":
             pen.setStyle(Qt.PenStyle.DashLine)
+        if curve.layer=="CUT_PLANE":
+            pen.setStyle(Qt.PenStyle.DashDotLine)
         p.setPen(pen)
         path = QPainterPath(xy(curve.points[0]))
         for point in curve.points[1:]:
@@ -49,6 +51,10 @@ def _draw(p, rect, view, *, preview=False):
         if curve.closed:
             path.closeSubpath()
         p.drawPath(path)
+        if curve.layer=="CUT_PLANE" and curve.label:
+            for point in (curve.points[0],curve.points[-1]):
+                position = xy(point)
+                _text(p,position.x()+6,position.y()-6,curve.label,13,TEAL,True)
 
 
 class PaperPreview(QWidget):
@@ -182,6 +188,8 @@ def _references(view):
     refs, labels = [], set()
     counters = {"H": 0, "M": 0, "S": 0}
     for path in view.paths:
+        if path.layer=="CUT_PLANE":
+            continue
         if not path.points:
             continue
         if path.layer == "HOLES" and outline:

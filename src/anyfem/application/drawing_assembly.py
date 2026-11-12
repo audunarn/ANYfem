@@ -115,6 +115,8 @@ def _projection(stocks, direction, up):
     front_faces = set()
 
     def cover(rings, owner, outward=1):
+        if not rings:
+            return
         outer = rings[0]
         # Store the actual unit plane normal toward the viewer. Interpolating
         # z(x,y) would divide by a nearly zero component on grazing side walls

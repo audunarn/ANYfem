@@ -74,9 +74,18 @@ def write_view_dxf(view: DrawingView, path: Path):
             continue
         if curve.layer not in doc.layers:
             doc.layers.add(curve.layer, color=4 if curve.layer=="STIFFENERS" else 7)
+        if curve.layer=="CUT_PLANE":
+            if "CUT_LINE" not in doc.linetypes:
+                doc.linetypes.new("CUT_LINE",dxfattribs={"description":"Cutting plane","pattern":[40,24,-6,4,-6]})
+            doc.layers.get(curve.layer).dxf.linetype = "CUT_LINE"
+            doc.layers.get(curve.layer).dxf.color = 4
         if len(pts) < 2:
             continue
         msp.add_lwpolyline(pts, close=curve.closed, dxfattribs={"layer":curve.layer})
+        if curve.layer=="CUT_PLANE" and curve.label:
+            for point in (pts[0],pts[-1]):
+                msp.add_text(curve.label,height=height,dxfattribs={"layer":"ANNOTATION"}).set_placement(point)
+            continue
         if curve.label and curve.label not in labels:
             key = f"R{len(labels)+1}"
             labels[curve.label] = key
