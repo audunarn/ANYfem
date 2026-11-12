@@ -153,6 +153,17 @@ STUB_PRELUDE = textwrap.dedent('''
 ''')
 
 
+def valid_health():
+    return dict(numpy=tr.EXPECT_NUMPY, gil_enabled=False, gil_disabled_build=True, version="3.14.10",
+                cache_tag=tr.EXPECT_CACHE_TAG, executable=str(PYTHON))
+
+
+def valid_modules():
+    import anygeometry
+    package = Path(anygeometry.__file__).resolve().parent
+    return dict(modules=["errors.py"], loaded_digest=_batch_prepare.files_digest(package, ["errors.py"]))
+
+
 def stub(tmp_path, body: str) -> Path:
     path = tmp_path / "stub_child.py"
     path.write_text(STUB_PRELUDE + textwrap.dedent(body))
@@ -643,12 +654,27 @@ def test_typed_refusal_is_reported_as_serial_would_and_not_retried(route_on, job
 
 
 @needs_runtime
+@pytest.mark.parametrize("name, body_change, part", [
+    ("gil-on", lambda b: b["health"].update(gil_enabled=True), "GIL-disabled"),
+    ("other-version", lambda b: b["health"].update(version="3.13.1"), "interpreter identity"),
+    ("other-code", lambda b: b.update(loaded_digest="0" * 64), "different anygeometry code"),
+    ("no-modules", lambda b: b.pop("modules"), "loaded-module list"),
+])
+def test_refusal_from_an_untrusted_runtime_is_not_final(route_on, jobs_dir, tmp_path, name, body_change, part):
+    body = dict(phase=1, type="GeometryError", message="refused by a runtime we do not trust", health=valid_health(),
+                diagnostic=None, diagnostic_type=None, **valid_modules())
+    body_change(body)
+    child = stub(tmp_path, "write('refusal', json.loads(%r))" % json.dumps(body) + chr(10))
+    assert_serial_fallback(crossing, jobs_dir, part, child_main=child)
+
+
+@needs_runtime
 def test_owner_diagnostic_of_a_child_refusal_survives_to_the_wrapper(route_on, jobs_dir, tmp_path):
     child = stub(tmp_path, '''
-        write("refusal", dict(phase=1, type="GeometryError", message="face 1 vs 2 refused", health={},
+        write("refusal", dict(phase=1, type="GeometryError", message="face 1 vs 2 refused", health=%r,
                               diagnostic={"reason": "residual", "pair": [1, 2], "tolerance": 1e-9},
-                              diagnostic_type="PlaneRuledSupportError"))
-    ''')
+                              diagnostic_type="PlaneRuledSupportError", **%r))
+    ''' % (valid_health(), valid_modules()))
     tr._INJECT.update(temp_root=str(jobs_dir), child_main=child)
     with pytest.raises(StructuralPreparationError) as routed:
         prepare_structural_connectivity(crossing())

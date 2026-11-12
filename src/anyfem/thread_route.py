@@ -571,37 +571,46 @@ def _same_file(first, second) -> bool:
         return False
 
 
+def _check_runtime(body: dict, python: Optional[Path] = None) -> str:
+    """Per-job wrong-runtime exclusion for EVERY planning answer (plan or refusal): GIL off, NumPy pin, free-threaded
+    build, interpreter identity, and a digest over the anygeometry files the child actually loaded.  Returns a reason or ""."""
+    import anygeometry
+    health = body.get("health")
+    if not isinstance(health, dict) or health.get("gil_enabled") is not False:
+        return "child did not report a GIL-disabled runtime"
+    if health.get("numpy") != EXPECT_NUMPY:
+        return "child NumPy %s != %s" % (health.get("numpy"), EXPECT_NUMPY)
+    if health.get("gil_disabled_build") is not True:
+        return "child is not a free-threaded build"
+    version, tag, executable = health.get("version"), health.get("cache_tag"), health.get("executable")
+    if (not isinstance(version, str) or not version.startswith(EXPECT_VERSION_PREFIX) or tag != EXPECT_CACHE_TAG
+            or not isinstance(executable, str) or (python is not None and not _same_file(executable, python))):
+        return "unexpected interpreter identity (version %r, cache tag %r, executable %r)" % (version, tag, executable)
+    modules = body.get("modules")
+    if (not isinstance(modules, list) or not modules or not all(isinstance(name, str) for name in modules)):
+        return "child reported no loaded-module list"
+    try:
+        digest = _batch_prepare.files_digest(Path(anygeometry.__file__).resolve().parent, modules)
+    except (OSError, ValueError) as exc:
+        return "loaded-module digest could not be recomputed: %s" % exc
+    if digest != body.get("loaded_digest"):
+        return "child loaded different anygeometry code than this application"
+    return ""
+
+
 def _check_plan_body(body: dict, python: Optional[Path] = None) -> tuple:
     """Validate the child's ok body.  Returns (packet bytes, "") or (None, reason)."""
     import base64
     import binascii
-    import anygeometry
-    health = body.get("health")
-    if not isinstance(health, dict) or health.get("gil_enabled") is not False:
-        return None, "child did not report a GIL-disabled runtime"
-    if health.get("numpy") != EXPECT_NUMPY:
-        return None, "child NumPy %s != %s" % (health.get("numpy"), EXPECT_NUMPY)
-    if health.get("gil_disabled_build") is not True:
-        return None, "child is not a free-threaded build"
-    version, tag, executable = health.get("version"), health.get("cache_tag"), health.get("executable")
-    if (not isinstance(version, str) or not version.startswith(EXPECT_VERSION_PREFIX) or tag != EXPECT_CACHE_TAG
-            or not isinstance(executable, str) or (python is not None and not _same_file(executable, python))):
-        return None, "unexpected interpreter identity (version %r, cache tag %r, executable %r)" % (version, tag, executable)
+    problem = _check_runtime(body, python)
+    if problem:
+        return None, problem
     try:
         packet = base64.b64decode(str(body["packet"]), validate=True)
     except (KeyError, binascii.Error, ValueError):
         return None, "child packet is not valid base64"
     if hashlib.sha256(packet).hexdigest() != body.get("packet_sha256"):
         return None, "child packet checksum mismatch"
-    modules = body.get("modules")
-    if (not isinstance(modules, list) or not modules or not all(isinstance(name, str) for name in modules)):
-        return None, "child reported no loaded-module list"
-    try:
-        digest = _batch_prepare.files_digest(Path(anygeometry.__file__).resolve().parent, modules)
-    except (OSError, ValueError) as exc:
-        return None, "loaded-module digest could not be recomputed: %s" % exc
-    if digest != body.get("loaded_digest"):
-        return None, "child loaded different anygeometry code than this application"
     return packet, ""
 
 
@@ -609,6 +618,9 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     """Run plan in the child, adopt + apply in this process.  Returns the applied ``BatchState`` or None (serial path).
 
     ``injection`` is for tests only (``temp_root``, ``child_main``, ``python_args``, ``extra_env``, ``timeout``, ``python``).
+    Contract: nobody else edits the geometry while the call runs (as for the serial path); a change that is noticed
+    (stale checksum or revision) never lets a child answer win - the ordinary serial path runs with the caller's operands,
+    exactly as it would without the route.
     """
     global last_outcome, last_adoption
     if not route_enabled():
@@ -660,6 +672,9 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     last_outcome = outcome
     last_adoption = {}
     if outcome.status == REFUSAL:
+        problem = _check_runtime(outcome.body or {}, python)
+        if problem:  # a planning answer from a runtime we do not trust is not final either
+            return _unavailable("invalid child refusal: %s" % problem, outcome)
         # A refusal is final only for the geometry it was computed on: if the parent changed meanwhile, the serial
         # path decides on the current geometry instead of the child's stale answer.
         try:
