@@ -100,8 +100,14 @@ def _isolate(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def route_on():
+def route_on_any_host():
     tr.configure(enabled=True, min_faces=0, runtime=str(RUNTIME_ROOT))
+
+
+@pytest.fixture
+def route_on(route_on_any_host):
+    if os.name != "nt":  # the route runs on Windows only; these tests exercise it past the host guard
+        pytest.skip("the thread route is Windows only")
 
 
 @pytest.fixture
@@ -556,7 +562,7 @@ def test_genuine_proof_check_sees_a_missing_owner_receipt_with_the_real_fingerpr
     assert tr._genuine_proof(second) != ""
 
 
-def test_non_windows_hosts_run_serially(route_on, monkeypatch):
+def test_non_windows_hosts_run_serially(route_on_any_host, monkeypatch):
     monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned on a non-Windows host"))
     model = crossing()
