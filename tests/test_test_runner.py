@@ -685,7 +685,7 @@ def test_build_and_test_use_same_results_api_without_upgrading_physical_solver()
         '.ecosystem/ANYfeSolver': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
         '.ecosystem/ANYfeSolver-results': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
         '.ecosystem/ANYpost': ('audunarn/ANYpost', '9eb9713b92c1b3a476301150b5e89e350d515844'),
-        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '9d3196936a9e1ad7f9f957e778c8fd314d53d048'),
+        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '5dc4b1fffc3525dc707f784d582e2b723d441be7'),
         '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '946b9353924dbca6f326feb8cb0327bcae5c4ccc' }}"),
     }
     for job in (test_job, build_job):

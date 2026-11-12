@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
+          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
+          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -239,7 +239,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
+          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -254,7 +254,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
+          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -421,7 +421,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYhydro
-          ref: 56b3d0f7f0167b50a1b4517007361c7876a3bd38
+          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
           path: .ecosystem/ANYhydro
       - uses: actions/checkout@v4
         with:
@@ -436,7 +436,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 9d3196936a9e1ad7f9f957e778c8fd314d53d048
+          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:

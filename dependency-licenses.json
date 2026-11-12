@@ -44,7 +44,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYgeometry",
-      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@9d3196936a9e1ad7f9f957e778c8fd314d53d048",
+      "requirement": "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5dc4b1fffc3525dc707f784d582e2b723d441be7",
       "scope": "optional:gui",
       "upstream": "https://github.com/audunarn/ANYgeometry"
     },
@@ -68,7 +68,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYhydro",
-      "requirement": "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@56b3d0f7f0167b50a1b4517007361c7876a3bd38",
+      "requirement": "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@dec262f6af912b1d5de5027f62a27e536f3ce93e",
       "scope": "optional:orcawave",
       "upstream": "https://github.com/audunarn/ANYhydro"
     },
