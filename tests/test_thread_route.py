@@ -534,6 +534,36 @@ def test_missing_proof_after_the_apply_is_a_hard_failure_and_disables_the_route(
     assert list(jobs_dir.iterdir()) == []
 
 
+def three_plates() -> GeometryModel:
+    model = crossing()
+    model.add_plate(model.add_points(((1, 1, -1), (1, 3, -1), (1, 3, 1), (1, 1, 1))))
+    return model
+
+
+def test_genuine_proof_check_sees_a_missing_owner_receipt_with_the_real_fingerprint():
+    """The real check, no stubs: a boolean proof alone is not enough; the bindings must exist and differ per model."""
+    import anygeometry
+    tr.configure(enabled=False)
+    first, second = crossing(), three_plates()
+    prepare_structural_connectivity(first)
+    prepare_structural_connectivity(second)
+    assert tr._genuine_proof(first) == "" and tr._genuine_proof(second) == ""
+    assert tr.binding_fingerprint(first) != tr.binding_fingerprint(second)  # not a constant
+    del first._prepared_face_preimages_receipt  # owner receipt of the face preimages vanishes, the boolean may stay true
+    assert anygeometry.has_current_intersection_preparation(first)
+    assert "owner bindings unusable" in tr._genuine_proof(first)
+    del second._edge_subcurve_preimages_receipt
+    assert tr._genuine_proof(second) != ""
+
+
+def test_non_windows_hosts_run_serially(route_on, monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("child spawned on a non-Windows host"))
+    model = crossing()
+    assert tr.try_prepare(model, tuple(model.handle("face", i) for i in sorted(model.faces))) is None
+    assert "Windows only" in tr.last_outcome.reason
+
+
 @needs_runtime
 def test_unusable_bindings_after_the_apply_are_a_hard_failure(route_on, jobs_dir, monkeypatch):
     def broken(geometry):

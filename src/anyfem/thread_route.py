@@ -658,6 +658,8 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     faces = len(geometry.faces)
     if faces < _min_faces():
         return None
+    if os.name != "nt":  # job-object containment and the parent watchdog exist for Windows only (x64 first)
+        return _unavailable("the thread route supports Windows only for now; running serially")
     adoption = _adoption_api()
     if adoption is None:
         return _unavailable("this ANYgeometry offers no verified plan adoption API; running serially")
