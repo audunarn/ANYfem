@@ -48,6 +48,8 @@ __all__ = [
 
 LOG = logging.getLogger("anyfem.thread_route")
 EXPECT_NUMPY = "2.4.6"
+EXPECT_CACHE_TAG = "cpython-314"  # CPython 3.14 (the free-threaded build reports the same tag; Py_GIL_DISABLED is checked separately)
+EXPECT_VERSION_PREFIX = "3.14."
 ENV_ENABLE = "ANYFEM_THREAD_ROUTE"
 ENV_RUNTIME = "ANYGEOMETRY_THREAD_RUNTIME"
 ENV_THREADS = "ANYFEM_THREAD_COUNT"
@@ -562,7 +564,14 @@ def _declined_before_spawn(adoption, geometry, operands) -> str:
     return ""
 
 
-def _check_plan_body(body: dict, python_info: Optional[dict] = None) -> tuple:
+def _same_file(first, second) -> bool:
+    try:
+        return os.path.normcase(str(Path(first).resolve())) == os.path.normcase(str(Path(second).resolve()))
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _check_plan_body(body: dict, python: Optional[Path] = None) -> tuple:
     """Validate the child's ok body.  Returns (packet bytes, "") or (None, reason)."""
     import base64
     import binascii
@@ -574,6 +583,10 @@ def _check_plan_body(body: dict, python_info: Optional[dict] = None) -> tuple:
         return None, "child NumPy %s != %s" % (health.get("numpy"), EXPECT_NUMPY)
     if health.get("gil_disabled_build") is not True:
         return None, "child is not a free-threaded build"
+    version, tag, executable = health.get("version"), health.get("cache_tag"), health.get("executable")
+    if (not isinstance(version, str) or not version.startswith(EXPECT_VERSION_PREFIX) or tag != EXPECT_CACHE_TAG
+            or not isinstance(executable, str) or (python is not None and not _same_file(executable, python))):
+        return None, "unexpected interpreter identity (version %r, cache tag %r, executable %r)" % (version, tag, executable)
     try:
         packet = base64.b64decode(str(body["packet"]), validate=True)
     except (KeyError, binascii.Error, ValueError):
@@ -647,11 +660,19 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     last_outcome = outcome
     last_adoption = {}
     if outcome.status == REFUSAL:
+        # A refusal is final only for the geometry it was computed on: if the parent changed meanwhile, the serial
+        # path decides on the current geometry instead of the child's stale answer.
+        try:
+            unchanged = to_dict(geometry)["checksum"]["value"] == expected_checksum
+        except (_GeometryError, TypeError, ValueError, OSError):
+            unchanged = False
+        if not unchanged:
+            return _unavailable("stale child refusal: the geometry changed while the child ran", outcome)
         raise _refusal_error(_GeometryError, outcome.body or {})
     if outcome.status != OK:
         return _unavailable(outcome.reason or outcome.status, outcome)
     body = outcome.body or {}
-    packet, problem = _check_plan_body(body)
+    packet, problem = _check_plan_body(body, python)
     if packet is None:
         return _unavailable("invalid child result: %s" % problem, outcome)
     adopted = {"plan": None}

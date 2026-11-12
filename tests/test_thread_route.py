@@ -350,18 +350,28 @@ def test_parent_adopts_and_applies_with_one_policy_carrying_its_own_cancellation
 def test_parent_cancellation_during_adopt_and_apply_propagates_without_a_serial_rerun(route_on, jobs_dir, monkeypatch):
     done = []
     original = tr.run_child
-    monkeypatch.setattr(tr, "run_child", lambda *a, **k: done.append(a[1]["kind"]) or original(*a, **k))
+
+    def wrapped(*a, **k):
+        outcome = original(*a, **k)
+        done.append(a[1]["kind"])  # recorded only AFTER the child has finished: cancellation now comes from the parent phase
+        return outcome
+
+    monkeypatch.setattr(tr, "run_child", wrapped)
     serial_calls = []
     real = _batch_prepare.plan_intersections
     monkeypatch.setattr(_batch_prepare, "plan_intersections", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
 
+    reached = []
+
     def check(phase):
         if "plan" in done:
+            reached.append(phase)
             raise Cancel(phase)
 
     tr._INJECT.update(temp_root=str(jobs_dir))
     with pytest.raises(Cancel):
         prepare_structural_connectivity(crossing(), cancellation_check=check)
+    assert reached == ["structural intersection batch"]  # raised by the parent's adopt/apply, not by the child polling loop
     assert serial_calls == [] and list(jobs_dir.iterdir()) == []
 
 
@@ -417,6 +427,46 @@ def test_forged_or_foreign_child_results_are_refused_and_serial_runs(route_on, j
     assert tr.last_adoption == {}
     import anygeometry
     assert anygeometry.has_current_intersection_preparation(model)
+
+
+@needs_runtime
+@pytest.mark.parametrize("name, change, part", [
+    ("identity-missing", lambda o, j: [o.body["health"].pop(k) for k in ("version", "cache_tag", "executable")], "interpreter identity"),
+    ("other-python-version", lambda o, j: o.body["health"].update(version="3.13.1"), "interpreter identity"),
+    ("other-cache-tag", lambda o, j: o.body["health"].update(cache_tag="cpython-313t"), "interpreter identity"),
+    ("other-executable", lambda o, j: o.body["health"].update(executable=sys.executable), "interpreter identity"),
+])
+def test_child_interpreter_identity_is_validated(route_on, jobs_dir, monkeypatch, name, change, part):
+    expected = reference(crossing)
+    tamper_plan_result(monkeypatch, change)
+    model, report, _ = run_on(crossing, temp_root=str(jobs_dir))
+    assert tr.last_outcome.status == tr.UNAVAILABLE and part in tr.last_outcome.reason, tr.last_outcome.reason
+    assert result_of(model, report) == expected
+
+
+@needs_runtime
+def test_child_refusal_of_a_stale_job_is_not_final_serial_decides_on_the_current_geometry(route_on, jobs_dir, monkeypatch):
+    """A refusal is only final for the geometry it was computed on: when the parent changed meanwhile, the child's
+    refusal is not raised; the ordinary serial path decides on the current geometry (here: it refuses by itself)."""
+    original = tr.run_child
+    model = overlapping()
+
+    def wrapped(python, job, document, **kwargs):
+        outcome = original(python, job, document, **kwargs)
+        if job["kind"] == "plan":
+            assert outcome.status == tr.REFUSAL  # the child refused the overlap it saw
+            model.add_points(((9, 9, 9),))  # the parent geometry changed after the child was started
+        return outcome
+
+    serial_calls = []
+    real = _batch_prepare.plan_apply_phase
+    monkeypatch.setattr(_batch_prepare, "plan_apply_phase", lambda *a, **k: serial_calls.append(1) or real(*a, **k))
+    monkeypatch.setattr(tr, "run_child", wrapped)
+    tr._INJECT.update(temp_root=str(jobs_dir))
+    with pytest.raises(StructuralPreparationError):
+        prepare_structural_connectivity(model)
+    assert serial_calls == [1] and tr.last_outcome.status == tr.UNAVAILABLE and "stale" in tr.last_outcome.reason
+    assert list(jobs_dir.iterdir()) == []
 
 
 @needs_runtime
