@@ -401,8 +401,8 @@ def read_inspection(task, run_id, key):
 
 
 def test_window_cuts_runs_saves_reopens_and_displays_shell_and_solid_submodels(tmp_path, monkeypatch):
-    for name in ("anygeometry.shell_detail", "anymesher.structured_box", "anysolid", "anysolver.solid_submodel",
-                 "anysolver.submodel_transfer"):
+    for name in ("anygeometry.shell_detail", "anymesher.structured_box", "anysolid", "anyfesolver.solid_submodel",
+                 "anyfesolver.submodel_transfer"):
         pytest.importorskip(name)
     from anyfem.document import DocumentSession
     from anyfem.io.artifacts import ArtifactStore

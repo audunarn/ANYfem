@@ -1,7 +1,7 @@
 """Dedicated floating-body residual inertia-relief batch (stationary model, no motion simulation).
 
 Each frame carries the FULL assembled nodal load ``Fp + Fg - M a_primary`` (global-axes (n,6) forces/moments).  It is
-passed to ``anysolver.static_batch.iter_linear_batches(inertia_relief=True)`` as an explicit nodal ``LoadCase`` with
+passed to ``anyfesolver.static_batch.iter_linear_batches(inertia_relief=True)`` as an explicit nodal ``LoadCase`` with
 ``gravity=None`` so no second gravity can enter, and the solver adds only ``-M delta_a``.  Primary, correction and
 total accelerations stay separate; the correction never feeds back into q or the pressure.  This is algebraically
 ordinary inertia relief of the same load and is reported as such.  The existing 1e-10 solver gates apply untouched.
@@ -44,7 +44,7 @@ class FloatingFrameResult:
 
 def build_residual_load_case(model: Any, node_ids: Iterable[int], nodal_load: Any, name: str) -> Any:
     """Explicit nodal LoadCase with gravity=None (no duplicate gravity)."""
-    from anysolver import LoadCase
+    from anyfesolver import LoadCase
     ids = tuple(int(i) for i in node_ids)
     L = np.asarray(nodal_load, dtype=np.float64)
     if L.shape != (len(ids), 6) or not np.all(np.isfinite(L)):
@@ -80,7 +80,7 @@ def iter_residual_relief(model: Any, node_ids: Iterable[int], frames: Iterable[F
     ``iter_linear_batches``; when stresses are recovered they are the EFFECTIVE-LOAD (quasistatic) element stresses
     of the relieved load and are returned in ``element_stresses``.  Inertial / gauge multipliers are never reactions.
     """
-    from anysolver.static_batch import StaticCase, iter_linear_batches
+    from anyfesolver.static_batch import StaticCase, iter_linear_batches
     ids = tuple(int(i) for i in node_ids)
     points = np.array([model.mesh.nodes[i].coords() for i in ids], dtype=np.float64)
     meta = {}

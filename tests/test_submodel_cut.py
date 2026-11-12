@@ -119,7 +119,7 @@ def assembled_totals(child, case):
     """Sum of the assembled nodal force and moment of ``case`` on the child's own mesh."""
 
     from anyfem.solve.build import build_fe_model
-    from anysolver.matrix_assembly import assemble_load_vector
+    from anyfesolver.matrix_assembly import assemble_load_vector
 
     mesh = child.generate_mesh(SIZE)
     built = build_fe_model(child, mesh, case, require_loads=False, require_supports=False)

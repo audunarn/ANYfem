@@ -1,13 +1,13 @@
 """Selected physical results and envelopes for an arbitrary static history.
 
-Run with the coordinated ANYfem and ANYsolver packages on PYTHONPATH.
+Run with the coordinated ANYfem and ANYfeSolver packages on PYTHONPATH.
 The Python pressure code is authored here and trusted by add_wet_pressure.
 """
 
 from anyfem import Project, StaticLoadRequest, commands, fixed, iter_linear_static_batches, steel
 from anyfem.model import WetSurface
-from anysolver import RecoveryConfig
-from anysolver.static_envelopes import EnvelopeReducer
+from anyfesolver import RecoveryConfig
+from anyfesolver.static_envelopes import EnvelopeReducer
 
 
 def main():

@@ -1,6 +1,6 @@
 """Writing models out for other solvers.
 
-CalculiX deck generation uses ANYsolver's FEModel-to-neutral-deck adapter and
+CalculiX deck generation uses ANYfeSolver's FEModel-to-neutral-deck adapter and
 ANYfileio's canonical writer. The result is therefore what the solver would
 hand to CalculiX for its verification runs, not a second divergent translation.
 
@@ -33,11 +33,11 @@ def export_calculix_deck(
 
     A generated deck is a reproducibility handoff, not evidence: until it has
     actually been run and its results compared, it says nothing about
-    agreement.  ANYsolver labels unexecuted decks ``not_executed`` for exactly
+    agreement.  ANYfeSolver labels unexecuted decks ``not_executed`` for exactly
     that reason, and this wrapper does not dress it up as more.
     """
 
-    from anysolver import write_calculix_input_deck
+    from anyfesolver import write_calculix_input_deck
 
     # Ordinary ccx uses signed int. Explicit INTSIZE64 builds can retain the
     # project's larger labels. Validate before the writer creates any files.

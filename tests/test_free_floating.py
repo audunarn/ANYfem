@@ -7,7 +7,7 @@ from anyfem.model import BeamSection, ProjectError
 from anyfem.model.records import AnalysisDefinition
 from anyfem.solve.run import preflight, solve_linear_static_many
 from anyfem.solve.build import build_fe_model
-from anysolver.static_batch import StaticBatchError
+from anyfesolver.static_batch import StaticBatchError
 
 
 def free_beam(*, balanced=True, count=1):
@@ -173,7 +173,7 @@ def test_disconnected_components_and_balancing_are_visible_in_progress(solver):
 
 @pytest.mark.parametrize("solver", [solve_linear_static, solve_linear_static_many])
 def test_cancelled_nullspace_never_returns_a_solution(solver):
-    from anysolver import CancellationToken, SolveCancelled
+    from anyfesolver import CancellationToken, SolveCancelled
     project, mesh, _ = free_beam()
     token = CancellationToken()
     token.cancel("test cancellation")

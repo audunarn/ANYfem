@@ -65,8 +65,8 @@ def test_job_heartbeat_during_silent_call_and_cancellation():
 def test_capacity_scope_covers_prerequisites_and_restores_native_threads(monkeypatch):
     import numpy as np
     import scipy.linalg
-    import anysolver
-    from anysolver import ResourceConfig
+    import anyfesolver
+    from anyfesolver import ResourceConfig
     from threadpoolctl import threadpool_info
     from anyfem.solve import run
     from anyfem.post import results
@@ -76,7 +76,7 @@ def test_capacity_scope_covers_prerequisites_and_restores_native_threads(monkeyp
         observed.extend(p['num_threads'] for p in threadpool_info())
         kwargs['progress_callback']({'stage':'linear_static.complete','status':'converged'})
         raise RuntimeError('intentional stop after prerequisite check')
-    monkeypatch.setattr(anysolver,'run_nonlinear_capacity_workflow',owner)
+    monkeypatch.setattr(anyfesolver,'run_nonlinear_capacity_workflow',owner)
     monkeypatch.setattr(run,'_resolve_built',lambda *a,**k:SimpleNamespace(fe_model=object(),load_case=object()))
     import pytest
     with pytest.raises(RuntimeError,match='intentional stop'):

@@ -5,7 +5,7 @@ import pytest
 from anyfem.presentation.run_progress import RunProgressCatalog, PROGRESS_GRAPH
 from anyfem.jobs import JobEvent
 from anyfem.mesh_jobs import MeshJobEvent,MeshProgress
-from anysolver import ProgressEvent
+from anyfesolver import ProgressEvent
 
 
 @pytest.fixture

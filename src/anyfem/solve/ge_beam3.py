@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import numpy as np
-from anysolver.beam_sections import GeneralizedBeamSection
-from anysolver.elements import create_element
-from anysolver.ge_beam3_element import (
+from anyfesolver.beam_sections import GeneralizedBeamSection
+from anyfesolver.elements import create_element
+from anyfesolver.ge_beam3_element import (
     GE_BEAM3_QUALIFIED_FORMULATION_ID, GeometricallyExactBeam3D3NElement,
 )
 
@@ -112,7 +112,7 @@ class B3GENativeOptIn:
     definitions: Sequence[Any]
 
     def __post_init__(self) -> None:
-        from anysolver._ge_beam3_native_definition import NativeBeamDefinition
+        from anyfesolver._ge_beam3_native_definition import NativeBeamDefinition
 
         rows = tuple(self.definitions)
         if not rows or any(type(row) is not NativeBeamDefinition for row in rows):
@@ -128,7 +128,7 @@ class B3GENativeOptIn:
         return dict(B3_GE_CONSUMER_POLICY)
 
     def create_analysis(self, boundaries: Sequence[Any], *, retained_refinement: bool = False):
-        from anysolver import b3_ge
+        from anyfesolver import b3_ge
 
         return b3_ge.create_analysis(
             b3_ge.SELECTOR,
@@ -161,7 +161,7 @@ class B3GENativeOptIn:
         ):
             raise ValueError("strict ANYfem B3-GE native opt-in record required")
         rows = []
-        from anysolver._ge_beam3_native_definition import NativeBeamDefinition
+        from anyfesolver._ge_beam3_native_definition import NativeBeamDefinition
 
         for item in data["definitions"]:
             if type(item) is not dict or set(item) != {"raw_base64", "sha256"}:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from anysolver import CancellationToken
+from anyfesolver import CancellationToken
 from anyfem.application import floating_job as fj
 from anyfem.application.floating_job import FloatingCleanupError, owned_publication_workspace
 from anyfem.job_process import run_in_worker_process

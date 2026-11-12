@@ -10,7 +10,7 @@ Connected headless method (no BEM, no hydrostatic solve, no mesh changes):
    (K_m, C_m, recovered fairlead forces);  external load histories (F_ext, world-load tangent G(t));  turbine thrust at the
    hub node.  Radiation: the generalised A_inf / K(t) of the hydro bundle drive the rigid ODE; the matching
    RadiationFieldKernel (digest-bound) gives the panel radiation pressure.  No duplicate gravity, inertia or added mass.
-3. ``anysolver.floating_transient.solve_floating_transient`` integrates the FULL accepted history (actual times).
+3. ``anyfesolver.floating_transient.solve_floating_transient`` integrates the FULL accepted history (actual times).
 4. Guards on EVERY integration sample: rotation <= 5 deg (solver), mooring validity envelope, relative-waterline
    clearance inflated by the native pointwise bound envelope (``guarded_clearance``) when waterline data are supplied.
 5. Structural output window (subset of the accepted samples; never restarts physics): per frame the nodal loads
@@ -195,7 +195,7 @@ def structural_content(fe_model: Any) -> dict:
     elements = []
     for eid in sorted(mesh.elements):
         el = mesh.elements[eid]
-        # owner recovery data actually held by the element (anysolver.elements: BeamElement.cross_section incl. c_y /
+        # owner recovery data actually held by the element (anyfesolver.elements: BeamElement.cross_section incl. c_y /
         # c_z / torsion_modulus / orientation, generalized_section, linear nodal offsets; shell thickness / section /
         # orientation / formulation where present).  Absent attributes are skipped, never guessed.
         recovery = {name: _content(getattr(el, name)) for name in ELEMENT_RECOVERY_ATTRIBUTES if hasattr(el, name)}
@@ -212,7 +212,7 @@ def structural_identity(fe_model: Any) -> str:
     materials, element sections).  Refuses (never guesses) when the owner assembly is unavailable."""
     from scipy import sparse
     try:
-        from anysolver.matrix_assembly import assemble_stiffness_matrix
+        from anyfesolver.matrix_assembly import assemble_stiffness_matrix
     except ImportError as exc:                              # no owner assembly: cannot bind -> refuse
         raise FloatingTransientWorkflowError(f"structural identity unavailable (owner stiffness assembly): {exc}") from exc
     out = assemble_stiffness_matrix(fe_model)
@@ -816,7 +816,7 @@ STRESS_VALUES_PER_ELEMENT_BOUND = 132    # LEGACY compatibility cap only (>= def
 
 def element_stress_value_count(fe_model: Any, element: Any, _cache: Optional[dict] = None) -> int:
     """PROVEN per-element recovery layout: numeric values returned by the element's OWN ``compute_stresses`` contract
-    (anysolver.elements: e.g. shells return 11 arrays x n Gauss points, more with ``return_global``), probed once
+    (anyfesolver.elements: e.g. shells return 11 arrays x n Gauss points, more with ``return_global``), probed once
     per element on a zero local displacement field, maximised over ``return_global`` False/True. An element
     without a usable public ``compute_stresses`` contract cannot be bounded and is refused by the caller."""
     # Cache only this element within one preflight. Different material/section
@@ -830,7 +830,7 @@ def element_stress_value_count(fe_model: Any, element: Any, _cache: Optional[dic
                                              "contract: its recovery layout cannot be bounded before allocation")
     mat_name = getattr(element, "material_name", getattr(element, "material", None))
     material = fe_model.get_material(mat_name if isinstance(mat_name, str) else None)
-    # Match anysolver.recovery's local-vector contract for every element family.
+    # Match anyfesolver.recovery's local-vector contract for every element family.
     zeros = np.zeros(len(element.get_dof_mapping(fe_model.mesh)))
     best = 0
     for flag in (False, True):
@@ -1019,7 +1019,7 @@ def run_floating_transient(inp: FloatingTransientInput, *, fe_model: Any = None,
     digest-bound RadiationFieldKernel whose content hash must equal ``inp.field_kernel_hash``; ``relief`` defaults to
     ``iter_residual_relief(fe_model, ...)``.  Refusals before integration raise; later failures return an explicit
     non-success result that keeps the accepted rigid history and no structural frames."""
-    from anysolver.floating_transient import FloatingTransientSpec, solve_floating_transient
+    from anyfesolver.floating_transient import FloatingTransientSpec, solve_floating_transient
     from anyhydro.floating_transient_fields import guarded_clearance
     from anyhydro.radiation_field_kernel import field_history_from_transient
 
@@ -1087,7 +1087,7 @@ def run_floating_transient(inp: FloatingTransientInput, *, fe_model: Any = None,
     if recover_stresses and fe_model is not None:
         stress_values = stress_values_per_frame(fe_model)     # exact owner-contract layout, before any allocation
     from anyhydro.radiation_field_kernel import FieldResourceLimits
-    from anysolver.floating_transient import FloatingTransientResourceConfig
+    from anyfesolver.floating_transient import FloatingTransientResourceConfig
     # ONE derivation of the tighter limits: field histories / clearance (FieldResourceLimits), the rigid solver
     # (FloatingTransientResourceConfig: working bytes, steps, operations) and the owner batch (resource_config)
     field_limits = FieldResourceLimits(max_work_bytes=int(min(max_work_bytes, FieldResourceLimits().max_work_bytes)))
@@ -1301,7 +1301,7 @@ def run_floating_transient(inp: FloatingTransientInput, *, fe_model: Any = None,
     if resource_config is not None:
         kw["resource_config"] = resource_config            # owner static-batch resource limits (may only tighten)
     if recover_stresses:
-        from anysolver.recovery import RecoveryConfig
+        from anyfesolver.recovery import RecoveryConfig
         kw["recovery_config"] = RecoveryConfig(include_reactions=False, include_displacements=True,
                                                include_stresses=True)
     try:
@@ -1315,7 +1315,7 @@ def run_floating_transient(inp: FloatingTransientInput, *, fe_model: Any = None,
                 progress_callback("relief", len(disp), frames.size)
     except Exception as exc:                               # cancellation / solver refusal: explicit non-success
         try:
-            from anysolver import SolveCancelled as _OwnerCancelled
+            from anyfesolver import SolveCancelled as _OwnerCancelled
         except ImportError:                                # pragma: no cover
             _OwnerCancelled = ()
         token_cancelled = cancellation_token is not None and bool(getattr(cancellation_token, "is_cancelled", False))

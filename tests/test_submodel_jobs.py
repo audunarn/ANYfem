@@ -416,7 +416,7 @@ def test_numerical_gate_refuses_a_violated_support(setup):
 
 def test_numerical_gate_refuses_a_violated_coupling(tmp_path):
     from anymesher import Coupling
-    from anysolver.mesh_gen import InterpolatedBeamShellMPCElement
+    from anyfesolver.mesh_gen import InterpolatedBeamShellMPCElement
 
     project, gfaces = global_project()
     mesh = project.generate_mesh(SIZE)
@@ -550,7 +550,7 @@ def test_injected_failures_leave_no_record_and_no_attempt_files(setup, monkeypat
 
 
 def test_cancellation_leaves_nothing(setup):
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
 
     token = CancellationToken()
     token.cancel()
@@ -684,7 +684,7 @@ def test_staleness_sees_files_and_the_active_mesh_without_a_revision(setup, monk
     assert setup.staleness(run) == ("RESULT_ARTIFACT_CHANGED",)
     child_path.write_bytes(child_original)
     assert setup.session.revision.id == revision
-    monkeypatch.setattr(jobs_module, "_producer_versions", lambda: {"anysolver": "99"})
+    monkeypatch.setattr(jobs_module, "_producer_versions", lambda: {"anyfesolver": "99"})
     assert setup.staleness(run) == ("REVALIDATION_REQUIRED",)
 
 

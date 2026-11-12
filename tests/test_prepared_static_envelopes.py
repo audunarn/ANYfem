@@ -8,7 +8,7 @@ import pytest
 from anyfem import Project, StaticLoadRequest, fixed, iter_linear_static_batches, steel
 from anyfem.model import BeamSection
 from anyfem.solve import prepare_linear_static_evaluator
-from anysolver import CancellationToken, PreparedStaticError, RecoveryConfig, SolveCancelled
+from anyfesolver import CancellationToken, PreparedStaticError, RecoveryConfig, SolveCancelled
 
 
 TIMES = (0.0, 0.13, 0.31, 0.56, 0.92)

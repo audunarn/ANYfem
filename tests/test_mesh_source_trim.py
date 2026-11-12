@@ -93,8 +93,8 @@ def test_new_curved_hole_preserves_exterior_numbers_and_solves(published_panel, 
 
 @pytest.mark.parametrize("route", ["single_cell", "cross_cell_minimal", "cross_cell_grown"])
 def test_annulus_preserves_exterior_and_certifies_new_material(request, tmp_path, route):
-    from anysolver.assembly import compute_reactions
-    from anysolver.matrix_assembly import assemble_load_vector
+    from anyfesolver.assembly import compute_reactions
+    from anyfesolver.matrix_assembly import assemble_load_vector
     from anygeometry import EntityRef
     from anyfem.mesh_preview import mesh_update_preview
     from anyfem.selection import MeshEntityRef

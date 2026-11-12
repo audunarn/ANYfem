@@ -55,7 +55,7 @@ def test_batch_keeps_original_case_accelerations_and_bypasses_compression(monkey
 
 
 def test_reference_point_and_angular_acceleration_are_owner_values():
-    from anysolver import solve_inertia_relief
+    from anyfesolver import solve_inertia_relief
     project, mesh, _ = free_beam(balanced=False)
     end = project.load_case().point_loads[0].ref
     project.load_case().add_point_load(end, moment=(0., 0., 25.))
@@ -133,7 +133,7 @@ def test_real_process_worker_returns_acceleration_and_retires(name, solver):
 
 @pytest.mark.parametrize("solver", [solve_linear_static, solve_linear_static_many])
 def test_cancelled_relief_never_returns_result(solver):
-    from anysolver import CancellationToken, SolveCancelled
+    from anyfesolver import CancellationToken, SolveCancelled
     project, mesh, _ = free_beam(balanced=False)
     token = CancellationToken(); token.cancel("test")
     with pytest.raises(SolveCancelled):
@@ -146,9 +146,9 @@ def test_numerical_non_success_fails_before_recovery_and_publication(monkeypatch
     from anyfem.document import DocumentSession
     from anyfem.jobs import JobManager
     from anyfem.post.results import LinearSolution
-    import anysolver
+    import anyfesolver
     project, mesh, _ = free_beam(balanced=False)
-    monkeypatch.setattr(anysolver, "solve_inertia_relief", lambda *args, **kwargs: SimpleNamespace(
+    monkeypatch.setattr(anyfesolver, "solve_inertia_relief", lambda *args, **kwargs: SimpleNamespace(
         converged=False, displacements=None, status="unresolved_elastic_stiffness", error="numerical nonconvergence"))
     recovered=[]
     monkeypatch.setattr(LinearSolution, "stresses", lambda *args, **kwargs: recovered.append(True))
@@ -186,7 +186,7 @@ def test_real_plate_pressure_mass_and_balance_through_immutable_job(solver):
 @pytest.mark.parametrize("solver", [solve_linear_static, solve_linear_static_many])
 def test_physical_supports_are_not_silently_removed(solver):
     from anyfem.solve.build import build_fe_model
-    from anysolver import FixedSupport
+    from anyfesolver import FixedSupport
     project,mesh,_=free_beam(balanced=False)
     built=build_fe_model(project,mesh,require_supports=False)
     built.fe_model.add_boundary_condition(FixedSupport("fixed",[min(built.fe_model.mesh.nodes)]))
@@ -195,12 +195,12 @@ def test_physical_supports_are_not_silently_removed(solver):
 
 
 def test_reordered_owner_case_summaries_are_refused(monkeypatch):
-    import anysolver
-    original=anysolver.solve_linear_many
+    import anyfesolver
+    original=anyfesolver.solve_linear_many
     def reordered(*args,**kwargs):
         matrix,info=original(*args,**kwargs)
         return matrix,{**info,"case_results":tuple(reversed(info["case_results"]))}
-    monkeypatch.setattr(anysolver,"solve_linear_many",reordered)
+    monkeypatch.setattr(anyfesolver,"solve_linear_many",reordered)
     project,mesh,names=free_beam(balanced=False,count=2)
     with pytest.raises(ProjectError,match="case identity"):
         solve_linear_static_many(project,mesh=mesh,load_cases=names,inertia_relief=True)

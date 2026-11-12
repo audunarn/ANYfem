@@ -10,7 +10,7 @@ Headless callers that omit automation retain their previous behavior.
 The supplied 12-sector cylinder with a mid-height plate meshes at 0.25 m in
 linear order from a single Quad-first Generate action. Quad-first's residual
 triangles miss the existing S3 admission limit; the existing Automatic route
-produces the solver-admitted mesh. No ANYsolver S3 limit or formulation was
+produces the solver-admitted mesh. No ANYfeSolver S3 limit or formulation was
 changed.
 
 A geometrically valid candidate that remains outside solver admission is

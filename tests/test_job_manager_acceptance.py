@@ -19,8 +19,8 @@ def test_cancellation_during_requested_stress_recovery_discards_result(monkeypat
     from anyfem.application.workflow import _execute_analysis_job
     import anyfem.solve.run as solve_run
     if legacy_token:
-        import anysolver
-        monkeypatch.delattr(anysolver, "CancellationToken")
+        import anyfesolver
+        monkeypatch.delattr(anyfesolver, "CancellationToken")
     monkeypatch.setattr(solve_run, "preflight", lambda *args, **kwargs: SimpleNamespace(errors=(), warnings=()))
     project = Project("cancel requested recovery")
     manager = JobManager(project)

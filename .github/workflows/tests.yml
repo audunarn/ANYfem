@@ -47,26 +47,26 @@ jobs:
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
       # until normal versioned installation can replace these checkouts.
-      # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
+      # ANYfeSolver carries qualification paths near the Windows MAX_PATH limit.
       - name: Allow long paths on Windows
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
+          repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2
-          path: .ecosystem/ANYsolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
-          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
-          path: .ecosystem/ANYsolver-results
+          repository: audunarn/ANYfeSolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: fb06cacd6b98964a6748ea1c222a4bc974c00fcd
+          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -139,9 +139,9 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYgeometry
           python -m pip install --no-deps -e .ecosystem/ANYmesh
           python -m pip install --no-deps -e .ecosystem/ANYfileIO
-          python -m pip install --no-deps -e .ecosystem/ANYsolver -e .ecosystem/ANYpost
-          python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results
-          python -c "import importlib.metadata,pathlib,json,anysolver_results; import anysolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anysolver-results').locate_file('anysolver_results/__init__.py')).resolve(); actual=pathlib.Path(anysolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anysolver-results'))))"
+          python -m pip install --no-deps -e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost
+          python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results
+          python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
           python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
           python -m pip install --no-deps -e .ecosystem/ANYsection
@@ -210,26 +210,26 @@ jobs:
       # These packages are intentionally consumed through their public package
       # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
       # until normal versioned installation can replace these checkouts.
-      # ANYsolver carries qualification paths near the Windows MAX_PATH limit.
+      # ANYfeSolver carries qualification paths near the Windows MAX_PATH limit.
       - name: Allow long paths on Windows
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
+          repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2
-          path: .ecosystem/ANYsolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
-          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
-          path: .ecosystem/ANYsolver-results
+          repository: audunarn/ANYfeSolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: fb06cacd6b98964a6748ea1c222a4bc974c00fcd
+          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
@@ -264,7 +264,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -302,9 +302,9 @@ jobs:
           python -m pip install --no-deps -e .ecosystem/ANYgeometry
           python -m pip install --no-deps -e .ecosystem/ANYmesh
           python -m pip install --no-deps -e .ecosystem/ANYfileIO
-          python -m pip install --no-deps -e .ecosystem/ANYsolver -e .ecosystem/ANYpost
-          python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results
-          python -c "import importlib.metadata,pathlib,json,anysolver_results; import anysolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anysolver-results').locate_file('anysolver_results/__init__.py')).resolve(); actual=pathlib.Path(anysolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anysolver-results'))))"
+          python -m pip install --no-deps -e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost
+          python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results
+          python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
           python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
           python -m pip install --no-deps -e .ecosystem/ANYtk3D
           python -m pip install --no-deps -e .ecosystem/ANYsection
@@ -391,20 +391,20 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
+          repository: audunarn/ANYfeSolver
           # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2
-          path: .ecosystem/ANYsolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver
       # Results-only API repair: keep the physical solver revision above.
       - uses: actions/checkout@v4
         with:
-          repository: audunarn/ANYsolver
-          ref: e78cccd3a76feb1793a38568f59d6d68f8224cb5
-          path: .ecosystem/ANYsolver-results
+          repository: audunarn/ANYfeSolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYpost
-          ref: fb06cacd6b98964a6748ea1c222a4bc974c00fcd
+          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
           path: .ecosystem/ANYpost
       - uses: actions/checkout@v4
         with:
@@ -439,7 +439,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: 32f3bb65e3843d6fd7af6c4fdf76ce472a7f6555
+          ref: 409754bd1289d635a7717179b0addd6797f9f25b
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
@@ -478,8 +478,8 @@ jobs:
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYgeometry
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfileIO
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYsolver .ecosystem/ANYsolver-results/packages/results .ecosystem/ANYpost
-          .wheel-smoke/bin/python -c "import importlib.metadata,pathlib,json,anysolver_results; import anysolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anysolver-results').locate_file('anysolver_results/__init__.py')).resolve(); actual=pathlib.Path(anysolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anysolver-results'))))"
+          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfeSolver .ecosystem/ANYfeSolver-results/packages/results .ecosystem/ANYpost
+          .wheel-smoke/bin/python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
           .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
           .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
           .wheel-smoke/bin/python -m pip install dist/*.whl

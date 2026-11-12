@@ -152,7 +152,7 @@ class ImportedModel:
     def add_support(self, support) -> None:
         """Restrain a group, on top of whatever the file already defined."""
 
-        from anysolver import BoundaryCondition
+        from anyfesolver import BoundaryCondition
 
         node_ids = self.mesh.nodes_on(support.ref)
         if not node_ids:
@@ -176,7 +176,7 @@ class ImportedModel:
         loaded by exactly the same rules.
         """
 
-        from anysolver import LoadCase as SolverLoadCase
+        from anyfesolver import LoadCase as SolverLoadCase
 
         from ..solve.build import BuiltModel, _accumulate_case
 
@@ -351,7 +351,7 @@ def _import_sesam_path(
     name: Optional[str],
 ) -> ImportedModel:
     from anyfileio import raise_if_errors, read_sesam_fem_document, read_sesam_semantics
-    from anysolver.sesam_fem import build_fe_model_from_sesam_document
+    from anyfesolver.sesam_fem import build_fe_model_from_sesam_document
 
     try:
         document = read_sesam_fem_document(source, strict=strict)

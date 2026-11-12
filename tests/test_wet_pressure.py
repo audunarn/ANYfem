@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from anysolver import assemble_load_vector
+from anyfesolver import assemble_load_vector
 
 from anyfem import Project, pinned, solve_linear_static, steel
 from anyfem.model import ProjectError, WetPressure, WetSurface

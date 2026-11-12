@@ -15,7 +15,7 @@ if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1 for Qt tests", allow_module_level=True)
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
-from anysolver.floating_transient import numeric_array_digest  # noqa: E402
+from anyfesolver.floating_transient import numeric_array_digest  # noqa: E402
 
 try:
     from tests.test_floating_transient import DT, canonical_mean, make_input, screening_record, world  # noqa: F401
@@ -73,7 +73,7 @@ def _use_steady_turbine(d, world):
 
 
 def _bar_with_modulus(E, n=4):
-    from anysolver import BeamElement, FEModel
+    from anyfesolver import BeamElement, FEModel
     model = FEModel("floating-transient-bar")
     model.add_material("steel", E, 0.3, density=5.0)                 # same density / geometry: same dry mass
     for i, x in enumerate(np.linspace(0.0, 2.0, n + 1), 1):
@@ -101,7 +101,7 @@ def test_unchanged_input_reuses_the_bound_mean_runs_reopens_and_applies_persiste
     assert d.summary and d.summary["published"] and d.summary["status"] == "complete", d.status.text()
     assert res.exists() and d.summary["n_frames"] == 6                     # window 0..50 of frames every 10 samples
     assert "quasistatic" in d.diagnostics.text().lower()
-    import anysolver.floating_transient as sft
+    import anyfesolver.floating_transient as sft
     import anyfem.solve.floating_batch as fb
 
     def forbidden(*a, **k):

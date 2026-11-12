@@ -1,6 +1,6 @@
 """A linear six-degree-of-freedom spring between two nodes.
 
-ANYsolver has no public discrete spring, so a flexible connection brings its
+ANYfeSolver has no public discrete spring, so a flexible connection brings its
 own: a diagonal stiffness in global axes, ``F = K (u_b - u_a)`` per component.
 It is purely elastic, carries no mass and recovers no stress, so it adds
 nothing to modal mass or stress output and behaves the same in every analysis.
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Sequence
 
 import numpy as np
-from anysolver.elements import Element
+from anyfesolver.elements import Element
 
 __all__ = ["SpringConnectorElement"]
 

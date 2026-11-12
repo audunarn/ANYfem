@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import anysolver
+import anyfesolver
 
 from anyfem import StaticLoadRequest, iter_linear_static_batches
 from anyfem.model import ProjectError
@@ -25,7 +25,7 @@ class _Record:
 def solver_spy(monkeypatch):
     observed = []
     state = {"closed": False, "arguments": None}
-    monkeypatch.setattr(anysolver, "StaticCase", _Record, raising=False)
+    monkeypatch.setattr(anyfesolver, "StaticCase", _Record, raising=False)
 
     def iterator(model, cases, *, batch_size, output_dofs, progress_callback, **kwargs):
         state["arguments"] = kwargs
@@ -60,7 +60,7 @@ def solver_spy(monkeypatch):
             state["closed"] = True
             source.close()
 
-    monkeypatch.setattr(anysolver, "iter_linear_batches", iterator, raising=False)
+    monkeypatch.setattr(anyfesolver, "iter_linear_batches", iterator, raising=False)
     return observed, state
 
 
@@ -179,7 +179,7 @@ def test_foreign_boundaries_reject_structural_mutation(boundary, solver_spy):
 
 
 def test_selection_conflicts_and_invalid_requests_are_explicit(solver_spy):
-    from anysolver import RecoveryConfig
+    from anyfesolver import RecoveryConfig
     project, _series, _points, _face = _project()
     mesh = project.generate_mesh(1.0)
     with pytest.raises(ValueError, match="exactly one"):
@@ -219,7 +219,7 @@ def test_built_model_rejects_a_different_mesh(solver_spy):
 
 @pytest.mark.parametrize("primary_kind", ["input", "solver", "cancel"])
 def test_primary_failure_survives_cleanup_mutation(primary_kind, solver_spy, monkeypatch):
-    from anysolver import CancellationToken, SolveCancelled
+    from anyfesolver import CancellationToken, SolveCancelled
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(1, 0, 0))
     mesh = project.generate_mesh(1.0)
@@ -245,7 +245,7 @@ def test_primary_failure_survives_cleanup_mutation(primary_kind, solver_spy, mon
                 yield
             finally:
                 source.close()
-        monkeypatch.setattr(anysolver, "iter_linear_batches", failed_solver)
+        monkeypatch.setattr(anyfesolver, "iter_linear_batches", failed_solver)
     if primary_kind == "cancel":
         # Cancellation after construction begins must still close the provider.
         def cancelled_requests():
@@ -350,7 +350,7 @@ def test_public_combinations_keep_follower_dead_refusal(solver_spy):
 
 
 def test_geometry_output_and_recovery_node_scope(solver_spy):
-    from anysolver import RecoveryConfig
+    from anyfesolver import RecoveryConfig
     project, series, points, _face = _project()
     series.add_point_load(project.point(points[0]), force=(1, 0, 0))
     mesh = project.generate_mesh(1.0)

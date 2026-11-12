@@ -8,9 +8,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 QT = ROOT / '.github/workflows/qt-tests.yml'
 HEADLESS = ROOT / '.github/workflows/tests.yml'
-PHYSICAL_SOLVER = 'adb0d6ac775d5c266a083e4ffa1bd86b6e7b6ea2'
-RESULTS_SOLVER = 'e78cccd3a76feb1793a38568f59d6d68f8224cb5'
-POST = 'fb06cacd6b98964a6748ea1c222a4bc974c00fcd'
+PHYSICAL_SOLVER = 'f54e3cde5abf70cb8c989eb106119eedd3e33025'
+RESULTS_SOLVER = 'f54e3cde5abf70cb8c989eb106119eedd3e33025'
+POST = '9eb9713b92c1b3a476301150b5e89e350d515844'
 
 
 def _checkouts(text):
@@ -44,12 +44,12 @@ def test_qt_preserves_physical_solver_and_separates_results_owner():
     qt, headless = QT.read_text(), HEADLESS.read_text()
     for text in (qt, headless):
         owners = _checkouts(text)
-        assert owners['.ecosystem/ANYsolver'] == ('audunarn/ANYsolver', PHYSICAL_SOLVER)
-        assert owners['.ecosystem/ANYsolver-results'] == ('audunarn/ANYsolver', RESULTS_SOLVER)
-    assert '-e .ecosystem/ANYsolver -e .ecosystem/ANYpost' in qt
-    assert 'python -m pip install --no-deps .ecosystem/ANYsolver-results/packages/results' in qt
-    assert '-e .ecosystem/ANYsolver-results/packages/results' not in qt
-    assert '.ecosystem/ANYsolver/packages/results' not in qt
+        assert owners['.ecosystem/ANYfeSolver'] == ('audunarn/ANYfeSolver', PHYSICAL_SOLVER)
+        assert owners['.ecosystem/ANYfeSolver-results'] == ('audunarn/ANYfeSolver', RESULTS_SOLVER)
+    assert '-e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost' in qt
+    assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in qt
+    assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in qt
+    assert '.ecosystem/ANYfeSolver/packages/results' not in qt
 
 
 def test_qt_post_owner_matches_headless():

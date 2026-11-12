@@ -4349,7 +4349,7 @@ def _solution_report(solution) -> str:
 
 
 def _job_progress_text(message: str, payload: Any = None) -> str:
-    """Format strings and ANYsolver ProgressEvents for the live transcript."""
+    """Format strings and ANYfeSolver ProgressEvents for the live transcript."""
 
     base = str(message or "").strip()
     if payload is None or isinstance(payload, str):
@@ -4664,7 +4664,7 @@ def _execute_analysis_job(
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested global stress recovery")
             if requested_patch_stress:
-                from anysolver import PatchRecoveryConfig
+                from anyfesolver import PatchRecoveryConfig
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
                 progress("recovering requested patch stresses")

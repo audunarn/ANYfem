@@ -81,7 +81,7 @@ after closing the evaluator. Caller-retained summary copies consume caller memor
 the solver accounts its retained envelope storage in the remaining resource budget.
 
 ```python
-from anysolver import RecoveryConfig
+from anyfesolver import RecoveryConfig
 
 with prepare_linear_static_evaluator(
     project, mesh=mesh, output_nodes=[node_id],
@@ -111,7 +111,7 @@ Close an iterator after stopping early, and close the evaluator deterministicall
 (or use its context manager). Closing the evaluator closes active solver/request
 streams. Cancellation, provider failures and cleanup failures remain visible;
 secondary cleanup failures are attached to the primary error. A closed evaluator
-refuses new work. Missing `anysolver.prepare_static_evaluator` raises
+refuses new work. Missing `anyfesolver.prepare_static_evaluator` raises
 `PreparedStaticUnavailableError`; solver refusals propagate without a legacy
 fallback or fabricated successful zero results.
 
@@ -135,7 +135,7 @@ both application reservations.
 The estimate is not process RSS or native allocator usage. Native owner overhead,
 temporary load-construction values and caller-retained result facade copies are
 not measured by this retained-storage estimate. Do not interpret it as a demonstrated peak-memory bound. Numerical
-resource accounting and admissible recovery/load capabilities belong to ANYsolver.
+resource accounting and admissible recovery/load capabilities belong to ANYfeSolver.
 Performance and release qualification require their separate evidence.
 
 
@@ -243,7 +243,7 @@ and optionally `baseline_load_case=app_case_or_request`. Consume
 application requests or native solver `PatternCase`/`StaticCase` records. A
 `PatternLoadRequest.canonical_request` supplies an independent original-time
 application case when source reconstruction is only a candidate. Dense coefficient
-vectors follow declared pattern insertion order, as defined by ANYsolver.
+vectors follow declared pattern insertion order, as defined by ANYfeSolver.
 
 `PeriodicLoadSource("series", period=6., time_step=.1)` declares a periodic
 wet-pressure source. The adapter uses ANYloads' whitelisted expression parser and

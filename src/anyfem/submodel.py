@@ -15,7 +15,7 @@ persisted route (slice S4b) and is not claimed here.
 
 Mechanics live in their owners: point correspondence in
 ``anymesher.submodel_correspondence``; interpolation, the driven trace, interface
-forces and error allowances in ``anysolver.submodel_transfer``.
+forces and error allowances in ``anyfesolver.submodel_transfer``.
 """
 
 from __future__ import annotations
@@ -206,8 +206,8 @@ def _operator_fingerprint(fe_model: Any) -> str:
     """The solved operator itself: the assembled stiffness and every audited
     constraint row (supports, model equations and element-provided couplings)."""
 
-    from anysolver.constraint_audit import require_valid_constraints
-    from anysolver.matrix_assembly import assemble_stiffness_matrix
+    from anyfesolver.constraint_audit import require_valid_constraints
+    from anyfesolver.matrix_assembly import assemble_stiffness_matrix
 
     stiffness, _info = assemble_stiffness_matrix(fe_model)
     rows = [equation.to_dict() for equation in require_valid_constraints(fe_model).equations]
@@ -215,7 +215,7 @@ def _operator_fingerprint(fe_model: Any) -> str:
 
 
 def _load_fingerprint(fe_model: Any, load_case: Any) -> str:
-    from anysolver.matrix_assembly import assemble_load_vector
+    from anyfesolver.matrix_assembly import assemble_load_vector
 
     load, _info = assemble_load_vector(fe_model, load_case)
     return _sha(np.asarray(load, dtype=float))
@@ -352,9 +352,9 @@ class SubmodelSettings:
 @dataclass
 class SubmodelResult:
     solution: Any  # LinearSolution of the submodel
-    trace: Any  # anysolver DrivenTrace
-    interface: Any  # anysolver InterfaceForces
-    transfer: Dict[int, Any]  # target node -> anysolver TransferValue
+    trace: Any  # anyfesolver DrivenTrace
+    interface: Any  # anyfesolver InterfaceForces
+    transfer: Dict[int, Any]  # target node -> anyfesolver TransferValue
     transfer_allowance: Dict[int, np.ndarray]
     binding: SourceBinding
     identity: str = ""  # child model, loading, mesh, lineage cut, policy and transfer settings
@@ -477,8 +477,8 @@ def solve_submodel(
     """Drive ``sub_project`` on its cut from the bound ``source`` and solve it."""
 
     from anymesher.submodel_correspondence import CorrespondenceError, locate_for_transfer
-    from anysolver import solve_linear
-    from anysolver.submodel_transfer import (
+    from anyfesolver import solve_linear
+    from anyfesolver.submodel_transfer import (
         SubmodelTransferError,
         TransferPoint,
         apply_driven_trace,
@@ -718,7 +718,7 @@ def _diagnostics(sub_mesh, built, lineage, groups_of_node, forces, source_allowa
     global model was adequate at the cut.
     """
 
-    from anysolver.matrix_assembly import assemble_load_vector
+    from anyfesolver.matrix_assembly import assemble_load_vector
 
     model = built.fe_model
     corners = sorted(node for node, groups in groups_of_node.items() if len(groups) > 1)

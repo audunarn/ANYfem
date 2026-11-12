@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ANYfem"
-version = "0.4.2"
+version = "0.4.3"
 description = "Shell and beam finite-element application with native hybrid meshing, solving and postprocessing"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,9 +32,9 @@ classifiers = [
 dependencies = [
   "numpy>=2.0",
   "scipy>=1.13",
-  "ANYsolver>=0.4.7,<0.5",
-    "ANYpost>=0.1.2,<0.2",
-  "ANYsolver-results>=2.1.1,<3",
+  "ANYfeSolver>=0.5.0,<0.6",
+    "ANYpost>=0.1.3,<0.2",
+  "ANYfeSolver-results>=2.2.0,<3",
   "ANYmaterial>=0.2,<0.3",
   "ANYloads>=0.1,<0.2",
   "ANYgeometry[planar]>=0.4.3,<0.5",
@@ -46,7 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 solid = ["ANYsolid[skfem]>=0.1,<0.2"]
-post = ["ANYpost[results]>=0.1,<0.2"]
+post = ["ANYpost[results]>=0.1.3,<0.2"]
 # The 3D viewport is only needed by anyfem.ui; the modelling, meshing,
 # solving and postprocessing layers stay importable without a display.
 gui = [

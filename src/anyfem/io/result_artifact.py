@@ -366,7 +366,7 @@ def _add_canonical_solver_quantities(
 
     Displacements and stresses still need ANYfem-specific topology packing,
     but committed PEEQ, reactions, and energy histories already have a complete
-    authoritative contract in ANYsolver.  Reading their raw implementation
+    authoritative contract in ANYfeSolver.  Reading their raw implementation
     dictionaries again would create a second availability/meaning path.
     """
 
@@ -419,7 +419,7 @@ def _add_canonical_solver_quantities(
 def _canonical_provenance(descriptor: Any) -> dict[str, Any]:
     payload = descriptor.to_dict() if hasattr(descriptor, "to_dict") else {}
     return {
-        "source": "ANYsolver.resolve_result_quantity",
+        "source": "ANYfeSolver.resolve_result_quantity",
         "solver_descriptor": _json_safe(payload),
     }
 
@@ -1855,14 +1855,14 @@ def _raw_result(solution: Any) -> Any:
 
 
 def _solution_outcome(solution: Any, raw: Any) -> Any:
-    """Resolve the public ANYsolver outcome without wrapper heuristics.
+    """Resolve the public ANYfeSolver outcome without wrapper heuristics.
 
     Old artifacts remain readable through their readers, but new artifacts
     carry the authoritative solver disposition and termination verbatim.
     """
 
     try:
-        from anysolver import SolveOutcome, solve_outcome
+        from anyfesolver import SolveOutcome, solve_outcome
     except ImportError:  # pragma: no cover - pre-0.3 compatibility environment
         return None
 
@@ -2022,7 +2022,7 @@ def _producer_versions() -> dict[str, str]:
         ("ANYgeometry", "ANYgeometry"),
         ("ANYmaterial", "ANYmaterial"),
         ("ANYmesher", "ANYmesher"),
-        ("ANYsolver", "ANYsolver"),
+        ("ANYfeSolver", "ANYfeSolver"),
     ):
         try:
             versions[label] = importlib_metadata.version(distribution)

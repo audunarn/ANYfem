@@ -110,7 +110,7 @@ LEDGER: Tuple[ParityEntry, ...] = (
         "Meshing", "8-node shells and 3-node beams (S8, B3)", "covered",
         "Element order is a project setting. Q8 is the accuracy win: ELEM-01 "
         "reaches 1% on 16 elements where Q4 needs 256 for the same tolerance. "
-        "B3 is there for compatibility, not accuracy -- ANYsolver's 2-node "
+        "B3 is there for compatibility, not accuracy -- ANYfeSolver's 2-node "
         "Timoshenko beam is already exact for a tip-loaded cantilever, which "
         "B3 is not, so 3-node beams exist so a stiffener can share the "
         "mid-side nodes of a Q8 shell edge. Q8R stays out, being experimental "
@@ -163,7 +163,7 @@ LEDGER: Tuple[ParityEntry, ...] = (
     ParityEntry(
         "Materials", "Nonlinear material with a hardening curve", "covered",
         "steel(..., nonlinear=True) attaches ANYmaterial's RP-C208 curve, and "
-        "ANYsolver integrates it in the nonlinear solve. Plasticity is the layered-shell path: "
+        "ANYfeSolver integrates it in the nonlinear solve. Plasticity is the layered-shell path: "
         "beams stay elastic, which is the solver's scope, not a wrapper "
         "limitation.",
     ),

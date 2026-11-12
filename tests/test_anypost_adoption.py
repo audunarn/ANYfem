@@ -230,14 +230,14 @@ def test_surface_extraction_refuses_before_owner_allocation_and_checks_each_row(
     from anyfem.post.access import ShapeProvider
     from anypost.errors import WorkingSetError,RequestCancelled
     import anyfem.post.solver_data as solver_data
-    import anysolver_results
+    import anyfesolver_results
     monkeypatch.setattr(solver_data,"resolve_solution_quantity",lambda *a,**k:SimpleNamespace(descriptor=SimpleNamespace(unit="Pa",basis="local")))
     rows={i:{"membrane_xx":np.ones(1000),"bending_xx":np.ones(1000)} for i in (101,305)}
     recovery=SimpleNamespace(element_stresses=rows)
     shape=SimpleNamespace(built=SimpleNamespace(mesh=SimpleNamespace(nodes={},shells={101:(),305:()},beams={})),_stress=recovery)
-    owner=anysolver_results.shell_surface_component;calls=[];cancel=threading.Event()
+    owner=anyfesolver_results.shell_surface_component;calls=[];cancel=threading.Event()
     def tracked(*args):calls.append(args);cancel.set();return owner(*args)
-    monkeypatch.setattr(anysolver_results,"shell_surface_component",tracked)
+    monkeypatch.setattr(anyfesolver_results,"shell_surface_component",tracked)
     with pytest.raises(WorkingSetError):ShapeProvider(shape,"top_xx",working_bytes=6000)
     assert calls==[]
     with pytest.raises(RequestCancelled):ShapeProvider(shape,"top_xx",cancel_event=cancel)

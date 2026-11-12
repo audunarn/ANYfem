@@ -7,7 +7,7 @@ from anyfem.mesh_jobs import MeshSettings
 from anyfem.native_meshing import NativeMeshSettings
 from anygeometry.curves import Arc, Straight
 from anygeometry.surfaces import Plane
-from anysolver.results import recover_nodal_stresses
+from anyfesolver.results import recover_nodal_stresses
 
 WIDTH = 0.5
 DIAMETER = 0.1

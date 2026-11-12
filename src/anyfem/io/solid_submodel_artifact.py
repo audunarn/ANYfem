@@ -64,7 +64,7 @@ _VERSION = 2
 #: Mesh versions the reader accepts: 1 has no stored source (unbound audit), 2 stores the detached source model.
 _READABLE_VERSIONS = (1, 2)
 #: The solver's attribution convention for a DOF owned by several cut groups
-#: (``anysolver.solid_submodel.ATTRIBUTION_RULE``; a test pins the two together).
+#: (``anyfesolver.solid_submodel.ATTRIBUTION_RULE``; a test pins the two together).
 ATTRIBUTION_RULE = "equal_split_among_groups_sharing_the_dof"
 #: Moments are about the world origin, components in the world frame (the solver's ``_resultant``).
 MOMENT_FRAME = "world"

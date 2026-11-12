@@ -167,7 +167,7 @@ class _LoadBuildContext:
 
 
 def _resolve_record(project, built, context, request):
-    from anysolver import StaticCase
+    from anyfesolver import StaticCase
 
     if isinstance(request, StaticLoadRequest):
         identifier = request.case_id
@@ -250,8 +250,8 @@ def iter_linear_static_batches(
     dynamics or proportional-load assumption. An explicitly empty iterable
     yields no results. Close the iterator when stopping early.
     """
-    from anysolver import iter_linear_batches
-    from anysolver.control import cancellation_safe_point
+    from anyfesolver import iter_linear_batches
+    from anyfesolver.control import cancellation_safe_point
     from ..post.results import LinearStaticBatchResult
     from .run import _resolve_built, _step_reporter
 

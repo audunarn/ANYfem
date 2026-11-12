@@ -9,7 +9,7 @@ load compression, dynamics or history integration. The existing
 
 ## Runnable examples
 
-From the repository root, with the coordinated ANYfem and ANYsolver packages
+From the repository root, with the coordinated ANYfem and ANYfeSolver packages
 installed or their `src` directories on `PYTHONPATH`, run:
 
 ```shell

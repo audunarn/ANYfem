@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import anysolver.floating_pressure_regions as fpr
+import anyfesolver.floating_pressure_regions as fpr
 from anyfem.application.floating_source import MeanPose, OverlapMap, SourceManifest, TargetCells, map_pressure_nodal
 from anyfem.application.floating_transient_prepare import (
     FloatingTransientPrepareError,

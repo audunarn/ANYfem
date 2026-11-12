@@ -1,4 +1,4 @@
-"""ANYfem discovers live quantities only through ANYsolver's resolver."""
+"""ANYfem discovers live quantities only through ANYfeSolver's resolver."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from anysolver import QuantityUnavailableError, ReactionFrame
+from anyfesolver import QuantityUnavailableError, ReactionFrame
 
 from anyfem.post.solver_data import (
     available_solution_quantities,

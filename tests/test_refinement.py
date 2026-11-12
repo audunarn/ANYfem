@@ -393,7 +393,7 @@ def test_quadratic_shells_converge_faster_than_linear_ones():
 def test_a_quadratic_traction_puts_the_whole_load_on(workspace):
     """Serendipity shares are negative at the corners and must still sum to 1."""
 
-    from anysolver import assemble_load_vector
+    from anyfesolver import assemble_load_vector
 
     for order in ("linear", "quadratic"):
         project = plate_project(side=2.0)

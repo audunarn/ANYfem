@@ -159,7 +159,7 @@ def _reduce(values, reduction):
 def _surface_value(stress,name):
     side,_,component=name.partition("_")
     if stress.get("membrane_"+component) is None or stress.get("bending_"+component) is None:return None
-    from anysolver_results import shell_surface_component
+    from anyfesolver_results import shell_surface_component
     return shell_surface_component(stress,side,component)
 
 
@@ -249,7 +249,7 @@ def recover(shape, **kwargs: Any):
     if cached is not None and not caller_options:
         return cached
 
-    from anysolver import recover_stress_result
+    from anyfesolver import recover_stress_result
 
     nonlinear_result = getattr(shape, "raw_result", None)
     if (

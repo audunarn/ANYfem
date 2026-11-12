@@ -32,7 +32,7 @@ def test_job_runs_publishes_and_reopens_without_solving(world, tmp_path, monkeyp
     out = job.run_floating_transient_job(ip, kp, rp, fe_model=world["model"], expected_input_hash=digest,
                                          screening=screening_record(world))
     assert out["published"] and out["status"] == "complete" and out["accepted"]
-    import anysolver.floating_transient as sft
+    import anyfesolver.floating_transient as sft
     import anyfem.solve.floating_batch as fb
 
     def forbidden(*a, **k):
@@ -68,7 +68,7 @@ def test_stale_inputs_and_cancellation(world, tmp_path):
 
 
 def test_cancellation_during_serialisation_never_replaces_the_existing_artifact(world, tmp_path, monkeypatch):
-    from anysolver import CancellationToken
+    from anyfesolver import CancellationToken
     inp = make_input(world)
     ip, kp, rp, digest = _paths(tmp_path, world, inp)
     first = job.run_floating_transient_job(ip, kp, rp, fe_model=world["model"], expected_input_hash=digest,

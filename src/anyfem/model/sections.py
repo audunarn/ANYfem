@@ -14,7 +14,7 @@ from typing import Dict, Literal, Mapping, Sequence
 from uuid import uuid4
 
 import numpy as np
-from anysolver import StiffenerCrossSection
+from anyfesolver import StiffenerCrossSection
 
 from .regions import RegionRef
 

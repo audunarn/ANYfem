@@ -10,7 +10,7 @@ import pytest
 from anyfem.post.fields import evaluate_field, recover
 from anyfem.post.results import NonlinearSolution
 from anyfem.solve.build import BuiltModel
-from anysolver import generate_simple_panel_mesh, recover_stress_result
+from anyfesolver import generate_simple_panel_mesh, recover_stress_result
 from anymesher import Mesh
 
 

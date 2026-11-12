@@ -67,7 +67,7 @@ class Collision:
     def to_solver(self):
         """The solver's own sphere description."""
 
-        from anysolver import RigidSphereImpact
+        from anyfesolver import RigidSphereImpact
 
         return RigidSphereImpact(
             name=self.name,
@@ -336,7 +336,7 @@ def impact_damage(
     for the two to drift apart.
     """
 
-    from anysolver import ImpactDamageConfig
+    from anyfesolver import ImpactDamageConfig
 
     return ImpactDamageConfig(
         mode=mode,
@@ -356,6 +356,6 @@ def fracture(threshold: float, **options: Any):
     this wrapper does not upgrade the claim.
     """
 
-    from anysolver import FractureConfig
+    from anyfesolver import FractureConfig
 
     return FractureConfig(threshold=float(threshold), **options)

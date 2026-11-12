@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use the ANYfeSolver 0.5 package for structural analyses.
+
 - License: ANYfem source code moves to GNU GPL version 3 only (`GPL-3.0-only`)
   on 2026-10-27. Previously published releases retain their original licenses;
   narrative documentation remains CC BY 4.0 and dependencies retain their own terms.

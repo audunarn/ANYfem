@@ -9,7 +9,7 @@ from anyfem.solve.build import _add_turbine_masses
 from anyfem.application.floating_mass import dry_mass_properties
 from anyfem.application.floating_transient import mass_identity
 from test_wind_turbine_load import steady
-from anysolver import FEModel, BeamElement
+from anyfesolver import FEModel, BeamElement
 
 
 def model():

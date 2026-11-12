@@ -29,7 +29,7 @@ def _save(path: Path, value: object) -> None:
 
 
 def _identity(environment):
-    names = ("ANYfem", "ANYstructure", "ANYmesh", "ANYgeometry", "ANYsolver", "ANYmaterial")
+    names = ("ANYfem", "ANYstructure", "ANYmesh", "ANYgeometry", "ANYfeSolver", "ANYmaterial")
     revisions = {}
     for name in names:
         repository = ECOSYSTEM / name
@@ -53,7 +53,7 @@ def _identity(environment):
     code = (
         "import json,importlib,importlib.metadata as md; out={}; "
         "pairs=[('anyfem','ANYfem'),('anymesher','ANYmesher'),"
-        "('anygeometry','ANYgeometry'),('anysolver','ANYsolver'),"
+        "('anygeometry','ANYgeometry'),('anyfesolver','ANYfeSolver'),"
         "('anymaterial','ANYmaterial'),('anystruct','ANYstructure')]; "
         "[(out.__setitem__(n,{'path':str(importlib.import_module(n).__file__),"
         "'version':next((d.version for d in md.distributions() "
@@ -84,7 +84,7 @@ def _identity(environment):
         for relative in names
     }
     # HEAD/diff hashes do not identify untracked owner runtime modules.
-    for repository in ("ANYmesh", "ANYgeometry", "ANYsolver", "ANYmaterial"):
+    for repository in ("ANYmesh", "ANYgeometry", "ANYfeSolver", "ANYmaterial"):
         root = ECOSYSTEM / repository
         for source in sorted((root / "src").rglob("*.py")):
             source_hashes[f"{repository}/{source.relative_to(root).as_posix()}"] = hashlib.sha256(

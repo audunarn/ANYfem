@@ -228,7 +228,7 @@ def test_apply_creates_one_composed_pressure_without_companion_and_survives_undo
 
 
 def test_build_assembles_nodal_vectors_equal_to_frame_loads_and_no_element_pressure(no_bem, tmp_path):
-    from anysolver.boundary import LoadCase
+    from anyfesolver.boundary import LoadCase
     from anyfem.solve import build
     p, mesh, _ = barge()
     prepared = prepared_for(p, mesh, tmp_path)
@@ -430,7 +430,7 @@ def test_true_zero_significant_height_is_still_water_hydrostatics(no_bem, tmp_pa
 
 
 def test_assembled_vectors_are_six_dof_and_wrench_includes_direct_nodal_moments(no_bem, tmp_path):
-    """Quad fixture only; the current-default S3 (V2D) mechanics are covered in ANYsolver's test_wave_surface_regions."""
+    """Quad fixture only; the current-default S3 (V2D) mechanics are covered in ANYfeSolver's test_wave_surface_regions."""
     from anyfem.solve import build
     p, mesh, _ = barge()
     prepared = prepared_for(p, mesh, tmp_path)

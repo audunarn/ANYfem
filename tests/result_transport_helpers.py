@@ -116,9 +116,9 @@ def _build_built(name: str = "result transport"):
     from anyfem.mesh.mapped import Mesh
     from anyfem.model.project import Project
     from anyfem.solve.build import BuiltModel
-    from anysolver import BoundaryCondition, LoadCase
-    from anysolver.e4_pl_s3_v2d_element import NativeParityE4PLS3V2DShellElement
-    from anysolver.fe_core import FEModel
+    from anyfesolver import BoundaryCondition, LoadCase
+    from anyfesolver.e4_pl_s3_v2d_element import NativeParityE4PLS3V2DShellElement
+    from anyfesolver.fe_core import FEModel
 
     project = Project(name)
     mesh = Mesh()
@@ -143,7 +143,7 @@ def _build_built(name: str = "result transport"):
     fe_model.add_constraint_equation(terms=((0, 1.0), (6, -1.0)), rhs=0.0, source_id="fixture")
     fe_model.add_load_case(LoadCase(name="dead"))
     fe_model.add_point_mass(2, 3.5)
-    from anysolver.activity import ElementActivity
+    from anyfesolver.activity import ElementActivity
 
     fe_model.set_element_activity(ElementActivity([101], 1.0))
     fe_model.mesh.revisions["mesh"] = 4
@@ -226,7 +226,7 @@ def s3_batch_result(*, project, progress, cancellation_token=None):
     from dataclasses import replace
 
     from anyfem.post.results import LinearBatchSolution, LinearSolution
-    from anysolver import LoadCase
+    from anyfesolver import LoadCase
 
     built = _build_built()
     names = ("dead", "live")
@@ -261,7 +261,7 @@ def shared_model_batch(cases: int, marker_bytes: int = 0):
     from dataclasses import replace
 
     from anyfem.post.results import LinearBatchSolution, LinearSolution
-    from anysolver import LoadCase
+    from anyfesolver import LoadCase
 
     built = _build_built("shared batch")
     built.project.presentation["diagnostic_marker"] = b"x" * marker_bytes
@@ -402,7 +402,7 @@ def picklable_linear_result(*, project, progress, cancellation_token=None):
     from anyfem.model.project import Project
     from anyfem.post.results import LinearSolution
     from anyfem.solve.build import BuiltModel
-    from anysolver.fe_core import FEModel
+    from anyfesolver.fe_core import FEModel
 
     fe_model = FEModel(name="picklable")
     fe_model.add_material("steel", 210e9, 0.3, 7850.0)

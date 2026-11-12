@@ -1,4 +1,4 @@
-"""Forwarding contracts between ANYfem analysis wrappers and ANYsolver."""
+"""Forwarding contracts between ANYfem analysis wrappers and ANYfeSolver."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import anysolver
+import anyfesolver
 import anyfem.solve.run as solve_run
 
 
@@ -53,7 +53,7 @@ def test_arc_length_forwards_a_displacement_driven_model_without_dummy_load(
         observed["load_case"] = load_case
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, "solve_static_arc_length", stop_at_solver)
+    monkeypatch.setattr(anyfesolver, "solve_static_arc_length", stop_at_solver)
     built = _built()
     built.load_case = None
 
@@ -97,8 +97,8 @@ def test_wrappers_forward_cancellation_and_structured_progress(
         observed.update(kwargs)
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, solver_name, stop_at_solver)
-    token = anysolver.CancellationToken()
+    monkeypatch.setattr(anyfesolver, solver_name, stop_at_solver)
+    token = anyfesolver.CancellationToken()
     messages = []
     options = {
         "built": _built(),
@@ -116,7 +116,7 @@ def test_wrappers_forward_cancellation_and_structured_progress(
     callback = observed["progress_callback"]
     assert callable(callback)
     callback(
-        anysolver.ProgressEvent(
+        anyfesolver.ProgressEvent(
             "test_step",
             "test.integration",
             completed=1,
@@ -161,12 +161,12 @@ def test_buckling_forwards_one_token_and_progress_to_both_solver_stages(
         calls["buckling"] = kwargs
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, "solve_linear", reference_solver)
-    monkeypatch.setattr(anysolver, "recover_prestress_from_static_result", recover)
-    monkeypatch.setattr(anysolver, "solve_eigenvalue_buckling", buckling_solver)
-    monkeypatch.setattr(anysolver, "AnalysisSession", RecordingSession)
+    monkeypatch.setattr(anyfesolver, "solve_linear", reference_solver)
+    monkeypatch.setattr(anyfesolver, "recover_prestress_from_static_result", recover)
+    monkeypatch.setattr(anyfesolver, "solve_eigenvalue_buckling", buckling_solver)
+    monkeypatch.setattr(anyfesolver, "AnalysisSession", RecordingSession)
 
-    token = anysolver.CancellationToken()
+    token = anyfesolver.CancellationToken()
     messages = []
     with pytest.raises(_StopAtSolver):
         solve_run.solve_buckling(
@@ -180,7 +180,7 @@ def test_buckling_forwards_one_token_and_progress_to_both_solver_stages(
         callback = calls[stage]["progress_callback"]
         assert callable(callback)
         callback(
-            anysolver.ProgressEvent(
+            anyfesolver.ProgressEvent(
                 "complete",
                 f"{stage}.complete",
                 completed=1,
@@ -215,9 +215,9 @@ def test_buckling_preserves_a_caller_owned_analysis_session(monkeypatch):
         calls["buckling"] = kwargs
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, "solve_linear", reference_solver)
-    monkeypatch.setattr(anysolver, "recover_prestress_from_static_result", recover)
-    monkeypatch.setattr(anysolver, "solve_eigenvalue_buckling", buckling_solver)
+    monkeypatch.setattr(anyfesolver, "solve_linear", reference_solver)
+    monkeypatch.setattr(anyfesolver, "recover_prestress_from_static_result", recover)
+    monkeypatch.setattr(anyfesolver, "solve_eigenvalue_buckling", buckling_solver)
 
     session = CallerSession()
     with pytest.raises(_StopAtSolver):
@@ -235,7 +235,7 @@ def test_string_progress_adapter_preserves_a_direct_structured_callback(
     messages = []
 
     def linear_solver(*args, **kwargs):
-        event = anysolver.ProgressEvent(
+        event = anyfesolver.ProgressEvent(
             "linear_static_complete",
             "linear_static.complete",
             completed=1,
@@ -245,7 +245,7 @@ def test_string_progress_adapter_preserves_a_direct_structured_callback(
         kwargs["progress_callback"](event)
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, "solve_linear", linear_solver)
+    monkeypatch.setattr(anyfesolver, "solve_linear", linear_solver)
     with pytest.raises(_StopAtSolver):
         solve_run.solve_linear_static(
             built=_built(),
@@ -254,7 +254,7 @@ def test_string_progress_adapter_preserves_a_direct_structured_callback(
         )
 
     assert len(structured) == 1
-    assert isinstance(structured[0], anysolver.ProgressEvent)
+    assert isinstance(structured[0], anyfesolver.ProgressEvent)
     assert any("converged" in message for message in messages)
 
 
@@ -263,7 +263,7 @@ def test_adaptive_increment_never_formats_nominal_steps_as_a_false_bound():
     callback = solve_run._step_reporter(messages.append, "converged increment")
 
     callback(
-        anysolver.ProgressEvent(
+        anyfesolver.ProgressEvent(
             "nonlinear_static_step",
             "nonlinear_static.force",
             iteration=7,
@@ -293,9 +293,9 @@ def test_impact_forwards_controls_to_linear_and_nonlinear_paths(
         observed.update(kwargs)
         raise _StopAtSolver
 
-    monkeypatch.setattr(anysolver, "solve_transient_sphere_impact", impact_solver)
+    monkeypatch.setattr(anyfesolver, "solve_transient_sphere_impact", impact_solver)
     monkeypatch.setattr(
-        anysolver,
+        anyfesolver,
         "validate_contact_configuration",
         lambda *args, **kwargs: SimpleNamespace(issues=()),
     )
@@ -305,7 +305,7 @@ def test_impact_forwards_controls_to_linear_and_nonlinear_paths(
         to_solver=lambda: SimpleNamespace(),
     )
     contact = SimpleNamespace(penalty_stiffness=1.0)
-    token = anysolver.CancellationToken()
+    token = anyfesolver.CancellationToken()
     messages = []
     with pytest.raises(_StopAtSolver):
         solve_run.solve_impact(
@@ -322,7 +322,7 @@ def test_impact_forwards_controls_to_linear_and_nonlinear_paths(
     assert observed["cancellation_token"] is token
     assert callable(observed["progress_callback"])
     observed["progress_callback"](
-        anysolver.ProgressEvent(
+        anyfesolver.ProgressEvent(
             "sphere_impact_live_step",
             "sphere_impact.integration",
             completed=0.005,
@@ -351,7 +351,7 @@ def test_transient_and_impact_keep_the_complete_raw_solver_results(monkeypatch):
         peak_displacement_node=None,
     )
     monkeypatch.setattr(
-        anysolver,
+        anyfesolver,
         "solve_transient_newmark",
         lambda *args, **kwargs: transient_raw,
     )
@@ -384,12 +384,12 @@ def test_transient_and_impact_keep_the_complete_raw_solver_results(monkeypatch):
         info={},
     )
     monkeypatch.setattr(
-        anysolver,
+        anyfesolver,
         "solve_transient_sphere_impact",
         lambda *args, **kwargs: impact_raw,
     )
     monkeypatch.setattr(
-        anysolver,
+        anyfesolver,
         "validate_contact_configuration",
         lambda *args, **kwargs: SimpleNamespace(issues=()),
     )

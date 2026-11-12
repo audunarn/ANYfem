@@ -1,4 +1,4 @@
-"""Focused integration with the real anysolver prepared static evaluator.
+"""Focused integration with the real anyfesolver prepared static evaluator.
 
 These checks run the adapter against the sibling solver checkout's
 ``prepare_static_evaluator`` and compare it with the exact live stream.  Missing or incompatible implementation is a failure. The explicit
@@ -7,8 +7,8 @@ missing-API check independently exercises fail-closed admission.
 
 import numpy as np
 import pytest
-import anysolver
-from anysolver import RecoveryConfig
+import anyfesolver
+from anyfesolver import RecoveryConfig
 
 from anyfem import StaticLoadRequest, iter_linear_static_batches
 from anyfem.solve import (
@@ -43,7 +43,7 @@ def _step_names(project):
 
 
 def test_prepared_route_availability_is_explicit(monkeypatch):
-    monkeypatch.delattr(anysolver, "prepare_static_evaluator", raising=False)
+    monkeypatch.delattr(anyfesolver, "prepare_static_evaluator", raising=False)
     with pytest.raises(PreparedStaticUnavailableError, match="prepare_static_evaluator"):
         prepare_linear_static_evaluator()
 
@@ -167,8 +167,8 @@ def _release_watch(solver_module):
 @pytest.mark.parametrize("cancel_stage", ["prepared_static.prepare.stiffness",
                                         "prepared_static.factorization"])
 def test_preparation_cancellation_releases_actual_solver_owner(cancel_stage):
-    from anysolver.control import CancellationToken, SolveCancelled
-    import anysolver.prepared_static as solver_module
+    from anyfesolver.control import CancellationToken, SolveCancelled
+    import anyfesolver.prepared_static as solver_module
     token = CancellationToken()
     owners, scan = _release_watch(solver_module)
     events = []
@@ -190,7 +190,7 @@ def test_preparation_cancellation_releases_actual_solver_owner(cancel_stage):
 
 def test_preparation_progress_mutation_of_app_definition_refused():
     from anyfem.model import ProjectError
-    import anysolver.prepared_static as solver_module
+    import anyfesolver.prepared_static as solver_module
     project, series, points, _ = _fixture_project()
     owners, scan = _release_watch(solver_module)
     def progress(event):

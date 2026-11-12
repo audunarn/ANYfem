@@ -15,7 +15,7 @@ def operators():
 
 
 def test_source_closure_identity_and_detects_mutation():
-    from anysolver import floating_response as fr
+    from anyfesolver import floating_response as fr
     M, C, A, B = operators()
     w = np.array([0.7])
     F = np.zeros((1, 6), complex); F[0, 2] = 1e5; F[0, 4] = 2e4j
