@@ -408,6 +408,15 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
             links[a].append((b, edge_id))
             links[b].append((a, edge_id))
 
+    # Physical overlap first: no later development refusal may mask it (a caller may
+    # fall back to drawing the faces one by one after an ordinary refusal).
+    shared = {}
+    for a in links:
+        for b, edge_id in links[a]:
+            if a < b:
+                shared.setdefault(frozenset((a, b)), []).append(cache[edge_id])
+    _check_overlaps(frames, axis, shared, origin, tolerance)
+
     # Place each patch in the development by walking shared edges.
     placed = {}
     start = min(frames)
@@ -460,12 +469,6 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
             queue.append(other)
     if len(placed) != len(faces):
         raise ValueError("Curved strip faces are not joined into one Sheet by shared edges")
-    shared = {}
-    for a in links:
-        for b, edge_id in links[a]:
-            if a < b:
-                shared.setdefault(frozenset((a, b)), []).append(cache[edge_id])
-    _check_overlaps(frames, axis, shared, origin, tolerance)
 
     patches = []
     for face in faces:

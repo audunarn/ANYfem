@@ -149,7 +149,7 @@ def test_overlapping_strip_is_omitted_from_sections_not_cut_per_face():
         view = build_plane_view(p, (0, 0, H / 2), (0, 0, 1), (0, 1, 0), thickness_sides="centre",
                                 representation=representation)
         assert not [q for q in view.paths if q.label == "Pl-strip"]
-        assert any("omitted" in note and "same side" in note for note in view.notes)
+        assert any("omitted" in note and ("overlap" in note or "same side" in note) for note in view.notes)
 
 
 def test_a_shared_edge_does_not_excuse_a_second_unshared_contact():
@@ -300,3 +300,33 @@ def test_side_by_side_patches_on_one_cylinder_then_another_cylinder_validate():
     # same-cylinder neighbours followed by pairs on different cylinders).
     p, part, sheet, _ = _sheet(_patches(((1., 0., np.pi/2), (1., np.pi/2, np.pi), (1.5, np.pi, 2*np.pi))))
     assert _strip_of(p, sheet).area == pytest.approx((1. * np.pi + 1.5 * np.pi) * H, rel=1e-12)
+
+
+def _circle(p0, p1, p2):
+    """(centre, radius, a, b) of the arc through three points, from p0 via p1 to p2."""
+    (x0, y0), (x1, y1), (x2, y2) = p0, p1, p2
+    d = 2 * (x0*(y1-y2) + x1*(y2-y0) + x2*(y0-y1))
+    ux = ((x0*x0+y0*y0)*(y1-y2) + (x1*x1+y1*y1)*(y2-y0) + (x2*x2+y2*y2)*(y0-y1)) / d
+    uy = ((x0*x0+y0*y0)*(x2-x1) + (x1*x1+y1*y1)*(x0-x2) + (x2*x2+y2*y2)*(x1-x0)) / d
+    centre = np.array((ux, uy))
+    angles = [np.arctan2(*(np.subtract(q, centre)[::-1])) for q in (p0, p1, p2)]
+    a, m, b = np.unwrap(angles)
+    return centre, float(np.hypot(x0-ux, y0-uy)), a, b
+
+
+def test_self_crossing_closed_ring_is_refused_as_overlap_before_development():
+    """A figure-eight ring (Codex r3): the closed development and the crossing are both defects;
+    the crossing must be found first so that no per-face section fallback draws it."""
+    from anyfem.application.curved_strips import StripOverlapError
+    from anyfem.application.drawing_sections import build_plane_view
+    curve = lambda t: (np.sin(t), np.sin(2*t))
+    knots = np.linspace(.07, .07 + 2*np.pi, 25)
+    patches = [_circle(curve(t0), curve((t0+t1)/2), curve(t1)) for t0, t1 in zip(knots, knots[1:])]
+    p, part, sheet, _ = _sheet(patches)
+    with pytest.raises(StripOverlapError):
+        _strip_of(p, sheet)
+    for representation in ("solid", "midsurface_2d"):
+        view = build_plane_view(p, (0, 0, H / 2), (0, 0, 1), (0, 1, 0), thickness_sides="centre",
+                                representation=representation)
+        assert not [q for q in view.paths if q.label == "Pl-strip"]
+        assert any("omitted" in note and "overlap" in note for note in view.notes)
