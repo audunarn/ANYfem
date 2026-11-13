@@ -110,7 +110,7 @@ _SOURCE_PROJECTS = (
     ("ANY3dView", "any3dview", _ANY3DVIEW_PROJECT / "src"),
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
     ("ANYfeSolver", "anyfesolver", _ANYFESOLVER_PROJECT / "src"),
-    ("ANYfeSolver-results", "anyfesolver_results", _ANYFESOLVER_PROJECT / "src"),
+    ("ANYfeSolver-results", "anyfesolver_results", _ANYFESOLVER_PROJECT / "packages" / "results" / "src"),
     ("ANYfatigue", "anyfatigue", _WORKSPACE / "ANYfatigue" / "src"),
     ("anytimes", "anyqats", _WORKSPACE / "ANYtimeseries"),
     ("ANYpost", "anypost", _ECOSYSTEM_WORKSPACE / "ANYpost" / "src"),
@@ -127,9 +127,6 @@ def _active_distribution_version(distribution: str) -> str:
     be evaluated against those source trees rather than stale dist-info.
     """
 
-    if distribution == "ANYfeSolver-results":
-        declared=_declared_project_version(_ANYFESOLVER_PROJECT / "packages" / "results")
-        if declared is not None:return declared
     for candidate_distribution, _module, source in _SOURCE_PROJECTS:
         if candidate_distribution != distribution:
             continue

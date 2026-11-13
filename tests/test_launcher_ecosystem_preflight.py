@@ -57,6 +57,8 @@ def test_launcher_recognizes_hosted_ecosystem_checkout_layout(monkeypatch):
     assert namespace["_ANY3DVIEW_PROJECT"] == ecosystem / "ANY3dView"
     assert namespace["_ANYTK3D_PROJECT"] == ecosystem / "ANYtk3D"
     assert namespace["_ANYFESOLVER_PROJECT"] == ecosystem / "ANYfeSolver"
+    assert ("ANYfeSolver-results", "anyfesolver_results",
+            ecosystem / "ANYfeSolver" / "packages" / "results" / "src") in namespace["_SOURCE_PROJECTS"]
 
 
 def test_existing_editable_paths_are_promoted_ahead_of_installed_packages(monkeypatch, tmp_path):
