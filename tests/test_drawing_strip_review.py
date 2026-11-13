@@ -330,3 +330,17 @@ def test_self_crossing_closed_ring_is_refused_as_overlap_before_development():
                                 representation=representation)
         assert not [q for q in view.paths if q.label == "Pl-strip"]
         assert any("omitted" in note and "overlap" in note for note in view.notes)
+
+
+@pytest.mark.parametrize("representation", ["solid", "midsurface_2d"])
+def test_sections_omit_a_multi_cylinder_sheet_that_is_not_a_valid_strip(representation):
+    """Owner contract A (13 Nov 2026): any multi-face all-cylindrical Sheet that fails strip validation
+    is omitted from sections with the reason, never cut face by face (a per-face fallback could draw an
+    overlap that the failed validation never reached)."""
+    from anyfem.application.drawing_sections import build_plane_view
+    from tests.test_drawing_thickness_side import _strip
+    p, part, sheet, _ = _strip(notch=True)
+    view = build_plane_view(p, (0, 0, .025), (0, 0, 1), (0, 1, 0), thickness_sides="centre",
+                            representation=representation)
+    assert not [q for q in view.paths if q.label == "Pl-curved"]
+    assert any("omitted" in note and "not rectangular" in note for note in view.notes)
