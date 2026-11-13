@@ -12,7 +12,6 @@ SmartMapped implementation.
 import json
 import sys
 import types
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -606,18 +605,14 @@ def test_headless_automatic_rejected_and_explicit_backends_keep_their_routes(mon
 # ----------------------------------------------------------------------------
 def workflow_stub(project):
     from anyfem.application.workflow import WorkbenchWorkflow
+    from anyfem.document import DocumentSession
     submitted = []
-
-    @contextmanager
-    def transaction(*_args, **_kwargs):
-        yield
 
     stub = SimpleNamespace(
         project=project, seeding_overrides={},
         mesh_task_manager=SimpleNamespace(busy=False,
             submit=lambda job_id, snapshot, settings: submitted.append(settings)),
-        session=SimpleNamespace(transaction=transaction,
-            snapshot=lambda: SimpleNamespace(revision=SimpleNamespace(model_hash='h'))),
+        session=DocumentSession(project),
         set_status=lambda *a, **k: None, refresh_panels=lambda: None,
         _project_mesh_strategy=WorkbenchWorkflow._project_mesh_strategy,
         _project_structure_preference=WorkbenchWorkflow._project_structure_preference)

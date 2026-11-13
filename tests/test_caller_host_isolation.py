@@ -157,7 +157,11 @@ def test_actual_pytest_collection_skip_and_before_fixture_identity_check(tmp_pat
     manifest=tmp_path/'collect.json';xml=tmp_path/'collect.xml'
     manifest.write_text(json.dumps(dict(kind='collect',args=['-c',str(config),'tests','-q','--junitxml='+str(xml)])))
     script="import importlib.util,pathlib;spec=importlib.util.spec_from_file_location('unit_runner',"+repr(str(ROOT/'tools/test_anyfem.py'))+");r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r);r.ROOT=pathlib.Path("+repr(str(tmp_path))+");r.owner_capabilities=lambda:None;raise SystemExit(r._caller_bootstrap("+repr(str(manifest))+"))"
-    env=os.environ.copy();env.pop('PYTEST_ADDOPTS',None);env['PYTEST_DISABLE_PLUGIN_AUTOLOAD']='1'
+    env=os.environ.copy()
+    env.pop('PYTEST_ADDOPTS',None)
+    # The temporary project has its own collection and must not load the outer suite plugin.
+    env.pop('PYTEST_PLUGINS',None)
+    env['PYTEST_DISABLE_PLUGIN_AUTOLOAD']='1'
     result=subprocess.run([sys.executable,'-c',script],cwd=tmp_path,env=env,capture_output=True,text=True,timeout=15)
     assert result.returncode==0,result.stdout+result.stderr
     data=json.loads(manifest.read_text());assert list(data['inventory'])==['tests/test_mini.py::test_real']

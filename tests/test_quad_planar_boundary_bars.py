@@ -194,6 +194,23 @@ def test_explicit_arc_pin_remains_authoritative():
     check_bars(project, mesh)
 
 
+def test_four_division_arc_preserves_stations_and_meets_s3_admission():
+    project = small_project()
+    before = repr(project.geometry.topology_snapshot())
+    arc = opening_edges(project)[1]
+    mesh = project.generate_mesh(.5, order='linear', strategy='quad_first',
+        layout_policy='adaptive', overrides={arc: 4}, quad_t3_angle_action='warning')
+
+    assert len(mesh.nodes_of_edge[arc]) == 5
+    check_bars(project, mesh)
+    record = mesh.structural_preparation['qualified_s3']
+    assert record['status'] == 'ADMITTED'
+    assert set(record['element_ids']) == set(mesh.tris) and mesh.tris
+    assert record['quality_policy']['minimum_angle_deg'] == 15.0
+    assert record['quality_target']['policy']['minimum_angle_deg'] == 30.0
+    assert repr(project.geometry.topology_snapshot()) == before
+
+
 def test_dense_arc_pin_truthfully_refuses_qualified_s3_without_publication():
     from anymesher.s3_repair import S3RepairError
     project = small_project()
@@ -201,7 +218,7 @@ def test_dense_arc_pin_truthfully_refuses_qualified_s3_without_publication():
     arc = opening_edges(project)[1]
     with pytest.raises(S3RepairError, match='bounded qualified-S3 repair') as caught:
         project.generate_mesh(.5, order='linear', strategy='quad_first',
-            layout_policy='adaptive', overrides={arc: 4}, quad_t3_angle_action='warning')
+            layout_policy='adaptive', overrides={arc: 8}, quad_t3_angle_action='warning')
     error = caught.value
     assert error.admission is not None and not error.admission.admitted
     assert error.admission.violations

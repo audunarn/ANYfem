@@ -458,6 +458,17 @@ class WetSurface:
         )
 
 
+def _prescribed_pressure_types() -> tuple[type, ...]:
+    """Older ANYloads packages provide the standard mapped histories only."""
+    try:
+        from anyloads.prescribed_pressure import PrescribedPressureHistory
+    except ModuleNotFoundError as error:
+        if error.name != "anyloads.prescribed_pressure":
+            raise
+        return ()
+    return (PrescribedPressureHistory,)
+
+
 @dataclass(frozen=True)
 class WetPressure:
     """Fluid pressure on wet surfaces: a value, equation, mapping, code or table.
@@ -515,6 +526,7 @@ class WetPressure:
 
     def __post_init__(self) -> None:
         if self.history is not None:
+            prescribed_types = _prescribed_pressure_types()
             from anyloads.pressure_history import MappedPressureHistory
             from anyloads.spectral_pressure_history import SpectralMappedPressureHistory
             from anyloads.source_pressure_history import SourceAwarePressureHistory
@@ -527,7 +539,9 @@ class WetPressure:
                     or not self.history.times or not self.history.payload):
                 # Exact class only: the coupled load owns pressure, weight and inertia and is dispatched separately.
                 raise ValueError('a floating coupled load needs its exact class, selected times and embedded payload')
-            if not isinstance(self.history,(MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory,
+            if isinstance(self.history,prescribed_types) and type(self.history) not in prescribed_types:
+                raise ValueError('prescribed pressure history subclasses are not admitted')
+            if not isinstance(self.history,(*prescribed_types,MappedPressureHistory,SpectralMappedPressureHistory,SourceAwarePressureHistory,
                     WaveSurfacePressureHistory,FloatingCoupledLoadHistory)):
                 raise ValueError('history must be a typed ANYloads mapped pressure history')
             if self.mesh_content_sha256 is None:

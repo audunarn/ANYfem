@@ -457,3 +457,16 @@ def test_independently_faceted_curved_hull_pipeline():
     assert nodal[:,:3].sum(axis=0)==pytest.approx([-80,-80,0],abs=1e-7)
     assert (np.cross(xyz,nodal[:,:3])+nodal[:,3:]).sum(axis=0)==pytest.approx([-48,48,0],abs=1e-7)
     assert json.loads(h.binding_json)['projection']['projected_targets']>0
+
+
+def test_existing_mapped_history_with_older_anyloads(monkeypatch):
+    import sys
+    from test_hydro_pressure_series import micro
+    from anyfem.solve.build import _supported_mapped_history, wet_element_pressures
+
+    monkeypatch.setitem(sys.modules, "anyloads.prescribed_pressure", None)
+    project, mesh, history = micro()
+    assert _supported_mapped_history(history)
+    child = project.series_children("wave")[0]
+    values = wet_element_pressures(project, mesh, project.resolve_case(child))
+    assert [value.pressure for value in values] == pytest.approx(-history.evaluate(child.time))

@@ -10,11 +10,11 @@ remain governed by the notices shipped by their distributors.
 | ANY3dView | optional GUI | MPL-2.0 | https://github.com/audunarn/ANY3dView |
 | ANYfileio | runtime | MPL-2.0 | https://github.com/audunarn/ANYfileIO |
 | ANYgeometry | runtime | MPL-2.0 | https://github.com/audunarn/ANYgeometry |
-| ANYloads | runtime and optional Excel extra | MPL-2.0 | https://github.com/audunarn/ANYloads |
+| ANYloads | runtime, optional Excel and prescribed-pressure extras | MPL-2.0 | https://github.com/audunarn/ANYloads |
 | ANYmaterial | runtime | MPL-2.0 | https://github.com/audunarn/ANYmaterial |
-| ANYmesher | runtime | MPL-2.0 | https://github.com/audunarn/ANYmesh |
+| ANYmesher | runtime, GUI and prescribed-pressure extras | MPL-2.0 | https://github.com/audunarn/ANYmesh |
 | ANYpost | runtime and optional results extra | MPL-2.0 | https://github.com/audunarn/ANYpost |
-| ANYhydro | optional floating-body hydrodynamics | MPL-2.0 | https://github.com/audunarn/ANYhydro |
+| ANYhydro | optional floating-body hydrodynamics and prescribed pressures | MPL-2.0 | https://github.com/audunarn/ANYhydro |
 | ANYsection | optional beam-section library | MPL-2.0 | https://github.com/audunarn/ANYsection |
 | ANYsolid | optional solid child | MPL-2.0 | https://github.com/audunarn/ANYsolid |
 | ANYfeSolver | runtime | MPL-2.0 | https://github.com/audunarn/ANYfeSolver |
