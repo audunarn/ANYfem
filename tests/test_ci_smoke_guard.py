@@ -104,3 +104,20 @@ def test_an_ordinary_bundle_is_unaffected(runtime):
     assert rl.check_installed_lock(root, expect_numpy="2.4.6", expect_source_digest=DIGEST)[0] == ""
     tr.check_health(root / "python.exe")
     assert spawned == ["selftest"]
+
+
+def test_marker_is_refused_even_when_the_lock_is_missing_or_schemaless(runtime):
+    """Codex r1 P2: a copied smoke bundle without runtime.lock.json looked like a developer runtime and skipped the marker check."""
+    root, spawned = runtime
+    write_bundle(root)
+    (root / rl.LOCK_NAME).unlink()
+    outcome = tr.check_health(root / "python.exe")
+    assert outcome.status == tr.UNAVAILABLE and "ci smoke" in outcome.reason.lower() and spawned == []
+    (root / rl.LOCK_NAME).write_text(json.dumps({"numpy": "2.4.6"}), encoding="utf-8")  # legacy lenient lock
+    tr._health_cache.clear()
+    outcome = tr.check_health(root / "python.exe")
+    assert outcome.status == tr.UNAVAILABLE and "ci smoke" in outcome.reason.lower() and spawned == []
+    tr.allow_ci_smoke_bundle(True)  # the explicit opt-in is the only way past it
+    tr._health_cache.clear()
+    tr.check_health(root / "python.exe")
+    assert spawned == ["selftest"]
