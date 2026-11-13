@@ -27,6 +27,14 @@ from anygeometry.surfaces import Cylinder
 DRAWING_CHORD = .00005
 
 
+class StripOverlapError(ValueError):
+    """The patches of a Sheet overlap, fold back or touch without a shared edge.
+
+    Unlike other strip refusals (a trim that is not rectangular, say), this is a
+    physical defect of the plate: no per-face fallback may draw it.
+    """
+
+
 @dataclass(frozen=True)
 class StripPatch:
     face_id: int
@@ -192,7 +200,23 @@ def _frame_angle(frame, axis, point):
     return float(_angles(patch, axis, point)[0][0])
 
 
-def _check_overlaps(frames, axis, linked, tolerance):
+def _covered(shared, point, axis, origin, span, tolerance):
+    """Whether shared edges lie on the ruling through ``point`` over the axial ``span``."""
+    pieces = []
+    for points in shared:
+        rel = points - point
+        if np.max(np.linalg.norm(rel - np.outer(rel @ axis, axis), axis=1)) <= tolerance:
+            z = (points - origin) @ axis
+            pieces.append((z.min(), z.max()))
+    reach = span[0]
+    for low, high in sorted(pieces):
+        if low > reach + tolerance:
+            break
+        reach = max(reach, high)
+    return reach >= span[1] - tolerance
+
+
+def _check_overlaps(frames, axis, shared, origin, tolerance):
     """Refuse two patches that share interior points or touch without a shared edge.
 
     Parallel-axis cylinders meet along at most two rulings (the intersections
@@ -200,14 +224,17 @@ def _check_overlaps(frames, axis, linked, tolerance):
     their angle intervals must not overlap.  A crossing ruling within both
     angle trims, over a common axial range, is refused unless it is the shared
     ruling of two joined patches (on the trim boundary of both), or a second
-    crossing next to that joint whose overlap stays within tolerance.
+    crossing next to that joint whose overlap stays within tolerance.  The shared
+    ruling must be that crossing: shared edges lie on it over the whole common
+    axial range.  ``shared`` maps each joined face pair to its shared edges' points.
     """
     ids = sorted(frames)
     for i, a in enumerate(ids):
         f = frames[a]
         for b in ids[i + 1:]:
             g = frames[b]
-            if min(f["axial"][1], g["axial"][1]) - max(f["axial"][0], g["axial"][0]) <= tolerance:
+            span = (max(f["axial"][0], g["axial"][0]), min(f["axial"][1], g["axial"][1]))
+            if span[1] - span[0] <= tolerance:
                 continue
             delta = g["centre"] - f["centre"]
             delta = delta - (delta @ axis) * axis
@@ -219,9 +246,9 @@ def _check_overlaps(frames, axis, linked, tolerance):
                 offset = np.arctan2(g["radial"] @ f["tangent"], g["radial"] @ f["radial"])
                 low, high = g["angles"][0] + offset, g["angles"][1] + offset
                 for turn in (-tau, 0., tau):
-                    shared = min(f["angles"][1], high + turn) - max(f["angles"][0], low + turn)
-                    if shared * ra > tolerance:
-                        raise ValueError(f"Curved strip patches of faces {a} and {b} overlap on one cylinder")
+                    common = min(f["angles"][1], high + turn) - max(f["angles"][0], low + turn)
+                    if common * ra > tolerance:
+                        raise StripOverlapError(f"Curved strip patches of faces {a} and {b} overlap on one cylinder")
                 continue
             u = delta / d
             w = np.cross(axis, u)
@@ -235,7 +262,7 @@ def _check_overlaps(frames, axis, linked, tolerance):
                 along = (d*d + ra*ra - rb*rb) / (2*d)
                 across = sqrt(max(0., ra*ra - along*along))
                 crossings = [f["centre"] + along * u + s * across * w for s in (1., -1.)]
-            joined = frozenset((a, b)) in linked
+            edges = shared.get(frozenset((a, b)), ())
             states = []
             for point in crossings:
                 state = []
@@ -247,9 +274,10 @@ def _check_overlaps(frames, axis, linked, tolerance):
                     state.append((low - slack <= theta <= high + slack, edge, theta))
                 if state[0][0] and state[1][0]:
                     states.append((point, state))
-            joints = [point for point, ((_, edge_a, _), (_, edge_b, _)) in states if joined and edge_a and edge_b]
+            joints = [point for point, ((_, edge_a, _), (_, edge_b, _)) in states
+                      if edge_a and edge_b and _covered(edges, point, axis, origin, span, tolerance)]
             for point, ((_, edge_a, theta_a), (_, edge_b, _)) in states:
-                if joined and edge_a and edge_b:
+                if any(point is joint for joint in joints):
                     continue
                 if joints:
                     # Second crossing beside the joint: the arcs between them part by at most
@@ -260,7 +288,7 @@ def _check_overlaps(frames, axis, linked, tolerance):
                     rest = rest - (rest @ axis) * axis
                     if abs(np.linalg.norm(rest) - rb) <= tolerance:
                         continue
-                raise ValueError(f"Curved strip patches of faces {a} and {b} cross or touch away from a "
+                raise StripOverlapError(f"Curved strip patches of faces {a} and {b} cross or touch away from a "
                                  "shared edge (they overlap)")
 
 
@@ -374,7 +402,7 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
     links = {face.id: [] for face in faces}
     for edge_id, users in incidence.items():
         if len(users) > 2 or len(set(users)) != len(users):
-            raise ValueError(f"Curved strip edge {edge_id} has non-manifold incidence")
+            raise StripOverlapError(f"Curved strip edge {edge_id} has non-manifold incidence")
         if len(users) == 2:
             a, b = users
             links[a].append((b, edge_id))
@@ -407,7 +435,7 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
                 inward = _arc_direction(f, theta[0]) * (1. if side == "low" else -1.)
                 other_inward = _arc_direction(g, other_theta[0]) * (1. if other_side == "low" else -1.)
                 if inward @ other_inward >= 0:
-                    raise ValueError(f"Curved strip patches joined at edge {edge_id} lie on the same side of "
+                    raise StripOverlapError(f"Curved strip patches joined at edge {edge_id} lie on the same side of "
                                      "their ruling (they fold back or overlap)")
                 if out @ back <= 0:
                     consistent = False
@@ -417,7 +445,7 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
                         or np.linalg.norm(f["centre"] - g["centre"]) > tolerance):
                     raise ValueError(f"Curved strip patches stacked at edge {edge_id} lie on different cylinders")
                 if side == other_side:
-                    raise ValueError(f"Curved strip patches stacked at edge {edge_id} overlap (both lie "
+                    raise StripOverlapError(f"Curved strip patches stacked at edge {edge_id} overlap (both lie "
                                      f"{'below' if side == 'top' else 'above'} the shared rim)")
                 other_sign = sign
             other_x0 = float(x_here[0] - other_sign * g["radius"] * (other_theta[0] - g["angles"][0]))
@@ -432,7 +460,12 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
             queue.append(other)
     if len(placed) != len(faces):
         raise ValueError("Curved strip faces are not joined into one Sheet by shared edges")
-    _check_overlaps(frames, axis, {frozenset((a, b)) for a in links for b, _ in links[a]}, tolerance)
+    shared = {}
+    for a in links:
+        for b, edge_id in links[a]:
+            if a < b:
+                shared.setdefault(frozenset((a, b)), []).append(cache[edge_id])
+    _check_overlaps(frames, axis, shared, origin, tolerance)
 
     patches = []
     for face in faces:

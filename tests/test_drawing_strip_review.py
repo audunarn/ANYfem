@@ -45,7 +45,7 @@ def _patches(spec):
     return out
 
 
-def _sheet(patches, *, orientations=None, name="Pl-strip"):
+def _sheet(patches, *, orientations=None, name="Pl-strip", unshared=()):
     """A Sheet of vertical-axis cylinder patches (angle a -> b, height H) sharing coincident edges."""
     from anygeometry import OrientedEdge as O
     from anygeometry.surfaces import Cylinder
@@ -62,7 +62,9 @@ def _sheet(patches, *, orientations=None, name="Pl-strip"):
             points[key] = g.add_point(float(xy[0]), float(xy[1]), z)
         return points[key]
 
-    def line(a, b):
+    def line(a, b, fresh=False):
+        if fresh:  # a coincident edge of its own, not joined to its neighbour
+            return O(g.add_line(a, b), True)
         if (b, a) in lines:
             return O(lines[b, a], False)
         if (a, b) not in lines:
@@ -70,11 +72,12 @@ def _sheet(patches, *, orientations=None, name="Pl-strip"):
         return O(lines[a, b], True)
 
     faces = []
-    for centre, radius, a, b in patches:
+    for k, (centre, radius, a, b) in enumerate(patches):
         at = lambda angle, z: vertex(centre + radius * _dir(angle), z)
         bottom = g.add_arc(at(a, 0), at((a+b)/2, 0), at(b, 0))
         top = g.add_arc(at(b, H), at((a+b)/2, H), at(a, H))
-        loop = [O(bottom, True), line(at(b, 0), at(b, H)), O(top, True), line(at(a, H), at(a, 0))]
+        loop = [O(bottom, True), line(at(b, 0), at(b, H), (k, "b") in unshared), O(top, True),
+                line(at(a, H), at(a, 0), (k, "a") in unshared)]
         seam = (a + b) / 2 - np.pi  # parameter seam opposite the patch
         surface = Cylinder((*centre, 0), (0, 0, 1), (np.cos(seam), np.sin(seam), 0), radius, H, sweep_angle=2*np.pi)
         faces.append(g.add_face_from_loop(loop, surface=surface))
@@ -135,6 +138,29 @@ def test_coaxial_overlapping_patches_on_a_shared_ruling_are_refused():
         build_plate_profiles(p, part)
     with pytest.raises(ValueError, match="overlap|same side"):
         assembly_views(p, part)
+
+
+def test_overlapping_strip_is_omitted_from_sections_not_cut_per_face():
+    from anygeometry.structural import Orientation
+    from anyfem.application.drawing_sections import build_plane_view
+    patches = [(np.zeros(2), 2., 0., np.pi/4), (np.zeros(2), 2., 0., 4*np.pi/9)]
+    p, part, sheet, _ = _sheet(patches, orientations=[Orientation.FORWARD, Orientation.REVERSED])
+    for representation in ("solid", "midsurface_2d"):
+        view = build_plane_view(p, (0, 0, H / 2), (0, 0, 1), (0, 1, 0), thickness_sides="centre",
+                                representation=representation)
+        assert not [q for q in view.paths if q.label == "Pl-strip"]
+        assert any("omitted" in note and "same side" in note for note in view.notes)
+
+
+def test_a_shared_edge_does_not_excuse_a_second_unshared_contact():
+    # A lens of two R = 1 m patches about (0, 0) and (1, 0): joined along the upper crossing
+    # ruling, but the lower crossing rulings are two separate coincident edges.
+    patches = [((0., 0.), 1., -np.pi/3, np.pi/3), ((1., 0.), 1., 2*np.pi/3, 4*np.pi/3)]
+    p, part, sheet, _ = _sheet(patches, unshared={(1, "b")})
+    with pytest.raises(ValueError, match="away from a shared edge"):
+        _strip_of(p, sheet)
+    with pytest.raises(ValueError, match="away from a shared edge"):
+        build_plate_profiles(p, part)
 
 
 def test_patches_crossing_away_from_their_joint_are_refused():
@@ -267,3 +293,10 @@ def test_automatic_side_is_centred_when_a_neighbour_maps_ambiguously():
     p.assign_plate(bracket, "12 mm")
     side, source, reason = resolve_thickness_sides(p, part)[sheet]
     assert (side, source) == ("centre", "auto") and "ambiguous" in reason
+
+
+def test_side_by_side_patches_on_one_cylinder_then_another_cylinder_validate():
+    # Two patches on one R = 1 cylinder, then a tangent R = 1.5 patch (the Pl4253 pattern of
+    # same-cylinder neighbours followed by pairs on different cylinders).
+    p, part, sheet, _ = _sheet(_patches(((1., 0., np.pi/2), (1., np.pi/2, np.pi), (1.5, np.pi, 2*np.pi))))
+    assert _strip_of(p, sheet).area == pytest.approx((1. * np.pi + 1.5 * np.pi) * H, rel=1e-12)
