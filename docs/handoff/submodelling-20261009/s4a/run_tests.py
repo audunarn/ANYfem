@@ -1,21 +1,25 @@
-"""Run the submodelling tests of this ANYfem checkout against the sibling repositories.
+"""Run submodelling tests through ANYfem's bounded test route with chosen sibling sources.
 
-ANYfem: the checkout this file is in (pytest adds ``src``).  The other packages come from
-``C:/Github/<repo>/src``: ANYfeSolver (formerly ANYsolver), ANYmesh, ANYgeometry,
-ANYmaterial, ANYfileIO and ANYloads.  Each can be overridden with an environment variable
-``S4A_<REPO>`` in upper case, for example ``S4A_ANYGEOMETRY`` for a clean ANYgeometry
-worktree.  ``S4A_ANYSOLVER`` is still accepted for ANYfeSolver.
+This only puts the sibling packages on ``PYTHONPATH`` and then runs
+``tools/test_anyfem.py --profile focused`` (``docs/test-scopes.md``), so the route's
+600-second deadline, owned process tree and evidence directory apply unchanged.
 
-The sibling checkouts must be clean: a dirty ANYgeometry main checkout once made three
-submodel tests fail that pass on origin/main.
+The sibling packages come from ``C:/Github/<repo>/src``: ANYfeSolver (formerly
+ANYsolver), ANYmesh, ANYgeometry, ANYmaterial, ANYfileIO and ANYloads.  Each can be
+overridden with ``S4A_<REPO>`` in upper case, for example ``S4A_ANYGEOMETRY`` for a
+clean ANYgeometry worktree, and ``S4A_ROOT`` overrides ``C:/Github``.
+``S4A_ANYSOLVER`` is still accepted for ANYfeSolver.  The sibling checkouts must be
+clean: a dirty ANYgeometry main checkout once made three submodel tests fail that pass
+on origin/main.
 
-Without a test path among the arguments it runs every ``tests/test_submodel*.py`` file;
-pytest options such as ``--basetemp`` can be given either way.
+Arguments go to ``tools/test_anyfem.py`` (``--out``, ``--fail-fast``, test paths).
+Without a test path it selects every ``tests/test_submodel*.py``.
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,14 +39,10 @@ def _source(repo: str) -> str:
 
 
 paths = [_source(repo) for repo in REPOS]
-for path in reversed(paths):
-    sys.path.insert(0, path)
-os.environ["PYTHONPATH"] = os.pathsep.join(paths + [os.environ.get("PYTHONPATH", "")])
-os.chdir(WORKTREE)
-
-import pytest  # noqa: E402
-
-default = sorted(str(p.relative_to(WORKTREE).as_posix()) for p in (WORKTREE / "tests").glob("test_submodel*.py"))
+environment = dict(os.environ)
+environment["PYTHONPATH"] = os.pathsep.join([*paths, *filter(None, [os.environ.get("PYTHONPATH")])])
 args = sys.argv[1:]
-named = any((WORKTREE / a.split("::")[0]).exists() for a in args if not a.startswith("-"))
-sys.exit(pytest.main(["-q", *args, *([] if named else default)]))
+if not any(a.startswith("tests/") for a in args):
+    args += sorted(p.relative_to(WORKTREE).as_posix() for p in (WORKTREE / "tests").glob("test_submodel*.py"))
+command = [sys.executable, str(WORKTREE / "tools" / "test_anyfem.py"), "--profile", "focused", *args]
+sys.exit(subprocess.call(command, cwd=WORKTREE, env=environment))
