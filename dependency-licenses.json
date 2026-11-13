@@ -1,4 +1,44 @@
 {
+  "bundled_runtimes": [
+    {
+      "bundled": true,
+      "components": [
+        {
+          "license_expression": "PSF-2.0",
+          "name": "CPython (free-threaded 3.14.10)",
+          "notes": "python.org python-3.14.10t-amd64.zip layout; LICENSE.txt shipped in the runtime root lists the bundled third-party components (OpenSSL, expat, zlib, SQLite, libffi, Tcl/Tk and others) and their terms",
+          "upstream": "https://www.python.org/"
+        },
+        {
+          "license_expression": "LicenseRef-Microsoft-VC-Redistributable",
+          "name": "Microsoft Visual C++ runtime (vcruntime140*.dll, msvcp140*.dll)",
+          "notes": "redistributable files shipped by the CPython layout and inside the NumPy and Shapely wheels; owner to confirm the redistribution terms for the installer",
+          "upstream": "https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files"
+        },
+        {
+          "license_expression": "BSD-3-Clause AND bundled-component-licenses",
+          "name": "NumPy 2.4.6",
+          "notes": "wheel license files are kept in numpy-2.4.6.dist-info/licenses; includes OpenBLAS (libscipy_openblas64_)",
+          "upstream": "https://numpy.org/"
+        },
+        {
+          "license_expression": "BSD-3-Clause AND bundled-component-licenses",
+          "name": "SciPy 1.17.1",
+          "notes": "scipy-1.17.1.dist-info/LICENSE.txt covers OpenBLAS, LAPACK and the GCC runtime library (GPL-3.0-or-later WITH GCC-exception-3.1)",
+          "upstream": "https://scipy.org/"
+        },
+        {
+          "license_expression": "BSD-3-Clause",
+          "name": "Shapely 2.1.2",
+          "notes": "vendors GEOS (LGPL-2.1) as shapely.libs/geos*.dll; license files in shapely-2.1.2.dist-info/licenses; replaceability: see THIRD_PARTY_NOTICES.md",
+          "upstream": "https://github.com/shapely/shapely"
+        }
+      ],
+      "lock": "tools/runtime.lock.json",
+      "name": "runtime-314t",
+      "purpose": "optional free-threaded planning runtime of the thread route (child process; off by default; Windows x64)"
+    }
+  ],
   "dependencies": [
     {
       "bundled": false,
