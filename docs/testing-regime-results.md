@@ -17,6 +17,7 @@ requires both application and Qt release workflows; no package was published.
 |---|---|---|
 | Final isolated quick | `44779de`, Windows/Python 3.14.2, current workspace owners | 387 passed, 24 subtests passed, two expected skips; 204.706603 seconds process-wall |
 | Runner, receipt and hold contracts | Same implementation, parent focused check | 105 passed, 24 subtests passed, one POSIX-only skip |
+| Final Ubuntu unit verification | `a378b96`, published owners, Python 3.13 | 177 passed, 24 subtests passed, no skips; 31.32 seconds |
 | Compatibility matrix | `e8a54bf`, three OS/four Python combinations | All 12 passed; 23 tests per lane, 6.49–13.72 seconds |
 | Qt application routes | `e8a54bf`, Windows/Ubuntu, Python 3.11/3.14 | All four passed; 44 tests per lane, 52.29–68.14 seconds |
 | Linux GPU application smoke | `e8a54bf`, Python 3.13 | Passed; 16.01 seconds |
@@ -51,7 +52,8 @@ unverified. Owner-dependent positive checks are not reclassified as passing.
 The published-owner Ubuntu quick attempt finished in 244.47 seconds, with six
 stored-family failures from the absent adapter and one POSIX-only test-double
 cleanup defect. The latter was repaired without changing production cleanup;
-its Ubuntu unit verification is recorded separately. The owner-dependent routine
+its Ubuntu unit verification passed, including the real POSIX pipe regression.
+The owner-dependent routine
 positives remain blocked as well. No owner repository update or publication is
 part of this work. This task has not merged the testing branch into main or reused
 the earlier failing-snapshot exception.
@@ -62,7 +64,7 @@ Evidence is retained at
 `C:/ANYworkspaceWork/anyfem-testing-regime-20261113`, including exact commands,
 runtime paths, process-wall receipts, failed/timeout logs, raw CI artifacts and
 source-preservation audits. Application CI run: `43409879337`; Qt run:
-`43409884259`. The initial `9f8254f` CI runs were stopped after a shared installed
+`43409884259`; final Ubuntu unit run: `43415067104`. The initial `9f8254f` CI runs were stopped after a shared installed
 ezdxf license-label mismatch; the equivalent MIT metadata alias was repaired
 without changing permitted licenses.
 

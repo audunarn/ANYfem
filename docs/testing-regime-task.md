@@ -113,3 +113,15 @@ Clean snapshot `e8a54bf` passed the expanded local quick route: 381 passed,
 published-graph compatibility lanes and five Qt/GPU lanes passed on that snapshot.
 Current helper-import and native subtest-receipt refinements require parent
 verification; the prior native JUnit and subtest event records remain unchanged.
+
+Final handoff: the testing-only branch is `codex/anyfem-manager-tests-final`,
+isolated after concurrent drawing work entered the original shared branch. That
+concurrent work is preserved. The isolated quick run passed 387 tests and 24
+subtests with two expected skips in 204.706603 process-wall seconds. Final Ubuntu
+unit verification passed all 177 tests and 24 subtests with no skips in 31.32
+seconds, including the POSIX lifecycle regression. Current-workspace default
+collection completed without errors; it is not a full execution or a published
+owner-graph acceptance result. Owner-dependent routine/full gates and the
+20-minute full target remain blocked/unverified as documented in
+`testing-regime-results.md`. No owner work, package publication or main merge was
+performed by this task.
