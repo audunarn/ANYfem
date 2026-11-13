@@ -8,6 +8,7 @@ import numpy as np
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import trace
 from .plate_profiles import build_plate_profiles
+from .thickness_side import thickness_band
 
 
 @dataclass
@@ -21,14 +22,19 @@ class _Stock:
 def _stock(profile):
     axes = profile._axes
     normal = np.cross(axes[:,0], axes[:,1])
-    half = profile.thickness_m * normal / 2
+    low, high = thickness_band(profile.thickness_m, profile.thickness_side)
+    if profile.thickness_side == "centre":
+        half = profile.thickness_m * normal / 2
+        below, above = -half, half
+    else:
+        below, above = low * normal, high * normal
     bottom, top, walls, edges, flanks = [], [], [], [], []
     for loop in profile._loops:
         # Each trace is confined to 0.05 mm of the CAD curve. Keep only genuine
         # corners as thickness edges; subdivision points have no physical edge.
         lines = [trace(span, tolerance=.00005) for span in loop]
         ring = np.vstack([line[:-1] for line in lines]) @ axes.T + profile._world_origin
-        lo, hi = ring-half, ring+half
+        lo, hi = ring+below, ring+above
         bottom.append(lo)
         top.append(hi)
         for i in range(len(ring)):
@@ -44,7 +50,7 @@ def _stock(profile):
             b = here[1,:2]/here[1,2] - here[0,:2]/here[0,2]
             if float(a @ b) < .999999 * np.linalg.norm(a)*np.linalg.norm(b):
                 xy = line[0] @ axes.T + profile._world_origin
-                edges.append((xy-half,xy+half))
+                edges.append((xy+below,xy+above))
                 flanks.append((ring[start_index-1]-ring[start_index],
                                ring[(start_index+1)%len(ring)]-ring[start_index]))
             start_index += len(line)-1
@@ -208,10 +214,12 @@ def _projection(stocks, direction, up):
 
 
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
-                   elevation_datum="global"):
+                   elevation_datum="global", thickness_sides=None):
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
-    profiles = build_plate_profiles(project, part_id)
+    from .thickness_side import sides_for_part
+    profiles = build_plate_profiles(project, part_id,
+                                    thickness_sides=sides_for_part(project, part_id, thickness_sides))
     from .drawing_datum import elevation_origin
     base_z = elevation_origin(profiles, elevation_datum)
     part = project.geometry.parts[part_id]

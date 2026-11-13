@@ -10,6 +10,7 @@ import numpy as np
 from anygeometry.surfaces import CoonsSurface, Plane
 
 from .plate_curves import edge_spans, project_span, signed_area, trace, write_profiles_dxf
+from .thickness_side import thickness_band
 
 # Maximum native end gap in a CAD contour, in metres (0.00001 mm).
 _END_GAP_M = 1e-8
@@ -34,6 +35,18 @@ class PlateProfile:
     _loops: tuple = field(repr=False, compare=False)
     _world_origin: np.ndarray | None = field(default=None, repr=False, compare=False)
     _axes: np.ndarray | None = field(default=None, repr=False, compare=False)
+    # Material band along the drawing normal (see ``thickness_side``).
+    thickness_side: str = "centre"
+
+    @property
+    def normal(self) -> np.ndarray:
+        """The plate drawing normal ``+n`` in world coordinates."""
+        return np.cross(self._axes[:, 0], self._axes[:, 1])
+
+    @property
+    def band_m(self) -> tuple[float, float]:
+        """Material ``(s_lo, s_hi)`` along ``+n`` from the reference surface."""
+        return thickness_band(self.thickness_m, self.thickness_side)
 
     @property
     def hole_count(self) -> int:
@@ -259,7 +272,7 @@ def _planar_geometry(geometry, faces, sheet):
                            float(elevations.max()), normal, origin + axes @ low, axes)
 
 
-def _plate(project, sheet):
+def _plate(project, sheet, side="centre"):
     geometry = project.geometry
     faces = [geometry.faces[geometry.face_uses[u].face_id] for u in sheet.face_use_ids]
     sections = [project.plate_section_of(face.id) for face in faces]
@@ -269,15 +282,27 @@ def _plate(project, sheet):
     thickness, material = properties.pop()
     if material not in project.materials:
         raise ValueError(f"Missing assigned material {material}")
+    low, high = thickness_band(thickness, side)
     shape = _planar_geometry(geometry, faces, sheet)
-    half_height = abs(shape.normal[2]) * thickness / 2
+    if side == "centre":
+        # Historical arithmetic, kept literally (including signed zeros).
+        half_height = abs(shape.normal[2]) * thickness / 2
+        z_min, z_max = shape.z_min-half_height, shape.z_max+half_height
+    else:
+        rise = (low * shape.normal[2], high * shape.normal[2])
+        z_min, z_max = shape.z_min+min(rise), shape.z_max+max(rise)
     return PlateProfile(sheet.name or f"Sheet-{sheet.id}", sheet.id, thickness, material,
-                        shape.area, shape.z_min-half_height, shape.z_max+half_height,
-                        shape.loops, shape.origin, shape.axes)
+                        shape.area, z_min, z_max,
+                        shape.loops, shape.origin, shape.axes, side)
 
 
-def build_plate_profiles(project, part_id: int) -> tuple[PlateProfile, ...]:
-    """Return net true-plane profiles for the physical sheets owned by one Part."""
+def build_plate_profiles(project, part_id: int, *, thickness_sides=None) -> tuple[PlateProfile, ...]:
+    """Return net true-plane profiles for the physical sheets owned by one Part.
+
+    ``thickness_sides`` maps Sheet IDs to resolved sides (``centre``, ``front``
+    or ``back``); omitted Sheets are centred.
+    """
+    sides = dict(thickness_sides or {})
     part = project.geometry.parts.get(part_id)
     if part is None or not part.sheet_ids or part.member_ids:
         raise ValueError(f"Part {part_id} must be an existing, nonempty plate-only Part")
@@ -295,7 +320,7 @@ def build_plate_profiles(project, part_id: int) -> tuple[PlateProfile, ...]:
             raise ValueError(f"Plate {sheet.name or sheet_id} repeats faces assigned to another physical plate")
         owned.update(faces)
         try:
-            profile = _plate(project, sheet)
+            profile = _plate(project, sheet, sides.get(sheet_id, "centre"))
         except ValueError as error:
             raise ValueError(f"Plate {sheet.name or sheet.id}: {error}") from error
         if profile.mark.casefold() in marks:
