@@ -7,7 +7,7 @@ from math import fsum
 from pathlib import Path
 
 import numpy as np
-from anygeometry.surfaces import CoonsSurface, Plane
+from anygeometry.surfaces import CoonsSurface, Cylinder, Plane
 
 from .plate_curves import edge_spans, project_span, signed_area, trace, write_profiles_dxf
 from .thickness_side import thickness_band
@@ -37,11 +37,28 @@ class PlateProfile:
     _axes: np.ndarray | None = field(default=None, repr=False, compare=False)
     # Material band along the drawing normal (see ``thickness_side``).
     thickness_side: str = "centre"
+    # Curved strips only: the validated strip and the mid-thickness area
+    # used for mass. Planar plates weigh their net cut area.
+    _strip: object = field(default=None, repr=False, compare=False)
+    _mass_area_m2: float | None = field(default=None, repr=False, compare=False)
 
     @property
-    def normal(self) -> np.ndarray:
-        """The plate drawing normal ``+n`` in world coordinates."""
-        return np.cross(self._axes[:, 0], self._axes[:, 1])
+    def normal(self) -> np.ndarray | None:
+        """The planar plate drawing normal ``+n`` (None for a curved strip)."""
+        return None if self._axes is None else np.cross(self._axes[:, 0], self._axes[:, 1])
+
+    @property
+    def mass_area_m2(self) -> float:
+        """Area weighed in the takeoff: the net area, or a curved strip's mid-thickness area."""
+        return self.area_m2 if self._mass_area_m2 is None else self._mass_area_m2
+
+    @property
+    def side_text(self) -> str:
+        """Side and world direction of +n, for example ``front (+n = +Z)``."""
+        from .thickness_side import side_label
+        if self._strip is not None:
+            return f"{self.thickness_side} (+n = outward radial)"
+        return side_label(self.thickness_side, self.normal)
 
     @property
     def band_m(self) -> tuple[float, float]:
@@ -283,6 +300,8 @@ def _plate(project, sheet, side="centre"):
     if material not in project.materials:
         raise ValueError(f"Missing assigned material {material}")
     low, high = thickness_band(thickness, side)
+    if faces and all(isinstance(face.surface, Cylinder) for face in faces):
+        return _strip_plate(project, sheet, faces, thickness, material, side, (low, high))
     shape = _planar_geometry(geometry, faces, sheet)
     if side == "centre":
         # Historical arithmetic, kept literally (including signed zeros).
@@ -294,6 +313,32 @@ def _plate(project, sheet, side="centre"):
     return PlateProfile(sheet.name or f"Sheet-{sheet.id}", sheet.id, thickness, material,
                         shape.area, z_min, z_max,
                         shape.loops, shape.origin, shape.axes, side)
+
+
+def _strip_plate(project, sheet, faces, thickness, material, side, band):
+    """A curved strip: exact reference area and its rectangular development."""
+    from .curved_strips import curved_strip
+    strip = curved_strip(project.geometry, faces, sheet)
+    low, high = band
+    if side != "centre" and not strip.consistent:
+        raise ValueError("Curved strip faces have disagreeing drawing normals; only a centred side is defined")
+    if any(patch.radius + low <= 0 for patch in strip.patches):
+        raise ValueError("Curved strip inner radius must be positive")
+    from shapely.geometry.polygon import orient
+    outline = orient(strip.outline, 1.)
+    rings = [np.asarray(ring.coords)[:-1] for ring in (outline.exterior, *outline.interiors)]
+    loops = tuple(tuple(np.array([(*a, 1.), (*b, 1.)]) for a, b in zip(ring, np.roll(ring, -1, axis=0)))
+                  for ring in rings)
+    elevations = []
+    for patch in strip.patches:
+        angles = strip.sample_angles(patch, patch.radius + high, 1e-7)
+        for axial in patch.axial:
+            for offset in (low, high):
+                elevations.append(strip.point(patch, angles, axial, offset)[:, 2])
+    elevations = np.concatenate(elevations)
+    return PlateProfile(sheet.name or f"Sheet-{sheet.id}", sheet.id, thickness, material, strip.area,
+                        float(elevations.min()), float(elevations.max()), loops, None, None, side,
+                        strip, strip.band_area((low + high) / 2))
 
 
 def build_plate_profiles(project, part_id: int, *, thickness_sides=None) -> tuple[PlateProfile, ...]:

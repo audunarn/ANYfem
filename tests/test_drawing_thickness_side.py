@@ -377,3 +377,182 @@ def test_midsurface_references_are_at_the_reference_intersection_and_export_reco
     solid = export_plate_drawings(snapshot, part, tmp_path / "solid")
     assert json.loads((flat / "Drawing-basis.json").read_text())["representation"] == "midsurface_2d"
     assert (flat / "Weight-takeoff.csv").read_text() == (solid / "Weight-takeoff.csv").read_text()
+
+
+# -- S5: curved strip stock (parallel-axis cylinder patches with rectangular trims) ------------
+
+_STRIP = ((np.zeros(2), 2., 0., np.pi/4), (None, 3., np.pi/4, np.pi/2), (None, 1.5, np.pi/2, 3*np.pi/4))
+_STRIP_H = .1
+
+
+def _strip(*, notch=False):
+    """Three tangent-continuous vertical-axis patches R = 2, 3, 1.5 m; the middle one has a
+    reversed axis and a split lower rim. ``notch`` cuts an L-shaped corner from the last."""
+    from anygeometry import OrientedEdge as O
+    from anygeometry.surfaces import Cylinder
+    p = Project("strip")
+    p.add_material(MaterialSpec("steel", constants={"elastic_modulus": 210e9, "poisson_ratio": .3}, density=7850))
+    p.add_plate_section("12 mm", .012, "steel")
+    g = p.geometry
+    part = g.add_part(name="Curved")
+    centres, previous = [], None
+    for centre, radius, a, b in _STRIP:
+        if centre is None:  # tangent continuity: next centre on the junction normal
+            c0, r0, _, b0 = previous
+            centre = c0 + (r0 - radius) * np.array([np.cos(b0), np.sin(b0)])
+        previous = (centre, radius, a, b)
+        centres.append(centre)
+    def xyz(centre, radius, angle, z):
+        return (*(centre + radius*np.array([np.cos(angle), np.sin(angle)])), z)
+    start = [g.add_point(*xyz(centres[0], 2., 0., z)) for z in (0, _STRIP_H)]
+    faces, shared = [], None
+    for k, ((_, radius, a, b), centre) in enumerate(zip(_STRIP, centres)):
+        end = [g.add_point(*xyz(centre, radius, b, z)) for z in (0, _STRIP_H)]
+        mid = [g.add_point(*xyz(centre, radius, (a+b)/2, z)) for z in (0, _STRIP_H)]
+        if k == 1:
+            quarter = [g.add_point(*xyz(centre, radius, a + f*(b-a), 0)) for f in (.25, .5, .75)]
+            bottom = [O(g.add_arc(start[0], quarter[0], quarter[1]), True), O(g.add_arc(quarter[1], quarter[2], end[0]), True)]
+        elif k == 2 and notch:
+            corner = g.add_point(*xyz(centre, radius, (a+b)/2, _STRIP_H/2))
+            m2 = g.add_point(*xyz(centre, radius, (3*a+b)/4, 0))
+            m3 = g.add_point(*xyz(centre, radius, (a+3*b)/4, _STRIP_H/2))
+            bottom = [O(g.add_arc(start[0], m2, mid[0]), True), O(g.add_line(mid[0], corner), True),
+                      O(g.add_arc(corner, m3, g.add_point(*xyz(centre, radius, b, _STRIP_H/2))), True)]
+            end[0] = g.edges[bottom[-1].edge].end
+        else:
+            bottom = [O(g.add_arc(start[0], mid[0], end[0]), True)]
+        back = O(shared, False) if shared is not None else O(g.add_line(start[1], start[0]), True)
+        up = shared = g.add_line(end[0], end[1])
+        loop = [*bottom, O(up, True), O(g.add_arc(end[1], mid[1], start[1]), True), back]
+        if k == 1:
+            surface = Cylinder((*centre, _STRIP_H), (0, 0, -1), (1, 0, 0), radius, _STRIP_H, sweep_angle=2*np.pi)
+        else:
+            surface = Cylinder((*centre, 0), (0, 0, 1), (1, 0, 0), radius, _STRIP_H, sweep_angle=2*np.pi)
+        faces.append(g.add_face_from_loop(loop, surface=surface))
+        start = end
+    sheet = g.add_sheet(tuple(faces), part_id=part, name="Pl-curved")
+    for face in faces:
+        p.assign_plate(face, "12 mm")
+    return p, part, sheet, centres
+
+
+_STRIP_LENGTH = (2. + 3. + 1.5) * np.pi/4
+
+
+def test_curved_strip_takeoff_area_development_and_side_mass():
+    p, part, sheet, _ = _strip()
+    profile, = build_plate_profiles(p, part)
+    assert profile.area_m2 == pytest.approx(_STRIP_LENGTH * _STRIP_H, rel=1e-12)
+    assert (profile.z_min_m, profile.z_max_m) == pytest.approx((0., _STRIP_H), abs=1e-12)
+    assert profile.hole_count == 0
+    ring = np.vstack([span[:, :2] / span[:, 2:] for span in profile._loops[0]])
+    assert np.ptp(ring, axis=0) == pytest.approx((_STRIP_LENGTH, _STRIP_H), rel=1e-10)  # 1e-10 m outline grid
+    plan = assembly_views(p, part, thickness_sides="centre")[1]
+    assert f"{profile.area_m2 * .012 * 7850:.2f} kg each" in plan.notes[1]
+    outward, = build_plate_profiles(p, part, thickness_sides={sheet: "front"})
+    sweep = np.pi/4
+    expected = sum((radius + .006) * sweep * _STRIP_H for radius in (2., 3., 1.5)) * .012 * 7850
+    assert outward.mass_area_m2 * .012 * 7850 == pytest.approx(expected, rel=1e-12)
+    front_views = assembly_views(p, part, thickness_sides={sheet: "front"})
+    assert f"{expected:.2f} kg each" in front_views[1].notes[1]
+
+
+@pytest.mark.parametrize("side, inner, outer", [("centre", -.006, .006), ("front", 0., .012), ("back", -.012, 0.)])
+def test_curved_strip_walls_are_drawn_in_every_assembly_view(side, inner, outer):
+    p, part, sheet, centres = _strip()
+    views = assembly_views(p, part, thickness_sides={sheet: side})
+    assert [len(v.paths) > 0 for v in views] == [True] * 4
+    plan = _linework(views[1])
+    for radius, angle, centre in ((2., np.pi/8, centres[0]), (3., 3*np.pi/8, centres[1]), (1.5, 5*np.pi/8, centres[2])):
+        direction = np.array([np.cos(angle), np.sin(angle)])
+        for offset in (inner, outer):
+            assert plan.distance(Point(centre + (radius+offset)*direction)) < 6e-5  # 0.05 mm chords
+        assert plan.distance(Point(centre + (radius + (inner+outer)/2)*direction)) > 1e-3
+    front = views[2]
+    assert np.array(front.extent())[:, 1] == pytest.approx((0., _STRIP_H), abs=1e-9)
+    iso = _linework(views[0])
+    assert iso.length > 0
+
+
+def test_curved_strip_plate_view_is_its_reference_development():
+    from anyfem.application.plate_view import build_plate_view
+    p, part, sheet, _ = _strip()
+    face = p.geometry.face_uses[p.geometry.sheets[sheet].face_use_ids[0]].face_id
+    view = build_plate_view(p, face)
+    outline, = [path for path in view.paths if path.layer == "OUTLINE"]
+    assert np.ptp(np.asarray(outline.points), axis=0) == pytest.approx((_STRIP_LENGTH, _STRIP_H), rel=1e-9)
+    assert any("Reference surface development; apply forming allowance" in note for note in view.notes)
+
+
+def test_non_rectangular_curved_trim_is_refused():
+    p, part, sheet, _ = _strip(notch=True)
+    with pytest.raises(ValueError, match="not rectangular"):
+        build_plate_profiles(p, part)
+    with pytest.raises(ValueError, match="not rectangular"):
+        assembly_views(p, part)
+
+
+def test_curved_strip_sections_and_automatic_side():
+    from shapely import Polygon
+    from anyfem.application.drawing_sections import build_plane_view
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    p, part, sheet, _ = _strip()
+    g = p.geometry
+    view = build_plane_view(p, (0, 0, _STRIP_H/2), (0, 0, 1), (0, 1, 0))
+    assert not any("omitted" in note for note in view.notes)
+    cuts = [q for q in view.paths if q.label == "Pl-curved"]
+    assert sum(Polygon(q.points).area for q in cuts) == pytest.approx(.012 * _STRIP_LENGTH, rel=1e-4)
+    # A bracket on the outside of the first patch's upper rim puts the strip's thickness outward.
+    first = next(v for v, vertex in g.vertices.items()
+                 if np.allclose(vertex.position, (2, 0, _STRIP_H)))
+    from anygeometry import OrientedEdge
+    a, b = g.add_point(3, 0, _STRIP_H), g.add_point(3, -.5, _STRIP_H)
+    bracket = g.add_face_from_loop([OrientedEdge(g.add_line(*pair), True) for pair in ((first, a), (a, b), (b, first))])
+    bracket_sheet = g.add_sheet((bracket,), part_id=part, name="bracket")
+    p.assign_plate(bracket, "12 mm")
+    sides = resolve_thickness_sides(p, part)
+    assert sides[sheet] == ("front", "auto", "1 neighbour on +n")
+    assert sides[bracket_sheet] == ("back", "auto", "1 neighbour on -n")
+    assert build_plate_profiles(p, part, thickness_sides={sheet: "front"})
+
+
+def test_curved_strip_of_stacked_staggered_patches_develops_as_one_rectangle():
+    """Two rows on one cylinder, R = 2 m, rows split at different angles (like imported Pl4253)."""
+    from anygeometry import OrientedEdge as O
+    from anygeometry.surfaces import Cylinder
+    p = Project("rows")
+    p.add_material(MaterialSpec("steel", constants={"elastic_modulus": 210e9, "poisson_ratio": .3}, density=7850))
+    p.add_plate_section("12 mm", .012, "steel")
+    g = p.geometry
+    part = g.add_part(name="Rows")
+    surface = Cylinder((0, 0, 0), (0, 0, 1), (1, 0, 0), 2., .1, sweep_angle=2*np.pi)
+    points, lines = {}, {}
+    def vertex(angle, z):
+        key = (round(angle, 12), z)
+        if key not in points:
+            points[key] = g.add_point(2*np.cos(angle), 2*np.sin(angle), z)
+        return points[key]
+    def edge(a, b):  # (angle, z) pairs; arcs at constant z, lines at constant angle
+        if (b, a) in lines:
+            return O(lines[b, a], False)
+        if a[1] == b[1]:
+            lines[a, b] = g.add_arc(vertex(*a), vertex((a[0]+b[0])/2, a[1]), vertex(*b))
+        else:
+            lines[a, b] = g.add_line(vertex(*a), vertex(*b))
+        return O(lines[a, b], True)
+    def patch(a, b, z0, z1, bottom=(), top=()):
+        corners = [(x, z0) for x in (a, *bottom, b)] + [(x, z1) for x in (a, *top, b)[::-1]]
+        return g.add_face_from_loop([edge(c, d) for c, d in zip(corners, corners[1:] + corners[:1])], surface=surface)
+    q = np.pi/8
+    # Lower row split at pi/4, upper at pi/8; the shared rim is split at both.
+    faces = [patch(0, 2*q, 0, .05, top=(q,)), patch(2*q, 4*q, 0, .05),
+             patch(0, q, .05, .1), patch(q, 4*q, .05, .1, bottom=(2*q,))]
+    sheet = g.add_sheet(tuple(faces), part_id=part, name="rows")
+    for face in faces:
+        p.assign_plate(face, "12 mm")
+    profile, = build_plate_profiles(p, part)
+    assert profile.area_m2 == pytest.approx(2 * 4*q * .1, rel=1e-12)
+    ring = np.vstack([span[:, :2] / span[:, 2:] for span in profile._loops[0]])
+    assert np.ptp(ring, axis=0) == pytest.approx((2 * 4*q, .1), rel=1e-10)
+    assert len(profile._loops[0]) == 4  # one rectangle, internal joints removed
+    assert assembly_views(p, part, thickness_sides={sheet: "front"})[1].paths

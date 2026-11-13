@@ -149,7 +149,7 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             density = material.density if density_kg_m3 is None else density_kg_m3
             if not math.isfinite(density) or density <= 0:
                 raise ValueError(f"Plate {plate.mark}: specify a positive takeoff density for {plate.material}")
-            mass = plate.area_m2 * plate.thickness_m * density
+            mass = plate.mass_area_m2 * plate.thickness_m * density
             stock[plate.thickness_m].append((plate.area_m2, mass, density))
             plate.write_dxf(drawing_dir / filename)
             if include_plate_intersections:

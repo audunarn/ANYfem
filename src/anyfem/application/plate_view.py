@@ -269,6 +269,29 @@ def _cylinder(project, sheet, faces):
     return translate(physical, -x0, -y0), local_develop, (), tuple(notes), develop_points
 
 
+def _strip(project, sheet, faces):
+    """Development of a curved strip: cumulative reference arc length by height."""
+    from shapely import LineString
+    from shapely.geometry.polygon import orient
+    from .curved_strips import curved_strip
+
+    strip = curved_strip(project.geometry, faces, sheet)
+    physical = orient(strip.outline, 1.)
+
+    def develop_points(points):
+        return [LineString(strip.develop(points))]
+
+    def develop(edge_id):
+        return develop_points(_trace_spans(_native_spans(project.geometry, edge_id)))
+
+    radii = sorted(patch.radius for patch in strip.patches)
+    notes = ["Reference surface development; apply forming allowance.",
+             f"Curved strip of {len(radii)} cylindrical patches, reference radius "
+             f"{radii[0]*1000:.1f} to {radii[-1]*1000:.1f} mm; developed length "
+             f"{(physical.bounds[2]-physical.bounds[0])*1000:.1f} mm."]
+    return physical, develop, (), tuple(notes), develop_points
+
+
 _ON_PLATE = {"member_on_face", "member_on_boundary", "member_on_face_boundary",
              "member_on_sheet", "member_on_sheet_intersection"}
 
@@ -417,7 +440,14 @@ def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
     try:
         develop_points = None
         if all(cylinders):
-            physical, develop, exact, notes, develop_points = _cylinder(project, sheet, faces)
+            try:
+                physical, develop, exact, notes, develop_points = _cylinder(project, sheet, faces)
+            except ValueError as error:
+                # Several reference cylinders: develop a validated curved strip.
+                try:
+                    physical, develop, exact, notes, develop_points = _strip(project, sheet, faces)
+                except ValueError as strip_error:
+                    raise ValueError(f"{error}; not a curved strip either: {strip_error}") from None
         else:
             physical, develop, exact, notes = _planar(project, sheet, faces)
     except ImportError as error:

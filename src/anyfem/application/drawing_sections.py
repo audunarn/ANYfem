@@ -178,11 +178,40 @@ def _prism_cut(profile, frame, half_depth, view):
 
 
 def _cylinder_prism(geometry, face, band):
-    """Native circular rim / straight ruling patches, including trimmed sectors.
+    """Cylindrical patch prism: native rims and rulings, or any rectangular trim.
 
     ``band`` is the radial material interval ``(s_lo, s_hi)`` from the
     reference radius, outward positive.
     """
+    try:
+        return _cylinder_rim_prism(geometry, face, band)
+    except ValueError as error:
+        # Imported strips split rims and rulings into several (also spline)
+        # edges. Accept a verified rectangle in (angle, axial) instead.
+        from .curved_strips import rectangular_trim
+        try:
+            low, high, bottom, top = rectangular_trim(geometry, face)
+        except ValueError:
+            raise error from None
+    from shapely import LineString, Polygon
+    surface = face.surface
+    radius = surface.radius
+    inner, outer = band
+    if radius + inner <= 0:
+        raise ValueError("cylinder inner radius must be positive")
+    sweep = high - low
+    count = max(2, int(np.ceil(abs(sweep) * np.sqrt((radius+outer)/(8*_CHORD_M)))))
+    angles = np.linspace(low, high, count+1)
+    radial = np.column_stack((np.cos(angles), np.sin(angles)))
+    footprint = (Polygon(np.vstack((radial*(radius+outer), radial[::-1]*(radius+inner))))
+                 if outer > inner else LineString(radial * (radius+inner)))
+    axes = np.column_stack((surface.radial_direction, surface.circumferential_direction))
+    frame = _Frame(surface.origin + (bottom+top)/2 * surface.axis, surface.axis, axes)
+    return footprint, frame, (top-bottom)/2
+
+
+def _cylinder_rim_prism(geometry, face, band):
+    """Native circular rim / straight ruling patches, including trimmed sectors."""
     from shapely import LineString, Polygon
 
     surface = face.surface

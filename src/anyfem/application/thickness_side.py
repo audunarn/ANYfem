@@ -129,20 +129,34 @@ def _auto(project, sheet_id, part_sheets, vertices):
     """Automatic side of one Sheet from the sides its attached plates occupy."""
     from .plate_profiles import _planar_geometry
     geometry = project.geometry
+    from anygeometry.surfaces import Cylinder
+    from .curved_strips import curved_strip
     sheet = geometry.sheets[sheet_id]
     faces = _sheet_faces(geometry, sheet)
-    try:
-        shape = _planar_geometry(geometry, faces, sheet)
-    except (ValueError, ImportError) as error:
-        return "centre", f"no drawing plane ({error})"
     own = np.array([geometry.vertex_position(v) for v in vertices[sheet_id]])
     extent = float(np.linalg.norm(np.ptp(own, axis=0)))
     tolerance = max(geometry.tolerance.effective_length(extent), geometry.tolerance.effective_surface_residual(extent))
+    if faces and all(isinstance(face.surface, Cylinder) for face in faces):
+        try:
+            strip = curved_strip(geometry, faces, sheet)
+        except (ValueError, ImportError) as error:
+            return "centre", f"no drawing surface ({error})"
+        if not strip.consistent:
+            return "centre", "outward normals disagree across the curved Sheet"
+        signed = strip.radial_distance
+    else:
+        try:
+            shape = _planar_geometry(geometry, faces, sheet)
+        except (ValueError, ImportError) as error:
+            return "centre", f"no drawing plane ({error})"
+
+        def signed(points):
+            return (points - shape.origin) @ shape.normal
     counts = {+1: 0, -1: 0}
     neighbours = [other for other in part_sheets if other != sheet_id and vertices[other] & vertices[sheet_id]]
     for other in neighbours:
         points = np.array([geometry.vertex_position(v) for v in sorted(vertices[other])])
-        distance = (points - shape.origin) @ shape.normal
+        distance = signed(points)
         for sign in {int(np.sign(d)) for d in distance if abs(d) > tolerance}:
             counts[sign] += 1
     return _decide(len(neighbours), counts)
