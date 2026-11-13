@@ -1,11 +1,16 @@
-"""Run the S4a workflow tests against the S1/S3a branches and HEAD snapshots.
+"""Run the submodelling tests of this ANYfem checkout against the sibling repositories.
 
-ANYfem: this worktree (pytest adds ``src``).  ANYsolver and ANYmesher: detached
-checkout of main 8d6e64d2 (S1) and the ANYmesh worktree sm7 (main 5e6d97c, which has S3a,
-plus the scalar-offset side fix).  ANYgeometry:
-the S2b worktree (main 9db03bb plus seam-member partitioning) when present, else the
-snapshot.  ANYmaterial, ANYfileIO, ANYloads: the S0 git-archive snapshots of HEAD.
-Paths can be overridden with S4A_ANYSOLVER, S4A_ANYMESH, S4A_ANYGEOMETRY and S0_SNAP.
+ANYfem: the checkout this file is in (pytest adds ``src``).  The other packages come from
+``C:/Github/<repo>/src``: ANYfeSolver (formerly ANYsolver), ANYmesh, ANYgeometry,
+ANYmaterial, ANYfileIO and ANYloads.  Each can be overridden with an environment variable
+``S4A_<REPO>`` in upper case, for example ``S4A_ANYGEOMETRY`` for a clean ANYgeometry
+worktree.  ``S4A_ANYSOLVER`` is still accepted for ANYfeSolver.
+
+The sibling checkouts must be clean: a dirty ANYgeometry main checkout once made three
+submodel tests fail that pass on origin/main.
+
+Without a test path among the arguments it runs every ``tests/test_submodel*.py`` file;
+pytest options such as ``--basetemp`` can be given either way.
 """
 
 from __future__ import annotations
@@ -15,17 +20,21 @@ import sys
 from pathlib import Path
 
 WORKTREE = Path(__file__).resolve().parents[4]
-SNAP = Path(os.environ.get("S0_SNAP", r"C:\Users\AUDUNA~1\AppData\Local\Temp\claude\C--Github"
-                                      r"\59147d03-c123-4596-a0d0-f6053be6be25\scratchpad\s0-snap"))
-paths = [
-    os.environ.get("S4A_ANYSOLVER", r"C:\Github\ANYsolver\src"),
-    # ANYmesh main (includes the scalar-offset side fix d7e1e7e).
-    os.environ.get("S4A_ANYMESH", r"C:\Github\ANYmesh\src"),
-    # ANYgeometry main (includes S2b) when present, else the S0 snapshot.
-    os.environ.get("S4A_ANYGEOMETRY", r"C:\Github\ANYgeometry\src"
-                   if Path(r"C:\Github\ANYgeometry\src").is_dir() else str(SNAP / "ANYgeometry" / "src")),
-    *(str(SNAP / repo / "src") for repo in ("ANYmaterial", "ANYfileIO", "ANYloads")),
-]
+ROOT = Path(os.environ.get("S4A_ROOT", r"C:\Github"))
+REPOS = ("ANYfeSolver", "ANYmesh", "ANYgeometry", "ANYmaterial", "ANYfileIO", "ANYloads")
+
+
+def _source(repo: str) -> str:
+    override = os.environ.get(f"S4A_{repo.upper()}")
+    if override is None and repo == "ANYfeSolver":
+        override = os.environ.get("S4A_ANYSOLVER")
+    path = Path(override) if override else ROOT / repo / "src"
+    if not path.is_dir():
+        sys.exit(f"run_tests: {repo} source folder {path} does not exist; set S4A_{repo.upper()}")
+    return str(path)
+
+
+paths = [_source(repo) for repo in REPOS]
 for path in reversed(paths):
     sys.path.insert(0, path)
 os.environ["PYTHONPATH"] = os.pathsep.join(paths + [os.environ.get("PYTHONPATH", "")])
@@ -33,5 +42,7 @@ os.chdir(WORKTREE)
 
 import pytest  # noqa: E402
 
-sys.exit(pytest.main(["-q", *(sys.argv[1:] or ["tests/test_submodel_workflow.py", "tests/test_submodel_jobs.py",
-                                         "tests/test_submodel_cut.py", "tests/test_submodel_cylinder.py"])]))
+default = sorted(str(p.relative_to(WORKTREE).as_posix()) for p in (WORKTREE / "tests").glob("test_submodel*.py"))
+args = sys.argv[1:]
+named = any((WORKTREE / a.split("::")[0]).exists() for a in args if not a.startswith("-"))
+sys.exit(pytest.main(["-q", *args, *([] if named else default)]))
