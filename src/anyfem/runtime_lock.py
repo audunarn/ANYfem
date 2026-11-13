@@ -23,11 +23,14 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 __all__ = [
-    "LOCK_NAME", "LockError", "Lock", "Interpreter", "Wheel", "parse_lock", "load_lock_bytes", "sha256_file", "tree_digest",
+    "LOCK_NAME", "CI_SMOKE_MARKER", "LockError", "Lock", "Interpreter", "Wheel", "parse_lock", "load_lock_bytes", "sha256_file", "tree_digest",
     "payload_files", "payload_digest", "verify_wheelhouse", "verify_interpreter_source", "verify_bundle", "check_installed",
 ]
 
 LOCK_NAME = "runtime.lock.json"
+# Written (and so covered by the bundle digest) only by a CI smoke build whose interpreter payload is NOT pinned (build_runtime --ci-smoke-unpinned-interpreter).
+# The application refuses a runtime that contains it unless the caller explicitly opts in (tests / the CI health step).
+CI_SMOKE_MARKER = "CI-SMOKE-UNPINNED-INTERPRETER.txt"
 SCHEMA_VERSION = 1
 PLATFORM = "win_amd64"
 PYTHON_PREFIX = "3.14."
@@ -329,7 +332,7 @@ def verify_bundle(lock: Lock, root) -> None:
 _READ = object()
 
 
-def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str, lock_bytes=_READ):
+def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str, lock_bytes=_READ, allow_ci_smoke: bool = False):
     """Application-side check of an installed runtime folder.  Returns (reason, lock): reason "" and the parsed lock when the
     folder is sound, else the reason it is unusable and None.  The lock is read once; callers use the returned object."""
     root = Path(root)
@@ -349,6 +352,8 @@ def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str, 
         return "runtime.lock.json pins numpy %s, expected %s" % (lock.numpy, expect_numpy), None
     if lock.source_digest != expect_source_digest:
         return "runtime.lock.json source digest differs from this application's", None
+    if not allow_ci_smoke and os.path.lexists(root / CI_SMOKE_MARKER):
+        return "runtime is a CI smoke bundle (interpreter payload not pinned); it is not a shipped runtime", None
     try:
         verify_bundle(lock, root)
     except (LockError, OSError) as exc:
