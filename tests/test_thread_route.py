@@ -848,6 +848,7 @@ def test_malformed_or_partial_results_fall_back(route_on, jobs_dir, tmp_path, na
     assert_serial_fallback(crossing, jobs_dir, part, child_main=child)
 
 
+@needs_runtime
 def test_disk_full_on_the_temp_folder_falls_back(route_on, tmp_path):
     expected = reference(crossing)
     model, report, _ = run_on(crossing, temp_root=str(tmp_path / "does" / "not" / "exist"))

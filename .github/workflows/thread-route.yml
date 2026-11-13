@@ -1,0 +1,117 @@
+name: Thread route
+# Opt-in free-threaded child-process route (S3 jobs T2 and T4).  Separate from tests.yml on purpose: it is not a matrix entry.
+# T1 (reproducible bundle build), T3 (end-to-end ON/OFF) and the nightly jobs T5-T7 are NOT here yet: they need a real runtime bundle,
+# which CI cannot yet build reproducibly (the shipped bundle is made from a local pymanager interpreter).
+on:
+  push:
+    paths:
+      - 'src/anyfem/thread_route.py'
+      - 'src/anyfem/_thread_child.py'
+      - 'src/anyfem/_batch_prepare.py'
+      - 'src/anyfem/runtime_lock.py'
+      - 'tools/build_runtime.py'
+      - 'tools/runtime.lock.json'
+      - 'tests/test_runtime_lock.py'
+      - 'tests/test_runtime_health.py'
+      - 'tests/test_build_runtime.py'
+      - 'tests/test_thread_route.py'
+      - 'tests/test_thread_route_canaries.py'
+      - 'tests/test_ci_junit_floor.py'
+      - 'tools/ci_junit_floor.py'
+      - '.github/workflows/thread-route.yml'
+  pull_request:
+    paths:
+      - 'src/anyfem/thread_route.py'
+      - 'src/anyfem/_thread_child.py'
+      - 'src/anyfem/_batch_prepare.py'
+      - 'src/anyfem/runtime_lock.py'
+      - 'tools/build_runtime.py'
+      - 'tools/runtime.lock.json'
+      - 'tests/test_runtime_lock.py'
+      - 'tests/test_runtime_health.py'
+      - 'tests/test_build_runtime.py'
+      - 'tests/test_thread_route.py'
+      - 'tests/test_thread_route_canaries.py'
+      - 'tests/test_ci_junit_floor.py'
+      - 'tools/ci_junit_floor.py'
+      - '.github/workflows/thread-route.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  # Same ANYgeometry source the route tests were run against locally (a591ef0 of ANYgeometry main).
+  ANYGEOMETRY_REF: a591ef0b1e1e444632dc90ae058996f0e7b73578
+jobs:
+  # T2: route, lock, health and build-script tests on NORMAL (GIL) Python.  Tests that need the real free-threaded runtime skip themselves.
+  route-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      # No free-threaded runtime exists on this runner: the tests that need one skip (68 of 208 at d74d9de), the rest must run.
+      ANYGEOMETRY_THREAD_RUNTIME: 'C:
+o-such-runtime-on-ci'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14'
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install "numpy==2.4.6" "scipy==1.17.1" pytest
+          python -m pip install -e ".ecosystem/ANYgeometry[planar]"
+          python -m pip install --no-deps -e .
+      - name: Route, lock, health and build tests
+        shell: bash
+        run: python -m pytest -q -p no:cacheprovider --junitxml=t2.xml tests/test_runtime_lock.py tests/test_runtime_health.py tests/test_build_runtime.py tests/test_thread_route.py
+      - name: Executed and skipped counts must match the known floor
+        shell: bash
+        run: python tools/ci_junit_floor.py t2.xml --min-tests 140 --max-skipped 68
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: thread-route-t2
+          path: t2.xml
+  # T4: tamper canaries.  Fixture bundle only (fake interpreter + a lock that really describes the folder): proves that a tampered
+  # lock, wrong bundle digest, planted or changed file and a missing runtime folder each leave the route unavailable with a
+  # serial result identical to route-off.  It does NOT prove a real bundle passes; that needs T1.
+  tamper-canaries:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14'
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install "numpy==2.4.6" "scipy==1.17.1" pytest
+          python -m pip install -e ".ecosystem/ANYgeometry[planar]"
+          python -m pip install --no-deps -e .
+      - name: The floor checker itself
+        shell: bash
+        run: python -m pytest -q -p no:cacheprovider tests/test_ci_junit_floor.py
+      - name: Tamper canaries
+        shell: bash
+        run: python -m pytest -q -p no:cacheprovider --junitxml=t4.xml tests/test_thread_route_canaries.py
+      - name: Canaries must run, not skip
+        shell: bash
+        run: python tools/ci_junit_floor.py t4.xml --min-tests 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: thread-route-t4
+          path: t4.xml
