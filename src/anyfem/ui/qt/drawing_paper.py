@@ -37,10 +37,10 @@ def _draw(p, rect, view, *, preview=False):
     for curve in view.paths:
         if len(curve.points) < 2:
             continue
-        color = TEAL if curve.layer in {"STIFFENERS","SECTION","CUT_PLANE"} else INK
+        color = TEAL if curve.layer in {"STIFFENERS","SECTION","CUT_PLANE","PLATE_INTERSECTIONS"} else INK
         pen = QPen(QColor(color))
         pen.setWidthF(1.25 if preview else 1.65)
-        if curve.layer=="STIFFENERS":
+        if curve.layer in {"STIFFENERS","PLATE_INTERSECTIONS"}:
             pen.setStyle(Qt.PenStyle.DashLine)
         if curve.layer=="CUT_PLANE":
             pen.setStyle(Qt.PenStyle.DashDotLine)
@@ -277,12 +277,15 @@ def _reference_column(p, view, rect, refs):
 
 
 def _table_pages(rows):
+    global_z = bool(rows and "Lower global Z (mm)" in rows[0])
+    lower = "Lower global Z (mm)" if global_z else "Lower edge Z above support base (mm)"
+    upper = "Upper global Z (mm)" if global_z else "Upper edge Z above support base (mm)"
     columns = [
         ("Plate","Plate",174), ("Material","Material",153), ("Thickness mm","t / mm",111),
         ("Holes","Holes",81), ("Quantity required","Qty",82),
         ("Net mass per plate (kg)","kg each",136), ("Extended net mass (kg)","kg total",156),
-        ("Lower edge Z above support base (mm)","Lower Z / mm",192),
-        ("Upper edge Z above support base (mm)","Upper Z / mm",196),
+        (lower,"Global lower Z / mm" if global_z else "Lower Z / mm",192),
+        (upper,"Global upper Z / mm" if global_z else "Upper Z / mm",196),
     ]
     pages, page, height = [], [], 0
     for row in rows:
@@ -291,7 +294,7 @@ def _table_pages(rows):
             value = row[key]
             if key in {"Net mass per plate (kg)","Extended net mass (kg)"}:
                 value = f"{float(value):,.3f}"
-            if key.startswith(("Lower edge Z","Upper edge Z")):
+            if key in {lower,upper}:
                 value = _number(float(value))
             cells.append(_wrap(value,17,width-10))
         n = max(1, max(map(len,cells)))
@@ -323,7 +326,8 @@ def _table(p, columns, rows, quantity):
             x += width
         y += h
         _line(p,(40,y-3),(1400,y-3),"#dce5e3")
-    _text(p,38,888,f"Required for {quantity} assemblies. Z = 0 at the lowest material edge.",17,INK,True)
+    datum = "Elevations use model global Z." if any(key=="Lower global Z (mm)" for key,_,_ in columns) else "Z = 0 at the lowest material edge."
+    _text(p,38,888,f"Required for {quantity} assemblies. {datum}",17,INK,True)
 
 
 def write_sheets(path, views, *, index_path=None, quantity=1):

@@ -125,6 +125,13 @@ class DrawingWorkspace(QWidget):
         form.addRow("Quantity",self.quantity)
         form.addRow("Weight basis",self.basis)
         form.addRow("Density",self.density)
+        self.elevation_datum = QComboBox()
+        self.elevation_datum.addItem("Support lower edge · Z = 0", "support_base")
+        self.elevation_datum.addItem("Model global Z", "global")
+        self.elevation_datum.setAccessibleName("Assembly elevation datum")
+        selected_datum = self.elevation_datum.findData(self.settings.value("drawings/elevation_datum", "support_base"))
+        self.elevation_datum.setCurrentIndex(max(0, selected_datum))
+        form.addRow("Elevation datum",self.elevation_datum)
         self.density_label = form.labelForField(self.density)
         layout.addWidget(assembly)
         plate,form = _form()
@@ -134,9 +141,12 @@ class DrawingWorkspace(QWidget):
         self.pick.clicked.connect(self._enable_pick)
         self.stiffeners = QCheckBox("Include attached stiffeners")
         self.stiffeners.setChecked(True)
+        self.intersections = QCheckBox("Show intersecting plates")
+        self.intersections.setChecked(True)
         form.addRow("Plate",self.plate_label)
         form.addRow(self.pick)
         form.addRow(self.stiffeners)
+        form.addRow(self.intersections)
         layout.addWidget(plate)
         plane,form = _form()
         self.plane = QComboBox()
@@ -262,6 +272,8 @@ class DrawingWorkspace(QWidget):
         for control in (self.basis,self.part,self.plane):
             control.currentIndexChanged.connect(self._invalidate)
         self.stiffeners.toggled.connect(self._invalidate)
+        self.intersections.toggled.connect(self._invalidate)
+        self.elevation_datum.currentIndexChanged.connect(self._datum_changed)
         self.limited.toggled.connect(self._invalidate)
         self._mode_changed()
         self._studio()
@@ -368,6 +380,19 @@ class DrawingWorkspace(QWidget):
         if self.isVisible() and mode==1 and self.face is not None:
             self._preview()
 
+    def _datum_changed(self,*_):
+        self.settings.setValue("drawings/elevation_datum", self.elevation_datum.currentData())
+        previous = len(self.saved_views)
+        self.saved_views[:] = [(original,named) for original,named in self.saved_views
+                               if original.projection not in {"isometric","plan","front","right"}]
+        self.queue_choice.clear()
+        for _,view in self.saved_views:
+            self.queue_choice.addItem(view.title)
+        self.queue.setVisible(bool(self.saved_views))
+        self._invalidate()
+        if previous != len(self.saved_views):
+            self.feedback.setText("Elevation datum changed. Regenerate the queued assembly sheets using the new datum.")
+
     def _invalidate(self,*_):
         self.sequence += 1
         self.pool.clear()
@@ -433,11 +458,13 @@ class DrawingWorkspace(QWidget):
         mode = self.mode.tabText(self.mode.currentIndex())
         if mode=="Assembly":
             return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),
-                        density=self.density.value() if self.basis.currentIndex() else None)
+                        density=self.density.value() if self.basis.currentIndex() else None,
+                        elevation_datum=self.elevation_datum.currentData())
         if mode=="Plate":
             if self.face is None:
                 raise ValueError("Select a plate in the model.")
-            return mode,(self.face,),dict(include_stiffeners=self.stiffeners.isChecked())
+            return mode,(self.face,),dict(include_stiffeners=self.stiffeners.isChecked(),
+                                        include_plate_intersections=self.intersections.isChecked())
         args, options = self._plane_request()
         return mode,args,options
 
@@ -544,6 +571,8 @@ class DrawingWorkspace(QWidget):
         views.extend(named for original,named in self.saved_views if all(original is not v for v in self.views))
         opts = dict(part_id=args[0] if mode=="Assembly" else None,
                     quantity=options.get("quantity",1),density=options.get("density"),converter=converter,backend=backend)
+        opts["elevation_datum"] = options.get("elevation_datum", "support_base")
+        opts["include_plate_intersections"] = self.intersections.isChecked()
         number = self.view_choice.currentIndex()+1
         self.export_rel = f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf"
         self.exporting = True
