@@ -8,6 +8,10 @@ on:
       - 'src/anyfem/thread_route.py'
       - 'src/anyfem/_thread_child.py'
       - 'src/anyfem/_batch_prepare.py'
+      - 'src/anyfem/structural_preparation.py'
+      - 'src/anyfem/_preparation_context.py'
+      - 'tests/conftest.py'
+      - 'pyproject.toml'
       - 'src/anyfem/runtime_lock.py'
       - 'tools/build_runtime.py'
       - 'tools/runtime.lock.json'
@@ -24,6 +28,10 @@ on:
       - 'src/anyfem/thread_route.py'
       - 'src/anyfem/_thread_child.py'
       - 'src/anyfem/_batch_prepare.py'
+      - 'src/anyfem/structural_preparation.py'
+      - 'src/anyfem/_preparation_context.py'
+      - 'tests/conftest.py'
+      - 'pyproject.toml'
       - 'src/anyfem/runtime_lock.py'
       - 'tools/build_runtime.py'
       - 'tools/runtime.lock.json'
@@ -50,8 +58,7 @@ jobs:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
       # No free-threaded runtime exists on this runner: the tests that need one skip (68 of 208 at d74d9de), the rest must run.
-      ANYGEOMETRY_THREAD_RUNTIME: 'C:
-o-such-runtime-on-ci'
+      ANYGEOMETRY_THREAD_RUNTIME: 'C:/no-such-runtime-on-ci'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,7 +81,7 @@ o-such-runtime-on-ci'
       - name: Executed and skipped counts must match the known floor
         shell: bash
         run: python tools/ci_junit_floor.py t2.xml --min-tests 140 --max-skipped 68
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: thread-route-t2
@@ -110,7 +117,7 @@ o-such-runtime-on-ci'
       - name: Canaries must run, not skip
         shell: bash
         run: python tools/ci_junit_floor.py t4.xml --min-tests 7
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: thread-route-t4

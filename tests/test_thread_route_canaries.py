@@ -61,11 +61,24 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
     monkeypatch.setattr(tr, "_INJECT", {})
     monkeypatch.setattr(tr, "last_outcome", None)
+    calls = []
+
+    def fake_run_child(python, job, *args, **kwargs):  # records every spawn; the fixture interpreter cannot run anyway
+        calls.append(job.get("kind"))
+        return tr.ChildOutcome(status=tr.UNAVAILABLE, reason="fixture interpreter cannot run")
+
+    monkeypatch.setattr(tr, "run_child", fake_run_child)
+    monkeypatch.setattr(tr, "_spawned", calls, raising=False)
     tr.configure(reset=True)
     tr._health_cache.clear()
     yield runtime
     tr.configure(reset=True)
     tr._health_cache.clear()
+
+
+@pytest.fixture
+def spawned(app):
+    return tr._spawned
 
 
 def serial_reference():
@@ -88,54 +101,61 @@ def assert_declined(reason_word):
     assert reason_word in tr.last_outcome.reason, tr.last_outcome.reason
 
 
-def test_tampered_lock_pin_declines_and_serial_result_is_identical(app):
+def test_tampered_lock_pin_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     write_bundle(app, numpy="2.4.5")  # lock claims another NumPy than the application's pin
     assert route_on_result() == expected
     assert_declined("numpy")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_tampered_lock_source_digest_declines_and_serial_result_is_identical(app):
+def test_tampered_lock_source_digest_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     write_bundle(app, source="e" * 64)  # lock built for other geometry source
     assert route_on_result() == expected
     assert_declined("source digest")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_wrong_bundle_digest_declines_and_serial_result_is_identical(app):
+def test_wrong_bundle_digest_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     write_bundle(app, bundle_sha="f" * 64)
     assert route_on_result() == expected
     assert_declined("bundle")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_planted_file_declines_and_serial_result_is_identical(app):
+def test_planted_file_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     write_bundle(app)
     (app / "planted.pyd").write_bytes(b"x")  # added after the lock was made
     assert route_on_result() == expected
     assert_declined("bundle")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_changed_file_declines_and_serial_result_is_identical(app):
+def test_changed_file_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     write_bundle(app)
     (app / "python.exe").write_bytes(b"swapped interpreter")
     assert route_on_result() == expected
     assert_declined("bundle")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_missing_runtime_folder_declines_and_serial_result_is_identical(app):
+def test_missing_runtime_folder_declines_and_serial_result_is_identical(app, spawned):
     expected = serial_reference()
     app.rmdir()
     assert route_on_result() == expected
     assert_declined("runtime missing")
+    assert spawned == []  # rejected before any child was started
 
 
-def test_control_sound_fixture_bundle_passes_the_lock_stage(app):
-    """The canaries above are not vacuous: an untampered fixture is refused only later (its interpreter is fake), not for a lock reason."""
+def test_control_sound_fixture_bundle_passes_the_lock_stage(app, spawned):
+    """The canaries above are not vacuous: an untampered fixture reaches the health child (spawn recorded) and is refused only there (its interpreter is fake)."""
     expected = serial_reference()
     write_bundle(app)
     assert route_on_result() == expected
     assert tr.last_outcome.status == tr.UNAVAILABLE
+    assert spawned == ["selftest"], spawned  # only the sound fixture got past the lock stage to the health child
     assert not any(word in tr.last_outcome.reason for word in SOUND_REASON_WORDS), tr.last_outcome.reason
