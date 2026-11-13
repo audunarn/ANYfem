@@ -124,4 +124,12 @@ collection completed without errors; it is not a full execution or a published
 owner-graph acceptance result. Owner-dependent routine/full gates and the
 20-minute full target remain blocked/unverified as documented in
 `testing-regime-results.md`. No owner work, package publication or main merge was
-performed by this task.
+performed during that implementation handoff.
+
+Subsequent integration direction: the user requested the testing changes on
+remote main while drawing-module work continues separately. Integrate only the
+testing history, preserving the local drawing commit and worktree. Retain all
+recorded owner-dependent failures and the blocked release disposition; this
+direction authorizes source integration, not a package release or qualification
+claim. Existing passing checks remain applicable because the integration update
+changes documentation only.

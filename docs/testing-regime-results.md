@@ -55,8 +55,10 @@ cleanup defect. The latter was repaired without changing production cleanup;
 its Ubuntu unit verification passed, including the real POSIX pipe regression.
 The owner-dependent routine
 positives remain blocked as well. No owner repository update or publication is
-part of this work. This task has not merged the testing branch into main or reused
-the earlier failing-snapshot exception.
+part of this work. The user subsequently requested this testing-only history on
+remote main, with the separate drawing work preserved. That source-integration
+authorization retains the recorded blocked gates; it does not establish full or
+release acceptance.
 
 ## Evidence and source isolation
 
