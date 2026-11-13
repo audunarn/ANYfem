@@ -5,7 +5,9 @@ from pathlib import Path
 from ..model.project import Project
 
 # Reader opt-ins: both are off unless the caller names a tolerance. The reader
-# owns the admissible range and records the opt-in in face metadata and diagnostics.
+# records the opt-in in face metadata and diagnostics; its admissible range is
+# checked here too so the dialog refuses a value before an import starts.
+MAX_TOLERANCE_M = 1e-4
 OPT_IN_FIELD_LABELS = {
     "vertex_relocation_tolerance_m": "Vertex relocation tolerance (m)",
     "approximate_curve_tolerance_m": "Approximate curve tolerance (m)",
@@ -20,8 +22,8 @@ def parse_tolerance_text(text, label):
         value = float(str(text).strip())
     except ValueError:
         raise ValueError(f"{label}: '{str(text).strip()}' is not a number.") from None
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{label}: must be a positive finite number of metres.")
+    if not math.isfinite(value) or not 0 < value <= MAX_TOLERANCE_M:
+        raise ValueError(f"{label}: must be a number of metres in (0, 1e-4].")
     return value
 
 
@@ -55,7 +57,9 @@ def import_sat_project(path, *, vertex_relocation_tolerance_m=None, approximate_
     result = read_sat(Path(path), **options)
     project = Project(name=Path(path).stem, geometry=result.geometry)
     project.imported_format = "sat_geometry"
-    if result.source_face_map:
+    # The import record lives on a Part; a wire-only import gets an empty one only
+    # when an opt-in was used, so the recorded opt-in is never lost.
+    if result.source_face_map or opt_ins:
         part_metadata = {
             "source_format": "sat",
             "source_file": Path(path).name,

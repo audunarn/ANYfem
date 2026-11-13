@@ -72,3 +72,43 @@ def test_refusal_hint_names_the_field_for_each_opt_in():
         == app.OPT_IN_FIELD_LABELS["approximate_curve_tolerance_m"]
     assert app.opt_in_hint("needs vertex_relocation_tolerance_m") == app.OPT_IN_FIELD_LABELS["vertex_relocation_tolerance_m"]
     assert app.opt_in_hint("edge 3: endpoint gap") is None
+
+
+def _wire_only_result():
+    model = GeometryModel()
+    p = model.add_points([(0., 0., 0.), (1., 0., 0.), (1., 1., 0.)])
+    model.add_line(p[0], p[1]); model.add_line(p[1], p[2])
+    return SimpleNamespace(geometry=model, source_sha256="1" * 64, source_unit_scale_m=1e-3,
+                           diagnostics=("Vertex relocation opt-in 2e-06 m: 1 vertices moved",),
+                           source_vertex_map={1: 0}, source_edge_map={5: (0,)}, source_face_map={})
+
+
+def test_wire_only_import_keeps_the_opt_in_record_through_save_and_reload(monkeypatch, tmp_path):
+    # Codex review: the record was written only when the SAT had faces.
+    reader = pytest.importorskip("anyfileio.sat_import")
+    monkeypatch.setattr(reader, "read_sat", lambda path, **options: _wire_only_result())
+    project, _ = app.import_sat_project(tmp_path / "wire.sat", vertex_relocation_tolerance_m=2e-6)
+    parts = list(project.geometry.parts.values())
+    assert len(parts) == 1 and not parts[0].sheet_ids
+    assert dict(parts[0].metadata["import_options"]) == {"vertex_relocation_tolerance_m": 2e-6}
+    from anyfem.io import save_project, load_project
+    save_project(project, tmp_path / "wire.anyfem")
+    reloaded = next(iter(load_project(tmp_path / "wire.anyfem").geometry.parts.values()))
+    assert dict(reloaded.metadata["import_options"]) == {"vertex_relocation_tolerance_m": 2e-6}
+    assert "Vertex relocation" in " ".join(reloaded.metadata["import_diagnostics"])
+
+
+def test_wire_only_import_without_opt_ins_is_unchanged(monkeypatch, tmp_path):
+    reader = pytest.importorskip("anyfileio.sat_import")
+    monkeypatch.setattr(reader, "read_sat", lambda path, **options: _wire_only_result())
+    project, _ = app.import_sat_project(tmp_path / "wire.sat")
+    assert not project.geometry.parts
+
+
+@pytest.mark.parametrize("text,ok", [("1e-4", True), ("1e-10", True), ("1.00001e-4", False), ("1", False), ("2e-4", False)])
+def test_tolerance_text_enforces_the_reader_bound(text, ok):
+    if ok:
+        assert app.parse_tolerance_text(text, "Field") == float(text)
+    else:
+        with pytest.raises(ValueError, match=r"Field.*1e-4|Field.*0\.0001"):
+            app.parse_tolerance_text(text, "Field")
