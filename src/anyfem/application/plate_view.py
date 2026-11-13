@@ -370,13 +370,17 @@ def _stiffeners(project, sheet, face_ids, edges, polygon, develop):
 
 
 def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
-                     include_plate_intersections: bool = True, thickness_sides="auto") -> DrawingView:
+                     include_plate_intersections: bool = True, thickness_sides="auto",
+                     representation="solid") -> DrawingView:
     """Draw the entire Sheet owning a face, including its attached member axes.
 
     ``thickness_sides`` (see :func:`thickness_side.resolve_sides`) places each
     plate's material for intersection references and states this plate's side.
+    With ``representation="midsurface_2d"`` references mark only the
+    reference-surface intersections.
     """
-    from .thickness_side import resolve_sides, side_label
+    from .thickness_side import check_representation, resolve_sides, side_label
+    check_representation(representation)
     g = project.geometry
     uses = [use for use in g.face_uses.values() if use.face_id == face_id]
     if face_id not in g.faces:
@@ -432,7 +436,7 @@ def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
         from .plate_intersections import plate_intersections
         references, intersection_notes = plate_intersections(
             project, sheet, faces, physical, thickness, cylindrical=all(cylinders), develop_points=develop_points,
-            sides=sides)
+            sides=sides, representation=representation)
         paths.extend(references)
         notes = (*notes, *intersection_notes)
     if include_stiffeners:

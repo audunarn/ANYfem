@@ -87,13 +87,20 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
 def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: str | Path, *,
                           quantity: int = 1, density_kg_m3: float | None = None,
                           dwg_converter: str | Path | None = None, dwg_backend: str = "oda",
-                          elevation_datum: str = "support_base", include_plate_intersections: bool = True) -> Path:
+                          elevation_datum: str = "support_base", include_plate_intersections: bool = True,
+                          representation: str = "solid", thickness_sides="auto") -> Path:
     """Write a new directory atomically. Dimensions are mm; mass excludes contingency.
 
     A density override applies only to this takeoff. Omitting it uses each plate's
     assigned material density. Elevations use the selected drawing datum.
+    ``thickness_sides`` (``auto``, ``centre`` or a Sheet-to-side mapping) places
+    plate thickness for elevations and references; ``representation`` selects
+    solid or ``midsurface_2d`` reference drawings. Profiles and mass do not
+    depend on either.
     """
     from .plate_profiles import build_plate_profiles
+    from .thickness_side import check_representation, resolve_sides
+    check_representation(representation)
 
     if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
         raise ValueError("Quantity must be a positive integer")
@@ -108,7 +115,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
         raise ValueError(f"No structural Part with ID {part_id}")
     if part.member_ids:
         raise ValueError("This plate-only takeoff requires a Part without structural members")
-    profiles = tuple(build_plate_profiles(project, part_id))
+    legacy = thickness_sides is None or thickness_sides == "centre"
+    sides = resolve_sides(project, thickness_sides)
+    profiles = tuple(build_plate_profiles(project, part_id, thickness_sides=sides))
     if not profiles:
         raise ValueError(f"Part {part_id} has no physical plates")
     from .drawing_datum import elevation_origin
@@ -149,7 +158,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
                 sheet = project.geometry.sheets[plate.sheet_id]
                 face = project.geometry.face_uses[sheet.face_use_ids[0]].face_id
                 view = build_plate_view(project, face, include_stiffeners=False,
-                                        include_plate_intersections=True)
+                                        include_plate_intersections=True,
+                                        thickness_sides="centre" if legacy else sides,
+                                        representation=representation)
                 write_view_dxf(view, drawing_dir / filename, preserve_contours=True)
             index.append((plate.mark, plate.sheet_id, plate.material, f"{plate.thickness_m*1000:g}",
                           plate.hole_count, f"{density:.12g}", f"{plate.area_m2:.9f}", f"{mass:.6f}",
@@ -173,6 +184,8 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             "override_kg_m3": density_kg_m3, "mass_basis": "net cut area x nominal thickness x density",
             "formats": ["DXF", "DWG AC1032"] if dwg_converter is not None else ["DXF"],
         }
+        if representation != "solid":
+            manifest["representation"] = representation
         (package / "Drawing-basis.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         package.rename(destination)
     return destination

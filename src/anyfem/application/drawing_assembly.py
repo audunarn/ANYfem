@@ -57,6 +57,27 @@ def _stock(profile):
     return _Stock((bottom,top), walls, edges, flanks)
 
 
+def _sheet_stock(profile):
+    """A zero-thickness sheet at the reference surface: outline and openings only.
+
+    Both caps coincide, so the sheet occludes from either side; each rim edge
+    has the sheet itself as its single incident flank.
+    """
+    axes = profile._axes
+    normal = np.cross(axes[:,0], axes[:,1])
+    rings, edges, flanks = [], [], []
+    for loop in profile._loops:
+        lines = [trace(span, tolerance=.00005) for span in loop]
+        ring = np.vstack([line[:-1] for line in lines]) @ axes.T + profile._world_origin
+        rings.append(ring)
+        for i in range(len(ring)):
+            j = (i+1) % len(ring)
+            edges.append((ring[i],ring[j]))
+            into_sheet = np.cross(normal,ring[j]-ring[i])
+            flanks.append((into_sheet,into_sheet))
+    return _Stock((rings,rings), [], edges, flanks)
+
+
 def _interface_edges(polygons, planes, owners, front_faces, index):
     """Creases where two distinct stocks' front surfaces physically intersect."""
     from shapely import LineString
@@ -214,16 +235,24 @@ def _projection(stocks, direction, up):
 
 
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
-                   elevation_datum="global", thickness_sides="auto"):
+                   elevation_datum="global", thickness_sides="auto", representation="solid"):
+    """Isometric/plan/front/right views of one plate Part.
+
+    ``thickness_sides`` places each plate's thickness (``auto``, ``centre`` or
+    a Sheet-to-side mapping, see :func:`thickness_side.resolve_sides`);
+    ``representation="midsurface_2d"`` draws reference surfaces without
+    thickness. The takeoff and elevation datum always use the solid plates.
+    """
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
-    from .thickness_side import sides_for_part
+    from .thickness_side import check_representation, sides_for_part
+    flat = check_representation(representation) == "midsurface_2d"
     profiles = build_plate_profiles(project, part_id,
                                     thickness_sides=sides_for_part(project, part_id, thickness_sides))
     from .drawing_datum import elevation_origin
     base_z = elevation_origin(profiles, elevation_datum)
     part = project.geometry.parts[part_id]
-    stocks = [_stock(p) for p in profiles]
+    stocks = [_sheet_stock(p) if flat else _stock(p) for p in profiles]
     gauges = defaultdict(list)
     for p in profiles:
         rho = project.materials[p.material].density if density is None else density
@@ -236,6 +265,12 @@ def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True
              f"Net plate steel   {unit_mass:.2f} kg each   /   {quantity*unit_mass:.2f} kg total",
              "   /   ".join(f"{t*1000:g} mm   {math.fsum(m):.2f} kg each" for t,m in sorted(gauges.items())),
              f"Elevation datum {elevation_datum}: global Z {base_z*1000:g} mm")
+    off_centre = [p for p in profiles if p.thickness_side != "centre"]
+    if off_centre:
+        counts = {side: sum(p.thickness_side == side for p in profiles) for side in ("front", "back", "centre")}
+        notes += ("Thickness sides   " + "   /   ".join(f"{n} {side}" for side, n in counts.items() if n),)
+    if flat:
+        notes += ("Representation 2D mid-surface: plates drawn at their reference surfaces, no thickness",)
     views = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
              ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
     result = []

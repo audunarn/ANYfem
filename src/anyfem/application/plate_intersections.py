@@ -28,19 +28,21 @@ def _reach(band):
 
 
 def plate_intersections(project, sheet, faces, physical, thickness, *, cylindrical=False, develop_points=None,
-                        sides=None):
+                        sides=None, representation="solid"):
     """Return clipped reference paths and honest limitations, without model edits.
 
     For planar targets the reference shell and both skins are cut. Consequently
     an offset T joint touching a skin is retained even if it misses the shell.
     This is a surface-reference drawing, not a solid interference assessment.
-    ``sides`` maps Sheet IDs to thickness sides; skins follow each band.
+    ``sides`` maps Sheet IDs to thickness sides; skins follow each band. In
+    the ``midsurface_2d`` representation only the reference surfaces are cut.
     """
     from shapely import union_all
 
     g = project.geometry
     sides = sides or {}
-    target_band = thickness_band(thickness, sides.get(sheet.id, "centre") if sheet is not None else "centre")
+    target_side = sides.get(sheet.id, "centre") if sheet is not None else "centre"
+    target_band = thickness_band(thickness, target_side, representation)
     selected = {face.id for face in faces}
     groups, owned = [], set(selected)
     for other in g.sheets.values():
@@ -60,7 +62,7 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
         gauges = {project.plate_section_of(f.id).thickness if f.id in project.face_sections else 0.
                   for f in others}
         other_side = sides.get(other_sheet.id, "centre") if other_sheet is not None else "centre"
-        bands = {thickness_band(t, other_side) for t in gauges}
+        bands = {thickness_band(t, other_side, representation) for t in gauges}
         try:
             low, high = _bounds(g, others, max(map(_reach, bands)))
         except ValueError as error:
@@ -93,8 +95,7 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
             for offset in sorted({0., *(b[0] for b in bands), *(b[1] for b in bands)}):
                 view = _Frame(other_profile.origin + offset*other_profile.normal,
                               other_profile.normal, other_profile.axes)
-                for cut, _ in _sheet_cuts(project, faces, view, {}, {}, omitted, sides.get(sheet.id, "centre")
-                                          if sheet is not None else "centre"):
+                for cut, _ in _sheet_cuts(project, faces, view, {}, {}, omitted, target_side, representation):
                     for piece in _pieces(cut.intersection(material)):
                         lines = [piece.exterior, *piece.interiors] if piece.geom_type == "Polygon" else [piece]
                         for line in lines:
@@ -115,7 +116,7 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
             for offset in sorted({target_band[0], 0., target_band[1]}):
                 view = _Frame(frame.origin + offset*frame.normal, frame.normal, frame.axes)
                 cuts.extend(cut.intersection(physical) for cut, _ in
-                            _sheet_cuts(project, others, view, {}, {}, omitted, other_side))
+                            _sheet_cuts(project, others, view, {}, {}, omitted, other_side, representation))
         notes.extend(f"Plate intersections with {mark}: {note}" for note in dict.fromkeys(omitted))
         gauge = ", ".join(f"{t*1000:g}" for t in sorted(gauges))
         label = f"{mark} | plate {gauge} mm" if gauges != {0.} else f"{mark} | thickness unassigned"
@@ -126,6 +127,8 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
                     paths.append(DrawingPath("PLATE_INTERSECTIONS", tuple(ring.coords)[:-1], True, label))
             elif piece.geom_type == "LineString" and piece.length > 1e-8:
                 paths.append(DrawingPath("PLATE_INTERSECTIONS", tuple(piece.coords), False, label))
-    if paths:
+    if paths and representation == "midsurface_2d":
+        notes.append("Plate references: reference-surface intersections only (2D mid-surface); no connection or interference inference.")
+    elif paths:
         notes.append("Plate references: finite stock cuts at the shell reference surface and both skins; no connection or interference inference.")
     return paths, tuple(notes)

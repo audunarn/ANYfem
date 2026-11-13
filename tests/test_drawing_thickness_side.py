@@ -316,3 +316,64 @@ def test_overrides_round_trip_old_files_load_and_removed_sheets_drop(tmp_path):
     # A geometry edit removing the Sheet drops its override from the document.
     m.g.remove_sheet(m.g.sheets[flange].id)
     assert project_to_dict(m.p)["drawing_thickness_sides"] == [{"sheet": web, "side": "auto"}]
+
+
+# -- S4: the non-expanded 2D mid-surface representation ---------------------------------------
+
+def test_midsurface_assembly_draws_reference_outlines_without_thickness():
+    p, part, ids = _tee()
+    g = p.geometry
+    hidden = g.add_plate(g.add_points([(.2, .2, -.3), (.6, .2, -.3), (.6, .6, -.3), (.2, .6, -.3)]))
+    g.add_sheet((hidden,), part_id=part, name="hidden")
+    p.assign_plate(hidden, "10 mm")
+    solid = assembly_views(p, part)
+    iso, plan, front, right = assembly_views(p, part, representation="midsurface_2d")
+    assert front.extent()[0][1] == pytest.approx(-.3, abs=1e-12)
+    assert np.array(plan.extent()) == pytest.approx(np.array([[0, 0], [2, 1]]), abs=1e-12)
+    # Screen right is (X+Y)/sqrt(2), up (-X+Y+2Z)/sqrt(6): the flange and web reference corners.
+    assert np.array(iso.extent()) == pytest.approx(np.array([[0, -2/np.sqrt(6)], [3/np.sqrt(2), 1/np.sqrt(6)]]),
+                                                   abs=2e-9)  # 1e-9 linework grid
+    assert np.array(solid[0].extent())[1, 1] > 1/np.sqrt(6) + 1e-3
+    drawing = _linework(plan)
+    assert drawing.distance(Point(1, .5)) < 1e-8  # the edge-on web is one visible line
+    for x in (.995, 1.005):
+        assert drawing.distance(Point(x, .5)) > 1e-3
+    assert drawing.distance(Point(.2, .4)) > 1e-3  # a sheet under the flange is occluded
+    side = _linework(front)
+    assert side.distance(Point(.5, 0)) < 1e-8 and side.distance(Point(.5, .01)) > 1e-3
+    assert side.distance(Point(.4, -.3)) < 1e-8  # nothing in front of the lower sheet in elevation
+    assert any("2D mid-surface" in note for note in plan.notes)
+    assert solid[1].notes[1:3] == plan.notes[1:3]  # takeoff is unchanged
+    with pytest.raises(ValueError, match="representation"):
+        assembly_views(p, part, representation="wireframe")
+
+
+def test_midsurface_sections_are_reference_traces():
+    from anyfem.application.drawing_sections import build_plane_view
+    p, part, ids = _tee()
+    view = build_plane_view(p, (.5, .5, 0), (1, 0, 0), (0, 0, 1), representation="midsurface_2d")
+    flange, = _labelled(view, "flange")
+    assert flange.layer == "TRACE" and not flange.closed
+    assert np.asarray(flange.points)[:, 1] == pytest.approx(0., abs=1e-12)
+    web = _labelled(build_plane_view(p, (1, .5, .2), (1, 0, 0), (0, 0, 1), representation="midsurface_2d"), "web")
+    assert web and all(path.layer == "OUTLINE" for path in web)
+    assert not _labelled(build_plane_view(p, (1.004, .5, .2), (1, 0, 0), (0, 0, 1),
+                                          representation="midsurface_2d"), "web")
+
+
+def test_midsurface_references_are_at_the_reference_intersection_and_export_records_2d(tmp_path):
+    import json
+    from anyfem.application.plate_drawings import export_plate_drawings
+    from anyfem.application.plate_view import build_plate_view
+    from anyfem.document import DocumentSession
+    p, part, ids = _tee()
+    g = p.geometry
+    flange_face = g.face_uses[g.sheets[ids["flange"]].face_use_ids[0]].face_id
+    view = build_plate_view(p, flange_face, representation="midsurface_2d")
+    points = np.vstack([q.points for q in view.paths if q.layer == "PLATE_INTERSECTIONS"])
+    assert points[:, 0] == pytest.approx(1., abs=1e-9)
+    snapshot = DocumentSession(p).snapshot()
+    flat = export_plate_drawings(snapshot, part, tmp_path / "2d", representation="midsurface_2d")
+    solid = export_plate_drawings(snapshot, part, tmp_path / "solid")
+    assert json.loads((flat / "Drawing-basis.json").read_text())["representation"] == "midsurface_2d"
+    assert (flat / "Weight-takeoff.csv").read_text() == (solid / "Weight-takeoff.csv").read_text()

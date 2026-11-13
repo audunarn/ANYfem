@@ -257,14 +257,14 @@ def _append_paths(paths, shape, layer, label):
             paths.append(DrawingPath("TRACE", points[:-1] if piece.is_ring else points, piece.is_ring, label))
 
 
-def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre"):
+def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre", representation="solid"):
     """Cut one Sheet's (or loose face's) material band, placed by its thickness side."""
     from shapely import union_all
 
     geometry = project.geometry
     thickness = {f.id: (project.plate_section_of(f.id).thickness if f.id in project.face_sections else 0.)
                  for f in faces}
-    band = {face: thickness_band(t, side) for face, t in thickness.items()}
+    band = {face: thickness_band(t, side, representation) for face, t in thickness.items()}
     joined = False
     if len(faces) > 1 and len(set(thickness.values())) == 1:
         # Join the physical material first. In particular, a perpendicular cut
@@ -297,13 +297,16 @@ def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre"):
             notes.append(f"Face {face.id} omitted ({error})")
 
 
-def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides="auto") -> DrawingView:
+def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides="auto",
+                     representation="solid") -> DrawingView:
     """Cut native sheets and assigned straight members. Plane and bounds use SI.
 
     ``thickness_sides`` selects each Sheet's material band (see
     :func:`thickness_side.resolve_sides`); loose faces are always centred.
+    ``representation="midsurface_2d"`` cuts plates as their reference traces.
     """
-    from .thickness_side import resolve_sides
+    from .thickness_side import check_representation, resolve_sides
+    flat = check_representation(representation) == "midsurface_2d"
     from shapely import box, union_all
 
     view = _Frame.view(origin, normal, up)
@@ -334,9 +337,9 @@ def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_side
     sided = []
     for (key, label), faces in owners.items():
         side = sides.get(key[1], "centre") if key[0] == "sheet" else "centre"
-        if side != "centre":
+        if side != "centre" and not flat:
             sided.append(f"{label} {side}")
-        for cut, skin in _sheet_cuts(project, faces, view, edges, sampled, notes, side):
+        for cut, skin in _sheet_cuts(project, faces, view, edges, sampled, notes, side, representation):
             if not cut.is_empty:
                 groups[key, label, "OUTLINE" if skin else "SECTION"].append(cut)
     member_owners = defaultdict(list)
@@ -367,6 +370,8 @@ def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_side
 
     if sided:
         notes.append("Plate thickness off centre: " + ", ".join(sided))
+    if flat:
+        notes.append("Representation 2D mid-surface: plates cut at their reference surfaces")
     notes.extend((f"Plane origin XYZ {xyz(view.origin*1000)} mm",
                   f"Unit normal XYZ {xyz(view.normal)}   Up XYZ {xyz(view.axes[:,1])}"))
     if clip is not None:
