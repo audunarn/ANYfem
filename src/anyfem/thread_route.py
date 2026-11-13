@@ -503,7 +503,7 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     """Selftest child: GIL off after imports, NumPy pin, source digest, frozen smoke.  Cached by interpreter + lock + sources."""
     try:
         root = _runtime_root(Path(python))
-        if not _ci_smoke_allowed and os.path.lexists(root / runtime_lock.CI_SMOKE_MARKER):  # whatever the lock policy: never a shipped runtime
+        if not _ci_smoke_allowed and any(os.path.lexists(folder / runtime_lock.CI_SMOKE_MARKER) for folder in (root, Path(python).parent)):  # whatever the lock policy or folder name: never a shipped runtime
             return ChildOutcome(status=UNAVAILABLE, reason="runtime is a CI smoke bundle (interpreter payload not pinned); it is not a shipped runtime")
         root_bytes = _read_lock(root / runtime_lock.LOCK_NAME)  # one snapshot per lock file, used for everything below
         explicit_bytes = _read_lock(Path(lock_path)) if lock_path else None

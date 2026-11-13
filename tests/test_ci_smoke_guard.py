@@ -121,3 +121,19 @@ def test_marker_is_refused_even_when_the_lock_is_missing_or_schemaless(runtime):
     tr._health_cache.clear()
     tr.check_health(root / "python.exe")
     assert spawned == ["selftest"]
+
+
+@pytest.mark.parametrize("name", ["Scripts", "bin", "scripts"])
+def test_marker_is_refused_when_the_bundle_folder_is_named_like_a_venv_layout_folder(tmp_path, monkeypatch, name):
+    """Codex r2 P2: _runtime_root() maps <x>/Scripts/python.exe to <x>; the marker sits beside python.exe and must be found there too."""
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    spawned = []
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: spawned.append(1) or tr.ChildOutcome(status=tr.UNAVAILABLE, reason="x"))
+    tr.allow_ci_smoke_bundle(False)
+    tr._health_cache.clear()
+    root = tmp_path / name
+    root.mkdir()
+    write_bundle(root)
+    (root / rl.LOCK_NAME).unlink()
+    outcome = tr.check_health(root / "python.exe")
+    assert outcome.status == tr.UNAVAILABLE and "ci smoke" in outcome.reason.lower() and spawned == []
