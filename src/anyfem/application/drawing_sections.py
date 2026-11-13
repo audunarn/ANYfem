@@ -9,6 +9,7 @@ from anygeometry.surfaces import Cylinder
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import edge_spans, trace
 from .plate_profiles import _END_GAP_M, _plane
+from .thickness_side import band_centre_half, thickness_band
 
 
 # Curves are linearized for drawing within ten micrometres in their native
@@ -102,6 +103,14 @@ def _polygon(geometry, face, frame, edges, paths):
     return polygon
 
 
+def _banded(frame, band):
+    """Reference frame moved to the middle of a material band, and its half depth."""
+    shift, half = band_centre_half(band)
+    if shift:
+        frame = _Frame(frame.origin + shift*frame.normal, frame.normal, frame.axes)
+    return frame, half
+
+
 def _transform(shape, linear, shift):
     from shapely.affinity import affine_transform
     return affine_transform(shape, (*linear.ravel(), *shift))
@@ -168,8 +177,12 @@ def _prism_cut(profile, frame, half_depth, view):
     return _transform(region, view.axes.T @ np.column_stack((x, y)), shift), skin
 
 
-def _cylinder_prism(geometry, face, thickness):
-    """Native circular rim / straight ruling patches, including trimmed sectors."""
+def _cylinder_prism(geometry, face, band):
+    """Native circular rim / straight ruling patches, including trimmed sectors.
+
+    ``band`` is the radial material interval ``(s_lo, s_hi)`` from the
+    reference radius, outward positive.
+    """
     from shapely import LineString, Polygon
 
     surface = face.surface
@@ -203,16 +216,16 @@ def _cylinder_prism(geometry, face, thickness):
             or np.linalg.norm(midpoint_direction(arc)-midpoint_direction(opposite))*arc.radius > tolerance):
         raise ValueError("cylinder rims span different angular intervals")
     radius = surface.radius
-    half = thickness / 2
-    if half >= radius:
+    low, high = band
+    if radius + low <= 0:
         raise ValueError("cylinder inner radius must be positive")
     # Bound the outer chord sagitta using 1-cos(a) <= a**2/2.
-    count = max(2, int(np.ceil(abs(arc.sweep) * np.sqrt((radius+half)/(8*_CHORD_M)))))
+    count = max(2, int(np.ceil(abs(arc.sweep) * np.sqrt((radius+high)/(8*_CHORD_M)))))
     angles = np.linspace(0., arc.sweep, count+1)
     axes = np.column_stack((surface.radial_direction, surface.circumferential_direction))
     radial = (np.outer(np.cos(angles), arc.e1) + np.outer(np.sin(angles), arc.e2)) @ axes
-    footprint = (Polygon(np.vstack((radial*(radius+half), radial[::-1]*(radius-half))))
-                 if half else LineString(radial * radius))
+    footprint = (Polygon(np.vstack((radial*(radius+high), radial[::-1]*(radius+low))))
+                 if high > low else LineString(radial * (radius+low)))
     frame = _Frame(surface.origin + (bottom+top)/2 * surface.axis, surface.axis, axes)
     return footprint, frame, (top-bottom)/2
 
@@ -244,12 +257,15 @@ def _append_paths(paths, shape, layer, label):
             paths.append(DrawingPath("TRACE", points[:-1] if piece.is_ring else points, piece.is_ring, label))
 
 
-def _sheet_cuts(project, faces, view, edges, sampled, notes):
+def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre"):
+    """Cut one Sheet's (or loose face's) material band, placed by its thickness side."""
     from shapely import union_all
 
     geometry = project.geometry
     thickness = {f.id: (project.plate_section_of(f.id).thickness if f.id in project.face_sections else 0.)
                  for f in faces}
+    band = {face: thickness_band(t, side) for face, t in thickness.items()}
+    joined = False
     if len(faces) > 1 and len(set(thickness.values())) == 1:
         # Join the physical material first. In particular, a perpendicular cut
         # precisely along an internal face incidence is inside the sheet.
@@ -258,26 +274,36 @@ def _sheet_cuts(project, faces, view, edges, sampled, notes):
         except ValueError:
             pass  # A bent sheet needs a separate supporting frame per face.
         else:
+            joined = True
             try:
                 footprint = union_all([_polygon(geometry, f, frame, edges, sampled) for f in faces])
-                yield _prism_cut(footprint, frame, thickness[faces[0].id]/2, view)
+                yield _prism_cut(footprint, *_banded(frame, band[faces[0].id]), view)
                 return
             except ValueError:
                 pass  # Isolate and identify any individual invalid contour.
+    planar = [face.id for face in faces if not isinstance(face.surface, Cylinder)]
     for face in faces:
         try:
+            if side != "centre" and len(planar) > 1 and not joined and face.id in planar:
+                # Each face would get its own sign rule; one side is undefined.
+                raise ValueError(f"thickness side {side} needs one drawing normal across a bent Sheet")
             if isinstance(face.surface, Cylinder):
-                prism = _cylinder_prism(geometry, face, thickness[face.id])
+                prism = _cylinder_prism(geometry, face, band[face.id])
             else:
                 frame = _planar_frame(geometry, [face], edges)
-                prism = _polygon(geometry, face, frame, edges, sampled), frame, thickness[face.id]/2
+                prism = (_polygon(geometry, face, frame, edges, sampled), *_banded(frame, band[face.id]))
             yield _prism_cut(*prism, view)
         except ValueError as error:
             notes.append(f"Face {face.id} omitted ({error})")
 
 
-def build_plane_view(project, origin, normal, up, *, bounds=None) -> DrawingView:
-    """Cut native sheets and assigned straight members. Plane and bounds use SI."""
+def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides=None) -> DrawingView:
+    """Cut native sheets and assigned straight members. Plane and bounds use SI.
+
+    ``thickness_sides`` selects each Sheet's material band (see
+    :func:`thickness_side.resolve_sides`); loose faces are always centred.
+    """
+    from .thickness_side import resolve_sides
     from shapely import box, union_all
 
     view = _Frame.view(origin, normal, up)
@@ -297,6 +323,7 @@ def build_plane_view(project, origin, normal, up, *, bounds=None) -> DrawingView
     groups = defaultdict(list)
     owners = {}
     covered = set()
+    sides = resolve_sides(project, thickness_sides)
     for sheet in geometry.sheets.values():
         ids = [geometry.face_uses[u].face_id for u in sheet.face_use_ids]
         owners[("sheet",sheet.id),sheet.name or f"Sheet {sheet.id}"] = [geometry.faces[i] for i in ids]
@@ -304,8 +331,12 @@ def build_plane_view(project, origin, normal, up, *, bounds=None) -> DrawingView
     for face in geometry.faces.values():
         if face.id not in covered:
             owners[("face",face.id),f"Face {face.id}"] = [face]
+    sided = []
     for (key, label), faces in owners.items():
-        for cut, skin in _sheet_cuts(project, faces, view, edges, sampled, notes):
+        side = sides.get(key[1], "centre") if key[0] == "sheet" else "centre"
+        if side != "centre":
+            sided.append(f"{label} {side}")
+        for cut, skin in _sheet_cuts(project, faces, view, edges, sampled, notes, side):
             if not cut.is_empty:
                 groups[key, label, "OUTLINE" if skin else "SECTION"].append(cut)
     member_owners = defaultdict(list)
@@ -334,6 +365,8 @@ def build_plane_view(project, origin, normal, up, *, bounds=None) -> DrawingView
     def xyz(vector):
         return "(" + ", ".join(f"{float(x):.9g}" if x else "0" for x in vector) + ")"
 
+    if sided:
+        notes.append("Plate thickness off centre: " + ", ".join(sided))
     notes.extend((f"Plane origin XYZ {xyz(view.origin*1000)} mm",
                   f"Unit normal XYZ {xyz(view.normal)}   Up XYZ {xyz(view.axes[:,1])}"))
     if clip is not None:

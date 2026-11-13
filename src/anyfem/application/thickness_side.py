@@ -81,24 +81,30 @@ def _sheet_key(geometry, key):
     return None
 
 
-def sides_for_part(project, part_id, thickness_sides=None) -> dict[int, str]:
-    """Return resolved ``{sheet_id: side}`` for the Sheets of one Part.
+def resolve_sides(project, thickness_sides=None, sheet_ids=None) -> dict[int, str]:
+    """Return resolved ``{sheet_id: side}`` for ``sheet_ids`` (default: every Sheet).
 
     ``None`` or ``"centre"`` requests the historical all-centre drawing. A
     mapping of Sheet ID or name to a side gives explicit sides; unlisted Sheets
     are centred.
     """
-    part = project.geometry.parts.get(part_id)
-    ids = tuple(part.sheet_ids) if part is not None else ()
+    geometry = project.geometry
+    ids = tuple(geometry.sheets) if sheet_ids is None else tuple(sheet_ids)
+    sides = {sheet: "centre" for sheet in ids}
     if thickness_sides is None or thickness_sides == "centre":
-        return {sheet: "centre" for sheet in ids}
+        return sides
     if not hasattr(thickness_sides, "items"):
         raise ValueError("Thickness sides must be 'centre' or a mapping of Sheet to side")
-    sides = {sheet: "centre" for sheet in ids}
     for key, side in thickness_sides.items():
-        sheet = _sheet_key(project.geometry, key)
+        sheet = _sheet_key(geometry, key)
         if side not in SIDES:
             raise ValueError(f"Thickness side must be one of {', '.join(SIDES)}, not {side!r}")
         if sheet in sides:
             sides[sheet] = side
     return sides
+
+
+def sides_for_part(project, part_id, thickness_sides=None) -> dict[int, str]:
+    """:func:`resolve_sides` for the Sheets of one Part."""
+    part = project.geometry.parts.get(part_id)
+    return resolve_sides(project, thickness_sides, () if part is None else part.sheet_ids)

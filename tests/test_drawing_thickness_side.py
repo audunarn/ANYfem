@@ -86,3 +86,99 @@ def test_unknown_side_is_refused():
     p, part, ids = _tee()
     with pytest.raises(ValueError, match="Thickness side"):
         build_plate_profiles(p, part, thickness_sides={ids["web"]: "middle"})
+
+
+# -- S2: sections, intersection references and the single plate view ---------------------------
+
+def _labelled(view, label):
+    return [path for path in view.paths if path.label == label]
+
+
+@pytest.mark.parametrize("side, low, high", [("centre", -.01, .01), ("front", 0., .02), ("back", -.02, 0.)])
+def test_section_of_a_sided_flange_spans_its_band(side, low, high):
+    from anyfem.application.drawing_sections import build_plane_view
+    p, part, ids = _tee()
+    view = build_plane_view(p, (.5, .5, 0), (1, 0, 0), (0, 0, 1), thickness_sides={ids["flange"]: side})
+    cut, = _labelled(view, "flange")
+    points = np.asarray(cut.points)
+    assert cut.layer == "SECTION"
+    assert (points[:, 1].min(), points[:, 1].max()) == pytest.approx((low, high), abs=1e-12)
+    # A plane parallel to the flange meets it only inside the material band.
+    for z in (-.015, -.005, .005, .015):
+        cuts = _labelled(build_plane_view(p, (.5, .5, z), (0, 0, 1), (0, 1, 0),
+                                          thickness_sides={ids["flange"]: side}), "flange")
+        assert bool(cuts) == (low < z < high)
+    skin = _labelled(build_plane_view(p, (.5, .5, high), (0, 0, 1), (0, 1, 0),
+                                      thickness_sides={ids["flange"]: side}), "flange")
+    assert skin and all(path.layer == "OUTLINE" for path in skin)
+
+
+@pytest.mark.parametrize("side, inner, outer", [("centre", -.005, .005), ("front", 0., .01), ("back", -.01, 0.)])
+def test_cylindrical_section_annulus_follows_the_outward_side(side, inner, outer):
+    from anygeometry import OrientedEdge
+    from anygeometry.surfaces import Cylinder
+    from anyfem.application.controller import default_project
+    from anyfem.application.drawing_sections import build_plane_view
+    p = default_project()
+    g = p.geometry
+    cylinder = Cylinder((3, 1, 0), (0, 0, 1), (1, 0, 0), 2, 3, sweep_angle=np.pi/2)
+    a, b, c, d = [g.add_point(*cylinder.evaluate(u, v)) for u, v in ((0, 0), (1, 0), (1, 1), (0, 1))]
+    bottom, top = [g.add_point(*cylinder.evaluate(.5, v)) for v in (0, 1)]
+    loop = [OrientedEdge(e, True) for e in (g.add_arc(a, bottom, b), g.add_line(b, c),
+                                            g.add_arc(c, top, d), g.add_line(d, a))]
+    face = g.add_face_from_loop(loop, surface=cylinder)
+    sheet = g.add_sheet((face,), name="shell")
+    p.assign_plate(face, "plate")
+    t = p.plate_section_of(face).thickness
+    view = build_plane_view(p, (3, 1, 1), (0, 0, 1), (0, 1, 0), thickness_sides={sheet: side})
+    section, = view.paths
+    radii = np.linalg.norm(section.points, axis=1)
+    assert (radii.min(), radii.max()) == pytest.approx((2+inner/.01*t, 2+outer/.01*t), abs=2e-6)
+
+
+@pytest.mark.parametrize("side, visible", [("centre", True), ("front", True), ("back", False)])
+def test_plate_reference_skins_follow_the_target_band(side, visible):
+    """A web ending 5 mm above the flange reference reaches only an upper skin."""
+    from anyfem.application.plate_view import build_plate_view
+    p, part, ids = _tee()
+    g = p.geometry
+    flange_face = g.face_uses[g.sheets[ids["flange"]].face_use_ids[0]].face_id
+    short = g.add_plate(g.add_points([(1.5, .2, .005), (1.5, .8, .005), (1.5, .8, .5), (1.5, .2, .5)]))
+    g.add_sheet((short,), part_id=part, name="short web")
+    p.assign_plate(short, "10 mm")
+    view = build_plate_view(p, flange_face, thickness_sides={ids["flange"]: side})
+    refs = [path for path in view.paths if path.layer == "PLATE_INTERSECTIONS" and "short web" in path.label]
+    assert bool(refs) == visible
+    assert any(f"Thickness side {side} (+n = +Z)" in note for note in view.notes)
+
+
+@pytest.mark.parametrize("side, low, high", [("centre", .995, 1.005), ("front", 1., 1.01), ("back", .99, 1.)])
+def test_plate_reference_marks_follow_the_other_plate_band(side, low, high):
+    from anyfem.application.plate_view import build_plate_view
+    p, part, ids = _tee()
+    g = p.geometry
+    flange_face = g.face_uses[g.sheets[ids["flange"]].face_use_ids[0]].face_id
+    view = build_plate_view(p, flange_face, thickness_sides={ids["web"]: side, ids["flange"]: "centre"})
+    refs = [path for path in view.paths if path.layer == "PLATE_INTERSECTIONS"]
+    points = np.vstack([path.points for path in refs])
+    # Plate-view coordinates are shifted to the flange's lower-left corner (x=0).
+    assert (points[:, 0].min(), points[:, 0].max()) == pytest.approx((low, high), abs=1e-9)
+
+
+def test_bent_sheet_refuses_an_off_centre_side_in_sections():
+    from anygeometry import OrientedEdge as O
+    from anyfem.application.controller import default_project
+    from anyfem.application.drawing_sections import build_plane_view
+    p = default_project()
+    g = p.geometry
+    a, b, c, d, e, f = g.add_points([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (1, 0, 1), (1, 1, 1)])
+    ab, bc, cd, da, be, ef, fc = (g.add_line(*q) for q in ((a, b), (b, c), (c, d), (d, a), (b, e), (e, f), (f, c)))
+    f1 = g.add_face_from_loop([O(ab, True), O(bc, True), O(cd, True), O(da, True)])
+    f2 = g.add_face_from_loop([O(bc, False), O(be, True), O(ef, True), O(fc, True)])
+    sheet = g.add_sheet((f1, f2), name="bent")
+    p.assign_plate(f1, "plate")
+    p.assign_plate(f2, "plate")
+    assert build_plane_view(p, (.5, .5, .5), (0, 1, 0), (0, 0, 1), thickness_sides={sheet: "centre"}).paths
+    refused = build_plane_view(p, (.5, .5, .5), (0, 1, 0), (0, 0, 1), thickness_sides={sheet: "front"})
+    assert not refused.paths
+    assert sum("one drawing normal across a bent Sheet" in note for note in refused.notes) == 2

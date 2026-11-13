@@ -10,6 +10,7 @@ import numpy as np
 from .drawing_sections import _Frame, _pieces, _sheet_cuts
 from .drawing_views import DrawingPath
 from .plate_profiles import _planar_geometry
+from .thickness_side import thickness_band
 
 
 def _bounds(geometry, faces, half):
@@ -21,16 +22,25 @@ def _bounds(geometry, faces, half):
     return points.min(axis=0)-half, points.max(axis=0)+half
 
 
-def plate_intersections(project, sheet, faces, physical, thickness, *, cylindrical=False, develop_points=None):
+def _reach(band):
+    """Largest distance of a material band from its reference surface."""
+    return max(-band[0], band[1])
+
+
+def plate_intersections(project, sheet, faces, physical, thickness, *, cylindrical=False, develop_points=None,
+                        sides=None):
     """Return clipped reference paths and honest limitations, without model edits.
 
     For planar targets the reference shell and both skins are cut. Consequently
     an offset T joint touching a skin is retained even if it misses the shell.
     This is a surface-reference drawing, not a solid interference assessment.
+    ``sides`` maps Sheet IDs to thickness sides; skins follow each band.
     """
     from shapely import union_all
 
     g = project.geometry
+    sides = sides or {}
+    target_band = thickness_band(thickness, sides.get(sheet.id, "centre") if sheet is not None else "centre")
     selected = {face.id for face in faces}
     groups, owned = [], set(selected)
     for other in g.sheets.values():
@@ -40,7 +50,7 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
         groups.append((other.name or f"Sheet-{other.id}", other, [g.faces[i] for i in sorted(ids)]))
         owned.update(ids)
     groups.extend((f"Face {face.id}", None, [face]) for face in g.faces.values() if face.id not in owned)
-    target_bounds = _bounds(g, faces, thickness/2)
+    target_bounds = _bounds(g, faces, _reach(target_band))
     frame = None
     if not cylindrical:
         profile = _planar_geometry(g, faces, sheet)
@@ -49,8 +59,10 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
     for mark, other_sheet, others in groups:
         gauges = {project.plate_section_of(f.id).thickness if f.id in project.face_sections else 0.
                   for f in others}
+        other_side = sides.get(other_sheet.id, "centre") if other_sheet is not None else "centre"
+        bands = {thickness_band(t, other_side) for t in gauges}
         try:
-            low, high = _bounds(g, others, max(gauges)/2)
+            low, high = _bounds(g, others, max(map(_reach, bands)))
         except ValueError as error:
             notes.append(f"Plate intersections with {mark} omitted: cannot bound unsupported contour ({error}).")
             continue
@@ -78,10 +90,11 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
             rings = [_trace_spans(loop) for loop in other_profile.loops]
             material = Polygon(rings[0], rings[1:])
             refs, omitted = [], []
-            for offset in sorted({0., *(-t/2 for t in gauges), *(t/2 for t in gauges)}):
+            for offset in sorted({0., *(b[0] for b in bands), *(b[1] for b in bands)}):
                 view = _Frame(other_profile.origin + offset*other_profile.normal,
                               other_profile.normal, other_profile.axes)
-                for cut, _ in _sheet_cuts(project, faces, view, {}, {}, omitted):
+                for cut, _ in _sheet_cuts(project, faces, view, {}, {}, omitted, sides.get(sheet.id, "centre")
+                                          if sheet is not None else "centre"):
                     for piece in _pieces(cut.intersection(material)):
                         lines = [piece.exterior, *piece.interiors] if piece.geom_type == "Polygon" else [piece]
                         for line in lines:
@@ -94,15 +107,15 @@ def plate_intersections(project, sheet, faces, physical, thickness, *, cylindric
             cuts, omitted = [], []
         materials = {project.plate_section_of(f.id).material if f.id in project.face_sections else None
                      for f in (*faces, *others)}
-        if (not cylindrical and other_profile is not None and gauges == {thickness} and len(materials) == 1
+        if (not cylindrical and other_profile is not None and bands == {target_band} and len(materials) == 1
                 and np.linalg.norm(np.cross(other_profile.normal, frame.normal)) < 1e-10
                 and abs((other_profile.origin-frame.origin) @ frame.normal) < 1e-8):
             continue
         if not cylindrical:
-            for offset in sorted({-thickness/2, 0., thickness/2}):
+            for offset in sorted({target_band[0], 0., target_band[1]}):
                 view = _Frame(frame.origin + offset*frame.normal, frame.normal, frame.axes)
                 cuts.extend(cut.intersection(physical) for cut, _ in
-                            _sheet_cuts(project, others, view, {}, {}, omitted))
+                            _sheet_cuts(project, others, view, {}, {}, omitted, other_side))
         notes.extend(f"Plate intersections with {mark}: {note}" for note in dict.fromkeys(omitted))
         gauge = ", ".join(f"{t*1000:g}" for t in sorted(gauges))
         label = f"{mark} | plate {gauge} mm" if gauges != {0.} else f"{mark} | thickness unassigned"

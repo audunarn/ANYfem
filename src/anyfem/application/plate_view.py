@@ -370,8 +370,13 @@ def _stiffeners(project, sheet, face_ids, edges, polygon, develop):
 
 
 def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
-                     include_plate_intersections: bool = True) -> DrawingView:
-    """Draw the entire Sheet owning a face, including its attached member axes."""
+                     include_plate_intersections: bool = True, thickness_sides=None) -> DrawingView:
+    """Draw the entire Sheet owning a face, including its attached member axes.
+
+    ``thickness_sides`` (see :func:`thickness_side.resolve_sides`) places each
+    plate's material for intersection references and states this plate's side.
+    """
+    from .thickness_side import resolve_sides, side_label
     g = project.geometry
     uses = [use for use in g.face_uses.values() if use.face_id == face_id]
     if face_id not in g.faces:
@@ -415,10 +420,19 @@ def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
         raise ImportError("Install ANYfem's drawings extra to develop plate contours") from error
     paths = [_path("OUTLINE", list(physical.exterior.coords)[:-1], closed=True)]
     paths.extend(_path("HOLES", list(r.coords)[:-1], closed=True) for r in physical.interiors)
+    sides = resolve_sides(project, thickness_sides)
+    if thickness_sides is not None and thickness_sides != "centre":
+        side = sides.get(sheet.id, "centre") if sheet else "centre"
+        if all(cylinders):
+            normal_text = f"{side} (+n = outward radial)"
+        else:
+            normal_text = side_label(side, _planar_geometry(g, faces, sheet).normal)
+        notes = (*notes, f"Thickness side {normal_text}")
     if include_plate_intersections:
         from .plate_intersections import plate_intersections
         references, intersection_notes = plate_intersections(
-            project, sheet, faces, physical, thickness, cylindrical=all(cylinders), develop_points=develop_points)
+            project, sheet, faces, physical, thickness, cylindrical=all(cylinders), develop_points=develop_points,
+            sides=sides)
         paths.extend(references)
         notes = (*notes, *intersection_notes)
     if include_stiffeners:
