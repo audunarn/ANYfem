@@ -86,11 +86,12 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
 
 def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: str | Path, *,
                           quantity: int = 1, density_kg_m3: float | None = None,
-                          dwg_converter: str | Path | None = None, dwg_backend: str = "oda") -> Path:
+                          dwg_converter: str | Path | None = None, dwg_backend: str = "oda",
+                          elevation_datum: str = "support_base", include_plate_intersections: bool = True) -> Path:
     """Write a new directory atomically. Dimensions are mm; mass excludes contingency.
 
     A density override applies only to this takeoff. Omitting it uses each plate's
-    assigned material density. Z is measured from the lowest material edge of the Part.
+    assigned material density. Elevations use the selected drawing datum.
     """
     from .plate_profiles import build_plate_profiles
 
@@ -110,7 +111,15 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     profiles = tuple(build_plate_profiles(project, part_id))
     if not profiles:
         raise ValueError(f"Part {part_id} has no physical plates")
-    base_z = min(p.z_min_m for p in profiles)
+    from .drawing_datum import elevation_origin
+    base_z = elevation_origin(profiles, elevation_datum)
+    index_columns = INDEX_COLUMNS
+    if elevation_datum == "global":
+        index_columns = tuple(
+            {"Lower edge Z above support base (mm)": "Lower global Z (mm)",
+             "Upper edge Z above support base (mm)": "Upper global Z (mm)"}.get(name, name)
+            for name in INDEX_COLUMNS
+        )
     scope = part.name or f"Part {part.id}"
     index = []
     stock = defaultdict(list)
@@ -134,11 +143,19 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             mass = plate.area_m2 * plate.thickness_m * density
             stock[plate.thickness_m].append((plate.area_m2, mass, density))
             plate.write_dxf(drawing_dir / filename)
+            if include_plate_intersections:
+                from .plate_view import build_plate_view
+                from .drawing_views import write_view_dxf
+                sheet = project.geometry.sheets[plate.sheet_id]
+                face = project.geometry.face_uses[sheet.face_use_ids[0]].face_id
+                view = build_plate_view(project, face, include_stiffeners=False,
+                                        include_plate_intersections=True)
+                write_view_dxf(view, drawing_dir / filename, preserve_contours=True)
             index.append((plate.mark, plate.sheet_id, plate.material, f"{plate.thickness_m*1000:g}",
                           plate.hole_count, f"{density:.12g}", f"{plate.area_m2:.9f}", f"{mass:.6f}",
                           quantity, f"{mass*quantity:.6f}", f"{(plate.z_min_m-base_z)*1000:.3f}",
                           f"{(plate.z_max_m-base_z)*1000:.3f}", f"profiles/{filename}"))
-        _csv(package / "Plate-index.csv", INDEX_COLUMNS, index)
+        _csv(package / "Plate-index.csv", index_columns, index)
         rows = [_takeoff_row(scope, f"{gauge*1000:g}", quantity, entries)
                 for gauge, entries in sorted(stock.items())]
         rows.append(_takeoff_row(scope, "All", quantity, [pair for entries in stock.values() for pair in entries]))
@@ -149,6 +166,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             "project": project.name, "document_id": str(project.document_id),
             "project_hash": canonical_hash(snapshot.document), "part_id": part.id,
             "part": scope, "quantity": quantity, "profile_units": "mm", "base_global_z_m": base_z,
+            "elevation_datum": elevation_datum,
+            "profile_intersection_references": include_plate_intersections,
+            "support_base_global_z_m": min(plate.z_min_m for plate in profiles),
             "density_basis": "assigned materials" if density_kg_m3 is None else "takeoff override",
             "override_kg_m3": density_kg_m3, "mass_basis": "net cut area x nominal thickness x density",
             "formats": ["DXF", "DWG AC1032"] if dwg_converter is not None else ["DXF"],
@@ -165,12 +185,18 @@ def main(argv=None):
     parser.add_argument("--part", type=int, required=True, help="structural Part ID")
     parser.add_argument("--quantity", type=int, default=1, help="number of identical assemblies")
     parser.add_argument("--density", type=float, help="takeoff density override, kg/m³")
+    parser.add_argument("--elevation-datum", choices=("support_base", "global"), default="support_base",
+                        help="support_base sets the lowest material edge to Z=0; global uses model elevations")
+    parser.add_argument("--no-plate-intersections", action="store_false", dest="plate_intersections",
+                        help="omit intersection reference marks from profile drawings")
     parser.add_argument("--dwg-converter", type=Path, help="ODA File Converter executable for optional DWG copies")
     args = parser.parse_args(argv)
     try:
         snapshot = DocumentSession(load_project(args.project)).snapshot()
         output = export_plate_drawings(snapshot, args.part, args.destination,
                                        quantity=args.quantity, density_kg_m3=args.density,
+                                       elevation_datum=args.elevation_datum,
+                                       include_plate_intersections=args.plate_intersections,
                                        dwg_converter=args.dwg_converter)
     except (OSError, ValueError, RuntimeError, ImportError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")

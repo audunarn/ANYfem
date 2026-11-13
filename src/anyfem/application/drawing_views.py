@@ -39,7 +39,7 @@ def load_support_b_example():
     return project_from_dict(json.loads(source.read_text(encoding="utf-8")))
 
 
-def write_view_dxf(view: DrawingView, path: Path):
+def write_view_dxf(view: DrawingView, path: Path, *, preserve_contours=False):
     try:
         import ezdxf
     except ImportError as exc:
@@ -47,7 +47,9 @@ def write_view_dxf(view: DrawingView, path: Path):
     from .plate_curves import write_profiles_dxf
 
     low, high = view.extent()
-    if view.exact_loops:
+    if preserve_contours:
+        doc = ezdxf.readfile(path)
+    elif view.exact_loops:
         write_profiles_dxf(path, view.exact_loops)
         doc = ezdxf.readfile(path)
     else:
@@ -70,10 +72,15 @@ def write_view_dxf(view: DrawingView, path: Path):
             label = f"H{1+len(legend)}"
             legend.append(f"{label}    {size[0]:.2f} x {size[1]:.2f} mm    centre X {centre[0]:.2f}, Y {centre[1]:.2f} mm from lower-left extents")
             msp.add_text(label,height=height,dxfattribs={"layer":"ANNOTATION"}).set_placement((left+right)/2)
-        if view.exact_loops and curve.layer in {"OUTLINE", "HOLES"}:
+        if (view.exact_loops or preserve_contours) and curve.layer in {"OUTLINE", "HOLES"}:
             continue
         if curve.layer not in doc.layers:
             doc.layers.add(curve.layer, color=4 if curve.layer=="STIFFENERS" else 7)
+        if curve.layer=="PLATE_INTERSECTIONS":
+            if "PLATE_REFERENCE" not in doc.linetypes:
+                doc.linetypes.new("PLATE_REFERENCE",dxfattribs={"description":"Plate intersection reference","pattern":[12,8,-4]})
+            doc.layers.get(curve.layer).dxf.linetype = "PLATE_REFERENCE"
+            doc.layers.get(curve.layer).dxf.color = 4
         if curve.layer=="CUT_PLANE":
             if "CUT_LINE" not in doc.linetypes:
                 doc.linetypes.new("CUT_LINE",dxfattribs={"description":"Cutting plane","pattern":[40,24,-6,4,-6]})
@@ -87,7 +94,8 @@ def write_view_dxf(view: DrawingView, path: Path):
                 msp.add_text(curve.label,height=height,dxfattribs={"layer":"ANNOTATION"}).set_placement(point)
             continue
         if curve.label and curve.label not in labels:
-            key = f"R{len(labels)+1}"
+            prefix = "S" if curve.layer=="PLATE_INTERSECTIONS" else "R"
+            key = f"{prefix}{1+sum(value.startswith(prefix) for value in labels.values())}"
             labels[curve.label] = key
             msp.add_text(key, height=height,dxfattribs={"layer":"ANNOTATION"}).set_placement(pts[len(pts)//2])
     dimensioned = view.projection in {"front","right","plan"} or plate
