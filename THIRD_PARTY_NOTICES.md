@@ -49,3 +49,21 @@ distribution choice.
 Optional drawing exports use ezdxf (MIT) and Shapely (BSD-3-Clause), installed separately.
 
 The optional fatigue workflow uses ANYfatigue (MPL-2.0), installed separately.
+
+## Bundled free-threaded runtime (thread route, Windows x64)
+
+The optional thread route runs plan computation in a child process on a bundled free-threaded CPython. The runtime folder
+`runtime-314t` is assembled by `tools/build_runtime.py` from `tools/runtime.lock.json` (hash-pinned interpreter payload and
+wheels) and contains: CPython 3.14.10 free-threaded (PSF-2.0, with the third-party components listed in its `LICENSE.txt`),
+NumPy 2.4.6 and SciPy 1.17.1 (BSD-3-Clause, with bundled OpenBLAS/LAPACK and the GCC runtime library under
+GPL-3.0-or-later WITH GCC-exception-3.1; their license files stay inside the wheel `*.dist-info` folders), Shapely 2.1.2
+(BSD-3-Clause) and the Microsoft Visual C++ runtime DLLs shipped with those files. The machine-readable record is the
+`bundled_runtimes` entry of [`dependency-licenses.json`](dependency-licenses.json).
+
+GEOS (LGPL-2.1) is vendored in the Shapely wheel as `shapely.libs/geos*.dll`. The runtime folder consists of plain, unmodified
+wheel contents and interpreter files, so any of these libraries can be replaced by the user: put a different build of the DLL in
+place and the application will refuse the changed folder (the health check compares the folder to its lock and falls back to the
+serial route); a replacement therefore needs a rebuilt lock (`tools/build_runtime.py`) or the developer override
+`ANYGEOMETRY_THREAD_RUNTIME`. The corresponding GEOS source is available from https://libgeos.org/ and the licence text is in
+`shapely-2.1.2.dist-info/licenses/LICENSE_GEOS` inside the runtime. Installer integration, notarization/signing and the
+redistribution terms for the Visual C++ files are owner decisions and are not established by this entry.

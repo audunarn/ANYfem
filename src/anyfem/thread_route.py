@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional
 
 from anygeometry.errors import GeometryError
 
-from . import _batch_prepare
+from . import _batch_prepare, runtime_lock
 
 __all__ = [
     "ChildOutcome",
@@ -452,6 +452,14 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
 
 # ------------------------------------------------------------------------------------------------ health check
 
+def _declares_schema(lock: Path) -> bool:
+    try:
+        data = json.loads(lock.read_bytes())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and "schema_version" in data
+
+
 def _check_lock(lock: Path) -> str:
     """Optional ``runtime.lock.json`` beside the runtime: when present it must parse and may not contradict the pins."""
     if not lock.is_file():
@@ -473,10 +481,16 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
                  cancellation_check: Optional[Callable[[str], None]] = None, **injection) -> ChildOutcome:
     """Selftest child: GIL off after imports, NumPy pin, source digest, frozen smoke.  Cached by interpreter + lock + sources."""
     try:
-        lock = Path(lock_path) if lock_path else _runtime_root(Path(python)) / "runtime.lock.json"
-        problem = _check_lock(lock)
-        if problem:
-            return ChildOutcome(status=UNAVAILABLE, reason=problem)
+        root = _runtime_root(Path(python))
+        lock = Path(lock_path) if lock_path else root / "runtime.lock.json"
+        # The shipped runtime (<app>/runtime-314t) and any runtime whose lock declares a schema get the FULL check: strict lock,
+        # NumPy pin, application source digest and a digest over every file of the runtime folder (no changed, missing or extra file,
+        # e.g. no planted bytecode).  Only a hand-made developer runtime (override, no schema) keeps the lenient legacy check.
+        full = not lock_path and (_same_file(root, _app_dir() / "runtime-314t") or _declares_schema(lock))
+        if not full:
+            problem = _check_lock(lock)
+            if problem:
+                return ChildOutcome(status=UNAVAILABLE, reason=problem)
         lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
         stat = Path(python).stat()
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
@@ -486,6 +500,12 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     cached = _health_cache.get(key)
     if cached is not None:
         return cached
+    if full:  # checked once per process and key (a bundle changed on disk during a session is noticed at the next start)
+        problem = runtime_lock.check_installed(root, expect_numpy=EXPECT_NUMPY, expect_source_digest=_parent_source_digest())
+        if problem:
+            outcome = ChildOutcome(status=UNAVAILABLE, reason=problem)
+            _health_cache[key] = outcome
+            return outcome
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
     outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
     if outcome.status == OK and lock.is_file():
