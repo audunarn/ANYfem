@@ -3,7 +3,7 @@ from fractions import Fraction
 from anygeometry import query_translational_profile_interfaces
 from anygeometry.serialization import to_dict
 from anyfem.structural_preparation import prepare_structural_connectivity
-from test_spline_mesh_ownership_acceptance import reported_unassigned_extrusion
+from spline_ownership_helpers import reported_unassigned_extrusion
 
 
 def test_reported_four_face_public_owner_bridge_keeps_nonzero_bound_and_source():

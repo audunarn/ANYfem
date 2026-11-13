@@ -13,6 +13,14 @@ DECORATOR = '@pytest.mark.skip(reason=' + repr(REASON) + ')'
 
 
 class FourFaceHoldTests(unittest.TestCase):
+    def test_neutral_sample_constructor_matches_frozen_registration(self):
+        helper=ROOT/'tests/spline_ownership_helpers.py'
+        def constructor(path):
+            return next(node for node in ast.parse(path.read_bytes()).body
+                        if isinstance(node,ast.FunctionDef) and node.name=='reported_unassigned_extrusion')
+        self.assertEqual(ast.dump(constructor(helper),include_attributes=False),
+                         ast.dump(constructor(PATH),include_attributes=False))
+
     def test_exact_single_literal_owner_hold(self):
         tree = ast.parse(PATH.read_bytes())
         held = []

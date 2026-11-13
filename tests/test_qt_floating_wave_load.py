@@ -1,7 +1,7 @@
 """Floating linear-response mode in the wave dialog: exclusivity with Follow surface, restoring the fixed-body choices, strict kwargs.
 
 Opt-in Qt node (same gate and fixture as test_qt_wave_load).  No worker is started here; the Prepare/Apply worker path is covered
-headlessly by tests/test_floating_pipeline.py and the gated production node.
+headlessly by diagnostics/test_floating_pipeline.py and the gated production node.
 """
 import os
 from pathlib import Path

@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(not (os.environ.get('ANYFEM_FLOATING_REUSE_EQUIL
                                      os.environ.get('ANYFEM_FLOATING_EQUILIBRIUM_PYTHON')),
                                 reason='profile needs the reused equilibrium record + evidence directory + native runtime')
 sys.path.insert(0, str(Path(__file__).parent))
-from test_floating_pipeline import box_project, meshed, RHO, G, DEPTH  # noqa: E402
+from floating_pipeline_helpers import box_project, meshed, RHO, G, DEPTH  # noqa: E402
 from anyfem.model import Mass  # noqa: E402
 from anyfem.application import floating_prepare as fp, floating_apply as fa  # noqa: E402
 from anyfem.application.floating_mass import dry_mass_properties  # noqa: E402

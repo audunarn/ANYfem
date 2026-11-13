@@ -8,7 +8,7 @@ from PySide6.QtCore import QThread,Signal,Qt,QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget,QLineEdit
 from test_qt_geometry_actions import qapp
-from test_wave_window_preview import irregular_record
+from wave_window_helpers import irregular_record
 from anyfem.application.hydro_wave_input import ApplyWavePressure,select_prepared_wave_window
 from anyfem.application.irregular_wave_input import IrregularWaveInput
 from anyfem.document import DocumentSession,canonical_hash

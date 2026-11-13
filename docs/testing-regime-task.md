@@ -86,3 +86,30 @@ triangular source panels use six four-index face rows, repeating each triangle
 last vertex index. All eighteen vertices remain; public geometry validation
 still uses three-vertex polygons. No owner API or tolerance changed, and the
 worker ran no tests. The failed parent receipt remains preserved.
+
+Post-quick repair amendment: native e8a54bf evidence disproved a review assumption
+that every passing subtest has its own JUnit row. The receipt now preserves native
+JUnit, requires exact ordinary parent coverage, validates the actual subtest
+ledger, binds aggregate tests/skipped counters and requires reasoned skipped
+subtest rows. Existing raw evidence remains immutable. Parent owns revalidation.
+Shared non-test helpers now support ordinary floating, spline-source and retained
+wave-window consumers without importing campaign modules. The frozen spline
+registration remains byte-identical; its neutral sample constructor has an
+AST-equality guard. Diagnostics have a package namespace and no flat pythonpath
+entry, preventing collisions with ordinary split module names. Manual quick
+selection is available without changing the default full release selection.
+
+On 2026-11-13 the user explicitly chose: "Keep owner work separate; record the
+blocked release gate." The published full-CI graph cannot collect required tests
+that need `anyhydro.direct_lid_profile`, `anymesher.floating_quad_source`,
+`anygeometry.cleaner`, and `anysection.SectionChoice`. These APIs exist in the
+development workspace but not the published revisions inspected for this task;
+the first two include untracked owner files. No owner code or publication is
+included, no positive gate is reclassified as passing, and full/release acceptance
+remains blocked until those owner dependencies are admitted separately.
+
+Clean snapshot `e8a54bf` passed the expanded local quick route: 381 passed,
+24 subtests passed, two expected skips, 202.565995 process-wall seconds. All twelve
+published-graph compatibility lanes and five Qt/GPU lanes passed on that snapshot.
+Current helper-import and native subtest-receipt refinements require parent
+verification; the prior native JUnit and subtest event records remain unchanged.

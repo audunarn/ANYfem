@@ -9,7 +9,7 @@ on:
       scope:
         type: choice
         default: full
-        options: [full, unit, integration, qualification]
+        options: [full, quick, unit, integration, qualification]
       qualification_case:
         type: choice
         default: all

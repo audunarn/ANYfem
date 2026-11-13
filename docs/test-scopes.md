@@ -57,3 +57,20 @@ panels on the three target facets. Its original angular-remesh body remains in
 `diagnostics/test_orcawave_pressure_angular_remesh.py` with an unallocated
 300-second ceiling. Exact force/moment assertions and projection limits remain
 unchanged; no owner-coverage equivalence is claimed.
+
+Shared floating fixtures live in the non-test `tests/floating_pipeline_helpers.py`;
+ordinary manager consumers import that helper without importing the retained
+campaign module. The neutral spline sample constructor has an AST-equality guard
+against the unchanged frozen held diagnostic source. `diagnostics` is a package,
+so its split module names cannot shadow ordinary `tests/` modules. Explicit
+qualification still sees the shared tests helpers through the configured tests
+path; default collection remains restricted to `tests/`.
+
+Manual dispatch also accepts `scope: quick` on a source branch. Existing scopes
+and the default `full` are preserved. Native pytest may count passing subtests without emitting separate child JUnit
+rows. Receipts preserve that native output and bind a unique actual event ledger
+to the complete original parent-node union and aggregate tests/skipped counters.
+Emitted child rows must have matching identities/outcomes; skipped events require
+a reasoned child row. Missing events, parent rows or inconsistent counters fail.
+The unchanged e8a54bf quick evidence demonstrated 383 parent rows, 24 passing
+subtest events and an aggregate tests count of 407; no child rows are invented.
