@@ -103,8 +103,8 @@ def test_override_runtime_with_legacy_lock_keeps_the_lenient_check(tmp_path, mon
 def test_failed_bundle_check_is_cached_for_the_process(app, monkeypatch):
     _lock(app, tamper_after=lambda r: (r / "planted.pyd").write_bytes(b"x"))
     calls = []
-    real = rl.check_installed
-    monkeypatch.setattr(rl, "check_installed", lambda *a, **k: calls.append(1) or real(*a, **k))
+    real = rl.check_installed_lock
+    monkeypatch.setattr(rl, "check_installed_lock", lambda *a, **k: calls.append(1) or real(*a, **k))
     assert _health(app).status == tr.UNAVAILABLE and _health(app).status == tr.UNAVAILABLE
     assert len(calls) == 1
 
@@ -184,3 +184,63 @@ def test_nested_json_lock_of_a_developer_runtime_is_unavailable_not_an_exception
     outcome = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))
     assert outcome.status == tr.UNAVAILABLE and "lock" in outcome.reason
     tr._health_cache.clear()
+
+
+# ------------------------------------------------------------------------------------------ review round 2 (Codex r2)
+
+def _ok_child(monkeypatch, version_full="3.14.10 free-threading build (x)", on_run=None):
+    def fake(python, job, document, **kwargs):
+        if on_run:
+            on_run()
+        return tr.ChildOutcome(status=tr.OK, body={"health": {"version_full": version_full}, "smoke": tr._batch_prepare.SMOKE_DIGEST})
+    monkeypatch.setattr(tr, "run_child", fake)
+
+
+def test_interpreter_pin_of_the_root_lock_survives_an_explicit_legacy_lock(app, monkeypatch):
+    _lock(app)  # root lock pins "3.14.10 free-threading build (x)"
+    _ok_child(monkeypatch, version_full="3.14.10 some other build")
+    legacy = app.parent / "legacy.lock.json"
+    legacy.write_text(json.dumps({"numpy": "2.4.6", "source_digest": DIGEST}), encoding="utf-8")
+    outcome = tr.check_health(app / "python.exe", timeout=5, temp_root=str(app.parent), lock_path=legacy)
+    assert outcome.status == tr.UNAVAILABLE and "different interpreter build" in outcome.reason
+
+
+def test_dev_runtime_root_lock_pin_survives_an_explicit_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    tr._health_cache.clear()
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    (dev / "python.exe").write_bytes(b"x")
+    (dev / "runtime.lock.json").write_text(json.dumps({"python_version_full": "A"}), encoding="utf-8")
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"numpy": "2.4.6"}), encoding="utf-8")
+    _ok_child(monkeypatch, version_full="B")
+    outcome = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path), lock_path=other)
+    assert outcome.status == tr.UNAVAILABLE and "different interpreter" in outcome.reason
+    tr._health_cache.clear()
+
+
+def test_policy_change_for_the_same_interpreter_is_not_served_from_the_cache(tmp_path, monkeypatch):
+    runtime = tmp_path / "runtime-314t"
+    runtime.mkdir()
+    (runtime / "python.exe").write_bytes(b"x")
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    _ok_child(monkeypatch)
+    tr._health_cache.clear()
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path / "elsewhere"))  # 1st: a developer runtime, lenient check
+    assert tr.check_health(runtime / "python.exe", timeout=5, temp_root=str(tmp_path)).status == tr.OK
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path))  # 2nd: the very same folder is now the shipped runtime, no built lock
+    outcome = tr.check_health(runtime / "python.exe", timeout=5, temp_root=str(tmp_path))
+    assert outcome.status == tr.UNAVAILABLE and "lock" in outcome.reason
+    tr._health_cache.clear()
+
+
+def test_lock_changed_or_corrupted_while_the_child_runs_cannot_crash_the_check(app, monkeypatch):
+    _lock(app)
+    for corrupt in (b"[" * 100000, b"[]", b"\xff\xfe"):
+        tr._health_cache.clear()
+        _ok_child(monkeypatch, on_run=lambda c=corrupt: (app / rl.LOCK_NAME).write_bytes(c))
+        _lock(app)
+        outcome = _health(app)
+        assert outcome.status in (tr.OK, tr.UNAVAILABLE)

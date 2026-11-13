@@ -167,3 +167,45 @@ def test_bad_build_date_is_refused(tool, tmp_path, monkeypatch):
     lock, base, wheels = _runnable_inputs(tmp_path)
     with pytest.raises(rl.LockError, match="date"):
         tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t", "yesterday")
+
+
+# ------------------------------------------------------------------------------------------ review round 2 (Codex r2)
+
+def test_pin_interpreter_refuses_malformed_lock_input(tool, tmp_path, capsys):
+    lock, base, _ = _inputs(tmp_path)
+    good = json.loads(lock.read_text(encoding="utf-8"))
+    for text in ('{"schema_version": 1, "schema_version": 1}', "[" * 100000, "[]", '"x"', json.dumps({"interpreter": 3})):
+        lock.write_text(text, encoding="utf-8")
+        assert tool.main(["pin-interpreter", "--lock", str(lock), "--base-install", str(base)]) == 2
+    lock.write_text(json.dumps(good), encoding="utf-8")
+    assert tool.main(["pin-interpreter", "--lock", str(lock), "--base-install", str(base)]) == 0
+
+
+def test_noncanonical_build_date_is_refused(tool, tmp_path):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    with pytest.raises(rl.LockError, match="date"):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t", "20261113")
+
+
+def test_swap_after_check_cases_never_reach_the_import_check(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    reached = []
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: reached.append(1))
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    real = rl.verify_wheelhouse
+    monkeypatch.setattr(rl, "verify_wheelhouse", lambda l, f: (real(l, f), (Path(f) / l.wheels[0].filename).write_bytes(b"swapped")))
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t")
+    assert reached == []
+
+
+def test_two_builds_are_identical_as_whole_trees_including_the_lock(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: None)
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    tool.build(lock, base, wheels, tmp_path / "o1" / "runtime-314t", "2026-11-13")
+    tool.build(lock, base, wheels, tmp_path / "o2" / "runtime-314t", "2026-11-13")
+
+    def snapshot(root):
+        return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    assert snapshot(tmp_path / "o1" / "runtime-314t") == snapshot(tmp_path / "o2" / "runtime-314t")

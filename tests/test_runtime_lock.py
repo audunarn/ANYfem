@@ -485,3 +485,63 @@ def test_enumeration_errors_are_refused_not_skipped(tmp_path, monkeypatch):
         rl.tree_digest(root)
     monkeypatch.setattr(rl.os, "walk", real)
     rl.tree_digest(root)
+
+
+# ------------------------------------------------------------------------------------------ review round 2 (Codex r2)
+
+def test_build_date_must_be_canonical():
+    for bad in ("20261113", "2026-1-3", "13.11.2026", "", 5):
+        data = _built_lock()
+        data["build_date"] = bad
+        with pytest.raises(rl.LockError):
+            rl.parse_lock(data, built=True)
+
+
+def test_wheel_record_must_list_itself(tmp_path):
+    import zipfile
+    wheel = tmp_path / "pkg.whl"
+    _make_wheel(wheel, {"pkg/__init__.py": b"x=1"})
+    kept = {}
+    with zipfile.ZipFile(wheel) as archive:
+        for info in archive.infolist():
+            data = archive.read(info)
+            if info.filename.endswith("RECORD"):
+                data = "\n".join(l for l in data.decode().splitlines() if not l.startswith("pkg-1.0.dist-info/RECORD")).encode() + b"\n"
+            kept[info.filename] = data
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, data in kept.items():
+            archive.writestr(name, data)
+    with pytest.raises(rl.LockError, match="itself"):
+        rl.install_wheel(wheel, tmp_path / "site")
+
+
+def test_traversal_root_that_is_a_junction_is_refused(tmp_path):
+    real = tmp_path / "real"
+    _write(real / "python.exe", b"EXE")
+    link = tmp_path / "rt"
+    _junction(link, real)
+    with pytest.raises(rl.LockError, match="link or reparse"):
+        rl.tree_digest(link)
+    lock, _, base = _real_input_lock(tmp_path / "x")
+    alias = tmp_path / "base-alias"
+    _junction(alias, base)
+    with pytest.raises(rl.LockError, match="link or reparse"):
+        rl.verify_interpreter_source(lock, alias)
+
+
+def test_excluded_folder_that_is_itself_a_junction_is_refused(tmp_path):
+    root = tmp_path / "rt"
+    _write(root / "Lib" / "m.py", b"1")
+    outside = tmp_path / "outside"
+    _write(outside / "x.py", b"2")
+    _junction(root / "Lib" / "site-packages", outside)
+    with pytest.raises(rl.LockError, match="link or reparse"):
+        rl.tree_digest(root, exclude_dirs=("site-packages",))
+
+
+def test_decode_lock_json_is_strict():
+    with pytest.raises(rl.LockError):
+        rl.decode_lock_json(b'{"a": 1, "a": 2}')
+    with pytest.raises(rl.LockError):
+        rl.decode_lock_json(b"[" * 100000)
+    assert rl.decode_lock_json(b"[]") == []

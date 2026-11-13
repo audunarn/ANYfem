@@ -97,9 +97,10 @@ def build(lock_path: Path, base: Path, wheelhouse: Path, out: Path, build_date: 
     lock = rl.load_lock_bytes(lock_bytes)
     build_date = build_date or datetime.date.today().isoformat()
     try:
-        datetime.date.fromisoformat(build_date)
+        if datetime.date.fromisoformat(build_date).isoformat() != build_date:
+            raise ValueError(build_date)
     except ValueError:
-        raise rl.LockError("build date %r is not a YYYY-MM-DD date" % build_date)
+        raise rl.LockError("build date %r is not a canonical YYYY-MM-DD date" % build_date)
     rl.verify_wheelhouse(lock, wheelhouse)
     rl.verify_interpreter_source(lock, base)
     if out.exists():
@@ -112,7 +113,7 @@ def build(lock_path: Path, base: Path, wheelhouse: Path, out: Path, build_date: 
         _import_check(lock, stage)
         _refuse_bytecode(stage)
         source_digest = _source_digest()
-        data = json.loads(lock_bytes.decode("utf-8"))
+        data = rl.decode_lock_json(lock_bytes)
         bundle_sha256, bundle_files = rl.tree_digest(stage, with_count=True)
         data.update(source_digest=source_digest, build_date=build_date, bundle_sha256=bundle_sha256,
                     bundle_files=bundle_files)
@@ -142,7 +143,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "pin-interpreter":
-            data = json.loads(args.lock.read_text(encoding="utf-8"))
+            data = rl.decode_lock_json(args.lock.read_bytes())
+            if not isinstance(data, dict) or not isinstance(data.get("interpreter"), dict):
+                raise rl.LockError("lock has no interpreter section")
             data["interpreter"].setdefault("payload_sha256", "0" * 64)
             data["interpreter"].setdefault("payload_files", 1)
             interpreter = rl.parse_lock(data).interpreter

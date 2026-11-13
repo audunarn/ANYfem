@@ -92,6 +92,16 @@ def _text(value, what: str) -> str:
     return value
 
 
+def _build_date(value) -> str:
+    import datetime
+    try:
+        if isinstance(value, str) and datetime.date.fromisoformat(value).isoformat() == value:
+            return value
+    except ValueError:
+        pass
+    raise LockError("build_date must be a canonical YYYY-MM-DD date")
+
+
 def _count(value, what: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise LockError("%s must be a positive integer" % what)
@@ -167,7 +177,7 @@ def parse_lock(data, *, built: bool = False) -> Lock:
         raise LockError("the wheel list must contain numpy==%s exactly once" % data["numpy"])
     extra = {}
     if built:
-        extra = dict(source_digest=_hex(data["source_digest"], "source_digest"), build_date=_text(data["build_date"], "build_date"),
+        extra = dict(source_digest=_hex(data["source_digest"], "source_digest"), build_date=_build_date(data["build_date"]),
                      bundle_sha256=_hex(data["bundle_sha256"], "bundle_sha256"), bundle_files=_count(data["bundle_files"], "bundle_files"))
     return Lock(python_version=python_version, python_version_full=full, numpy=data["numpy"], interpreter=interpreter,
                 wheels=tuple(wheels), **extra)
@@ -180,12 +190,16 @@ def _no_duplicate_keys(pairs):
     return dict(pairs)
 
 
-def load_lock_bytes(raw: bytes, *, built: bool = False) -> Lock:
+def decode_lock_json(raw: bytes):
+    """The ONE decoder for lock text: UTF-8 JSON without duplicate keys; absurd nesting is a LockError, not a crash."""
     try:
-        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # RecursionError: absurdly nested JSON
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise LockError("lock is not valid UTF-8 JSON: %s" % (exc,))
-    return parse_lock(data, built=built)
+
+
+def load_lock_bytes(raw: bytes, *, built: bool = False) -> Lock:
+    return parse_lock(decode_lock_json(raw), built=built)
 
 
 # --------------------------------------------------------------------------------------------------------- hashing
@@ -221,13 +235,16 @@ def _raise(exc: OSError):
 
 
 def _walk_tree(root: Path, exclude_dirs=()):
-    """Every regular file below ``root`` as (full path, posix relative name).  A link or reparse point anywhere (file or
-    folder), or an enumeration error, is an error: nothing may hide from the digest."""
+    """Every regular file below ``root`` as (full path, posix relative name).  A link or reparse point anywhere (the root, a
+    file, a folder, also an excluded folder itself), or an enumeration error, is an error: nothing may hide from the digest.
+    (The contents of an excluded folder are neither walked nor copied.)"""
+    if _is_link(Path(root)):
+        raise LockError("link or reparse point not allowed: %s" % root)
     for current, dirs, files in os.walk(root, onerror=_raise):
-        dirs[:] = [d for d in dirs if d not in exclude_dirs]
         for name in list(dirs) + files:
             if _is_link(Path(current) / name):
                 raise LockError("link or reparse point not allowed: %s" % (Path(current) / name))
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
         for name in files:
             full = Path(current) / name
             yield full, full.relative_to(root).as_posix()
@@ -252,6 +269,8 @@ def tree_digest(root, *, exclude_dirs=(), with_count: bool = False):
 def payload_files(base, interpreter: Interpreter) -> dict:
     """Files of the source interpreter install that go into the bundle: the named root files + the named trees."""
     base = Path(base)
+    if _is_link(base):
+        raise LockError("link or reparse point not allowed: %s" % base)
     found = {}
     for name in interpreter.root_files:
         path = base / name
@@ -262,7 +281,7 @@ def payload_files(base, interpreter: Interpreter) -> dict:
         found[name] = path
     for tree in interpreter.trees:
         folder = base / tree
-        if not folder.is_dir() or _is_link(folder):
+        if not folder.is_dir():  # a link as the folder itself is refused by _walk_tree
             raise LockError("interpreter source lacks folder %s" % tree)
         for full, _ in _walk_tree(folder, interpreter.exclude_dirs):
             found[full.relative_to(base).as_posix()] = full
@@ -307,26 +326,31 @@ def verify_bundle(lock: Lock, root) -> None:
                         % (count, digest, lock.bundle_files, lock.bundle_sha256))
 
 
-def check_installed(root, *, expect_numpy: str, expect_source_digest: str) -> str:
-    """Application-side check of an installed runtime folder.  Returns "" when sound, else the reason it is unusable."""
+def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str):
+    """Application-side check of an installed runtime folder.  Returns (reason, lock): reason "" and the parsed lock when the
+    folder is sound, else the reason it is unusable and None.  The lock is read once; callers use the returned object."""
     root = Path(root)
     try:
         raw = (root / LOCK_NAME).read_bytes()
     except OSError as exc:
-        return "runtime.lock.json missing or unreadable: %r" % (exc,)
+        return "runtime.lock.json missing or unreadable: %r" % (exc,), None
     try:
         lock = load_lock_bytes(raw, built=True)
     except LockError as exc:
-        return "runtime.lock.json is invalid: %s" % exc
+        return "runtime.lock.json is invalid: %s" % exc, None
     if lock.numpy != expect_numpy:
-        return "runtime.lock.json pins numpy %s, expected %s" % (lock.numpy, expect_numpy)
+        return "runtime.lock.json pins numpy %s, expected %s" % (lock.numpy, expect_numpy), None
     if lock.source_digest != expect_source_digest:
-        return "runtime.lock.json source digest differs from this application's"
+        return "runtime.lock.json source digest differs from this application's", None
     try:
         verify_bundle(lock, root)
     except (LockError, OSError) as exc:
-        return "runtime bundle check failed: %s" % exc
-    return ""
+        return "runtime bundle check failed: %s" % exc, None
+    return "", lock
+
+
+def check_installed(root, *, expect_numpy: str, expect_source_digest: str) -> str:
+    return check_installed_lock(root, expect_numpy=expect_numpy, expect_source_digest=expect_source_digest)[0]
 
 
 # ------------------------------------------------------------------------------------------------- wheel extraction
@@ -378,6 +402,8 @@ def install_wheel(wheel, site_packages) -> list:
             if row[0] in listed:
                 raise LockError("wheel RECORD lists %s twice" % row[0])
             listed[row[0]] = row
+        if records[0] not in listed:
+            raise LockError("wheel RECORD does not list itself")
         for info, name in zip(members, names):
             if name == records[0]:
                 continue

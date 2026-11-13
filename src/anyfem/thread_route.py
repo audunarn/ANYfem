@@ -460,21 +460,22 @@ def _declares_schema(lock: Path) -> bool:
     return isinstance(data, dict) and "schema_version" in data
 
 
-def _check_lock(lock: Path) -> str:
-    """Optional ``runtime.lock.json`` beside the runtime: when present it must parse and may not contradict the pins."""
+def _check_lock(lock: Path):
+    """Lenient check of a ``runtime.lock.json`` (developer runtimes, explicit lock paths).  Returns (reason, pinned interpreter
+    build or None); the file is read ONCE here and nowhere else."""
     if not lock.is_file():
-        return ""
+        return "", None
     try:
         data = json.loads(lock.read_bytes())
         if not isinstance(data, dict):
             raise ValueError("not an object")
     except (ValueError, RecursionError) as exc:
-        return "runtime.lock.json is malformed: %s" % exc
+        return "runtime.lock.json is malformed: %s" % exc, None
     if "numpy" in data and data["numpy"] != EXPECT_NUMPY:
-        return "runtime.lock.json pins NumPy %s, expected %s" % (data["numpy"], EXPECT_NUMPY)
+        return "runtime.lock.json pins NumPy %s, expected %s" % (data["numpy"], EXPECT_NUMPY), None
     if "source_digest" in data and data["source_digest"] != _parent_source_digest():
-        return "runtime.lock.json source digest differs from this application's"
-    return ""
+        return "runtime.lock.json source digest differs from this application's", None
+    return "", data.get("python_version_full")
 
 
 def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Path] = None,
@@ -487,35 +488,42 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         # NumPy pin, application source digest and a digest over every file of the runtime folder (no changed, missing or extra file,
         # e.g. no planted bytecode).  Only a hand-made developer runtime (override, no schema) keeps the lenient legacy check.
         full = _same_file(root, _app_dir() / "runtime-314t") or _declares_schema(root / runtime_lock.LOCK_NAME)
-        if not full or lock_path:  # an explicit lock path adds its legacy check; it never switches the full check off
-            problem = _check_lock(lock)
+        pins = []  # interpreter builds pinned by every lock consulted; ALL must equal what the child reports
+        # Lenient checks: the lock of a developer runtime, and an explicit lock path (which adds to the full check, never replaces it).
+        for lenient in ([lock] if (not full or lock_path) else []):
+            problem, pinned = _check_lock(lenient)
             if problem:
                 return ChildOutcome(status=UNAVAILABLE, reason=problem)
+            pins.append(pinned)
+        if not full and lock_path:  # also the lock beside the runtime, so an explicit path cannot hide its pin
+            problem, pinned = _check_lock(root / runtime_lock.LOCK_NAME)
+            if problem:
+                return ChildOutcome(status=UNAVAILABLE, reason=problem)
+            pins.append(pinned)
         lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
         root_lock = root / runtime_lock.LOCK_NAME
         lock_hash += "|" + (hashlib.sha256(root_lock.read_bytes()).hexdigest() if root_lock.is_file() else "")
         stat = Path(python).stat()
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
         return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
-    key = (str(python), stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
+    key = (str(python), full, stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
            EXPECT_NUMPY, tuple(sorted((k, repr(v)) for k, v in injection.items())))
     cached = _health_cache.get(key)
     if cached is not None:
         return cached
     if full:  # checked once per process and key (a bundle changed on disk during a session is noticed at the next start)
-        problem = runtime_lock.check_installed(root, expect_numpy=EXPECT_NUMPY, expect_source_digest=_parent_source_digest())
+        problem, built = runtime_lock.check_installed_lock(root, expect_numpy=EXPECT_NUMPY,
+                                                           expect_source_digest=_parent_source_digest())
         if problem:
             outcome = ChildOutcome(status=UNAVAILABLE, reason=problem)
             _health_cache[key] = outcome
             return outcome
+        pins.append(built.python_version_full)
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
     outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
-    if outcome.status == OK and lock.is_file():
-        try:
-            pinned = json.loads(lock.read_bytes()).get("python_version_full")
-        except (OSError, ValueError):
-            pinned = None
-        if pinned is not None and pinned != ((outcome.body or {}).get("health") or {}).get("version_full"):
+    if outcome.status == OK:  # no lock is read again here: the pins were collected from the data that was validated
+        reported = ((outcome.body or {}).get("health") or {}).get("version_full")
+        if any(pinned is not None and pinned != reported for pinned in pins):
             outcome.status, outcome.reason = UNAVAILABLE, "runtime.lock.json pins a different interpreter build"
     if outcome.status == OK and (outcome.body or {}).get("smoke") != _batch_prepare.SMOKE_DIGEST:
         outcome.status, outcome.reason = UNAVAILABLE, "smoke digest mismatch"
