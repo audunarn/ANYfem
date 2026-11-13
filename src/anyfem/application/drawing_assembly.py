@@ -207,10 +207,13 @@ def _projection(stocks, direction, up):
                  if not g.is_empty and g.geom_type == "LineString")
 
 
-def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True):
+def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
+                   elevation_datum="global"):
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
     profiles = build_plate_profiles(project, part_id)
+    from .drawing_datum import elevation_origin
+    base_z = elevation_origin(profiles, elevation_datum)
     part = project.geometry.parts[part_id]
     stocks = [_stock(p) for p in profiles]
     gauges = defaultdict(list)
@@ -223,8 +226,21 @@ def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True
     name = part.name or f"Part {part_id}"
     notes = (f"{quantity} x {name}   |   {len(profiles)} plate marks",
              f"Net plate steel   {unit_mass:.2f} kg each   /   {quantity*unit_mass:.2f} kg total",
-             "   /   ".join(f"{t*1000:g} mm   {math.fsum(m):.2f} kg each" for t,m in sorted(gauges.items())))
+             "   /   ".join(f"{t*1000:g} mm   {math.fsum(m):.2f} kg each" for t,m in sorted(gauges.items())),
+             f"Elevation datum {elevation_datum}: global Z {base_z*1000:g} mm")
     views = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
              ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
-    return tuple(DrawingView(f"{name}  /  {label}", _projection(stocks, direction, up), notes,projection=label.lower())
-                 for label,direction,up in (views if all_views else views[:1]))
+    result = []
+    for label, direction, up in (views if all_views else views[:1]):
+        n = np.asarray(direction, dtype=float)
+        n /= np.linalg.norm(n)
+        u = np.cross(up, n)
+        u /= np.linalg.norm(u)
+        axes = np.column_stack((u, np.cross(n, u)))
+        shift = np.array((0., 0., base_z)) @ axes
+        paths = _projection(stocks, direction, up)
+        if base_z:
+            paths = tuple(DrawingPath(path.layer, tuple(map(tuple, np.asarray(path.points)-shift)),
+                                      path.closed, path.label) for path in paths)
+        result.append(DrawingView(f"{name}  /  {label}", paths, notes, projection=label.lower()))
+    return tuple(result)

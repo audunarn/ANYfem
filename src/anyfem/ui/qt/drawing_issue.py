@@ -9,7 +9,8 @@ from ...application.plate_drawings import _make_dwg_copies, export_plate_drawing
 from .drawing_paper import write_sheets
 
 
-def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=None, converter=None, backend="oda"):
+def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=None, converter=None, backend="oda",
+            elevation_datum="support_base", include_plate_intersections=True):
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Choose a new drawing folder. {destination} already exists.")
@@ -21,13 +22,15 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
         if part_id is not None:
             from ...application.plate_view import build_plate_view
             export_plate_drawings(snapshot, part_id, package, quantity=quantity,
-                                  density_kg_m3=density, dwg_converter=converter, dwg_backend=backend)
+                                  density_kg_m3=density, dwg_converter=converter, dwg_backend=backend,
+                                  elevation_datum=elevation_datum,
+                                  include_plate_intersections=include_plate_intersections)
             index = package/"Plate-index.csv"
             project = snapshot.thaw()
             g = project.geometry
             for sid in g.parts[part_id].sheet_ids:
                 face = g.face_uses[g.sheets[sid].face_use_ids[0]].face_id
-                printable.append(build_plate_view(project,face))
+                printable.append(build_plate_view(project,face,include_plate_intersections=include_plate_intersections))
         cad = package/"views"
         cad.mkdir(parents=True)
         for i, view in enumerate(views,1):
@@ -40,7 +43,9 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
             "project_hash":canonical_hash(snapshot.document), "profile_units":"mm",
         }
         basis["views"] = [{"title":v.title, "drawing":f"views/View-{n:02d}.dxf",
-                           "notes":list(v.notes)} for n,v in enumerate(views,1)]
+                           "notes":list(v.notes),
+                           "intersection_reference_paths":sum(p.layer=="PLATE_INTERSECTIONS" for p in v.paths)}
+                          for n,v in enumerate(views,1)]
         if converter:
             basis["dwg_writer"] = "OpenCAD Studio" if backend=="studio" else "ODA File Converter"
         basis_file.write_text(json.dumps(basis,indent=2)+"\n", encoding="utf-8")

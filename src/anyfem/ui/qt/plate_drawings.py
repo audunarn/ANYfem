@@ -33,6 +33,13 @@ def create_plate_drawings(window):
     form.addRow("Number of assemblies", quantity)
     form.addRow(override)
     form.addRow("Takeoff density", density)
+    datum = QComboBox(dialog)
+    datum.addItem("Support lower edge · Z = 0", "support_base")
+    datum.addItem("Model global Z", "global")
+    form.addRow("Elevation datum", datum)
+    intersections = QCheckBox("Show intersecting plates", dialog)
+    intersections.setChecked(True)
+    form.addRow(intersections)
     dwg = QCheckBox("Include DWG copies using ODA File Converter", dialog)
     form.addRow(dwg)
     buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
@@ -56,5 +63,6 @@ def create_plate_drawings(window):
     output = export_plate_drawings(window.session.snapshot(), choice.currentData(), destination,
                                    quantity=quantity.value(),
                                    density_kg_m3=density.value() if override.isChecked() else None,
-                                   dwg_converter=converter)
+                                   dwg_converter=converter, elevation_datum=datum.currentData(),
+                                   include_plate_intersections=intersections.isChecked())
     window.set_status(f"Plate drawings and weight takeoff saved in {output}")

@@ -253,12 +253,20 @@ def _cylinder(project, sheet, faces):
     def local_develop(edge_id):
         return [translate(line, -x0, -y0) for line in develop(edge_id)]
 
+    def develop_points(points):
+        points = np.asarray(points) - cylinder.origin
+        angles = np.unwrap(np.arctan2(points @ cylinder.circumferential_direction,
+                                     points @ cylinder.radial_direction))
+        coords = np.column_stack((radius*angles, points @ cylinder.axis))
+        return [translate(line, -x0, -y0) for line in _periodic_parts(
+            LineString(coords), cut, period, LineString)]
+
     notes = [f"Cylindrical development on the shell reference surface, radius {radius*1000:g} mm.",
              "Curves traced with 0.005 mm chord tolerance on the reference surface."]
     if full:
         angle = np.degrees(cut/radius) % 360
         notes.append(f"Opened at {angle:g} degrees from face {faces[0].id}'s radial direction.")
-    return translate(physical, -x0, -y0), local_develop, (), tuple(notes)
+    return translate(physical, -x0, -y0), local_develop, (), tuple(notes), develop_points
 
 
 _ON_PLATE = {"member_on_face", "member_on_boundary", "member_on_face_boundary",
@@ -361,7 +369,8 @@ def _stiffeners(project, sheet, face_ids, edges, polygon, develop):
     return paths
 
 
-def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True) -> DrawingView:
+def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
+                     include_plate_intersections: bool = True) -> DrawingView:
     """Draw the entire Sheet owning a face, including its attached member axes."""
     g = project.geometry
     uses = [use for use in g.face_uses.values() if use.face_id == face_id]
@@ -391,19 +400,27 @@ def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True) 
             raise ValueError(f"Missing plate material {material}")
         stock = f"{material} | plate {thickness*1000:g} mm"
     else:
+        thickness = 0.
         stock = "plate thickness and material unassigned"
     cylinders = [isinstance(f.surface, Cylinder) for f in faces]
     if any(cylinders) and not all(cylinders):
         raise ValueError("Sheet combines cylindrical and other surfaces; separate plate developments are required")
     try:
+        develop_points = None
         if all(cylinders):
-            physical, develop, exact, notes = _cylinder(project, sheet, faces)
+            physical, develop, exact, notes, develop_points = _cylinder(project, sheet, faces)
         else:
             physical, develop, exact, notes = _planar(project, sheet, faces)
     except ImportError as error:
         raise ImportError("Install ANYfem's drawings extra to develop plate contours") from error
     paths = [_path("OUTLINE", list(physical.exterior.coords)[:-1], closed=True)]
     paths.extend(_path("HOLES", list(r.coords)[:-1], closed=True) for r in physical.interiors)
+    if include_plate_intersections:
+        from .plate_intersections import plate_intersections
+        references, intersection_notes = plate_intersections(
+            project, sheet, faces, physical, thickness, cylindrical=all(cylinders), develop_points=develop_points)
+        paths.extend(references)
+        notes = (*notes, *intersection_notes)
     if include_stiffeners:
         edges = {e.edge for f in faces for loop in (f.loop, *f.holes) for e in loop}
         paths.extend(_stiffeners(project, sheet, face_ids, edges, physical, develop))
