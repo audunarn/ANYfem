@@ -187,9 +187,3 @@ def orthotropic():
         poisson_ratio_23=0.30, shear_modulus_12=45e9, shear_modulus_13=40e9,
         shear_modulus_23=35e9, density=7850.0,
     )
-
-
-
-
-
-

@@ -200,5 +200,3 @@ def test_local_reseed_couples_component_and_requires_certified_physical_quality(
                 assert current.shells[e] == child.shells[e]
                 for n in current.shells[e]:
                     np.testing.assert_array_equal(current.nodes[n], child.nodes[n])
-
-

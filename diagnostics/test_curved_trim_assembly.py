@@ -74,5 +74,3 @@ def test_local_trim_preserves_second_panel_through_solver_and_reopen(curved_asse
             np.testing.assert_array_equal(next_mesh.nodes[n], new.nodes[n])
     for use in reopened.project.geometry.faces[face].holes[0]:
         assert next_mesh.nodes_of_edge[use.edge] == new.nodes_of_edge[use.edge]
-
-

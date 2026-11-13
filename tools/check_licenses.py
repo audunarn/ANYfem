@@ -51,7 +51,7 @@ INSTALLED_LICENSE_ALIASES = {
     "anyfesolver-results": {"MPL-2.0"},
     "anytk3d": {"MPL-2.0"},
     "anyfatigue": {"MPL-2.0"},
-    "ezdxf": {"MIT"},
+    "ezdxf": {"MIT", "MIT License"},
     "shapely": {"BSD-3-Clause"},
     "build": {"MIT"},
     "h5py": {"BSD-3-Clause", "BSD License"},

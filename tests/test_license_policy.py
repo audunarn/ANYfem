@@ -58,3 +58,17 @@ def test_incomplete_scipy_legacy_notice_is_not_normalized() -> None:
     distribution = _Distribution({"License": legacy})
 
     assert _license_from_metadata(distribution, name="scipy") == legacy
+
+
+@pytest.mark.parametrize('reported',['MIT','MIT License'])
+def test_ezdxf_installed_metadata_accepts_verified_mit_aliases(monkeypatch, reported):
+    from tools import check_licenses
+    monkeypatch.setattr(check_licenses.importlib_metadata,'distribution',lambda name:_Distribution({'License':reported}))
+    check_licenses._check_installed([{'name':'ezdxf','scope':'optional:drawings'}])
+
+
+def test_ezdxf_installed_metadata_still_refuses_other_licenses(monkeypatch):
+    from tools import check_licenses
+    monkeypatch.setattr(check_licenses.importlib_metadata,'distribution',lambda name:_Distribution({'License':'GPL-3.0-only'}))
+    with pytest.raises(SystemExit,match='review-required'):
+        check_licenses._check_installed([{'name':'ezdxf','scope':'optional:drawings'}])

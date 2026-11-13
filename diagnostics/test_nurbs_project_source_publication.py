@@ -70,15 +70,3 @@ def test_principal_public_project_prepares_complete_owned_face_scope_before_mesh
     assert project.section_assignments == before_assignments
     assert project._mesh_preparation_cache is None
     assert project._mesh_preparation_qualification is None
-
-
-
-
-
-
-
-
-
-
-
-

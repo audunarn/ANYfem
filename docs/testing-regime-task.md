@@ -44,4 +44,39 @@ private data to that external destination. No Claude inference was launched.
 The built-in OpenAI worker is the available fallback; no rejected route is being
 retried or bypassed. This availability boundary justifies the ownership change.
 
-State: implementation assigned; early checkpoint and final receipts pending.
+State: implementation delivered for parent verification; release acceptance remains open.
+
+The manager runner, diagnostic split, baseline UI/launcher repairs and release
+workflow migration are implemented. Quick includes runner/schema/held-capability
+contracts and real process-tree cleanup tests. The POSIX inherited-pipe regression
+runs on supported POSIX hosts. This remains within the existing 600-second budget.
+
+Pressure fixture amendment adopted by Astra for the focused continuation:
+the routine target remains three curved planar quads over 90 degrees, radius 1 m,
+height 0.8 m. The source uses two triangles per target facet with the opposite
+(1,3) diagonal, translated 0.001 m along that facet's public-validator unit normal.
+Normals/areas come from the public validator. Independent tessellation, plane
+offset and actual projection are required. The bank has six triangles, eighteen
+vertices and six complex responses. With uniform pressure, translating a panel
+along its normal leaves its moment unchanged because (d*n) cross F is zero.
+Original force [-80,-80,0], moment [-48,48,0], all tolerances and the positive
+projected-target assertion remain unchanged.
+
+The original independent angular-remesh function is retained unchanged from
+snapshot 9f8254f in diagnostics/test_orcawave_pressure_angular_remesh.py. Its
+prospective 300-second ceiling is unallocated and grants no execution authority.
+The inventory records both identities and the routine replacement. Angular-remesh
+coverage is retained as a diagnostic, not claimed as relocated owner coverage.
+
+Failed fixture experiments remain in the evidence ledger: the 45-degree 3/5 and
+3/6 height-0.8 trials exhausted the unchanged depth-8 convergence criterion; the
+3/6 height-0.2 trial hit its 45-second bound. The prior 90-degree 3/5 coarse-mesh
+fixture completed its assertions in about 134 seconds during a broader bounded
+run. No saving is attributed to these experiments. Parent verification will
+measure the replacement's actual behavior and process-wall duration.
+
+Worker accounting remains 886.116331 seconds of 900; the continuation grants no
+new checks. Full within 1200 seconds, current quick within 600 seconds, declared
+compatibility/Qt/GPU/installed-wheel gates and the exact caller lane still require
+parent/CI acceptance. Historical failed evidence, unsupported holds and consumed
+scientific authority remain intact.

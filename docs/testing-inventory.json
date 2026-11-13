@@ -10,7 +10,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_anypost_adoption.py",
@@ -19,7 +20,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_anypost_boundary_repairs.py",
@@ -28,7 +30,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_anypost_channels.py",
@@ -37,7 +40,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_anypost_review_repairs.py",
@@ -46,7 +50,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_application_frontend_boundary.py",
@@ -55,7 +60,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_attribute_edit_selection.py",
@@ -64,7 +70,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_automatic_curved_recovery.py",
@@ -73,7 +80,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_background_meshing.py",
@@ -82,7 +90,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_barge_example.py",
@@ -91,7 +100,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_barge_fatigue_example.py",
@@ -100,7 +110,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_batch_pressure_preparation.py",
@@ -109,7 +120,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_beam_boundary_aliases.py",
@@ -118,7 +130,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_caller_host_isolation.py",
@@ -127,7 +140,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_caller_planning_profile.py",
@@ -136,7 +150,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_capacity_progress.py",
@@ -145,7 +160,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ci_mesher_caller_integration.py",
@@ -154,7 +170,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_closed_spline_construction_speed_acceptance.py",
@@ -162,9 +179,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "opt-in scalability/runtime campaign",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 600,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_closed_spline_construction_speed_acceptance.py"
+      "current": "diagnostics/test_closed_spline_construction_speed_acceptance.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": null
     },
     {
       "path": "tests/test_closed_spline_extrusion_acceptance.py",
@@ -174,7 +193,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_closed_spline_extrusion_acceptance.py"
+      "current": "tests/test_closed_spline_extrusion_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_colour_modes.py",
@@ -183,7 +203,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_command_recording.py",
@@ -192,7 +213,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_commands.py",
@@ -201,7 +223,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_commercial_foundations.py",
@@ -210,7 +233,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_commercial_workflow_acceptance.py",
@@ -220,7 +244,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_commercial_workflow_acceptance.py"
+      "current": "tests/test_commercial_workflow_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_connections.py",
@@ -229,7 +254,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_coordinate_scopes.py",
@@ -238,7 +264,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_current_diagnosis_acceptance.py",
@@ -248,7 +275,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_current_diagnosis_acceptance.py"
+      "current": "tests/test_current_diagnosis_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_curved_mesh_temporary_owners.py",
@@ -257,7 +285,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_curved_sketch_display.py",
@@ -266,7 +295,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_curved_source_publication_adapter.py",
@@ -275,7 +305,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_curved_trim_assembly.py",
@@ -284,7 +315,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_curvilinear_source_remap_guard.py",
@@ -293,7 +325,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_decomposition.py",
@@ -302,7 +335,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_definition_tasks.py",
@@ -311,7 +345,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_definition_ui.py",
@@ -320,7 +355,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_diagnosis_process_cancellation.py",
@@ -329,7 +365,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_diagnostic_current_state.py",
@@ -338,7 +375,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_diagnostics.py",
@@ -347,7 +385,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_document_geometry_snapshot.py",
@@ -356,7 +395,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_document_hash_payloads.py",
@@ -365,7 +405,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_drawing_assembly.py",
@@ -374,7 +415,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_drawing_paper.py",
@@ -383,7 +425,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_drawing_plate_view.py",
@@ -392,7 +435,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_drawing_sections.py",
@@ -401,7 +445,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_e4_pl_default_routing.py",
@@ -410,7 +455,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ecosystem_integration.py",
@@ -419,7 +465,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_edge_load_mapping_acceptance.py",
@@ -429,7 +476,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_edge_load_mapping_acceptance.py"
+      "current": "tests/test_edge_load_mapping_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_edge_selection_acceptance.py",
@@ -439,7 +487,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_edge_selection_acceptance.py"
+      "current": "tests/test_edge_selection_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_empty_set_membership.py",
@@ -448,7 +497,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_existing_material_caller_scope.py",
@@ -457,7 +507,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_face_submission_snapshots.py",
@@ -466,7 +517,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_faceted_s3_source.py",
@@ -475,7 +527,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_fatigue_results.py",
@@ -484,7 +537,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_feature_attachments.py",
@@ -493,7 +547,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_clearance.py",
@@ -502,7 +557,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_direct_lid.py",
@@ -511,7 +567,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_loads.py",
@@ -520,7 +577,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_panel_source.py",
@@ -529,7 +587,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_passivity.py",
@@ -538,7 +597,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_pipeline.py",
@@ -546,9 +606,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_floating_pipeline.py"
+      "current": "diagnostics/test_floating_pipeline.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 42.96104989099999
     },
     {
       "path": "tests/test_floating_profile.py",
@@ -557,7 +619,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_publication_cleanup.py",
@@ -566,7 +629,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_publication_hardkill.py",
@@ -575,7 +639,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_residual_relief.py",
@@ -584,7 +649,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_transfer.py",
@@ -593,7 +659,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_transient.py",
@@ -602,7 +669,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_transient_job.py",
@@ -611,7 +679,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_transient_prepare.py",
@@ -620,7 +689,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_transient_record.py",
@@ -629,7 +699,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_floating_waterline_admission.py",
@@ -638,7 +709,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_focused_qualification_dispatch.py",
@@ -647,7 +719,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_free_floating.py",
@@ -656,7 +729,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ge_beam3_optin.py",
@@ -665,7 +739,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_generator_mesh_consumption.py",
@@ -674,7 +749,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_generator_properties.py",
@@ -683,7 +759,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_bulk_edit_acceptance.py",
@@ -693,7 +770,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_geometry_bulk_edit_acceptance.py"
+      "current": "tests/test_geometry_bulk_edit_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_cleaner.py",
@@ -702,7 +780,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_command_staging.py",
@@ -711,7 +790,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_diagnosis_export.py",
@@ -720,7 +800,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_edit.py",
@@ -729,7 +810,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_schema6_consumer.py",
@@ -738,7 +820,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_sets_actions.py",
@@ -747,7 +830,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_geometry_tree_policy.py",
@@ -756,7 +840,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_grouped_face_hit_scope.py",
@@ -765,7 +850,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_gui_launcher.py",
@@ -774,7 +860,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_hydro_pressure_glyphs.py",
@@ -783,7 +870,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_hydro_pressure_series.py",
@@ -792,7 +880,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_hydro_wave_pressure.py",
@@ -801,7 +890,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_impact.py",
@@ -810,7 +900,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_implied_zero_clamps.py",
@@ -819,7 +910,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_imported_persistence.py",
@@ -828,7 +920,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_inertia_relief_settings.py",
@@ -837,7 +930,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_interop_results.py",
@@ -846,7 +940,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_intersection_meshing.py",
@@ -855,7 +950,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_io.py",
@@ -864,7 +960,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_irregular_wave_input.py",
@@ -873,7 +970,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_job_manager_acceptance.py",
@@ -883,7 +981,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_job_manager_acceptance.py"
+      "current": "tests/test_job_manager_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_job_process.py",
@@ -892,7 +991,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_job_process_containment.py",
@@ -901,7 +1001,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_job_staleness_cache.py",
@@ -910,7 +1011,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_join_sheet_command.py",
@@ -919,7 +1021,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_l01_pressure_source.py",
@@ -928,7 +1031,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_l01_structural_example.py",
@@ -937,7 +1041,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_latest_v7_compatibility.py",
@@ -946,7 +1051,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_launcher_ecosystem_preflight.py",
@@ -955,7 +1061,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_legacy_geometry_owner_migration.py",
@@ -964,7 +1071,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_license_policy.py",
@@ -973,7 +1081,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_live_progress.py",
@@ -982,7 +1091,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_load_assignment.py",
@@ -991,7 +1101,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_load_series.py",
@@ -1000,7 +1111,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loads.py",
@@ -1009,7 +1121,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_local_mesh_sizes.py",
@@ -1018,7 +1131,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_basic_public_integration.py",
@@ -1027,7 +1141,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_basic_workflow.py",
@@ -1036,7 +1151,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_closed_public_integration.py",
@@ -1045,7 +1161,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_downstream.py",
@@ -1054,7 +1171,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_public_integration.py",
@@ -1063,7 +1181,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_loft_workflow.py",
@@ -1072,7 +1191,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_automatic_workbench.py",
@@ -1081,7 +1201,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_connected_update.py",
@@ -1090,7 +1211,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_curved_update.py",
@@ -1099,7 +1221,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_diagnosis_workflow.py",
@@ -1108,7 +1231,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_execution_policy.py",
@@ -1117,7 +1241,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_execution_submission.py",
@@ -1126,7 +1251,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_general_interior.py",
@@ -1135,7 +1261,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_general_update.py",
@@ -1144,7 +1271,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_gui_controls.py",
@@ -1153,7 +1281,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_job_snapshot.py",
@@ -1162,7 +1291,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_layout_commit.py",
@@ -1171,7 +1301,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_method_selection.py",
@@ -1180,7 +1311,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_mixed_source_update.py",
@@ -1189,7 +1321,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_node_visibility.py",
@@ -1198,7 +1331,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_numbering_authority.py",
@@ -1207,7 +1341,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_parallel_integration.py",
@@ -1216,7 +1351,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_periodic_component_update.py",
@@ -1225,7 +1361,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_preparation_cache_atomicity.py",
@@ -1234,7 +1371,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_pressure_preview.py",
@@ -1243,7 +1381,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_process.py",
@@ -1252,7 +1391,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_publication_lifecycle.py",
@@ -1261,7 +1401,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_publication_numbers.py",
@@ -1270,7 +1411,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_reference_update.py",
@@ -1279,7 +1421,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_runtime_diagnostics.py",
@@ -1288,7 +1431,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_scene_beam_preparation.py",
@@ -1297,7 +1441,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_source_chart_update.py",
@@ -1306,7 +1451,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_source_network.py",
@@ -1315,7 +1461,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_source_trim.py",
@@ -1324,7 +1471,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_structural_update.py",
@@ -1333,7 +1481,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_surface_update.py",
@@ -1342,7 +1491,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_task_parallel_lifecycle.py",
@@ -1351,7 +1501,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_task_safe_cancellation.py",
@@ -1360,7 +1511,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesh_whole_plate_update.py",
@@ -1369,7 +1521,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesher_authored_child_project_cells.py",
@@ -1378,7 +1531,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mesher_authored_project_references.py",
@@ -1387,7 +1541,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_migration.py",
@@ -1396,7 +1551,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_mixed_stress.py",
@@ -1405,7 +1561,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_model.py",
@@ -1414,7 +1571,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_modeling_tools.py",
@@ -1423,7 +1581,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_modeling_tools_ui.py",
@@ -1432,7 +1591,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_named_mesh_size_acceptance.py",
@@ -1442,7 +1602,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_named_mesh_size_acceptance.py"
+      "current": "tests/test_named_mesh_size_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_named_mesh_sizes.py",
@@ -1451,7 +1612,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_native_meshing_backend.py",
@@ -1460,7 +1622,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_native_meshing_cache_reuse.py",
@@ -1469,7 +1632,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_native_meshing_project.py",
@@ -1478,7 +1642,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_native_meshing_runtime.py",
@@ -1487,7 +1652,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_nonlinear_recovery_acceptance.py",
@@ -1497,7 +1663,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_nonlinear_recovery_acceptance.py"
+      "current": "tests/test_nonlinear_recovery_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_numeric_input.py",
@@ -1506,7 +1673,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_nurbs_approximation_request.py",
@@ -1515,7 +1683,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_nurbs_cut_mesh_integration.py",
@@ -1523,9 +1692,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_nurbs_cut_mesh_integration.py"
+      "current": "diagnostics/test_nurbs_cut_mesh_integration.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 32.032690418
     },
     {
       "path": "tests/test_nurbs_cut_mesh_release_hold.py",
@@ -1533,9 +1704,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_nurbs_cut_mesh_release_hold.py"
+      "current": "diagnostics/test_nurbs_cut_mesh_release_hold.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 0.9747060409999999
     },
     {
       "path": "tests/test_nurbs_preparation_authority.py",
@@ -1544,7 +1717,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_nurbs_project_source_publication.py",
@@ -1553,16 +1727,18 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_orcawave_pressure.py",
       "disposition": "required application",
       "owner": "ANYfem",
-      "purpose": "manager/application regression contracts",
+      "purpose": "Required pressure manager contracts, including offset independent triangulation/projection and wrench conservation; angular-remesh campaign retained separately",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_output_request_views.py",
@@ -1571,7 +1747,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_output_requests.py",
@@ -1580,7 +1757,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_overlap_and_generator_ui.py",
@@ -1589,7 +1767,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_passive_diagnostic_watchdog.py",
@@ -1598,7 +1777,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_performance_acceptance.py",
@@ -1606,9 +1786,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "opt-in scalability/runtime campaign",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_performance_acceptance.py"
+      "current": "diagnostics/test_performance_acceptance.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 0.027862109000000003
     },
     {
       "path": "tests/test_physical_beams.py",
@@ -1617,7 +1799,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_planar_ngon_display.py",
@@ -1626,7 +1809,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_planar_source_qualification_routing.py",
@@ -1635,7 +1819,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_plate_drawing_curves.py",
@@ -1644,7 +1829,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_plate_drawing_export.py",
@@ -1653,7 +1839,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_plate_edge_selection.py",
@@ -1662,7 +1849,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_plate_profiles.py",
@@ -1671,7 +1859,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_post_archive.py",
@@ -1680,7 +1869,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_post_archive_application_repair.py",
@@ -1689,7 +1879,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_post_shared_metadata.py",
@@ -1698,7 +1889,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_postprocessing.py",
@@ -1707,7 +1899,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_preflight_diagnostics.py",
@@ -1716,7 +1909,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_preparation_evidence.py",
@@ -1725,7 +1919,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_candidate_integration.py",
@@ -1734,7 +1929,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_candidate_supervisor.py",
@@ -1743,7 +1939,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_edge_load_aliases.py",
@@ -1752,7 +1949,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_mesh_preassembly.py",
@@ -1761,7 +1959,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_mesh_remap.py",
@@ -1770,7 +1969,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_mesh_remap_copy_hook.py",
@@ -1779,7 +1979,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_mesh_remap_review.py",
@@ -1788,7 +1989,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_project_copy.py",
@@ -1797,7 +1999,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_reference_scope.py",
@@ -1806,7 +2009,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_adapter.py",
@@ -1815,7 +2019,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_envelopes.py",
@@ -1824,7 +2029,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_integration.py",
@@ -1833,7 +2039,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_response.py",
@@ -1842,7 +2049,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_response_m16.py",
@@ -1851,7 +2059,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_response_m20.py",
@@ -1860,7 +2069,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_trusted_capture.py",
@@ -1869,7 +2079,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_prepared_static_wet_cache.py",
@@ -1878,7 +2089,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_presentation_workspace.py",
@@ -1887,7 +2099,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_pressure_remap.py",
@@ -1896,7 +2109,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_pressure_source_selector.py",
@@ -1905,7 +2119,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_public_imports.py",
@@ -1914,7 +2129,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_activation_readiness.py",
@@ -1923,7 +2139,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_apply_enter.py",
@@ -1932,7 +2149,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_barge_fatigue_example.py",
@@ -1941,7 +2159,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_bottom_docks.py",
@@ -1950,7 +2169,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_button_help.py",
@@ -1959,7 +2179,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_cad_visualization.py",
@@ -1968,7 +2189,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_camera_responsiveness.py",
@@ -1977,7 +2199,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_capacity_responsiveness.py",
@@ -1986,7 +2209,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_closed_spline_extrusion_acceptance.py",
@@ -1996,7 +2220,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_closed_spline_extrusion_acceptance.py"
+      "current": "tests/test_qt_closed_spline_extrusion_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_colour_modes.py",
@@ -2005,7 +2230,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_combined_point_input.py",
@@ -2014,7 +2240,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_connected_contracts.py",
@@ -2023,7 +2250,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_connections.py",
@@ -2032,7 +2260,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_cross_cell_update.py",
@@ -2041,7 +2270,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_current_diagnosis_acceptance.py",
@@ -2051,7 +2281,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_current_diagnosis_acceptance.py"
+      "current": "tests/test_qt_current_diagnosis_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_diagnosis_summary.py",
@@ -2060,7 +2291,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_diagnostic_current_state.py",
@@ -2069,7 +2301,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_dock_footer_lifecycle.py",
@@ -2078,7 +2311,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_drawing_workspace.py",
@@ -2087,7 +2321,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_edge_selection_acceptance.py",
@@ -2097,7 +2332,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_edge_selection_acceptance.py"
+      "current": "tests/test_qt_edge_selection_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_empty_sets_acceptance.py",
@@ -2107,7 +2343,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_empty_sets_acceptance.py"
+      "current": "tests/test_qt_empty_sets_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_examples.py",
@@ -2116,7 +2353,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_face_outlines.py",
@@ -2125,7 +2363,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_fatigue.py",
@@ -2134,7 +2373,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_fatigue_picking.py",
@@ -2143,7 +2383,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_field_icons.py",
@@ -2152,7 +2393,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_floating_apply.py",
@@ -2161,7 +2403,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_floating_transient.py",
@@ -2170,7 +2413,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_floating_wave_load.py",
@@ -2179,7 +2423,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_free_floating.py",
@@ -2188,7 +2433,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_generated_member_picking.py",
@@ -2197,7 +2443,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_generated_panel_highlight.py",
@@ -2206,7 +2453,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_generator_properties.py",
@@ -2215,7 +2463,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_geometry_actions.py",
@@ -2224,7 +2473,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_geometry_bulk_edit_acceptance.py",
@@ -2234,7 +2484,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_geometry_bulk_edit_acceptance.py"
+      "current": "tests/test_qt_geometry_bulk_edit_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_geometry_cleaner.py",
@@ -2243,7 +2494,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_geometry_edit.py",
@@ -2252,7 +2504,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_geometry_schema6_consumer.py",
@@ -2261,7 +2514,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_gui_restoration.py",
@@ -2270,7 +2524,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_gui_sweep.py",
@@ -2279,7 +2534,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_highlight_updates.py",
@@ -2288,7 +2544,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_inertia_relief.py",
@@ -2297,7 +2554,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_irregular_wave_load.py",
@@ -2306,7 +2564,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_legend_contrast.py",
@@ -2315,7 +2574,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_load_panel.py",
@@ -2324,7 +2584,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_load_panel_lifecycle.py",
@@ -2333,7 +2594,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_loads_edges_acceptance.py",
@@ -2343,7 +2605,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_loads_edges_acceptance.py"
+      "current": "tests/test_qt_loads_edges_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_loft.py",
@@ -2352,7 +2615,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_loft_basic_profiles.py",
@@ -2361,7 +2625,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_mesh_fault_injection.py",
@@ -2370,7 +2635,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_mesh_parallel_integration.py",
@@ -2379,7 +2645,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_mesh_parallel_selection.py",
@@ -2388,7 +2655,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_mesh_pressure_preview.py",
@@ -2397,7 +2665,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_mesh_quad_options_reopen.py",
@@ -2406,7 +2675,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_model_colour_acceptance.py",
@@ -2416,7 +2686,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_model_colour_acceptance.py"
+      "current": "tests/test_qt_model_colour_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_model_resume.py",
@@ -2425,7 +2696,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_named_mesh_size_acceptance.py",
@@ -2435,7 +2707,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_named_mesh_size_acceptance.py"
+      "current": "tests/test_qt_named_mesh_size_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_named_mesh_sizes.py",
@@ -2444,7 +2717,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_numeric_input.py",
@@ -2453,7 +2727,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_orcawave_pressure.py",
@@ -2462,7 +2737,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_owner_graph.py",
@@ -2471,7 +2747,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_physical_beams.py",
@@ -2480,7 +2757,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_plate_click_mode.py",
@@ -2489,7 +2767,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_plate_construction.py",
@@ -2498,7 +2777,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_plate_edge_selection.py",
@@ -2507,7 +2787,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_pressure_highlight_scope.py",
@@ -2516,7 +2797,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_pressure_scope_acceptance.py",
@@ -2526,7 +2808,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_pressure_scope_acceptance.py"
+      "current": "tests/test_qt_pressure_scope_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_process_jobs.py",
@@ -2535,7 +2818,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_regional_update.py",
@@ -2544,7 +2828,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_result_browser.py",
@@ -2553,7 +2838,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_result_playback.py",
@@ -2562,7 +2848,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_run_progress.py",
@@ -2571,7 +2858,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_runtime_diagnostics.py",
@@ -2580,7 +2868,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sat_import.py",
@@ -2589,7 +2878,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_scheduling.py",
@@ -2598,7 +2888,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_section_library.py",
@@ -2607,7 +2898,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_set_membership.py",
@@ -2616,7 +2908,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sets_presentation.py",
@@ -2625,7 +2918,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sets_unification_acceptance.py",
@@ -2635,7 +2929,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_sets_unification_acceptance.py"
+      "current": "tests/test_qt_sets_unification_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketch_coordinates.py",
@@ -2644,7 +2939,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketch_cut.py",
@@ -2653,7 +2949,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketch_external_references.py",
@@ -2662,7 +2959,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketch_overlay_lifetime.py",
@@ -2671,7 +2969,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketcher_controller.py",
@@ -2680,7 +2979,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_sketcher_workflow.py",
@@ -2689,7 +2989,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_spline_extrusion_acceptance.py",
@@ -2699,7 +3000,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_spline_extrusion_acceptance.py"
+      "current": "tests/test_qt_spline_extrusion_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_submodel_task.py",
@@ -2708,7 +3010,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_submodel_workspace.py",
@@ -2717,7 +3020,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_table_acceptance.py",
@@ -2727,7 +3031,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_table_acceptance.py"
+      "current": "tests/test_qt_table_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_apply_selection_acceptance.py",
@@ -2737,7 +3042,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_tree_apply_selection_acceptance.py"
+      "current": "tests/test_qt_tree_apply_selection_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_attribute_edit.py",
@@ -2746,7 +3052,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_direct_edit_acceptance.py",
@@ -2756,7 +3063,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_qt_tree_direct_edit_acceptance.py"
+      "current": "tests/test_qt_tree_direct_edit_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_interaction_performance.py",
@@ -2764,9 +3072,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "opt-in scalability/runtime campaign",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 600,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_qt_tree_interaction_performance.py"
+      "current": "diagnostics/test_qt_tree_interaction_performance.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": null
     },
     {
       "path": "tests/test_qt_tree_locations.py",
@@ -2775,7 +3085,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_property_assignment.py",
@@ -2784,7 +3095,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_tree_refresh.py",
@@ -2793,7 +3105,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_visibility.py",
@@ -2802,7 +3115,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wave_hydrostatic.py",
@@ -2811,7 +3125,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wave_load.py",
@@ -2820,7 +3135,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wave_preview_navigation.py",
@@ -2829,7 +3145,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wave_surface_pressure.py",
@@ -2838,7 +3155,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wave_window.py",
@@ -2847,7 +3165,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_webgpu_integration.py",
@@ -2856,7 +3175,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wet_loads.py",
@@ -2865,7 +3185,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wind_turbine_integration.py",
@@ -2874,7 +3195,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_wind_turbine_load.py",
@@ -2883,7 +3205,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_workbench.py",
@@ -2892,7 +3215,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_qt_worktree_tables.py",
@@ -2901,7 +3225,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_quad_adaptive_default.py",
@@ -2910,7 +3235,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_quad_first_analysis_gate.py",
@@ -2919,7 +3245,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_quad_planar_boundary_bars.py",
@@ -2928,7 +3255,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_quad_stiffened_cylinder.py",
@@ -2937,7 +3265,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_quad_triangle_angle_settings.py",
@@ -2946,7 +3275,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_raw_sweep_owner_dispatch.py",
@@ -2955,7 +3285,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_recovery.py",
@@ -2964,7 +3295,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_recovery_coalescing.py",
@@ -2973,7 +3305,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_refinement.py",
@@ -2982,7 +3315,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_regional_mesh.py",
@@ -2991,7 +3325,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_regional_mesh_job.py",
@@ -3000,7 +3335,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_regional_owner_refusal.py",
@@ -3009,7 +3345,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_reported_spline_mesh_release_hold.py",
@@ -3018,7 +3355,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_reproducible_reports.py",
@@ -3027,7 +3365,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_artifact.py",
@@ -3036,7 +3375,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_browser.py",
@@ -3045,7 +3385,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_component_first_use.py",
@@ -3054,7 +3395,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_display.py",
@@ -3063,7 +3405,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_exports.py",
@@ -3072,7 +3415,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_first_use_opacity.py",
@@ -3081,7 +3425,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_frame_reuse.py",
@@ -3090,7 +3435,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_inventory_publication.py",
@@ -3099,7 +3445,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_metadata_lifecycle.py",
@@ -3108,7 +3455,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_metadata_not_stress.py",
@@ -3117,7 +3465,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_preparation_reductions.py",
@@ -3126,7 +3475,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_retained_appearance.py",
@@ -3135,7 +3485,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_session_readiness.py",
@@ -3144,7 +3495,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_summary.py",
@@ -3153,7 +3505,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_surface_sides.py",
@@ -3162,7 +3515,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_result_transport.py",
@@ -3171,7 +3525,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_retained_scene_block_identity.py",
@@ -3180,7 +3535,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_retained_viewer_ownership.py",
@@ -3189,7 +3545,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_run_progress.py",
@@ -3198,7 +3555,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sat_geometry_import.py",
@@ -3207,7 +3565,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_scene.py",
@@ -3216,7 +3575,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_scripting.py",
@@ -3225,7 +3585,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_section_assignments.py",
@@ -3234,7 +3595,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_selection.py",
@@ -3243,7 +3605,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_selection_state.py",
@@ -3252,7 +3615,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_selection_strip_policy.py",
@@ -3261,7 +3625,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sets_presentation.py",
@@ -3270,7 +3635,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sets_unification_acceptance.py",
@@ -3280,7 +3646,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_sets_unification_acceptance.py"
+      "current": "tests/test_sets_unification_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_shell_driven_solid_jobs.py",
@@ -3289,7 +3656,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_shell_formulation_hold.py",
@@ -3298,7 +3666,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sketch_axis_anchors.py",
@@ -3307,7 +3676,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sketch_external_references.py",
@@ -3316,7 +3686,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sketch_plate_cut.py",
@@ -3325,7 +3696,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sketch_workflow.py",
@@ -3334,7 +3706,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_sketcher_controller.py",
@@ -3343,7 +3716,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_smart_mapped_public.py",
@@ -3352,7 +3726,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_solve.py",
@@ -3361,7 +3736,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_solve_panel_options.py",
@@ -3370,7 +3746,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_solver_controls.py",
@@ -3379,7 +3756,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_solver_outcome_jobs.py",
@@ -3388,7 +3766,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_solver_quantity_bridge.py",
@@ -3397,7 +3776,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_source_job_cancellation.py",
@@ -3406,7 +3786,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_source_mesh_publication.py",
@@ -3415,7 +3796,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_spline_extrusion_acceptance.py",
@@ -3425,7 +3807,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_spline_extrusion_acceptance.py"
+      "current": "tests/test_spline_extrusion_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_spline_mesh_ownership_acceptance.py",
@@ -3433,9 +3816,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_spline_mesh_ownership_acceptance.py"
+      "current": "diagnostics/test_spline_mesh_ownership_acceptance.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 0.005487757
     },
     {
       "path": "tests/test_spooled_worker_transport.py",
@@ -3444,7 +3829,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_static_batch_adapter.py",
@@ -3453,7 +3839,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_static_batch_envelope_factors.py",
@@ -3462,7 +3849,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_static_batch_examples.py",
@@ -3471,7 +3859,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_static_batch_integration.py",
@@ -3480,7 +3869,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_strong_raw_sweep_handoff.py",
@@ -3489,7 +3879,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_structural.py",
@@ -3498,7 +3889,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_structural_preparation_capabilities.py",
@@ -3507,7 +3899,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_a8_regional.py",
@@ -3516,7 +3909,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_attached_cut.py",
@@ -3525,7 +3919,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_child_edit.py",
@@ -3534,7 +3929,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_cut.py",
@@ -3543,7 +3939,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_cylinder.py",
@@ -3552,7 +3949,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_design.py",
@@ -3561,7 +3959,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_jobs.py",
@@ -3570,7 +3969,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_regional_integration.py",
@@ -3579,7 +3979,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_submodel_workflow.py",
@@ -3588,7 +3989,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_suite_structure.py",
@@ -3597,7 +3999,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_support_b_drawing_example.py",
@@ -3606,7 +4009,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_table_acceptance.py",
@@ -3616,7 +4020,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_table_acceptance.py"
+      "current": "tests/test_table_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_test_runner.py",
@@ -3625,7 +4030,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_thread_route.py",
@@ -3634,7 +4040,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_transport_preparation_context.py",
@@ -3643,7 +4050,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_tree_bulk_delete.py",
@@ -3652,7 +4060,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_tree_property_assignment.py",
@@ -3661,7 +4070,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_tripod_preparation_phase.py",
@@ -3670,7 +4080,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_tripod_structural_diagnostics.py",
@@ -3679,7 +4090,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_turbine_mass_attachment.py",
@@ -3688,7 +4100,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_turbine_result_transport.py",
@@ -3697,7 +4110,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ui_job_acceptance.py",
@@ -3707,7 +4121,8 @@
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
       "coverage_gap": null,
-      "current": "tests/test_ui_job_acceptance.py"
+      "current": "tests/test_ui_job_acceptance.py",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ui_scalability.py",
@@ -3716,7 +4131,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_ui_smoke.py",
@@ -3725,7 +4141,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_unknown_feature_integration.py",
@@ -3734,7 +4151,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_updated_solver_compatibility.py",
@@ -3743,7 +4161,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_verification.py",
@@ -3751,9 +4170,11 @@
       "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
       "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
       "trigger": "explicit qualification; existing campaign authority",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 180,
       "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
-      "current": "diagnostics/test_verification.py"
+      "current": "diagnostics/test_verification.py",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 108.878583596
     },
     {
       "path": "tests/test_viewer_backend_integration.py",
@@ -3762,7 +4183,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_viewport_commercial_selection.py",
@@ -3771,7 +4193,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_viewport_retained_geometry.py",
@@ -3780,7 +4203,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_visibility.py",
@@ -3789,7 +4213,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_visual_presets.py",
@@ -3798,7 +4223,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_visualization.py",
@@ -3807,7 +4233,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wave_hydrostatic.py",
@@ -3816,7 +4243,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wave_input_settings.py",
@@ -3825,7 +4253,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wave_surface_application.py",
@@ -3834,7 +4263,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wave_surface_worker.py",
@@ -3843,7 +4273,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_webgpu_launcher.py",
@@ -3852,7 +4283,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wet_pressure.py",
@@ -3861,7 +4293,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wet_pressure_code_table.py",
@@ -3870,7 +4303,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wet_pressure_scene.py",
@@ -3879,7 +4313,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_wind_turbine_load.py",
@@ -3888,7 +4323,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_worker_retirement_edges.py",
@@ -3897,7 +4333,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_workflow.py",
@@ -3906,7 +4343,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_workflow_event_scheduling.py",
@@ -3915,7 +4353,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_workplane_snapping.py",
@@ -3924,7 +4363,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_worktree_tables.py",
@@ -3933,7 +4373,8 @@
       "purpose": "manager/application regression contracts",
       "trigger": "full release",
       "runtime_budget_seconds": 1200,
-      "coverage_gap": null
+      "coverage_gap": null,
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     },
     {
       "path": "tests/test_manager_workflows.py",
@@ -3942,7 +4383,8 @@
       "purpose": "tiny real application orchestration, owner dispatch and installed artifact smoke",
       "trigger": "quick/full/compatibility",
       "runtime_budget_seconds": 300,
-      "coverage_gap": "Installed-wheel lane requires CI-built artifact"
+      "coverage_gap": "Installed-wheel lane requires CI-built artifact",
+      "runtime_budget_scope": "shared application route budget; not per-module authority"
     }
   ],
   "diagnostic_nodes": [
@@ -3952,9 +4394,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 2700,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 1.280324094
     },
     {
       "original": "tests/test_workflow.py::test_the_capacity_summary_names_both_load_factors",
@@ -3962,9 +4406,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 2700,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 1.293588074
     },
     {
       "original": "tests/test_workflow.py::test_the_capacity_workflow_runs_every_stage",
@@ -3972,9 +4418,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 2700,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 2303.240856747
     },
     {
       "original": "tests/test_structural.py::test_a_hardening_material_makes_the_solve_inelastic",
@@ -3982,9 +4430,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 240,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 148.919993176
     },
     {
       "original": "tests/test_structural.py::test_a_solve_without_fracture_deletes_nothing",
@@ -3992,9 +4442,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 180,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 127.109889214
     },
     {
       "original": "tests/test_structural.py::test_eroding_too_much_of_the_structure_stops_the_solve",
@@ -4002,9 +4454,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 180,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 129.984211342
     },
     {
       "original": "tests/test_structural.py::test_fracture_erodes_elements_once_the_threshold_is_passed",
@@ -4012,9 +4466,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 180,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 130.565893108
     },
     {
       "original": "tests/test_curved_trim_assembly.py::test_local_trim_preserves_second_panel_through_solver_and_reopen",
@@ -4022,9 +4478,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 300,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 231.825939356
     },
     {
       "original": "tests/test_mesh_general_update.py::test_bezier_automatic_approximation_publishes_regional_child_after_reopen",
@@ -4032,9 +4490,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 180,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 114.758165924
     },
     {
       "original": "tests/test_mesh_general_update.py::test_one_edited_source_retains_exact_disconnected_plate",
@@ -4042,9 +4502,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 33.279342563
     },
     {
       "original": "tests/test_mesh_source_network.py::test_local_reseed_couples_component_and_requires_certified_physical_quality",
@@ -4052,9 +4514,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 240,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 168.401579129
     },
     {
       "original": "tests/test_verification.py::test_every_verification_case_passes",
@@ -4062,9 +4526,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 120,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 74.928550269
     },
     {
       "original": "tests/test_nurbs_project_source_publication.py::test_principal_public_project_prepares_complete_owned_face_scope_before_meshing",
@@ -4072,9 +4538,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 120,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 66.570874358
     },
     {
       "original": "tests/test_refinement.py::test_quadratic_shells_converge_faster_than_linear_ones",
@@ -4082,9 +4550,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 120,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 57.372128964
     },
     {
       "original": "tests/test_source_mesh_publication.py::test_automatic_planar_nurbs_uses_owner_approximation_and_rebuilds",
@@ -4092,9 +4562,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 43.213732531
     },
     {
       "original": "tests/test_mesh_source_trim.py::test_annulus_preserves_exterior_and_certifies_new_material",
@@ -4102,9 +4574,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 120,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 95.499911615
     },
     {
       "original": "tests/test_mesh_source_trim.py::test_corrupt_numbered_trim_rim_refuses_publication",
@@ -4112,9 +4586,11 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 120,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 61.86318443099999
     },
     {
       "original": "tests/test_nurbs_cut_mesh_integration.py::test_principal_public_cut_preview_topology_material_and_sheet_uses",
@@ -4122,9 +4598,25 @@
       "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
       "purpose": "historical scientific/refinement campaign",
       "trigger": "explicit qualification only; existing authority required",
-      "runtime_budget_seconds": null,
+      "runtime_budget_seconds": 60,
       "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
-      "disposition": "retained diagnostic"
+      "disposition": "retained diagnostic",
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "historical_fixture_inclusive_seconds": 32.022521574
+    },
+    {
+      "original": "tests/test_orcawave_pressure.py::test_independently_faceted_curved_hull_pipeline",
+      "current": "diagnostics/test_orcawave_pressure_angular_remesh.py::test_independently_faceted_curved_hull_pipeline",
+      "owner": "ANYfem integration campaign; geometry projection truth remains ANYgeometry",
+      "purpose": "Independent angular-remesh curved-hull projection, uniform-pressure force and moment conservation",
+      "trigger": "Explicit qualification only; existing authority required",
+      "runtime_budget_seconds": 300,
+      "runtime_budget_status": "prospective ceiling, unallocated; no execution authority",
+      "coverage_gap": "Angular-mismatch frontier refinement is retained here, not claimed as owner coverage",
+      "disposition": "original body retained diagnostic; routine node replaced with independent translated triangular tessellation",
+      "original_revision": "9f8254f",
+      "original_body_sha256": "3eecf7ec6be677ee51f97d5ec5b25c2aa28214b5c69fa75026eb09448bb16842",
+      "replacement": "tests/test_orcawave_pressure.py::test_independently_faceted_curved_hull_pipeline"
     }
   ]
 }

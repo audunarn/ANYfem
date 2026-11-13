@@ -201,5 +201,3 @@ def test_corrupt_numbered_trim_rim_refuses_publication(published_panel, monkeypa
         session.update_mesh(edited)
     assert session.project.mesh_numbering == ledger and session.mesh_record_id == ledger.active_mesh_id
     assert set(session.project.mesh_records) == before and session.mesh.shells == old.shells
-
-

@@ -446,9 +446,18 @@ def test_independently_faceted_curved_hull_pipeline():
         face=g.add_face_from_loop(tuple(loop),(0,1,2,3));project.assign_plate(face,'plate')
         project.add_wet_surface(WetSurface(ref=project.face(face),fluid_side='positive_normal',name=f'facet{k}'))
     mesh=project.generate_mesh(1.)
-    polygons,normals,centers,areas=validate_panel_geometry(facets(5))
-    bank=ImportedPressureBank(np.asarray(polygons).reshape(-1,3),np.arange(20).reshape(5,4),centers,normals,areas,
-        np.array([1.]),np.full((1,5),100+0j),tuple(range(5)),('body0',)*5,0.,'fixed_diffraction',0,20.,1025.,9.81,'{}')
+    # Independent source triangulation uses the opposite (1,3) diagonal,
+    # offset from each target plane so this exercises actual projection.
+    # Translating a uniform pressure load along its own normal changes no
+    # moment: (r + d*n) x F = r x F because F is parallel to n.
+    source_triangles=[]
+    for polygon in facets(3):
+        _,facet_normals,_,_=validate_panel_geometry([polygon])
+        shifted=polygon+.001*facet_normals[0]
+        source_triangles.extend((shifted[[0,1,3]],shifted[[1,2,3]]))
+    polygons,normals,centers,areas=validate_panel_geometry(source_triangles)
+    bank=ImportedPressureBank(np.asarray(polygons).reshape(18,3),np.arange(18).reshape(6,3),centers,normals,areas,
+        np.array([1.]),np.full((1,6),100+0j),tuple(range(6)),('body0',)*6,0.,'fixed_diffraction',0,20.,1025.,9.81,'{}')
     h=prepare_prescribed_pressure(project,mesh,bank,regular_realization(bank,omega=1.,height=2.),times=(0.,.5),
         surfaces=tuple(s.id for s in project.wet_surfaces),source_to_project=np.eye(4),
         limits=dict(gap_m=.05,max_angle=np.deg2rad(25),coverage_tolerance=1e-6,convergence_tolerance=.03,max_depth=8,max_triangles=100000),

@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 QUICK = (
     "tests/test_license_policy.py", "tests/test_application_frontend_boundary.py",
     "tests/test_output_requests.py", "tests/test_command_recording.py", "tests/test_commands.py",
+    "tests/test_test_runner.py", "tests/test_suite_structure.py",
+    "tests/test_focused_qualification_dispatch.py", "tests/test_reported_spline_mesh_release_hold.py",
     "tests/test_document_geometry_snapshot.py", "tests/test_selection_state.py",
     "tests/test_pressure_source_selector.py", "tests/test_launcher_ecosystem_preflight.py",
     "tests/test_mesh_execution_submission.py", "tests/test_mesh_task_safe_cancellation.py",
@@ -30,6 +32,10 @@ QUICK = (
 )
 COMPATIBILITY = ("tests/test_manager_workflows.py", "tests/test_gui_launcher.py",
                  "tests/test_license_policy.py", "tests/test_application_frontend_boundary.py")
+PARALLEL_QT_POSITIVES = (
+    'tests/test_qt_mesh_parallel_integration.py::test_real_qt_parallel_job_attaches_mesh_and_records_route',
+    'tests/test_qt_mesh_parallel_integration.py::test_real_qt_parallel_cancel_does_not_attach_partial_mesh',
+)
 
 
 
@@ -56,7 +62,7 @@ def selectors(profile, requested):
                 "tests/test_qt_workbench.py::test_requested_viewer_backend_is_active",
                 "tests/test_qt_workbench.py::test_property_edits_preserve_identity_and_undo",
                 "tests/test_qt_activation_readiness.py", "tests/test_qt_run_progress.py",
-                "tests/test_qt_submodel_task.py", "tests/test_qt_orcawave_pressure.py"]
+                "tests/test_qt_submodel_task.py", "tests/test_qt_orcawave_pressure.py", *PARALLEL_QT_POSITIVES]
     if profile == "full":
         return ["tests"]
     raise ValueError("unknown suite profile: " + profile)
@@ -154,6 +160,8 @@ def validate_run_receipt(output, profile):
     if profile in {'quick','full','qt'}:
         smoke='tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen'
         if smoke not in positive:raise RuntimeError('required real software Qt smoke did not execute')
+    if profile=='qt' and not set(PARALLEL_QT_POSITIVES)<=positive:
+        raise RuntimeError('required contained parallel Qt completion/cancellation did not execute')
     return {'selected':len(nodes),'executed':len(positive),'collection_skips':len(skips)}
 
 
@@ -476,6 +484,7 @@ def main(argv=None):
     if options.ci_diagnostics:
         environment["ANYFEM_CI_DIAGNOSTICS_DIR"] = str(output)
     environment["ANYFEM_QT_TEST_BACKEND"] = options.backend
+    if options.profile == 'qt':environment['ANYFEM_RUN_PARALLEL_MESH_TESTS']='1'
     if options.profile in {"qt", "quick", "full"}:
         environment["ANYFEM_RUN_QT_TESTS"] = "1"
         environment["ANYFEM_QT_TEST_BACKEND"] = options.backend

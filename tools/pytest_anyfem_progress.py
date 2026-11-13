@@ -46,7 +46,18 @@ class _Journal:
         current = self.directory / "pytest-current.json"
         temporary = current.with_suffix(".json.tmp")
         temporary.write_text(text + "\n", encoding="utf-8")
-        temporary.replace(current)
+        # Windows readers may briefly open the live snapshot without delete
+        # sharing. The append-only journal above remains the primary evidence.
+        for attempt in range(26):
+            try:
+                temporary.replace(current)
+                break
+            except PermissionError as error:
+                if attempt == 25:
+                    with self.path.open('a',encoding='utf8') as stream:
+                        stream.write(json.dumps(dict(event='current_snapshot_error',sequence=self.sequence,error=str(error)))+'\n')
+                    break
+                time.sleep(.01)
         if live:
             compact = {key: value for key, value in row.items()
                        if key not in {"longrepr", "captured_sections"}}

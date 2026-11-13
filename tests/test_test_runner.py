@@ -60,7 +60,7 @@ def test_exited_posix_parent_retires_descendant_holding_output(tmp_path):
     assert time.monotonic()-start < 5
 
 
-@pytest.mark.parametrize('damage', ['missing','hash','union','qt_skip'])
+@pytest.mark.parametrize('damage', ['missing','hash','union','duplicate','qt_skip'])
 def test_passing_exit_cannot_hide_incomplete_receipt_or_qt(tmp_path, damage):
     log=tmp_path/'pytest.log';_completed_receipt(log, {'ANYFEM_SUITE_PROFILE':'quick'})
     assert runner.validate_run_receipt(tmp_path,'quick')['executed']==1
@@ -72,10 +72,28 @@ def test_passing_exit_cannot_hide_incomplete_receipt_or_qt(tmp_path, damage):
         import xml.etree.ElementTree as ET
         tree=ET.parse(tmp_path/'pytest.xml');case=next(tree.iter('testcase'))
         if damage=='union':case.find('properties/property').set('value','tests/test_unknown.py::test_other')
+        elif damage=='duplicate':
+            import copy
+            tree.find('testsuite').append(copy.deepcopy(case))
         else:ET.SubElement(case,'skipped')
         tree.write(tmp_path/'pytest.xml')
     with pytest.raises((RuntimeError,OSError)):
         runner.validate_run_receipt(tmp_path,'quick')
+
+
+def test_associated_subtest_rows_preserve_original_union_and_reject_replays(tmp_path):
+    import copy
+    import xml.etree.ElementTree as ET
+    _completed_receipt(tmp_path/'pytest.log',{'ANYFEM_SUITE_PROFILE':'unit'})
+    tree=ET.parse(tmp_path/'pytest.xml');case=next(tree.iter('testcase'))
+    child=copy.deepcopy(case);child.set('name',case.get('name')+' (x=1)');tree.find('testsuite').append(child)
+    tree.write(tmp_path/'pytest.xml')
+    node=case.find('properties/property').get('value')
+    (tmp_path/'suite-subtests.json').write_text(json.dumps([dict(nodeid=node,description='(x=1)',ordinal=0,outcome='passed')]))
+    assert runner.validate_run_receipt(tmp_path,'unit')['selected']==1
+    tree.find('testsuite').append(copy.deepcopy(child));tree.write(tmp_path/'pytest.xml')
+    with pytest.raises(RuntimeError,match='duplicate associated subtest'):
+        runner.validate_run_receipt(tmp_path,'unit')
 
 
 def test_owned_windows_spawn_waits_for_assignment_before_go(monkeypatch, tmp_path):
@@ -527,6 +545,7 @@ def test_runner_propagates_failures_and_refuses_all_skipped(monkeypatch, tmp_pat
         log.write_text("retained failure diagnostics")
         log.with_name("pytest.xml").write_text(
             f'<testsuites><testsuite tests="1" failures="{exit_code}" errors="0" skipped="{skipped}"/></testsuites>')
+        if exit_code == 0:_completed_receipt(log,environment)
         return exit_code
     monkeypatch.setattr(runner, "execute", execute)
     output = tmp_path / "run"
