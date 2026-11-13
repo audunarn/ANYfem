@@ -262,7 +262,7 @@ def test_mixed_part_combines_auto_sides_and_manual_overrides():
     flange, web = m.flange(), m.web("web", 0, .5)
     top = m.sheet("top", [(1, 0, .5), (1, 1, .5), (0, 1, .5), (0, 0, .5)])  # horizontal cap on the web
     loose = m.sheet("loose", [(5, 0, 0), (6, 0, 0), (6, 1, 0), (5, 1, 0)])
-    m.p.drawing_thickness_sides["web"] = "back"
+    m.p.drawing_thickness_sides[web] = "back"
     m.p.drawing_thickness_sides[loose] = "front"
     sides = resolve_thickness_sides(m.p, m.part)
     assert sides[flange][:2] == ("front", "auto")
@@ -286,10 +286,13 @@ def test_conflicting_name_and_id_overrides_are_refused():
     from anyfem.application.thickness_side import resolve_thickness_sides
     m = _Conformal()
     flange = m.flange()
-    m.p.drawing_thickness_sides.update({"flange": "front", flange: "back"})
     with pytest.raises(ValueError, match="conflicting"):
+        resolve_thickness_sides(m.p, m.part, {"flange": "front", flange: "back"})
+    # Project overrides are bound to the Sheet ID, never to a name.
+    m.p.drawing_thickness_sides = {"flange": "front"}
+    with pytest.raises(ValueError, match="keyed by Sheet ID"):
         resolve_thickness_sides(m.p, m.part)
-    m.p.drawing_thickness_sides = {"flange": "sideways"}
+    m.p.drawing_thickness_sides = {flange: "sideways"}
     with pytest.raises(ValueError, match="Thickness side"):
         resolve_thickness_sides(m.p, m.part)
 
@@ -302,12 +305,12 @@ def test_overrides_round_trip_old_files_load_and_removed_sheets_drop(tmp_path):
     plain = project_to_dict(m.p)
     assert "drawing_thickness_sides" not in plain and plain["anyfem"]["format"] == FORMAT_VERSION
     assert project_from_dict(plain).drawing_thickness_sides == {}
-    m.p.drawing_thickness_sides.update({"flange": "back", web: "auto", "gone": "front", 99: "front"})
+    m.p.drawing_thickness_sides.update({flange: "back", web: "auto", 99: "front"})
     data = project_to_dict(m.p)
-    assert data["drawing_thickness_sides"] == [{"sheet": web, "side": "auto"}, {"sheet": "flange", "side": "back"}]
+    assert data["drawing_thickness_sides"] == [{"sheet": flange, "side": "back"}, {"sheet": web, "side": "auto"}]
     assert data["anyfem"]["format"] == 21
     reopened = load_project(save_project(m.p, tmp_path / "sides.anyfem"))
-    assert reopened.drawing_thickness_sides == {web: "auto", "flange": "back"}
+    assert reopened.drawing_thickness_sides == {web: "auto", flange: "back"}
     old = dict(data)
     old["anyfem"] = {**data["anyfem"], "format": 20}
     from anyfem.io.project_file import ProjectFileError
@@ -572,7 +575,7 @@ def test_export_index_and_manifest_carry_resolved_sides(tmp_path):
     from anyfem.document import DocumentSession
     m = _Conformal()
     flange, web = m.flange(), m.web("web", 0, .5)
-    m.p.drawing_thickness_sides["web"] = "back"
+    m.p.drawing_thickness_sides[web] = "back"
     snapshot = DocumentSession(m.p).snapshot()
     folder = export_plate_drawings(snapshot, m.part, tmp_path / "auto")
     rows = _rows(folder / "Plate-index.csv")

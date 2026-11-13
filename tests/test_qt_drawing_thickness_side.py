@@ -56,7 +56,7 @@ def test_representation_and_plate_side_invalidate_previews_and_reach_the_export(
         assert pane.views[2].paths != solid_front
         pane.side_choice(flange).setCurrentIndex(pane.side_choice(flange).findData("back"))
         until(lambda: not pane.views)
-        assert window.project.drawing_thickness_sides == {"flange": "back"}
+        assert window.project.drawing_thickness_sides == {flange: "back"}
         assert not pane.export_btn.isEnabled()
         assert pane.sides.item(pane.side_row(flange), 2).text().startswith("back")
         pane.preview_btn.click()

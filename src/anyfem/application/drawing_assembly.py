@@ -77,6 +77,9 @@ def _strip_stock(profile, representation):
     from .thickness_side import thickness_band
     strip = profile._strip
     low, high = thickness_band(profile.thickness_m, profile.thickness_side, representation)
+    refusal = strip.solid_refusal((low, high), profile.thickness_side)
+    if refusal:
+        raise ValueError(f"{profile.mark}: {refusal}")
     flat = high == low
     offsets = (low,) if flat else (low, high)
     axis = strip.axis

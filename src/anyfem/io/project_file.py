@@ -2353,7 +2353,7 @@ def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper 
     if live:
         data[DRAWING_THICKNESS_SIDES_KEY] = [
             {"sheet": key, "side": side}
-            for key, side in sorted(live.items(), key=lambda item: (isinstance(item[0], str), str(item[0])))]
+            for key, side in sorted(live.items())]
         data["anyfem"]["format"] = max(data["anyfem"]["format"], DRAWING_THICKNESS_SIDES_FORMAT)
     return data
 
@@ -2373,14 +2373,19 @@ def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper o
         stored = raw.pop(DRAWING_THICKNESS_SIDES_KEY)
         if not isinstance(stored, list):
             raise ProjectFileError("drawing_thickness_sides must be a list of records")
-        overrides = {}
+        records, seen = [], set()
         for index, entry in enumerate(stored):
             if (not isinstance(entry, Mapping) or set(entry) != {"sheet", "side"}
                     or isinstance(entry["sheet"], bool) or not isinstance(entry["sheet"], (int, str))
-                    or entry["side"] not in SIDE_CHOICES or entry["sheet"] in overrides):
+                    or entry["side"] not in SIDE_CHOICES or entry["sheet"] in seen):
                 raise ProjectFileError(f"drawing_thickness_sides[{index}] is not a unique Sheet/side record")
-            overrides[entry["sheet"]] = entry["side"]
+            seen.add(entry["sheet"])
+            records.append((entry["sheet"], entry["side"]))
         project = _sides_base_project_from_dict(raw, *args, **kwargs)
-        project.drawing_thickness_sides = overrides
+        from ..application.thickness_side import bind_stored_overrides
+        try:
+            project.drawing_thickness_sides = bind_stored_overrides(project.geometry, records)
+        except ValueError as error:
+            raise ProjectFileError(f"drawing_thickness_sides: {error}") from None
         return project
     return _sides_base_project_from_dict(data, *args, **kwargs)

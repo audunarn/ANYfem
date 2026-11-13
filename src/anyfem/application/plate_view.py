@@ -281,8 +281,15 @@ def _strip(project, sheet, faces):
     def develop_points(points):
         return [LineString(strip.develop(points))]
 
+    owner = {}  # A boundary or joint edge of the strip develops on a patch that uses it.
+    for face in faces:
+        for loop in (face.loop, *face.holes):
+            for use in loop:
+                owner.setdefault(use.edge, face.id)
+
     def develop(edge_id):
-        return develop_points(_trace_spans(_native_spans(project.geometry, edge_id)))
+        points = _trace_spans(_native_spans(project.geometry, edge_id))
+        return [LineString(strip.develop(points, owner.get(edge_id)))]
 
     radii = sorted(patch.radius for patch in strip.patches)
     notes = ["Reference surface development; apply forming allowance.",

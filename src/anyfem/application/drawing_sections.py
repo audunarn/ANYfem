@@ -311,6 +311,19 @@ def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre", repr
             except ValueError:
                 pass  # Isolate and identify any individual invalid contour.
     planar = [face.id for face in faces if not isinstance(face.surface, Cylinder)]
+    if len(faces) > 1 and not planar and representation == "solid":
+        # A curved strip: its patch solids must close across every ruling joint.
+        from .curved_strips import curved_strip
+        try:
+            strip = curved_strip(geometry, faces)
+        except (ValueError, ImportError):
+            strip = None  # Not a strip; each cylindrical face is cut on its own.
+        if strip is not None:
+            widest = max(band.values(), key=lambda b: b[1] - b[0])
+            refusal = strip.solid_refusal(widest, side)
+            if refusal:
+                notes.append(f"Faces {', '.join(str(f.id) for f in faces)} omitted ({refusal})")
+                return
     for face in faces:
         try:
             if side != "centre" and len(planar) > 1 and not joined and face.id in planar:

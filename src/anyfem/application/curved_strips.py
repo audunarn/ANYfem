@@ -22,6 +22,10 @@ from math import ceil, fsum, sqrt, tau
 import numpy as np
 from anygeometry.surfaces import Cylinder
 
+# Chord of drawn curved walls (m).  A skin opening at a ruling joint up to this
+# size is below the drawing's own accuracy; a larger one is refused.
+DRAWING_CHORD = .00005
+
 
 @dataclass(frozen=True)
 class StripPatch:
@@ -69,6 +73,27 @@ class CurvedStrip:
     free_edges: tuple        # (patch index, world points) of edges on the Sheet boundary
     consistent: bool         # outward normals agree across every ruling joint
     tolerance: float
+    normal_jump: float = 0.  # largest |n_a -+ n_b| across a ruling joint (0 when tangent)
+
+    def skin_gap(self, band) -> float:
+        """Largest opening between the offset skins of two patches at a ruling joint.
+
+        A skin at offset ``s`` leaves the shared ruling at ``s n_a`` on one patch
+        and ``s n_b`` on the other, so it opens by ``|s| |n_a - n_b|``.
+        """
+        return max(abs(band[0]), abs(band[1])) * self.normal_jump
+
+    def solid_refusal(self, band, side="centre"):
+        """Why a solid of material ``band`` cannot be drawn on this strip, or ``None``."""
+        if side != "centre" and band[0] != band[1] and not self.consistent:
+            return "curved strip faces have disagreeing drawing normals; only a centred side is defined"
+        gap = self.skin_gap(band)
+        if gap > max(self.tolerance, DRAWING_CHORD):
+            kink = np.degrees(2 * np.arcsin(min(1., self.normal_jump / 2)))
+            return (f"curved strip has a {kink:.3f} deg normal kink at a ruling joint; its {side} solid "
+                    f"would open by {gap * 1000:.3f} mm there, more than the {DRAWING_CHORD * 1000:.2f} mm "
+                    "drawing chord (only the 2D mid-surface can be drawn)")
+        return None
 
     @property
     def axial(self):
@@ -92,35 +117,52 @@ class CurvedStrip:
         count = max(1, ceil(patch.sweep / sqrt(8 * chord / radius)))
         return np.linspace(*patch.angles, count + 1)
 
-    def locate(self, points):
-        """Per point: patch index, angle on that patch, axial and radial coordinates."""
+    def locate(self, points, face_id=None):
+        """Per point: patch index, angle on that patch, axial and radial coordinates.
+
+        A point belongs to the patch whose trimmed surface is nearest (Euclidean
+        distance to the patch clamped to its angle and axial trim).  Patches that
+        are equally near within tolerance must give the same development
+        coordinate and radial offset, as on a shared joint; otherwise the mapping
+        is ambiguous and refused.  ``face_id`` names the patch when it is known.
+        """
         points = np.atleast_2d(np.asarray(points, dtype=float))
         axial = (points - self.origin) @ self.axis
-        best = np.full(len(points), np.inf)
-        index = np.zeros(len(points), dtype=int)
-        angle = np.zeros(len(points))
-        radius = np.zeros(len(points))
+        shape = (len(self.patches), len(points))
+        distance, angle, radius, x = (np.empty(shape) for _ in range(4))
         for k, patch in enumerate(self.patches):
-            theta, distance = _angles(patch, self.axis, points)
-            low, high = patch.angles
-            bottom, top = patch.axial
-            outside = np.hypot(np.maximum(0., np.maximum(low - theta, theta - high)) * patch.radius,
-                               np.maximum(0., np.maximum(bottom - axial, axial - top)))
-            better = outside < best - 1e-12
-            best = np.where(better, outside, best)
-            index = np.where(better, k, index)
-            angle = np.where(better, theta, angle)
-            radius = np.where(better, distance, radius)
-        return index, angle, axial, radius
+            theta, rho = _angles(patch, self.axis, points)
+            nearest = (patch.centre + np.outer(np.clip(axial, *patch.axial), self.axis)
+                       + patch.radius * patch.direction(np.clip(theta, *patch.angles)))
+            distance[k] = np.linalg.norm(points - nearest, axis=1)
+            angle[k], radius[k], x[k] = theta, rho, patch.development_x(theta)
+        columns = np.arange(len(points))
+        if face_id is not None:
+            ids = [patch.face_id for patch in self.patches]
+            if face_id not in ids:
+                raise ValueError(f"Face {face_id} is not a patch of this curved strip")
+            index = np.full(len(points), ids.index(face_id))
+            if np.any(distance[index, columns] > 4 * self.tolerance):
+                raise ValueError(f"Points do not lie on curved strip patch {face_id}")
+        else:
+            index = np.argmin(distance, axis=0)
+            near = distance <= distance[index, columns] + self.tolerance
+            offset = radius - np.array([patch.radius for patch in self.patches])[:, None]
+            for values in (x, offset):
+                spread = np.where(near, values, -np.inf).max(axis=0) - np.where(near, values, np.inf).min(axis=0)
+                if np.any(spread > 2 * self.tolerance):
+                    raise ValueError("Curved strip point mapping is ambiguous: a point is equally near "
+                                     "two patches that develop it differently")
+        return index, angle[index, columns], axial, radius[index, columns]
 
-    def radial_distance(self, points):
+    def radial_distance(self, points, face_id=None):
         """Signed distance along +n (outward) from the reference surface."""
-        index, _, _, radius = self.locate(points)
+        index, _, _, radius = self.locate(points, face_id)
         return radius - np.array([self.patches[k].radius for k in index])
 
-    def develop(self, points):
+    def develop(self, points, face_id=None):
         """Development coordinates (arc length, height) in the outline's frame."""
-        index, angle, axial, _ = self.locate(points)
+        index, angle, axial, _ = self.locate(points, face_id)
         x = np.array([self.patches[k].development_x(a) for k, a in zip(index, angle)])
         return np.column_stack((x, axial - self.axial[0]))
 
@@ -132,6 +174,94 @@ def _angles(patch, axis, points):
     theta = np.arctan2(rel @ patch.tangent, rel @ patch.radial)
     theta = theta + tau * np.round((sum(patch.angles)/2 - theta) / tau)
     return theta, np.linalg.norm(rel, axis=1)
+
+
+def _normal(frame, angle):
+    """Outward radial unit normal of a patch frame at a common-frame angle."""
+    return frame["radial"] * np.cos(angle) + frame["tangent"] * np.sin(angle)
+
+
+def _arc_direction(frame, angle):
+    """Unit direction of increasing angle along a patch frame's arc."""
+    return frame["tangent"] * np.cos(angle) - frame["radial"] * np.sin(angle)
+
+
+def _frame_angle(frame, axis, point):
+    patch = StripPatch(0, frame["centre"], frame["radial"], frame["tangent"], frame["radius"],
+                       frame["angles"], frame["axial"], 0., 1.)
+    return float(_angles(patch, axis, point)[0][0])
+
+
+def _check_overlaps(frames, axis, linked, tolerance):
+    """Refuse two patches that share interior points or touch without a shared edge.
+
+    Parallel-axis cylinders meet along at most two rulings (the intersections
+    of their cross-section circles) unless they are the same cylinder, where
+    their angle intervals must not overlap.  A crossing ruling within both
+    angle trims, over a common axial range, is refused unless it is the shared
+    ruling of two joined patches (on the trim boundary of both), or a second
+    crossing next to that joint whose overlap stays within tolerance.
+    """
+    ids = sorted(frames)
+    for i, a in enumerate(ids):
+        f = frames[a]
+        for b in ids[i + 1:]:
+            g = frames[b]
+            if min(f["axial"][1], g["axial"][1]) - max(f["axial"][0], g["axial"][0]) <= tolerance:
+                continue
+            delta = g["centre"] - f["centre"]
+            delta = delta - (delta @ axis) * axis
+            d = float(np.linalg.norm(delta))
+            ra, rb = f["radius"], g["radius"]
+            if d <= tolerance:
+                if abs(ra - rb) > tolerance:
+                    continue  # coaxial, different radii: no common point
+                offset = np.arctan2(g["radial"] @ f["tangent"], g["radial"] @ f["radial"])
+                low, high = g["angles"][0] + offset, g["angles"][1] + offset
+                for turn in (-tau, 0., tau):
+                    shared = min(f["angles"][1], high + turn) - max(f["angles"][0], low + turn)
+                    if shared * ra > tolerance:
+                        raise ValueError(f"Curved strip patches of faces {a} and {b} overlap on one cylinder")
+                continue
+            u = delta / d
+            w = np.cross(axis, u)
+            if abs(d - (ra + rb)) <= tolerance:
+                crossings = [f["centre"] + ra * u]
+            elif abs(d - abs(ra - rb)) <= tolerance:
+                crossings = [f["centre"] + (ra if ra > rb else -ra) * u]
+            elif d > ra + rb or d < abs(ra - rb):
+                continue
+            else:
+                along = (d*d + ra*ra - rb*rb) / (2*d)
+                across = sqrt(max(0., ra*ra - along*along))
+                crossings = [f["centre"] + along * u + s * across * w for s in (1., -1.)]
+            joined = frozenset((a, b)) in linked
+            states = []
+            for point in crossings:
+                state = []
+                for frame in (f, g):
+                    theta = _frame_angle(frame, axis, point)
+                    slack = tolerance / frame["radius"]
+                    low, high = frame["angles"]
+                    edge = min(abs(theta - low), abs(theta - high)) <= slack
+                    state.append((low - slack <= theta <= high + slack, edge, theta))
+                if state[0][0] and state[1][0]:
+                    states.append((point, state))
+            joints = [point for point, ((_, edge_a, _), (_, edge_b, _)) in states if joined and edge_a and edge_b]
+            for point, ((_, edge_a, theta_a), (_, edge_b, _)) in states:
+                if joined and edge_a and edge_b:
+                    continue
+                if joints:
+                    # Second crossing beside the joint: the arcs between them part by at most
+                    # the separation at the middle of patch a's arc between the two.
+                    middle = (theta_a + _frame_angle(f, axis, joints[0])) / 2
+                    probe = f["centre"] + ra * _normal(f, middle)
+                    rest = probe - g["centre"]
+                    rest = rest - (rest @ axis) * axis
+                    if abs(np.linalg.norm(rest) - rb) <= tolerance:
+                        continue
+                raise ValueError(f"Curved strip patches of faces {a} and {b} cross or touch away from a "
+                                 "shared edge (they overlap)")
 
 
 def _unit_axis(vector):
@@ -255,7 +385,7 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
     start = min(frames)
     placed[start] = (0., 1.)
     queue = deque([start])
-    consistent = True
+    consistent, jump = True, 0.
     while queue:
         this = queue.popleft()
         x0, sign = placed[this]
@@ -268,17 +398,27 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
                 raise ValueError(f"Curved strip edge {edge_id} joins a ruling to a rim")
             x_here = x0 + sign * f["radius"] * (theta - f["angles"][0])
             if kind == "angle":
-                # The other patch lies on the opposite side of the ruling.
+                # The other patch must lie physically on the opposite side of the ruling:
+                # the directions into the two patches, along their arcs, must oppose.
                 into = sign if side == "low" else -sign
                 other_sign = -into if other_side == "low" else into
-                out = f["radial"] * np.cos(theta[0]) + f["tangent"] * np.sin(theta[0])
-                back = g["radial"] * np.cos(other_theta[0]) + g["tangent"] * np.sin(other_theta[0])
+                out = _normal(f, theta[0])
+                back = _normal(g, other_theta[0])
+                inward = _arc_direction(f, theta[0]) * (1. if side == "low" else -1.)
+                other_inward = _arc_direction(g, other_theta[0]) * (1. if other_side == "low" else -1.)
+                if inward @ other_inward >= 0:
+                    raise ValueError(f"Curved strip patches joined at edge {edge_id} lie on the same side of "
+                                     "their ruling (they fold back or overlap)")
                 if out @ back <= 0:
                     consistent = False
+                jump = max(jump, min(np.linalg.norm(out - back), np.linalg.norm(out + back)))
             else:
                 if (abs(f["radius"] - g["radius"]) > tolerance
                         or np.linalg.norm(f["centre"] - g["centre"]) > tolerance):
                     raise ValueError(f"Curved strip patches stacked at edge {edge_id} lie on different cylinders")
+                if side == other_side:
+                    raise ValueError(f"Curved strip patches stacked at edge {edge_id} overlap (both lie "
+                                     f"{'below' if side == 'top' else 'above'} the shared rim)")
                 other_sign = sign
             other_x0 = float(x_here[0] - other_sign * g["radius"] * (other_theta[0] - g["angles"][0]))
             other_x = other_x0 + other_sign * g["radius"] * (other_theta - g["angles"][0])
@@ -292,6 +432,7 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
             queue.append(other)
     if len(placed) != len(faces):
         raise ValueError("Curved strip faces are not joined into one Sheet by shared edges")
+    _check_overlaps(frames, axis, {frozenset((a, b)) for a in links for b, _ in links[a]}, tolerance)
 
     patches = []
     for face in faces:
@@ -315,4 +456,4 @@ def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
     # Boundary edges for drawing walls, at the 0.05 mm drawing chord.
     free = tuple((index[users[0]], _trace_spans(_native_spans(geometry, edge_id), .00005))
                  for edge_id, users in sorted(incidence.items()) if len(users) == 1)
-    return CurvedStrip(patches, origin, axis, outline, free, consistent, tolerance)
+    return CurvedStrip(patches, origin, axis, outline, free, consistent, tolerance, float(jump))

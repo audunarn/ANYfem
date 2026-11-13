@@ -67,7 +67,7 @@ def side_label(side: str, normal=None) -> str:
 
 
 def _sheet_key(geometry, key):
-    """Resolve an override key (Sheet ID or unique Sheet name) to a Sheet ID, or None."""
+    """Resolve a call-time override key (Sheet ID or unique Sheet name) to a Sheet ID, or None."""
     if isinstance(key, bool):
         return None
     if isinstance(key, int):
@@ -83,25 +83,44 @@ def _sheet_key(geometry, key):
     return None
 
 
+def _check_choice(choice):
+    if choice not in SIDE_CHOICES:
+        raise ValueError(f"Thickness side must be one of {', '.join(SIDE_CHOICES)}, not {choice!r}")
+
+
+def _stored_id(key):
+    """A project override key: the Sheet's ID (its stable identity), never its name."""
+    if isinstance(key, bool) or not isinstance(key, int):
+        raise ValueError(f"Project thickness side overrides are keyed by Sheet ID, not {key!r} "
+                         "(use set_override, or a call-time override for Sheet names)")
+    return key
+
+
 def _manual(project, overrides=None) -> dict[int, str]:
     """Project overrides, then call-time ``overrides``, as ``{sheet_id: choice}``.
 
-    A name key and an ID key for the same Sheet must agree within one source.
+    Project overrides are bound to Sheet IDs, so renaming a Sheet keeps its
+    choice and a new Sheet never inherits a removed one's.  An ID naming no
+    current Sheet is kept in the project (an undo may restore that Sheet) but
+    has no effect.  Call-time overrides take Sheet IDs or unique names; a key
+    naming no Sheet is refused, and a name and an ID for one Sheet must agree.
     """
     geometry = project.geometry
     result = {}
-    for source in (project.drawing_thickness_sides, overrides or {}):
-        chosen = {}
-        for key, choice in source.items():
-            if choice not in SIDE_CHOICES:
-                raise ValueError(f"Thickness side must be one of {', '.join(SIDE_CHOICES)}, not {choice!r}")
-            sheet = _sheet_key(geometry, key)
-            if sheet is None:
-                continue
-            if chosen.get(sheet, choice) != choice:
-                raise ValueError(f"Sheet {sheet} has conflicting thickness side overrides")
-            chosen[sheet] = choice
-        result.update(chosen)
+    for key, choice in project.drawing_thickness_sides.items():
+        _check_choice(choice)
+        if _stored_id(key) in geometry.sheets:
+            result[key] = choice
+    chosen = {}
+    for key, choice in (overrides or {}).items():
+        _check_choice(choice)
+        sheet = _sheet_key(geometry, key)
+        if sheet is None:
+            raise ValueError(f"Thickness side override {key!r} names no Sheet")
+        if chosen.get(sheet, choice) != choice:
+            raise ValueError(f"Sheet {sheet} has conflicting thickness side overrides")
+        chosen[sheet] = choice
+    result.update(chosen)
     return result
 
 
@@ -111,22 +130,37 @@ def override_choices(project) -> dict[int, str]:
 
 
 def set_override(project, sheet_id: int, choice: str) -> None:
-    """Record one Sheet's side choice, keyed by its unique name (else its ID); ``auto`` removes it."""
-    if choice not in SIDE_CHOICES:
-        raise ValueError(f"Thickness side must be one of {', '.join(SIDE_CHOICES)}, not {choice!r}")
-    geometry = project.geometry
-    sheet = geometry.sheets[sheet_id]
-    for key in [key for key in project.drawing_thickness_sides if _sheet_key(geometry, key) == sheet_id]:
-        del project.drawing_thickness_sides[key]
+    """Record one Sheet's side choice under its Sheet ID; ``auto`` removes it."""
+    _check_choice(choice)
+    if sheet_id not in project.geometry.sheets:
+        raise ValueError(f"No Sheet with ID {sheet_id}")
+    project.drawing_thickness_sides.pop(sheet_id, None)
     if choice != "auto":
-        unique = sheet.name and sum(other.name == sheet.name for other in geometry.sheets.values()) == 1
-        project.drawing_thickness_sides[sheet.name if unique else sheet_id] = choice
+        project.drawing_thickness_sides[sheet_id] = choice
 
 
 def live_overrides(project) -> dict:
     """The project's overrides that name a current Sheet (the ones that are saved)."""
     return {key: side for key, side in project.drawing_thickness_sides.items()
-            if _sheet_key(project.geometry, key) is not None}
+            if _stored_id(key) in project.geometry.sheets}
+
+
+def bind_stored_overrides(geometry, records) -> dict[int, str]:
+    """Bind saved ``(sheet, side)`` records to Sheet IDs; a name must be unique and current.
+
+    Older files of this branch keyed records by Sheet name.  A record naming no
+    current Sheet, or two records for one Sheet, raise ``ValueError``.
+    """
+    bound = {}
+    for key, side in records:
+        _check_choice(side)
+        sheet = _sheet_key(geometry, key)
+        if sheet is None:
+            raise ValueError(f"Thickness side record {key!r} names no Sheet")
+        if sheet in bound:
+            raise ValueError(f"Thickness side records name Sheet {sheet} twice")
+        bound[sheet] = side
+    return bound
 
 
 def _sheet_faces(geometry, sheet):
