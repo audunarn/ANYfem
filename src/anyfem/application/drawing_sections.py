@@ -297,7 +297,7 @@ def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre"):
             notes.append(f"Face {face.id} omitted ({error})")
 
 
-def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides=None) -> DrawingView:
+def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides="auto") -> DrawingView:
     """Cut native sheets and assigned straight members. Plane and bounds use SI.
 
     ``thickness_sides`` selects each Sheet's material band (see

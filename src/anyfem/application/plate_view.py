@@ -370,7 +370,7 @@ def _stiffeners(project, sheet, face_ids, edges, polygon, develop):
 
 
 def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
-                     include_plate_intersections: bool = True, thickness_sides=None) -> DrawingView:
+                     include_plate_intersections: bool = True, thickness_sides="auto") -> DrawingView:
     """Draw the entire Sheet owning a face, including its attached member axes.
 
     ``thickness_sides`` (see :func:`thickness_side.resolve_sides`) places each

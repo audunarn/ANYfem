@@ -214,7 +214,7 @@ def _projection(stocks, direction, up):
 
 
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
-                   elevation_datum="global", thickness_sides=None):
+                   elevation_datum="global", thickness_sides="auto"):
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
     from .thickness_side import sides_for_part

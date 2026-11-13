@@ -182,3 +182,137 @@ def test_bent_sheet_refuses_an_off_centre_side_in_sections():
     refused = build_plane_view(p, (.5, .5, .5), (0, 1, 0), (0, 0, 1), thickness_sides={sheet: "front"})
     assert not refused.paths
     assert sum("one drawing normal across a bent Sheet" in note for note in refused.notes) == 2
+
+
+# -- S3: automatic interpretation, project overrides and the project file ----------------------
+
+class _Conformal:
+    """Plates built on shared topological vertices and edges, as in imported SAT models."""
+
+    def __init__(self):
+        self.p = Project("conformal")
+        self.p.add_material(MaterialSpec("steel", constants={"elastic_modulus": 210e9, "poisson_ratio": .3},
+                                         density=7850))
+        self.p.add_plate_section("10 mm", .010, "steel")
+        self.g = self.p.geometry
+        self.part = self.g.add_part(name="Support")
+        self.points, self.lines = {}, {}
+
+    def point(self, xyz):
+        if xyz not in self.points:
+            self.points[xyz] = self.g.add_point(*xyz)
+        return self.points[xyz]
+
+    def face(self, corners):
+        from anygeometry import OrientedEdge
+        ids = [self.point(c) for c in corners]
+        loop = []
+        for a, b in zip(ids, ids[1:] + ids[:1]):
+            if (b, a) in self.lines:
+                loop.append(OrientedEdge(self.lines[b, a], False))
+            else:
+                self.lines[a, b] = self.g.add_line(a, b)
+                loop.append(OrientedEdge(self.lines[a, b], True))
+        return self.g.add_face_from_loop(loop)
+
+    def sheet(self, name, *faces, part=None):
+        sheet = self.g.add_sheet(tuple(self.face(f) for f in faces),
+                                 part_id=self.part if part is None else part, name=name)
+        for use in self.g.sheets[sheet].face_use_ids:
+            self.p.assign_plate(self.g.face_uses[use].face_id, "10 mm")
+        return sheet
+
+    def flange(self, name="flange", z=0.):
+        return self.sheet(name, [(0, 0, z), (1, 0, z), (1, 1, z), (0, 1, z)],
+                          [(1, 0, z), (2, 0, z), (2, 1, z), (1, 1, z)])
+
+    def web(self, name, z0, z1, part=None):
+        return self.sheet(name, [(1, 0, z0), (1, 1, z0), (1, 1, z1), (1, 0, z1)], part=part)
+
+
+def test_auto_tee_puts_the_flange_toward_the_web_and_centres_the_web():
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    m = _Conformal()
+    flange, web = m.flange(), m.web("web", 0, .5)
+    sides = resolve_thickness_sides(m.p, m.part)
+    assert sides[flange] == ("front", "auto", "1 neighbour on +n")
+    assert sides[web][:2] == ("centre", "auto") and "both sides" in sides[web][2]
+    hanging = _Conformal()
+    flange, web = hanging.flange(), hanging.web("web", -.5, 0)
+    assert resolve_thickness_sides(hanging.p, hanging.part)[flange] == ("back", "auto", "1 neighbour on -n")
+
+
+def test_auto_cross_isolated_and_other_part_neighbours_are_centred():
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    m = _Conformal()
+    flange, up, down = m.flange(), m.web("up", 0, .5), m.web("down", -.5, 0)
+    sides = resolve_thickness_sides(m.p, m.part)
+    assert sides[flange] == ("centre", "auto", "neighbours on both sides (1 on +n, 1 on -n)")
+    alone = _Conformal()
+    plate = alone.flange()
+    other = alone.g.add_part(name="Other")
+    alone.web("foreign", 0, .5, part=other)
+    assert resolve_thickness_sides(alone.p, alone.part)[plate] == ("centre", "auto", "no neighbours")
+
+
+def test_mixed_part_combines_auto_sides_and_manual_overrides():
+    from anyfem.application.drawing_assembly import assembly_views
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    m = _Conformal()
+    flange, web = m.flange(), m.web("web", 0, .5)
+    top = m.sheet("top", [(1, 0, .5), (1, 1, .5), (0, 1, .5), (0, 0, .5)])  # horizontal cap on the web
+    loose = m.sheet("loose", [(5, 0, 0), (6, 0, 0), (6, 1, 0), (5, 1, 0)])
+    m.p.drawing_thickness_sides["web"] = "back"
+    m.p.drawing_thickness_sides[loose] = "front"
+    sides = resolve_thickness_sides(m.p, m.part)
+    assert sides[flange][:2] == ("front", "auto")
+    assert sides[web] == ("back", "manual", "override")
+    assert sides[loose] == ("front", "manual", "override")
+    assert sides[top] == ("back", "auto", "1 neighbour on -n")
+    # A call-time override beats the project; "auto" restores the interpretation.
+    assert resolve_thickness_sides(m.p, m.part, {"web": "auto"})[web][1] == "auto"
+    profiles = {q.mark: q for q in build_plate_profiles(m.p, m.part, thickness_sides={
+        sheet: value[0] for sheet, value in sides.items()})}
+    assert profiles["flange"].z_min_m == pytest.approx(0.) and profiles["top"].z_max_m == pytest.approx(.5)
+    auto = assembly_views(m.p, m.part, all_views=False)
+    explicit = assembly_views(m.p, m.part, all_views=False,
+                              thickness_sides={sheet: value[0] for sheet, value in sides.items()})
+    assert [v.paths for v in auto] == [v.paths for v in explicit]
+    assert [v.paths for v in auto] != [v.paths for v in assembly_views(m.p, m.part, all_views=False,
+                                                                       thickness_sides="centre")]
+
+
+def test_conflicting_name_and_id_overrides_are_refused():
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    m = _Conformal()
+    flange = m.flange()
+    m.p.drawing_thickness_sides.update({"flange": "front", flange: "back"})
+    with pytest.raises(ValueError, match="conflicting"):
+        resolve_thickness_sides(m.p, m.part)
+    m.p.drawing_thickness_sides = {"flange": "sideways"}
+    with pytest.raises(ValueError, match="Thickness side"):
+        resolve_thickness_sides(m.p, m.part)
+
+
+def test_overrides_round_trip_old_files_load_and_removed_sheets_drop(tmp_path):
+    from anyfem.io.project_file import (FORMAT_VERSION, load_project, project_from_dict, project_to_dict,
+                                        save_project)
+    m = _Conformal()
+    flange, web = m.flange(), m.web("web", 0, .5)
+    plain = project_to_dict(m.p)
+    assert "drawing_thickness_sides" not in plain and plain["anyfem"]["format"] == FORMAT_VERSION
+    assert project_from_dict(plain).drawing_thickness_sides == {}
+    m.p.drawing_thickness_sides.update({"flange": "back", web: "auto", "gone": "front", 99: "front"})
+    data = project_to_dict(m.p)
+    assert data["drawing_thickness_sides"] == [{"sheet": web, "side": "auto"}, {"sheet": "flange", "side": "back"}]
+    assert data["anyfem"]["format"] == 21
+    reopened = load_project(save_project(m.p, tmp_path / "sides.anyfem"))
+    assert reopened.drawing_thickness_sides == {web: "auto", "flange": "back"}
+    old = dict(data)
+    old["anyfem"] = {**data["anyfem"], "format": 20}
+    from anyfem.io.project_file import ProjectFileError
+    with pytest.raises(ProjectFileError, match="format 21"):
+        project_from_dict(old)
+    # A geometry edit removing the Sheet drops its override from the document.
+    m.g.remove_sheet(m.g.sheets[flange].id)
+    assert project_to_dict(m.p)["drawing_thickness_sides"] == [{"sheet": web, "side": "auto"}]
