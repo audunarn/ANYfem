@@ -46,7 +46,7 @@ class FocusedQualificationTests(unittest.TestCase):
                 h.main()
 
     def artifacts(self):
-        case = ET.Element('testcase', classname='tests.test_spline_mesh_ownership_acceptance', name=NODE.split('::')[1])
+        case = ET.Element('testcase', classname='diagnostics.test_spline_mesh_ownership_acceptance', name=NODE.split('::')[1])
         return case, {'assignments': {NODE: 'qualification'}}, {'profile': 'focused', 'scope': 'partial development only', 'status': 'passed', 'exit_code': 0, 'counts': {'tests': 1, 'failures': 0, 'errors': 0, 'skipped': 0}, 'acceptance': 'not established'}, {'mesher_ref': PIN, 'source_refs': {'ANYmesh': PIN}, 'nodeid': NODE, 'scope': 'partial qualification only', 'acceptance': 'not established'}
 
     def test_exact_original_pass_receipt(self):

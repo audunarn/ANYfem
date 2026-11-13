@@ -37,7 +37,7 @@ def verify(cases, inventory, run, source, actual_ref):
             or source.get('mesher_ref') != actual_ref
             or source.get('source_refs', {}).get('ANYmesh') != actual_ref):
         raise ValueError('focused source identity does not match frozen mesher ref')
-    if (len(cases) != 1 or cases[0].get('classname') != 'tests.test_spline_mesh_ownership_acceptance'
+    if (len(cases) != 1 or cases[0].get('classname') != 'diagnostics.test_spline_mesh_ownership_acceptance'
             or cases[0].get('name') != NODE.split('::', 1)[1]
             or any(cases[0].find(kind) is not None for kind in ('skipped', 'failure', 'error'))):
         raise ValueError('exactly one original unskipped passing four-face case required')

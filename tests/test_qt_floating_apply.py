@@ -4,7 +4,7 @@ Contract covered: the actual dialog and buttons, a typed floating prepared recor
 the shared plot navigation (drag handle, Fit selected, Reset/fit all, extrema), the production WaveCalculation worker that REOPENS and
 validates the record (no BEM), the ApplyFloatingLoad command run by the app's command stack, undo/redo, and a stale-phase refusal.
 
-The record is built from the self-consistent SYNTHETIC family of tests/test_floating_pipeline.py on a small connected box (native Prepare +
+The record is built from the self-consistent SYNTHETIC family of tests/floating_pipeline_helpers.py on a small connected box (native Prepare +
 worker are proven separately by the gated native nodes); the dialog's own wave inputs produce the saved realization, so no stale/phase
 guard is bypassed.  Command for the parent (harness, sequential, Qt opt-in is set by the harness):
   check.py ... ANYfem tests/test_qt_floating_apply.py
@@ -24,7 +24,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QLineEdit, QWidget
 from test_qt_geometry_actions import qapp  # noqa: F401  (fixture)
 from test_qt_wave_load import wait
-import test_floating_pipeline as pipe
+import floating_pipeline_helpers as pipe
 
 from anyfem.application import floating_apply as fa
 from anyfem.application import floating_prepare as fp

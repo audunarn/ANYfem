@@ -1,7 +1,7 @@
 """Actual Prepare/save/offline re-gate; synthetic coherent families, no BEM."""
 import numpy as np
 import pytest
-from test_floating_pipeline import case,settings,synthetic_snapshot,PANEL,fp,fsrc,ff,fa
+from floating_pipeline_helpers import case,settings,synthetic_snapshot,PANEL,fp,fsrc,ff,fa
 from anyfesolver.floating_response import rigid_motion_world
 
 
@@ -85,7 +85,7 @@ def test_production_waterline_field_path_matches_incident_airy_phase(case):
     # Real ANYhydro field postprocessing with an analytic potential callback;
     # _waterline_eta itself is not patched and no BEM or field fit is performed.
     from scipy.optimize import brentq
-    from test_floating_pipeline import G,DEPTH
+    from floating_pipeline_helpers import G,DEPTH
     p,m,b,props,rec,comp,_=case
     pose=fp._pose(rec);target=fsrc.prepare_target_cells(p,m,pose)
     source=fsrc.prepare_source(p,m,pose,target,panel_size=PANEL)

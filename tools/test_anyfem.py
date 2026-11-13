@@ -123,15 +123,22 @@ def validate_run_receipt(output, profile):
     identities={node:['.'.join((names:=mangle_test_address(node))[:-1]),names[-1]] for node in nodes}
     subtest_path=output/'suite-subtests.json'
     subtests=json.loads(subtest_path.read_text(encoding='utf8')) if subtest_path.exists() else []
+    if not isinstance(subtests,list):raise RuntimeError('invalid associated subtest ledger')
     associated={}
     for subtest in subtests:
+        if (not isinstance(subtest,dict) or not isinstance(subtest.get('nodeid'),str)
+                or type(subtest.get('ordinal')) is not int or subtest['ordinal']<0
+                or not isinstance(subtest.get('description'),str) or not subtest['description']
+                or subtest.get('outcome') not in {'passed','skipped'}):
+            raise RuntimeError('invalid associated subtest event')
         node=subtest['nodeid']
-        if node not in identities or subtest['outcome']=='failed':raise RuntimeError('unknown or failed associated subtest')
+        if node not in identities:raise RuntimeError('unknown associated subtest parent')
         key=(node,subtest['description'],subtest['ordinal'])
         if key in associated:raise RuntimeError('ambiguous associated subtest identity')
         associated[key]=subtest
-    seen=set();skips=[];positive=set();seen_subtests=set()
-    for case in ET.parse(output/'pytest.xml').iter('testcase'):
+    seen=set();skips=[];positive=set();seen_subtests=set();ordinary_skipped=0
+    junit=ET.parse(output/'pytest.xml').getroot()
+    for case in junit.iter('testcase'):
         if any(case.find(kind) is not None for kind in ('error','failure')):
             raise RuntimeError('JUnit records failure despite passing exit')
         props=[p.get('value') for p in case.findall('properties/property') if p.get('name')=='anyfem_original_nodeid']
@@ -150,13 +157,30 @@ def validate_run_receipt(output, profile):
             key=remaining[0]
             if (case.find('skipped') is not None)!=(associated[key]['outcome']=='skipped'):
                 raise RuntimeError('associated subtest outcome differs')
+            skipped=case.find('skipped')
+            if skipped is not None and not (skipped.get('message') or skipped.text):
+                raise RuntimeError('associated skipped subtest lacks reason')
             seen_subtests.add(key);continue
         if node in seen:raise RuntimeError('duplicate ordinary JUnit identity')
         if identities[node]!=[case.get('classname',''),case.get('name','')]:raise RuntimeError('JUnit original identity changed')
         seen.add(node)
         if case.find('skipped') is None:positive.add(node)
+        else:ordinary_skipped+=1
     if seen!=set(nodes) or sorted(skips)!=sorted(data.get('collection_skips',[])):
         raise RuntimeError('incomplete collected/JUnit identity union')
+    # Native pytest counts passing subtests without necessarily emitting child
+    # testcase rows. The actual event ledger, parent union and suite counters
+    # jointly bind those results; skipped children must retain a reasoned row.
+    required_subtests={key for key,row in associated.items() if row['outcome']=='skipped'}
+    if not required_subtests<=seen_subtests:
+        raise RuntimeError('incomplete associated skipped subtest/JUnit union')
+    suites=[junit] if junit.tag=='testsuite' else list(junit.findall('testsuite'))
+    totals={key:sum(int(suite.get(key,'0')) for suite in suites)
+            for key in ('tests','skipped','errors','failures')}
+    if (totals['tests']!=len(nodes)+len(skips)+len(associated)
+            or totals['skipped']!=ordinary_skipped+len(skips)+len(required_subtests)
+            or totals['errors'] or totals['failures']):
+        raise RuntimeError('JUnit aggregate counters differ from parent/subtest ledger')
     if profile in {'quick','full','qt'}:
         smoke='tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen'
         if smoke not in positive:raise RuntimeError('required real software Qt smoke did not execute')

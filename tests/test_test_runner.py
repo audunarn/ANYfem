@@ -87,6 +87,7 @@ def test_associated_subtest_rows_preserve_original_union_and_reject_replays(tmp_
     _completed_receipt(tmp_path/'pytest.log',{'ANYFEM_SUITE_PROFILE':'unit'})
     tree=ET.parse(tmp_path/'pytest.xml');case=next(tree.iter('testcase'))
     child=copy.deepcopy(case);child.set('name',case.get('name')+' (x=1)');tree.find('testsuite').append(child)
+    tree.find('testsuite').set('tests','2')
     tree.write(tmp_path/'pytest.xml')
     node=case.find('properties/property').get('value')
     (tmp_path/'suite-subtests.json').write_text(json.dumps([dict(nodeid=node,description='(x=1)',ordinal=0,outcome='passed')]))
@@ -94,6 +95,42 @@ def test_associated_subtest_rows_preserve_original_union_and_reject_replays(tmp_
     tree.find('testsuite').append(copy.deepcopy(child));tree.write(tmp_path/'pytest.xml')
     with pytest.raises(RuntimeError,match='duplicate associated subtest'):
         runner.validate_run_receipt(tmp_path,'unit')
+
+
+@pytest.mark.parametrize('damage',[None,'event','counter','parent'])
+def test_native_passing_subtest_omission_binds_ledger_parent_and_counters(tmp_path,damage):
+    import xml.etree.ElementTree as ET
+    _completed_receipt(tmp_path/'pytest.log',{'ANYFEM_SUITE_PROFILE':'unit'})
+    tree=ET.parse(tmp_path/'pytest.xml');parent=next(tree.iter('testcase'))
+    node=parent.find('properties/property').get('value')
+    events=[dict(nodeid=node,description='(x=1)',ordinal=0,outcome='passed')]
+    tree.find('testsuite').set('tests','2')
+    if damage=='event':events=[]
+    elif damage=='counter':tree.find('testsuite').set('tests','1')
+    elif damage=='parent':tree.find('testsuite').remove(parent)
+    tree.write(tmp_path/'pytest.xml')
+    (tmp_path/'suite-subtests.json').write_text(json.dumps(events))
+    if damage is None:
+        assert runner.validate_run_receipt(tmp_path,'unit')['selected']==1
+    else:
+        with pytest.raises(RuntimeError):runner.validate_run_receipt(tmp_path,'unit')
+
+
+def test_skipped_subtest_requires_its_row_and_reason(tmp_path):
+    import copy
+    import xml.etree.ElementTree as ET
+    _completed_receipt(tmp_path/'pytest.log',{'ANYFEM_SUITE_PROFILE':'unit'})
+    tree=ET.parse(tmp_path/'pytest.xml');parent=next(tree.iter('testcase'))
+    node=parent.find('properties/property').get('value')
+    events=[dict(nodeid=node,description='(x=1)',ordinal=0,outcome='skipped')]
+    tree.find('testsuite').set('tests','2');tree.find('testsuite').set('skipped','1')
+    tree.write(tmp_path/'pytest.xml');(tmp_path/'suite-subtests.json').write_text(json.dumps(events))
+    with pytest.raises(RuntimeError,match='incomplete associated skipped'):
+        runner.validate_run_receipt(tmp_path,'unit')
+    child=copy.deepcopy(parent);child.set('name',parent.get('name')+' (x=1)')
+    ET.SubElement(child,'skipped',message='native subtest skip')
+    tree.find('testsuite').append(child);tree.write(tmp_path/'pytest.xml')
+    assert runner.validate_run_receipt(tmp_path,'unit')['selected']==1
 
 
 def test_owned_windows_spawn_waits_for_assignment_before_go(monkeypatch, tmp_path):
