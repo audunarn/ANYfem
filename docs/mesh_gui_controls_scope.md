@@ -106,7 +106,7 @@ there is no GUI runtime, algorithm, platform-scale or release qualification clai
 Version 0.4.1 is the qualified compatibility release. Source metadata and the
 launcher use the qualified graph floors: ANYmesher `>=0.5,<0.6`,
 ANYgeometry[planar] `>=0.4.3,<0.5`, ANYsolver `>=0.4.6,<0.5`, ANYmaterial
-`>=0.2,<0.3`, ANYfileio `>=0.3.2,<0.4`, and the GUI viewer pair `>=0.5.5,<0.6`.
+`>=0.2,<0.3`, ANYfileio `>=0.3.4,<0.4`, and the GUI viewer pair `>=0.5.5,<0.6`.
 
 A push to main/master or a pull request triggers tests.yml: Linux/Windows across
 Python 3.11–3.14, full pytest, verification/parity, and build/wheel-install work.

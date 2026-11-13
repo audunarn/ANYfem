@@ -29,7 +29,7 @@ def _versions() -> dict[str, str]:
         "ANYmaterial": "0.2.0",
         "ANYloads": "0.1.0",
         "ANYgeometry": "0.4.3",
-        "ANYfileio": "0.3.3",
+        "ANYfileio": "0.3.4",
         "ANYmesher": "0.5.1",
         "ANY3dView": "0.5.6",
         "ANYpost": "0.1.3",
@@ -238,5 +238,5 @@ def test_missing_distribution_metadata_is_actionable():
         return versions[name]
 
     assert namespace["ecosystem_compatibility_problems"](reader) == (
-        "ANYfileio>=0.3.2,<0.4: distribution metadata is missing",
+        "ANYfileio>=0.3.4,<0.4: distribution metadata is missing",
     )

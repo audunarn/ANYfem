@@ -4,6 +4,8 @@
 
 - Use the ANYfeSolver 0.5 package for structural analyses.
 
+- SAT import: two optional reader tolerances (vertex relocation, approximate curve), empty/off by default, recorded on the imported part; a refusal naming one points to its field. Requires ANYfileio 0.3.4.
+
 - License: ANYfem source code moves to GNU GPL version 3 only (`GPL-3.0-only`)
   on 2026-10-27. Previously published releases retain their original licenses;
   narrative documentation remains CC BY 4.0 and dependencies retain their own terms.
