@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -244,3 +245,137 @@ def test_lock_changed_or_corrupted_while_the_child_runs_cannot_crash_the_check(a
         _lock(app)
         outcome = _health(app)
         assert outcome.status in (tr.OK, tr.UNAVAILABLE)
+
+
+# ------------------------------------------------------------------------------------------ review round 3 (Codex r3)
+
+def _dev_runtime(tmp_path, monkeypatch, lock_text):
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    tr._health_cache.clear()
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    (dev / "python.exe").write_bytes(b"x")
+    if lock_text is not None:
+        (dev / "runtime.lock.json").write_bytes(lock_text if isinstance(lock_text, bytes) else lock_text.encode())
+    return dev
+
+
+def test_lock_swapped_between_validation_and_caching_is_not_cached_as_valid(tmp_path, monkeypatch):
+    dev = _dev_runtime(tmp_path, monkeypatch, json.dumps({"python_version_full": "A"}))
+    real = tr._check_lock
+
+    def swapping(raw):
+        result = real(raw)
+        (dev / "runtime.lock.json").write_text(json.dumps({"python_version_full": "B"}), encoding="utf-8")  # swapped after the snapshot
+        return result
+    monkeypatch.setattr(tr, "_check_lock", swapping)
+    _ok_child(monkeypatch, version_full="A")
+    first = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))
+    assert first.status == tr.OK  # the snapshot (A) is what this call validated
+    monkeypatch.setattr(tr, "_check_lock", real)
+    second = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))  # the lock on disk now pins B
+    assert second.status == tr.UNAVAILABLE and "different interpreter" in second.reason
+    tr._health_cache.clear()
+
+
+def test_lock_swapped_from_legacy_to_schema_between_steps_gets_the_snapshot_policy(tmp_path, monkeypatch):
+    dev = _dev_runtime(tmp_path, monkeypatch, json.dumps({"numpy": "2.4.6"}))
+    real = tr._declares_schema
+
+    def swapping(raw):
+        result = real(raw)
+        (dev / "runtime.lock.json").write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+        return result
+    monkeypatch.setattr(tr, "_declares_schema", swapping)
+    _ok_child(monkeypatch)
+    assert tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path)).status == tr.OK  # legacy snapshot, legacy policy
+    monkeypatch.setattr(tr, "_declares_schema", real)
+    again = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))  # disk now declares a schema: full check applies
+    assert again.status == tr.UNAVAILABLE and "invalid" in again.reason
+    tr._health_cache.clear()
+
+
+@pytest.mark.parametrize("folder", ["scripts", "SCRIPTS", "Bin"])
+def test_runtime_root_is_found_case_insensitively(tmp_path, monkeypatch, folder):
+    runtime = tmp_path / "runtime-314t"
+    (runtime / folder).mkdir(parents=True)
+    (runtime / folder / "python.exe").write_bytes(b"x")
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path))
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    tr._health_cache.clear()
+    assert tr._runtime_root(runtime / folder / "python.exe") == runtime
+    outcome = tr.check_health(runtime / folder / "python.exe", timeout=5, temp_root=str(tmp_path))  # shipped runtime without a lock
+    assert outcome.status == tr.UNAVAILABLE and "lock" in outcome.reason
+    tr._health_cache.clear()
+
+
+@pytest.mark.parametrize("text", [
+    '{"python_version_full": "wrong build", "python_version_full": null}',
+    '{"numpy": "9.9.9", "numpy": "2.4.6"}',
+])
+def test_duplicate_keys_in_legacy_locks_are_refused(tmp_path, monkeypatch, text):
+    dev = _dev_runtime(tmp_path, monkeypatch, text)  # beside the runtime
+    assert tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path)).status == tr.UNAVAILABLE
+    tr._health_cache.clear()
+    dev2 = _dev_runtime(tmp_path / "second", monkeypatch, None) if (tmp_path / "second").mkdir() is None else None
+    explicit = tmp_path / "explicit.json"
+    explicit.write_text(text, encoding="utf-8")
+    outcome = tr.check_health(dev2 / "python.exe", timeout=5, temp_root=str(tmp_path), lock_path=explicit)  # explicit lock path
+    assert outcome.status == tr.UNAVAILABLE and "malformed" in outcome.reason
+    tr._health_cache.clear()
+
+
+@pytest.mark.parametrize("body", [{"health": "malformed"}, {"health": None}, {"health": ["x"]}, {}])
+def test_malformed_child_health_cannot_raise(app, tmp_path, monkeypatch, body):
+    _lock(app)
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: tr.ChildOutcome(status=tr.OK, body=dict(body, smoke=tr._batch_prepare.SMOKE_DIGEST)))
+    outcome = _health(app)
+    assert outcome.status == tr.UNAVAILABLE  # the root lock pins a build the child did not report
+    dev = _dev_runtime(tmp_path / "d", monkeypatch, None) if (tmp_path / "d").mkdir() is None else None
+    tr._health_cache.clear()
+    assert tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path)).status in (tr.OK, tr.UNAVAILABLE)
+    tr._health_cache.clear()
+
+
+FAKE_CHILD = """
+import sys, os
+folder = sys.argv[-1]
+mode = os.environ.get("FAKE_MODE")
+if mode == "nested_result":
+    open(os.path.join(folder, "result.json"), "w").write("[" * 100000)
+elif mode == "nested_progress":
+    open(os.path.join(folder, "progress.jsonl"), "w").write("[" * 100000 + "\\n")
+elif mode == "non_object_result":
+    open(os.path.join(folder, "result.json"), "w").write("[]")
+"""
+
+
+@pytest.mark.parametrize("mode", ["nested_result", "nested_progress", "non_object_result"])
+def test_hostile_child_output_is_a_classified_outcome_not_an_exception(tmp_path, mode):
+    import sys
+    child = tmp_path / "fake_child.py"
+    child.write_text(FAKE_CHILD, encoding="utf-8")
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    events = []
+    outcome = tr.run_child(Path(sys.executable), dict(kind="x"), None, threads=1, timeout=60, child_main=child, temp_root=str(jobs),
+                           extra_env={"FAKE_MODE": mode}, progress_cb=events.append)
+    assert outcome.status == tr.UNAVAILABLE and outcome.reason
+    assert list(jobs.iterdir()) == []  # temp folder removed
+
+
+def test_full_check_validates_the_same_snapshot_that_keys_the_cache(app, monkeypatch):
+    _lock(app)
+    _ok_child(monkeypatch)
+    state = {"swapped": False}
+
+    def digest_then_swap():
+        if not state["swapped"]:
+            state["swapped"] = True
+            (app / rl.LOCK_NAME).write_bytes(b"garbage after the snapshot")
+        return DIGEST
+    monkeypatch.setattr(tr, "_parent_source_digest", digest_then_swap)
+    assert _health(app).status == tr.OK  # the snapshot taken before the swap is what was validated and what keys the cache
+    again = _health(app)  # the lock on disk is now garbage: different snapshot, different key, full check refuses
+    assert again.status == tr.UNAVAILABLE and "invalid" in again.reason

@@ -156,7 +156,7 @@ def _app_dir() -> Path:
 
 def _runtime_root(python: Path) -> Path:
     """Folder holding ``runtime.lock.json``: the runtime root for both ``<root>/python.exe`` and ``<root>/Scripts/python.exe``."""
-    return python.parent.parent if python.parent.name in ("Scripts", "bin") else python.parent
+    return python.parent.parent if python.parent.name.lower() in ("scripts", "bin") else python.parent  # Windows names are case-insensitive
 
 
 def _runtime_python(root: Path) -> Optional[Path]:
@@ -365,7 +365,7 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
             for line in lines:
                 try:
                     event = json.loads(line)
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
                 if progress_cb is not None:
                     progress_cb(event)
@@ -423,7 +423,7 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
             status = envelope["status"]
             if not isinstance(body, dict):
                 raise ValueError("result body is not an object")
-        except (ValueError, KeyError, TypeError, OSError) as exc:
+        except (ValueError, KeyError, TypeError, AttributeError, OSError, RecursionError) as exc:
             outcome.reason = "malformed result: %s" % exc
             return outcome
         if process.returncode != 0:
@@ -452,24 +452,31 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
 
 # ------------------------------------------------------------------------------------------------ health check
 
-def _declares_schema(lock: Path) -> bool:
+def _read_lock(path: Path) -> Optional[bytes]:
+    """ONE read of a lock file per health check: its bytes decide the policy, the pins and the cache identity.  None = absent."""
+    return path.read_bytes() if path.is_file() else None
+
+
+def _declares_schema(raw: Optional[bytes]) -> bool:
+    if raw is None:
+        return False
     try:
-        data = json.loads(lock.read_bytes())
-    except (OSError, ValueError, RecursionError):
-        return False  # unreadable here; the legacy check then refuses it (it handles the same errors)
+        data = runtime_lock.decode_lock_json(raw)
+    except runtime_lock.LockError:
+        return False  # the lenient check then refuses it (same decoder)
     return isinstance(data, dict) and "schema_version" in data
 
 
-def _check_lock(lock: Path):
-    """Lenient check of a ``runtime.lock.json`` (developer runtimes, explicit lock paths).  Returns (reason, pinned interpreter
-    build or None); the file is read ONCE here and nowhere else."""
-    if not lock.is_file():
+def _check_lock(raw: Optional[bytes]):
+    """Lenient check of the bytes of a ``runtime.lock.json`` (developer runtimes, explicit lock paths); strict JSON (no duplicate
+    keys).  Returns (reason, pinned interpreter build or None).  Operates on a snapshot: it never reads the file."""
+    if raw is None:
         return "", None
     try:
-        data = json.loads(lock.read_bytes())
+        data = runtime_lock.decode_lock_json(raw)
         if not isinstance(data, dict):
-            raise ValueError("not an object")
-    except (ValueError, RecursionError) as exc:
+            raise runtime_lock.LockError("not an object")
+    except runtime_lock.LockError as exc:
         return "runtime.lock.json is malformed: %s" % exc, None
     if "numpy" in data and data["numpy"] != EXPECT_NUMPY:
         return "runtime.lock.json pins NumPy %s, expected %s" % (data["numpy"], EXPECT_NUMPY), None
@@ -483,26 +490,21 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     """Selftest child: GIL off after imports, NumPy pin, source digest, frozen smoke.  Cached by interpreter + lock + sources."""
     try:
         root = _runtime_root(Path(python))
-        lock = Path(lock_path) if lock_path else root / "runtime.lock.json"
+        root_bytes = _read_lock(root / runtime_lock.LOCK_NAME)  # one snapshot per lock file, used for everything below
+        explicit_bytes = _read_lock(Path(lock_path)) if lock_path else None
         # The shipped runtime (<app>/runtime-314t) and any runtime whose lock declares a schema get the FULL check: strict lock,
         # NumPy pin, application source digest and a digest over every file of the runtime folder (no changed, missing or extra file,
         # e.g. no planted bytecode).  Only a hand-made developer runtime (override, no schema) keeps the lenient legacy check.
-        full = _same_file(root, _app_dir() / "runtime-314t") or _declares_schema(root / runtime_lock.LOCK_NAME)
+        full = _same_file(root, _app_dir() / "runtime-314t") or _declares_schema(root_bytes)
         pins = []  # interpreter builds pinned by every lock consulted; ALL must equal what the child reports
         # Lenient checks: the lock of a developer runtime, and an explicit lock path (which adds to the full check, never replaces it).
-        for lenient in ([lock] if (not full or lock_path) else []):
-            problem, pinned = _check_lock(lenient)
+        lenient = ([root_bytes] if not full else []) + ([explicit_bytes] if lock_path else [])
+        for snapshot in lenient:  # a developer runtime's own lock, and an explicit lock (which adds to the full check, never replaces it)
+            problem, pinned = _check_lock(snapshot)
             if problem:
                 return ChildOutcome(status=UNAVAILABLE, reason=problem)
             pins.append(pinned)
-        if not full and lock_path:  # also the lock beside the runtime, so an explicit path cannot hide its pin
-            problem, pinned = _check_lock(root / runtime_lock.LOCK_NAME)
-            if problem:
-                return ChildOutcome(status=UNAVAILABLE, reason=problem)
-            pins.append(pinned)
-        lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
-        root_lock = root / runtime_lock.LOCK_NAME
-        lock_hash += "|" + (hashlib.sha256(root_lock.read_bytes()).hexdigest() if root_lock.is_file() else "")
+        lock_hash = "|".join(hashlib.sha256(b).hexdigest() if b is not None else "-" for b in (root_bytes, explicit_bytes))
         stat = Path(python).stat()
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
         return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
@@ -513,7 +515,7 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         return cached
     if full:  # checked once per process and key (a bundle changed on disk during a session is noticed at the next start)
         problem, built = runtime_lock.check_installed_lock(root, expect_numpy=EXPECT_NUMPY,
-                                                           expect_source_digest=_parent_source_digest())
+                                                           expect_source_digest=_parent_source_digest(), lock_bytes=root_bytes)
         if problem:
             outcome = ChildOutcome(status=UNAVAILABLE, reason=problem)
             _health_cache[key] = outcome
@@ -522,7 +524,8 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
     outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
     if outcome.status == OK:  # no lock is read again here: the pins were collected from the data that was validated
-        reported = ((outcome.body or {}).get("health") or {}).get("version_full")
+        health = (outcome.body or {}).get("health")
+        reported = health.get("version_full") if isinstance(health, dict) else None
         if any(pinned is not None and pinned != reported for pinned in pins):
             outcome.status, outcome.reason = UNAVAILABLE, "runtime.lock.json pins a different interpreter build"
     if outcome.status == OK and (outcome.body or {}).get("smoke") != _batch_prepare.SMOKE_DIGEST:

@@ -326,14 +326,21 @@ def verify_bundle(lock: Lock, root) -> None:
                         % (count, digest, lock.bundle_files, lock.bundle_sha256))
 
 
-def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str):
+_READ = object()
+
+
+def check_installed_lock(root, *, expect_numpy: str, expect_source_digest: str, lock_bytes=_READ):
     """Application-side check of an installed runtime folder.  Returns (reason, lock): reason "" and the parsed lock when the
     folder is sound, else the reason it is unusable and None.  The lock is read once; callers use the returned object."""
     root = Path(root)
-    try:
-        raw = (root / LOCK_NAME).read_bytes()
-    except OSError as exc:
-        return "runtime.lock.json missing or unreadable: %r" % (exc,), None
+    raw = lock_bytes  # a caller that already snapshotted the lock passes those bytes (None = the file is absent)
+    if raw is _READ:
+        try:
+            raw = (root / LOCK_NAME).read_bytes()
+        except OSError as exc:
+            return "runtime.lock.json missing or unreadable: %r" % (exc,), None
+    if raw is None:
+        return "runtime.lock.json missing or unreadable", None
     try:
         lock = load_lock_bytes(raw, built=True)
     except LockError as exc:
