@@ -208,7 +208,10 @@ def _auto(project, sheet_id, part_sheets, vertices):
     neighbours = [other for other in part_sheets if other != sheet_id and vertices[other] & vertices[sheet_id]]
     for other in neighbours:
         points = np.array([geometry.vertex_position(v) for v in sorted(vertices[other])])
-        distance = signed(points)
+        try:
+            distance = signed(points)
+        except ValueError as error:  # an ambiguous curved-strip mapping
+            return "centre", f"neighbour side undefined ({error})"
         for sign in {int(np.sign(d)) for d in distance if abs(d) > tolerance}:
             counts[sign] += 1
     return _decide(len(neighbours), counts)

@@ -250,3 +250,20 @@ def test_saved_overrides_are_sheet_ids_and_name_records_bind_at_load(tmp_path):
     for bad in ("nosuch", 9999):
         with pytest.raises(ProjectFileError, match="names no Sheet"):
             project_from_dict(dict(data, drawing_thickness_sides=[{"sheet": bad, "side": "front"}]))
+
+
+def test_automatic_side_is_centred_when_a_neighbour_maps_ambiguously():
+    from anygeometry import OrientedEdge
+    from anyfem.application.thickness_side import resolve_thickness_sides
+    patches = _patches(SCROLL)
+    p, part, sheet, _ = _sheet(patches)
+    g = p.geometry
+    # A bracket from the strip's start corner (1, 0, 0) to the point between the two turns.
+    corner = next(v for v, vertex in g.vertices.items() if np.allclose(vertex.position, (1, 0, 0)))
+    a, b = g.add_point(*(1.5 * _dir(np.pi / 2)), 0.), g.add_point(*(1.5 * _dir(np.pi / 2)), H)
+    bracket = g.add_face_from_loop([OrientedEdge(g.add_line(*pair), True)
+                                    for pair in ((corner, a), (a, b), (b, corner))])
+    g.add_sheet((bracket,), part_id=part, name="bracket")
+    p.assign_plate(bracket, "12 mm")
+    side, source, reason = resolve_thickness_sides(p, part)[sheet]
+    assert (side, source) == ("centre", "auto") and "ambiguous" in reason
