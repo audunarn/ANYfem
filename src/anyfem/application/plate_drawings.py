@@ -97,7 +97,7 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
                           quantity: int = 1, density_kg_m3: float | None = None,
                           dwg_converter: str | Path | None = None, dwg_backend: str = "oda",
                           elevation_datum: str = "support_base", include_plate_intersections: bool = True,
-                          representation: str = "solid", thickness_sides="auto") -> Path:
+                          representation: str = "solid", thickness_sides="auto", extent=None) -> Path:
     """Write a new directory atomically. Dimensions are mm; mass excludes contingency.
 
     A density override applies only to this takeoff. Omitting it uses each plate's
@@ -105,11 +105,18 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     ``thickness_sides`` (``auto``, ``centre`` or a Sheet-to-side mapping) places
     plate thickness for elevations and references; ``representation`` selects
     solid or ``midsurface_2d`` reference drawings. Profiles and mass do not
-    depend on either.
+    depend on either. ``extent`` (a :class:`DrawingExtent`) leaves out the
+    per-plate profiles (and their DWG copies) or the index and takeoff CSVs
+    when deselected; the default writes everything. A non-default extent is
+    recorded in the Drawing-basis manifest.
     """
+    from .drawing_extent import DrawingExtent
     from .plate_profiles import build_plate_profiles
     from .thickness_side import check_representation, resolve_sides
     check_representation(representation)
+    extent = DrawingExtent() if extent is None else extent
+    if not isinstance(extent, DrawingExtent):
+        raise ValueError("extent must be a DrawingExtent")
 
     if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
         raise ValueError("Quantity must be a positive integer")
@@ -155,7 +162,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     with TemporaryDirectory(dir=destination.parent, prefix=".plate-drawings-") as temporary:
         package = Path(temporary) / "package"
         drawing_dir = package / "profiles"
-        drawing_dir.mkdir(parents=True)
+        package.mkdir(parents=True)
+        if extent.plate_profiles:
+            drawing_dir.mkdir()
         for plate in profiles:
             filename = _filename(plate.mark, plate.sheet_id)
             if plate.mark.casefold() in marks or filename.casefold() in filenames:
@@ -168,8 +177,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
                 raise ValueError(f"Plate {plate.mark}: specify a positive takeoff density for {plate.material}")
             mass = plate.mass_area_m2 * plate.thickness_m * density
             stock[plate.thickness_m].append((plate.area_m2, mass, density))
-            plate.write_dxf(drawing_dir / filename)
-            if include_plate_intersections:
+            if extent.plate_profiles:
+                plate.write_dxf(drawing_dir / filename)
+            if extent.plate_profiles and include_plate_intersections:
                 from .plate_view import build_plate_view
                 from .drawing_views import write_view_dxf
                 sheet = project.geometry.sheets[plate.sheet_id]
@@ -182,17 +192,19 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             row = (plate.mark, plate.sheet_id, plate.material, f"{plate.thickness_m*1000:g}",
                    plate.hole_count, f"{density:.12g}", f"{plate.area_m2:.9f}", f"{mass:.6f}",
                    quantity, f"{mass*quantity:.6f}", f"{(plate.z_min_m-base_z)*1000:.3f}",
-                   f"{(plate.z_max_m-base_z)*1000:.3f}", f"profiles/{filename}")
+                   f"{(plate.z_max_m-base_z)*1000:.3f}",
+                   f"profiles/{filename}" if extent.plate_profiles else "")
             if not legacy:
                 _, source, reason = table[plate.sheet_id]
                 row += (plate.side_text, f"{source}: {reason}")
             index.append(row)
-        _csv(package / "Plate-index.csv", index_columns, index)
-        rows = [_takeoff_row(scope, f"{gauge*1000:g}", quantity, entries)
-                for gauge, entries in sorted(stock.items())]
-        rows.append(_takeoff_row(scope, "All", quantity, [pair for entries in stock.values() for pair in entries]))
-        _csv(package / "Weight-takeoff.csv", TAKEOFF_COLUMNS, rows)
-        if dwg_converter is not None:
+        if extent.index_and_takeoff:
+            _csv(package / "Plate-index.csv", index_columns, index)
+            rows = [_takeoff_row(scope, f"{gauge*1000:g}", quantity, entries)
+                    for gauge, entries in sorted(stock.items())]
+            rows.append(_takeoff_row(scope, "All", quantity, [pair for entries in stock.values() for pair in entries]))
+            _csv(package / "Weight-takeoff.csv", TAKEOFF_COLUMNS, rows)
+        if dwg_converter is not None and extent.plate_profiles:
             _make_dwg_copies(dwg_converter, drawing_dir, package / "DWG", backend=dwg_backend)
         manifest = {
             "project": project.name, "document_id": str(project.document_id),
@@ -205,6 +217,8 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             "override_kg_m3": density_kg_m3, "mass_basis": "net cut area x nominal thickness x density",
             "formats": ["DXF", "DWG AC1032"] if dwg_converter is not None else ["DXF"],
         }
+        if not extent.is_default:
+            manifest["extent"] = extent.to_dict()
         if not legacy or representation != "solid":
             manifest["representation"] = representation
         if not legacy:
@@ -237,6 +251,14 @@ def main(argv=None):
                         help="solid plates, or 2D reference surfaces without thickness")
     parser.add_argument("--thickness-side", action="append", default=[], metavar="NAME=SIDE",
                         help="per-plate side override (Sheet name or ID; auto, centre, front or back); repeatable")
+    parser.add_argument("--views", default="all", metavar="LIST",
+                        help="assembly views to generate: all, or a comma list of iso, plan, front, right")
+    parser.add_argument("--no-sections", action="store_false", dest="sections",
+                        help="leave out the requested section views")
+    parser.add_argument("--no-plate-profiles", action="store_false", dest="plate_profiles",
+                        help="leave out the per-plate profile drawings (DXF/DWG)")
+    parser.add_argument("--no-index", action="store_false", dest="index_and_takeoff",
+                        help="leave out the plate index and weight takeoff")
     parser.add_argument("--dwg-converter", type=Path, help="ODA File Converter executable for optional DWG copies")
     args = parser.parse_args(argv)
     overrides = {}
@@ -245,6 +267,12 @@ def main(argv=None):
         if not separator or not name or side not in ("auto", "centre", "front", "back"):
             parser.error(f"--thickness-side expects NAME=auto|centre|front|back, not {item!r}")
         overrides[name] = side
+    from .drawing_extent import DrawingExtent, parse_views
+    try:
+        extent = DrawingExtent(views=parse_views(args.views), sections=args.sections,
+                               plate_profiles=args.plate_profiles, index_and_takeoff=args.index_and_takeoff)
+    except ValueError as error:
+        parser.error(str(error))
     try:
         snapshot = DocumentSession(load_project(args.project)).snapshot()
         output = export_plate_drawings(snapshot, args.part, args.destination,
@@ -252,7 +280,7 @@ def main(argv=None):
                                        elevation_datum=args.elevation_datum,
                                        include_plate_intersections=args.plate_intersections,
                                        dwg_converter=args.dwg_converter, representation=args.representation,
-                                       thickness_sides=overrides or "auto")
+                                       thickness_sides=overrides or "auto", extent=extent)
     except (OSError, ValueError, RuntimeError, ImportError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")
     print(output)

@@ -317,14 +317,24 @@ def _projection(stocks, direction, up):
 
 
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
-                   elevation_datum="global", thickness_sides="auto", representation="solid"):
+                   elevation_datum="global", thickness_sides="auto", representation="solid", views=None):
     """Isometric/plan/front/right views of one plate Part.
 
     ``thickness_sides`` places each plate's thickness (``auto``, ``centre`` or
     a Sheet-to-side mapping, see :func:`thickness_side.resolve_sides`);
     ``representation="midsurface_2d"`` draws reference surfaces without
     thickness. The takeoff and elevation datum always use the solid plates.
+    ``views`` selects a subset of ``isometric``/``plan``/``front``/``right``
+    (printed in that order); when omitted ``all_views`` chooses all four or
+    only the isometric.
     """
+    from .drawing_extent import VIEW_NAMES, normalize_views
+    if views is None:
+        wanted = VIEW_NAMES if all_views else VIEW_NAMES[:1]
+    else:
+        wanted = normalize_views(views)
+        if not wanted:
+            raise ValueError("Select at least one assembly view")
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
     from .thickness_side import check_representation, sides_for_part
@@ -353,10 +363,10 @@ def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True
         notes += ("Thickness sides   " + "   /   ".join(f"{n} {side}" for side, n in counts.items() if n),)
     if flat:
         notes += ("Representation 2D mid-surface: plates drawn at their reference surfaces, no thickness",)
-    views = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
-             ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
+    definitions = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
+                   ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
     result = []
-    for label, direction, up in (views if all_views else views[:1]):
+    for label, direction, up in (d for d in definitions if d[0].lower() in wanted):
         n = np.asarray(direction, dtype=float)
         n /= np.linalg.norm(n)
         u = np.cross(up, n)

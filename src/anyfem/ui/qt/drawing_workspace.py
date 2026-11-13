@@ -240,6 +240,7 @@ class DrawingWorkspace(QWidget):
         chosen = self.representation.findData(self.settings.value("drawings/representation", "solid"))
         self.representation.setCurrentIndex(max(0, chosen))
         form.addRow("Representation",self.representation)
+        self._build_extent(form)
         layout.addWidget(common)
         self.preview_btn = QPushButton("Generate preview")
         self.preview_btn.setStyleSheet("QPushButton { background:#126b70; color:white; border:0; border-radius:4px;"
@@ -318,6 +319,9 @@ class DrawingWorkspace(QWidget):
         self.intersections.toggled.connect(self._invalidate)
         self.elevation_datum.currentIndexChanged.connect(self._datum_changed)
         self.representation.currentIndexChanged.connect(self._representation_changed)
+        self.extent_preset.currentIndexChanged.connect(self._extent_preset_changed)
+        for box in self.extent_checks.values():
+            box.toggled.connect(self._extent_box_toggled)
         self.part.currentIndexChanged.connect(self._fill_sides)
         self.limited.toggled.connect(self._invalidate)
         self._mode_changed()
@@ -460,6 +464,100 @@ class DrawingWorkspace(QWidget):
             return
         self.feedback.setText("Thickness side changed. Generate a new preview.")
 
+    _EXTENT_LABELS = (("isometric","Isometric"),("plan","Plan"),("front","Front"),("right","Right"),
+                      ("sections","Sections"),("plate_profiles","Plate profiles"),
+                      ("index_and_takeoff","Index and takeoff"))
+
+    def _build_extent(self,form):
+        """Selectable generation extent: a preset plus one check box per part, persisted like the datum."""
+        import json
+        from ...application.drawing_extent import DrawingExtent
+        self._extent_busy = True
+        self.extent_preset = QComboBox()
+        self.extent_preset.addItem("All views","all_views")
+        self.extent_preset.addItem("Isometric only","isometric_only")
+        self.extent_preset.addItem("Custom","custom")
+        self.extent_preset.setAccessibleName("Drawing extent")
+        form.addRow("Extent",self.extent_preset)
+        holder = QWidget()
+        grid = QGridLayout(holder)
+        grid.setContentsMargins(0,0,0,0)
+        self.extent_checks = {}
+        for n,(key,label) in enumerate(self._EXTENT_LABELS):
+            box = QCheckBox(label)
+            box.setAccessibleName(f"Extent {label}")
+            self.extent_checks[key] = box
+            grid.addWidget(box,n//2,n%2)
+        form.addRow(holder)
+        state = DrawingExtent().to_dict()
+        try:
+            state.update(json.loads(self.settings.value("drawings/extent","{}")))
+        except (TypeError, ValueError):
+            pass
+        chosen = set(state.get("views",())) if isinstance(state.get("views"),list) else set(DrawingExtent().views)
+        for key,box in self.extent_checks.items():
+            box.setChecked(key in chosen if key in DrawingExtent().views else bool(state.get(key,True)))
+        self._sync_extent_preset()
+        self._extent_busy = False
+
+    def _extent_state(self):
+        return {"views":[k for k in ("isometric","plan","front","right") if self.extent_checks[k].isChecked()],
+                **{k:self.extent_checks[k].isChecked() for k in ("sections","plate_profiles","index_and_takeoff")}}
+
+    def extent(self):
+        """The selected :class:`DrawingExtent`; refuses a selection with nothing to generate."""
+        from ...application.drawing_extent import DrawingExtent
+        return DrawingExtent.from_dict(self._extent_state())
+
+    def _sync_extent_preset(self):
+        from ...application.drawing_extent import DrawingExtent
+        state = self._extent_state()
+        key = "custom"
+        for name,preset in (("all_views",DrawingExtent.all_views()),("isometric_only",DrawingExtent.isometric_only())):
+            if state == preset.to_dict():
+                key = name
+        self.extent_preset.setCurrentIndex(self.extent_preset.findData(key))
+
+    def _extent_preset_changed(self,*_):
+        if self._extent_busy:
+            return
+        from ...application.drawing_extent import DrawingExtent
+        key = self.extent_preset.currentData()
+        if key != "custom":
+            preset = DrawingExtent.all_views() if key == "all_views" else DrawingExtent.isometric_only()
+            self._extent_busy = True
+            for name,box in self.extent_checks.items():
+                box.setChecked(name in preset.views if name in DrawingExtent().views else getattr(preset,name))
+            self._extent_busy = False
+        self._extent_changed()
+
+    def _extent_box_toggled(self,*_):
+        if self._extent_busy:
+            return
+        self._extent_busy = True
+        self._sync_extent_preset()
+        self._extent_busy = False
+        self._extent_changed()
+
+    def _extent_changed(self):
+        import json
+        state = self._extent_state()
+        self.settings.setValue("drawings/extent",json.dumps(state))
+        kept = []
+        for original,named in self.saved_views:
+            kind = original.projection
+            if ((kind in state["views"]) if kind in ("isometric","plan","front","right") else
+                    state["sections"] if kind == "section" else state["plate_profiles"] if kind == "plate" else True):
+                kept.append((original,named))
+        dropped = len(kept) != len(self.saved_views)
+        self.saved_views[:] = kept
+        self.queue_choice.clear()
+        for _,view in self.saved_views:
+            self.queue_choice.addItem(view.title)
+        self._invalidate()
+        if dropped:
+            self.feedback.setText("Extent changed. Queued sheets outside the extent were removed.")
+
     def _representation_changed(self,*_):
         self.settings.setValue("drawings/representation",self.representation.currentData())
         dropped = bool(self.saved_views)
@@ -564,8 +662,11 @@ class DrawingWorkspace(QWidget):
     def _request(self):
         mode = self.mode.tabText(self.mode.currentIndex())
         representation = self.representation.currentData()
+        extent = self.extent()
         if mode=="Assembly":
-            return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),
+            if not extent.views:
+                raise ValueError("Select at least one assembly view to preview.")
+            return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),views=extent.views,
                         density=self.density.value() if self.basis.currentIndex() else None,
                         elevation_datum=self.elevation_datum.currentData(),
                         thickness_sides="auto",representation=representation)
@@ -685,6 +786,7 @@ class DrawingWorkspace(QWidget):
         opts["include_plate_intersections"] = self.intersections.isChecked()
         opts["representation"] = options.get("representation","solid")
         opts["thickness_sides"] = options.get("thickness_sides","auto")
+        opts["extent"] = self.extent()
         number = self.view_choice.currentIndex()+1
         self.export_rel = f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf"
         self.exporting = True
