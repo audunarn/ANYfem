@@ -193,7 +193,8 @@ def _ok_child(monkeypatch, version_full="3.14.10 free-threading build (x)", on_r
     def fake(python, job, document, **kwargs):
         if on_run:
             on_run()
-        return tr.ChildOutcome(status=tr.OK, body={"health": {"version_full": version_full}, "smoke": tr._batch_prepare.SMOKE_DIGEST})
+        health = {"version_full": version_full, "cache_tag": "cpython-314", "executable": "e"}
+        return tr.ChildOutcome(status=tr.OK, body={"health": health, "smoke": tr._batch_prepare.SMOKE_DIGEST})
     monkeypatch.setattr(tr, "run_child", fake)
 
 
@@ -334,7 +335,8 @@ def test_malformed_child_health_cannot_raise(app, tmp_path, monkeypatch, body):
     assert outcome.status == tr.UNAVAILABLE  # the root lock pins a build the child did not report
     dev = _dev_runtime(tmp_path / "d", monkeypatch, None) if (tmp_path / "d").mkdir() is None else None
     tr._health_cache.clear()
-    assert tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path)).status in (tr.OK, tr.UNAVAILABLE)
+    outcome = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))  # no interpreter pin anywhere
+    assert outcome.status == tr.UNAVAILABLE and "malformed" in outcome.reason
     tr._health_cache.clear()
 
 
@@ -379,3 +381,53 @@ def test_full_check_validates_the_same_snapshot_that_keys_the_cache(app, monkeyp
     assert _health(app).status == tr.OK  # the snapshot taken before the swap is what was validated and what keys the cache
     again = _health(app)  # the lock on disk is now garbage: different snapshot, different key, full check refuses
     assert again.status == tr.UNAVAILABLE and "invalid" in again.reason
+
+
+# ------------------------------------------------------------------------------------------ review round 4 (Codex r4)
+
+def test_well_formed_health_without_any_pin_is_ok(tmp_path, monkeypatch):
+    dev = _dev_runtime(tmp_path, monkeypatch, None)
+    def fake(python, job, document, **kwargs):
+        health = {"version_full": "v", "cache_tag": "cpython-314", "executable": "e"}
+        return tr.ChildOutcome(status=tr.OK, body={"health": health, "smoke": tr._batch_prepare.SMOKE_DIGEST})
+    monkeypatch.setattr(tr, "run_child", fake)
+    assert tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path)).status == tr.OK
+    tr._health_cache.clear()
+
+
+def test_non_object_progress_events_never_reach_the_callback(tmp_path):
+    import sys
+    child = tmp_path / "fake_child.py"
+    child.write_text("import sys, os\nopen(os.path.join(sys.argv[-1], 'progress.jsonl'), 'w').write('[]\\nnull\\n5\\n{\"stage\": \"x\"}\\n')\n",
+                     encoding="utf-8")
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    seen = []
+    outcome = tr.run_child(Path(sys.executable), dict(kind="x"), None, threads=1, timeout=60, child_main=child, temp_root=str(jobs),
+                           progress_cb=lambda event: seen.append(event.get("stage")))  # raises AttributeError on a non-object
+    assert seen == ["x"] and outcome.status == tr.UNAVAILABLE
+
+
+def test_refusal_class_name_from_the_child_is_sanitised():
+    from anygeometry.errors import GeometryError
+    odd = tr._refusal_error(GeometryError, {"diagnostic_type": "\u0000", "message": "m"})
+    assert type(odd).__name__ == "GeometryError" and isinstance(odd, tr.RoutedRefusal)
+    for bad in ("a b", "1x", "x.y", "", "x\n"):
+        assert type(tr._refusal_error(GeometryError, {"diagnostic_type": bad, "message": "m"})).__name__ == "GeometryError"
+    named = tr._refusal_error(GeometryError, {"diagnostic_type": "IntersectionRefusal", "message": "m"})
+    assert type(named).__name__ == "IntersectionRefusal"
+
+
+def test_short_timeout_failure_is_not_served_to_a_later_longer_call(app, monkeypatch):
+    _lock(app)
+    calls = []
+
+    def fake(python, job, document, timeout=None, **kwargs):
+        calls.append(timeout)
+        return tr.ChildOutcome(status=tr.UNAVAILABLE, reason="timeout") if timeout < 10 else tr.ChildOutcome(
+            status=tr.OK, body={"health": {"version_full": "3.14.10 free-threading build (x)", "cache_tag": "c", "executable": "e"},
+                                "smoke": tr._batch_prepare.SMOKE_DIGEST})
+    monkeypatch.setattr(tr, "run_child", fake)
+    assert tr.check_health(app / "python.exe", timeout=1, temp_root=str(app.parent)).status == tr.UNAVAILABLE
+    assert tr.check_health(app / "python.exe", timeout=120, temp_root=str(app.parent)).status == tr.OK
+    assert calls == [1, 120]

@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -86,8 +87,10 @@ class RoutedRefusal(GeometryError):
 
 
 def _refusal_error(base, body: dict) -> GeometryError:
-    name = body.get("diagnostic_type") or body.get("type") or "GeometryError"
-    kind = type(str(name), (RoutedRefusal, base), {})  # same class name as the owner's exception in cause records
+    name = str(body.get("diagnostic_type") or body.get("type") or "GeometryError")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):  # untrusted text: a class name must be a plain identifier (type() raises on NUL)
+        name = "GeometryError"
+    kind = type(name, (RoutedRefusal, base), {})  # same class name as the owner's exception in cause records
     error = kind(str(body["message"]))
     if isinstance(body.get("diagnostic"), dict):
         error.diagnostic = body["diagnostic"]
@@ -367,6 +370,8 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
                     event = json.loads(line)
                 except (ValueError, RecursionError):
                     continue
+                if not isinstance(event, dict):  # progress events are objects; anything else is noise, never handed to the callback
+                    continue
                 if progress_cb is not None:
                     progress_cb(event)
 
@@ -508,7 +513,7 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         stat = Path(python).stat()
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
         return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
-    key = (str(python), full, stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
+    key = (str(python), full, timeout, stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
            EXPECT_NUMPY, tuple(sorted((k, repr(v)) for k, v in injection.items())))
     cached = _health_cache.get(key)
     if cached is not None:
@@ -523,6 +528,8 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         pins.append(built.python_version_full)
     job = dict(kind="selftest", source_digest=_parent_source_digest(), smoke_digest=_batch_prepare.SMOKE_DIGEST)
     outcome = run_child(python, job, None, threads=1, timeout=timeout, cancellation_check=cancellation_check, **injection)
+    if outcome.status == OK and _identity_of(outcome.body) is None:  # the per-job interpreter comparison needs a well-formed identity
+        outcome.status, outcome.reason = UNAVAILABLE, "child health report is malformed"
     if outcome.status == OK:  # no lock is read again here: the pins were collected from the data that was validated
         health = (outcome.body or {}).get("health")
         reported = health.get("version_full") if isinstance(health, dict) else None
