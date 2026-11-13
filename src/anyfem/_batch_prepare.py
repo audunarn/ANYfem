@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from anygeometry import ConnectionIntent, IntersectionBatchPolicy, apply_intersections, plan_intersections
+import anygeometry
+from anygeometry import ConnectionIntent, IntersectionBatchPolicy
 from anygeometry.entities import EntityRef
 
 __all__ = [
@@ -65,6 +66,10 @@ def _check(cancellation_check, phase: str) -> None:
         cancellation_check(phase)
 
 
+# The owner entry points are looked up on the ``anygeometry`` module at call time (as the pre-route code did with a
+# function-local import): tests and diagnostics that replace ``anygeometry.plan_intersections`` / ``apply_intersections`` must see the call.
+
+
 def make_policy(cancellation_check=None) -> IntersectionBatchPolicy:
     """The ONE policy of a preparation call (parent: with its cancellation check; thread-route child: without)."""
     def cancelled():
@@ -83,7 +88,7 @@ def resolved_route() -> list:
 
 def plan_only(geometry, operands):
     """Plan stage alone (what the thread-route child runs); the parent adopts and applies the plan."""
-    return plan_intersections(geometry, operands, policy=make_policy(None))
+    return anygeometry.plan_intersections(geometry, operands, policy=make_policy(None))
 
 
 def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan=None, plan_source=None) -> BatchState:
@@ -102,7 +107,7 @@ def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan
         return f"face:{representatives[key]}"
     plan = plan_source(policy) if plan_source is not None else None
     if plan is None:
-        plan = plan_intersections(geometry, operands, policy=policy)
+        plan = anygeometry.plan_intersections(geometry, operands, policy=policy)
     if record_plan is not None:
         record_plan(plan)
     pairs = set()
@@ -121,7 +126,7 @@ def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan
             pairs.update((face_label(contact.face_id), f"member:{member}") for member in members)
         for index, first in enumerate(members):
             pairs.update((f"member:{first}", f"member:{second}") for second in members[index+1:])
-    application = apply_intersections(geometry, plan, policy=policy)
+    application = anygeometry.apply_intersections(geometry, plan, policy=policy)
     return BatchState(application, pairs, original_faces, face_label)
 
 
