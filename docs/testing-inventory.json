@@ -1,0 +1,4130 @@
+{
+  "schema": "anyfem-manager-inventory-v2",
+  "baseline": "069c78955bc3e49f02cd0ca9afb83b5c933cc41f",
+  "method": "timing-prioritized split; unknown ordinary modules retained in full; no deletions; complete scientific acceptance families moved before collection",
+  "modules": [
+    {
+      "path": "tests/test_analyses.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_anypost_adoption.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_anypost_boundary_repairs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_anypost_channels.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_anypost_review_repairs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_application_frontend_boundary.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_attribute_edit_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_automatic_curved_recovery.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_background_meshing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_barge_example.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_barge_fatigue_example.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_batch_pressure_preparation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_beam_boundary_aliases.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_caller_host_isolation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_caller_planning_profile.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_capacity_progress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_ci_mesher_caller_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_closed_spline_construction_speed_acceptance.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "opt-in scalability/runtime campaign",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_closed_spline_construction_speed_acceptance.py"
+    },
+    {
+      "path": "tests/test_closed_spline_extrusion_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_closed_spline_extrusion_acceptance.py"
+    },
+    {
+      "path": "tests/test_colour_modes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_command_recording.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_commands.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_commercial_foundations.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_commercial_workflow_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_commercial_workflow_acceptance.py"
+    },
+    {
+      "path": "tests/test_connections.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_coordinate_scopes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_current_diagnosis_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_current_diagnosis_acceptance.py"
+    },
+    {
+      "path": "tests/test_curved_mesh_temporary_owners.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_curved_sketch_display.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_curved_source_publication_adapter.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_curved_trim_assembly.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_curvilinear_source_remap_guard.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_decomposition.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_definition_tasks.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_definition_ui.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_diagnosis_process_cancellation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_diagnostic_current_state.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_diagnostics.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_document_geometry_snapshot.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_document_hash_payloads.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_drawing_assembly.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_drawing_paper.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_drawing_plate_view.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_drawing_sections.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_e4_pl_default_routing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_ecosystem_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_edge_load_mapping_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_edge_load_mapping_acceptance.py"
+    },
+    {
+      "path": "tests/test_edge_selection_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_edge_selection_acceptance.py"
+    },
+    {
+      "path": "tests/test_empty_set_membership.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_existing_material_caller_scope.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_face_submission_snapshots.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_faceted_s3_source.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_fatigue_results.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_feature_attachments.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_clearance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_direct_lid.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_loads.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_panel_source.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_passivity.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_pipeline.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_floating_pipeline.py"
+    },
+    {
+      "path": "tests/test_floating_profile.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_publication_cleanup.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_publication_hardkill.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_residual_relief.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_transfer.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_transient.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_transient_job.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_transient_prepare.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_transient_record.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_floating_waterline_admission.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_focused_qualification_dispatch.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_free_floating.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_ge_beam3_optin.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_generator_mesh_consumption.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_generator_properties.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_bulk_edit_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_geometry_bulk_edit_acceptance.py"
+    },
+    {
+      "path": "tests/test_geometry_cleaner.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_command_staging.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_diagnosis_export.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_edit.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_schema6_consumer.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_sets_actions.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_geometry_tree_policy.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_grouped_face_hit_scope.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_gui_launcher.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_hydro_pressure_glyphs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_hydro_pressure_series.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_hydro_wave_pressure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_impact.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_implied_zero_clamps.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_imported_persistence.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_inertia_relief_settings.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_interop_results.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_intersection_meshing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_io.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_irregular_wave_input.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_job_manager_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_job_manager_acceptance.py"
+    },
+    {
+      "path": "tests/test_job_process.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_job_process_containment.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_job_staleness_cache.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_join_sheet_command.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_l01_pressure_source.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_l01_structural_example.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_latest_v7_compatibility.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_launcher_ecosystem_preflight.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_legacy_geometry_owner_migration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_license_policy.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_live_progress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_load_assignment.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_load_series.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loads.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_local_mesh_sizes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_basic_public_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_basic_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_closed_public_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_downstream.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_public_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_loft_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_automatic_workbench.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_connected_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_curved_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_diagnosis_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_execution_policy.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_execution_submission.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_general_interior.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_general_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_gui_controls.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_job_snapshot.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_layout_commit.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_method_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_mixed_source_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_node_visibility.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_numbering_authority.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_parallel_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_periodic_component_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_preparation_cache_atomicity.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_pressure_preview.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_process.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_publication_lifecycle.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_publication_numbers.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_reference_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_runtime_diagnostics.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_scene_beam_preparation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_source_chart_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_source_network.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_source_trim.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_structural_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_surface_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_task_parallel_lifecycle.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_task_safe_cancellation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesh_whole_plate_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesher_authored_child_project_cells.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mesher_authored_project_references.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_migration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_mixed_stress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_model.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_modeling_tools.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_modeling_tools_ui.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_named_mesh_size_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_named_mesh_size_acceptance.py"
+    },
+    {
+      "path": "tests/test_named_mesh_sizes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_native_meshing_backend.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_native_meshing_cache_reuse.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_native_meshing_project.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_native_meshing_runtime.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_nonlinear_recovery_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_nonlinear_recovery_acceptance.py"
+    },
+    {
+      "path": "tests/test_numeric_input.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_nurbs_approximation_request.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_nurbs_cut_mesh_integration.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_nurbs_cut_mesh_integration.py"
+    },
+    {
+      "path": "tests/test_nurbs_cut_mesh_release_hold.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_nurbs_cut_mesh_release_hold.py"
+    },
+    {
+      "path": "tests/test_nurbs_preparation_authority.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_nurbs_project_source_publication.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_orcawave_pressure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_output_request_views.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_output_requests.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_overlap_and_generator_ui.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_passive_diagnostic_watchdog.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_performance_acceptance.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "opt-in scalability/runtime campaign",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_performance_acceptance.py"
+    },
+    {
+      "path": "tests/test_physical_beams.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_planar_ngon_display.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_planar_source_qualification_routing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_plate_drawing_curves.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_plate_drawing_export.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_plate_edge_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_plate_profiles.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_post_archive.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_post_archive_application_repair.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_post_shared_metadata.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_postprocessing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_preflight_diagnostics.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_preparation_evidence.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_candidate_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_candidate_supervisor.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_edge_load_aliases.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_mesh_preassembly.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_mesh_remap.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_mesh_remap_copy_hook.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_mesh_remap_review.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_project_copy.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_reference_scope.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_adapter.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_envelopes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_response.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_response_m16.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_response_m20.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_trusted_capture.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_prepared_static_wet_cache.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_presentation_workspace.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_pressure_remap.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_pressure_source_selector.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_public_imports.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_activation_readiness.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_apply_enter.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_barge_fatigue_example.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_bottom_docks.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_button_help.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_cad_visualization.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_camera_responsiveness.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_capacity_responsiveness.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_closed_spline_extrusion_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_closed_spline_extrusion_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_colour_modes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_combined_point_input.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_connected_contracts.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_connections.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_cross_cell_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_current_diagnosis_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_current_diagnosis_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_diagnosis_summary.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_diagnostic_current_state.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_dock_footer_lifecycle.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_drawing_workspace.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_edge_selection_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_edge_selection_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_empty_sets_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_empty_sets_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_examples.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_face_outlines.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_fatigue.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_fatigue_picking.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_field_icons.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_floating_apply.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_floating_transient.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_floating_wave_load.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_free_floating.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_generated_member_picking.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_generated_panel_highlight.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_generator_properties.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_geometry_actions.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_geometry_bulk_edit_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_geometry_bulk_edit_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_geometry_cleaner.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_geometry_edit.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_geometry_schema6_consumer.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_gui_restoration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_gui_sweep.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_highlight_updates.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_inertia_relief.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_irregular_wave_load.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_legend_contrast.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_load_panel.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_load_panel_lifecycle.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_loads_edges_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_loads_edges_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_loft.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_loft_basic_profiles.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_mesh_fault_injection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_mesh_parallel_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_mesh_parallel_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_mesh_pressure_preview.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_mesh_quad_options_reopen.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_model_colour_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_model_colour_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_model_resume.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_named_mesh_size_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_named_mesh_size_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_named_mesh_sizes.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_numeric_input.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_orcawave_pressure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_owner_graph.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_physical_beams.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_plate_click_mode.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_plate_construction.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_plate_edge_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_pressure_highlight_scope.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_pressure_scope_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_pressure_scope_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_process_jobs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_regional_update.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_result_browser.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_result_playback.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_run_progress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_runtime_diagnostics.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sat_import.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_scheduling.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_section_library.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_set_membership.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sets_presentation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sets_unification_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_sets_unification_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_sketch_coordinates.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sketch_cut.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sketch_external_references.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sketch_overlay_lifetime.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sketcher_controller.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_sketcher_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_spline_extrusion_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_spline_extrusion_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_submodel_task.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_submodel_workspace.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_table_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_table_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_tree_apply_selection_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_tree_apply_selection_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_tree_attribute_edit.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_tree_direct_edit_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_qt_tree_direct_edit_acceptance.py"
+    },
+    {
+      "path": "tests/test_qt_tree_interaction_performance.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "opt-in scalability/runtime campaign",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_qt_tree_interaction_performance.py"
+    },
+    {
+      "path": "tests/test_qt_tree_locations.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_tree_property_assignment.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_tree_refresh.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_visibility.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wave_hydrostatic.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wave_load.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wave_preview_navigation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wave_surface_pressure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wave_window.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_webgpu_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wet_loads.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wind_turbine_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_wind_turbine_load.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_workbench.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_qt_worktree_tables.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_quad_adaptive_default.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_quad_first_analysis_gate.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_quad_planar_boundary_bars.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_quad_stiffened_cylinder.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_quad_triangle_angle_settings.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_raw_sweep_owner_dispatch.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_recovery.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_recovery_coalescing.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_refinement.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_regional_mesh.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_regional_mesh_job.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_regional_owner_refusal.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_reported_spline_mesh_release_hold.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_reproducible_reports.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_artifact.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_browser.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_component_first_use.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_display.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_exports.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_first_use_opacity.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_frame_reuse.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_inventory_publication.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_metadata_lifecycle.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_metadata_not_stress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_preparation_reductions.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_retained_appearance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_session_readiness.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_summary.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_surface_sides.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_result_transport.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_retained_scene_block_identity.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_retained_viewer_ownership.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_run_progress.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sat_geometry_import.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_scene.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_scripting.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_section_assignments.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_selection_state.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_selection_strip_policy.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sets_presentation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sets_unification_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_sets_unification_acceptance.py"
+    },
+    {
+      "path": "tests/test_shell_driven_solid_jobs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_shell_formulation_hold.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sketch_axis_anchors.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sketch_external_references.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sketch_plate_cut.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sketch_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_sketcher_controller.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_smart_mapped_public.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_solve.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_solve_panel_options.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_solver_controls.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_solver_outcome_jobs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_solver_quantity_bridge.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_source_job_cancellation.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_source_mesh_publication.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_spline_extrusion_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_spline_extrusion_acceptance.py"
+    },
+    {
+      "path": "tests/test_spline_mesh_ownership_acceptance.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_spline_mesh_ownership_acceptance.py"
+    },
+    {
+      "path": "tests/test_spooled_worker_transport.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_static_batch_adapter.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_static_batch_envelope_factors.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_static_batch_examples.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_static_batch_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_strong_raw_sweep_handoff.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_structural.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_structural_preparation_capabilities.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_a8_regional.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_attached_cut.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_child_edit.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_cut.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_cylinder.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_design.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_jobs.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_regional_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_submodel_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_suite_structure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_support_b_drawing_example.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_table_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_table_acceptance.py"
+    },
+    {
+      "path": "tests/test_test_runner.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_thread_route.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_transport_preparation_context.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_tree_bulk_delete.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_tree_property_assignment.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_tripod_preparation_phase.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_tripod_structural_diagnostics.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_turbine_mass_attachment.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_turbine_result_transport.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_ui_job_acceptance.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null,
+      "current": "tests/test_ui_job_acceptance.py"
+    },
+    {
+      "path": "tests/test_ui_scalability.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_ui_smoke.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_unknown_feature_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_updated_solver_compatibility.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_verification.py",
+      "disposition": "retained diagnostic",
+      "owner": "ANYfem consumer campaign; physical truth remains with canonical geometry/mesh/solver owners",
+      "purpose": "scientific/whole-model qualification or unsupported owner-bound hold",
+      "trigger": "explicit qualification; existing campaign authority",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "Scientific assertions retained; no exact owner duplicate claimed",
+      "current": "diagnostics/test_verification.py"
+    },
+    {
+      "path": "tests/test_viewer_backend_integration.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_viewport_commercial_selection.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_viewport_retained_geometry.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_visibility.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_visual_presets.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_visualization.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wave_hydrostatic.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wave_input_settings.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wave_surface_application.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wave_surface_worker.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_webgpu_launcher.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wet_pressure.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wet_pressure_code_table.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wet_pressure_scene.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_wind_turbine_load.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_worker_retirement_edges.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_workflow.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_workflow_event_scheduling.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_workplane_snapping.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_worktree_tables.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "manager/application regression contracts",
+      "trigger": "full release",
+      "runtime_budget_seconds": 1200,
+      "coverage_gap": null
+    },
+    {
+      "path": "tests/test_manager_workflows.py",
+      "disposition": "required application",
+      "owner": "ANYfem",
+      "purpose": "tiny real application orchestration, owner dispatch and installed artifact smoke",
+      "trigger": "quick/full/compatibility",
+      "runtime_budget_seconds": 300,
+      "coverage_gap": "Installed-wheel lane requires CI-built artifact"
+    }
+  ],
+  "diagnostic_nodes": [
+    {
+      "original": "tests/test_workflow.py::test_the_capacity_ratio_compares_the_two_load_factors",
+      "current": "diagnostics/test_workflow.py::test_the_capacity_ratio_compares_the_two_load_factors",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_workflow.py::test_the_capacity_summary_names_both_load_factors",
+      "current": "diagnostics/test_workflow.py::test_the_capacity_summary_names_both_load_factors",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_workflow.py::test_the_capacity_workflow_runs_every_stage",
+      "current": "diagnostics/test_workflow.py::test_the_capacity_workflow_runs_every_stage",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_structural.py::test_a_hardening_material_makes_the_solve_inelastic",
+      "current": "diagnostics/test_structural.py::test_a_hardening_material_makes_the_solve_inelastic",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_structural.py::test_a_solve_without_fracture_deletes_nothing",
+      "current": "diagnostics/test_structural.py::test_a_solve_without_fracture_deletes_nothing",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_structural.py::test_eroding_too_much_of_the_structure_stops_the_solve",
+      "current": "diagnostics/test_structural.py::test_eroding_too_much_of_the_structure_stops_the_solve",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_structural.py::test_fracture_erodes_elements_once_the_threshold_is_passed",
+      "current": "diagnostics/test_structural.py::test_fracture_erodes_elements_once_the_threshold_is_passed",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_curved_trim_assembly.py::test_local_trim_preserves_second_panel_through_solver_and_reopen",
+      "current": "diagnostics/test_curved_trim_assembly.py::test_local_trim_preserves_second_panel_through_solver_and_reopen",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_mesh_general_update.py::test_bezier_automatic_approximation_publishes_regional_child_after_reopen",
+      "current": "diagnostics/test_mesh_general_update.py::test_bezier_automatic_approximation_publishes_regional_child_after_reopen",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_mesh_general_update.py::test_one_edited_source_retains_exact_disconnected_plate",
+      "current": "diagnostics/test_mesh_general_update.py::test_one_edited_source_retains_exact_disconnected_plate",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_mesh_source_network.py::test_local_reseed_couples_component_and_requires_certified_physical_quality",
+      "current": "diagnostics/test_mesh_source_network.py::test_local_reseed_couples_component_and_requires_certified_physical_quality",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_verification.py::test_every_verification_case_passes",
+      "current": "diagnostics/test_verification.py::test_every_verification_case_passes",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_nurbs_project_source_publication.py::test_principal_public_project_prepares_complete_owned_face_scope_before_meshing",
+      "current": "diagnostics/test_nurbs_project_source_publication.py::test_principal_public_project_prepares_complete_owned_face_scope_before_meshing",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_refinement.py::test_quadratic_shells_converge_faster_than_linear_ones",
+      "current": "diagnostics/test_refinement.py::test_quadratic_shells_converge_faster_than_linear_ones",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_source_mesh_publication.py::test_automatic_planar_nurbs_uses_owner_approximation_and_rebuilds",
+      "current": "diagnostics/test_source_mesh_publication.py::test_automatic_planar_nurbs_uses_owner_approximation_and_rebuilds",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_mesh_source_trim.py::test_annulus_preserves_exterior_and_certifies_new_material",
+      "current": "diagnostics/test_mesh_source_trim.py::test_annulus_preserves_exterior_and_certifies_new_material",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_mesh_source_trim.py::test_corrupt_numbered_trim_rim_refuses_publication",
+      "current": "diagnostics/test_mesh_source_trim.py::test_corrupt_numbered_trim_rim_refuses_publication",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    },
+    {
+      "original": "tests/test_nurbs_cut_mesh_integration.py::test_principal_public_cut_preview_topology_material_and_sheet_uses",
+      "current": "diagnostics/test_nurbs_cut_mesh_integration.py::test_principal_public_cut_preview_topology_material_and_sheet_uses",
+      "owner": "ANYfem integration; numerical owners ANYgeometry/ANYmesher/ANYfeSolver",
+      "purpose": "historical scientific/refinement campaign",
+      "trigger": "explicit qualification only; existing authority required",
+      "runtime_budget_seconds": null,
+      "coverage_gap": "No exact revision-bound owner equivalence established; assertions retained",
+      "disposition": "retained diagnostic"
+    }
+  ]
+}

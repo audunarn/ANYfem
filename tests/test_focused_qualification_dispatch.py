@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = '946b9353924dbca6f326feb8cb0327bcae5c4ccc'
-NODE = 'tests/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes'
+NODE = 'diagnostics/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes'
 
 
 def helper():
@@ -86,11 +86,10 @@ class FocusedQualificationTests(unittest.TestCase):
         self.assertIn('qualification_case:', text)
         self.assertIn('options: [all, reported-spline-four-face]', text)
         self.assertIn('mesher_ref:', text)
-        expected = "ref: ${{ inputs.mesher_ref || '" + PIN + "' }}"
-        self.assertEqual(text.count(expected), 3)
-        self.assertIn('--profile focused --ci-diagnostics --fail-fast --out reports/qualification-spline4 ' + NODE, text)
-        self.assertIn('ci_focused_qualification.py verify', text)
-        self.assertIn('ci_focused_qualification.py validate', text)
+        lane=(ROOT/'.github/workflows/application-lane.yml').read_text()
+        self.assertIn('ref: ${{ inputs.mesher_ref }}',lane)
+        self.assertIn('ci_focused_qualification.py validate',lane)
+        self.assertIn('qualification_case: ${{ inputs.qualification_case }}',text)
         self.assertIn('default: full', text)
 
 

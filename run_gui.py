@@ -111,8 +111,6 @@ _SOURCE_PROJECTS = (
     ("ANYtk3D", "anytk3d", _ANYTK3D_PROJECT / "src"),
     ("ANYfeSolver", "anyfesolver", _ANYFESOLVER_PROJECT / "src"),
     ("ANYfeSolver-results", "anyfesolver_results", _ANYFESOLVER_PROJECT / "packages" / "results" / "src"),
-    ("ANYfatigue", "anyfatigue", _WORKSPACE / "ANYfatigue" / "src"),
-    ("anytimes", "anyqats", _WORKSPACE / "ANYtimeseries"),
     ("ANYpost", "anypost", _ECOSYSTEM_WORKSPACE / "ANYpost" / "src"),
     ("ANYfem", "anyfem", _ROOT / "src"),
 )
@@ -141,6 +139,8 @@ def _active_distribution_version(distribution: str) -> str:
 # ANYhydro supplies hydrodynamic wave pressures. Inserted first so the required projects below,
 # and ANYfem itself, still end up ahead of it.
 _OPTIONAL_SOURCE_PROJECTS = (
+    ("ANYfatigue", "anyfatigue", _ECOSYSTEM_WORKSPACE / "ANYfatigue" / "src"),
+    ("anytimes", "anyqats", _ECOSYSTEM_WORKSPACE / "ANYtimeseries"),
     ("ANYsection", "anysection", _ECOSYSTEM_WORKSPACE / "ANYsection" / "src"),
     ("ANYhydro", "anyhydro", _ECOSYSTEM_WORKSPACE / "ANYhydro" / "src"),
     # Floating linear response: the equilibrium workflow runs in an isolated, explicitly configured runtime that holds the

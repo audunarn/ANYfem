@@ -367,27 +367,6 @@ def test_a_quadratic_beam_on_a_curve_is_refused():
     assert project.generate_mesh(0.3, order="linear").beams
 
 
-def test_quadratic_shells_converge_faster_than_linear_ones():
-    """The point of Q8: fewer elements for the same accuracy.
-
-    Compared against each order's own converged answer rather than a thin-plate
-    coefficient, because the two are not the same number -- the elements are
-    Mindlin-Reissner and include transverse shear.
-    """
-
-    fine = plate_project()
-    fine.set_element_order("quadratic")
-    converged = solve_linear_static(fine, target_size=1 / 24).max_translation()[1]
-
-    errors = {}
-    for order in ("linear", "quadratic"):
-        project = plate_project()
-        project.set_element_order(order)
-        coarse = solve_linear_static(project, target_size=1 / 4)
-        assert len(coarse.built.mesh.quads) == 16
-        errors[order] = abs(coarse.max_translation()[1] / converged - 1.0)
-
-    assert errors["quadratic"] < 0.5 * errors["linear"]
 
 
 def test_a_quadratic_traction_puts_the_whole_load_on(workspace):

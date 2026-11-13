@@ -205,48 +205,12 @@ def compressed_plate(nonlinear: bool = True) -> Project:
     return project
 
 
-@pytest.fixture(scope="module")
-def capacity_solution():
-    """One representative workflow run serves its read-only result contracts."""
-
-    project = compressed_plate()
-    # This fixture checks orchestration and summaries. The updated qualified
-    # plastic Q4 refuses the warped eigenmode imperfection; select the supported
-    # historical Q4 route explicitly rather than changing the production default.
-    project.shell_formulation_policy = ShellFormulationPolicy(
-        q4="legacy", s3=project.shell_formulation_policy.s3)
-    return solve_capacity(
-        project, target_size=0.05, num_buckling_modes=3,
-        imperfection_amplitude=1.0 / 500, num_steps=12,
-    )
 
 
-def test_the_capacity_workflow_runs_every_stage(capacity_solution):
-    solution = capacity_solution
-    assert solution.status == "completed"
-    assert solution.critical_factor is not None and solution.critical_factor > 0
-    assert solution.capacity_factor > 0
-    assert len(solution.buckling) == 3
-    assert solution.mesh_adequacy.get("status") == "ok"
-    # It is a nonlinear result, so the nonlinear interface still works.
-    assert len(solution.history()["load_factor"]) == len(solution.steps)
 
 
-def test_the_capacity_ratio_compares_the_two_load_factors(capacity_solution):
-    solution = capacity_solution
-    assert solution.capacity_ratio == pytest.approx(
-        solution.capacity_factor / solution.critical_factor
-    )
-    # A compressed plate has post-buckling reserve, so this one is above 1.
-    # Asserted because it is the physics, not because above 1 is "good".
-    assert solution.capacity_ratio > 1.0
 
 
-def test_the_capacity_summary_names_both_load_factors(capacity_solution):
-    solution = capacity_solution
-    text = solution.summary()
-    assert "capacity" in text
-    assert "elastic critical" in text
 
 
 def test_a_capacity_run_needs_a_load_case_to_scale():

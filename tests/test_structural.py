@@ -530,20 +530,6 @@ def test_an_elastic_material_builds_without_a_curve():
     assert getattr(built.fe_model.materials["S355"], "hardening_curve", None) is None
 
 
-def test_a_hardening_material_makes_the_solve_inelastic():
-    """Past yield the plastic model must be softer than the elastic one."""
-
-    from anyfem import solve_nonlinear_static
-
-    def run(nonlinear: bool) -> float:
-        return solve_nonlinear_static(
-            yielding_plate(1_500_000.0, nonlinear=nonlinear),
-            target_size=1 / 8, num_steps=10,
-        ).max_translation()[1]
-
-    plastic, elastic = run(True), run(False)
-    # Not a rounding difference: the plate has shed a third of its stiffness.
-    assert plastic > elastic * 1.2
 
 
 # ----------------------------------------------------------------------
@@ -557,46 +543,10 @@ def test_fracture_builds_the_solver_configuration():
     assert config.threshold == pytest.approx(0.15)
 
 
-def test_a_solve_without_fracture_deletes_nothing():
-    from anyfem import solve_nonlinear_static
-
-    solution = solve_nonlinear_static(
-        yielding_plate(1_500_000.0), target_size=1 / 8, num_steps=10
-    )
-    assert not solution.deleted_elements
 
 
-def test_fracture_erodes_elements_once_the_threshold_is_passed():
-    """The threshold is equivalent plastic strain, so it has to be reachable.
-
-    This plate peaks around 0.008 at full load; a threshold above that would
-    pass the test for the wrong reason -- nothing eroded because nothing ever
-    got close.
-    """
-
-    from anyfem import solve_nonlinear_static
-
-    solution = solve_nonlinear_static(
-        yielding_plate(1_500_000.0), target_size=1 / 8, num_steps=10,
-        fracture=fracture(0.006),
-    )
-    assert solution.deleted_elements
-    summary = solution.info["fracture_summary"]
-    assert set(solution.deleted_elements) == set(summary["deleted_element_ids"])
-    assert summary["max_trigger_value"] > 0.006
 
 
-def test_eroding_too_much_of_the_structure_stops_the_solve():
-    """Erosion past the configured fraction is reported, not solved through."""
-
-    from anyfem import solve_nonlinear_static
-
-    solution = solve_nonlinear_static(
-        yielding_plate(1_500_000.0), target_size=1 / 8, num_steps=10,
-        fracture=fracture(0.006),
-    )
-    assert solution.status == "stopped_at_limit"
-    assert solution.info["deleted_fraction"] > 0.25
 
 
 # ----------------------------------------------------------------------

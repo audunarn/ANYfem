@@ -17,6 +17,66 @@ spec = importlib.util.spec_from_file_location("test_anyfem_runner", ROOT / "tool
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+def _completed_receipt(log, environment):
+    import xml.etree.ElementTree as ET
+    from tools.test_suite_plan import manifest
+    if 'ANYFEM_SUITE_PROFILE' not in environment:return
+    profile=environment['ANYFEM_SUITE_PROFILE']
+    existing=(ET.parse(log.with_name('pytest.xml')).find('testsuite')
+              if log.with_name('pytest.xml').exists() else ET.Element('testsuite',tests='1'))
+    count=int(existing.get('tests','1'));skipped=int(existing.get('skipped','0'))
+    node=('tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen' if profile in {'quick','full','qt'} else 'tests/test_license_policy.py::test_synthetic')
+    data=manifest([node] if count else [],'full')
+    data.update(profile=profile,suite_root=str(ROOT.resolve()),collection_owner_pid=os.getpid(),collection_errors=0,collection_skips=[])
+    log.with_name('suite-collected.json').write_text(json.dumps(data))
+    root=ET.Element('testsuites');suite=ET.SubElement(root,'testsuite',tests=str(count),failures='0',errors='0',skipped=str(skipped))
+    path,name=node.split('::');case=ET.SubElement(suite,'testcase',classname=path[:-3].replace('/','.'),name=name)
+    props=ET.SubElement(case,'properties');ET.SubElement(props,'property',name='anyfem_original_nodeid',value=node)
+    if skipped:ET.SubElement(case,'skipped')
+    ET.ElementTree(root).write(log.with_name('pytest.xml'))
+
+
+
+
+def test_deadline_retires_real_owned_tree_and_preserves_partial_output(tmp_path):
+    log = tmp_path / 'pytest.log'
+    command = [sys.executable, '-c',
+               "import subprocess,sys,time;print('partial-before-timeout',flush=True);"
+               "subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);time.sleep(60)"]
+    start = time.monotonic()
+    with pytest.raises(TimeoutError, match='deadline'):
+        runner.execute(command, log, dict(os.environ, ANYFEM_TEST_TIMEOUT_SECONDS='1'))
+    assert time.monotonic() - start < 15
+    assert 'partial-before-timeout' in log.read_text()
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX inherited pipe regression')
+def test_exited_posix_parent_retires_descendant_holding_output(tmp_path):
+    start = time.monotonic()
+    command = [sys.executable, '-c',
+               "import subprocess,sys;print('parent-exited',flush=True);"
+               "subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])"]
+    assert runner.execute(command, tmp_path/'pytest.log', dict(os.environ, ANYFEM_TEST_TIMEOUT_SECONDS='10')) == 0
+    assert time.monotonic()-start < 5
+
+
+@pytest.mark.parametrize('damage', ['missing','hash','union','qt_skip'])
+def test_passing_exit_cannot_hide_incomplete_receipt_or_qt(tmp_path, damage):
+    log=tmp_path/'pytest.log';_completed_receipt(log, {'ANYFEM_SUITE_PROFILE':'quick'})
+    assert runner.validate_run_receipt(tmp_path,'quick')['executed']==1
+    receipt=tmp_path/'suite-collected.json'
+    if damage=='missing':receipt.unlink()
+    elif damage=='hash':
+        data=json.loads(receipt.read_text());data['inventory_sha256']='bad';receipt.write_text(json.dumps(data))
+    else:
+        import xml.etree.ElementTree as ET
+        tree=ET.parse(tmp_path/'pytest.xml');case=next(tree.iter('testcase'))
+        if damage=='union':case.find('properties/property').set('value','tests/test_unknown.py::test_other')
+        else:ET.SubElement(case,'skipped')
+        tree.write(tmp_path/'pytest.xml')
+    with pytest.raises((RuntimeError,OSError)):
+        runner.validate_run_receipt(tmp_path,'quick')
+
 
 def test_owned_windows_spawn_waits_for_assignment_before_go(monkeypatch, tmp_path):
     from tools import _owned_test_process as owned
@@ -263,7 +323,7 @@ def test_full_cannot_be_narrowed_and_focused_requires_scope():
         with pytest.raises(ValueError):
             runner.selectors(profile, paths)
     assert runner.selectors("focused", ["tests/test_io.py::test_example"]) == ["tests/test_io.py::test_example"]
-    assert all((ROOT / path).is_file() for path in runner.selectors("quick", []))
+    assert all((ROOT / path.split("::",1)[0]).is_file() for path in runner.selectors("quick", []))
     assert "tests/test_qt_activation_readiness.py" in runner.selectors("qt", [])
 
 
@@ -303,6 +363,7 @@ def test_inherited_pytest_selection_cannot_narrow_a_profile(monkeypatch, tmp_pat
         assert "PYTEST_ADDOPTS" not in environment
         log.write_text("run")
         log.with_name("pytest.xml").write_text('<testsuites><testsuite tests="1"/></testsuites>')
+        _completed_receipt(log, environment)
         return 0
     monkeypatch.setattr(runner, "execute", execute)
     output = tmp_path / "run"
@@ -351,10 +412,11 @@ def test_malformed_evidence_is_recorded_as_failure(monkeypatch, tmp_path, data):
         report_dir = Path(environment["ANYFEM_VERIFICATION_OUT"])
         report_dir.mkdir()
         (report_dir / "verification.json").write_text(json.dumps(data))
+        _completed_receipt(log, environment)
         return 0
     _stub_completed_full_run(monkeypatch, execute)
     output = tmp_path / "run"
-    assert runner.main(["--profile", "full", "--out", str(output)]) == 2
+    assert runner.main(["--profile", "qualification", "--out", str(output)]) == 2
     report = json.loads((output / "run.json").read_text())
     assert report["status"] == "failed"
     assert report["exit_code"] == 2
@@ -481,7 +543,7 @@ def test_fixture_reuses_original_measured_report_including_failure(monkeypatch, 
     monkeypatch.setattr(verification, "write_verification_report",
                         lambda report, path: calls.append((report, path)))
     monkeypatch.setenv("ANYFEM_VERIFICATION_OUT", str(tmp_path))
-    fixture = runpy.run_path(str(ROOT / "tests/test_verification.py"))["report"]
+    fixture = runpy.run_path(str(ROOT / "diagnostics/test_verification.py"))["report"]
     assert fixture.__wrapped__() is measured
     assert calls == ["solve", (measured, str(tmp_path))]
 
@@ -505,6 +567,7 @@ def test_default_pytest_argv_is_byte_for_byte_compatible(monkeypatch,tmp_path):
         seen.append(list(command))
         log.write_text('passed')
         log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0"/></testsuites>')
+        _completed_receipt(log, environment)
         return 0
     monkeypatch.setattr(runner,'execute',execute)
     output=tmp_path/'default'
@@ -541,7 +604,7 @@ def test_diagnostics_and_fail_fast_are_explicit_flags_with_owned_output(monkeypa
         '--maxfail=1','--junitxml='+str(output/'pytest.xml')]
     assert environment['ANYFEM_CI_DIAGNOSTICS_DIR']==str(output)
     assert {key:environment[key] for key in ('ANYFEM_RUN_GUI_TESTS','ANYFEM_RUN_QT_TESTS','ANYFEM_RUN_SCALE_GATES')}=={
-        'ANYFEM_RUN_GUI_TESTS':'0','ANYFEM_RUN_QT_TESTS':'0','ANYFEM_RUN_SCALE_GATES':'0'}
+        'ANYFEM_RUN_GUI_TESTS':'0','ANYFEM_RUN_QT_TESTS':'1','ANYFEM_RUN_SCALE_GATES':'0'}
 
 
 def test_inherited_diagnostics_environment_cannot_enable_default(monkeypatch,tmp_path,capsys):
@@ -551,6 +614,7 @@ def test_inherited_diagnostics_environment_cannot_enable_default(monkeypatch,tmp
         assert 'tools.pytest_anyfem_progress' not in command
         log.write_text('passed')
         log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1"/></testsuites>')
+        _completed_receipt(log, environment)
         return 0
     monkeypatch.setattr(runner,'execute',execute)
     assert runner.main(['--out',str(tmp_path/'default')])==0
@@ -566,10 +630,11 @@ def test_fail_fast_diagnostics_do_not_waive_full_verification(monkeypatch,tmp_pa
         log.with_name('pytest.xml').write_text('<testsuites><testsuite tests="1"/></testsuites>')
         directory=Path(environment['ANYFEM_VERIFICATION_OUT']);directory.mkdir()
         (directory/'verification.json').write_text(json.dumps({'status':'passed','counts':{'total':0,'passed':0,'failed':0},'results':[]}))
+        _completed_receipt(log, environment)
         return 0
     _stub_completed_full_run(monkeypatch, execute)
     output=tmp_path/'full'
-    assert runner.main(['--profile','full','--ci-diagnostics','--fail-fast','--out',str(output)])==2
+    assert runner.main(['--profile','qualification','--ci-diagnostics','--fail-fast','--out',str(output)])==2
     report=json.loads((output/'run.json').read_text())
     assert report['status']=='failed' and report['exit_code']==2
     assert 'incomplete' in report['error']
@@ -670,47 +735,22 @@ def test_standard_faulthandler_dump_does_not_abort_the_scalar_test(tmp_path):
     assert rows[-1]['exit_status']==0
 
 
-def test_only_existing_ci_full_commands_opt_into_diagnostics_and_fail_fast():
-    text=(ROOT/'.github/workflows/tests.yml').read_text()
-    commands=[line.strip() for line in text.splitlines() if 'run:' in line and 'tools/test_anyfem.py --profile full' in line]
-    assert len(commands)==2
-    assert all('--ci-diagnostics --fail-fast' in line for line in commands)
-    assert all('--out reports/full-suite' in line for line in commands)
+def test_reusable_lane_retains_named_diagnostics():
+    text=(ROOT/'.github/workflows/application-lane.yml').read_text()
+    assert '--ci-diagnostics' in text and '--out reports/application' in text
+    assert 'timeout-minutes: 45' in text
 
 
-def test_build_and_test_use_same_results_api_without_upgrading_physical_solver():
-    text = (ROOT / '.github/workflows/tests.yml').read_text()
-    test_job, build_job = text.split('\n  build:\n', 1)
-    expected = {
-        '.ecosystem/ANYfeSolver': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
-        '.ecosystem/ANYfeSolver-results': ('audunarn/ANYfeSolver', 'f54e3cde5abf70cb8c989eb106119eedd3e33025'),
-        '.ecosystem/ANYpost': ('audunarn/ANYpost', '9eb9713b92c1b3a476301150b5e89e350d515844'),
-        '.ecosystem/ANYgeometry': ('audunarn/ANYgeometry', '5dc4b1fffc3525dc707f784d582e2b723d441be7'),
-        '.ecosystem/ANYmesh': ('audunarn/ANYmesh', "${{ inputs.mesher_ref || '946b9353924dbca6f326feb8cb0327bcae5c4ccc' }}"),
-    }
-    for job in (test_job, build_job):
-        actual = {}
-        for block in job.split('      - uses: actions/checkout@v4')[1:]:
-            values = {}
-            for line in block.splitlines():
-                if line.startswith('          ') and ': ' in line:
-                    key, value = line.strip().split(': ', 1)
-                    if key in {'repository', 'ref', 'path'}:
-                        values[key] = value
-            if 'path' in values:
-                actual[values['path']] = (values.get('repository'), values.get('ref'))
-        assert {path: actual.get(path) for path in expected} == expected
-        assert '.ecosystem/ANYfeSolver-results/packages/results' in job
-        assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in job
-        assert 'anyfesolver_results.principals' in job
-        assert '.ecosystem/ANYfeSolver/packages/results' not in job
+def test_shared_lane_keeps_exact_physical_solver_and_results_pins():
+    text=(ROOT/'.github/workflows/application-lane.yml').read_text()
+    assert text.count('ref: f54e3cde5abf70cb8c989eb106119eedd3e33025') == 2
+    assert 'ref: 9eb9713b92c1b3a476301150b5e89e350d515844' in text
+    assert 'python -m build' in text and 'check_release_artifacts.py dist' in text
 
 
 def test_canonical_results_runtime_install_does_not_share_editable_source_roots():
-    for name in ('tests.yml','qt-tests.yml'):
-        text=(ROOT/'.github/workflows'/name).read_text()
-        assert '-e .ecosystem/ANYfeSolver ' in text
-        assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in text
-        assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in text
-        assert 'anyfesolver_results.principals' in text
-        assert "distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')" in text
+    text=(ROOT/'.github/workflows/application-lane.yml').read_text()
+    assert '-e .ecosystem/ANYfeSolver ' in text
+    assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in text
+    assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in text
+    assert 'anyfesolver_results.principals' in text

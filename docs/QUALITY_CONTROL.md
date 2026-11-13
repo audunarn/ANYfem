@@ -13,29 +13,24 @@ python tools/test_anyfem.py --profile qt --backend software
 python tools/test_anyfem.py --profile full
 ```
 
-`quick` checks a small explicit set of frontend, command, document, selection,
-output-request and licensing contracts. It does not measure engineering parity.
-`focused` accepts explicit repository test paths or pytest node IDs; choose them
-from the behavior affected by your change. `qt` enables the existing workbench
-tests and requires a display; use `--backend gpu` when testing that path.
-`--dry-run` shows the selected command without running tests.
+`quick` covers routine manager contracts and representative real application
+routes, including software Qt, under a 600 second owned process-tree deadline.
+`full` is the required application suite under1200 seconds. Scientific campaigns
+are retained in `diagnostics/` and selected explicitly by `qualification`; no
+selection renews consumed authority. `focused` accepts explicit tests/diagnostics
+paths or node IDs. `qt` runs small application cases; the viewer's comprehensive
+owner suite belongs to ANY3dView. See [test scopes](test-scopes.md) and the exact
+[caller host contract](CI_CALLER_HOST_SCOPE.md).
 
-Each real run creates a fresh directory under `reports/tests/` containing its
-command, interpreter, elapsed time, counts, full pytest log and JUnit report.
-Use `--out NEW_DIRECTORY` for a specific location. Existing evidence is refused.
-The runner clears inherited `PYTEST_ADDOPTS` and records its original value,
-so an ambient filter cannot silently narrow a profile. Use focused node IDs
-for selection or ordinary pytest when custom pytest arguments are needed.
-Missing required geometry/mesher APIs stop `full` and `qt` before collection,
-with a nonzero exit and a retained blocked report; this is not a test pass.
-
-`full` runs the complete ordinary pytest suite and checks the complete scientific
-report written by its verification fixture. CI keeps all eight OS/Python lanes,
-licensing, packaging and parity checks, but reuses that measured report instead
-of solving the same verification cases again. Reports are under
-`reports/full-suite/verification/`. Only conversion-record/report-only changes
-skip this workflow; code, tests, dependency and other documentation changes
-still trigger it. Manual dispatch always remains available.
+Each run refuses existing evidence, records exact commands and runtime in a v2
+receipt, preserves logs and JUnit, and fails on deadline with owned descendant
+cleanup. Inherited pytest filtering/plugins cannot narrow the scope. Static
+inventory exclusions have reasons and hashes; actual collection records selected
+node identities, collection errors and original outcomes. Release/manual retains
+all twelve supported OS/Python compatibility lanes with 300 seconds per test lane,
+installed-wheel checks, licensing and distribution gates. Setup/build time is
+separate. Full is one Ubuntu/Python 3.13application lane. Exact caller positives
+have their own fresh-interpreter lane and four-case union.
 
 These profiles do not establish scientific, installed-artifact, physical GPU,
 scale, migration or release acceptance. Run the applicable gates independently;

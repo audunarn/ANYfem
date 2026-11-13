@@ -1,0 +1,181 @@
+name: Bounded application lane
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      os:
+        type: string
+        default: ubuntu-latest
+      python:
+        type: string
+        default: '3.13'
+      qualification_case:
+        type: string
+        default: all
+      mesher_ref:
+        type: string
+        default: '946b9353924dbca6f326feb8cb0327bcae5c4ccc'
+      backend:
+        type: string
+        default: software
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      QT_QPA_PLATFORM: offscreen
+      ANYFEM_RUN_QT_TESTS: '1'
+      ANYFEM_REQUIRE_SOLID_STACK: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANY3dView
+          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
+          path: .ecosystem/ANY3dView
+      # ANYfeSolver carries qualification paths near the Windows MAX_PATH limit.
+      - name: Allow long paths on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfeSolver
+          # Updated Q4/S3 owner laws, same as the headless matrix.
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver
+      # Results-only API repair: preserve the physical solver revision above.
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfeSolver
+          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          path: .ecosystem/ANYfeSolver-results
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYpost
+          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
+          path: .ecosystem/ANYpost
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmaterial
+          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
+          path: .ecosystem/ANYmaterial
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYhydro
+          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
+          path: .ecosystem/ANYhydro
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYstability
+          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
+          path: .ecosystem/ANYstability
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYloads
+          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
+          path: .ecosystem/ANYloads
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYgeometry
+          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
+          path: .ecosystem/ANYgeometry
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYmesh
+          ref: ${{ inputs.mesher_ref }}
+          path: .ecosystem/ANYmesh
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfileIO
+          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
+          path: .ecosystem/ANYfileIO
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYtk3D
+          ref: 2caa92325885938c594f27145ed16069d807e364
+          path: .ecosystem/ANYtk3D
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsection
+          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
+          path: .ecosystem/ANYsection
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYsolid
+          ref: 06f3276d9207376316502aca651c3455db984104
+          path: .ecosystem/ANYsolid
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: audunarn/ANYfatigue
+          ref: b4e5bcbd11f4a12e614dfb09ad97b46c615ff69b
+          path: .ecosystem/ANYfatigue
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python }}
+      - name: Linux desktop and build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libegl1 libgl1-mesa-dri libgl1-mesa-dev libx11-dev libx11-xcb1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxkbcommon-x11-0
+      - name: Install candidate GUI and public owners
+        env:
+          ANYGEOMETRY_REQUIRE_PLANNING_NATIVE: ${{ inputs.profile == 'caller' && '1' || '0' }}
+          ANYMESHER_REQUIRE_NATIVE: '1'
+          ANYMESHER_DISABLE_NATIVE: '0'
+        run: |
+          python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results
+          python -m pip install -e .ecosystem/ANYmaterial -e .ecosystem/ANYhydro -e .ecosystem/ANYstability -e .ecosystem/ANYloads -e ".ecosystem/ANYgeometry[planar]" -e .ecosystem/ANYfileIO -e .ecosystem/ANYmesh -e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost -e ".ecosystem/ANY3dView[gpu,qt]" -e .ecosystem/ANYtk3D -e .ecosystem/ANYsection
+          python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
+          python -m pip install -e ".[dev,qt,tk]" -e .ecosystem/ANYfatigue ".ecosystem/ANYsolid[skfem]" "ezdxf>=1.4,<2" "shapely>=2,<3"
+      - name: Validate explicit qualification authority and frozen source
+        if: inputs.profile == 'qualification'
+        env:
+          QUALIFICATION_SCOPE: qualification
+          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
+          MESHER_REF: ${{ inputs.mesher_ref }}
+        run: python tools/ci_focused_qualification.py validate
+      - name: Exact caller numerical environment
+        if: inputs.profile == 'caller'
+        run: python -m pip install "numpy==2.4.6" "scipy==1.17.1"
+      - name: Source and installed dependency licensing
+        run: python tools/check_licenses.py --check-installed
+      - name: Validate exact caller runtime and source origin
+        if: inputs.profile == 'caller'
+        env:
+          ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS: '1'
+        run: python tools/ci_caller_planning_profile.py --preflight --geometry-root .ecosystem/ANYgeometry --report reports/planning-profile.json
+      - name: Build and inspect distribution
+        if: inputs.profile == 'compatibility' || inputs.profile == 'full'
+        run: |
+          python -m build
+          python -m twine check dist/*
+          python tools/check_release_artifacts.py dist
+      - name: Install wheel and verify isolated import
+        if: inputs.profile == 'compatibility' || inputs.profile == 'full'
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+      - name: Run bounded application contracts
+        if: inputs.backend != 'gpu'
+        env:
+          ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS: ${{ inputs.profile == 'caller' && '1' || '0' }}
+          ANYFEM_REQUIRE_INSTALLED_WHEEL: ${{ (inputs.profile == 'compatibility' || inputs.profile == 'full') && '1' || '0' }}
+        run: python tools/test_anyfem.py --profile ${{ inputs.profile }} --backend software --ci-diagnostics --out reports/application
+      - name: Focused GPU application smoke
+        if: inputs.backend == 'gpu'
+        env:
+          QT_QPA_PLATFORM: xcb
+        run: xvfb-run -a python tools/test_anyfem.py --profile focused --backend gpu --out reports/application tests/test_qt_workbench.py::test_requested_viewer_backend_is_active
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: application-${{ inputs.profile }}-${{ inputs.os }}-${{ inputs.python }}-${{ inputs.backend }}
+          path: reports/

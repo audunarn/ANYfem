@@ -510,6 +510,17 @@ _CONTROLS = {'body': ('body_mode', _flip_body), 'hydrostatic': ('hydrostatic', _
              'wave': ('wave_type', _flip_wave), 'source': ('pressure_source', _flip_source)}
 
 
+@pytest.mark.parametrize('name', ['convert', 'floating_dev', 'floating_native'])
+def test_silent_additional_job_inputs_retire_their_native_token(monkeypatch, name):
+    _qt();panel,dialog=_wave_dialog();seen=_record_native(monkeypatch,dialog)
+    runner=_ended_runner_class()();dialog._bind_runner(runner,'preview');dialog.deadline.start(100000)
+    control=getattr(dialog,name);control.blockSignals(True);control.setChecked(not control.isChecked());control.blockSignals(False)
+    _fire(runner)
+    assert seen==[] and runner.cancelled and dialog._token is None and not dialog.deadline.isActive()
+    assert not dialog.apply_button.isEnabled()
+    dialog.reject();panel.close()
+
+
 @pytest.mark.parametrize('silent', [False, True], ids=['signalled', 'silent'])
 @pytest.mark.parametrize('stage', ['preview', 'apply'])
 @pytest.mark.parametrize('control', list(_CONTROLS))

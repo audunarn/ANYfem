@@ -14,6 +14,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  application-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/tests.yml
+  qt-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/qt-tests.yml
   build:
     name: Build and validate distributions
     runs-on: ubuntu-latest
@@ -66,7 +72,7 @@ jobs:
   publish:
     name: Publish distributions to PyPI
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, application-release, qt-release]
     runs-on: ubuntu-latest
     environment:
       name: pypi

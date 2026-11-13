@@ -1,493 +1,58 @@
-name: tests
-
+name: Application tests
 on:
   push:
     branches: [main, master]
-    paths-ignore: ['docs/QT_CONVERSION.md', 'reports/**']
   pull_request:
-    paths-ignore: ['docs/QT_CONVERSION.md', 'reports/**']
+  workflow_call:
   workflow_dispatch:
     inputs:
       scope:
-        description: 'Full release gates or partial development tier'
         type: choice
         default: full
         options: [full, unit, integration, qualification]
       qualification_case:
-        description: 'Qualification tier inventory or original reported four-face fixture'
         type: choice
         default: all
         options: [all, reported-spline-four-face]
       mesher_ref:
-        description: 'Frozen reviewed ANYmesh commit SHA (40 hex)'
         type: string
         default: '946b9353924dbca6f326feb8cb0327bcae5c4ccc'
-
+permissions:
+  contents: read
 jobs:
-  development:
-    name: Development tier (partial; no release acceptance)
-    timeout-minutes: ${{ (github.event_name != 'workflow_dispatch' || inputs.scope == 'unit') && 10 || 360 }}
-    if: github.event_name != 'workflow_dispatch' || inputs.scope != 'full'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.13"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate manual qualification dispatch contract
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          QUALIFICATION_SCOPE: ${{ inputs.scope }}
-          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
-          MESHER_REF: ${{ inputs.mesher_ref }}
-        run: python tools/ci_focused_qualification.py validate
-
-      # These packages are intentionally consumed through their public package
-      # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
-      # until normal versioned installation can replace these checkouts.
-      # ANYfeSolver carries qualification paths near the Windows MAX_PATH limit.
-      - name: Allow long paths on Windows
-        if: runner.os == 'Windows'
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver
-      # Results-only API repair: preserve the physical solver revision above.
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver-results
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYpost
-          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
-          path: .ecosystem/ANYpost
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmaterial
-          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
-          path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYhydro
-          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
-          path: .ecosystem/ANYhydro
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYstability
-          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
-          path: .ecosystem/ANYstability
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYloads
-          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
-          path: .ecosystem/ANYloads
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYgeometry
-          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
-          path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '946b9353924dbca6f326feb8cb0327bcae5c4ccc' }}
-          path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfileIO
-          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
-          path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANY3dView
-          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
-          path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYtk3D
-          ref: 2caa92325885938c594f27145ed16069d807e364
-          path: .ecosystem/ANYtk3D
-
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYsection
-          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
-          path: .ecosystem/ANYsection
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '3.14.2' || matrix.python-version }}
-
-      - name: Install headless OpenGL runtime (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1
-
-      - name: Install
-        env:
-          # Resource ownership helper only; no numerical native accelerator.
-          ANYGEOMETRY_REQUIRE_PLANNING_NATIVE: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '1' || '0' }}
-        run: |
-          python -m pip install --upgrade pip "xarray>=2023.1"
-          python -m pip install --no-deps -e .ecosystem/ANYmaterial
-          python -m pip install --no-deps -e .ecosystem/ANYhydro -e .ecosystem/ANYstability
-          python -m pip install --no-deps -e .ecosystem/ANYloads
-          python -m pip install --no-deps -e .ecosystem/ANYgeometry
-          python -m pip install --no-deps -e .ecosystem/ANYmesh
-          python -m pip install --no-deps -e .ecosystem/ANYfileIO
-          python -m pip install --no-deps -e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost
-          python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results
-          python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
-          python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
-          python -m pip install --no-deps -e .ecosystem/ANYtk3D
-          python -m pip install --no-deps -e .ecosystem/ANYsection
-          # The matrix exercises the supported Tk/headless UI path. ModernGL
-          # backend build coverage belongs to ANY3dView and is not required
-          # for ANYfem's platform-independent GUI contract.
-          # The installed-license gate checks every declared GUI dependency,
-          # including the optional Qt candidate, even in the Tk/headless matrix.
-          python -m pip install -e ".[dev]" "Pillow>=10,<13" "PySide6>=6.10.1,<6.11"
-
-      - name: Run normal focused unit checks
-        if: github.event_name != 'workflow_dispatch' || inputs.scope == 'unit'
-        run: python tools/test_anyfem.py --profile unit --out reports/development-unit
-      - name: Run explicit integration tier (partial development only)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'integration'
-        run: python tools/test_anyfem.py --profile integration --out reports/development-integration
-      - name: Run explicit qualification tier (partial development only)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case != 'reported-spline-four-face'
-        run: python tools/test_anyfem.py --profile qualification --out reports/development-qualification
-      - name: Bind original reported four-face fixture to frozen source (partial qualification)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
-        env:
-          QUALIFICATION_SCOPE: ${{ inputs.scope }}
-          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
-          MESHER_REF: ${{ inputs.mesher_ref }}
-        run: python tools/ci_focused_qualification.py prepare
-      - name: Run one original reported four-face fixture (partial qualification only)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
-        run: python tools/test_anyfem.py --profile focused --ci-diagnostics --fail-fast --out reports/qualification-spline4 tests/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes
-      - name: Require one original passing case and matching source (partial qualification only)
-        if: github.event_name == 'workflow_dispatch' && inputs.scope == 'qualification' && inputs.qualification_case == 'reported-spline-four-face'
-        env:
-          QUALIFICATION_SCOPE: ${{ inputs.scope }}
-          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
-          MESHER_REF: ${{ inputs.mesher_ref }}
-        run: python tools/ci_focused_qualification.py verify
-      - name: Preserve development receipts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: development-only-evidence
-          path: reports/
-
-  test:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'full'
-    runs-on: ${{ matrix.os }}
-    env:
-      ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '1' || '0' }}
+  quick:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: quick
+  full:
+    if: (github.event_name == 'workflow_dispatch' && inputs.scope == 'full') || startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: full
+  compatibility:
+    if: (github.event_name == 'workflow_dispatch' && inputs.scope == 'full') || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate manual qualification dispatch contract
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          QUALIFICATION_SCOPE: ${{ inputs.scope }}
-          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
-          MESHER_REF: ${{ inputs.mesher_ref }}
-        run: python tools/ci_focused_qualification.py validate
-
-      # These packages are intentionally consumed through their public package
-      # APIs, but are not on PyPI yet.  Test the ecosystem revisions together
-      # until normal versioned installation can replace these checkouts.
-      # ANYfeSolver carries qualification paths near the Windows MAX_PATH limit.
-      - name: Allow long paths on Windows
-        if: runner.os == 'Windows'
-        run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver
-      # Results-only API repair: preserve the physical solver revision above.
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver-results
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYpost
-          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
-          path: .ecosystem/ANYpost
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmaterial
-          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
-          path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYhydro
-          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
-          path: .ecosystem/ANYhydro
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYstability
-          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
-          path: .ecosystem/ANYstability
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYloads
-          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
-          path: .ecosystem/ANYloads
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYgeometry
-          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
-          path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '946b9353924dbca6f326feb8cb0327bcae5c4ccc' }}
-          path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfileIO
-          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
-          path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANY3dView
-          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
-          path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYtk3D
-          ref: 2caa92325885938c594f27145ed16069d807e364
-          path: .ecosystem/ANYtk3D
-
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYsection
-          ref: 940fe01ab15fb997e642aa7d6a3f0fa6e79f82eb
-          path: .ecosystem/ANYsection
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYsolid
-          ref: 06f3276d9207376316502aca651c3455db984104
-          path: .ecosystem/ANYsolid
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '3.14.2' || matrix.python-version }}
-
-      - name: Install headless OpenGL runtime (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1
-
-      - name: Install
-        env:
-          # Resource ownership helper only; no numerical native accelerator.
-          ANYGEOMETRY_REQUIRE_PLANNING_NATIVE: ${{ matrix.os == 'windows-latest' && matrix.python-version == '3.14' && '1' || '0' }}
-        run: |
-          python -m pip install --upgrade pip "xarray>=2023.1"
-          python -m pip install --no-deps -e .ecosystem/ANYmaterial
-          python -m pip install --no-deps -e .ecosystem/ANYhydro -e .ecosystem/ANYstability
-          python -m pip install --no-deps -e .ecosystem/ANYloads
-          python -m pip install --no-deps -e .ecosystem/ANYgeometry
-          python -m pip install --no-deps -e .ecosystem/ANYmesh
-          python -m pip install --no-deps -e .ecosystem/ANYfileIO
-          python -m pip install --no-deps -e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost
-          python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results
-          python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
-          python -m pip install --no-deps -e ".ecosystem/ANY3dView[gpu]"
-          python -m pip install --no-deps -e .ecosystem/ANYtk3D
-          python -m pip install --no-deps -e .ecosystem/ANYsection
-          python -m pip install ".ecosystem/ANYsolid[skfem]"
-          # The matrix exercises the supported Tk/headless UI path. ModernGL
-          # backend build coverage belongs to ANY3dView and is not required
-          # for ANYfem's platform-independent GUI contract.
-          # The installed-license gate checks every declared GUI dependency,
-          # including the optional Qt candidate, even in the Tk/headless matrix.
-          python -m pip install -e ".[dev]" "Pillow>=10,<13" "PySide6>=6.10.1,<6.11"
-
-      - name: Install the qualified caller planner numerical profile
-        if: matrix.os == 'windows-latest' && matrix.python-version == '3.14'
-        run: python -m pip install "numpy==2.4.6" "scipy==1.17.1"
-
-      - name: Require the caller planning positive profile
-        if: matrix.os == 'windows-latest' && matrix.python-version == '3.14'
-        run: python tools/ci_caller_planning_profile.py --preflight --geometry-root .ecosystem/ANYgeometry --report reports/planning-profile.json
-
-      - name: Check source and installed dependency licensing
-        run: python tools/check_licenses.py --check-installed
-
-      - name: Run the test suite (Linux)
-        if: runner.os == 'Linux'
-        env:
-          # Owner-approved document-unit bound for the two required NURBS
-          # acceptance fixtures; their Project meshing route is serial.
-          ANY_NURBS_ACCEPTANCE_ERROR: "0.0025"
-        run: xvfb-run -a python tools/test_anyfem.py --profile full --ci-diagnostics --fail-fast --out reports/full-suite
-
-      - name: Run the test suite (Windows)
-        if: runner.os == 'Windows'
-        env:
-          ANY_NURBS_ACCEPTANCE_ERROR: "0.0025"
-        run: python tools/test_anyfem.py --profile full --ci-diagnostics --fail-fast --out reports/full-suite
-
-      # These unchanged consumer/adapter tests moved from ANYmesh, where the
-      # full Project dependency was absent. Retain its four macOS Python lanes;
-      # Windows/Linux run the same cases in their unchanged full caller suites.
-      - name: Run relocated mesher caller integration (macOS)
-        if: runner.os == 'macOS'
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q tests/test_mesher_authored_child_project_cells.py tests/test_mesher_authored_project_references.py --junitxml=reports/mesher-integration/pytest.xml
-
-      - name: Require every relocated caller integration case (macOS)
-        if: runner.os == 'macOS'
-        run: python tools/ci_mesher_caller_integration.py reports/mesher-integration/pytest.xml
-
-      - name: Require every relocated caller integration case (Windows/Linux)
-        if: runner.os != 'macOS'
-        run: python tools/ci_mesher_caller_integration.py reports/full-suite/pytest.xml
-
-      - name: Require all four original caller planning positives
-        if: matrix.os == 'windows-latest' && matrix.python-version == '3.14'
-        run: python tools/ci_caller_planning_profile.py reports/full-suite/pytest.xml --report reports/planning-profile-cases.json
-
-      # The full pytest fixture writes the same complete scientific report.
-      # The runner checks its case inventory and status; do not solve it twice.
-
-      - name: Report ANYstructure parity
-        if: runner.os != 'macOS'
-        run: python -m anyfem.parity --out reports/parity
-
-      - name: Publish evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evidence-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: reports/
-
-  build:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'full'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate manual qualification dispatch contract
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          QUALIFICATION_SCOPE: ${{ inputs.scope }}
-          QUALIFICATION_CASE: ${{ inputs.qualification_case }}
-          MESHER_REF: ${{ inputs.mesher_ref }}
-        run: python tools/ci_focused_qualification.py validate
-
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          # Updated owner laws: Q4 assumed-strain plasticity and S3 von Karman.
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver
-      # Results-only API repair: keep the physical solver revision above.
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfeSolver
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
-          path: .ecosystem/ANYfeSolver-results
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYpost
-          ref: 9eb9713b92c1b3a476301150b5e89e350d515844
-          path: .ecosystem/ANYpost
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmaterial
-          ref: d8a233ef4c5e38d25dbba0eb20e6cfa8d44ec5a2
-          path: .ecosystem/ANYmaterial
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYhydro
-          ref: dec262f6af912b1d5de5027f62a27e536f3ce93e
-          path: .ecosystem/ANYhydro
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYstability
-          ref: eab0737d3a44bcc41faa353459c8791404f9fad2
-          path: .ecosystem/ANYstability
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYloads
-          ref: 0a671a30bfd213c30df16bb7142cfe4fa8e1fece
-          path: .ecosystem/ANYloads
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYgeometry
-          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
-          path: .ecosystem/ANYgeometry
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYmesh
-          ref: ${{ inputs.mesher_ref || '946b9353924dbca6f326feb8cb0327bcae5c4ccc' }}
-          path: .ecosystem/ANYmesh
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYfileIO
-          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
-          path: .ecosystem/ANYfileIO
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANY3dView
-          ref: 6fa628bc3a9e1c74548901678ff2ee8033e6c5dc
-          path: .ecosystem/ANY3dView
-      - uses: actions/checkout@v4
-        with:
-          repository: audunarn/ANYtk3D
-          ref: 2caa92325885938c594f27145ed16069d807e364
-          path: .ecosystem/ANYtk3D
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Build the wheel
-        run: |
-          python -m pip install --upgrade pip "xarray>=2023.1" build
-          python tools/check_licenses.py
-          python -m build
-
-      - name: Check the metadata
-        run: |
-          python -m pip install twine
-          python -m twine check dist/*
-          python tools/check_release_artifacts.py dist
-
-      - name: Install and import the wheel in a clean environment
-        run: |
-          python -m venv .wheel-smoke
-          .wheel-smoke/bin/python -m pip install --upgrade pip "xarray>=2023.1"
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmaterial
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYhydro .ecosystem/ANYstability
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYloads
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYgeometry
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYmesh
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfileIO
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYfeSolver .ecosystem/ANYfeSolver-results/packages/results .ecosystem/ANYpost
-          .wheel-smoke/bin/python -c "import importlib.metadata,pathlib,json,anyfesolver_results; import anyfesolver_results.principals as principals; expected=pathlib.Path(importlib.metadata.distribution('anyfesolver-results').locate_file('anyfesolver_results/__init__.py')).resolve(); actual=pathlib.Path(anyfesolver_results.__file__).resolve(); assert actual==expected,(actual,expected); assert callable(principals.principal_axes); print(json.dumps(dict(results_origin=str(actual),principal_axes_origin=principals.__file__,results_version=importlib.metadata.version('anyfesolver-results'))))"
-          .wheel-smoke/bin/python -m pip install --no-deps ".ecosystem/ANY3dView[gpu]"
-          .wheel-smoke/bin/python -m pip install --no-deps .ecosystem/ANYtk3D
-          .wheel-smoke/bin/python -m pip install dist/*.whl
-          .wheel-smoke/bin/python -c "import anyfem; import anyfem.ui.app; from importlib.metadata import version; assert anyfem.__version__ == version('ANYfem'); print('wheel import OK', anyfem.__version__)"
+        python: ['3.11', '3.12', '3.13', '3.14']
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: compatibility
+      os: ${{ matrix.os }}
+      python: ${{ matrix.python }}
+  caller:
+    if: (github.event_name == 'workflow_dispatch' && inputs.scope == 'full') || startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: caller
+      os: windows-latest
+      python: '3.14.2'
+  development:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope != 'full'
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: ${{ inputs.scope }}
+      qualification_case: ${{ inputs.qualification_case }}
+      mesher_ref: ${{ inputs.mesher_ref }}

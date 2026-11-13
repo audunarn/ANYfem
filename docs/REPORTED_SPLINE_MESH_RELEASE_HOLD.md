@@ -42,3 +42,7 @@ removing the hold and its fixed-case dispatch refusal, a frozen source/runtime/
 input profile and newly authorized bounded execution. Consumed execution authority is not reusable. The retained original positive body and every
 scientific assertion must pass under that fresh authority before this
 capability can enter acceptance. Removing the decorator alone is not evidence.
+
+Prospective testing-regime migration: the unchanged held source now lives at
+`diagnostics/test_spline_mesh_ownership_acceptance.py`; the original identity
+above remains historical evidence. The unsupported hold and spent authority remain.

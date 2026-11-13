@@ -14,6 +14,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def isolated_launcher_import_paths(monkeypatch):
+    """Launcher promotion is intentional; each test owns its temporary sys.path."""
+    monkeypatch.setattr(sys, 'path', list(sys.path))
+
+
 def _namespace():
     return runpy.run_path(str(ROOT / "run_gui.py"), run_name="preflight_test")
 

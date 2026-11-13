@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PATH = ROOT / 'tests/test_spline_mesh_ownership_acceptance.py'
+PATH = ROOT / 'diagnostics/test_spline_mesh_ownership_acceptance.py'
 TARGET = 'test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes'
 REASON = 'OWNER-HELD reported four-face spline meshing; see docs/REPORTED_SPLINE_MESH_RELEASE_HOLD.md'
 ORIGINAL_SHA256 = '951e6c8f8e3b536a13dd91bf0c174fa7dab5d4d40ceaf12b3245dfc7cd6a5481'

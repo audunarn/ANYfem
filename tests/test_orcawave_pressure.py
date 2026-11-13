@@ -445,7 +445,7 @@ def test_independently_faceted_curved_hull_pipeline():
             edge=edges[key];loop.append(OrientedEdge(edge,g.edges[edge].start==a))
         face=g.add_face_from_loop(tuple(loop),(0,1,2,3));project.assign_plate(face,'plate')
         project.add_wet_surface(WetSurface(ref=project.face(face),fluid_side='positive_normal',name=f'facet{k}'))
-    mesh=project.generate_mesh(.4)
+    mesh=project.generate_mesh(1.)
     polygons,normals,centers,areas=validate_panel_geometry(facets(5))
     bank=ImportedPressureBank(np.asarray(polygons).reshape(-1,3),np.arange(20).reshape(5,4),centers,normals,areas,
         np.array([1.]),np.full((1,5),100+0j),tuple(range(5)),('body0',)*5,0.,'fixed_diffraction',0,20.,1025.,9.81,'{}')

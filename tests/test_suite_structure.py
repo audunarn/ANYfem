@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import os
+from test_test_runner import _completed_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,11 +64,9 @@ class SuitePlanTests(unittest.TestCase):
 
     def test_runner_profiles_and_default_reuse_existing_quick(self):
         runner = load("suite_runner_under_test", "tools/test_anyfem.py")
-        self.assertEqual(set(runner.selectors("unit", [])), set(runner.QUICK) | {
-            "tests/test_suite_structure.py", "tests/test_reported_spline_mesh_release_hold.py",
-            "tests/test_focused_qualification_dispatch.py", "tests/test_mesh_reference_update.py"})
+        self.assertEqual(set(runner.selectors("unit", [])), set(self.suite().UNIT_MODULES))
         self.assertEqual(runner.selectors("full", []), ["tests"])
-        self.assertIn("tests/test_verification.py", runner.selectors("qualification", []))
+        self.assertIn("diagnostics/test_verification.py", runner.selectors("qualification", []))
         self.assertNotIn("tests/test_verification.py", runner.selectors("integration", []))
 
     def test_fast_alias_and_all_module_partition(self):
@@ -76,8 +76,8 @@ class SuitePlanTests(unittest.TestCase):
         plans = [module.module_plan(ROOT, tier) for tier in module.TIERS]
         selected = [path for plan in plans for path in plan["selected"]]
         self.assertEqual(len(selected), len(set(selected)))
-        self.assertEqual(set(selected), set(module.module_plan(ROOT, "full")["selected"]))
-        self.assertEqual(module.classify("tests/test_spline_mesh_ownership_acceptance.py::test_four_face"), "qualification")
+        self.assertEqual(set(selected), set(module.module_plan(ROOT, "full")["assignments"]))
+        self.assertEqual(module.classify("diagnostics/test_spline_mesh_ownership_acceptance.py::test_four_face"), "qualification")
 
     def test_partial_receipt_and_ignored_inherited_selection(self):
         from unittest.mock import patch
@@ -89,6 +89,7 @@ class SuitePlanTests(unittest.TestCase):
             seen.append((command, env))
             log.write_text("synthetic passed")
             log.with_name("pytest.xml").write_text('<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0"/></testsuites>')
+            _completed_receipt(log, env)
             return 0
         with tempfile.TemporaryDirectory() as tmp, patch.object(runner, "execute", execute), patch.object(runner, "owner_capabilities", side_effect=AssertionError("unexpected owner import")), patch.dict(os.environ, {"PYTEST_ADDOPTS": "--collect-only -k hidden"}):
             out = Path(tmp) / "receipt"
@@ -151,11 +152,11 @@ class SuitePlanTests(unittest.TestCase):
         import tempfile
         runner = load("suite_runner_full_dispatch", "tools/test_anyfem.py")
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS": "1"}), patch.object(runner, "owner_capabilities"), patch.object(runner, "_execute_caller_phases", return_value=7) as driver, patch.object(runner, "execute", side_effect=AssertionError("must use full fresh H driver")):
-            out = Path(tmp) / "full"
-            self.assertEqual(runner.main(["--profile", "full", "--out", str(out)]), 7)
+            out = Path(tmp) / "caller"
+            self.assertEqual(runner.main(["--profile", "caller", "--out", str(out)]), 7)
             driver.assert_called_once()
-            self.assertEqual(driver.call_args.args[0][3], "tests")
-            self.assertEqual(driver.call_args.args[2]["ANYFEM_SUITE_PROFILE"], "full")
+            self.assertEqual(driver.call_args.args[0][3], runner.selectors("caller", [])[0])
+            self.assertEqual(driver.call_args.args[2]["ANYFEM_SUITE_PROFILE"], "caller")
             self.assertEqual(json.loads((out / "run.json").read_text())["acceptance"], "not established")
 
     def test_full_collection_receipt_is_not_overwritten_by_core_subset(self):
@@ -178,6 +179,7 @@ class SuitePlanTests(unittest.TestCase):
                     phase.write_text(json.dumps(data))
                     ET.ElementTree(ET.Element("testsuites")).write(log.parent / "pytest.xml")
                     Path(environment["ANYFEM_SUITE_MANIFEST"]).write_text("complete-original-universe")
+                    _completed_receipt(log, environment)
                     return 0
                 self.assertNotIn("ANYFEM_SUITE_MANIFEST", environment)
                 return 7
@@ -209,17 +211,15 @@ class SuitePlanTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "not an owned original"):
                     plugin.pytest_collection_finish(session)
 
-    def test_workflow_default_development_and_manual_full(self):
-        text = (ROOT / ".github/workflows/tests.yml").read_text()
-        self.assertIn("default: full", text)
-        self.assertIn("timeout-minutes: ${{ (github.event_name != 'workflow_dispatch' || inputs.scope == 'unit') && 10 || 360 }}", text)
-        self.assertIn("options: [full, unit, integration, qualification]", text)
-        self.assertIn("--profile unit", text)
-        self.assertIn("inputs.scope == 'full'", text)
-        self.assertIn("os: [ubuntu-latest, windows-latest, macos-latest]", text)
-        self.assertIn('python-version: ["3.11", "3.12", "3.13", "3.14"]', text)
-        self.assertIn("Require all four original caller planning positives", text)
-        self.assertIn("--profile full --ci-diagnostics --fail-fast", text)
+    def test_workflow_default_quick_and_release_compatibility(self):
+        text=(ROOT/'.github/workflows/tests.yml').read_text()
+        self.assertIn('profile: quick',text)
+        self.assertIn('profile: full',text)
+        self.assertIn('profile: compatibility',text)
+        self.assertIn('profile: caller',text)
+        self.assertIn('os: [ubuntu-latest, windows-latest, macos-latest]',text)
+        self.assertIn("python: ['3.11', '3.12', '3.13', '3.14']",text)
+        self.assertIn("python: '3.14.2'",text)
 
 
 if __name__ == "__main__":

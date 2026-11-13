@@ -56,13 +56,16 @@ class WaveLoadDialog(QDialog):
         self.setWindowTitle('Hydrodynamic wave load');self.setObjectName('HydrodynamicWaveLoadDialog')
         self.resize(1180,680);self.setMinimumSize(980,600)
         layout=QVBoxLayout(self);body=QHBoxLayout();layout.addLayout(body,1)
-        external=QPushButton('OrcaWave / ANYhydro pressures…');external.setObjectName('OpenOrcaWavePressure')
-        layout.addWidget(external)
-        def open_external():
-            from .orcawave_pressure import OrcaWavePressureDialog
-            self.orcawave_dialog=OrcaWavePressureDialog(self.panel);self.orcawave_dialog.show()
-        external.clicked.connect(open_external)
+        self._token=None;self.orcawave_dialog=None;self.anyhydro_dialog=None
+        self.pressure_source=QComboBox();self.pressure_source.setObjectName('PressureSource')
+        self.pressure_source.addItem('ANYhydro','anyhydro');self.pressure_source.addItem('OrcaWave','orcawave')
+        layout.addWidget(self.pressure_source)
+        self.pressure_source_note=QLabel();self.pressure_source_note.setWordWrap(True);self.pressure_source_note.hide()
+        layout.addWidget(self.pressure_source_note)
+        self.family_button=QPushButton('Stored ANYhydro family pressure…');self.family_button.setObjectName('OpenAnyhydroFamilyPressure')
+        layout.addWidget(self.family_button);self.family_button.clicked.connect(self.open_anyhydro_family)
         inputs_widget=QWidget();left=QVBoxLayout(inputs_widget);form=QFormLayout();self.form=form;left.addLayout(form)
+        self.native_panel=inputs_widget
         form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(inputs_widget);scroll.setMinimumWidth(340);scroll.setMaximumWidth(430)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -220,11 +223,45 @@ class WaveLoadDialog(QDialog):
         self.update_mode()
         self.wave_type.currentIndexChanged.connect(lambda *args:self.invalidate_preview('wave_type'))
         self._enable_window(False)
+        self.pressure_source.currentIndexChanged.connect(self.source_changed)
         if self._settings_problem:
             self.prepare_button.setEnabled(False);self.repair_button.setEnabled(False);self.status.setText(self._settings_problem)
         if getattr(self,'_editing_floating',None):
             interval=self._restored_interval
             self.body_mode_changed();self._restored_interval=interval
+
+    def open_anyhydro_family(self):
+        from .orcawave_pressure import OrcaWavePressureDialog
+        if self.anyhydro_dialog is None:self.anyhydro_dialog=OrcaWavePressureDialog(self.panel,'anyhydro')
+        self.anyhydro_dialog.show()
+
+    def _retire_native(self):
+        if self.runner is not None:self.runner.cancel()
+        self._token=None;self._job_generation+=1;self._active_stage=None;self.deadline.stop()
+        self.prepared=None;self.apply_button.setEnabled(False)
+        for widget in (*self.inputs.values(),self.wave_type,self.convert,self.hydrostatic,self.follow,self.body_mode,*self._floating_widgets):widget.setEnabled(True)
+        self.prepare_button.setEnabled(self._settings_problem is None);self.repair_button.setEnabled(self._settings_problem is None)
+
+        self.update_mode()
+
+    def source_changed(self,*_):
+        self._retire_native()
+        native=self.pressure_source.currentData()=='anyhydro'
+        self.native_panel.setEnabled(native);self.prepare_button.setEnabled(native and self._settings_problem is None)
+        self.repair_button.setEnabled(native and self._settings_problem is None);self.family_button.setVisible(native)
+        self.pressure_source_note.setVisible(not native)
+        if native:
+            if self.orcawave_dialog is not None:self.orcawave_dialog.deactivate()
+        else:
+            if self.anyhydro_dialog is not None:self.anyhydro_dialog.deactivate()
+            from ...application.orcawave_pressure import orcfxapi_installed
+            self.pressure_source_note.setText(('OrcFxAPI is installed; an Orcina licence is required to read completed .owr results.' if orcfxapi_installed() else 'OrcFxAPI is not installed; use a portable pressure bank.')+' This never starts OrcaWave.')
+            from .orcawave_pressure import OrcaWavePressureDialog
+            if self.orcawave_dialog is None:self.orcawave_dialog=OrcaWavePressureDialog(self.panel,'orcawave')
+            self.orcawave_dialog.show()
+
+    def _job_signature(self):
+        return (self.pressure_source.currentData(),self.body_mode.currentData(),self.wave_type.currentData(),self.hydrostatic.isChecked(),self.follow.isChecked(),self.convert.isChecked(),self.floating_dev.isChecked(),self.floating_native.isChecked(),tuple((k,v.text()) for k,v in self.inputs.items()),tuple((k,v.text()) for k,v in self.floating_fields.items()))
 
     def floating_selected(self):return self.body_mode.currentData()=='floating'
 
@@ -299,8 +336,13 @@ class WaveLoadDialog(QDialog):
         self.status.setText('New independent wave record. Enter known inputs before preparing; the existing record is unchanged.')
 
     def _bind_runner(self,runner,stage):
-        self.runner=runner;self._job_generation+=1;generation=self._job_generation;self._active_stage=stage
-        def current():return self.runner is runner and self._job_generation==generation and self._active_stage==stage
+        self.runner=runner;self._job_generation+=1;generation=object();self._token=generation;self._active_stage=stage
+        signature=self._job_signature()
+        def current():
+            if self.runner is not runner or self._token is not generation:return False
+            if self.pressure_source.currentData()!='anyhydro' or self._job_signature()!=signature:
+                self._retire_native();return False
+            return self._active_stage==stage and not runner.cancelled
         def completed(result):
             if not current():return
             if stage=='apply':self.recovered_result(result)
@@ -312,6 +354,7 @@ class WaveLoadDialog(QDialog):
         QApplication.instance().aboutToQuit.connect(runner.shutdown)
 
     def invalidate_preview(self,key=None):
+        if self._token is not None:self._retire_native()
         # The name and the steady hydrostatic composition are not dynamic-source inputs: keep the retained record/interval.
         keep=key in ('name','include_hydrostatic')
         if keep and self.prepared is not None and self.prepared.get('kind')!='floating_linear_response_v1':
@@ -619,7 +662,8 @@ class WaveLoadDialog(QDialog):
         self.hydrostatic.setEnabled(not self.follow.isChecked())     # stays locked on while following the surface
         self.status.setText(message);self.apply_button.setEnabled(False);self.prepare_button.setEnabled(self._settings_problem is None);self.repair_button.setEnabled(self._settings_problem is None)
     def finished_run(self,runner=None,generation=None):
-        if runner is not None and (self.runner is not runner or generation!=self._job_generation):return
+        if runner is not None and (self.runner is not runner or generation is not self._token):return
+        self._token=None
         self.deadline.stop()
         for edit in (*self.inputs.values(),self.wave_type,self.convert,self.hydrostatic,self.follow,self.body_mode,
                 *self._floating_widgets):edit.setEnabled(True)
@@ -632,6 +676,7 @@ class WaveLoadDialog(QDialog):
         if self.runner:self.runner.cancel()
         self.status.setText('Calculation exceeded its time limit ('+('60 min' if self.floating_selected() else '180 s')+') and was cancelled; project unchanged')
     def reject(self):
-        if self.runner and self.runner.isRunning():self.runner.cancel()
-        self._job_generation+=1
+        self._retire_native()
+        for child in (self.orcawave_dialog,self.anyhydro_dialog):
+            if child is not None:child.reject()
         super().reject()

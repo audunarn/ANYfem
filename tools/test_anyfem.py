@@ -12,22 +12,32 @@ import signal
 import subprocess
 import sys
 import time
+import threading
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 QUICK = (
     "tests/test_license_policy.py", "tests/test_application_frontend_boundary.py",
-    "tests/test_output_requests.py", "tests/test_command_recording.py",
+    "tests/test_output_requests.py", "tests/test_command_recording.py", "tests/test_commands.py",
     "tests/test_document_geometry_snapshot.py", "tests/test_selection_state.py",
-    "tests/test_test_runner.py",
+    "tests/test_pressure_source_selector.py", "tests/test_launcher_ecosystem_preflight.py",
+    "tests/test_mesh_execution_submission.py", "tests/test_mesh_task_safe_cancellation.py",
+    "tests/test_mesh_preparation_cache_atomicity.py", "tests/test_result_session_readiness.py",
+    "tests/test_orcawave_pressure.py", "tests/test_qt_orcawave_pressure.py",
+    "tests/test_manager_workflows.py", "tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen",
+    "tests/test_qt_workbench.py::test_property_edits_preserve_identity_and_undo",
+    "tests/test_qt_run_progress.py", "tests/test_qt_submodel_task.py",
 )
+COMPATIBILITY = ("tests/test_manager_workflows.py", "tests/test_gui_launcher.py",
+                 "tests/test_license_policy.py", "tests/test_application_frontend_boundary.py")
+
 
 
 def selectors(profile, requested):
     if profile == "focused":
         if not requested:
             raise ValueError("focused requires explicit test files or node IDs")
-        if any(not value.startswith("tests/") or "\\" in value or
+        if any(not value.startswith(("tests/", "diagnostics/")) or "\\" in value or
                ".." in value.split("::", 1)[0].split("/") for value in requested):
             raise ValueError("focused selectors must be repository tests/ paths or node IDs")
         return list(requested)
@@ -35,17 +45,21 @@ def selectors(profile, requested):
         raise ValueError("selectors are allowed only with --profile focused")
     if profile in {"unit", "fast", "integration", "qualification"}:
         return _suite_plan().module_plan(ROOT, profile)["selected"]
+    if profile == "compatibility":
+        return list(COMPATIBILITY)
+    if profile == "caller":
+        return ["tests/" + key.split("::", 1)[0] + ".py::" + key.split("::", 1)[1] for key in sorted(_caller_profile().REQUIRED_CASES)]
     if profile == "quick":
         return list(QUICK)
     if profile == "qt":
-        return ["tests/test_qt_workbench.py", "tests/test_qt_geometry_actions.py",
-                "tests/test_qt_visibility.py", "tests/test_visibility.py",
-                "tests/test_run_progress.py", "tests/test_qt_run_progress.py",
-                "tests/test_qt_button_help.py", "tests/test_qt_mesh_parallel_selection.py",
-                "tests/test_qt_result_browser.py", "tests/test_qt_activation_readiness.py",
-                "tests/test_result_browser.py",
-                "tests/test_geometry_sets_actions.py", "tests/test_application_frontend_boundary.py"]
-    return ["tests"]
+        return ["tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen",
+                "tests/test_qt_workbench.py::test_requested_viewer_backend_is_active",
+                "tests/test_qt_workbench.py::test_property_edits_preserve_identity_and_undo",
+                "tests/test_qt_activation_readiness.py", "tests/test_qt_run_progress.py",
+                "tests/test_qt_submodel_task.py", "tests/test_qt_orcawave_pressure.py"]
+    if profile == "full":
+        return ["tests"]
+    raise ValueError("unknown suite profile: " + profile)
 
 
 def _suite_plan():
@@ -85,6 +99,64 @@ def validate_verification(path, expected):
         raise RuntimeError("verification counts do not match the complete case inventory")
 
 
+def validate_run_receipt(output, profile):
+    """A passing exit must account for every original collected identity once."""
+    data=json.loads((output/'suite-collected.json').read_text(encoding='utf8'))
+    if (data.get('schema')!=_suite_plan().SCHEMA or data.get('suite_root')!=str(ROOT.resolve())
+            or data.get('profile')!=profile or data.get('collection_errors')!=0
+            or not isinstance(data.get('collection_owner_pid'),int)):
+        raise RuntimeError('invalid owned collection receipt identity or errors')
+    nodes=data.get('selected')
+    if not isinstance(nodes,list) or not nodes:raise RuntimeError('missing selected original-node inventory')
+    expected=_suite_plan().manifest(nodes,'full')
+    for key in ('inventory_sha256','assignments_sha256','rules_sha256','assignments'):
+        if data.get(key)!=expected[key]:raise RuntimeError('collection receipt hash/assignment differs: '+key)
+    if set(nodes)!=set(data['assignments']) or data.get('excluded'):
+        raise RuntimeError('actual collected inventory falsely excludes selected nodes')
+    from _pytest.junitxml import mangle_test_address
+    identities={node:['.'.join((names:=mangle_test_address(node))[:-1]),names[-1]] for node in nodes}
+    subtest_path=output/'suite-subtests.json'
+    subtests=json.loads(subtest_path.read_text(encoding='utf8')) if subtest_path.exists() else []
+    associated={}
+    for subtest in subtests:
+        node=subtest['nodeid']
+        if node not in identities or subtest['outcome']=='failed':raise RuntimeError('unknown or failed associated subtest')
+        key=(node,subtest['description'],subtest['ordinal'])
+        if key in associated:raise RuntimeError('ambiguous associated subtest identity')
+        associated[key]=subtest
+    seen=set();skips=[];positive=set();seen_subtests=set()
+    for case in ET.parse(output/'pytest.xml').iter('testcase'):
+        if any(case.find(kind) is not None for kind in ('error','failure')):
+            raise RuntimeError('JUnit records failure despite passing exit')
+        props=[p.get('value') for p in case.findall('properties/property') if p.get('name')=='anyfem_original_nodeid']
+        if not props:
+            skipped=case.find('skipped')
+            if skipped is None or skipped.get('message')!='collection skipped':raise RuntimeError('unidentified JUnit row')
+            skips.append([case.get('classname',''),case.get('name',''),skipped.text or ''])
+            continue
+        if len(props)!=1 or props[0] not in identities:raise RuntimeError('unknown or duplicate JUnit identity')
+        node=props[0]
+        subtest_keys=[key for key in associated if key[0]==node and
+                      [case.get('classname',''),case.get('name','')]==[identities[node][0],identities[node][1]+' '+key[1]]]
+        if subtest_keys:
+            remaining=[key for key in subtest_keys if key not in seen_subtests]
+            if not remaining:raise RuntimeError('duplicate associated subtest JUnit row')
+            key=remaining[0]
+            if (case.find('skipped') is not None)!=(associated[key]['outcome']=='skipped'):
+                raise RuntimeError('associated subtest outcome differs')
+            seen_subtests.add(key);continue
+        if node in seen:raise RuntimeError('duplicate ordinary JUnit identity')
+        if identities[node]!=[case.get('classname',''),case.get('name','')]:raise RuntimeError('JUnit original identity changed')
+        seen.add(node)
+        if case.find('skipped') is None:positive.add(node)
+    if seen!=set(nodes) or sorted(skips)!=sorted(data.get('collection_skips',[])):
+        raise RuntimeError('incomplete collected/JUnit identity union')
+    if profile in {'quick','full','qt'}:
+        smoke='tests/test_qt_workbench.py::test_real_qt_mesh_solve_save_reopen'
+        if smoke not in positive:raise RuntimeError('required real software Qt smoke did not execute')
+    return {'selected':len(nodes),'executed':len(positive),'collection_skips':len(skips)}
+
+
 _PROCESS_OWNER = None
 
 
@@ -103,7 +175,9 @@ def start_owned_process(command, **options):
     if os.name == "nt":
         return _process_owner().start_windows_process(command, **options)
     options.pop("gate_root", None)
-    return subprocess.Popen(command, **options)
+    process = subprocess.Popen(command, **options)
+    process.stop = lambda: stop_owned_process(process)
+    return process
 
 
 def stop_owned_process(process, windows=None):
@@ -145,7 +219,17 @@ def execute(command, log, environment):
                                    start_new_session=os.name != "nt", gate_root=log.parent)
         owned_windows = (os.name == "nt"
                          and isinstance(process, _process_owner().WindowsOwnedProcess))
-        output = _process_owner().owned_output(process) if owned_windows else process.stdout
+        owned_output = owned_windows or hasattr(process, 'stop')
+        output = _process_owner().owned_output(process) if owned_output else process.stdout
+        retired = False
+        timed_out = threading.Event()
+        cleanup_errors = []
+        def expire():
+            timed_out.set()
+            try: stop_owned_process(process)
+            except BaseException as error: cleanup_errors.append(str(error))
+        timer = threading.Timer(float(environment.get("ANYFEM_TEST_TIMEOUT_SECONDS", "1200")), expire)
+        timer.daemon = True; timer.start()
         try:
             if owned_windows:
                 log.with_name("pytest-process.json").write_text(json.dumps({
@@ -159,16 +243,21 @@ def execute(command, log, environment):
                 stream.flush()
                 if environment.get("ANYFEM_CI_DIAGNOSTICS_DIR") or "%]" in line:
                     print(line.strip(), flush=True)
-            return process.wait()
+            code = process.wait()
+            if cleanup_errors: raise RuntimeError("timeout cleanup failed: " + "; ".join(cleanup_errors))
+            if timed_out.is_set(): raise TimeoutError("owned pytest process-tree deadline expired")
+            return code
         except KeyboardInterrupt:
             stop_owned_process(process)
+            retired = True
             raise
         finally:
+            timer.cancel()
+            timer.join(timeout=10)
             try:
-                if owned_windows:
-                    stop_owned_process(process)
+                if not retired and (owned_windows or os.name != "nt"):stop_owned_process(process)
             finally:
-                if owned_windows:
+                if owned_output:
                     _process_owner().close_owned_output(process, output)
                 else:
                     process.stdout.close()
@@ -292,6 +381,9 @@ def _execute_caller_phases(command,output,environment,report):
         data['args']=[*data['args'],'--junitxml='+str(folder/'pytest.xml')]
         manifest=folder/'phase.json';manifest.write_text(json.dumps(data,indent=2),encoding='utf-8')
         env=environment.copy()
+        remaining=float(environment.get('ANYFEM_TEST_TIMEOUT_SECONDS','1200'))-(time.monotonic()-started)
+        if remaining<=0:raise TimeoutError('caller union process-wall deadline expired')
+        env['ANYFEM_TEST_TIMEOUT_SECONDS']=str(remaining)
         if name != "caller-collection":env.pop("ANYFEM_SUITE_MANIFEST", None)
         if 'ANYFEM_CI_DIAGNOSTICS_DIR' in env:env['ANYFEM_CI_DIAGNOSTICS_DIR']=str(folder)
         now=time.monotonic()
@@ -314,8 +406,7 @@ def _execute_caller_phases(command,output,environment,report):
         if i==0:phase_args=args
         else:
             # The original full selector is tests; all other pytest options stay exact.
-            if args[0]!='tests':raise RuntimeError('unexpected full profile selector')
-            phase_args=[*assigned,*args[1:]]
+            phase_args=[*assigned,*[arg for arg in args if not arg.startswith(('tests/', 'diagnostics/')) and arg!='tests']]
         code,_,xml=phase('caller-core' if i==0 else 'caller-positive-'+str(i),
                         dict(kind='core' if i==0 else 'positive',args=phase_args,
                              inventory=inventory if i==0 else {node:inventory[node] for node in assigned},assigned=assigned))
@@ -328,7 +419,7 @@ def _execute_caller_phases(command,output,environment,report):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("quick", "unit", "fast", "integration", "qualification", "focused", "qt", "full"), default="quick")
+    parser.add_argument("--profile", choices=("quick", "unit", "fast", "integration", "qualification", "focused", "qt", "full", "compatibility", "caller"), default="quick")
     parser.add_argument("--backend", choices=("software", "gpu"), default="software")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ci-diagnostics", action="store_true",
@@ -361,10 +452,12 @@ def main(argv=None):
         parser.error(str(error))
     planning_profile = options.profile if options.profile in {"unit", "fast", "integration", "qualification", "full"} else "full"
     plan = _suite_plan().module_plan(ROOT, planning_profile)
-    if options.profile in {"quick", "focused", "qt"}:
+    if options.profile in {"quick", "focused", "qt", "compatibility", "caller"}:
         selected_files = {value.split("::", 1)[0] for value in selected}
         plan["selected"] = [value for value in plan["assignments"] if value in selected_files]
         plan["excluded"] = [value for value in plan["assignments"] if value not in selected_files]
+        plan['excluded_reasons'] = {value:'outside selected '+options.profile+' profile' for value in plan['excluded']}
+        plan['selected_node_selectors'] = selected
         plan.update(profile=options.profile, scope="partial development only")
     plan.update(requested_profile=options.profile, command_selectors=selected)
     (output / "suite-plan.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -375,23 +468,26 @@ def main(argv=None):
     environment["ANYFEM_SUITE_PROFILE"] = options.profile
     environment["ANYFEM_SUITE_ROOT"] = str(ROOT.resolve())
     environment["ANYFEM_SUITE_MANIFEST"] = str(output / "suite-collected.json")
-    plugins = [value for value in environment.get("PYTEST_PLUGINS", "").split(",") if value]
+    inherited_plugins = environment.pop("PYTEST_PLUGINS", None)
+    plugins = []
     environment["PYTEST_PLUGINS"] = ",".join(dict.fromkeys([*plugins, "tools.pytest_anyfem_suite"]))
     # This private child setting cannot enable diagnostics without the flag.
     environment.pop("ANYFEM_CI_DIAGNOSTICS_DIR", None)
     if options.ci_diagnostics:
         environment["ANYFEM_CI_DIAGNOSTICS_DIR"] = str(output)
-    if options.profile == "qt":
+    environment["ANYFEM_QT_TEST_BACKEND"] = options.backend
+    if options.profile in {"qt", "quick", "full"}:
         environment["ANYFEM_RUN_QT_TESTS"] = "1"
         environment["ANYFEM_QT_TEST_BACKEND"] = options.backend
-    if options.profile == "full":
+    if options.profile == "qualification":
         environment["ANYFEM_VERIFICATION_OUT"] = str(output / "verification")
     command += ["--junitxml=" + str(output / "pytest.xml")]
-    report = {"profile": options.profile, "command": command, "python": sys.executable,
-              "scope": "full release candidate; existing gates required" if options.profile == "full" else "partial development only",
+    environment["ANYFEM_TEST_TIMEOUT_SECONDS"] = str({"quick":600,"full":1200,"compatibility":300,"caller":1200}.get(options.profile,600))
+    report = {"schema":"anyfem-manager-run-v2", "timeout_seconds":float(environment["ANYFEM_TEST_TIMEOUT_SECONDS"]), "profile": options.profile, "command": command, "python": sys.executable,
+              "scope": "required manager application suite; release gates remain" if options.profile == "full" else "partial development only",
               "suite_plan": str(output / "suite-plan.json"), "suite_collection": str(output / "suite-collected.json"),
               "ci_diagnostics": options.ci_diagnostics, "fail_fast": options.fail_fast,
-              "python_version": sys.version, "ignored_pytest_addopts": inherited_options,
+              "python_version": sys.version, "ignored_pytest_addopts": inherited_options, "ignored_pytest_plugins": inherited_plugins,
               "environment": {key: environment.get(key) for key in (
                   "ANYFEM_RUN_QT_TESTS", "ANYFEM_QT_TEST_BACKEND", "ANYFEM_RUN_GUI_TESTS",
                   "ANYFEM_RUN_SCALE_GATES", "ANYFEM_RUN_HARDWARE_GATES", "ANYFEM_TEST_THREADS")},
@@ -400,12 +496,12 @@ def main(argv=None):
     code = 2
     try:
         if options.profile == "qualification" and environment.get("ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS") == "1":
-            raise RuntimeError("partial qualification profile cannot satisfy required caller positives; use --profile full for authoritative fresh-H isolation")
+            raise RuntimeError("partial qualification profile cannot satisfy required caller positives; use --profile caller for authoritative fresh-H isolation")
         if options.profile in {"full", "qt"}:
             owner_capabilities()
         if options.profile == "qt":
             importlib.import_module("PySide6.QtWidgets")
-        if options.profile == "full" and environment.get("ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS")=="1":
+        if options.profile == "caller":
             code = _execute_caller_phases(command, output, environment, report)
         else:
             code = execute(command, output / "pytest.log", environment)
@@ -415,6 +511,7 @@ def main(argv=None):
             report["counts"] = {key: sum(int(suite.get(key, "0")) for suite in suites)
                                 for key in ("tests", "failures", "errors", "skipped")}
         if code == 0:
+            report['validated_union']=validate_run_receipt(output,options.profile)
             counts = report.get("counts", {})
             if counts.get("tests", 0) <= counts.get("skipped", 0):
                 raise RuntimeError("no executed tests were recorded")
@@ -423,9 +520,14 @@ def main(argv=None):
                 if not any("test_qt_workbench" in row.get("classname", "") and
                            row.find("skipped") is None for row in rows):
                     raise RuntimeError("no Qt workbench tests executed")
-        if code == 0 and options.profile == "full":
+
+        if code == 0 and options.profile == "qualification":
             from anyfem.verification import cases
             validate_verification(output / "verification" / "verification.json", {case.case_id for case in cases()})
+    except TimeoutError as error:
+        report["status"] = "timeout"
+        report["error"] = str(error)
+        code = 124
     except KeyboardInterrupt:
         report["status"] = "interrupted"
         code = 130
@@ -434,7 +536,7 @@ def main(argv=None):
         report["error"] = f"{type(error).__name__}: {error}"
         code = 2
     finally:
-        report.update(exit_code=code, seconds=time.monotonic() - start)
+        report.update(exit_code=code, seconds=time.monotonic() - start, process_wall_seconds=time.monotonic()-start)
         (output / "run.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report.get("counts", {})), flush=True)
         print(f"{report['status']}: {output / 'run.json'}", flush=True)
