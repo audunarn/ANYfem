@@ -137,3 +137,23 @@ def test_marker_is_refused_when_the_bundle_folder_is_named_like_a_venv_layout_fo
     (root / rl.LOCK_NAME).unlink()
     outcome = tr.check_health(root / "python.exe")
     assert outcome.status == tr.UNAVAILABLE and "ci smoke" in outcome.reason.lower() and spawned == []
+
+
+def test_marker_is_refused_through_a_symlinked_interpreter(tmp_path, monkeypatch):
+    """Codex r3 P2: a lockless alias folder whose python.exe is a symlink to a marked bundle must not get the lenient policy."""
+    marked = tmp_path / "marked"
+    marked.mkdir()
+    write_bundle(marked)
+    alias = tmp_path / "dev"
+    alias.mkdir()
+    try:
+        os.symlink(marked / "python.exe", alias / "python.exe")
+    except OSError:
+        pytest.skip("symlinks not permitted here")
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    spawned = []
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: spawned.append(1) or tr.ChildOutcome(status=tr.UNAVAILABLE, reason="x"))
+    tr.allow_ci_smoke_bundle(False)
+    tr._health_cache.clear()
+    outcome = tr.check_health(alias / "python.exe")
+    assert outcome.status == tr.UNAVAILABLE and "ci smoke" in outcome.reason.lower() and spawned == []
