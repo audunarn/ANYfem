@@ -287,11 +287,17 @@ def _table_pages(rows):
         (lower,"Global lower Z / mm" if global_z else "Lower Z / mm",192),
         (upper,"Global upper Z / mm" if global_z else "Upper Z / mm",196),
     ]
+    if rows and "Thickness side" in rows[0]:
+        # Resolved thickness side (its +n direction is on each plate sheet).
+        columns[3] = ("Holes","Holes",72)
+        columns.insert(3,("Thickness side","Side",76))
     pages, page, height = [], [], 0
     for row in rows:
         cells = []
         for key,_,width in columns:
             value = row[key]
+            if key == "Thickness side":
+                value = value.split(" ")[0]
             if key in {"Net mass per plate (kg)","Extended net mass (kg)"}:
                 value = f"{float(value):,.3f}"
             if key in {lower,upper}:

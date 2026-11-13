@@ -556,3 +556,55 @@ def test_curved_strip_of_stacked_staggered_patches_develops_as_one_rectangle():
     assert np.ptp(ring, axis=0) == pytest.approx((2 * 4*q, .1), rel=1e-10)
     assert len(profile._loops[0]) == 4  # one rectangle, internal joints removed
     assert assembly_views(p, part, thickness_sides={sheet: "front"})[1].paths
+
+
+# -- S6: export columns, manifest and the command line ----------------------------------------
+
+def _rows(path):
+    import csv
+    with path.open(encoding="utf-8") as stream:
+        return {row["Plate"]: row for row in csv.DictReader(stream)}
+
+
+def test_export_index_and_manifest_carry_resolved_sides(tmp_path):
+    import json
+    from anyfem.application.plate_drawings import INDEX_COLUMNS, export_plate_drawings
+    from anyfem.document import DocumentSession
+    m = _Conformal()
+    flange, web = m.flange(), m.web("web", 0, .5)
+    m.p.drawing_thickness_sides["web"] = "back"
+    snapshot = DocumentSession(m.p).snapshot()
+    folder = export_plate_drawings(snapshot, m.part, tmp_path / "auto")
+    rows = _rows(folder / "Plate-index.csv")
+    assert rows["flange"]["Thickness side"] == "front (+n = +Z)"
+    assert rows["flange"]["Side source"] == "auto: 1 neighbour on +n"
+    assert rows["web"]["Thickness side"] == "back (+n = +X)" and rows["web"]["Side source"] == "manual: override"
+    assert float(rows["flange"]["Lower edge Z above support base (mm)"]) == 0.
+    basis = json.loads((folder / "Drawing-basis.json").read_text())
+    assert basis["representation"] == "solid"
+    assert {entry["plate"]: (entry["side"], entry["source"]) for entry in basis["thickness_sides"]} == {
+        "flange": ("front", "auto"), "web": ("back", "manual")}
+    legacy = export_plate_drawings(snapshot, m.part, tmp_path / "legacy", thickness_sides="centre")
+    header = (legacy / "Plate-index.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert header == ",".join(INDEX_COLUMNS)
+    assert "thickness_sides" not in json.loads((legacy / "Drawing-basis.json").read_text())
+
+
+def test_command_line_takes_representation_and_repeatable_side_overrides(tmp_path):
+    import json
+    from anyfem.application.plate_drawings import main
+    from anyfem.io.project_file import save_project
+    m = _Conformal()
+    m.flange(), m.web("web", 0, .5)
+    source = save_project(m.p, tmp_path / "tee.anyfem")
+    out = tmp_path / "cli"
+    main([str(source), str(out), "--part", str(m.part), "--representation", "midsurface_2d",
+          "--thickness-side", "flange=back", "--thickness-side", "web=front"])
+    rows = _rows(out / "Plate-index.csv")
+    assert rows["flange"]["Thickness side"].startswith("back") and rows["web"]["Thickness side"].startswith("front")
+    assert rows["flange"]["Side source"] == "manual: override"
+    basis = json.loads((out / "Drawing-basis.json").read_text())
+    assert basis["representation"] == "midsurface_2d"
+    with pytest.raises(SystemExit):
+        main([str(source), str(tmp_path / "bad"), "--part", str(m.part), "--thickness-side", "flange"])
+    assert not (tmp_path / "bad").exists()

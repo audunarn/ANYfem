@@ -20,6 +20,15 @@ INDEX_COLUMNS = (
     "Net area (m2)", "Net mass per plate (kg)", "Quantity required", "Extended net mass (kg)",
     "Lower edge Z above support base (mm)", "Upper edge Z above support base (mm)", "Profile file",
 )
+# Appended to the plate index whenever thickness sides are resolved (not for
+# the historical all-centre request, whose files stay as they were).
+SIDE_COLUMNS = ("Thickness side", "Side source")
+SIDE_RULE = ("auto: a plate whose same-Part neighbours (sharing a topological vertex or edge) lie only on +n "
+             "is front (thickness 0..t along +n), only on -n back (-t..0), otherwise centre (-t/2..t/2); "
+             "+n is the planar drawing normal (largest world component positive) or the outward radial "
+             "direction of a curved strip")
+CURVED_MASS_BASIS = ("curved strips: reference area x (R + band middle)/R x nominal thickness x density, "
+                     "i.e. the mid-thickness surface area")
 TAKEOFF_COLUMNS = (
     "Scope", "Thickness (mm)", "Number of supports", "Unique plate marks", "Plates required",
     "Net area per support (m2)", "Net mass per support (kg)", "Extended net area (m2)",
@@ -115,8 +124,14 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
         raise ValueError(f"No structural Part with ID {part_id}")
     if part.member_ids:
         raise ValueError("This plate-only takeoff requires a Part without structural members")
-    legacy = thickness_sides is None or thickness_sides == "centre"
+    legacy = thickness_sides is None or (isinstance(thickness_sides, str) and thickness_sides == "centre")
     sides = resolve_sides(project, thickness_sides)
+    if legacy:
+        table = {}
+    else:
+        from .thickness_side import normal_label, resolve_thickness_sides
+        table = resolve_thickness_sides(
+            project, part_id, None if isinstance(thickness_sides, str) else thickness_sides)
     profiles = tuple(build_plate_profiles(project, part_id, thickness_sides=sides))
     if not profiles:
         raise ValueError(f"Part {part_id} has no physical plates")
@@ -129,6 +144,8 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
              "Upper edge Z above support base (mm)": "Upper global Z (mm)"}.get(name, name)
             for name in INDEX_COLUMNS
         )
+    if not legacy:
+        index_columns += SIDE_COLUMNS
     scope = part.name or f"Part {part.id}"
     index = []
     stock = defaultdict(list)
@@ -162,10 +179,14 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
                                         thickness_sides="centre" if legacy else sides,
                                         representation=representation)
                 write_view_dxf(view, drawing_dir / filename, preserve_contours=True)
-            index.append((plate.mark, plate.sheet_id, plate.material, f"{plate.thickness_m*1000:g}",
-                          plate.hole_count, f"{density:.12g}", f"{plate.area_m2:.9f}", f"{mass:.6f}",
-                          quantity, f"{mass*quantity:.6f}", f"{(plate.z_min_m-base_z)*1000:.3f}",
-                          f"{(plate.z_max_m-base_z)*1000:.3f}", f"profiles/{filename}"))
+            row = (plate.mark, plate.sheet_id, plate.material, f"{plate.thickness_m*1000:g}",
+                   plate.hole_count, f"{density:.12g}", f"{plate.area_m2:.9f}", f"{mass:.6f}",
+                   quantity, f"{mass*quantity:.6f}", f"{(plate.z_min_m-base_z)*1000:.3f}",
+                   f"{(plate.z_max_m-base_z)*1000:.3f}", f"profiles/{filename}")
+            if not legacy:
+                _, source, reason = table[plate.sheet_id]
+                row += (plate.side_text, f"{source}: {reason}")
+            index.append(row)
         _csv(package / "Plate-index.csv", index_columns, index)
         rows = [_takeoff_row(scope, f"{gauge*1000:g}", quantity, entries)
                 for gauge, entries in sorted(stock.items())]
@@ -184,8 +205,18 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             "override_kg_m3": density_kg_m3, "mass_basis": "net cut area x nominal thickness x density",
             "formats": ["DXF", "DWG AC1032"] if dwg_converter is not None else ["DXF"],
         }
-        if representation != "solid":
+        if not legacy or representation != "solid":
             manifest["representation"] = representation
+        if not legacy:
+            manifest["thickness_side_rule"] = SIDE_RULE
+            manifest["thickness_sides"] = [
+                {"plate": plate.mark, "sheet_id": plate.sheet_id, "side": plate.thickness_side,
+                 "normal": "outward radial" if plate._strip is not None else normal_label(plate.normal),
+                 "band_mm": [round(1000*b, 9) for b in plate.band_m],
+                 "source": table[plate.sheet_id][1], "reason": table[plate.sheet_id][2]}
+                for plate in profiles]
+        if any(plate._strip is not None for plate in profiles):
+            manifest["curved_mass_basis"] = CURVED_MASS_BASIS
         (package / "Drawing-basis.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         package.rename(destination)
     return destination
@@ -202,15 +233,26 @@ def main(argv=None):
                         help="support_base sets the lowest material edge to Z=0; global uses model elevations")
     parser.add_argument("--no-plate-intersections", action="store_false", dest="plate_intersections",
                         help="omit intersection reference marks from profile drawings")
+    parser.add_argument("--representation", choices=("solid", "midsurface_2d"), default="solid",
+                        help="solid plates, or 2D reference surfaces without thickness")
+    parser.add_argument("--thickness-side", action="append", default=[], metavar="NAME=SIDE",
+                        help="per-plate side override (Sheet name or ID; auto, centre, front or back); repeatable")
     parser.add_argument("--dwg-converter", type=Path, help="ODA File Converter executable for optional DWG copies")
     args = parser.parse_args(argv)
+    overrides = {}
+    for item in args.thickness_side:
+        name, separator, side = item.rpartition("=")
+        if not separator or not name or side not in ("auto", "centre", "front", "back"):
+            parser.error(f"--thickness-side expects NAME=auto|centre|front|back, not {item!r}")
+        overrides[name] = side
     try:
         snapshot = DocumentSession(load_project(args.project)).snapshot()
         output = export_plate_drawings(snapshot, args.part, args.destination,
                                        quantity=args.quantity, density_kg_m3=args.density,
                                        elevation_datum=args.elevation_datum,
                                        include_plate_intersections=args.plate_intersections,
-                                       dwg_converter=args.dwg_converter)
+                                       dwg_converter=args.dwg_converter, representation=args.representation,
+                                       thickness_sides=overrides or "auto")
     except (OSError, ValueError, RuntimeError, ImportError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")
     print(output)

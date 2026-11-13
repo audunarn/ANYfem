@@ -10,7 +10,8 @@ from .drawing_paper import write_sheets
 
 
 def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=None, converter=None, backend="oda",
-            elevation_datum="support_base", include_plate_intersections=True):
+            elevation_datum="support_base", include_plate_intersections=True, representation="solid",
+            thickness_sides="auto"):
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Choose a new drawing folder. {destination} already exists.")
@@ -24,13 +25,15 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
             export_plate_drawings(snapshot, part_id, package, quantity=quantity,
                                   density_kg_m3=density, dwg_converter=converter, dwg_backend=backend,
                                   elevation_datum=elevation_datum,
-                                  include_plate_intersections=include_plate_intersections)
+                                  include_plate_intersections=include_plate_intersections,
+                                  representation=representation, thickness_sides=thickness_sides)
             index = package/"Plate-index.csv"
             project = snapshot.thaw()
             g = project.geometry
             for sid in g.parts[part_id].sheet_ids:
                 face = g.face_uses[g.sheets[sid].face_use_ids[0]].face_id
-                printable.append(build_plate_view(project,face,include_plate_intersections=include_plate_intersections))
+                printable.append(build_plate_view(project,face,include_plate_intersections=include_plate_intersections,
+                                                  thickness_sides=thickness_sides,representation=representation))
         cad = package/"views"
         cad.mkdir(parents=True)
         for i, view in enumerate(views,1):
@@ -42,6 +45,7 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
         basis = json.loads(basis_file.read_text(encoding="utf-8")) if basis_file.exists() else {
             "project_hash":canonical_hash(snapshot.document), "profile_units":"mm",
         }
+        basis.setdefault("representation", representation)
         basis["views"] = [{"title":v.title, "drawing":f"views/View-{n:02d}.dxf",
                            "notes":list(v.notes),
                            "intersection_reference_paths":sum(p.layer=="PLATE_INTERSECTIONS" for p in v.paths)}

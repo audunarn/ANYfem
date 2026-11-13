@@ -105,6 +105,24 @@ def _manual(project, overrides=None) -> dict[int, str]:
     return result
 
 
+def override_choices(project) -> dict[int, str]:
+    """The project's manual choices by Sheet ID (Sheets without one are ``auto``)."""
+    return _manual(project)
+
+
+def set_override(project, sheet_id: int, choice: str) -> None:
+    """Record one Sheet's side choice, keyed by its unique name (else its ID); ``auto`` removes it."""
+    if choice not in SIDE_CHOICES:
+        raise ValueError(f"Thickness side must be one of {', '.join(SIDE_CHOICES)}, not {choice!r}")
+    geometry = project.geometry
+    sheet = geometry.sheets[sheet_id]
+    for key in [key for key in project.drawing_thickness_sides if _sheet_key(geometry, key) == sheet_id]:
+        del project.drawing_thickness_sides[key]
+    if choice != "auto":
+        unique = sheet.name and sum(other.name == sheet.name for other in geometry.sheets.values()) == 1
+        project.drawing_thickness_sides[sheet.name if unique else sheet_id] = choice
+
+
 def live_overrides(project) -> dict:
     """The project's overrides that name a current Sheet (the ones that are saved)."""
     return {key: side for key, side in project.drawing_thickness_sides.items()

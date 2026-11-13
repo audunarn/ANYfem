@@ -37,6 +37,10 @@ def create_plate_drawings(window):
     datum.addItem("Support lower edge · Z = 0", "support_base")
     datum.addItem("Model global Z", "global")
     form.addRow("Elevation datum", datum)
+    representation = QComboBox(dialog)
+    representation.addItem("Solid plates", "solid")
+    representation.addItem("2D mid-surface · no thickness", "midsurface_2d")
+    form.addRow("Representation", representation)
     intersections = QCheckBox("Show intersecting plates", dialog)
     intersections.setChecked(True)
     form.addRow(intersections)
@@ -64,5 +68,6 @@ def create_plate_drawings(window):
                                    quantity=quantity.value(),
                                    density_kg_m3=density.value() if override.isChecked() else None,
                                    dwg_converter=converter, elevation_datum=datum.currentData(),
-                                   include_plate_intersections=intersections.isChecked())
+                                   include_plate_intersections=intersections.isChecked(),
+                                   representation=representation.currentData())
     window.set_status(f"Plate drawings and weight takeoff saved in {output}")
