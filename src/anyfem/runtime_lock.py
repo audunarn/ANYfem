@@ -117,7 +117,7 @@ def parse_lock(data, *, built: bool = False) -> Lock:
     if not isinstance(data, dict):
         raise LockError("lock is not a JSON object")
     version = data.get("schema_version")
-    if isinstance(version, bool) or version != SCHEMA_VERSION:
+    if type(version) is not int or version != SCHEMA_VERSION:
         raise LockError("unsupported lock schema_version %r" % (version,))
     keys = set(data)
     required = _TOP_KEYS | (_OUT_KEYS if built else set())
@@ -173,11 +173,18 @@ def parse_lock(data, *, built: bool = False) -> Lock:
                 wheels=tuple(wheels), **extra)
 
 
+def _no_duplicate_keys(pairs):
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate JSON keys")
+    return dict(pairs)
+
+
 def load_lock_bytes(raw: bytes, *, built: bool = False) -> Lock:
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise LockError("lock is not valid UTF-8 JSON: %s" % exc)
+        data = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # RecursionError: absurdly nested JSON
+        raise LockError("lock is not valid UTF-8 JSON: %s" % (exc,))
     return parse_lock(data, built=built)
 
 
@@ -198,16 +205,40 @@ def _digest_of(entries: Mapping[str, Path]) -> str:
     return digest.hexdigest()
 
 
-def _walk(root: Path, exclude_dirs=(), skip_lock: bool = False) -> dict:
-    found = {}
-    for current, dirs, files in os.walk(root):
+def _is_link(path: Path) -> bool:
+    """Symbolic link, directory junction or any other reparse point (invisible to a plain file walk, yet followed by imports)."""
+    try:
+        if os.path.islink(path) or (hasattr(os.path, "isjunction") and os.path.isjunction(path)):
+            return True
+        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+        return bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+    except OSError as exc:
+        raise LockError("cannot inspect %s: %r" % (path, exc))
+
+
+def _raise(exc: OSError):
+    raise LockError("cannot enumerate %s: %r" % (getattr(exc, "filename", "?"), exc))
+
+
+def _walk_tree(root: Path, exclude_dirs=()):
+    """Every regular file below ``root`` as (full path, posix relative name).  A link or reparse point anywhere (file or
+    folder), or an enumeration error, is an error: nothing may hide from the digest."""
+    for current, dirs, files in os.walk(root, onerror=_raise):
         dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        for name in list(dirs) + files:
+            if _is_link(Path(current) / name):
+                raise LockError("link or reparse point not allowed: %s" % (Path(current) / name))
         for name in files:
             full = Path(current) / name
-            rel = full.relative_to(root).as_posix()
-            if skip_lock and rel == LOCK_NAME:
-                continue
-            found[rel] = full
+            yield full, full.relative_to(root).as_posix()
+
+
+def _walk(root: Path, exclude_dirs=(), skip_lock: bool = False) -> dict:
+    found = {}
+    for full, rel in _walk_tree(root, exclude_dirs):
+        if skip_lock and rel == LOCK_NAME:
+            continue
+        found[rel] = full
     return found
 
 
@@ -226,16 +257,15 @@ def payload_files(base, interpreter: Interpreter) -> dict:
         path = base / name
         if not path.is_file():
             raise LockError("interpreter source lacks root file %s" % name)
+        if _is_link(path):
+            raise LockError("link or reparse point not allowed: %s" % path)
         found[name] = path
     for tree in interpreter.trees:
         folder = base / tree
-        if not folder.is_dir():
+        if not folder.is_dir() or _is_link(folder):
             raise LockError("interpreter source lacks folder %s" % tree)
-        for current, dirs, files in os.walk(folder):
-            dirs[:] = [d for d in dirs if d not in interpreter.exclude_dirs]
-            for name in files:
-                full = Path(current) / name
-                found[full.relative_to(base).as_posix()] = full
+        for full, _ in _walk_tree(folder, interpreter.exclude_dirs):
+            found[full.relative_to(base).as_posix()] = full
     return found
 
 
@@ -314,6 +344,15 @@ def _safe_member(name: str) -> str:
     return name
 
 
+def read_verified_wheel(wheel: Wheel, wheelhouse) -> bytes:
+    """Read a locked wheel ONCE and return exactly the bytes whose sha256 equals the lock's (no second read can differ)."""
+    data = (Path(wheelhouse) / wheel.filename).read_bytes()
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != wheel.sha256:
+        raise LockError("wheel %s has sha256 %s, the lock pins %s" % (wheel.filename, actual, wheel.sha256))
+    return data
+
+
 def install_wheel(wheel, site_packages) -> list:
     """Copy a (hash-verified) wheel's members into ``site_packages`` byte for byte: nothing is compiled, no installer
     metadata or launcher is generated.  Every member must be listed in the wheel's RECORD with a matching sha256 and size,
@@ -323,7 +362,8 @@ def install_wheel(wheel, site_packages) -> list:
     import io
     import zipfile
     site = Path(site_packages)
-    with zipfile.ZipFile(wheel) as archive:
+    source = io.BytesIO(wheel) if isinstance(wheel, (bytes, bytearray)) else wheel
+    with zipfile.ZipFile(source) as archive:
         members = [i for i in archive.infolist() if not i.is_dir()]
         names = [_safe_member(i.filename) for i in members]
         if len(set(names)) != len(names):
@@ -335,6 +375,8 @@ def install_wheel(wheel, site_packages) -> list:
         for row in csv.reader(io.StringIO(archive.read(records[0]).decode("utf-8"))):
             if len(row) != 3:
                 raise LockError("wheel RECORD has a malformed row")
+            if row[0] in listed:
+                raise LockError("wheel RECORD lists %s twice" % row[0])
             listed[row[0]] = row
         for info, name in zip(members, names):
             if name == records[0]:

@@ -50,14 +50,18 @@ def _stage_interpreter(lock: rl.Lock, base: Path, stage: Path) -> None:
         target = stage / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
+    # Check the STAGED bytes (not the source tree we hashed earlier, which could have changed meanwhile) before anything runs.
+    rl.verify_interpreter_source(lock, stage)
     shutil.copyfile(stage / "python3.14t.exe", stage / "python.exe")  # the application looks for <runtime>\python.exe
+    if rl.sha256_file(stage / "python.exe") != rl.sha256_file(stage / "python3.14t.exe"):
+        raise rl.LockError("python.exe copy differs from python3.14t.exe")
 
 
 def _install_wheels(lock: rl.Lock, wheelhouse: Path, stage: Path) -> None:
     """Copy, never recompile: each wheel (already sha256-verified against the lock) is unpacked member by member and every member
     is checked against the wheel's own RECORD.  No pip, no launcher scripts, no installer metadata: the result is reproducible."""
-    for wheel in lock.wheels:
-        rl.install_wheel(wheelhouse / wheel.filename, stage / "Lib" / "site-packages")
+    for wheel in lock.wheels:  # each wheel is read once; the hash-verified bytes are the bytes that get unpacked
+        rl.install_wheel(rl.read_verified_wheel(wheel, wheelhouse), stage / "Lib" / "site-packages")
 
 
 def _import_check(lock: rl.Lock, stage: Path) -> None:
@@ -88,8 +92,14 @@ def _source_digest() -> str:
     return thread_route._parent_source_digest()
 
 
-def build(lock_path: Path, base: Path, wheelhouse: Path, out: Path) -> dict:
-    lock = rl.load_lock_bytes(lock_path.read_bytes())
+def build(lock_path: Path, base: Path, wheelhouse: Path, out: Path, build_date: str = "") -> dict:
+    lock_bytes = lock_path.read_bytes()  # ONE snapshot: verification and the output lock both come from these bytes
+    lock = rl.load_lock_bytes(lock_bytes)
+    build_date = build_date or datetime.date.today().isoformat()
+    try:
+        datetime.date.fromisoformat(build_date)
+    except ValueError:
+        raise rl.LockError("build date %r is not a YYYY-MM-DD date" % build_date)
     rl.verify_wheelhouse(lock, wheelhouse)
     rl.verify_interpreter_source(lock, base)
     if out.exists():
@@ -102,9 +112,9 @@ def build(lock_path: Path, base: Path, wheelhouse: Path, out: Path) -> dict:
         _import_check(lock, stage)
         _refuse_bytecode(stage)
         source_digest = _source_digest()
-        data = json.loads(lock_path.read_text(encoding="utf-8"))
+        data = json.loads(lock_bytes.decode("utf-8"))
         bundle_sha256, bundle_files = rl.tree_digest(stage, with_count=True)
-        data.update(source_digest=source_digest, build_date=datetime.date.today().isoformat(), bundle_sha256=bundle_sha256,
+        data.update(source_digest=source_digest, build_date=build_date, bundle_sha256=bundle_sha256,
                     bundle_files=bundle_files)
         text = json.dumps(data, indent=2, sort_keys=True) + "\n"
         (stage / rl.LOCK_NAME).write_bytes(text.encode("utf-8"))
@@ -128,6 +138,7 @@ def main(argv=None) -> int:
     make.add_argument("--base-install", type=Path, required=True)
     make.add_argument("--wheelhouse", type=Path, required=True)
     make.add_argument("--out", type=Path, required=True)
+    make.add_argument("--build-date", default="", help="YYYY-MM-DD written to the lock (default: today); fix it for byte-identical folders")
     args = parser.parse_args(argv)
     try:
         if args.command == "pin-interpreter":
@@ -138,7 +149,7 @@ def main(argv=None) -> int:
             digest, count = rl.payload_digest(args.base_install, interpreter)
             print(json.dumps(dict(payload_sha256=digest, payload_files=count), indent=2))
             return 0
-        result = build(args.lock, args.base_install, args.wheelhouse, args.out)
+        result = build(args.lock, args.base_install, args.wheelhouse, args.out, args.build_date)
     except (rl.LockError, OSError, ValueError, subprocess.SubprocessError) as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2

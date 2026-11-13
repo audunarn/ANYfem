@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 
 import pytest
 
@@ -383,3 +384,104 @@ def test_install_wheel_refuses_duplicate_members(tmp_path):
             archive.writestr("pkg/__init__.py", b"x=1")
     with pytest.raises(rl.LockError, match="duplicate"):
         rl.install_wheel(wheel, tmp_path / "site")
+
+
+# ------------------------------------------------------------------------------------------ review round 1 (Codex r1)
+
+def test_schema_version_must_be_an_integer_and_keys_unique():
+    text = json.dumps(_input_lock()).replace('"schema_version": 1,', '"schema_version": 1.0,')
+    with pytest.raises(rl.LockError):
+        rl.load_lock_bytes(text.encode())
+    duplicate = json.dumps(_input_lock())[:-1] + ', "numpy": "2.4.6"}'
+    with pytest.raises(rl.LockError, match="JSON"):
+        rl.load_lock_bytes(duplicate.encode())
+    rl.load_lock_bytes(json.dumps(_input_lock()).encode())  # the unmodified lock is fine
+
+
+def test_absurdly_nested_json_is_a_lock_error_not_a_crash():
+    with pytest.raises(rl.LockError):
+        rl.load_lock_bytes(b"[" * 100000)
+
+
+def test_install_wheel_refuses_duplicate_record_rows(tmp_path):
+    wheel = tmp_path / "pkg.whl"
+    _make_wheel(wheel, {"pkg/__init__.py": b"x=1"},
+                tamper=lambda body: "pkg/__init__.py,sha256=WRONG,3\n" + body)  # a wrong row first, the right one after
+    with pytest.raises(rl.LockError, match="twice|RECORD"):
+        rl.install_wheel(wheel, tmp_path / "site")
+
+
+def test_read_verified_wheel_returns_the_hashed_bytes_only(tmp_path):
+    lock, wheels, _ = _real_input_lock(tmp_path)
+    assert rl.read_verified_wheel(lock.wheels[0], wheels) == b"numpy"
+    (wheels / lock.wheels[0].filename).write_bytes(b"other")
+    with pytest.raises(rl.LockError, match="sha256"):
+        rl.read_verified_wheel(lock.wheels[0], wheels)
+
+
+def test_install_wheel_accepts_bytes(tmp_path):
+    wheel = tmp_path / "pkg.whl"
+    _make_wheel(wheel, {"pkg/__init__.py": b"x=1"})
+    rl.install_wheel(wheel.read_bytes(), tmp_path / "site")
+    assert (tmp_path / "site" / "pkg" / "__init__.py").read_bytes() == b"x=1"
+
+
+def _junction(link, target):
+    import subprocess
+    result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
+    if result.returncode != 0:
+        pytest.skip("cannot create a junction here: %s" % result.stdout)
+
+
+def test_directory_junction_in_the_bundle_is_refused_not_ignored(tmp_path):
+    root = tmp_path / "rt"
+    _write(root / "python.exe", b"EXE")
+    outside = tmp_path / "outside"
+    _write(outside / "sitecustomize.py", b"print('planted')")
+    digest, count = rl.tree_digest(root, with_count=True)
+    _junction(root / "Lib", outside)
+    with pytest.raises(rl.LockError, match="link or reparse"):
+        rl.tree_digest(root)
+    data = _built_lock()
+    data.update(bundle_sha256=digest, bundle_files=count)
+    _write(root / rl.LOCK_NAME, json.dumps(data).encode())
+    assert "bundle" in rl.check_installed(root, expect_numpy="2.4.6", expect_source_digest=H2)
+
+
+def test_junction_in_the_interpreter_source_is_refused(tmp_path):
+    lock, _, base = _real_input_lock(tmp_path)
+    outside = tmp_path / "outside"
+    _write(outside / "os.py", b"os")
+    import shutil
+    shutil.rmtree(base / "Lib")
+    _junction(base / "Lib", outside)
+    with pytest.raises(rl.LockError, match="link|lacks"):
+        rl.verify_interpreter_source(lock, base)
+
+
+def test_exclusion_is_exact(tmp_path):
+    a = tmp_path / "a"
+    _write(a / "f", b"1")
+    _write(a / "Lib" / "m.py", b"2")
+    base = rl.tree_digest(a, exclude_dirs=("__pycache__",), with_count=True)
+    _write(a / "Lib" / "__pycache__" / "m.pyc", b"x")
+    assert rl.tree_digest(a, exclude_dirs=("__pycache__",), with_count=True) == base  # an excluded folder (at any depth) changes nothing
+    assert rl.tree_digest(a, with_count=True) != base  # without the exclusion it counts
+    _write(a / "Lib" / "other" / "m.pyc", b"x")
+    assert rl.tree_digest(a, exclude_dirs=("__pycache__",), with_count=True) != base  # only the named folder is excluded
+
+
+def test_enumeration_errors_are_refused_not_skipped(tmp_path, monkeypatch):
+    root = tmp_path / "rt"
+    _write(root / "python.exe", b"EXE")
+    real = os.walk
+
+    def failing(top, topdown=True, onerror=None, followlinks=False):
+        if onerror is not None:
+            onerror(PermissionError(13, "denied", str(top)))
+        return iter(())
+    monkeypatch.setattr(rl.os, "walk", failing)
+    with pytest.raises(rl.LockError, match="cannot enumerate"):
+        rl.tree_digest(root)
+    monkeypatch.setattr(rl.os, "walk", real)
+    rl.tree_digest(root)

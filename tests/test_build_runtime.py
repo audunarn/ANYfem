@@ -82,3 +82,88 @@ def test_refuses_a_malformed_lock(tool, tmp_path, capsys):
 def test_repository_lock_parses(tool):
     lock = rl.load_lock_bytes((TOOL.parent / "runtime.lock.json").read_bytes())
     assert lock.numpy == "2.4.6" and lock.interpreter.payload_files == 809
+
+
+# ------------------------------------------------------------------------------------------ review round 1 (Codex r1)
+
+def _runnable_inputs(tmp_path):
+    """Inputs for a successful assembly with the interpreter-running steps replaced (no real Python in the fake base install)."""
+    import base64
+    import zipfile
+    lock, base, wheels = _inputs(tmp_path)
+    wheel = wheels / "numpy-2.4.6-cp314-cp314t-win_amd64.whl"
+    body = b"VALUE = 1\n"
+    digest = base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=").decode()
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("numpy/__init__.py", body)
+        archive.writestr("numpy-2.4.6.dist-info/RECORD", "numpy/__init__.py,sha256=%s,%d\nnumpy-2.4.6.dist-info/RECORD,,\n" % (digest, len(body)))
+    data = json.loads(lock.read_text(encoding="utf-8"))
+    data["wheels"][0]["sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    lock.write_text(json.dumps(data), encoding="utf-8")
+    return lock, base, wheels
+
+
+def test_successful_assembly_publishes_a_verifiable_reproducible_folder(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: None)
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    first = tool.build(lock, base, wheels, tmp_path / "o1" / "runtime-314t", "2026-11-13")
+    second = tool.build(lock, base, wheels, tmp_path / "o2" / "runtime-314t", "2026-11-13")
+    assert first["bundle_sha256"] == second["bundle_sha256"]
+    out = tmp_path / "o1" / "runtime-314t"
+    built = rl.load_lock_bytes((out / rl.LOCK_NAME).read_bytes(), built=True)
+    rl.verify_bundle(built, out)
+    assert built.build_date == "2026-11-13" and built.source_digest == "c" * 64
+    assert (out / "python.exe").read_bytes() == b"EXE" and (out / "Lib" / "site-packages" / "numpy" / "__init__.py").exists()
+    assert [p.name for p in (tmp_path / "o1").iterdir()] == ["runtime-314t"]  # no staging folder left behind
+
+
+def test_failed_assembly_leaves_nothing_behind(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise rl.LockError("import check failed")
+    monkeypatch.setattr(tool, "_import_check", boom)
+    out = tmp_path / "o" / "runtime-314t"
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, out)
+    assert not out.exists() and list((tmp_path / "o").iterdir()) == []
+
+
+def test_wheel_replaced_after_verification_is_not_used(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: None)
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    real = rl.verify_wheelhouse
+
+    def swap_after(lock_, folder):
+        real(lock_, folder)
+        (Path(folder) / lock_.wheels[0].filename).write_bytes(b"replaced after the directory check")
+    monkeypatch.setattr(rl, "verify_wheelhouse", swap_after)
+    with pytest.raises(rl.LockError, match="sha256"):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t")
+    assert not (tmp_path / "o" / "runtime-314t").exists()
+
+
+def test_interpreter_file_replaced_after_verification_is_not_staged(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: None)
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    real = rl.verify_interpreter_source
+    state = {"first": True}
+
+    def swap_after(lock_, folder):
+        real(lock_, folder)
+        if state["first"]:
+            state["first"] = False
+            (Path(folder) / "Lib" / "os.py").write_bytes(b"replaced after the first check")
+    monkeypatch.setattr(rl, "verify_interpreter_source", swap_after)
+    with pytest.raises(rl.LockError, match="payload"):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t")
+    assert not (tmp_path / "o" / "runtime-314t").exists()
+
+
+def test_bad_build_date_is_refused(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    with pytest.raises(rl.LockError, match="date"):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t", "yesterday")

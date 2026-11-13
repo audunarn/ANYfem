@@ -119,3 +119,68 @@ def test_override_runtime_that_declares_a_schema_gets_the_full_check(tmp_path, m
     outcome = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))
     assert outcome.status == tr.UNAVAILABLE and "bundle" in outcome.reason
     tr._health_cache.clear()
+
+
+# ------------------------------------------------------------------------------------------ review round 1 (Codex r1)
+
+def _spy_run_child(monkeypatch):
+    calls = []
+    real = tr.run_child
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: calls.append(1) or real(*a, **k))
+    return calls
+
+
+def test_rejected_bundle_never_spawns_a_child(app, monkeypatch):
+    calls = _spy_run_child(monkeypatch)
+    _lock(app, tamper_after=lambda r: (r / "planted.pyd").write_bytes(b"x"))
+    assert _health(app).status == tr.UNAVAILABLE
+    assert calls == []
+
+
+def test_sound_bundle_does_reach_the_child_stage(app, monkeypatch):
+    calls = _spy_run_child(monkeypatch)
+    _lock(app)
+    _health(app)
+    assert calls == [1]
+
+
+def test_explicit_lock_path_cannot_switch_the_full_check_off(app, monkeypatch):
+    _lock(app, tamper_after=lambda r: (r / "planted.pyd").write_bytes(b"x"))
+    legacy = app.parent / "legacy.lock.json"
+    legacy.write_text(json.dumps({"numpy": "2.4.6", "source_digest": DIGEST}), encoding="utf-8")
+    outcome = tr.check_health(app / "python.exe", timeout=5, temp_root=str(app.parent), lock_path=legacy)
+    assert outcome.status == tr.UNAVAILABLE and "bundle" in outcome.reason
+    # and the weaker answer is not cached for the default call
+    assert "bundle" in _health(app).reason
+
+
+def test_nested_json_lock_is_unavailable_not_an_exception(app):
+    (app / "python.exe").write_bytes(b"x")
+    (app / rl.LOCK_NAME).write_bytes(b"[" * 100000)
+    outcome = _health(app)
+    assert outcome.status == tr.UNAVAILABLE and "lock" in outcome.reason
+    legacy = app.parent / "legacy.json"
+    legacy.write_bytes(b"[" * 100000)
+    tr._health_cache.clear()
+    assert tr.check_health(app / "python.exe", timeout=5, temp_root=str(app.parent), lock_path=legacy).status == tr.UNAVAILABLE
+
+
+def test_explicit_legacy_lock_is_still_checked_next_to_the_full_check(app):
+    _lock(app)  # a sound bundle
+    legacy = app.parent / "legacy.lock.json"
+    legacy.write_text(json.dumps({"numpy": "9.9.9"}), encoding="utf-8")
+    outcome = tr.check_health(app / "python.exe", timeout=5, temp_root=str(app.parent), lock_path=legacy)
+    assert outcome.status == tr.UNAVAILABLE and "NumPy" in outcome.reason
+
+
+def test_nested_json_lock_of_a_developer_runtime_is_unavailable_not_an_exception(tmp_path, monkeypatch):
+    monkeypatch.setenv(tr.ENV_APP_DIR, str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(tr, "_parent_source_digest", lambda: DIGEST)
+    tr._health_cache.clear()
+    dev = tmp_path / "dev-runtime"
+    dev.mkdir()
+    (dev / "python.exe").write_bytes(b"x")
+    (dev / "runtime.lock.json").write_bytes(b"[" * 100000)
+    outcome = tr.check_health(dev / "python.exe", timeout=5, temp_root=str(tmp_path))
+    assert outcome.status == tr.UNAVAILABLE and "lock" in outcome.reason
+    tr._health_cache.clear()

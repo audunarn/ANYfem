@@ -455,8 +455,8 @@ def run_child(python: Path, job: dict, document: Optional[bytes], *, threads: in
 def _declares_schema(lock: Path) -> bool:
     try:
         data = json.loads(lock.read_bytes())
-    except (OSError, ValueError):
-        return False
+    except (OSError, ValueError, RecursionError):
+        return False  # unreadable here; the legacy check then refuses it (it handles the same errors)
     return isinstance(data, dict) and "schema_version" in data
 
 
@@ -468,7 +468,7 @@ def _check_lock(lock: Path) -> str:
         data = json.loads(lock.read_bytes())
         if not isinstance(data, dict):
             raise ValueError("not an object")
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         return "runtime.lock.json is malformed: %s" % exc
     if "numpy" in data and data["numpy"] != EXPECT_NUMPY:
         return "runtime.lock.json pins NumPy %s, expected %s" % (data["numpy"], EXPECT_NUMPY)
@@ -486,12 +486,14 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
         # The shipped runtime (<app>/runtime-314t) and any runtime whose lock declares a schema get the FULL check: strict lock,
         # NumPy pin, application source digest and a digest over every file of the runtime folder (no changed, missing or extra file,
         # e.g. no planted bytecode).  Only a hand-made developer runtime (override, no schema) keeps the lenient legacy check.
-        full = not lock_path and (_same_file(root, _app_dir() / "runtime-314t") or _declares_schema(lock))
-        if not full:
+        full = _same_file(root, _app_dir() / "runtime-314t") or _declares_schema(root / runtime_lock.LOCK_NAME)
+        if not full or lock_path:  # an explicit lock path adds its legacy check; it never switches the full check off
             problem = _check_lock(lock)
             if problem:
                 return ChildOutcome(status=UNAVAILABLE, reason=problem)
         lock_hash = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.is_file() else ""
+        root_lock = root / runtime_lock.LOCK_NAME
+        lock_hash += "|" + (hashlib.sha256(root_lock.read_bytes()).hexdigest() if root_lock.is_file() else "")
         stat = Path(python).stat()
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
         return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
