@@ -80,3 +80,9 @@ new checks. Full within 1200 seconds, current quick within 600 seconds, declared
 compatibility/Qt/GPU/installed-wheel gates and the exact caller lane still require
 parent/CI acceptance. Historical failed evidence, unsupported holds and consumed
 scientific authority remain intact.
+
+Public-bank encoding correction after parent discriminating check: the six
+triangular source panels use six four-index face rows, repeating each triangle
+last vertex index. All eighteen vertices remain; public geometry validation
+still uses three-vertex polygons. No owner API or tolerance changed, and the
+worker ran no tests. The failed parent receipt remains preserved.

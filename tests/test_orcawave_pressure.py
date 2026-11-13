@@ -456,7 +456,11 @@ def test_independently_faceted_curved_hull_pipeline():
         shifted=polygon+.001*facet_normals[0]
         source_triangles.extend((shifted[[0,1,3]],shifted[[1,2,3]]))
     polygons,normals,centers,areas=validate_panel_geometry(source_triangles)
-    bank=ImportedPressureBank(np.asarray(polygons).reshape(18,3),np.arange(18).reshape(6,3),centers,normals,areas,
+    triangle_ids=np.arange(18).reshape(6,3)
+    # The public bank encodes a triangle as a four-index row with its last
+    # vertex repeated; geometry validation above still uses three vertices.
+    bank_faces=np.column_stack((triangle_ids,triangle_ids[:,-1]))
+    bank=ImportedPressureBank(np.asarray(polygons).reshape(18,3),bank_faces,centers,normals,areas,
         np.array([1.]),np.full((1,6),100+0j),tuple(range(6)),('body0',)*6,0.,'fixed_diffraction',0,20.,1025.,9.81,'{}')
     h=prepare_prescribed_pressure(project,mesh,bank,regular_realization(bank,omega=1.,height=2.),times=(0.,.5),
         surfaces=tuple(s.id for s in project.wet_surfaces),source_to_project=np.eye(4),
