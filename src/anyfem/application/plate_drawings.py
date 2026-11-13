@@ -97,7 +97,8 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
                           quantity: int = 1, density_kg_m3: float | None = None,
                           dwg_converter: str | Path | None = None, dwg_backend: str = "oda",
                           elevation_datum: str = "support_base", include_plate_intersections: bool = True,
-                          representation: str = "solid", thickness_sides="auto", extent=None) -> Path:
+                          representation: str = "solid", thickness_sides="auto", extent=None,
+                          write_assembly_views: bool = False) -> Path:
     """Write a new directory atomically. Dimensions are mm; mass excludes contingency.
 
     A density override applies only to this takeoff. Omitting it uses each plate's
@@ -108,7 +109,10 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     depend on either. ``extent`` (a :class:`DrawingExtent`) leaves out the
     per-plate profiles (and their DWG copies) or the index and takeoff CSVs
     when deselected; the default writes everything. A non-default extent is
-    recorded in the Drawing-basis manifest.
+    recorded in the Drawing-basis manifest. ``write_assembly_views=True`` also
+    writes the extent's assembly views as ``views/View-NN.dxf`` (listed in the
+    manifest ``views``); the default leaves them to the caller. With it, an
+    extent that writes nothing at all is refused before anything is created.
     """
     from .drawing_extent import DrawingExtent
     from .plate_profiles import build_plate_profiles
@@ -117,6 +121,9 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     extent = DrawingExtent() if extent is None else extent
     if not isinstance(extent, DrawingExtent):
         raise ValueError("extent must be a DrawingExtent")
+    if write_assembly_views and not (extent.views or extent.plate_profiles or extent.index_and_takeoff):
+        raise ValueError("The selected extent writes nothing: select assembly views, plate profiles "
+                         "or the index and takeoff (sections need the workbench queue)")
 
     if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
         raise ValueError("Quantity must be a positive integer")
@@ -206,6 +213,21 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
             _csv(package / "Weight-takeoff.csv", TAKEOFF_COLUMNS, rows)
         if dwg_converter is not None and extent.plate_profiles:
             _make_dwg_copies(dwg_converter, drawing_dir, package / "DWG", backend=dwg_backend)
+        view_entries = None
+        if write_assembly_views and extent.views:
+            from .drawing_assembly import assembly_views
+            from .drawing_views import write_view_dxf
+            assembled = assembly_views(project, part_id, quantity, density_kg_m3, views=extent.views,
+                                       elevation_datum=elevation_datum, thickness_sides=thickness_sides,
+                                       representation=representation)
+            (package / "views").mkdir()
+            view_entries = []
+            for number, view in enumerate(assembled, 1):
+                write_view_dxf(view, package / "views" / f"View-{number:02d}.dxf")
+                view_entries.append({"title": view.title, "drawing": f"views/View-{number:02d}.dxf",
+                                     "notes": list(view.notes),
+                                     "intersection_reference_paths":
+                                         sum(p.layer == "PLATE_INTERSECTIONS" for p in view.paths)})
         manifest = {
             "project": project.name, "document_id": str(project.document_id),
             "project_hash": canonical_hash(snapshot.document), "part_id": part.id,
@@ -219,6 +241,8 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
         }
         if not extent.is_default:
             manifest["extent"] = extent.to_dict()
+        if view_entries is not None:
+            manifest["views"] = view_entries
         if not legacy or representation != "solid":
             manifest["representation"] = representation
         if not legacy:
@@ -251,8 +275,9 @@ def main(argv=None):
                         help="solid plates, or 2D reference surfaces without thickness")
     parser.add_argument("--thickness-side", action="append", default=[], metavar="NAME=SIDE",
                         help="per-plate side override (Sheet name or ID; auto, centre, front or back); repeatable")
-    parser.add_argument("--views", default="all", metavar="LIST",
-                        help="assembly views to generate: all, or a comma list of iso, plan, front, right")
+    parser.add_argument("--views", default=None, metavar="LIST",
+                        help="also write these assembly views as DXF (views/): all, or a comma list of "
+                             "iso, plan, front, right; omitted, no assembly views are written")
     parser.add_argument("--no-sections", action="store_false", dest="sections",
                         help="leave out the requested section views")
     parser.add_argument("--no-plate-profiles", action="store_false", dest="plate_profiles",
@@ -269,8 +294,11 @@ def main(argv=None):
         overrides[name] = side
     from .drawing_extent import DrawingExtent, parse_views
     try:
-        extent = DrawingExtent(views=parse_views(args.views), sections=args.sections,
+        extent = DrawingExtent(views=parse_views("all" if args.views is None else args.views),
+                               sections=args.sections,
                                plate_profiles=args.plate_profiles, index_and_takeoff=args.index_and_takeoff)
+        if args.views is None and not (args.plate_profiles or args.index_and_takeoff):
+            raise ValueError("Nothing to generate: give --views, or keep the plate profiles or the index")
     except ValueError as error:
         parser.error(str(error))
     try:
@@ -280,7 +308,8 @@ def main(argv=None):
                                        elevation_datum=args.elevation_datum,
                                        include_plate_intersections=args.plate_intersections,
                                        dwg_converter=args.dwg_converter, representation=args.representation,
-                                       thickness_sides=overrides or "auto", extent=extent)
+                                       thickness_sides=overrides or "auto", extent=extent,
+                                       write_assembly_views=args.views is not None)
     except (OSError, ValueError, RuntimeError, ImportError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")
     print(output)

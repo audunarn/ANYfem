@@ -95,3 +95,89 @@ def test_extent_control_persists_and_invalidates_previews(tmp_path, monkeypatch)
         window.session.mark_saved()
         window.close()
         app.processEvents()
+
+
+def _model():
+    from test_drawing_thickness_side import _Conformal
+    m = _Conformal()
+    m.flange(), m.web("web", 0, .5)
+    return m
+
+
+def test_publish_part_only_extents(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from anyfem.application.drawing_extent import DrawingExtent
+    from anyfem.document import DocumentSession
+    from anyfem.ui.qt.drawing_issue import publish
+    app = QApplication.instance() or QApplication([])
+    m = _model()
+    snap = DocumentSession(m.p).snapshot()
+    index = publish(tmp_path / "index", snap, [], part_id=m.part,
+                    extent=DrawingExtent(views=(), sections=False, plate_profiles=False, index_and_takeoff=True))
+    assert (index / "Plate-index.csv").is_file() and (index / "Drawings.pdf").is_file()
+    assert not (index / "profiles").exists()
+    plates = publish(tmp_path / "plates", snap, [], part_id=m.part,
+                     extent=DrawingExtent(views=(), sections=False, plate_profiles=True, index_and_takeoff=False))
+    assert (plates / "profiles").is_dir() and (plates / "Drawings.pdf").is_file()
+    assert not (plates / "Plate-index.csv").exists()
+    with pytest.raises(ValueError, match="no view or plate sheet"):
+        publish(tmp_path / "none", snap, [], part_id=m.part,
+                extent=DrawingExtent(views=(), sections=True, plate_profiles=False, index_and_takeoff=False))
+    assert not (tmp_path / "none").exists()
+    assert app
+
+
+def _window(tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    from anyfem.io import recovery
+    from anyfem.ui.qt import app as qt_app, drawing_workspace
+    ini = str(tmp_path / "settings.ini")
+    settings = lambda *_: QSettings(ini, QSettings.IniFormat)
+    monkeypatch.setattr(qt_app, "QSettings", settings)
+    monkeypatch.setattr(drawing_workspace, "QSettings", settings)
+    monkeypatch.setattr(recovery, "default_recovery_root", lambda: tmp_path / "recovery")
+    m = _model()
+    app = QApplication.instance() or QApplication([])
+    window = qt_app.QtFemWindow(project=m.p, viewer_backend="software")
+    window.show()
+    window.workspace_actions["Drawings"].trigger()
+    pane = window.panels["Drawings"]
+    pane.part.setCurrentIndex(pane.part.findData(m.part))
+    return app, window, pane
+
+
+@pytest.mark.parametrize("keep", ["index_and_takeoff", "plate_profiles"])
+def test_workbench_issues_part_only_extents(tmp_path, monkeypatch, keep):
+    from PySide6.QtWidgets import QFileDialog
+    app, window, pane = _window(tmp_path, monkeypatch)
+
+    def until(condition):
+        end = time.monotonic() + 30
+        while not condition() and time.monotonic() < end:
+            app.processEvents()
+            time.sleep(.02)
+        assert condition(), pane.feedback.text()
+    try:
+        for key, box in pane.extent_checks.items():
+            box.setChecked(key == keep)
+        assert not pane.extent().views
+        pane.preview_btn.click()
+        until(lambda: pane.export_btn.isEnabled())
+        assert "view" in pane.feedback.text().lower()
+        folder = tmp_path / "issue"
+        monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(folder), ""))
+        pane.export_btn.click()
+        until(lambda: not pane.exporting)
+        assert (folder / "Drawings.pdf").is_file(), pane.feedback.text()
+        assert (folder / "Plate-index.csv").exists() == (keep == "index_and_takeoff")
+        assert (folder / "profiles").exists() == (keep == "plate_profiles")
+        # a changed extent that leaves nothing to print is still refused
+        for key, box in pane.extent_checks.items():
+            box.setChecked(key == "sections")
+        pane.preview_btn.click()
+        assert "view" in pane.feedback.text().lower() and not pane.export_btn.isEnabled()
+    finally:
+        window.session.mark_saved()
+        window.close()
+        app.processEvents()

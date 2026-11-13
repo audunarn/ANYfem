@@ -66,7 +66,8 @@ class _PreviewJob(QRunnable):
             mode, args, options = self.request
             if mode=="Assembly":
                 from ...application.drawing_assembly import assembly_views
-                views = assembly_views(p,*args,**options)
+                # A part-only extent (plate sheets and/or index) has no assembly views to preview.
+                views = assembly_views(p,*args,**options) if options.get("views") else ()
             elif mode=="Plate":
                 from ...application.plate_view import build_plate_view
                 views = (build_plate_view(p,*args,**options),)
@@ -109,6 +110,7 @@ class DrawingWorkspace(QWidget):
         self.face = None
         self.sequence = 0
         self.views = ()
+        self.preview_ready = False
         self.saved_views = []
         self.source = None
         self.last_file = None
@@ -602,6 +604,7 @@ class DrawingWorkspace(QWidget):
         self.sequence += 1
         self.pool.clear()
         self.views = ()
+        self.preview_ready = False
         self.source = None
         mode = self.mode.currentIndex()
         nominal = self.basis.currentIndex()==1
@@ -664,8 +667,8 @@ class DrawingWorkspace(QWidget):
         representation = self.representation.currentData()
         extent = self.extent()
         if mode=="Assembly":
-            if not extent.views:
-                raise ValueError("Select at least one assembly view to preview.")
+            if not (extent.views or extent.plate_profiles or extent.index_and_takeoff):
+                raise ValueError("Select at least one assembly view, the plate profiles or the index to preview.")
             return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),views=extent.views,
                         density=self.density.value() if self.basis.currentIndex() else None,
                         elevation_datum=self.elevation_datum.currentData(),
@@ -700,6 +703,16 @@ class DrawingWorkspace(QWidget):
             self.feedback.setText(error)
             return
         self.views = views
+        self.preview_ready = True
+        if not views:
+            self.paper.display(None,"No assembly views selected")
+            self.view_choice.hide()
+            self.zoom.hide()
+            self.added.hide()
+            self.export_btn.setEnabled(not self.exporting)
+            self.feedback.setText("No assembly views are selected. Export issues the selected plate sheets "
+                                  "and index for this Part.")
+            return
         self.view_choice.blockSignals(True)
         self.view_choice.clear()
         self.view_choice.addItems([v.title for v in views])
@@ -753,7 +766,7 @@ class DrawingWorkspace(QWidget):
             self.queue.setVisible(bool(self.saved_views))
 
     def _export(self):
-        if not self.source or not self.views or self.exporting:
+        if not self.source or not self.preview_ready or self.exporting:
             return
         snapshot,(mode,args,options) = self.source
         if snapshot.revision.document_hash != self.app.session.revision.document_hash:
@@ -788,7 +801,8 @@ class DrawingWorkspace(QWidget):
         opts["thickness_sides"] = options.get("thickness_sides","auto")
         opts["extent"] = self.extent()
         number = self.view_choice.currentIndex()+1
-        self.export_rel = f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf"
+        self.export_rel = ("Drawings.pdf" if not self.views else
+                           f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf")
         self.exporting = True
         self.export_btn.setEnabled(False)
         self.feedback.setText("Writing drawing sheets and CAD files…")
@@ -797,7 +811,7 @@ class DrawingWorkspace(QWidget):
     @Slot(object,object,str)
     def _exported(self,revision,out,error):
         self.exporting = False
-        self.export_btn.setEnabled(bool(self.views))
+        self.export_btn.setEnabled(self.preview_ready)
         message = error or f"Saved drawings to {out}"
         if revision.document_hash==self.app.session.revision.document_hash:
             if out:

@@ -116,7 +116,8 @@ def test_command_line_extent_options(tmp_path):
     out = tmp_path / "cli"
     main([str(source), str(out), "--part", str(m.part), "--views", "iso,front",
           "--no-sections", "--no-plate-profiles", "--no-index"])
-    assert _files(out) == ["Drawing-basis.json"]
+    # the selected assembly views are written (S7 review 2); nothing else is
+    assert _files(out) == ["Drawing-basis.json", "views/View-01.dxf", "views/View-02.dxf"]
     extent = json.loads((out / "Drawing-basis.json").read_text())["extent"]
     assert extent == {"views": ["isometric", "front"], "sections": False, "plate_profiles": False,
                       "index_and_takeoff": False}
@@ -129,3 +130,55 @@ def test_command_line_extent_options(tmp_path):
     with pytest.raises(SystemExit):
         main([str(source), str(tmp_path / "bad"), "--part", str(m.part), "--views", "top"])
     assert not (tmp_path / "bad").exists()
+
+
+def test_export_writes_selected_assembly_views_on_request(tmp_path):
+    from anyfem.application.drawing_extent import DrawingExtent
+    from anyfem.application.plate_drawings import export_plate_drawings
+    m = _model()
+    snap = _snapshot(m)
+    default = export_plate_drawings(snap, m.part, tmp_path / "default")
+    assert not any(n.startswith("views/") for n in _files(default))
+    assert "views" not in json.loads((default / "Drawing-basis.json").read_text())
+    out = export_plate_drawings(snap, m.part, tmp_path / "v", write_assembly_views=True,
+                                extent=DrawingExtent(views=("front", "isometric"), plate_profiles=False,
+                                                     index_and_takeoff=False))
+    assert [n for n in _files(out) if n.startswith("views/")] == ["views/View-01.dxf", "views/View-02.dxf"]
+    basis = json.loads((out / "Drawing-basis.json").read_text())
+    assert [v["drawing"] for v in basis["views"]] == ["views/View-01.dxf", "views/View-02.dxf"]
+    assert [v["title"] for v in basis["views"]] == [v.title for v in __import__(
+        "anyfem.application.drawing_assembly", fromlist=["x"]).assembly_views(
+        m.p, m.part, elevation_datum="support_base", views=("isometric", "front"))]
+
+
+def test_export_refuses_an_extent_that_writes_nothing(tmp_path):
+    from anyfem.application.drawing_extent import DrawingExtent
+    from anyfem.application.plate_drawings import export_plate_drawings
+    m = _model()
+    snap = _snapshot(m)
+    for extent in (DrawingExtent(views=(), sections=True, plate_profiles=False, index_and_takeoff=False),):
+        with pytest.raises(ValueError, match="nothing"):
+            export_plate_drawings(snap, m.part, tmp_path / "none", write_assembly_views=True, extent=extent)
+        assert not (tmp_path / "none").exists()
+
+
+def test_cli_writes_the_views_it_claims(tmp_path):
+    from anyfem.application.plate_drawings import main
+    from anyfem.io.project_file import save_project
+    m = _model()
+    source = save_project(m.p, tmp_path / "m.anyfem")
+    out = tmp_path / "cli"
+    main([str(source), str(out), "--part", str(m.part), "--views", "iso",
+          "--no-sections", "--no-plate-profiles", "--no-index"])
+    assert "views/View-01.dxf" in _files(out) and len(list((out / "views").iterdir())) == 1
+    basis = json.loads((out / "Drawing-basis.json").read_text())
+    assert basis["extent"]["views"] == ["isometric"] and len(basis["views"]) == 1
+    # without --views nothing is written beyond the historical package
+    plain = tmp_path / "plain"
+    main([str(source), str(plain), "--part", str(m.part)])
+    assert not any(n.startswith("views/") for n in _files(plain))
+    # nothing selected at all is refused before anything is written
+    with pytest.raises(SystemExit):
+        main([str(source), str(tmp_path / "empty"), "--part", str(m.part),
+              "--no-plate-profiles", "--no-index"])
+    assert not (tmp_path / "empty").exists()

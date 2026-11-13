@@ -51,10 +51,11 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
                 printable.append(build_plate_view(project,face,include_plate_intersections=include_plate_intersections,
                                                   thickness_sides=thickness_sides,representation=representation))
         cad = package/"views"
-        cad.mkdir(parents=True)
+        if views:
+            cad.mkdir(parents=True)
         for i, view in enumerate(views,1):
             write_view_dxf(view,cad/f"View-{i:02d}.dxf")
-        if converter:
+        if converter and views:
             _make_dwg_copies(converter,cad,package/"DWG-views",backend=backend)
         if not printable and index is None:
             raise ValueError("The selected extent leaves no view or plate sheet to print.")
