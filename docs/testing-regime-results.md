@@ -48,8 +48,13 @@ in that run has been repaired separately.
 
 Consequently, full/release acceptance and the 20-minute full-suite target remain
 unverified. Owner-dependent positive checks are not reclassified as passing.
-No owner repository update or publication is part of this work. Main has not been
-merged under the earlier snapshot exception.
+The published-owner Ubuntu quick attempt finished in 244.47 seconds, with six
+stored-family failures from the absent adapter and one POSIX-only test-double
+cleanup defect. The latter was repaired without changing production cleanup;
+its Ubuntu unit verification is recorded separately. The owner-dependent routine
+positives remain blocked as well. No owner repository update or publication is
+part of this work. This task has not merged the testing branch into main or reused
+the earlier failing-snapshot exception.
 
 ## Evidence and source isolation
 

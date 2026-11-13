@@ -635,8 +635,14 @@ def test_diagnostic_execute_surfaces_failure_before_suite_completion(monkeypatch
     class Output(list):
         def close(self):pass
     process=SimpleNamespace(stdout=Output(['current node sentinel\n','first failure sentinel\n']),wait=lambda:1)
+    cleanup=[]
+    # Exercise the POSIX lifecycle using a recording cleanup boundary; this
+    # diagnostic-only fake must never be signalled as an actual OS process.
+    monkeypatch.setattr(runner,'os',SimpleNamespace(name='posix'))
+    monkeypatch.setattr(runner,'stop_owned_process',cleanup.append)
     monkeypatch.setattr(runner,'start_owned_process',lambda *args,**kwargs:process)
     assert runner.execute(['owned pytest'],tmp_path/'pytest.log',{'ANYFEM_CI_DIAGNOSTICS_DIR':str(tmp_path)})==1
+    assert cleanup==[process]
     output=capsys.readouterr().out
     assert 'current node sentinel' in output and 'first failure sentinel' in output
     assert (tmp_path/'pytest.log').read_text()=='current node sentinel\nfirst failure sentinel\n'
