@@ -171,6 +171,24 @@ def test_time_counters_are_ignored(tmp_path):
     assert gate.main([str(serial), str(on), "--constants", str(constants(tmp_path / "c"))]) == 0
 
 
+def test_counters_changed_in_both_runs_while_child_claims_stay_frozen_is_a_finding(pair):
+    for f in pair[:2]:
+        (f / "out/counters-all.json").write_text(json.dumps(dict(COUNTERS, beta=1143)))    # data changed, child claim still the frozen sha
+    assert run(pair) == gate.EXIT_FINDING
+
+
+@pytest.mark.parametrize("bad", [None, [], "x", 3])
+def test_malformed_origins_is_input_error(pair, bad):
+    edit_result(pair[1], lambda d: d.update(origins=bad))
+    assert run(pair) == gate.EXIT_INPUT
+
+
+@pytest.mark.parametrize("key", ["identity", "versions", "gil", "threads_env", "origins"])
+def test_missing_child_result_key_is_input_error(pair, key):
+    edit_result(pair[0], lambda d: d.pop(key))
+    assert run(pair) == gate.EXIT_INPUT
+
+
 def test_child_counters_claim_must_match_the_counters_file(pair):
     edit_result(pair[1], lambda d: d["identity"].update(counters_deterministic_sha256="0" * 64))
     assert run(pair) == gate.EXIT_FINDING

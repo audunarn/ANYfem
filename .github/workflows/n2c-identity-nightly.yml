@@ -45,10 +45,10 @@ jobs:
         run: |
           python -m pip install pytest
           python -m pytest -q -p no:cacheprovider --junitxml=n2c-gate.xml tests/test_ci_n2c_gate.py
-      # 42 gate tests; the two saved-output tests may skip off the owner's machine, nothing else may
+      # 52 gate tests; the two saved-output tests may skip off the owner's machine, nothing else may
       - name: Gate tests must have run
         shell: bash
-        run: python tools/ci_junit_floor.py n2c-gate.xml --min-tests 40 --max-skipped 2
+        run: python tools/ci_junit_floor.py n2c-gate.xml --min-tests 50 --max-skipped 2
   n2c-identity:
     if: ${{ vars.N2C_ENABLED == 'true' }}
     runs-on: [self-hosted, windows, n2c-model]

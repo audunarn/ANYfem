@@ -96,12 +96,14 @@ def load_run(folder) -> dict:
         run["numpy"] = child["versions"]["numpy"]
         run["gil"] = child["gil"]
         run["threads"] = child["threads_env"]
+        if not isinstance(child["origins"], dict):
+            raise ValueError("origins is not an object")
         run["origins"] = {k: str(v) for k, v in child["origins"].items()}
         if not isinstance(counters, dict) or not counters:
             raise ValueError("counters-all.json is not a non-empty object")
         if not isinstance(run["faces_out"], int) or isinstance(run["faces_out"], bool):
             raise ValueError("working_faces_out is not an integer")
-    except (ValueError, KeyError, TypeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise InputError("malformed result in %s: %r" % (out, exc))
     run["counters_sha"] = counters_sha(counters)
     run["nontime_keys"] = len([k for k in counters if not k.endswith("_time_ns")])
