@@ -37,17 +37,24 @@ def mask(text: str) -> str:
     return _SHA64.sub("<SHA64>", _UUID.sub("<UUID>", text))
 
 
+def _count(value, what: str) -> int:
+    """A strict positive integer (bool, float, str are refused): counts are compared with ==, which would accept 1269.0."""
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError("%s is not a positive integer: %r" % (what, value))
+    return value
+
+
 def load_constants(path) -> dict:
     try:
         c = json.loads(Path(path).read_text(encoding="utf-8"))
         for group in ("prepared_model", "plan"):
-            if not _HEX64.fullmatch(c[group]["masked_sha256"]) or int(c[group]["masked_chars"]) <= 0:
+            if not _HEX64.fullmatch(c[group]["masked_sha256"]):
                 raise ValueError(group)
+            _count(c[group]["masked_chars"], group + ".masked_chars")
         if not _HEX64.fullmatch(c["counters_deterministic_sha256"]):
             raise ValueError("counters_deterministic_sha256")
         for k in ("counters_nontime_keys", "faces_in", "working_faces_out"):
-            if int(c[k]) <= 0:
-                raise ValueError(k)
+            _count(c[k], k)
         if not isinstance(c["numpy_version"], str) or not c["numpy_version"]:
             raise ValueError("numpy_version")
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -105,8 +112,8 @@ def load_run(folder) -> dict:
         run["origins"] = dict(child["origins"])
         if not isinstance(counters, dict) or not counters:
             raise ValueError("counters-all.json is not a non-empty object")
-        if not isinstance(run["faces_out"], int) or isinstance(run["faces_out"], bool):
-            raise ValueError("working_faces_out is not an integer")
+        _count(run["faces_out"], "working_faces_out")
+        _count(run["faces_in"], "faces_in")
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise InputError("malformed result in %s: %r" % (out, exc))
     run["counters_sha"] = counters_sha(counters)
@@ -118,7 +125,7 @@ def _threads(value):
     """Return the planning thread count as an int, 0 for none, or None when it is not a clean count."""
     if value is None or (isinstance(value, str) and value in ("", "0")):
         return 0
-    if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).isdigit():
+    if isinstance(value, str) and value.isascii() and value.isdigit():      # an environment value, so a string only
         return int(value)
     return None
 
@@ -143,13 +150,13 @@ def compare(serial: dict, on: dict, c: dict, origins: dict | None = None):
             ref = c[key]
             if digest != ref["masked_sha256"]:
                 findings.append("%s: %s masked digest %s (%d chars) != frozen %s (%d chars)" % (
-                    label, name.replace(".json", ""), digest[:12], chars, ref["masked_sha256"][:12], int(ref["masked_chars"])))
+                    label, name.replace(".json", ""), digest[:12], chars, ref["masked_sha256"][:12], ref["masked_chars"]))
         if run["numpy"] != c["numpy_version"]:
             findings.append("%s: NumPy %s != pinned %s" % (label, run["numpy"], c["numpy_version"]))
-        if run["faces_out"] != int(c["working_faces_out"]):
-            findings.append("%s: working_faces_out %d != frozen %d" % (label, run["faces_out"], int(c["working_faces_out"])))
-        if run["faces_in"] != int(c["faces_in"]):
-            findings.append("%s: faces_in %r != frozen %d" % (label, run["faces_in"], int(c["faces_in"])))
+        if run["faces_out"] != c["working_faces_out"]:
+            findings.append("%s: working_faces_out %d != frozen %d" % (label, run["faces_out"], c["working_faces_out"]))
+        if run["faces_in"] != c["faces_in"]:
+            findings.append("%s: faces_in %r != frozen %d" % (label, run["faces_in"], c["faces_in"]))
         if run["claimed_counters_sha"] != run["counters_sha"]:
             findings.append("%s: child claims counters sha %s but counters-all.json gives %s" % (
                 label, str(run["claimed_counters_sha"])[:12], run["counters_sha"][:12]))
@@ -171,9 +178,9 @@ def compare(serial: dict, on: dict, c: dict, origins: dict | None = None):
         findings.append("ON run is not on a free-threaded interpreter (gil=%r)" % (on["gil"],))
     if not findings:
         for label, run in (("serial", serial), ("ON", on)):
-            if run["counters_sha"] != c["counters_deterministic_sha256"] or run["nontime_keys"] != int(c["counters_nontime_keys"]):
+            if run["counters_sha"] != c["counters_deterministic_sha256"] or run["nontime_keys"] != c["counters_nontime_keys"]:
                 refresh.append("%s: non-time counters sha %s (%d keys) != frozen %s (%d keys)" % (
-                    label, run["counters_sha"][:12], run["nontime_keys"], c["counters_deterministic_sha256"][:12], int(c["counters_nontime_keys"])))
+                    label, run["counters_sha"][:12], run["nontime_keys"], c["counters_deterministic_sha256"][:12], c["counters_nontime_keys"]))
     return findings, refresh
 
 

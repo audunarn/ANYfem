@@ -189,13 +189,13 @@ def test_malformed_origin_value_is_input_error(pair, bad):
     assert run(pair) == gate.EXIT_INPUT
 
 
-@pytest.mark.parametrize("bad", [False, 0.0, True, "x", "4.0", -1, []])
+@pytest.mark.parametrize("bad", [False, 0.0, 0, True, "x", "4.0", -1, []])
 def test_malformed_serial_thread_metadata_is_refused(pair, bad):
     edit_result(pair[0], lambda d: d.update(threads_env=bad))
     assert run(pair) == gate.EXIT_FINDING
 
 
-@pytest.mark.parametrize("bad", [False, 0.0, True, "x", "4.0", "0", 0, 9 * 10, [], "-1"])
+@pytest.mark.parametrize("bad", [False, 0.0, True, "x", "4.0", "0", 0, 4, 9 * 10, [], "-1", "9", "\u0664"])
 def test_malformed_or_zero_on_thread_metadata_is_refused(pair, bad):
     edit_result(pair[1], lambda d: d.update(threads_env=bad))
     assert run(pair) == gate.EXIT_FINDING
@@ -233,6 +233,32 @@ def test_malformed_child_result_fails_closed(pair):
 
 def test_missing_folder_fails_closed(pair, tmp_path):
     assert gate.main([str(tmp_path / "nope"), str(pair[1]), "--constants", str(pair[2])]) == gate.EXIT_INPUT
+
+
+@pytest.mark.parametrize("key, bad", [("working_faces_out", 7.0), ("working_faces_out", 7.9), ("working_faces_out", 1e309), ("working_faces_out", True),
+                                      ("working_faces_out", "7"), ("faces_in", 5.0), ("counters_nontime_keys", 3.0), ("faces_in", 0)])
+def test_non_integer_frozen_counts_are_input_errors(pair, tmp_path, key, bad):
+    c = json.loads(pair[2].read_text())
+    c[key] = bad
+    path = tmp_path / "badc.json"
+    path.write_text(json.dumps(c))
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(path)]) == gate.EXIT_INPUT
+
+
+def test_masked_chars_must_be_an_integer(pair, tmp_path):
+    c = json.loads(pair[2].read_text())
+    c["plan"]["masked_chars"] = 10.5
+    path = tmp_path / "badc.json"
+    path.write_text(json.dumps(c))
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(path)]) == gate.EXIT_INPUT
+
+
+@pytest.mark.parametrize("key", ["faces_in", "working_faces_out"])
+@pytest.mark.parametrize("bad", [5.0, 7.0, True, "7", None])
+def test_non_integer_run_counts_are_input_errors(pair, key, bad):
+    for f in pair[:2]:
+        edit_result(f, lambda d: d["identity"].update({key: bad}))
+    assert run(pair) == gate.EXIT_INPUT
 
 
 def test_missing_or_bad_constants_fail_closed(pair, tmp_path):
