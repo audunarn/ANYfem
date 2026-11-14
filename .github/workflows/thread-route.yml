@@ -29,6 +29,7 @@ on:
       - 'tests/test_ci_smoke_guard.py'
       - 'tests/test_ci_compare_bundles.py'
       - 'tests/test_t3_identity.py'
+      - 'tests/t3_identity_helpers.py'
       - 'tests/data/sector60_closure.json.gz'
       - '.github/workflows/thread-route.yml'
   pull_request:
@@ -56,6 +57,7 @@ on:
       - 'tests/test_ci_smoke_guard.py'
       - 'tests/test_ci_compare_bundles.py'
       - 'tests/test_t3_identity.py'
+      - 'tests/t3_identity_helpers.py'
       - 'tests/data/sector60_closure.json.gz'
       - '.github/workflows/thread-route.yml'
   workflow_dispatch:
