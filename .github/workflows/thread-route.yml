@@ -1,6 +1,6 @@
 name: Thread route
 # Opt-in free-threaded child-process route (S3 jobs T2 and T4).  Separate from tests.yml on purpose: it is not a matrix entry.
-# T1 (bundle build smoke on actions/setup-python 3.14t) is here; T3 (end-to-end ON/OFF) and the nightly jobs T5-T7 are not yet.
+# T1 (bundle build smoke on actions/setup-python 3.14t) and T3 (end-to-end ON/OFF identity, a step of the bundle-smoke job) are here; the nightly jobs T5-T7 are not yet.
 # The CI bundle is a SMOKE bundle: its interpreter comes from setup-python, not from the pinned python.org zip, so it is marked and the
 # application refuses it (see tools/build_runtime.py, --ci-smoke-unpinned-interpreter).  It is never the shipped artifact.
 on:
@@ -28,6 +28,8 @@ on:
       - 'tests/test_real_bundle_t1.py'
       - 'tests/test_ci_smoke_guard.py'
       - 'tests/test_ci_compare_bundles.py'
+      - 'tests/test_t3_identity.py'
+      - 'tests/data/sector60_closure.json.gz'
       - '.github/workflows/thread-route.yml'
   pull_request:
     paths:
@@ -53,6 +55,8 @@ on:
       - 'tests/test_real_bundle_t1.py'
       - 'tests/test_ci_smoke_guard.py'
       - 'tests/test_ci_compare_bundles.py'
+      - 'tests/test_t3_identity.py'
+      - 'tests/data/sector60_closure.json.gz'
       - '.github/workflows/thread-route.yml'
   workflow_dispatch:
 permissions:
@@ -195,10 +199,24 @@ jobs:
       - name: Nothing may skip (the 68 needs_runtime tests and the real-bundle tests must run)
         shell: bash
         run: python tools/ci_junit_floor.py t1.xml --min-tests 226 --max-skipped 0
+      # T3: sector60 prepared through a REAL child of the built smoke bundle with PATH holding system directories only (the test sets it);
+      # route ON with the default and with 1 and 4 threads, each compared with route OFF computed in the same process (model, report and
+      # bindings digests, proof flag, 223 source-edge paths), and the child's plan must really have been adopted (no serial fallback).
+      # Smoke bundle: this proves identity of the ROUTE, not of the shipped interpreter payload.  No absolute digest is compared (not stable
+      # across processes).
+      - name: T3 end-to-end ON/OFF identity through the built bundle
+        shell: bash
+        run: |
+          export ANYGEOMETRY_THREAD_RUNTIME="$PWD/bundles/one/runtime-314t"
+          python -m pytest -q -p no:cacheprovider --junitxml=t3.xml tests/test_t3_identity.py
+      - name: T3 must run, not skip
+        shell: bash
+        run: python tools/ci_junit_floor.py t3.xml --min-tests 7 --max-skipped 0
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: thread-route-t1
           path: |
             t1.xml
+            t3.xml
             bundles/one/runtime-314t/runtime.lock.json
