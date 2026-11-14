@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -98,7 +99,10 @@ def load_run(folder) -> dict:
         run["threads"] = child["threads_env"]
         if not isinstance(child["origins"], dict):
             raise ValueError("origins is not an object")
-        run["origins"] = {k: str(v) for k, v in child["origins"].items()}
+        for k, v in child["origins"].items():
+            if not isinstance(v, str) or not os.path.isabs(v):
+                raise ValueError("origins[%r] is not an absolute path string: %r" % (k, v))
+        run["origins"] = dict(child["origins"])
         if not isinstance(counters, dict) or not counters:
             raise ValueError("counters-all.json is not a non-empty object")
         if not isinstance(run["faces_out"], int) or isinstance(run["faces_out"], bool):
@@ -112,7 +116,7 @@ def load_run(folder) -> dict:
 
 def _threads(value):
     """Return the planning thread count as an int, 0 for none, or None when it is not a clean count."""
-    if value in (None, "", "0", 0):
+    if value is None or (isinstance(value, str) and value in ("", "0")):
         return 0
     if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value).isdigit():
         return int(value)
@@ -161,7 +165,7 @@ def compare(serial: dict, on: dict, c: dict, origins: dict | None = None):
     if _threads(serial["threads"]) != 0:
         findings.append("serial run is not serial: ANYGEOMETRY_PLANNING_THREADS=%r" % (serial["threads"],))
     t = _threads(on["threads"])
-    if not t:
+    if not t or t > 8:
         findings.append("ON run is not ON: ANYGEOMETRY_PLANNING_THREADS=%r" % (on["threads"],))
     if on["gil"] is not False:
         findings.append("ON run is not on a free-threaded interpreter (gil=%r)" % (on["gil"],))

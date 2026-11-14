@@ -183,6 +183,24 @@ def test_malformed_origins_is_input_error(pair, bad):
     assert run(pair) == gate.EXIT_INPUT
 
 
+@pytest.mark.parametrize("bad", [None, "", "relative/path.py", 3])
+def test_malformed_origin_value_is_input_error(pair, bad):
+    edit_result(pair[1], lambda d: d["origins"].update(anyfem=bad))
+    assert run(pair) == gate.EXIT_INPUT
+
+
+@pytest.mark.parametrize("bad", [False, 0.0, True, "x", "4.0", -1, []])
+def test_malformed_serial_thread_metadata_is_refused(pair, bad):
+    edit_result(pair[0], lambda d: d.update(threads_env=bad))
+    assert run(pair) == gate.EXIT_FINDING
+
+
+@pytest.mark.parametrize("bad", [False, 0.0, True, "x", "4.0", "0", 0, 9 * 10, [], "-1"])
+def test_malformed_or_zero_on_thread_metadata_is_refused(pair, bad):
+    edit_result(pair[1], lambda d: d.update(threads_env=bad))
+    assert run(pair) == gate.EXIT_FINDING
+
+
 @pytest.mark.parametrize("key", ["identity", "versions", "gil", "threads_env", "origins"])
 def test_missing_child_result_key_is_input_error(pair, key):
     edit_result(pair[0], lambda d: d.pop(key))
