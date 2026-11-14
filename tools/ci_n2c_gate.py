@@ -1,6 +1,6 @@
 """N2c full-model identity gate (S3 T6): compare a serial run and a thread-route-ON run with each other and with frozen constants.
 
-Usage: ci_n2c_gate.py SERIAL_DIR ON_DIR --constants tools/n2c_identity_constants.json
+Usage: ci_n2c_gate.py SERIAL_DIR ON_DIR --constants tools/n2c_identity_constants.json [--origin anygeometry=DIR --origin anyfem=DIR]
 Each DIR holds out/{prepared-model.json, plan.json, counters-all.json, child-result.json} (the full-model child's output).
 
 Exit codes (every non-zero exit is red; nothing is ever refreshed automatically):
@@ -82,6 +82,10 @@ def load_run(folder) -> dict:
             text = mask(raw[name].decode("utf-8"))
         except UnicodeDecodeError as exc:
             raise InputError("%s not UTF-8: %r" % (out / name, exc))
+        try:
+            json.loads(text)
+        except ValueError as exc:
+            raise InputError("%s is not valid JSON: %r" % (out / name, exc))
         run[name] = (hashlib.sha256(text.encode()).hexdigest(), len(text))
     try:
         counters = json.loads(raw["counters-all.json"])
@@ -92,6 +96,7 @@ def load_run(folder) -> dict:
         run["numpy"] = child["versions"]["numpy"]
         run["gil"] = child["gil"]
         run["threads"] = child["threads_env"]
+        run["origins"] = {k: str(v) for k, v in child["origins"].items()}
         if not isinstance(counters, dict) or not counters:
             raise ValueError("counters-all.json is not a non-empty object")
         if not isinstance(run["faces_out"], int) or isinstance(run["faces_out"], bool):
@@ -112,9 +117,21 @@ def _threads(value):
     return None
 
 
-def compare(serial: dict, on: dict, c: dict):
+def _under(path: str, root: Path) -> bool:
+    try:
+        Path(path).resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def compare(serial: dict, on: dict, c: dict, origins: dict | None = None):
     findings, refresh = [], []
     for label, run in (("serial", serial), ("ON", on)):
+        for pkg, root in (origins or {}).items():
+            where = run["origins"].get(pkg)
+            if where is None or not _under(where, Path(root)):
+                findings.append("%s: package %s was imported from %r, not from the checkout %s" % (label, pkg, where, root))
         for name, key in (("prepared-model.json", "prepared_model"), ("plan.json", "plan")):
             digest, chars = run[name]
             ref = c[key]
@@ -159,7 +176,16 @@ def main(argv=None) -> int:
     parser.add_argument("serial")
     parser.add_argument("on")
     parser.add_argument("--constants", required=True)
+    parser.add_argument("--origin", action="append", default=[], metavar="PKG=DIR",
+                        help="require child-result origins[PKG] to lie under DIR in both runs (binds the run to the checkout); repeatable")
     args = parser.parse_args(argv)
+    origins = {}
+    for item in args.origin:
+        pkg, sep, root = item.partition("=")
+        if not sep or not pkg or not root:
+            print("N2C GATE INPUT ERROR (fail closed): bad --origin %r" % item)
+            return EXIT_INPUT
+        origins[pkg] = root
     try:
         if Path(args.serial).resolve() == Path(args.on).resolve():
             raise InputError("serial and ON folders are the same folder")
@@ -168,7 +194,7 @@ def main(argv=None) -> int:
     except InputError as exc:
         print("N2C GATE INPUT ERROR (fail closed):", exc)
         return EXIT_INPUT
-    findings, refresh = compare(serial, on, c)
+    findings, refresh = compare(serial, on, c, origins)
     for line in findings:
         print("N2C GATE FINDING:", line)
     for line in refresh:

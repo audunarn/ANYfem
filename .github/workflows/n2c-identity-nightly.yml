@@ -11,6 +11,7 @@ name: N2c identity nightly
 # Driver contract (variables, see docs/N2C_IDENTITY_GATE.md): N2C_DRIVER is run as
 #   "$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --out DIR     (interpreter without the thread route, route OFF)
 #   "$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads 4 --out DIR   (free-threaded interpreter, ANYGEOMETRY_PLANNING_THREADS=4)
+# (both also get --geometry-repo and --fem-repo: the checkouts under test; the gate then requires child-result origins to lie under them)
 # and must write DIR/out/{prepared-model.json,plan.json,counters-all.json,child-result.json} and verify the model input sha256 itself.
 # Constants are never refreshed by this workflow.
 on:
@@ -27,6 +28,9 @@ permissions:
 concurrency:
   group: n2c-identity
   cancel-in-progress: false
+env:
+  # ANYgeometry source the constants were frozen on (5377460, 2026-11-13).  Changing it is a reviewed commit with the constants.
+  ANYGEOMETRY_REF: 53774600471bf9d77502585c5646dc8c7ac826b3
 jobs:
   gate-selftest:
     runs-on: windows-latest
@@ -41,10 +45,10 @@ jobs:
         run: |
           python -m pip install pytest
           python -m pytest -q -p no:cacheprovider --junitxml=n2c-gate.xml tests/test_ci_n2c_gate.py
-      # 38 gate tests; the two saved-output tests may skip off the owner's machine, nothing else may
+      # 42 gate tests; the two saved-output tests may skip off the owner's machine, nothing else may
       - name: Gate tests must have run
         shell: bash
-        run: python tools/ci_junit_floor.py n2c-gate.xml --min-tests 36 --max-skipped 2
+        run: python tools/ci_junit_floor.py n2c-gate.xml --min-tests 40 --max-skipped 2
   n2c-identity:
     if: ${{ vars.N2C_ENABLED == 'true' }}
     runs-on: [self-hosted, windows, n2c-model]
@@ -58,6 +62,11 @@ jobs:
       OPENBLAS_NUM_THREADS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
       - name: Inputs are present and well formed (fails closed)
         shell: bash
         run: |
@@ -69,13 +78,13 @@ jobs:
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on"
-          "$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --out "$RUNNER_TEMP/n2c-serial"
+          "$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --geometry-repo "$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-serial"
       - name: Thread route ON run
         shell: bash
-        run: '"$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads "$N2C_THREADS" --out "$RUNNER_TEMP/n2c-on"'
+        run: '"$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads "$N2C_THREADS" --geometry-repo "$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-on"'
       - name: Identity gate (serial == ON == frozen constants)
         shell: bash
-        run: '"$N2C_PY_THREAD" tools/ci_n2c_gate.py "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on" --constants tools/n2c_identity_constants.json'
+        run: '"$N2C_PY_THREAD" tools/ci_n2c_gate.py "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on" --constants tools/n2c_identity_constants.json --origin anygeometry="$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --origin anyfem="$GITHUB_WORKSPACE"'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

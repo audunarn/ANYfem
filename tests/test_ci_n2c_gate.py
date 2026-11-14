@@ -52,7 +52,8 @@ def make_out(folder, uuid=UUID_A, shav=SHA_A, counters=None, faces_out=7, thread
     (out / "plan.json").write_text(plan if plan is not None else plan_text(uuid))
     (out / "counters-all.json").write_text(json.dumps(counters))
     result = {"identity": {"counters_deterministic_sha256": counters_sha(counters), "working_faces_out": faces_out, "faces_in": 5},
-              "versions": {"numpy": numpy}, "gil": gil, "threads_env": threads}
+              "versions": {"numpy": numpy}, "gil": gil, "threads_env": threads,
+              "origins": {"anygeometry": str(Path(folder) / "geo" / "__init__.py"), "anyfem": str(Path(folder) / "fem" / "__init__.py")}}
     (out / "child-result.json").write_text(json.dumps(result))
     return Path(folder)
 
@@ -103,6 +104,31 @@ def test_changed_model_digest_is_a_finding_naming_the_group(pair, capsys):
     (pair[1] / "out/prepared-model.json").write_text(model_text(UUID_B, SHA_B, faces="[1, 2, 4]"))
     assert run(pair) == gate.EXIT_FINDING
     assert "prepared-model" in capsys.readouterr().out
+
+
+def test_model_digest_changed_identically_in_both_runs_is_a_finding(pair, capsys):
+    (pair[0] / "out/prepared-model.json").write_text(model_text(UUID_A, SHA_A, faces="[9]"))
+    (pair[1] / "out/prepared-model.json").write_text(model_text(UUID_B, SHA_B, faces="[9]"))
+    assert run(pair) == gate.EXIT_FINDING
+    assert "serial: prepared-model" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", ["prepared-model.json", "plan.json"])
+def test_malformed_json_in_model_or_plan_is_input_error_not_finding(pair, name):
+    (pair[1] / "out" / name).write_text('{"truncated": ')
+    assert run(pair) == gate.EXIT_INPUT
+
+
+def test_origin_must_lie_under_the_checkout_in_both_runs(pair, tmp_path):
+    args = lambda root: [str(pair[0]), str(pair[1]), "--constants", str(pair[2]), "--origin", "anygeometry=" + str(root)]
+    assert gate.main(args(pair[0])) == gate.EXIT_FINDING        # serial's geo is under pair[0]; ON's is not
+    stale = tmp_path / "elsewhere"
+    assert gate.main(args(stale)) == gate.EXIT_FINDING
+    for f in pair[:2]:                                          # point both runs at the same checkout
+        edit_result(f, lambda d: d["origins"].update(anygeometry=str(tmp_path / "ck" / "src" / "anygeometry" / "__init__.py")))
+    assert gate.main(args(tmp_path / "ck")) == 0
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(pair[2]), "--origin", "nopkg=" + str(tmp_path / "ck")]) == gate.EXIT_FINDING
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(pair[2]), "--origin", "garbage"]) == gate.EXIT_INPUT
 
 
 def test_changed_plan_digest_is_a_finding(pair, capsys):
@@ -257,7 +283,7 @@ def test_saved_outputs_with_one_changed_byte_fail(tmp_path):
     s = tmp_path / "s"
     shutil.copytree(SAVED / "NC1-N-serial", s)
     p = s / "out/plan.json"
-    p.write_bytes(p.read_bytes().replace(b'"', b"'", 1))
+    p.write_bytes(p.read_bytes() + b" ")   # valid JSON, one byte longer
     c = ROOT / "tools" / "n2c_identity_constants.json"
     assert gate.main([str(s), str(SAVED / "NC4-T-4t"), "--constants", str(c)]) == gate.EXIT_FINDING
 
@@ -276,7 +302,9 @@ def test_workflow_is_nightly_or_manual_only_and_sha_pinned():
 
 
 def test_workflow_never_interpolates_inputs_or_vars_into_scripts():
+    allowed = re.compile(r"^\s*(- )?(if|ref|path|name|repository|N2C_\w+): .*\$\{\{|^\s*\$\{\{ runner\.temp \}\}/")
     for line in WORKFLOW.splitlines():
-        if "${{" in line:
-            assert not line.lstrip().startswith(("run:", "- run:")) and 'run: "' not in line, line
+        if "${{" in line and not line.lstrip().startswith("#"):
+            assert allowed.match(line), line
     assert "N2C_ENABLED" in WORKFLOW and "ci_n2c_gate.py" in WORKFLOW and "--constants tools/n2c_identity_constants.json" in WORKFLOW
+    assert "--origin anygeometry=" in WORKFLOW and "--origin anyfem=" in WORKFLOW
