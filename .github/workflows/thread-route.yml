@@ -1,7 +1,8 @@
 name: Thread route
 # Opt-in free-threaded child-process route (S3 jobs T2 and T4).  Separate from tests.yml on purpose: it is not a matrix entry.
-# T1 (reproducible bundle build), T3 (end-to-end ON/OFF) and the nightly jobs T5-T7 are NOT here yet: they need a real runtime bundle,
-# which CI cannot yet build reproducibly (the shipped bundle is made from a local pymanager interpreter).
+# T1 (bundle build smoke on actions/setup-python 3.14t) is here; T3 (end-to-end ON/OFF) and the nightly jobs T5-T7 are not yet.
+# The CI bundle is a SMOKE bundle: its interpreter comes from setup-python, not from the pinned python.org zip, so it is marked and the
+# application refuses it (see tools/build_runtime.py, --ci-smoke-unpinned-interpreter).  It is never the shipped artifact.
 on:
   push:
     paths:
@@ -22,6 +23,11 @@ on:
       - 'tests/test_thread_route_canaries.py'
       - 'tests/test_ci_junit_floor.py'
       - 'tools/ci_junit_floor.py'
+      - 'tools/ci_bundle_health.py'
+      - 'tools/ci_compare_bundles.py'
+      - 'tests/test_real_bundle_t1.py'
+      - 'tests/test_ci_smoke_guard.py'
+      - 'tests/test_ci_compare_bundles.py'
       - '.github/workflows/thread-route.yml'
   pull_request:
     paths:
@@ -42,6 +48,11 @@ on:
       - 'tests/test_thread_route_canaries.py'
       - 'tests/test_ci_junit_floor.py'
       - 'tools/ci_junit_floor.py'
+      - 'tools/ci_bundle_health.py'
+      - 'tools/ci_compare_bundles.py'
+      - 'tests/test_real_bundle_t1.py'
+      - 'tests/test_ci_smoke_guard.py'
+      - 'tests/test_ci_compare_bundles.py'
       - '.github/workflows/thread-route.yml'
   workflow_dispatch:
 permissions:
@@ -57,7 +68,7 @@ jobs:
     env:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
-      # No free-threaded runtime exists on this runner: the tests that need one skip (68 of 208 at d74d9de), the rest must run.
+      # No free-threaded runtime exists on this runner: the tests that need one skip (68 of 216 at this commit), the rest must run.
       ANYGEOMETRY_THREAD_RUNTIME: 'C:/no-such-runtime-on-ci'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,7 +91,7 @@ jobs:
         run: python -m pytest -q -p no:cacheprovider --junitxml=t2.xml tests/test_runtime_lock.py tests/test_runtime_health.py tests/test_build_runtime.py tests/test_thread_route.py
       - name: Executed and skipped counts must match the known floor
         shell: bash
-        run: python tools/ci_junit_floor.py t2.xml --min-tests 140 --max-skipped 68
+        run: python tools/ci_junit_floor.py t2.xml --min-tests 148 --max-skipped 68
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -108,17 +119,86 @@ jobs:
           python -m pip install "numpy==2.4.6" "scipy==1.17.1" pytest
           python -m pip install -e ".ecosystem/ANYgeometry[planar]"
           python -m pip install --no-deps -e .
-      - name: The floor checker itself
+      - name: The floor checker and the CI helper tools themselves
         shell: bash
-        run: python -m pytest -q -p no:cacheprovider tests/test_ci_junit_floor.py
+        run: python -m pytest -q -p no:cacheprovider tests/test_ci_junit_floor.py tests/test_ci_compare_bundles.py
       - name: Tamper canaries
         shell: bash
-        run: python -m pytest -q -p no:cacheprovider --junitxml=t4.xml tests/test_thread_route_canaries.py
+        run: python -m pytest -q -p no:cacheprovider --junitxml=t4.xml tests/test_thread_route_canaries.py tests/test_ci_smoke_guard.py
       - name: Canaries must run, not skip
         shell: bash
-        run: python tools/ci_junit_floor.py t4.xml --min-tests 7
+        run: python tools/ci_junit_floor.py t4.xml --min-tests 18
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: thread-route-t4
           path: t4.xml
+  # T1: bundle build smoke.  Interpreter = actions/setup-python free-threaded 3.14.10 (NOT the pinned python.org zip), wheels = PyPI downloads
+  # verified against the sha256 in tools/runtime.lock.json (pip --require-hashes, then the build verifies them again).
+  # Proves: the CI interpreter is the lock's build (full version text, free-threaded); the build is reproducible (two builds, identical files);
+  # the built bundle passes the application's health check and its selftest child; the 68 needs_runtime tests and the real-bundle tamper tests run.
+  # Does NOT prove: that the shipped bundle's interpreter payload matches (the payload digest is measured, not pinned, here), signing, or
+  # anything on Linux/macOS.  The bundle is marked CI-SMOKE-UNPINNED-INTERPRETER.txt and the application refuses it without an in-process opt-in.
+  bundle-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      BUILD_DATE: '2026-11-14'
+      ANYFEM_TEST_ALLOW_CI_SMOKE_BUNDLE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.10t'  # patch version + t suffix (free-threaded), per the action's advanced-usage docs
+      - name: The CI interpreter is the lock's build (fails closed)
+        shell: bash
+        run: python tools/build_runtime.py check-interpreter --lock tools/runtime.lock.json
+      - name: Hash-pinned wheelhouse
+        shell: bash
+        run: |
+          python tools/build_runtime.py requirements --lock tools/runtime.lock.json > locked-requirements.txt
+          python -m pip download -r locked-requirements.txt --require-hashes --no-deps --only-binary=:all: -d wheelhouse
+          ls wheelhouse
+      - name: Install the application side (locked wheels first, then the rest)
+        shell: bash
+        run: |
+          python -m pip install -r locked-requirements.txt --require-hashes --no-deps --no-index --find-links wheelhouse
+          python -m pip install pytest
+          python -m pip install -e ".ecosystem/ANYgeometry[planar]"
+          python -m pip install --no-deps -e .
+          python -c "import psutil, threadpoolctl"  # needed by anygeometry; without psutil a test would skip and the floor would fail
+      - name: Build the smoke bundle twice with a fixed build date
+        shell: bash
+        run: |
+          BASE="$(python -c 'import sys; print(sys.base_prefix)')"
+          for n in one two; do
+            python tools/build_runtime.py build --lock tools/runtime.lock.json --base-install "$BASE" --wheelhouse wheelhouse --out "bundles/$n/runtime-314t" --build-date "$BUILD_DATE" --ci-smoke-unpinned-interpreter
+          done
+      - name: The two builds are identical, file for file
+        shell: bash
+        run: python tools/ci_compare_bundles.py bundles/one/runtime-314t bundles/two/runtime-314t
+      - name: Health check of the built bundle
+        shell: bash
+        run: python tools/ci_bundle_health.py --runtime "bundles/one/runtime-314t"
+      - name: Route tests and real-bundle tamper tests against the built bundle
+        shell: bash
+        run: |
+          export ANYGEOMETRY_THREAD_RUNTIME="$PWD/bundles/one/runtime-314t"
+          python -m pytest -q -p no:cacheprovider --junitxml=t1.xml tests/test_real_bundle_t1.py tests/test_runtime_lock.py tests/test_runtime_health.py tests/test_build_runtime.py tests/test_thread_route.py
+      - name: Nothing may skip (the 68 needs_runtime tests and the real-bundle tests must run)
+        shell: bash
+        run: python tools/ci_junit_floor.py t1.xml --min-tests 226 --max-skipped 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: thread-route-t1
+          path: |
+            t1.xml
+            bundles/one/runtime-314t/runtime.lock.json

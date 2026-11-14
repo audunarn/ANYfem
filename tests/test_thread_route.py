@@ -139,7 +139,8 @@ def assert_serial_fallback(builder, jobs_dir, reason_part, **injection):
     expected = reference(builder)
     model, report, _ = run_on(builder, temp_root=str(jobs_dir), **injection)
     assert tr.last_outcome.status == tr.UNAVAILABLE
-    assert reason_part in tr.last_outcome.reason, tr.last_outcome.reason
+    # case-insensitive: a developer runtime says "pins NumPy", a built bundle's strict lock check says "pins numpy"
+    assert reason_part.lower() in tr.last_outcome.reason.lower(), tr.last_outcome.reason
     assert result_of(model, report) == expected  # serial result identical to route-off
     assert list(jobs_dir.iterdir()) == []  # no temp folder left
 
@@ -659,7 +660,8 @@ def test_job_object_failure_kills_the_child_and_falls_back(route_on, jobs_dir, t
 @needs_runtime
 def test_cancel_during_the_health_check_stops_the_health_child(jobs_dir, tmp_path, monkeypatch):
     tr.configure(enabled=True, min_faces=0, runtime=str(RUNTIME_ROOT))
-    monkeypatch.setattr(tr, "_parent_source_digest", lambda: "1" * 64)  # fresh cache key: forces a new health run
+    # No digest patch: a built bundle (strict lock check) would refuse it before any child.  The cache key already differs: it includes the
+    # injected stub child path and environment, so this health run is fresh.
     pidfile = tmp_path / "pid.txt"
     child = stub(tmp_path, "time.sleep(60)\n")
 

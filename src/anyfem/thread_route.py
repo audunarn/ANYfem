@@ -68,6 +68,14 @@ _override: dict = {}
 _session: dict = {"disabled": ""}  # reason, once the route has been switched off for the rest of the session
 last_adoption: dict = {}
 _health_cache: dict = {}
+_ci_smoke_allowed = False  # module state, deliberately NOT in _override (configure(reset=True) must not clear it) and NOT read from the environment
+
+
+def allow_ci_smoke_bundle(allowed: bool = True) -> None:
+    """In-process opt-in used only by the CI bundle smoke tests: accept a runtime built with an unpinned interpreter payload.
+    Never set by the application, a setting, an environment variable or a lock file."""
+    global _ci_smoke_allowed
+    _ci_smoke_allowed = bool(allowed)
 _digest_cache: dict = {}
 last_outcome: Optional["ChildOutcome"] = None
 _INJECT: dict = {}  # tests only: extra keyword arguments merged into every try_prepare call
@@ -495,6 +503,8 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     """Selftest child: GIL off after imports, NumPy pin, source digest, frozen smoke.  Cached by interpreter + lock + sources."""
     try:
         root = _runtime_root(Path(python))
+        if not _ci_smoke_allowed and any(os.path.lexists(folder / runtime_lock.CI_SMOKE_MARKER) for folder in (root, Path(python).parent, Path(python).resolve().parent)):  # whatever the lock policy or folder name: never a shipped runtime
+            return ChildOutcome(status=UNAVAILABLE, reason="runtime is a CI smoke bundle (interpreter payload not pinned); it is not a shipped runtime")
         root_bytes = _read_lock(root / runtime_lock.LOCK_NAME)  # one snapshot per lock file, used for everything below
         explicit_bytes = _read_lock(Path(lock_path)) if lock_path else None
         # The shipped runtime (<app>/runtime-314t) and any runtime whose lock declares a schema get the FULL check: strict lock,
@@ -514,13 +524,14 @@ def check_health(python: Path, *, timeout: float = 120.0, lock_path: Optional[Pa
     except OSError as exc:  # unreadable lock, interpreter removed after discovery
         return ChildOutcome(status=UNAVAILABLE, reason="runtime cannot be inspected: %r" % (exc,))
     key = (str(python), full, timeout, stat.st_mtime_ns, stat.st_size, lock_hash, _parent_source_digest(), _batch_prepare.SMOKE_DIGEST,
-           EXPECT_NUMPY, tuple(sorted((k, repr(v)) for k, v in injection.items())))
+           EXPECT_NUMPY, _ci_smoke_allowed, tuple(sorted((k, repr(v)) for k, v in injection.items())))
     cached = _health_cache.get(key)
     if cached is not None:
         return cached
     if full:  # checked once per process and key (a bundle changed on disk during a session is noticed at the next start)
         problem, built = runtime_lock.check_installed_lock(root, expect_numpy=EXPECT_NUMPY,
-                                                           expect_source_digest=_parent_source_digest(), lock_bytes=root_bytes)
+                                                           expect_source_digest=_parent_source_digest(), lock_bytes=root_bytes,
+                                                           allow_ci_smoke=_ci_smoke_allowed)
         if problem:
             outcome = ChildOutcome(status=UNAVAILABLE, reason=problem)
             _health_cache[key] = outcome

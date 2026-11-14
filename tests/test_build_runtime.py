@@ -209,3 +209,104 @@ def test_two_builds_are_identical_as_whole_trees_including_the_lock(tool, tmp_pa
     def snapshot(root):
         return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
     assert snapshot(tmp_path / "o1" / "runtime-314t") == snapshot(tmp_path / "o2" / "runtime-314t")
+
+
+# ------------------------------------------------------------------------------------ S3 T1: CI smoke build (interpreter not pinned)
+
+def _changed_interpreter(base):
+    (base / "Lib" / "os.py").write_bytes(b"a different build of the standard library")
+
+
+def _smoke_inputs(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _runnable_inputs(tmp_path)
+    monkeypatch.setattr(tool, "_import_check", lambda *a, **k: None)
+    monkeypatch.setattr(tool, "_source_digest", lambda: "c" * 64)
+    return lock, base, wheels
+
+
+def test_ci_smoke_is_off_by_default_and_the_pinned_payload_still_refuses(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    _changed_interpreter(base)
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, tmp_path / "o" / "runtime-314t")
+    assert not (tmp_path / "o" / "runtime-314t").exists()
+
+
+def test_ci_smoke_build_records_the_measured_payload_and_a_marker_covered_by_the_bundle_digest(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    _changed_interpreter(base)
+    out = tmp_path / "o" / "runtime-314t"
+    tool.build(lock, base, wheels, out, "2026-11-13", ci_smoke=True)
+    built = rl.load_lock_bytes((out / rl.LOCK_NAME).read_bytes(), built=True)
+    measured, count = rl.payload_digest(base, built.interpreter)
+    assert built.interpreter.payload_sha256 == measured and built.interpreter.payload_files == count  # the lock tells the truth
+    assert built.interpreter.upstream_sha256 == "0" * 64 and "unpinned" in built.interpreter.upstream_url  # no false provenance
+    assert (out / rl.CI_SMOKE_MARKER).is_file()
+    rl.verify_bundle(built, out)
+    (out / rl.CI_SMOKE_MARKER).unlink()  # deleting the marker is a bundle change: the digest no longer matches
+    with pytest.raises(rl.LockError):
+        rl.verify_bundle(built, out)
+
+
+def test_ci_smoke_builds_are_reproducible(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    _changed_interpreter(base)
+    first = tool.build(lock, base, wheels, tmp_path / "o1" / "runtime-314t", "2026-11-13", ci_smoke=True)
+    second = tool.build(lock, base, wheels, tmp_path / "o2" / "runtime-314t", "2026-11-13", ci_smoke=True)
+    assert first["bundle_sha256"] == second["bundle_sha256"]
+
+
+def test_ci_smoke_still_refuses_wrong_wheels_and_missing_root_files(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    (wheels / "numpy-2.4.6-cp314-cp314t-win_amd64.whl").write_bytes(b"swapped")
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, tmp_path / "o1" / "runtime-314t", ci_smoke=True)
+    lock, base, wheels = _smoke_inputs(tool, tmp_path / "second", monkeypatch)
+    (base / "python3.14t.exe").unlink()
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, tmp_path / "o2" / "runtime-314t", ci_smoke=True)
+
+
+def test_ci_smoke_payload_swapped_after_measurement_is_not_staged(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    real = rl.payload_digest
+    calls = []
+
+    def swapping(b, interpreter):
+        result = real(b, interpreter)
+        calls.append(1)
+        if len(calls) == 1:  # right after the measurement
+            (base / "Lib" / "os.py").write_bytes(b"swapped after measurement")
+        return result
+    monkeypatch.setattr(rl, "payload_digest", swapping)
+    with pytest.raises(rl.LockError):
+        tool.build(lock, base, wheels, tmp_path / "o3" / "runtime-314t", ci_smoke=True)
+    assert not (tmp_path / "o3" / "runtime-314t").exists()
+
+
+def test_ci_smoke_cli_flag(tool, tmp_path, monkeypatch):
+    lock, base, wheels = _smoke_inputs(tool, tmp_path, monkeypatch)
+    _changed_interpreter(base)
+    assert tool.main(_args(lock, base, wheels, tmp_path / "o1" / "runtime-314t")) == 2
+    assert tool.main(_args(lock, base, wheels, tmp_path / "o2" / "runtime-314t") + ["--ci-smoke-unpinned-interpreter"]) == 0
+    assert (tmp_path / "o2" / "runtime-314t" / rl.CI_SMOKE_MARKER).is_file()
+
+
+def test_check_interpreter_fails_closed(tool, tmp_path):
+    lock, _, _ = _inputs(tmp_path)
+    full = json.loads(lock.read_text(encoding="utf-8"))["python_version_full"]
+    assert tool.check_interpreter(lock, version=full, gil_disabled=True) == 0
+    assert tool.check_interpreter(lock, version=full + " ", gil_disabled=True) == 2
+    assert tool.check_interpreter(lock, version="3.14.9 free-threading build (x)", gil_disabled=True) == 2
+    assert tool.check_interpreter(lock, version=full, gil_disabled=False) == 2  # a GIL build with the right text is not the pinned build
+    assert tool.check_interpreter(lock, version=full, gil_disabled=None) == 2  # unknown is not accepted either
+    broken = tmp_path / "broken.json"
+    broken.write_text("{}", encoding="utf-8")
+    assert tool.check_interpreter(broken, version=full, gil_disabled=True) == 2
+
+
+def test_requirements_lines_carry_every_wheel_hash(tool, tmp_path, capsys):
+    lock, _, _ = _inputs(tmp_path)
+    assert tool.main(["requirements", "--lock", str(lock)]) == 0
+    data = json.loads(lock.read_text(encoding="utf-8"))["wheels"][0]
+    assert capsys.readouterr().out.splitlines() == ["%s==%s --hash=sha256:%s" % (data["name"], data["version"], data["sha256"])]
