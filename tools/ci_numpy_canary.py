@@ -40,6 +40,14 @@ def mask(text: str) -> str:
     return _MASK.sub("X", text)
 
 
+def masked_blob(text: str) -> str:
+    """Mask UUIDs / 64-hex strings, then PROVE the text is still strict JSON without duplicate keys (a masked key collision or a masked bare
+    number would otherwise hide differences): raises ValueError, never returns a blob that compare would have to refuse."""
+    masked = mask(text)
+    json.loads(masked, parse_constant=_no_constant, parse_float=_finite, object_pairs_hook=_no_duplicates)
+    return masked
+
+
 def measure(out: Path) -> dict:
     import numpy
     import anygeometry
@@ -54,7 +62,7 @@ def measure(out: Path) -> dict:
     fresh = replace(closure, working_model=work)
     report = prepare_structural_connectivity(work, source_model_id=str(fresh.source_model_id), source_revision=fresh.source_revision,
                                              member_ids=tuple(work.members))
-    blob = mask(json.dumps([to_dict(work), report.to_dict()], sort_keys=True, separators=(",", ":")))
+    blob = masked_blob(json.dumps([to_dict(work), report.to_dict()], sort_keys=True, separators=(",", ":")))
     import anyfem
     import scipy
     import shapely
@@ -70,12 +78,16 @@ def measure(out: Path) -> dict:
     return record
 
 
+def _env_ok(env) -> bool:
+    return isinstance(env, dict) and set(env) == set(_ENV) and all(isinstance(value, str) for value in env.values())
+
+
 def _load(path: Path) -> dict:
     try:
-        record = json.loads(Path(path).read_text(encoding="utf-8"))
+        record = json.loads(Path(path).read_text(encoding="utf-8"), parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
     except (OSError, ValueError) as exc:
         raise ValueError("cannot read %s: %s" % (path, exc))
-    if not isinstance(record, dict) or any(not isinstance(record.get(key), str) for key in _STR_KEYS) or not isinstance(record.get("env"), dict):
+    if not isinstance(record, dict) or any(not isinstance(record.get(key), str) for key in _STR_KEYS) or not _env_ok(record.get("env")):
         raise ValueError("%s is not a measurement record" % path)
     if not re.fullmatch(r"[0-9a-f]{64}", record["masked_sha256"]) or type(record.get("faces")) is not int:
         raise ValueError("%s holds a malformed digest or face count" % path)

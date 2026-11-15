@@ -324,3 +324,26 @@ def test_l3_overflow_duplicate_keys_and_runaway_nesting_fail_closed(canary, tmp_
     a = _write(tmp_path, "a", blob_text=text_a, masked_sha256=hashlib.sha256(text_a.encode()).hexdigest())
     b = _write(tmp_path, "b", numpy="2.5.4", blob_text=text_b, masked_sha256=hashlib.sha256(text_b.encode()).hexdigest())
     assert canary.compare(a, b, "2.4.6") == canary.INPUT
+
+
+def test_l3_masked_blob_refuses_what_masking_would_corrupt(canary):
+    u1, u2 = "12345678-1234-5678-1234-567812345678", "87654321-1234-5678-1234-567812345678"
+    assert canary.masked_blob('{"a":"%s","b":1.5}' % u1) == '{"a":"X","b":1.5}'
+    with pytest.raises(ValueError):
+        canary.masked_blob('{"%s":1,"%s":2}' % (u1, u2))  # two keys collapse into one
+    with pytest.raises(ValueError):
+        canary.masked_blob("[%s]" % ("1" * 64))  # a bare 64-digit integer would become the invalid token X
+
+
+def test_l3_duplicate_metadata_keys_and_incomplete_env_fail_closed(canary, tmp_path):
+    a = _write(tmp_path, "a")
+    b = _write(tmp_path, "b", numpy="2.5.4", blob=_drift(x=0.2))
+    good = b.read_text()
+    assert canary.compare(a, b, "2.4.6") == canary.DETECTED
+    b.write_text(good.replace('"numpy": "2.5.4"', '"numpy": "2.4.6", "numpy": "2.5.4"'))
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+    for env in ({}, {"OPENBLAS_CORETYPE": ""}, dict(_env(), EXTRA="x"), dict(_env(), OMP_NUM_THREADS=1)):
+        record = json.loads(good)
+        record["env"] = env
+        b.write_text(json.dumps(record))
+        assert canary.compare(a, b, "2.4.6") == canary.INPUT
