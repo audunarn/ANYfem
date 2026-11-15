@@ -234,3 +234,54 @@ def test_a_segment_across_a_notch_is_not_inside_a_non_convex_polygon():
     assert _segment_in_polygon(u_shape, np.array([0.0, 0.0, 0.0]), np.array([3.0, 0.0, 0.0]), 1e-9)
     # leaving through the outside
     assert not _segment_in_polygon(u_shape, np.array([0.5, 0.5, 0.0]), np.array([3.5, 0.5, 0.0]), 1e-9)
+
+
+@pytest.fixture(scope="module")
+def scalar_offset_cut():
+    """The shipped barge with the stiffener section given a scalar eccentricity (manual, front,
+    unrotated), its mesh as an archived parent mesh, and the child cut across that stiffener
+    with the child's own mesh."""
+
+    from dataclasses import replace
+
+    project, (_member_id, edge_id), (y, z) = shipped_barge()
+    name = project.edge_sections[edge_id]
+    project.beam_sections[name] = replace(project.beam_sections[name], offset_mode="manual", eccentricity=0.05,
+                                          attachment_side="front", rotation_deg=0.0)
+    assert isinstance(project.beam_offsets[edge_id], float)
+    volume = stiffened_box(y, z)
+    cut = run_cut(project, volume)
+    child = cut.definition.child
+    (carry,) = cut.report.attached
+    (child_edge,) = carry.child_edges
+    assert isinstance(child.beam_offsets[child_edge], float)
+    return {
+        "source": (project, edge_id, project.generate_mesh(0.25), SimpleNamespace(volume=volume.to_dict())),
+        "child": (child, child_edge, child.generate_mesh(cut.definition.target_size), None),
+    }
+
+
+def _mirror_offsets(mesh, edge_id):
+    """A copy of ``mesh`` with the beam edge's offset nodes on the other side of the line."""
+
+    mirrored = SimpleNamespace(nodes=dict(mesh.nodes), nodes_of_edge=mesh.nodes_of_edge,
+                               offset_nodes_of_edge=mesh.offset_nodes_of_edge)
+    for base, stood in set(zip(mesh.nodes_of_edge[edge_id], mesh.offset_nodes_of_edge[edge_id])):
+        mirrored.nodes[stood] = 2.0 * np.asarray(mesh.nodes[base]) - np.asarray(mesh.nodes[stood])
+    return mirrored
+
+
+@pytest.mark.parametrize("which", ["source", "child"])
+def test_an_attached_stiffener_on_the_wrong_offset_side_refuses_the_run(scalar_offset_cut, which):
+    """Audit 2026-11-13: the run-time offset-side check skipped plate-interior (attached)
+    stiffeners, because no face uses their edge.  An archived parent mesh with the old offset
+    side would then drive a child with the stiffener on the other side.  The check now takes
+    the plate from the member's attachment, as the mesher does.  An archived or wrong mesh is
+    simulated by mirroring the stiffener's offset nodes."""
+
+    from anyfem.submodel_jobs import _require_scalar_offset_sides
+
+    project, edge_id, mesh, definition = scalar_offset_cut[which]
+    _require_scalar_offset_sides(project, mesh, definition)  # the current mesher is on the plate-normal side
+    with pytest.raises(SubmodelError, match=f"SUBMODEL_OFFSET_SIDE.*{which} mesh.*beam edge {edge_id} "):
+        _require_scalar_offset_sides(project, _mirror_offsets(mesh, edge_id), definition)

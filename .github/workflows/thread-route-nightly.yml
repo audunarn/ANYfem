@@ -1,0 +1,98 @@
+name: Thread route nightly
+# T5: thread-safety stress repeat of the T3 identity check (tests/test_t5_stress.py).  Nightly and on demand ONLY (no push / pull_request
+# trigger, so the PR cost of thread-route.yml is unchanged).  Scheduled runs only happen on the default branch.
+# One smoke bundle is built (same steps as the bundle-smoke job of thread-route.yml, without the twin build and the T1 tests), then the
+# sector60 prepare is run through a real child N times (thread count cycling 1,2,4,8), every repeat compared with route OFF computed once
+# in the same process.  Zero mismatches are allowed; there is no retry and no skip.  A failing repeat is its own test id (rNN-tT) and
+# the digests of every run (also failing ones) are uploaded as t5-digests.jsonl.  The bundle is a SMOKE bundle (unpinned interpreter):
+# this stresses the ROUTE, not the shipped interpreter payload.
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: 'Number of repeats (positive integer)'
+        required: false
+        default: '20'
+      threads:
+        description: 'Thread counts to cycle through, each 1..8, comma separated'
+        required: false
+        default: '1,2,4,8'
+permissions:
+  contents: read
+env:
+  # Same ANYgeometry source as thread-route.yml (keep the two in step).
+  ANYGEOMETRY_REF: a591ef0b1e1e444632dc90ae058996f0e7b73578
+jobs:
+  stress-repeat:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      BUILD_DATE: '2026-11-14'
+      ANYFEM_TEST_ALLOW_CI_SMOKE_BUNDLE: '1'
+      # Inputs go through the environment (never into a script text); scheduled runs have no inputs and get the defaults.
+      T5_REPEATS: ${{ inputs.repeats || '20' }}
+      T5_THREADS: ${{ inputs.threads || '1,2,4,8' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.10t'
+      - name: Inputs are well formed (fails closed)
+        shell: bash
+        run: |
+          [[ "$T5_REPEATS" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "repeats must be a positive integer (at most 6 digits): '$T5_REPEATS'"; exit 1; }
+          [[ "$T5_THREADS" =~ ^[1-8](,[1-8])*$ ]] || { echo "threads must be a comma list of 1..8: '$T5_THREADS'"; exit 1; }
+      - name: The CI interpreter is the lock's build (fails closed)
+        shell: bash
+        run: python tools/build_runtime.py check-interpreter --lock tools/runtime.lock.json
+      - name: Hash-pinned wheelhouse
+        shell: bash
+        run: |
+          python tools/build_runtime.py requirements --lock tools/runtime.lock.json > locked-requirements.txt
+          python -m pip download -r locked-requirements.txt --require-hashes --no-deps --only-binary=:all: -d wheelhouse
+      - name: Install the application side
+        shell: bash
+        run: |
+          python -m pip install -r locked-requirements.txt --require-hashes --no-deps --no-index --find-links wheelhouse
+          python -m pip install pytest
+          python -m pip install -e ".ecosystem/ANYgeometry[planar]"
+          python -m pip install --no-deps -e .
+          python -c "import psutil, threadpoolctl"
+      - name: Build the smoke bundle
+        shell: bash
+        run: |
+          BASE="$(python -c 'import sys; print(sys.base_prefix)')"
+          python tools/build_runtime.py build --lock tools/runtime.lock.json --base-install "$BASE" --wheelhouse wheelhouse --out "bundles/one/runtime-314t" --build-date "$BUILD_DATE" --ci-smoke-unpinned-interpreter
+      - name: Health check of the built bundle
+        shell: bash
+        run: python tools/ci_bundle_health.py --runtime "bundles/one/runtime-314t"
+      - name: T5 stress repeat (every repeat must equal route OFF)
+        shell: bash
+        run: |
+          export ANYGEOMETRY_THREAD_RUNTIME="$PWD/bundles/one/runtime-314t"
+          export ANYFEM_T5_REPEATS="$T5_REPEATS" ANYFEM_T5_THREADS="$T5_THREADS" ANYFEM_T5_DIGESTS="$PWD/t5-digests.jsonl"
+          python -m pytest -q -p no:cacheprovider --junitxml=t5.xml tests/test_t5_stress.py
+      # reference test + one test per repeat + the "every repeat was recorded" test; nothing may skip
+      - name: T5 must have run every repeat, not skipped
+        if: always()
+        shell: bash
+        run: |
+          # if: always() also runs after a rejected input: re-validate before any arithmetic (bash would evaluate a crafted string)
+          [[ "$T5_REPEATS" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "repeats rejected"; exit 1; }
+          python tools/ci_junit_floor.py t5.xml --min-tests "$((T5_REPEATS + 2))" --max-skipped 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: thread-route-t5
+          path: |
+            t5.xml
+            t5-digests.jsonl

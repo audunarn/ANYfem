@@ -1,0 +1,104 @@
+name: N2c identity nightly
+# S3 T6: full-model N2c identity gate (serial vs thread route ON, both against frozen constants in tools/n2c_identity_constants.json).
+# Nightly and on demand ONLY (no push / pull_request trigger).  Scheduled runs only happen on the default branch.
+#
+# The full tripod model (private, local file) and the harness that prepares it are NOT in either repository, so a GitHub-hosted runner
+# cannot run the model.  Two jobs:
+#   gate-selftest  every run, GitHub-hosted: the gate tool and the committed constants are exercised with synthetic data (the saved
+#                  2026-11-13 outputs are local-only, those two tests skip here).  This does NOT prove the model still matches.
+#   n2c-identity   only when the repository variable N2C_ENABLED is 'true' AND a self-hosted runner labelled `n2c-model` holds the model
+#                  and a staged driver.  When the variable is unset the job is SKIPPED: a skipped job is not a pass of the full-model gate.
+# Driver contract (variables, see docs/N2C_IDENTITY_GATE.md): N2C_DRIVER is run as
+#   "$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --out DIR     (interpreter without the thread route, route OFF)
+#   "$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads 4 --out DIR   (free-threaded interpreter, ANYGEOMETRY_PLANNING_THREADS=4)
+# (both also get --geometry-repo and --fem-repo: the checkouts under test; the gate then requires child-result origins to lie under them)
+# and must write DIR/out/{prepared-model.json,plan.json,counters-all.json,child-result.json} and verify the model input sha256 itself.
+# The driver must keep OPENBLAS_CORETYPE (job env) in the child's environment and the child must write child-result.json["blas"]
+# (requested OPENBLAS_CORETYPE + threadpoolctl OpenBLAS architecture, see tools/ci_blas_kernel.py record()).
+# Constants are never refreshed by this workflow.
+on:
+  schedule:
+    - cron: '47 2 * * *'
+  workflow_dispatch:
+    inputs:
+      threads:
+        description: 'Planning thread count for the ON run (1..8)'
+        required: false
+        default: '4'
+permissions:
+  contents: read
+concurrency:
+  group: n2c-identity
+  cancel-in-progress: false
+env:
+  # ANYgeometry source the constants were frozen on (5377460, 2026-11-13).  Changing it is a reviewed commit with the constants.
+  ANYGEOMETRY_REF: 53774600471bf9d77502585c5646dc8c7ac826b3
+jobs:
+  gate-selftest:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.10t'
+      - name: Gate unit tests (synthetic data, committed constants)
+        shell: bash
+        run: |
+          python -m pip install pytest pyyaml numpy==2.4.6 threadpoolctl
+          python -m pytest -q -p no:cacheprovider --junitxml=n2c-gate.xml tests/test_ci_n2c_gate.py
+      # the seven saved-output tests (ANYFEM_N2C_SAVED / _T7B) may skip off the owner's machine, nothing else may
+      - name: Gate tests must have run
+        shell: bash
+        run: python tools/ci_junit_floor.py n2c-gate.xml --min-tests 130 --max-skipped 7
+  n2c-identity:
+    if: ${{ vars.N2C_ENABLED == 'true' }}
+    runs-on: [self-hosted, windows, n2c-model]
+    timeout-minutes: 90
+    env:
+      N2C_DRIVER: ${{ vars.N2C_DRIVER }}
+      N2C_PY_SERIAL: ${{ vars.N2C_PY_SERIAL }}
+      N2C_PY_THREAD: ${{ vars.N2C_PY_THREAD }}
+      N2C_THREADS: ${{ inputs.threads || '4' }}
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      # Kernel pin: the full model is BLAS-kernel dependent (T7b); the constants are keyed to SkylakeX.  The driver passes this to the
+      # child unchanged; the child records the effective kernel and the gate refuses any other (exit 4).
+      OPENBLAS_CORETYPE: SKYLAKEX
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - name: Inputs are present and well formed (fails closed)
+        shell: bash
+        run: |
+          [[ "$N2C_THREADS" =~ ^[1-8]$ ]] || { echo "threads must be 1..8: '$N2C_THREADS'"; exit 1; }
+          for v in N2C_DRIVER N2C_PY_SERIAL N2C_PY_THREAD; do
+            [ -n "${!v}" ] && [ -f "${!v}" ] || { echo "variable $v is empty or not a file on this runner"; exit 1; }
+          done
+      - name: Kernel preflight (SKYLAKEX requested and in effect, both interpreters; fails closed on a CPU without AVX-512)
+        shell: bash
+        run: |
+          "$N2C_PY_SERIAL" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json
+          "$N2C_PY_THREAD" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json
+      - name: Serial run (route OFF)
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on"
+          "$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --geometry-repo "$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-serial"
+      - name: Thread route ON run
+        shell: bash
+        run: '"$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads "$N2C_THREADS" --geometry-repo "$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-on"'
+      - name: Identity gate (serial == ON == frozen constants)
+        shell: bash
+        run: '"$N2C_PY_THREAD" tools/ci_n2c_gate.py "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on" --constants tools/n2c_identity_constants.json --origin anygeometry="$GITHUB_WORKSPACE/.ecosystem/ANYgeometry" --origin anyfem="$GITHUB_WORKSPACE"'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: n2c-identity
+          path: |
+            ${{ runner.temp }}/n2c-serial/out
+            ${{ runner.temp }}/n2c-on/out

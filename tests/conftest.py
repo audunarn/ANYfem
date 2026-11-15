@@ -155,3 +155,12 @@ def _bound_native_thread_pools():
 def _collect_tk_objects_on_the_main_thread():
     yield
     gc.collect()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ci_smoke_bundle_opt_in():
+    """CI job T1 runs the route tests against a bundle built with an unpinned interpreter; only this test-side switch accepts it."""
+    if os.environ.get("ANYFEM_TEST_ALLOW_CI_SMOKE_BUNDLE") == "1":
+        from anyfem import thread_route
+        thread_route.allow_ci_smoke_bundle(True)
+    yield

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "platform": "win_amd64",
+  "python_version": "3.14.10",
+  "python_version_full": "3.14.10 free-threading build (tags/v3.14.10:b703b2c, Oct 25 2026, 17:36:07) [MSC v.1944 64 bit (AMD64)]",
+  "numpy": "2.4.6",
+  "interpreter": {
+    "upstream_url": "https://www.python.org/ftp/python/3.14.10/python-3.14.10t-amd64.zip",
+    "upstream_sha256": "e429b56abc14dbb2fde600ae8fc97cf8cc86d98bf0bbde0bda5c74441bdffe8c",
+    "payload_sha256": "9e6cad6c31b0c08ae9b3c7729dd928999273884e4477e34093a339bbc7ed1633",
+    "payload_files": 809,
+    "root_files": ["python3.14t.exe", "python314t.dll", "python3t.dll", "vcruntime140.dll", "vcruntime140_1.dll", "LICENSE.txt"],
+    "trees": ["DLLs", "Lib"],
+    "exclude_dirs": ["__pycache__", "site-packages"]
+  },
+  "wheels": [
+    {"name": "numpy", "version": "2.4.6", "filename": "numpy-2.4.6-cp314-cp314t-win_amd64.whl", "sha256": "81a1cca95ed5bb92aa8b10dd2cdc9a0d3853a50fad926c28b5d7e8ea54389627"},
+    {"name": "scipy", "version": "1.17.1", "filename": "scipy-1.17.1-cp314-cp314t-win_amd64.whl", "sha256": "eb092099205ef62cd1782b006658db09e2fed75bffcae7cc0d44052d8aa0f484"},
+    {"name": "shapely", "version": "2.1.2", "filename": "shapely-2.1.2-cp314-cp314t-win_amd64.whl", "sha256": "0036ac886e0923417932c2e6369b6c52e38e0ff5d9120b90eef5cd9a5fc5cae9"}
+  ]
+}
