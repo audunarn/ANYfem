@@ -18,11 +18,21 @@ DATA = Path(__file__).parent / "data" / "sector60_closure.json.gz"
 EXPECTED_EDGE_PATHS = 223
 
 
+_PYTHON_NAMES = ("python", "python3", "py", "python.exe")
+
+
 def system_only_path(mp) -> None:
-    """PATH = system directories only (no Python can be found by name), the route variables cleared, via the MonkeyPatch ``mp``."""
+    """PATH = system directories without any Python, the route variables cleared, via the MonkeyPatch ``mp``.
+
+    A system folder that itself holds a launcher (the GitHub windows runners have ``py.exe`` in the Windows folder) is left out of PATH:
+    the route never looks at PATH, so the proof "no Python can be found by name" stays true and the folder does not matter.
+    """
     system = os.environ.get("SystemRoot", r"C:\Windows")
-    mp.setenv("PATH", os.pathsep.join([os.path.join(system, "System32"), system]))
-    for name in ("python", "python3", "py", "python.exe"):
+    candidates = [os.path.join(system, "System32"), system]
+    kept = [folder for folder in candidates if not any(shutil.which(name, path=folder) for name in _PYTHON_NAMES)]
+    assert kept, "no system folder is free of a Python launcher"
+    mp.setenv("PATH", os.pathsep.join(kept))
+    for name in _PYTHON_NAMES:
         assert shutil.which(name) is None, "PATH must hold no Python (%s found)" % name
     for name in (tr.ENV_ENABLE, tr.ENV_THREADS, tr.ENV_MIN_FACES, tr.ENV_APP_DIR):
         mp.delenv(name, raising=False)
