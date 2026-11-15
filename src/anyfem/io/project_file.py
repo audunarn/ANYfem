@@ -99,7 +99,10 @@ FLOATING_TRANSIENT_RESULTS_FORMAT = 17
 WIND_TURBINE_LOADS_FORMAT = 18
 TURBINE_MASS_FORMAT = 19
 SOLID_SUBMODELS_FORMAT = 20
-MAX_READ_FORMAT = SOLID_SUBMODELS_FORMAT
+# Drawing thickness side overrides: an older reader would drop them on the next
+# save, so a file holding any is format 21 and refused there.
+DRAWING_THICKNESS_SIDES_FORMAT = 21
+MAX_READ_FORMAT = DRAWING_THICKNESS_SIDES_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -2330,3 +2333,59 @@ def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper o
                 raise ProjectFileError(f"wind_turbine_loads[{index}]: {error}") from None
         return project
     return _turbine_base_project_from_dict(data, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Additive persistence of drawing thickness side overrides.  Written only when a
+# current Sheet has one, so other documents keep their exact bytes and hashes.
+# Overrides naming no current Sheet (for example after a geometry edit removed
+# it) are dropped here.
+
+DRAWING_THICKNESS_SIDES_KEY = "drawing_thickness_sides"
+_sides_base_project_to_dict = project_to_dict
+_sides_base_project_from_dict = project_from_dict
+
+
+def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper over the established writer
+    from ..application.thickness_side import live_overrides
+    data = _sides_base_project_to_dict(project, *args, **kwargs)
+    live = live_overrides(project)
+    if live:
+        data[DRAWING_THICKNESS_SIDES_KEY] = [
+            {"sheet": key, "side": side}
+            for key, side in sorted(live.items())]
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], DRAWING_THICKNESS_SIDES_FORMAT)
+    return data
+
+
+def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper over the established reader
+    from ..application.thickness_side import SIDE_CHOICES
+    if isinstance(data, Mapping) and DRAWING_THICKNESS_SIDES_KEY in data:
+        header = data.get("anyfem")
+        try:
+            version = int(header["format"]) if isinstance(header, Mapping) else 0
+        except (KeyError, TypeError, ValueError):
+            version = 0
+        if version < DRAWING_THICKNESS_SIDES_FORMAT:
+            raise ProjectFileError(
+                f"drawing_thickness_sides require project format {DRAWING_THICKNESS_SIDES_FORMAT}")
+        raw = dict(data)
+        stored = raw.pop(DRAWING_THICKNESS_SIDES_KEY)
+        if not isinstance(stored, list):
+            raise ProjectFileError("drawing_thickness_sides must be a list of records")
+        records, seen = [], set()
+        for index, entry in enumerate(stored):
+            if (not isinstance(entry, Mapping) or set(entry) != {"sheet", "side"}
+                    or isinstance(entry["sheet"], bool) or not isinstance(entry["sheet"], (int, str))
+                    or entry["side"] not in SIDE_CHOICES or entry["sheet"] in seen):
+                raise ProjectFileError(f"drawing_thickness_sides[{index}] is not a unique Sheet/side record")
+            seen.add(entry["sheet"])
+            records.append((entry["sheet"], entry["side"]))
+        project = _sides_base_project_from_dict(raw, *args, **kwargs)
+        from ..application.thickness_side import bind_stored_overrides
+        try:
+            project.drawing_thickness_sides = bind_stored_overrides(project.geometry, records)
+        except ValueError as error:
+            raise ProjectFileError(f"drawing_thickness_sides: {error}") from None
+        return project
+    return _sides_base_project_from_dict(data, *args, **kwargs)

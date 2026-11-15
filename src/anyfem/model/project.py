@@ -299,6 +299,11 @@ class Project:
     # floating TRANSIENT run consumes one (selected by name); standard static solves never read them.
     wind_turbine_loads: Dict[str, WindTurbineLoad] = field(default_factory=dict)
     mesh_numbering: MeshNumbering = field(default_factory=MeshNumbering)
+    # Appended: drawing-only plate thickness side overrides, keyed by Sheet name
+    # or Sheet ID, valued centre/front/back/auto.  Sheets without an entry use
+    # the automatic interpretation (``application.thickness_side``).  Entries
+    # naming no current Sheet are inert and are not saved.
+    drawing_thickness_sides: Dict[Any, str] = field(default_factory=dict)
     _singleton_region_cache: Dict[object, str] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )

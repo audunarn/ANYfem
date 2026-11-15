@@ -1,5 +1,5 @@
 """Orthographic and isometric visible edges of thicknessed planar plate assemblies."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import defaultdict
 import math
 
@@ -8,6 +8,7 @@ import numpy as np
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import trace
 from .plate_profiles import build_plate_profiles
+from .thickness_side import thickness_band
 
 
 @dataclass
@@ -16,19 +17,29 @@ class _Stock:
     walls: list
     edges: list
     flanks: list
+    # Smooth rulings of curved walls: (segment, outward normal before, after,
+    # flanks). Each is drawn only where the wall turns from front to back.
+    folds: list = field(default_factory=list)
 
 
 def _stock(profile):
+    if profile._strip is not None:
+        return _strip_stock(profile, "solid")
     axes = profile._axes
     normal = np.cross(axes[:,0], axes[:,1])
-    half = profile.thickness_m * normal / 2
+    low, high = thickness_band(profile.thickness_m, profile.thickness_side)
+    if profile.thickness_side == "centre":
+        half = profile.thickness_m * normal / 2
+        below, above = -half, half
+    else:
+        below, above = low * normal, high * normal
     bottom, top, walls, edges, flanks = [], [], [], [], []
     for loop in profile._loops:
         # Each trace is confined to 0.05 mm of the CAD curve. Keep only genuine
         # corners as thickness edges; subdivision points have no physical edge.
         lines = [trace(span, tolerance=.00005) for span in loop]
         ring = np.vstack([line[:-1] for line in lines]) @ axes.T + profile._world_origin
-        lo, hi = ring-half, ring+half
+        lo, hi = ring+below, ring+above
         bottom.append(lo)
         top.append(hi)
         for i in range(len(ring)):
@@ -44,11 +55,105 @@ def _stock(profile):
             b = here[1,:2]/here[1,2] - here[0,:2]/here[0,2]
             if float(a @ b) < .999999 * np.linalg.norm(a)*np.linalg.norm(b):
                 xy = line[0] @ axes.T + profile._world_origin
-                edges.append((xy-half,xy+half))
+                edges.append((xy+below,xy+above))
                 flanks.append((ring[start_index-1]-ring[start_index],
                                ring[(start_index+1)%len(ring)]-ring[start_index]))
             start_index += len(line)-1
     return _Stock((bottom,top), walls, edges, flanks)
+
+
+def _oriented(quad, outward):
+    quad = np.asarray(quad)
+    return quad if np.cross(quad[1]-quad[0], quad[2]-quad[0]) @ outward >= 0 else quad[::-1]
+
+
+def _strip_stock(profile, representation):
+    """Thickened (or, in 2D, reference) walls of a curved strip, in planar facets.
+
+    Curved faces use 0.05 mm chords of the outer surface, as planar plate
+    traces; the Sheet boundary carries the thickness walls and edges.
+    """
+    from .curved_strips import _angles
+    from .thickness_side import thickness_band
+    strip = profile._strip
+    low, high = thickness_band(profile.thickness_m, profile.thickness_side, representation)
+    refusal = strip.solid_refusal((low, high), profile.thickness_side)
+    if refusal:
+        raise ValueError(f"{profile.mark}: {refusal}")
+    flat = high == low
+    offsets = (low,) if flat else (low, high)
+    axis = strip.axis
+    walls, edges, flanks, folds = [], [], [], []
+    for patch in strip.patches:
+        angles = strip.sample_angles(patch, patch.radius + high, .00005)
+        radial = patch.direction(angles)
+        tangents = np.cross(axis, radial)
+        for offset in offsets:
+            lower, upper = (strip.point(patch, angles, z, offset) for z in patch.axial)
+            sense = 1. if offset == high and not flat else -1.
+            normals = [sense * (radial[i] + radial[i+1]) for i in range(len(angles)-1)]
+            for i, outward in enumerate(normals):
+                walls.append(_oriented([lower[i], lower[i+1], upper[i+1], upper[i]], outward))
+            exact = sense * radial
+            for i in range(len(angles)):
+                before = normals[i-1] if i else exact[0]
+                after = normals[i] if i < len(normals) else exact[-1]
+                folds.append(((lower[i], upper[i]), before, after, (-tangents[i], tangents[i])))
+    corners = {}
+    for k, points in strip.free_edges:
+        patch = strip.patches[k]
+        theta, _ = _angles(patch, axis, points)
+        radial = patch.direction(theta)
+        middle = strip.point(patch, [sum(patch.angles)/2], sum(patch.axial)/2)[0]
+        along = np.gradient(points, axis=0)
+        into = middle - points
+        for vector in (radial, along):
+            unit = vector / np.linalg.norm(vector, axis=1)[:, None]
+            into = into - np.sum(into*unit, axis=1)[:, None] * unit
+        into /= np.linalg.norm(into, axis=1)[:, None]
+        for end, direction in ((0, points[1]-points[0]), (-1, points[-2]-points[-1])):
+            key = tuple(np.round(points[end], 7))
+            corners.setdefault(key, []).append((points[end], radial[end], direction/np.linalg.norm(direction)))
+        if flat:
+            for i in range(len(points)-1):
+                edges.append((points[i], points[i+1]))
+                flanks.append((into[i], into[i]))
+            continue
+        inner, outer = points + low*radial, points + high*radial
+        for i in range(len(points)-1):
+            walls.append(_oriented([inner[i], inner[i+1], outer[i+1], outer[i]], -into[i]))
+            edges.extend([(inner[i], inner[i+1]), (outer[i], outer[i+1])])
+            flanks.extend([(into[i], radial[i]), (into[i], -radial[i])])
+    if not flat:
+        for ends in corners.values():
+            if len(ends) == 2 and ends[0][2] @ ends[1][2] > -.999999:  # the boundary turns here
+                (point, radial, first), (_, _, second) = ends
+                edges.append((point + low*radial, point + high*radial))
+                flanks.append((first, second))
+    return _Stock(((), ()), walls, edges, flanks, folds)
+
+
+def _sheet_stock(profile):
+    """A zero-thickness sheet at the reference surface: outline and openings only.
+
+    Both caps coincide, so the sheet occludes from either side; each rim edge
+    has the sheet itself as its single incident flank.
+    """
+    if profile._strip is not None:
+        return _strip_stock(profile, "midsurface_2d")
+    axes = profile._axes
+    normal = np.cross(axes[:,0], axes[:,1])
+    rings, edges, flanks = [], [], []
+    for loop in profile._loops:
+        lines = [trace(span, tolerance=.00005) for span in loop]
+        ring = np.vstack([line[:-1] for line in lines]) @ axes.T + profile._world_origin
+        rings.append(ring)
+        for i in range(len(ring)):
+            j = (i+1) % len(ring)
+            edges.append((ring[i],ring[j]))
+            into_sheet = np.cross(normal,ring[j]-ring[i])
+            flanks.append((into_sheet,into_sheet))
+    return _Stock((rings,rings), [], edges, flanks)
 
 
 def _interface_edges(polygons, planes, owners, front_faces, index):
@@ -106,7 +211,7 @@ def _projection(stocks, direction, up):
     axes = np.column_stack((u, np.cross(n,u), n))
     # Work near the assembly. Imported geometry can be far from world zero;
     # avoid subtracting large, nearly equal camera coordinates in depth tests.
-    reference = stocks[0].caps[0][0][0]
+    reference = stocks[0].caps[0][0][0] if stocks[0].caps[0] else stocks[0].walls[0][0]
     view_origin = reference @ axes
     def project(points):
         return (np.asarray(points) - reference) @ axes
@@ -142,6 +247,10 @@ def _projection(stocks, direction, up):
             cover([project(wall)], owner)
         candidates.extend((owner, segment, flanks) for segment,flanks in
                           zip(project(stock.edges), np.asarray(stock.flanks) @ axes))
+        for segment,before,after,flanks in stock.folds:
+            # A smooth curved wall shows a silhouette where it turns away.
+            if (before @ n) * (after @ n) < 0:
+                candidates.append((owner, project(segment), np.asarray(flanks) @ axes))
         for lower,upper in zip(*stock.caps):
             # A smooth rim has no thickness crease but does have a silhouette
             # where neighbouring side walls change from front to back facing.
@@ -208,30 +317,56 @@ def _projection(stocks, direction, up):
 
 
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
-                   elevation_datum="global"):
+                   elevation_datum="global", thickness_sides="auto", representation="solid", views=None):
+    """Isometric/plan/front/right views of one plate Part.
+
+    ``thickness_sides`` places each plate's thickness (``auto``, ``centre`` or
+    a Sheet-to-side mapping, see :func:`thickness_side.resolve_sides`);
+    ``representation="midsurface_2d"`` draws reference surfaces without
+    thickness. The takeoff and elevation datum always use the solid plates.
+    ``views`` selects a subset of ``isometric``/``plan``/``front``/``right``
+    (printed in that order); when omitted ``all_views`` chooses all four or
+    only the isometric.
+    """
+    from .drawing_extent import VIEW_NAMES, normalize_views
+    if views is None:
+        wanted = VIEW_NAMES if all_views else VIEW_NAMES[:1]
+    else:
+        wanted = normalize_views(views)
+        if not wanted:
+            raise ValueError("Select at least one assembly view")
     if isinstance(quantity,bool) or not isinstance(quantity,int) or quantity<1:
         raise ValueError("Quantity must be a positive integer")
-    profiles = build_plate_profiles(project, part_id)
+    from .thickness_side import check_representation, sides_for_part
+    flat = check_representation(representation) == "midsurface_2d"
+    profiles = build_plate_profiles(project, part_id,
+                                    thickness_sides=sides_for_part(project, part_id, thickness_sides))
     from .drawing_datum import elevation_origin
     base_z = elevation_origin(profiles, elevation_datum)
     part = project.geometry.parts[part_id]
-    stocks = [_stock(p) for p in profiles]
+    stocks = [_sheet_stock(p) if flat else _stock(p) for p in profiles]
     gauges = defaultdict(list)
     for p in profiles:
         rho = project.materials[p.material].density if density is None else density
         if not math.isfinite(rho) or rho <= 0:
             raise ValueError(f"Select a positive takeoff density for {p.material}.")
-        gauges[p.thickness_m].append(p.area_m2 * p.thickness_m * rho)
+        gauges[p.thickness_m].append(p.mass_area_m2 * p.thickness_m * rho)
     unit_mass = math.fsum(m for masses in gauges.values() for m in masses)
     name = part.name or f"Part {part_id}"
     notes = (f"{quantity} x {name}   |   {len(profiles)} plate marks",
              f"Net plate steel   {unit_mass:.2f} kg each   /   {quantity*unit_mass:.2f} kg total",
              "   /   ".join(f"{t*1000:g} mm   {math.fsum(m):.2f} kg each" for t,m in sorted(gauges.items())),
              f"Elevation datum {elevation_datum}: global Z {base_z*1000:g} mm")
-    views = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
-             ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
+    off_centre = [p for p in profiles if p.thickness_side != "centre"]
+    if off_centre:
+        counts = {side: sum(p.thickness_side == side for p in profiles) for side in ("front", "back", "centre")}
+        notes += ("Thickness sides   " + "   /   ".join(f"{n} {side}" for side, n in counts.items() if n),)
+    if flat:
+        notes += ("Representation 2D mid-surface: plates drawn at their reference surfaces, no thickness",)
+    definitions = [("Isometric", (1,-1,1),(0,0,1)), ("Plan", (0,0,1),(0,1,0)),
+                   ("Front", (0,-1,0),(0,0,1)), ("Right", (1,0,0),(0,0,1))]
     result = []
-    for label, direction, up in (views if all_views else views[:1]):
+    for label, direction, up in (d for d in definitions if d[0].lower() in wanted):
         n = np.asarray(direction, dtype=float)
         n /= np.linalg.norm(n)
         u = np.cross(up, n)

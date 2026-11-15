@@ -5,14 +5,34 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QObject, QProcess, QRunnable, QSettings, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QProcess, QRunnable, QSettings, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-    QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox, QStyle, QTabBar, QToolButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
+    QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox, QStyle, QTabBar,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
+from ...commands import Command
 from .drawing_paper import PaperPreview
 from .open_cad_studio import find_studio
+
+
+class SetThicknessSide(Command):
+    """Set one plate's drawing thickness side; undo restores the previous overrides exactly."""
+
+    label = "set plate thickness side"
+
+    def __init__(self, sheet_id, choice):
+        self.sheet_id, self.choice = sheet_id, choice
+        self._before = None
+
+    def do(self, project):
+        from ...application.thickness_side import set_override
+        self._before = dict(project.drawing_thickness_sides)
+        set_override(project, self.sheet_id, self.choice)
+
+    def undo(self, project):
+        project.drawing_thickness_sides = dict(self._before)
 
 
 class _Signals(QObject):
@@ -46,7 +66,8 @@ class _PreviewJob(QRunnable):
             mode, args, options = self.request
             if mode=="Assembly":
                 from ...application.drawing_assembly import assembly_views
-                views = assembly_views(p,*args,**options)
+                # A part-only extent (plate sheets and/or index) has no assembly views to preview.
+                views = assembly_views(p,*args,**options) if options.get("views") else ()
             elif mode=="Plate":
                 from ...application.plate_view import build_plate_view
                 views = (build_plate_view(p,*args,**options),)
@@ -89,6 +110,7 @@ class DrawingWorkspace(QWidget):
         self.face = None
         self.sequence = 0
         self.views = ()
+        self.preview_ready = False
         self.saved_views = []
         self.source = None
         self.last_file = None
@@ -132,6 +154,20 @@ class DrawingWorkspace(QWidget):
         selected_datum = self.elevation_datum.findData(self.settings.value("drawings/elevation_datum", "support_base"))
         self.elevation_datum.setCurrentIndex(max(0, selected_datum))
         form.addRow("Elevation datum",self.elevation_datum)
+        self.sides = QTableWidget(0,3)
+        self.sides.setAccessibleName("Plate thickness sides")
+        self.sides.setHorizontalHeaderLabels(["Plate","Thickness side","Resolved"])
+        self.sides.verticalHeader().hide()
+        self.sides.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.sides.horizontalHeader().setStretchLastSection(True)
+        self.sides.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.sides.setSelectionMode(QAbstractItemView.NoSelection)
+        self.sides.setMaximumHeight(180)
+        self.sides.setToolTip("Auto keeps a plate's free face on the modelled surface and puts its thickness "
+                              "toward attached plates of the same part; Centre, Front (+n) or Back (-n) override it.")
+        self._side_rows = {}
+        form.addRow(QLabel("Thickness sides"))
+        form.addRow(self.sides)
         self.density_label = form.labelForField(self.density)
         layout.addWidget(assembly)
         plate,form = _form()
@@ -198,6 +234,16 @@ class DrawingWorkspace(QWidget):
         form.addRow(self.bounds_widget)
         layout.addWidget(plane)
         self.forms = (assembly,plate,plane)
+        common,form = _form()
+        self.representation = QComboBox()
+        self.representation.addItem("Solid plates", "solid")
+        self.representation.addItem("2D mid-surface · no thickness", "midsurface_2d")
+        self.representation.setAccessibleName("Drawing representation")
+        chosen = self.representation.findData(self.settings.value("drawings/representation", "solid"))
+        self.representation.setCurrentIndex(max(0, chosen))
+        form.addRow("Representation",self.representation)
+        self._build_extent(form)
+        layout.addWidget(common)
         self.preview_btn = QPushButton("Generate preview")
         self.preview_btn.setStyleSheet("QPushButton { background:#126b70; color:white; border:0; border-radius:4px;"
                                        "padding:6px 12px; font-weight:600 } QPushButton:hover { background:#105b60 }"
@@ -274,6 +320,11 @@ class DrawingWorkspace(QWidget):
         self.stiffeners.toggled.connect(self._invalidate)
         self.intersections.toggled.connect(self._invalidate)
         self.elevation_datum.currentIndexChanged.connect(self._datum_changed)
+        self.representation.currentIndexChanged.connect(self._representation_changed)
+        self.extent_preset.currentIndexChanged.connect(self._extent_preset_changed)
+        for box in self.extent_checks.values():
+            box.toggled.connect(self._extent_box_toggled)
+        self.part.currentIndexChanged.connect(self._fill_sides)
         self.limited.toggled.connect(self._invalidate)
         self._mode_changed()
         self._studio()
@@ -360,7 +411,163 @@ class DrawingWorkspace(QWidget):
             self.face = None
             self.plate_label.setText("Pick a plate in the model")
         self._selection()
+        self._fill_sides()
         self._invalidate()
+
+    def side_row(self, sheet_id):
+        return self._side_rows[sheet_id]
+
+    def side_choice(self, sheet_id):
+        return self.sides.cellWidget(self._side_rows[sheet_id],1)
+
+    def _fill_sides(self,*_):
+        from ...application.thickness_side import override_choices, resolve_thickness_sides
+        self.sides.setRowCount(0)
+        self._side_rows = {}
+        project = self.app.project
+        part = project.geometry.parts.get(self.part.currentData())
+        if part is None:
+            return
+        try:
+            resolved, problem = resolve_thickness_sides(project, part.id), ""
+            choices = override_choices(project)
+        except (ValueError, ImportError) as error:
+            resolved, problem, choices = {}, str(error), {}
+        g = project.geometry
+        for row,sheet_id in enumerate(part.sheet_ids):
+            self.sides.insertRow(row)
+            self._side_rows[sheet_id] = row
+            self.sides.setItem(row,0,QTableWidgetItem(g.sheets[sheet_id].name or f"Sheet {sheet_id}"))
+            box = QComboBox()
+            for text,data in (("Auto","auto"),("Centre","centre"),("Front · +n","front"),("Back · -n","back")):
+                box.addItem(text,data)
+            box.setCurrentIndex(max(0,box.findData(choices.get(sheet_id,"auto"))))
+            box.setAccessibleName(f"Thickness side of {g.sheets[sheet_id].name or sheet_id}")
+            # Edit after the signal returns: the commit refreshes (rebuilds) this table.
+            box.currentIndexChanged.connect(lambda index,sheet=sheet_id,widget=box: self._defer_side(
+                sheet,widget.itemData(index)))
+            self.sides.setCellWidget(row,1,box)
+            side,source,reason = resolved.get(sheet_id,("unresolved","",problem))
+            self.sides.setItem(row,2,QTableWidgetItem(f"{side} · {source}: {reason}" if source else
+                                                      f"{side} · {reason}"))
+
+    def _defer_side(self,sheet_id,choice):
+        QTimer.singleShot(0,lambda: self._side_changed(sheet_id,choice))
+
+    def _side_changed(self,sheet_id,choice):
+        project = self.app.project
+        if sheet_id not in project.geometry.sheets:
+            return
+        try:
+            self.app.session.execute(SetThicknessSide(sheet_id,choice),solver_affecting=False)
+        except (PermissionError, ValueError) as error:
+            self.feedback.setText(str(error))
+            self._fill_sides()
+            return
+        self.feedback.setText("Thickness side changed. Generate a new preview.")
+
+    _EXTENT_LABELS = (("isometric","Isometric"),("plan","Plan"),("front","Front"),("right","Right"),
+                      ("sections","Sections"),("plate_profiles","Plate profiles"),
+                      ("index_and_takeoff","Index and takeoff"))
+
+    def _build_extent(self,form):
+        """Selectable generation extent: a preset plus one check box per part, persisted like the datum."""
+        import json
+        from ...application.drawing_extent import DrawingExtent
+        self._extent_busy = True
+        self.extent_preset = QComboBox()
+        self.extent_preset.addItem("All views","all_views")
+        self.extent_preset.addItem("Isometric only","isometric_only")
+        self.extent_preset.addItem("Custom","custom")
+        self.extent_preset.setAccessibleName("Drawing extent")
+        form.addRow("Extent",self.extent_preset)
+        holder = QWidget()
+        grid = QGridLayout(holder)
+        grid.setContentsMargins(0,0,0,0)
+        self.extent_checks = {}
+        for n,(key,label) in enumerate(self._EXTENT_LABELS):
+            box = QCheckBox(label)
+            box.setAccessibleName(f"Extent {label}")
+            self.extent_checks[key] = box
+            grid.addWidget(box,n//2,n%2)
+        form.addRow(holder)
+        state = DrawingExtent().to_dict()
+        try:
+            state.update(json.loads(self.settings.value("drawings/extent","{}")))
+        except (TypeError, ValueError):
+            pass
+        chosen = set(state.get("views",())) if isinstance(state.get("views"),list) else set(DrawingExtent().views)
+        for key,box in self.extent_checks.items():
+            box.setChecked(key in chosen if key in DrawingExtent().views else bool(state.get(key,True)))
+        self._sync_extent_preset()
+        self._extent_busy = False
+
+    def _extent_state(self):
+        return {"views":[k for k in ("isometric","plan","front","right") if self.extent_checks[k].isChecked()],
+                **{k:self.extent_checks[k].isChecked() for k in ("sections","plate_profiles","index_and_takeoff")}}
+
+    def extent(self):
+        """The selected :class:`DrawingExtent`; refuses a selection with nothing to generate."""
+        from ...application.drawing_extent import DrawingExtent
+        return DrawingExtent.from_dict(self._extent_state())
+
+    def _sync_extent_preset(self):
+        from ...application.drawing_extent import DrawingExtent
+        state = self._extent_state()
+        key = "custom"
+        for name,preset in (("all_views",DrawingExtent.all_views()),("isometric_only",DrawingExtent.isometric_only())):
+            if state == preset.to_dict():
+                key = name
+        self.extent_preset.setCurrentIndex(self.extent_preset.findData(key))
+
+    def _extent_preset_changed(self,*_):
+        if self._extent_busy:
+            return
+        from ...application.drawing_extent import DrawingExtent
+        key = self.extent_preset.currentData()
+        if key != "custom":
+            preset = DrawingExtent.all_views() if key == "all_views" else DrawingExtent.isometric_only()
+            self._extent_busy = True
+            for name,box in self.extent_checks.items():
+                box.setChecked(name in preset.views if name in DrawingExtent().views else getattr(preset,name))
+            self._extent_busy = False
+        self._extent_changed()
+
+    def _extent_box_toggled(self,*_):
+        if self._extent_busy:
+            return
+        self._extent_busy = True
+        self._sync_extent_preset()
+        self._extent_busy = False
+        self._extent_changed()
+
+    def _extent_changed(self):
+        import json
+        state = self._extent_state()
+        self.settings.setValue("drawings/extent",json.dumps(state))
+        kept = []
+        for original,named in self.saved_views:
+            kind = original.projection
+            if ((kind in state["views"]) if kind in ("isometric","plan","front","right") else
+                    state["sections"] if kind == "section" else state["plate_profiles"] if kind == "plate" else True):
+                kept.append((original,named))
+        dropped = len(kept) != len(self.saved_views)
+        self.saved_views[:] = kept
+        self.queue_choice.clear()
+        for _,view in self.saved_views:
+            self.queue_choice.addItem(view.title)
+        self._invalidate()
+        if dropped:
+            self.feedback.setText("Extent changed. Queued sheets outside the extent were removed.")
+
+    def _representation_changed(self,*_):
+        self.settings.setValue("drawings/representation",self.representation.currentData())
+        dropped = bool(self.saved_views)
+        self.saved_views.clear()
+        self.queue_choice.clear()
+        self._invalidate()
+        if dropped:
+            self.feedback.setText("Representation changed. Regenerate the queued sheets in the new representation.")
 
     def activate(self):
         self.refresh()
@@ -397,6 +604,7 @@ class DrawingWorkspace(QWidget):
         self.sequence += 1
         self.pool.clear()
         self.views = ()
+        self.preview_ready = False
         self.source = None
         mode = self.mode.currentIndex()
         nominal = self.basis.currentIndex()==1
@@ -456,17 +664,23 @@ class DrawingWorkspace(QWidget):
 
     def _request(self):
         mode = self.mode.tabText(self.mode.currentIndex())
+        representation = self.representation.currentData()
+        extent = self.extent()
         if mode=="Assembly":
-            return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),
+            if not (extent.views or extent.plate_profiles or extent.index_and_takeoff):
+                raise ValueError("Select at least one assembly view, the plate profiles or the index to preview.")
+            return mode,(self.part.currentData(),),dict(quantity=self.quantity.value(),views=extent.views,
                         density=self.density.value() if self.basis.currentIndex() else None,
-                        elevation_datum=self.elevation_datum.currentData())
+                        elevation_datum=self.elevation_datum.currentData(),
+                        thickness_sides="auto",representation=representation)
         if mode=="Plate":
             if self.face is None:
                 raise ValueError("Select a plate in the model.")
             return mode,(self.face,),dict(include_stiffeners=self.stiffeners.isChecked(),
-                                        include_plate_intersections=self.intersections.isChecked())
+                                        include_plate_intersections=self.intersections.isChecked(),
+                                        thickness_sides="auto",representation=representation)
         args, options = self._plane_request()
-        return mode,args,options
+        return mode,args,{**options,"thickness_sides":"auto","representation":representation}
 
     def _preview(self):
         self._invalidate()
@@ -489,6 +703,16 @@ class DrawingWorkspace(QWidget):
             self.feedback.setText(error)
             return
         self.views = views
+        self.preview_ready = True
+        if not views:
+            self.paper.display(None,"No assembly views selected")
+            self.view_choice.hide()
+            self.zoom.hide()
+            self.added.hide()
+            self.export_btn.setEnabled(not self.exporting)
+            self.feedback.setText("No assembly views are selected. Export issues the selected plate sheets "
+                                  "and index for this Part.")
+            return
         self.view_choice.blockSignals(True)
         self.view_choice.clear()
         self.view_choice.addItems([v.title for v in views])
@@ -542,7 +766,7 @@ class DrawingWorkspace(QWidget):
             self.queue.setVisible(bool(self.saved_views))
 
     def _export(self):
-        if not self.source or not self.views or self.exporting:
+        if not self.source or not self.preview_ready or self.exporting:
             return
         snapshot,(mode,args,options) = self.source
         if snapshot.revision.document_hash != self.app.session.revision.document_hash:
@@ -573,8 +797,12 @@ class DrawingWorkspace(QWidget):
                     quantity=options.get("quantity",1),density=options.get("density"),converter=converter,backend=backend)
         opts["elevation_datum"] = options.get("elevation_datum", "support_base")
         opts["include_plate_intersections"] = self.intersections.isChecked()
+        opts["representation"] = options.get("representation","solid")
+        opts["thickness_sides"] = options.get("thickness_sides","auto")
+        opts["extent"] = self.extent()
         number = self.view_choice.currentIndex()+1
-        self.export_rel = f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf"
+        self.export_rel = ("Drawings.pdf" if not self.views else
+                           f"DWG-views/View-{number:02d}.dwg" if converter else f"views/View-{number:02d}.dxf")
         self.exporting = True
         self.export_btn.setEnabled(False)
         self.feedback.setText("Writing drawing sheets and CAD files…")
@@ -583,7 +811,7 @@ class DrawingWorkspace(QWidget):
     @Slot(object,object,str)
     def _exported(self,revision,out,error):
         self.exporting = False
-        self.export_btn.setEnabled(bool(self.views))
+        self.export_btn.setEnabled(self.preview_ready)
         message = error or f"Saved drawings to {out}"
         if revision.document_hash==self.app.session.revision.document_hash:
             if out:
