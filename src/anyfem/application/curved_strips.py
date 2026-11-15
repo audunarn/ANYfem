@@ -298,9 +298,12 @@ def _unit_axis(vector):
 
 
 def _edge_points(geometry, edge_id, cache):
+    """Edge polyline at the 1e-6 m trace tolerance (memoised inside a drawing scope)."""
+    from .drawing_cache import memo
     from .plate_view import _native_spans, _trace_spans
     if edge_id not in cache:
-        cache[edge_id] = _trace_spans(_native_spans(geometry, edge_id), 1e-6)
+        cache[edge_id] = memo("edge_points", (edge_id,),
+                              lambda: _trace_spans(_native_spans(geometry, edge_id), 1e-6), owners=(geometry,))
     return cache[edge_id]
 
 
