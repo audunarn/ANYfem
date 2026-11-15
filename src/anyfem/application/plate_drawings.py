@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 import re
 import subprocess
+import threading
 from tempfile import TemporaryDirectory
 
 from anyfem.document import DocumentSession, ProjectSnapshot, canonical_hash
@@ -81,33 +82,50 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
         commands = [[str(tool), str(source), str(target), "ACAD2018", "DWG", "0", "0", "*.dxf"]]
     else:
         raise ValueError(f"Unknown DWG converter {backend}")
-    def convert(command):
-        try:
-            return subprocess.run(command, cwd=target, capture_output=True, timeout=120,
-                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        except subprocess.TimeoutExpired as error:
-            return error
+    failed = [len(commands)]  # lowest index of a failed conversion
+    lock = threading.Lock()
 
-    # One converter process per file (OpenCAD Studio) runs concurrently; outcomes
-    # are checked in input order, so the reported failure is the one a
-    # sequential run would have stopped at.
-    workers = min(len(commands), _DWG_WORKERS) or 1
-    if workers > 1:
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            outcomes = list(pool.map(convert, commands))
-    else:
-        outcomes = []
-        for command in commands:
-            outcomes.append(convert(command))
-            if isinstance(outcomes[-1], subprocess.TimeoutExpired) or outcomes[-1].returncode:
-                break
-    for result in outcomes:
+    def convert(index):
+        with lock:
+            if index > failed[0]:
+                return None  # a sequential run would have stopped earlier; never checked
+        try:
+            result = subprocess.run(commands[index], cwd=target, capture_output=True, timeout=120,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception as error:  # raised by check() in input order
+            result = error
+        if isinstance(result, Exception) or result.returncode:
+            with lock:
+                failed[0] = min(failed[0], index)
+        return result
+
+    def check(result):
         if isinstance(result, subprocess.TimeoutExpired):
             raise ValueError(f"{name} timed out while writing DWG files") from result
+        if isinstance(result, Exception):
+            raise result
         if result.returncode:
             detail = result.stderr.decode(errors="replace").strip()[-600:]
             raise ValueError(f"{name} returned {result.returncode} during DWG conversion. {detail}")
+
+    # One converter process per file (OpenCAD Studio) runs concurrently.  Results
+    # are checked in input order, so the error raised is the one a sequential run
+    # stops at.  No conversion after a known failure starts; ones already running
+    # finish into the package that the failure discards.
+    workers = min(len(commands), _DWG_WORKERS)
+    if workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(convert, index) for index in range(len(commands))]
+            try:
+                for future in futures:
+                    check(future.result())
+            finally:
+                for future in futures:
+                    future.cancel()
+    else:
+        for index in range(len(commands)):
+            check(convert(index))
     expected = {file.stem for file in inputs}
     files = list(target.glob("*.dwg"))
     if expected != {file.stem for file in files}:

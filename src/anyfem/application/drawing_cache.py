@@ -11,7 +11,7 @@ datum, extent) between two drawing calls always recomputes.  Inside a scope
 the drawing code only reads the project.  Keys hold the identity of the
 geometry/project objects (kept alive by the memo, so an ID cannot be reused)
 plus every argument the result depends on.  Cached arrays are made read-only,
-and a cached refusal is re-raised as a fresh copy.
+and a cached refusal is re-raised as a copy with its type, message and cause.
 """
 from __future__ import annotations
 
@@ -82,8 +82,20 @@ def memo(kind, key, compute, *, owners=(), freeze=True):
         return value
     _, ok, value = hit
     if not ok:
-        raise copy.copy(value).with_traceback(None)
+        raise _replay(value)
     return value
+
+
+def _replay(error):
+    """A copy of a cached refusal with its type, message, cause, context and traceback."""
+    try:
+        again = copy.copy(error)
+    except Exception:  # an exception type that cannot be copied is raised as the same instance
+        return error
+    again.__cause__ = error.__cause__
+    again.__context__ = error.__context__
+    again.__suppress_context__ = error.__suppress_context__
+    return again.with_traceback(error.__traceback__)
 
 
 def thawed(snapshot):
@@ -91,9 +103,10 @@ def thawed(snapshot):
 
     A publish exports the takeoff and then draws the plate sheets from the same
     snapshot; sharing one thawed project lets the sheets reuse the export's
-    contours and sides.  The drawing code only reads the project: its one
-    refresh, ``resolve_section_assignments(strict=True)`` in the plate
-    profiles, either refuses or leaves the maps a freshly loaded project
-    already has (loading resolves them).
+    contours and sides.  Apart from one refresh the drawing code only reads the
+    project: ``resolve_section_assignments(strict=True)`` in the plate profiles
+    rewrites the section compatibility maps, either refusing (which ends the
+    publish) or writing the values a freshly loaded project already holds,
+    since loading resolves them.
     """
     return memo("thaw", (), snapshot.thaw, owners=(snapshot,), freeze=False)
