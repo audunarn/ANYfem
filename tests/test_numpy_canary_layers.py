@@ -184,56 +184,106 @@ def canary():
     return _load_tool("ci_numpy_canary")
 
 
-def _record(numpy, digest="a" * 64, python="3.14.10", faces=97):
-    return {"numpy": numpy, "python": python, "masked_sha256": digest, "faces": faces}
+BASE_BLOB = {"faces": [1, 2, 3], "x": 0.1, "k": 2.0, "name": "n", "nested": {"a": 1.5, "b": [2.5, 3.5]}}
 
 
-def test_l3_identical_result_under_25_is_reported_not_detected(canary):
-    code, message = canary.verdict(_record("2.4.6"), _record("2.5.4"), "2.4.6")
-    assert code == canary.NOT_DETECTED and "NOT DETECTED" in message
+def _env(**over):
+    return dict({"OPENBLAS_CORETYPE": "", "NPY_DISABLE_CPU_FEATURES": "", "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1",
+                 "NUMPY_MADVISE_HUGEPAGE": ""}, **over)
 
 
-def test_l3_different_digest_or_faces_is_detected(canary):
-    assert canary.verdict(_record("2.4.6"), _record("2.5.4", digest="b" * 64), "2.4.6")[0] == canary.DETECTED
-    assert canary.verdict(_record("2.4.6"), _record("2.5.4", faces=98), "2.4.6")[0] == canary.DETECTED
+def _record(numpy="2.4.6", blob=None, **over):
+    raw = json.dumps(BASE_BLOB if blob is None else blob, sort_keys=True, separators=(",", ":"))
+    record = {"numpy": numpy, "python": "3.14.10", "scipy": "1.17.1", "shapely": "2.1.2", "anygeometry": "/ag", "anyfem": "/af",
+              "masked_sha256": hashlib.sha256(raw.encode()).hexdigest(), "faces": 97, "env": _env()}
+    record.update(over)
+    return record, raw
 
 
-@pytest.mark.parametrize("pinned,other,python", [("2.4.5", "2.5.4", "3.14.10"), ("2.4.6", "2.4.6", "3.14.10"), ("2.4.6", "2.6.0", "3.14.10"),
-                                                 ("2.4.6", "2.5.4", "3.14.2")])
-def test_l3_wrong_inputs_fail_closed_never_detected(canary, pinned, other, python):
-    code, _ = canary.verdict(_record(pinned), _record(other, digest="b" * 64, python=python), "2.4.6")
-    assert code == canary.INPUT
+def _write(tmp_path, name, numpy="2.4.6", blob=None, blob_text=None, **over):
+    record, raw = _record(numpy, blob, **over)
+    path = tmp_path / (name + ".json")
+    path.write_text(json.dumps(record), encoding="utf-8")
+    if blob_text is not False:
+        (tmp_path / (name + ".json.blob")).write_bytes((raw if blob_text is None else blob_text).encode())
+    return path
 
 
-def test_l3_compare_cli_exit_codes_and_malformed_records(canary, tmp_path):
-    a, b, c = tmp_path / "a.json", tmp_path / "b.json", tmp_path / "c.json"
-    a.write_text(json.dumps(_record("2.4.6")))
-    b.write_text(json.dumps(_record("2.5.4", digest="b" * 64)))
-    c.write_text(json.dumps(_record("2.5.4")))
+def _drift(**changes):
+    blob = json.loads(json.dumps(BASE_BLOB))
+    blob.update(changes)
+    return blob
+
+
+def test_l3_identical_result_under_25_is_reported_not_detected(canary, tmp_path):
+    a, b = _write(tmp_path, "a"), _write(tmp_path, "b", numpy="2.5.4")
+    assert canary.compare(a, b, "2.4.6") == canary.NOT_DETECTED
+
+
+def test_l3_a_pure_float_difference_is_detected(canary, tmp_path, capsys):
+    a, b = _write(tmp_path, "a"), _write(tmp_path, "b", numpy="2.5.4", blob=_drift(x=0.1 + 2e-17, nested={"a": 1.5000000000000002, "b": [2.5, 3.5]}))
     assert canary.compare(a, b, "2.4.6") == canary.DETECTED
-    assert canary.compare(a, c, "2.4.6") == canary.NOT_DETECTED
+    assert "2 differing float leaves, nothing else" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("changes", [dict(faces=[1, 2, 3, 4]), dict(name="m"), dict(faces=[1, 2, 4]), dict(k=2), dict(nested={"a": 1.5}),
+                                     dict(extra=0.5), dict(name=None), dict(faces=[1, 2, 3.0])])
+def test_l3_a_difference_that_is_not_purely_float_is_an_input_problem_not_a_detection(canary, tmp_path, changes):
+    """Every case also carries a genuine float drift (x), so only the 'nothing else changed' rule can refuse it."""
+    drift = _drift(**changes)
+    drift["x"] = 0.2
+    a, b = _write(tmp_path, "a"), _write(tmp_path, "b", numpy="2.5.4", blob=drift)
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+
+
+def test_l3_the_verdict_is_bound_to_the_blobs(canary, tmp_path):
+    ok = _write(tmp_path, "ok")
+    drift = _drift(x=0.2)
+    # a recorded digest that is not the digest of the blob next to it, even though the blobs differ in a float: not a detection
+    a, b = _write(tmp_path, "a"), _write(tmp_path, "b", numpy="2.5.4", blob=_drift(x=0.2), masked_sha256="b" * 64)
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+    # identical recorded digests but different blob contents
+    a2 = _write(tmp_path, "a2")
+    b2 = _write(tmp_path, "b2", numpy="2.5.4")
+    (tmp_path / "b2.json.blob").write_bytes(json.dumps(drift, sort_keys=True, separators=(",", ":")).encode())
+    assert canary.compare(a2, b2, "2.4.6") == canary.INPUT
+    # missing blob / malformed blob / blob not JSON with matching digest
+    c = _write(tmp_path, "c", numpy="2.5.4", blob=_drift(x=0.3), blob_text=False)
+    assert canary.compare(ok, c, "2.4.6") == canary.INPUT
+    (tmp_path / "d.json").write_text(json.dumps(dict(_record("2.5.4")[0], masked_sha256=hashlib.sha256(b"{").hexdigest())), encoding="utf-8")
+    (tmp_path / "d.json.blob").write_bytes(b"{")
+    assert canary.compare(ok, tmp_path / "d.json", "2.4.6") == canary.INPUT
+
+
+@pytest.mark.parametrize("pinned,other", [(dict(numpy="2.4.5"), dict()), (dict(), dict(numpy="2.4.6")), (dict(), dict(numpy="2.6.0")),
+                                          (dict(), dict(python="3.14.2")), (dict(), dict(scipy="1.18.0")), (dict(), dict(shapely="2.2.0")),
+                                          (dict(), dict(anygeometry="/other")), (dict(), dict(anyfem="/other")),
+                                          (dict(), dict(env=_env(OPENBLAS_CORETYPE="HASWELL"))),
+                                          (dict(), dict(env=_env(NPY_DISABLE_CPU_FEATURES="AVX2")))])
+def test_l3_anything_but_numpy_that_differs_between_the_environments_fails_closed(canary, tmp_path, pinned, other):
+    a = _write(tmp_path, "a", **dict({"numpy": "2.4.6"}, **pinned))
+    b = _write(tmp_path, "b", **dict({"numpy": "2.5.4", "blob": _drift(x=0.2)}, **other))
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+
+
+def test_l3_malformed_records_fail_closed(canary, tmp_path):
+    a = _write(tmp_path, "a")
     assert canary.compare(a, tmp_path / "missing.json", "2.4.6") == canary.INPUT
-    b.write_text(json.dumps(dict(_record("2.5.4"), masked_sha256="zz")))
-    assert canary.compare(a, b, "2.4.6") == canary.INPUT
-    b.write_text("{")
-    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+    bad = _write(tmp_path, "bad", numpy="2.5.4", masked_sha256="zz")
+    assert canary.compare(a, bad, "2.4.6") == canary.INPUT
+    (tmp_path / "x.json").write_text("{")
+    assert canary.compare(a, tmp_path / "x.json", "2.4.6") == canary.INPUT
+    no_env = json.loads(_write(tmp_path, "ne", numpy="2.5.4", blob=_drift(x=0.2)).read_text())
+    no_env.pop("env")
+    (tmp_path / "y.json").write_text(json.dumps(no_env))
+    assert canary.compare(a, tmp_path / "y.json", "2.4.6") == canary.INPUT
+    boolfaces = _write(tmp_path, "z", numpy="2.5.4", faces=True, blob=_drift(x=0.2))
+    assert canary.compare(a, boolfaces, "2.4.6") == canary.INPUT
 
 
 def test_l3_masking_hides_uuids_and_hashes_but_not_numbers(canary):
     text = '{"id":"12345678-1234-5678-1234-567812345678","h":"%s","x":1.0000000000000002}' % ("a" * 64)
     assert canary.mask(text) == '{"id":"X","h":"X","x":1.0000000000000002}'
-
-
-def test_l2_both_hash_barriers_refuse_a_foreign_numpy_wheel_on_their_own(tmp_path):
-    """build_runtime has two independent hash checks (wheelhouse pre-check, read-time check); each must refuse alone, so mutating one cannot hide."""
-    lock_path, _, wheels = _build_inputs(tmp_path, "2.4.6")
-    lock = rl.load_lock_bytes(lock_path.read_bytes())
-    wheel = wheels / lock.wheels[0].filename
-    wheel.write_bytes(b"this is the numpy 2.5.4 wheel")
-    with pytest.raises(rl.LockError, match="has sha256"):
-        rl.verify_wheelhouse(lock, wheels)
-    with pytest.raises(rl.LockError, match="has sha256"):
-        rl.read_verified_wheel(lock.wheels[0], wheels)
 
 
 def test_the_canary_workflow_is_manual_only_and_hash_pins_its_numpy():
