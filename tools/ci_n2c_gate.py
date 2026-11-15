@@ -90,8 +90,9 @@ def kernel_problems(label: str, blas, kernel: dict) -> list:
         return problems + ["%s: KERNEL record malformed (openblas_pools is %r)" % (label, type(pools).__name__)]
     effective = []
     for pool in pools:
-        if not isinstance(pool, dict):
-            problems.append("%s: KERNEL record malformed (pool entry %r)" % (label, pool))
+        threads = pool.get("num_threads") if isinstance(pool, dict) else None
+        if not isinstance(pool, dict) or not isinstance(pool.get("internal_api"), str) or not pool["internal_api"]                 or not isinstance(threads, int) or isinstance(threads, bool) or threads < 1:
+            problems.append("%s: KERNEL record malformed (pool entry %r: needs internal_api and a positive integer num_threads)" % (label, pool))
         elif pool.get("internal_api") == "openblas":
             arch = pool.get("architecture")
             if isinstance(arch, str) and arch:

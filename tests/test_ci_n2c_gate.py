@@ -380,7 +380,16 @@ def _pool(api="openblas", **kw):
     {"requested_coretype": "SKYLAKEX", "openblas_pools": "SkylakeX"},
     {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "openblas"}]},
     {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(architecture=5)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "mkl", "architecture": "SkylakeX"}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "mkl", "architecture": "SkylakeX", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), {"architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), {"internal_api": None, "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), "Haswell"]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "openblas", "architecture": "SkylakeX"}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=None)]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=True)]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=[1])]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=0)]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=1.0)]},
     {"requested_coretype": "SKYLAKEX", "openblas_pools": ["SkylakeX"]},
     {"requested_coretype": None, "openblas_pools": [_pool()]},
     {"requested_coretype": "", "openblas_pools": [_pool()]},
@@ -416,7 +425,7 @@ def test_requested_value_must_match_the_frozen_spelling(pair):
 
 def test_extra_non_openblas_pools_are_ignored_when_an_openblas_pool_matches(pair):
     b = good_blas()
-    b["openblas_pools"].append({"internal_api": "mkl", "architecture": "whatever"})
+    b["openblas_pools"].append({"internal_api": "mkl", "architecture": "whatever", "num_threads": 4})
     set_blas(pair[:2], b)
     assert run(pair) == 0
 
@@ -602,11 +611,19 @@ def test_workflow_pins_the_kernel_to_the_frozen_constants_for_every_run():
     env_block = job.split("    env:\n", 1)[1].split("    steps:", 1)[0]
     assert re.search(r"^      OPENBLAS_CORETYPE: '?%s'?$" % c["blas_kernel"]["openblas_coretype"], env_block, re.M), env_block
     # kernel preflight runs under both interpreters, before the serial run
+    steps = job.split("    steps:", 1)[1]
+    pre = steps.split("Serial run (route OFF)")[0]
     assert job.count("tools/ci_blas_kernel.py") == 2
-    assert job.index("ci_blas_kernel.py") < job.index("Serial run (route OFF)")
-    assert "--constants tools/n2c_identity_constants.json" in job.split("Serial run (route OFF)")[0]
-    # no step overrides or unsets the pin
-    assert not re.search(r"OPENBLAS_CORETYPE\s*[:=]", job.split("    steps:", 1)[1])
+    for var in ("N2C_PY_SERIAL", "N2C_PY_THREAD"):
+        assert ('          "$%s" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n' % var) in pre
+    assert re.search(r"name: Kernel preflight[^\n]*\n        shell: bash\n        run: \|\n", pre)
+    # no step sets, overrides, unsets or mentions the pin (steps inherit the job env)
+    assert "OPENBLAS_CORETYPE" not in steps
+    assert not re.search(r"\bunset\b|\benv\s+-", steps)
+    # the preflight must be able to fail the job: no continue-on-error, no || true
+    assert "continue-on-error" not in WORKFLOW and "|| true" not in WORKFLOW
+    # hosted self-test: real probe needs numpy+threadpoolctl; the local-only tests are the allowed skips
+    assert "pip install pytest numpy==2.4.6 threadpoolctl" in WORKFLOW and "--max-skipped 7" in WORKFLOW
     assert "never overwritten" in (ROOT / "docs/N2C_IDENTITY_GATE.md").read_text(encoding="utf-8").replace("\n", " ")
 
 
