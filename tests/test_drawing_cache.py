@@ -226,9 +226,17 @@ def _convert(tmp_path, monkeypatch, plan, names, workers):
     converter = _Converter(plan, launched, killed)
     monkeypatch.setattr(plate_drawings.subprocess, "Popen", converter)
     monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", workers)
-    # The fake processes have no real tree; record the tree stops instead.
-    monkeypatch.setattr(plate_drawings, "_stop_tree",
-                        lambda process: (converter.trees.append(Path(process.args[2]).stem), process.kill()))
+    class Tree:  # the fake processes have no real tree; record the tree stops instead
+        def __init__(self, command, cwd):
+            self.process = converter(command, cwd=cwd)
+
+        def stop(self):
+            converter.trees.append(Path(self.process.args[2]).stem)
+            self.process.kill()
+
+        def close(self):
+            pass
+    monkeypatch.setattr(plate_drawings, "_ConverterTree", Tree)
     _convert.converter = converter
     folder = _dxf_folder(tmp_path/f"case{len(list(tmp_path.iterdir()))}", names)
     try:
@@ -342,28 +350,102 @@ def test_dwg_timeout_drains_output_exactly_as_subprocess_run(tmp_path, monkeypat
     assert (_convert.converter.drained, _convert.converter.waited) == ((["a"], []) if windows else ([], ["a"]))
 
 
-@pytest.mark.skipif(os.name != "nt", reason="tree stop is Windows-only; elsewhere DWG runs sequentially")
-def test_stop_tree_ends_helpers_that_hold_the_converter_pipes(tmp_path):
+# A real stand-in converter: per input name it exits with a code, or starts a helper
+# process that inherits its stdout/stderr (and so holds the pipes) and then exits
+# or hangs.  Helper PIDs are recorded so each test can check, and clean up, only them.
+_FAKE_CONVERTER = """
+import json, subprocess, sys, time
+from pathlib import Path
+here = Path(__file__).parent
+kind, value = json.loads((here/"plan.json").read_text()).get(Path(sys.argv[2]).stem, ["exit", 0])
+if kind == "exit":
+    time.sleep(.5)
+    sys.exit(value)
+helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+(here/"helpers"/str(helper.pid)).write_text("")
+if kind == "helper-hang":
+    time.sleep(60)
+"""
+
+
+def _alive(pid):
+    import subprocess
+    if os.name == "nt":
+        return str(pid) in subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                                          capture_output=True, text=True).stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _real_convert(tmp_path, monkeypatch, plan, names, workers, timeout=120):
+    """Run _make_dwg_copies on the stand-in converter; return (error, seconds, surviving helper PIDs)."""
+    import json
     import subprocess
     import sys
     from anyfem.application import plate_drawings
-    record = tmp_path/"helper.pid"
-    # The "converter" starts a helper that inherits its stdout/stderr, then both sleep.
-    parent = ("import subprocess,sys,time;"
-              "h=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
-              f"open(r'{record}','w').write(str(h.pid));time.sleep(60)")
-    with subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
-        for _ in range(200):
-            if record.exists() and record.read_text():
-                break
-            time.sleep(.05)
-        helper = int(record.read_text())
-        try:
-            plate_drawings._stop_tree(process)
-            process.communicate(timeout=10)  # a surviving helper would keep the pipes open
-        finally:
-            alive = str(helper) in subprocess.run(["tasklist", "/FI", f"PID eq {helper}", "/NH"],
-                                                  capture_output=True, text=True).stdout
-            if alive:  # our own helper (its PID was just recorded by our own parent)
-                subprocess.run(["taskkill", "/F", "/PID", str(helper)], capture_output=True)
-        assert not alive
+    tool = tmp_path/"tool"
+    (tool/"helpers").mkdir(parents=True)
+    (tool/"convert.py").write_text(_FAKE_CONVERTER)
+    (tool/"plan.json").write_text(json.dumps(plan))
+    if os.name == "nt":
+        executable = tool/"convert.bat"
+        executable.write_text(f'@"{sys.executable}" "{tool/"convert.py"}" %*\r\n@exit /b %errorlevel%\r\n')
+    else:
+        executable = tool/"convert"
+        executable.write_text(f"#!{sys.executable}\n" + _FAKE_CONVERTER.replace("Path(__file__).parent", f"Path({str(tool)!r})"))
+        executable.chmod(0o755)
+    monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", workers)
+    monkeypatch.setattr(plate_drawings, "_DWG_TIMEOUT", timeout, raising=False)
+    folder = _dxf_folder(tmp_path/"dxf", names)
+    started, error = time.perf_counter(), None
+    try:
+        plate_drawings._make_dwg_copies(executable, folder, folder/"dwg", backend="studio")
+    except BaseException as caught:  # noqa: B036 - the interrupt test expects KeyboardInterrupt
+        error = caught
+    seconds = time.perf_counter() - started
+    helpers = [int(file.name) for file in (tool/"helpers").iterdir()]
+    surviving = [pid for pid in helpers if _alive(pid)]
+    for pid in surviving:  # only helpers this test's own stand-in started and recorded
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+        else:
+            os.kill(pid, 9)
+    return error, seconds, helpers, surviving
+
+
+def test_dwg_failure_is_not_held_up_by_a_helper_of_an_exited_converter(tmp_path, monkeypatch):
+    # a fails; b has already exited but left a helper holding its pipes (Codex r4).
+    error, seconds, helpers, surviving = _real_convert(
+        tmp_path, monkeypatch, {"a": ["exit", 7], "b": ["helper-exit", 0]}, "ab", workers=2)
+    assert isinstance(error, ValueError) and "returned 7" in str(error), error
+    assert seconds < 15, f"failure reported after {seconds:.1f} s: waited for b's helper"
+    assert helpers and not surviving
+
+
+def test_dwg_timeout_stops_the_whole_converter_tree(tmp_path, monkeypatch):
+    error, seconds, helpers, surviving = _real_convert(
+        tmp_path, monkeypatch, {"a": ["helper-hang", 0]}, "a", workers=1, timeout=3)
+    assert isinstance(error, ValueError) and "timed out" in str(error), error
+    assert seconds < 20, f"timeout reported after {seconds:.1f} s: waited for the helper"
+    assert helpers and not surviving
+
+
+def test_dwg_interrupt_stops_every_converter_tree(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    submit, calls = ThreadPoolExecutor.submit, []
+
+    def interrupted(self, *args, **kwargs):
+        calls.append(submit(self, *args, **kwargs))
+        if len(calls) == 2:
+            time.sleep(2)  # both converters have started their helpers
+            raise KeyboardInterrupt
+        return calls[-1]
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", interrupted)
+    error, seconds, helpers, surviving = _real_convert(
+        tmp_path, monkeypatch, {"a": ["helper-hang", 0], "b": ["helper-exit", 0]}, "abc", workers=2)
+    assert isinstance(error, KeyboardInterrupt), error
+    assert seconds < 15, f"interrupt returned after {seconds:.1f} s"
+    assert len(helpers) == 2 and not surviving

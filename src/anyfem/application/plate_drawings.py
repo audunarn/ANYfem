@@ -66,26 +66,170 @@ def _takeoff_row(scope, gauge, quantity, entries):
 
 
 # Concurrent DWG converter processes (OpenCAD Studio converts one file per process).
-# Only on Windows, where a cancelled conversion's whole process tree can be
-# stopped; elsewhere the conversions run one after another as before.
+# Only on Windows; elsewhere the conversions run one after another as before.
 _WINDOWS = os.name == "nt"
 _DWG_WORKERS = max(1, min(8, (os.cpu_count() or 2) // 2)) if _WINDOWS else 1
+_DWG_TIMEOUT = 120  # seconds per converter process
 
 
-def _stop_tree(process):
-    """Kill a converter this call started, with any helper processes it spawned.
+class _ConverterTree:
+    """One converter process and every process it starts.
 
-    ``process`` is a live Popen whose handle is still open, so its PID cannot have
-    been reused; the tree is stopped by that PID only, never by image name.
+    Windows: the converter starts suspended, joins a new kill-on-close Job Object
+    and only then runs, so no helper can escape the job; ``stop`` terminates the
+    job, and closing the job handle ends anything still in it.  Elsewhere: the
+    converter leads a new process group, and ``stop`` kills that group while the
+    converter has not been reaped (its PID, and so the group ID, cannot be reused).
+    Only processes this call started are ever stopped, never by image name.
     """
-    if _WINDOWS and process.poll() is None:
-        taskkill = Path(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+
+    def __init__(self, command, cwd):
+        pipes = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        self._lock, self._job = threading.Lock(), None
+        if not _WINDOWS:
+            self.process = subprocess.Popen(command, cwd=cwd, start_new_session=True, **pipes)
+            return
+        self._job = _job_object()
         try:
-            subprocess.run([str(taskkill), "/F", "/T", "/PID", str(process.pid)], capture_output=True,
-                           timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        except (OSError, subprocess.SubprocessError):
-            pass
-    process.kill()
+            self.process = subprocess.Popen(
+                command, cwd=cwd, **pipes,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) | _CREATE_SUSPENDED)
+        except BaseException:
+            self.close()
+            raise
+        try:
+            _join_and_resume(self._job, self.process.pid)
+        except BaseException:
+            self.process.kill()  # still suspended; outside the job if joining failed
+            self.close()
+            with self.process:
+                pass
+            raise
+
+    def stop(self):
+        with self._lock:
+            if self._job is not None:
+                _kernel32().TerminateJobObject(self._job, 1)
+            elif not _WINDOWS and self.process.returncode is None:
+                import signal
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        self.process.kill()
+
+    def close(self):
+        with self._lock:
+            job, self._job = self._job, None
+        if job is not None:
+            _kernel32().CloseHandle(job)  # kill-on-close: ends whatever is left in the job
+
+
+_CREATE_SUSPENDED = 0x4
+
+
+def _kernel32():
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = getattr(_kernel32, "dll", None)
+    if kernel32 is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle, dword, boolean = wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL
+        for function, result, arguments in (
+                ("CreateJobObjectW", handle, (ctypes.c_void_p, wintypes.LPCWSTR)),
+                ("SetInformationJobObject", boolean, (handle, ctypes.c_int, ctypes.c_void_p, dword)),
+                ("AssignProcessToJobObject", boolean, (handle, handle)),
+                ("TerminateJobObject", boolean, (handle, wintypes.UINT)),
+                ("CloseHandle", boolean, (handle,)),
+                ("OpenProcess", handle, (dword, boolean, dword)),
+                ("OpenThread", handle, (dword, boolean, dword)),
+                ("ResumeThread", dword, (handle,)),
+                ("CreateToolhelp32Snapshot", handle, (dword, dword)),
+                ("Thread32First", boolean, (handle, ctypes.c_void_p)),
+                ("Thread32Next", boolean, (handle, ctypes.c_void_p))):
+            getattr(kernel32, function).restype = result
+            getattr(kernel32, function).argtypes = arguments
+        _kernel32.dll = kernel32
+    return kernel32
+
+
+def _windows_error(what):
+    import ctypes
+    code = ctypes.get_last_error()
+    return OSError(0, f"{what} failed: {ctypes.FormatError(code)}", None, code)
+
+
+def _job_object():
+    """A new Job Object whose processes all end when its last handle closes."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+    kernel32 = _kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise _windows_error("CreateJobObject")
+    limits = Extended()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    # 9: JobObjectExtendedLimitInformation
+    if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+        error = _windows_error("SetInformationJobObject")
+        kernel32.CloseHandle(job)
+        raise error
+    return job
+
+
+def _join_and_resume(job, pid):
+    """Put a suspended process this call created into ``job``, then resume its threads."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Thread(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD),
+                    ("th32OwnerProcessID", wintypes.DWORD), ("tpBasePri", wintypes.LONG),
+                    ("tpDeltaPri", wintypes.LONG), ("dwFlags", wintypes.DWORD)]
+    kernel32 = _kernel32()
+    process = kernel32.OpenProcess(0x0101, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    if not process:
+        raise _windows_error("OpenProcess")
+    try:
+        if not kernel32.AssignProcessToJobObject(job, process):
+            raise _windows_error("AssignProcessToJobObject")
+    finally:
+        kernel32.CloseHandle(process)
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x4, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == wintypes.HANDLE(-1).value:
+        raise _windows_error("CreateToolhelp32Snapshot")
+    resumed = 0
+    try:
+        entry = Thread(dwSize=ctypes.sizeof(Thread))
+        found = kernel32.Thread32First(snapshot, ctypes.byref(entry))
+        while found:
+            if entry.th32OwnerProcessID == pid:
+                thread = kernel32.OpenThread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
+                if not thread:
+                    raise _windows_error("OpenThread")
+                try:
+                    if kernel32.ResumeThread(thread) == 0xFFFFFFFF:
+                        raise _windows_error("ResumeThread")
+                finally:
+                    kernel32.CloseHandle(thread)
+                resumed += 1
+            found = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    if not resumed:
+        raise OSError("DWG converter process has no thread to resume")
 
 
 def _make_dwg_copies(executable, source, target, *, backend="oda"):
@@ -102,36 +246,42 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
     else:
         raise ValueError(f"Unknown DWG converter {backend}")
     failed = [len(commands)]  # lowest index of a failed conversion; -1 once one is raised
-    running = {}              # index -> converter process of this call
+    running = {}              # index -> converter tree of this call
     lock = threading.Lock()
 
     def run(index):
-        """subprocess.run(capture_output=True, timeout=120), with the process registered while it runs."""
+        """subprocess.run(capture_output=True, timeout=120) on the converter tree, registered while it runs.
+
+        As subprocess.run, except that a timeout or an interrupt stops the whole tree.
+        """
         command = commands[index]
-        with subprocess.Popen(command, cwd=target, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)) as process:
-            with lock:
-                running[index] = process
-                late = index > failed[0]
-            if late:
-                _stop_tree(process)
-            try:
-                try:
-                    stdout, stderr = process.communicate(timeout=120)
-                except subprocess.TimeoutExpired as error:
-                    process.kill()  # exactly as subprocess.run
-                    if _WINDOWS:
-                        error.stdout, error.stderr = process.communicate()
-                    else:
-                        process.wait()
-                    raise
-                except BaseException:
-                    process.kill()
-                    raise
-            finally:
+        tree = _ConverterTree(command, target)
+        try:
+            with tree.process as process:
                 with lock:
-                    running.pop(index, None)
-            return subprocess.CompletedProcess(command, process.poll(), stdout, stderr)
+                    running[index] = tree
+                    late = index > failed[0]
+                if late:
+                    tree.stop()
+                try:
+                    try:
+                        stdout, stderr = process.communicate(timeout=_DWG_TIMEOUT)
+                    except subprocess.TimeoutExpired as error:
+                        tree.stop()
+                        if _WINDOWS:
+                            error.stdout, error.stderr = process.communicate()
+                        else:
+                            process.wait()
+                        raise
+                    except BaseException:
+                        tree.stop()
+                        raise
+                finally:
+                    with lock:
+                        running.pop(index, None)
+                return subprocess.CompletedProcess(command, process.poll(), stdout, stderr)
+        finally:
+            tree.close()
 
     def convert(index):
         with lock:
@@ -175,8 +325,8 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
                 with lock:
                     failed[0] = -1  # nothing starts from here on; late starters stop themselves
                     started = list(running.values())
-                for process in started:
-                    _stop_tree(process)
+                for tree in started:
+                    tree.stop()
                 raise
             finally:
                 for future in futures:
