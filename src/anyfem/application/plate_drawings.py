@@ -82,16 +82,40 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
         commands = [[str(tool), str(source), str(target), "ACAD2018", "DWG", "0", "0", "*.dxf"]]
     else:
         raise ValueError(f"Unknown DWG converter {backend}")
-    failed = [len(commands)]  # lowest index of a failed conversion
+    failed = [len(commands)]  # lowest index of a failed conversion; -1 once one is raised
+    running = {}              # index -> converter process of this call
     lock = threading.Lock()
+
+    def run(index):
+        """subprocess.run(capture_output=True, timeout=120), with the process registered while it runs."""
+        command = commands[index]
+        with subprocess.Popen(command, cwd=target, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)) as process:
+            with lock:
+                running[index] = process
+                if index > failed[0]:
+                    process.kill()
+            try:
+                try:
+                    stdout, stderr = process.communicate(timeout=120)
+                except subprocess.TimeoutExpired as error:
+                    process.kill()
+                    error.stdout, error.stderr = process.communicate()
+                    raise
+                except BaseException:
+                    process.kill()
+                    raise
+            finally:
+                with lock:
+                    running.pop(index, None)
+            return subprocess.CompletedProcess(command, process.poll(), stdout, stderr)
 
     def convert(index):
         with lock:
             if index > failed[0]:
                 return None  # a sequential run would have stopped earlier; never checked
         try:
-            result = subprocess.run(commands[index], cwd=target, capture_output=True, timeout=120,
-                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            result = run(index)
         except Exception as error:  # raised by check() in input order
             result = error
         if isinstance(result, Exception) or result.returncode:
@@ -110,8 +134,9 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
 
     # One converter process per file (OpenCAD Studio) runs concurrently.  Results
     # are checked in input order, so the error raised is the one a sequential run
-    # stops at.  No conversion after a known failure starts; ones already running
-    # finish into the package that the failure discards.
+    # stops at.  No conversion after a known failure starts, and once that error
+    # is raised the later conversions still running (this call's own processes)
+    # are killed; their files are in the package that the failure discards.
     workers = min(len(commands), _DWG_WORKERS)
     if workers > 1:
         from concurrent.futures import ThreadPoolExecutor
@@ -120,6 +145,12 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
             try:
                 for future in futures:
                     check(future.result())
+            except BaseException:
+                with lock:
+                    failed[0] = -1
+                    for process in running.values():
+                        process.kill()
+                raise
             finally:
                 for future in futures:
                     future.cancel()

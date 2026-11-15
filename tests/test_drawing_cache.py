@@ -157,53 +157,95 @@ def _dxf_folder(folder, names):
     return folder
 
 
-def test_parallel_dwg_reports_the_first_failure_in_input_order_and_stops(tmp_path, monkeypatch):
-    import subprocess
-    import sys
-    import time
-    from pathlib import Path
-    from anyfem.application import plate_drawings
-    launched = []
+class _Converter:
+    """Fake OpenCAD Studio process: ``plan[name] = (seconds, return code | "timeout" | "launch")``."""
 
-    def run(command, **options):
+    def __init__(self, plan, launched, killed):
+        self.plan, self.launched, self.killed = plan, launched, killed
+
+    def __call__(self, command, **options):
+        import subprocess
+        import threading
+        from pathlib import Path
+        converter = self
         name = Path(command[2]).stem
-        launched.append(name)
-        if name == "a":
-            time.sleep(.3)
-            return subprocess.CompletedProcess(command, 7, b"", b"bad a")
-        if name == "b":
-            raise OSError("cannot launch b")
-        time.sleep(.6)
-        return subprocess.CompletedProcess(command, 0, b"", b"")
-    monkeypatch.setattr(plate_drawings.subprocess, "run", run)
-    monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", 2)
-    source = _dxf_folder(tmp_path/"dxf", "abcdefgh")
+        seconds, outcome = self.plan.get(name, (0., 0))
+        if outcome == "launch":
+            raise OSError(f"cannot launch {name}")
+        self.launched.append(name)
+
+        class Process:
+            returncode = None
+
+            def __init__(self):
+                self.stop = threading.Event()
+                self.args = command
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def communicate(self, input=None, timeout=None):
+                if not self.stop.is_set() and not self.stop.wait(seconds) and outcome == "timeout":
+                    raise subprocess.TimeoutExpired(command, timeout)
+                if self.stop.is_set():
+                    self.returncode = 1
+                    return b"", b"killed"
+                self.returncode = outcome
+                return b"", f"bad {name}".encode()
+
+            def kill(self):
+                converter.killed.append(name)
+                self.stop.set()
+
+            def poll(self):
+                return self.returncode
+        return Process()
+
+
+def _convert(tmp_path, monkeypatch, plan, names, workers):
+    import sys
+    from anyfem.application import plate_drawings
+    launched, killed = [], []
+    monkeypatch.setattr(plate_drawings.subprocess, "Popen", _Converter(plan, launched, killed))
+    monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", workers)
+    folder = _dxf_folder(tmp_path/f"case{len(list(tmp_path.iterdir()))}", names)
+    try:
+        plate_drawings._make_dwg_copies(sys.executable, folder, folder/"dwg", backend="studio")
+    finally:
+        _convert.launched, _convert.killed = launched, killed
+
+
+def test_parallel_dwg_reports_the_first_failure_in_input_order_and_stops(tmp_path, monkeypatch):
+    plan = {"a": (.3, 7), "b": (0., "launch"), "c": (.6, 0)}
     with pytest.raises(ValueError, match="returned 7 during DWG conversion. bad a"):
-        plate_drawings._make_dwg_copies(sys.executable, source, tmp_path/"dwg", backend="studio")
-    # A sequential run stops at a. b failed at once, so nothing after b starts.
-    assert sorted(launched) == ["a", "b"]
+        _convert(tmp_path, monkeypatch, plan, "abcdefgh", workers=2)
+    # A sequential run stops at a. b failed to launch at once, so nothing after b starts.
+    assert _convert.launched == ["a"]
+
+
+def test_parallel_dwg_failure_is_not_delayed_by_running_conversions(tmp_path, monkeypatch):
+    import time
+    plan = {"a": (.05, 7), "b": (30., 0), "c": (30., 0)}
+    started = time.perf_counter()
+    with pytest.raises(ValueError, match="returned 7"):
+        _convert(tmp_path, monkeypatch, plan, "abcdef", workers=3)
+    assert time.perf_counter() - started < 5, "running conversions must be stopped, not waited for"
+    assert sorted(_convert.launched) == ["a", "b", "c"] and sorted(_convert.killed) == ["b", "c"]
 
 
 def test_parallel_dwg_timeout_and_launch_errors_match_a_sequential_run(tmp_path, monkeypatch):
     import subprocess
-    import sys
-    from pathlib import Path
-    from anyfem.application import plate_drawings
-
-    def run(command, **options):
-        if Path(command[2]).stem == "a":
-            raise subprocess.TimeoutExpired(command, 120)
-        raise OSError("cannot launch")
-    monkeypatch.setattr(plate_drawings.subprocess, "run", run)
     for workers in (1, 3):
-        monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", workers)
         with pytest.raises(ValueError, match="timed out while writing DWG files") as caught:
-            plate_drawings._make_dwg_copies(sys.executable, _dxf_folder(tmp_path/f"t{workers}", "abc"),
-                                            tmp_path/f"t{workers}"/"dwg", backend="studio")
-        assert isinstance(caught.value.__cause__, subprocess.TimeoutExpired)
-        with pytest.raises(OSError, match="cannot launch"):
-            plate_drawings._make_dwg_copies(sys.executable, _dxf_folder(tmp_path/f"o{workers}", "bc"),
-                                            tmp_path/f"o{workers}"/"dwg", backend="studio")
+            _convert(tmp_path, monkeypatch, {"a": (0., "timeout"), "b": (0., "launch")}, "abc", workers)
+        assert isinstance(caught.value.__cause__, subprocess.TimeoutExpired) and "a" in _convert.killed
+        with pytest.raises(OSError, match="cannot launch b"):
+            _convert(tmp_path, monkeypatch, {"b": (0., "launch"), "c": (0., 9)}, "bc", workers)
+        with pytest.raises(ValueError, match="returned 9 during DWG conversion. bad c"):
+            _convert(tmp_path, monkeypatch, {"c": (0., 9)}, "bcd", workers)
 
 
 def test_cached_results_are_read_only_and_refusals_are_fresh():
