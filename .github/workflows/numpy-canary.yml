@@ -1,0 +1,69 @@
+name: NumPy canary
+# T7: does the cheap identity measurement notice NumPy 2.5.x instead of the pinned 2.4.6?  MANUAL ONLY (workflow_dispatch; no push, no
+# pull_request, no schedule).  Two throwaway virtual environments on the same interpreter and the same hash-pinned scipy/shapely, differing
+# only in NumPy (2.4.6 from tools/runtime.lock.json, 2.5.4 from tools/numpy_canary_requirements.txt); sector60 is prepared serially in each
+# and the masked results are compared.  Exit 0 = DETECTED (digests differ: the measurement has teeth), 1 = NOT DETECTED, 2 = input problem.
+# This does NOT replace the pin: lock/health check refuse a 2.5 bundle regardless (tests/test_numpy_canary_layers.py).  Procedure: docs/NUMPY_CANARY.md.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ANYGEOMETRY_REF: 53774600471bf9d77502585c5646dc8c7ac826b3
+jobs:
+  numpy-canary:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: audunarn/ANYgeometry
+          ref: ${{ env.ANYGEOMETRY_REF }}
+          path: .ecosystem/ANYgeometry
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.10t'
+      - name: The CI interpreter is the lock's build (fails closed)
+        shell: bash
+        run: python tools/build_runtime.py check-interpreter --lock tools/runtime.lock.json
+      - name: Hash-pinned wheels (pinned set and canary NumPy)
+        shell: bash
+        run: |
+          python tools/build_runtime.py requirements --lock tools/runtime.lock.json > locked-requirements.txt
+          grep -v '^numpy==' locked-requirements.txt > common-requirements.txt
+          cat common-requirements.txt tools/numpy_canary_requirements.txt | grep -v '^#' > canary-requirements.txt
+          python -m pip download -r locked-requirements.txt --require-hashes --no-deps --only-binary=:all: -d wheelhouse-pinned
+          python -m pip download -r canary-requirements.txt --require-hashes --no-deps --only-binary=:all: -d wheelhouse-canary
+      - name: Build both environments
+        shell: bash
+        run: |
+          python -m venv venv-pinned
+          python -m venv venv-canary
+          venv-pinned/Scripts/python.exe -m pip install -r locked-requirements.txt --require-hashes --no-deps --no-index --find-links wheelhouse-pinned
+          venv-canary/Scripts/python.exe -m pip install -r canary-requirements.txt --require-hashes --no-deps --no-index --find-links wheelhouse-canary
+          venv-pinned/Scripts/python.exe -c "import numpy; assert numpy.__version__ == '2.4.6', numpy.__version__"
+          venv-canary/Scripts/python.exe -c "import numpy; assert numpy.__version__.startswith('2.5.'), numpy.__version__"
+      - name: Measure sector60 (serial) under both
+        shell: bash
+        run: |
+          export PYTHONPATH="$PWD/.ecosystem/ANYgeometry/src;$PWD/src"
+          venv-pinned/Scripts/python.exe -s tools/ci_numpy_canary.py measure record-pinned.json
+          venv-canary/Scripts/python.exe -s tools/ci_numpy_canary.py measure record-canary.json
+      - name: Verdict (0 = DETECTED, 1 = NOT DETECTED, 2 = input problem)
+        shell: bash
+        run: |
+          export PYTHONPATH="$PWD/.ecosystem/ANYgeometry/src;$PWD/src"
+          venv-pinned/Scripts/python.exe -s tools/ci_numpy_canary.py compare record-pinned.json record-canary.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: numpy-canary
+          path: |
+            record-pinned.json
+            record-canary.json
+            record-pinned.json.blob
+            record-canary.json.blob
