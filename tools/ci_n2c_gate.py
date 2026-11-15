@@ -73,26 +73,32 @@ def load_constants(path) -> dict:
     return c
 
 
+# threadpoolctl's internal_api values; any other value is an unclassified pool and fails closed
+_POOL_APIS = frozenset({"openblas", "mkl", "blis", "flexiblas", "openmp"})
+
+
 def kernel_problems(label: str, blas, kernel: dict) -> list:
     """Why a run's recorded BLAS kernel is not acceptable ([] = it is the frozen kernel, requested explicitly and really in effect).
 
-    `blas` is child-result["blas"]: {"requested_coretype": <OPENBLAS_CORETYPE or None>, "openblas_pools": [{"internal_api", "architecture", ...}]}
+    `blas` is child-result["blas"]: {"requested_coretype": <OPENBLAS_CORETYPE or None>, "pools": [{"internal_api", "architecture", ...}]}
     (threadpoolctl's `architecture` is the kernel OpenBLAS actually selected, so a silent fallback shows up as requested != effective).
     """
     if not isinstance(blas, dict):
         return ["%s: KERNEL record missing (child-result has no BLAS kernel record; a run without one is never accepted)" % label]
     problems = []
-    req, pools = blas.get("requested_coretype"), blas.get("openblas_pools")
+    req, pools = blas.get("requested_coretype"), blas.get("pools")
     req_ok = isinstance(req, str) and bool(req)
     if not req_ok:
         problems.append("%s: KERNEL not requested (OPENBLAS_CORETYPE recorded as %r; the pin is %s)" % (label, req, kernel["openblas_coretype"]))
     if not isinstance(pools, list):
-        return problems + ["%s: KERNEL record malformed (openblas_pools is %r)" % (label, type(pools).__name__)]
+        return problems + ["%s: KERNEL record malformed (pools is %r)" % (label, type(pools).__name__)]
     effective = []
     for pool in pools:
         threads = pool.get("num_threads") if isinstance(pool, dict) else None
-        if not isinstance(pool, dict) or not isinstance(pool.get("internal_api"), str) or not pool["internal_api"]                 or not isinstance(threads, int) or isinstance(threads, bool) or threads < 1:
-            problems.append("%s: KERNEL record malformed (pool entry %r: needs internal_api and a positive integer num_threads)" % (label, pool))
+        if (not isinstance(pool, dict) or not isinstance(pool.get("internal_api"), str) or pool["internal_api"] not in _POOL_APIS
+                or not isinstance(threads, int) or isinstance(threads, bool) or threads < 1):
+            problems.append("%s: KERNEL record malformed (pool entry %r: needs a threadpoolctl internal_api %s and a positive integer num_threads)"
+                            % (label, pool, sorted(_POOL_APIS)))
         elif pool.get("internal_api") == "openblas":
             arch = pool.get("architecture")
             if isinstance(arch, str) and arch:

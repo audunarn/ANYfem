@@ -36,11 +36,10 @@ def _threadpool_info() -> list:
 
 
 def record() -> dict:
-    pools = []
-    for pool in _threadpool_info():
-        if pool.get("internal_api") == "openblas":
-            pools.append({"internal_api": "openblas", "architecture": pool.get("architecture"), "num_threads": pool.get("num_threads")})
-    return {"requested_coretype": os.environ.get("OPENBLAS_CORETYPE"), "openblas_pools": pools}
+    # EVERY pool is recorded unfiltered (the gate classifies them; a filter here would hide an unclassified pool from it)
+    pools = [{"internal_api": p.get("internal_api"), "architecture": p.get("architecture"), "num_threads": p.get("num_threads")}
+             for p in _threadpool_info()]
+    return {"requested_coretype": os.environ.get("OPENBLAS_CORETYPE"), "pools": pools}
 
 
 def _gate():

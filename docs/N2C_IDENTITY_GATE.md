@@ -27,7 +27,7 @@ The full model is **BLAS-kernel dependent** (NumPy 2.4.6, serial, full model): t
 (StructuralPreparationError, unresolved arrangement edge face:550). So:
 - The driver environment pins `OPENBLAS_CORETYPE=SKYLAKEX` for **both** the serial and the thread-route run (workflow job env `n2c-identity`;
   any driver must pass it to the child unchanged and must not set another value). A runner CPU without AVX-512 cannot run it.
-- The child writes `child-result.json["blas"]`: `requested_coretype` (the env value, or null) and `openblas_pools` (threadpoolctl
+- The child writes `child-result.json["blas"]`: `requested_coretype` (the env value, or null) and `pools` (threadpoolctl
   `internal_api`/`architecture`/`num_threads` of every OpenBLAS pool). `tools/ci_blas_kernel.py` produces the same record and, with
   `--constants`, is the workflow's preflight under both interpreters (exit 4 before any model run).
 - The gate exits **4 KERNEL** (named, distinct) when the record is missing or malformed, no OPENBLAS_CORETYPE was requested, the requested value is not

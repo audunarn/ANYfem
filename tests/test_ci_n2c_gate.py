@@ -45,7 +45,7 @@ def plan_text(uuid, tag="x"):
 
 
 def good_blas(requested="SKYLAKEX", arch="SkylakeX"):
-    return {"requested_coretype": requested, "openblas_pools": [{"internal_api": "openblas", "architecture": arch, "num_threads": 1}]}
+    return {"requested_coretype": requested, "pools": [{"internal_api": "openblas", "architecture": arch, "num_threads": 1}]}
 
 
 def make_out(folder, uuid=UUID_A, shav=SHA_A, counters=None, faces_out=7, threads="4", gil=False, numpy="2.4.6", model=None, plan=None, blas=None):
@@ -376,23 +376,28 @@ def _pool(api="openblas", **kw):
 @pytest.mark.parametrize("bad", [
     None, [], "SkylakeX", {},
     {"requested_coretype": "SKYLAKEX"},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": []},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": "SkylakeX"},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "openblas"}]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(architecture=5)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "mkl", "architecture": "SkylakeX", "num_threads": 1}]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), {"architecture": "Haswell", "num_threads": 1}]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), {"internal_api": None, "architecture": "Haswell", "num_threads": 1}]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), "Haswell"]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "openblas", "architecture": "SkylakeX"}]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=None)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=True)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=[1])]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=0)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(num_threads=1.0)]},
-    {"requested_coretype": "SKYLAKEX", "openblas_pools": ["SkylakeX"]},
-    {"requested_coretype": None, "openblas_pools": [_pool()]},
-    {"requested_coretype": "", "openblas_pools": [_pool()]},
+    {"requested_coretype": "SKYLAKEX", "pools": []},
+    {"requested_coretype": "SKYLAKEX", "pools": "SkylakeX"},
+    {"requested_coretype": "SKYLAKEX", "pools": [{"internal_api": "openblas"}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(architecture=5)]},
+    {"requested_coretype": "SKYLAKEX", "pools": [{"internal_api": "mkl", "architecture": "SkylakeX", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": None, "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), "Haswell"]},
+    {"requested_coretype": "SKYLAKEX", "pools": [{"internal_api": "openblas", "architecture": "SkylakeX"}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": " ", "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": "OpenBLAS", "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": "openblas ", "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": "unknownblas", "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(), {"internal_api": ["openblas"], "architecture": "Haswell", "num_threads": 1}]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(num_threads=None)]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(num_threads=True)]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(num_threads=[1])]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(num_threads=0)]},
+    {"requested_coretype": "SKYLAKEX", "pools": [_pool(num_threads=1.0)]},
+    {"requested_coretype": "SKYLAKEX", "pools": ["SkylakeX"]},
+    {"requested_coretype": None, "pools": [_pool()]},
+    {"requested_coretype": "", "pools": [_pool()]},
 ])
 def test_malformed_or_unrequested_kernel_record_fails_closed(pair, bad):
     set_blas(pair[:2], bad)
@@ -408,7 +413,7 @@ def test_requested_differs_from_effective_architecture_is_the_no_avx512_case(pai
 
 
 def test_one_matching_and_one_mismatching_openblas_pool_fails(pair):
-    two = {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), _pool(architecture="Haswell")]}
+    two = {"requested_coretype": "SKYLAKEX", "pools": [_pool(), _pool(architecture="Haswell")]}
     set_blas(pair[:2], two)
     assert run(pair) == gate.EXIT_KERNEL
 
@@ -423,9 +428,9 @@ def test_requested_value_must_match_the_frozen_spelling(pair):
     assert run(pair) == gate.EXIT_KERNEL
 
 
-def test_extra_non_openblas_pools_are_ignored_when_an_openblas_pool_matches(pair):
+def test_extra_non_pools_are_ignored_when_an_openblas_pool_matches(pair):
     b = good_blas()
-    b["openblas_pools"].append({"internal_api": "mkl", "architecture": "whatever", "num_threads": 4})
+    b["pools"].append({"internal_api": "mkl", "architecture": "whatever", "num_threads": 4})
     set_blas(pair[:2], b)
     assert run(pair) == 0
 
@@ -479,7 +484,7 @@ def fake_pools(monkeypatch, arch="SkylakeX", api="openblas"):
     monkeypatch.setattr(probe, "_threadpool_info", lambda: [{"internal_api": api, "architecture": arch, "num_threads": 1, "filepath": "x/libscipy_openblas.dll"}])
 
 
-def test_probe_record_has_requested_value_and_openblas_pools(monkeypatch):
+def test_probe_record_has_requested_value_and_pools(monkeypatch):
     fake_pools(monkeypatch)
     monkeypatch.setenv("OPENBLAS_CORETYPE", "SKYLAKEX")
     assert probe.record() == good_blas()
@@ -517,7 +522,7 @@ def test_probe_and_gate_agree_on_the_verdict():
 def test_probe_really_runs_here_and_reports_a_record():
     """Real threadpoolctl, no fake: the record is well formed whatever this machine's kernel is."""
     r = probe.record()
-    assert set(r) == {"requested_coretype", "openblas_pools"} and isinstance(r["openblas_pools"], list)
+    assert set(r) == {"requested_coretype", "pools"} and isinstance(r["pools"], list)
 
 
 
@@ -612,11 +617,20 @@ def test_workflow_pins_the_kernel_to_the_frozen_constants_for_every_run():
     assert re.search(r"^      OPENBLAS_CORETYPE: '?%s'?$" % c["blas_kernel"]["openblas_coretype"], env_block, re.M), env_block
     # kernel preflight runs under both interpreters, before the serial run
     steps = job.split("    steps:", 1)[1]
-    pre = steps.split("Serial run (route OFF)")[0]
+    pre = steps.split("      - name: Serial run (route OFF)")[0]
     assert job.count("tools/ci_blas_kernel.py") == 2
     for var in ("N2C_PY_SERIAL", "N2C_PY_THREAD"):
         assert ('          "$%s" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n' % var) in pre
     assert re.search(r"name: Kernel preflight[^\n]*\n        shell: bash\n        run: \|\n", pre)
+    expected = ("      - name: Kernel preflight (SKYLAKEX requested and in effect, both interpreters; fails closed on a CPU without AVX-512)\n"
+                "        shell: bash\n        run: |\n"
+                '          "$N2C_PY_SERIAL" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n'
+                '          "$N2C_PY_THREAD" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n')
+    assert pre.endswith(expected), pre[-700:]                     # exact step: no if/set +e/continue-on-error/extra lines
+    # the job opt-in guard is a real key of the job (comments mentioning N2C_ENABLED do not count), and only 'if: always()' exists in steps
+    assert job.startswith("    if: ${{ vars.N2C_ENABLED == 'true' }}\n"), job[:120]
+    assert re.findall(r"^\s+if:.*$", steps, re.M) == ["        if: always()"]
+    assert not re.search(r"set \+e|\|\| true|trap |exit 0", steps)
     # no step sets, overrides, unsets or mentions the pin (steps inherit the job env)
     assert "OPENBLAS_CORETYPE" not in steps
     assert not re.search(r"\bunset\b|\benv\s+-", steps)
@@ -634,3 +648,23 @@ def test_wrong_kernel_never_suggests_a_counters_refresh(tmp_path, capsys):
     t = make_out(tmp_path / "t", uuid=UUID_B, shav=SHA_B, counters=other, blas=good_blas("HASWELL", "Haswell"))
     assert gate.main([str(s), str(t), "--constants", str(constants(tmp_path / "c"))]) == gate.EXIT_KERNEL
     assert "REFRESH" not in capsys.readouterr().out
+
+
+def test_probe_records_every_pool_unfiltered_so_the_gate_sees_unclassified_ones(monkeypatch):
+    monkeypatch.setenv("OPENBLAS_CORETYPE", "SKYLAKEX")
+    pools = [{"internal_api": "openblas", "architecture": "SkylakeX", "num_threads": 1, "filepath": "a"},
+             {"internal_api": "openmp", "num_threads": 4},
+             {"architecture": "Haswell", "num_threads": 1}]
+    monkeypatch.setattr(probe, "_threadpool_info", lambda: pools)
+    rec = probe.record()
+    assert len(rec["pools"]) == 3 and "filepath" not in rec["pools"][0]
+    c = gate.load_constants(ROOT / "tools" / "n2c_identity_constants.json")["blas_kernel"]
+    assert probe.check(rec, c) != [] and gate.kernel_problems("this interpreter", rec, c) == probe.check(rec, c)
+    assert probe.main(["--constants", str(ROOT / "tools" / "n2c_identity_constants.json")]) == gate.EXIT_KERNEL
+
+
+def test_non_openblas_pools_with_a_known_api_are_accepted(pair):
+    b = good_blas()
+    b["pools"] += [{"internal_api": "openmp", "architecture": None, "num_threads": 4}, {"internal_api": "mkl", "architecture": None, "num_threads": 2}]
+    set_blas(pair[:2], b)
+    assert run(pair) == 0
