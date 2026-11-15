@@ -6,6 +6,7 @@ import numpy as np
 from anygeometry.curves import Arc, Straight, arc_frame
 from anygeometry.surfaces import Cylinder
 
+from .drawing_cache import scoped
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import edge_spans, trace
 from .plate_profiles import _END_GAP_M, _plane
@@ -344,6 +345,7 @@ def _sheet_cuts(project, faces, view, edges, sampled, notes, side="centre", repr
             notes.append(f"Face {face.id} omitted ({error})")
 
 
+@scoped
 def build_plane_view(project, origin, normal, up, *, bounds=None, thickness_sides="auto",
                      representation="solid") -> DrawingView:
     """Cut native sheets and assigned straight members. Plane and bounds use SI.

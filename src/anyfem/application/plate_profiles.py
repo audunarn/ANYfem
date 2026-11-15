@@ -10,6 +10,7 @@ import numpy as np
 from anygeometry.surfaces import CoonsSurface, Cylinder, Plane
 
 from .plate_curves import edge_spans, project_span, signed_area, trace, write_profiles_dxf
+from .drawing_cache import memo, scoped
 from .thickness_side import thickness_band
 
 # Maximum native end gap in a CAD contour, in metres (0.00001 mm).
@@ -200,6 +201,13 @@ class _PlanarGeometry:
 
 
 def _planar_geometry(geometry, faces, sheet):
+    """Validated planar contour of a Sheet (memoised inside a :func:`drawing_scope`)."""
+    faces = list(faces)
+    return memo("planar_geometry", (tuple((face.id, id(face)) for face in faces), None if sheet is None else (sheet.id, id(sheet))),
+                lambda: _compute_planar_geometry(geometry, faces, sheet), owners=(geometry, *faces, sheet))
+
+
+def _compute_planar_geometry(geometry, faces, sheet):
     try:
         from shapely import Polygon, union_all
     except ImportError as error:
@@ -341,6 +349,7 @@ def _strip_plate(project, sheet, faces, thickness, material, side, band):
                         strip, strip.band_area((low + high) / 2))
 
 
+@scoped
 def build_plate_profiles(project, part_id: int, *, thickness_sides=None) -> tuple[PlateProfile, ...]:
     """Return net true-plane profiles for the physical sheets owned by one Part.
 

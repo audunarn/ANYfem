@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import json
 
 from ...document import canonical_hash
+from ...application.drawing_cache import scoped
 from ...application.drawing_views import write_view_dxf
 from ...application.plate_drawings import _make_dwg_copies, export_plate_drawings
 from .drawing_paper import write_sheets
@@ -20,6 +21,7 @@ def _selected(view, extent):
     return True
 
 
+@scoped
 def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=None, converter=None, backend="oda",
             elevation_datum="support_base", include_plate_intersections=True, representation="solid",
             thickness_sides="auto", extent=None):

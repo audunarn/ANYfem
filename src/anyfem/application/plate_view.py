@@ -9,6 +9,7 @@ from anygeometry.surfaces import Cylinder
 
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import edge_spans, trace
+from .drawing_cache import scoped
 from .plate_profiles import _face_rings, _planar_geometry
 
 try:
@@ -399,6 +400,7 @@ def _stiffeners(project, sheet, face_ids, edges, polygon, develop):
     return paths
 
 
+@scoped
 def build_plate_view(project, face_id: int, *, include_stiffeners: bool = True,
                      include_plate_intersections: bool = True, thickness_sides="auto",
                      representation="solid") -> DrawingView:

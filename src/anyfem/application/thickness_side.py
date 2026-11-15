@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .drawing_cache import memo, scoped
+
 SIDES = ("centre", "front", "back")
 SIDE_CHOICES = ("auto", *SIDES)
 REPRESENTATIONS = ("solid", "midsurface_2d")
@@ -229,6 +231,7 @@ def _decide(neighbours, counts):
     return "centre", "no neighbours" if not neighbours else f"{many(neighbours)} in plane only"
 
 
+@scoped
 def resolve_thickness_sides(project, part_id, overrides=None) -> dict[int, tuple[str, str, str]]:
     """Return ``{sheet_id: (side, 'auto'|'manual', reason)}`` for one Part.
 
@@ -247,6 +250,12 @@ def resolve_thickness_sides(project, part_id, overrides=None) -> dict[int, tuple
     if part is None:
         raise ValueError(f"No structural Part with ID {part_id}")
     manual = _manual(project, overrides)
+    return dict(memo("thickness_sides", (part_id, tuple(sorted(manual.items()))),
+                     lambda: _resolve_part(project, part, manual), owners=(project, geometry), freeze=False))
+
+
+def _resolve_part(project, part, manual):
+    geometry = project.geometry
     sheets = tuple(part.sheet_ids)
     vertices = {sheet: _vertices(geometry, _sheet_faces(geometry, geometry.sheets[sheet])) for sheet in sheets}
     result = {}
@@ -260,6 +269,7 @@ def resolve_thickness_sides(project, part_id, overrides=None) -> dict[int, tuple
     return result
 
 
+@scoped
 def resolve_sides(project, thickness_sides="auto", sheet_ids=None) -> dict[int, str]:
     """Return resolved ``{sheet_id: side}`` for ``sheet_ids`` (default: every Sheet).
 

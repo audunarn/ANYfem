@@ -348,7 +348,17 @@ def rectangular_trim(geometry, face, *, cache=None):
 
 
 def curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
-    """Validate a curved strip Sheet and return its exact development data."""
+    """Validate a curved strip Sheet and return its exact development data.
+
+    Memoised inside a :func:`drawing_cache.drawing_scope`.
+    """
+    from .drawing_cache import memo
+    faces = list(faces)
+    return memo("curved_strip", (tuple((face.id, id(face)) for face in faces), None if sheet is None else (sheet.id, id(sheet))),
+                lambda: _compute_curved_strip(geometry, faces, sheet), owners=(geometry, *faces, sheet))
+
+
+def _compute_curved_strip(geometry, faces, sheet=None) -> CurvedStrip:
     from shapely import Polygon, box, union_all
     from shapely.affinity import translate
 

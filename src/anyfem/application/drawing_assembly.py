@@ -5,6 +5,7 @@ import math
 
 import numpy as np
 
+from .drawing_cache import scoped
 from .drawing_views import DrawingPath, DrawingView
 from .plate_curves import trace
 from .plate_profiles import build_plate_profiles
@@ -316,6 +317,7 @@ def _projection(stocks, direction, up):
                  if not g.is_empty and g.geom_type == "LineString")
 
 
+@scoped
 def assembly_views(project, part_id, quantity=1, density=None, *, all_views=True,
                    elevation_datum="global", thickness_sides="auto", representation="solid", views=None):
     """Isometric/plan/front/right views of one plate Part.

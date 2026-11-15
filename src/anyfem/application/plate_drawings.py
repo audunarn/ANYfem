@@ -14,6 +14,8 @@ from tempfile import TemporaryDirectory
 from anyfem.document import DocumentSession, ProjectSnapshot, canonical_hash
 from anyfem.io import load_project
 
+from .drawing_cache import scoped
+
 
 INDEX_COLUMNS = (
     "Plate", "Sheet ID", "Material", "Thickness mm", "Holes", "Nominal density (kg/m3)",
@@ -93,6 +95,7 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
                 raise ValueError(f"Invalid AutoCAD 2018 DWG output for {file.stem}")
 
 
+@scoped
 def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: str | Path, *,
                           quantity: int = 1, density_kg_m3: float | None = None,
                           dwg_converter: str | Path | None = None, dwg_backend: str = "oda",
