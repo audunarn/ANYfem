@@ -15,7 +15,7 @@ from tempfile import TemporaryDirectory
 from anyfem.document import DocumentSession, ProjectSnapshot, canonical_hash
 from anyfem.io import load_project
 
-from .drawing_cache import scoped
+from .drawing_cache import scoped, thawed
 
 
 INDEX_COLUMNS = (
@@ -158,7 +158,7 @@ def export_plate_drawings(snapshot: ProjectSnapshot, part_id: int, destination: 
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Choose a new export folder: {destination}")
-    project = snapshot.thaw()
+    project = thawed(snapshot)
     part = project.geometry.parts.get(part_id)
     if part is None:
         raise ValueError(f"No structural Part with ID {part_id}")

@@ -84,3 +84,16 @@ def memo(kind, key, compute, *, owners=(), freeze=True):
     if not ok:
         raise copy.copy(value).with_traceback(None)
     return value
+
+
+def thawed(snapshot):
+    """``snapshot.thaw()``, once per snapshot inside the open scope.
+
+    A publish exports the takeoff and then draws the plate sheets from the same
+    snapshot; sharing one thawed project lets the sheets reuse the export's
+    contours and sides.  The drawing code only reads the project: its one
+    refresh, ``resolve_section_assignments(strict=True)`` in the plate
+    profiles, either refuses or leaves the maps a freshly loaded project
+    already has (loading resolves them).
+    """
+    return memo("thaw", (), snapshot.thaw, owners=(snapshot,), freeze=False)

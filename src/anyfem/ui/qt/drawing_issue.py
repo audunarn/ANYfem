@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import json
 
 from ...document import canonical_hash
-from ...application.drawing_cache import scoped
+from ...application.drawing_cache import scoped, thawed
 from ...application.drawing_views import write_view_dxf
 from ...application.plate_drawings import _make_dwg_copies, export_plate_drawings
 from .drawing_paper import write_sheets
@@ -46,7 +46,7 @@ def publish(destination, snapshot, views, *, part_id=None, quantity=1, density=N
                                   representation=representation, thickness_sides=thickness_sides,
                                   extent=extent)
             index = package/"Plate-index.csv" if extent.index_and_takeoff else None
-            project = snapshot.thaw()
+            project = thawed(snapshot)
             g = project.geometry
             for sid in (g.parts[part_id].sheet_ids if extent.plate_profiles else ()):
                 face = g.face_uses[g.sheets[sid].face_use_ids[0]].face_id

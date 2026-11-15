@@ -124,6 +124,17 @@ def test_cached_results_are_read_only_and_refusals_are_fresh():
     assert np.array_equal(unscoped.origin, shape.origin)
 
 
+def test_one_scope_thaws_a_snapshot_once_and_each_call_afresh():
+    from anyfem.application.drawing_cache import thawed
+    m, flange, web = _tee()
+    snapshot = DocumentSession(m.p).snapshot()
+    with drawing_scope():
+        project = thawed(snapshot)
+        assert thawed(snapshot) is project
+        assert thawed(DocumentSession(m.p).snapshot()) is not project
+    assert thawed(snapshot) is not project and thawed(snapshot) is not thawed(snapshot)
+
+
 def test_each_thread_has_its_own_memo():
     seen = {}
     with drawing_scope():
