@@ -44,7 +44,11 @@ def plan_text(uuid, tag="x"):
     return json.dumps({"plan": tag, "owner": uuid})
 
 
-def make_out(folder, uuid=UUID_A, shav=SHA_A, counters=None, faces_out=7, threads="4", gil=False, numpy="2.4.6", model=None, plan=None):
+def good_blas(requested="SKYLAKEX", arch="SkylakeX"):
+    return {"requested_coretype": requested, "openblas_pools": [{"internal_api": "openblas", "architecture": arch, "num_threads": 1}]}
+
+
+def make_out(folder, uuid=UUID_A, shav=SHA_A, counters=None, faces_out=7, threads="4", gil=False, numpy="2.4.6", model=None, plan=None, blas=None):
     counters = dict(COUNTERS if counters is None else counters)
     out = Path(folder) / "out"
     out.mkdir(parents=True)
@@ -54,17 +58,20 @@ def make_out(folder, uuid=UUID_A, shav=SHA_A, counters=None, faces_out=7, thread
     result = {"identity": {"counters_deterministic_sha256": counters_sha(counters), "working_faces_out": faces_out, "faces_in": 5},
               "versions": {"numpy": numpy}, "gil": gil, "threads_env": threads,
               "origins": {"anygeometry": str(Path(folder) / "geo" / "__init__.py"), "anyfem": str(Path(folder) / "fem" / "__init__.py")}}
+    if blas is not False:
+        result["blas"] = good_blas() if blas is None else blas
     (out / "child-result.json").write_text(json.dumps(result))
     return Path(folder)
 
 
 def constants(path):
     m, p = masked(model_text(UUID_A, SHA_A)), masked(plan_text(UUID_A))
-    c = {"schema": 1,
+    c = {"schema": 2,
          "prepared_model": {"masked_sha256": sha(m), "masked_chars": len(m)},
          "plan": {"masked_sha256": sha(p), "masked_chars": len(p)},
          "counters_deterministic_sha256": counters_sha(COUNTERS), "counters_nontime_keys": 3,
-         "faces_in": 5, "working_faces_out": 7, "numpy_version": "2.4.6"}
+         "faces_in": 5, "working_faces_out": 7, "numpy_version": "2.4.6",
+         "blas_kernel": {"openblas_architecture": "SkylakeX", "openblas_coretype": "SKYLAKEX"}}
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     out = path / "constants.json"
@@ -329,25 +336,242 @@ def test_committed_constants_are_well_formed():
     assert c["working_faces_out"] == 1269 and c["numpy_version"] == "2.4.6"
 
 
+
+# ---------------------------------------------------------------- BLAS kernel pin (kernel-dependent full model, T7b section C)
+def set_blas(folders, blas):
+    for f in folders:
+        edit_result(f, lambda d: d.__setitem__("blas", blas))
+
+
+def test_kernel_is_part_of_the_constants_and_the_gate_has_a_distinct_exit():
+    assert gate.EXIT_KERNEL == 4 and gate.EXIT_KERNEL not in (0, 1, 2, 3)
+    c = gate.load_constants(ROOT / "tools" / "n2c_identity_constants.json")
+    assert (c["blas_kernel"]["openblas_architecture"], c["blas_kernel"]["openblas_coretype"]) == ("SkylakeX", "SKYLAKEX")
+
+
+@pytest.mark.parametrize("arch,req", [("Haswell", "HASWELL"), ("Nehalem", "NEHALEM"), ("Zen", "ZEN")])
+def test_other_kernel_with_otherwise_matching_digests_fails_naming_the_kernel(pair, capsys, arch, req):
+    set_blas(pair[:2], good_blas(req, arch))
+    assert run(pair) == gate.EXIT_KERNEL
+    out = capsys.readouterr().out
+    assert "KERNEL" in out and arch in out and "SkylakeX" in out
+
+
+def test_only_one_of_the_two_runs_on_the_wrong_kernel_fails(pair):
+    set_blas(pair[1:2], good_blas("HASWELL", "Haswell"))
+    assert run(pair) == gate.EXIT_KERNEL
+
+
+@pytest.mark.parametrize("which", [0, 1])
+def test_missing_kernel_record_fails_closed_with_kernel_exit(pair, capsys, which):
+    edit_result(pair[which], lambda d: d.pop("blas"))
+    assert run(pair) == gate.EXIT_KERNEL
+    assert "KERNEL" in capsys.readouterr().out
+
+
+def _pool(api="openblas", **kw):
+    return dict({"internal_api": api, "architecture": "SkylakeX", "num_threads": 1}, **kw)
+
+
+@pytest.mark.parametrize("bad", [
+    None, [], "SkylakeX", {},
+    {"requested_coretype": "SKYLAKEX"},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": []},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": "SkylakeX"},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "openblas"}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(architecture=5)]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": [{"internal_api": "mkl", "architecture": "SkylakeX"}]},
+    {"requested_coretype": "SKYLAKEX", "openblas_pools": ["SkylakeX"]},
+    {"requested_coretype": None, "openblas_pools": [_pool()]},
+    {"requested_coretype": "", "openblas_pools": [_pool()]},
+])
+def test_malformed_or_unrequested_kernel_record_fails_closed(pair, bad):
+    set_blas(pair[:2], bad)
+    assert run(pair) == gate.EXIT_KERNEL
+
+
+def test_requested_differs_from_effective_architecture_is_the_no_avx512_case(pair, capsys):
+    """OPENBLAS_CORETYPE=SKYLAKEX on a CPU without AVX-512: OpenBLAS may silently fall back; the effective architecture gives it away."""
+    set_blas(pair[:2], good_blas("SKYLAKEX", "Haswell"))
+    assert run(pair) == gate.EXIT_KERNEL
+    out = capsys.readouterr().out
+    assert "requested SKYLAKEX" in out and "effective Haswell" in out and "AVX-512" in out
+
+
+def test_one_matching_and_one_mismatching_openblas_pool_fails(pair):
+    two = {"requested_coretype": "SKYLAKEX", "openblas_pools": [_pool(), _pool(architecture="Haswell")]}
+    set_blas(pair[:2], two)
+    assert run(pair) == gate.EXIT_KERNEL
+
+
+def test_requested_coretype_must_equal_the_frozen_one_even_if_effective_matches(pair):
+    set_blas(pair[:2], good_blas("DYNAMIC", "SkylakeX"))      # effective happens to be SkylakeX but the pin was not requested
+    assert run(pair) == gate.EXIT_KERNEL
+
+
+def test_requested_value_must_match_the_frozen_spelling(pair):
+    set_blas(pair[:2], good_blas("skylakex", "SkylakeX"))     # effective check is case-insensitive, the frozen request is exact
+    assert run(pair) == gate.EXIT_KERNEL
+
+
+def test_extra_non_openblas_pools_are_ignored_when_an_openblas_pool_matches(pair):
+    b = good_blas()
+    b["openblas_pools"].append({"internal_api": "mkl", "architecture": "whatever"})
+    set_blas(pair[:2], b)
+    assert run(pair) == 0
+
+
+def test_kernel_failure_outranks_a_digest_finding_but_both_are_printed(pair, capsys):
+    set_blas(pair[:2], good_blas("HASWELL", "Haswell"))
+    (pair[0] / "out/plan.json").write_text(plan_text(UUID_A, "z"))
+    (pair[1] / "out/plan.json").write_text(plan_text(UUID_B, "z"))
+    assert run(pair) == gate.EXIT_KERNEL
+    out = capsys.readouterr().out
+    assert "KERNEL" in out and "plan masked digest" in out
+
+
+@pytest.mark.parametrize("drop", ["blas_kernel", "openblas_architecture", "openblas_coretype"])
+def test_constants_without_a_kernel_are_unusable(pair, tmp_path, drop):
+    d = json.loads(pair[2].read_text())
+    if drop == "blas_kernel":
+        d.pop(drop)
+    else:
+        d["blas_kernel"].pop(drop)
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(d))
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(bad)]) == gate.EXIT_INPUT
+
+
+def test_constants_kernel_must_name_itself_consistently(pair, tmp_path):
+    d = json.loads(pair[2].read_text())
+    d["blas_kernel"]["openblas_coretype"] = "HASWELL"          # coretype vs architecture must agree (case-insensitive)
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(d))
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(bad)]) == gate.EXIT_INPUT
+
+
+def test_a_per_kernel_constants_file_is_a_separate_key_the_gate_accepts_for_its_own_kernel(pair, tmp_path):
+    d = json.loads(pair[2].read_text())
+    d["blas_kernel"] = {"openblas_architecture": "Haswell", "openblas_coretype": "HASWELL"}
+    other = tmp_path / "haswell.json"
+    other.write_text(json.dumps(d))
+    set_blas(pair[:2], good_blas("HASWELL", "Haswell"))
+    assert gate.main([str(pair[0]), str(pair[1]), "--constants", str(other)]) == 0
+    assert run(pair) == gate.EXIT_KERNEL                         # and the SkylakeX constants still refuse it
+
+
+# blas-kernel probe tool (used by the workflow preflight)
+PROBE = importlib.util.spec_from_file_location("ci_blas_kernel", ROOT / "tools" / "ci_blas_kernel.py")
+probe = importlib.util.module_from_spec(PROBE)
+PROBE.loader.exec_module(probe)
+
+
+def fake_pools(monkeypatch, arch="SkylakeX", api="openblas"):
+    monkeypatch.setattr(probe, "_threadpool_info", lambda: [{"internal_api": api, "architecture": arch, "num_threads": 1, "filepath": "x/libscipy_openblas.dll"}])
+
+
+def test_probe_record_has_requested_value_and_openblas_pools(monkeypatch):
+    fake_pools(monkeypatch)
+    monkeypatch.setenv("OPENBLAS_CORETYPE", "SKYLAKEX")
+    assert probe.record() == good_blas()
+    monkeypatch.delenv("OPENBLAS_CORETYPE")
+    assert probe.record()["requested_coretype"] is None
+
+
+def test_probe_main_checks_against_constants(monkeypatch, capsys):
+    c = str(ROOT / "tools" / "n2c_identity_constants.json")
+    fake_pools(monkeypatch)
+    monkeypatch.setenv("OPENBLAS_CORETYPE", "SKYLAKEX")
+    assert probe.main(["--constants", c]) == 0
+    fake_pools(monkeypatch, "Haswell")                           # no AVX-512 fallback
+    assert probe.main(["--constants", c]) == gate.EXIT_KERNEL
+    assert "AVX-512" in capsys.readouterr().out
+    fake_pools(monkeypatch)
+    monkeypatch.delenv("OPENBLAS_CORETYPE")
+    assert probe.main(["--constants", c]) == gate.EXIT_KERNEL
+
+
+def test_probe_with_no_openblas_pool_fails(monkeypatch):
+    c = str(ROOT / "tools" / "n2c_identity_constants.json")
+    monkeypatch.setenv("OPENBLAS_CORETYPE", "SKYLAKEX")
+    monkeypatch.setattr(probe, "_threadpool_info", lambda: [])
+    assert probe.main(["--constants", c]) == gate.EXIT_KERNEL
+
+
+def test_probe_and_gate_agree_on_the_verdict():
+    c = gate.load_constants(ROOT / "tools" / "n2c_identity_constants.json")
+    for req, arch in (("SKYLAKEX", "SkylakeX"), ("SKYLAKEX", "Haswell"), ("HASWELL", "Haswell"), (None, "SkylakeX")):
+        rec = good_blas(req, arch)
+        assert (probe.check(rec, c["blas_kernel"]) == []) == (gate.kernel_problems("x", rec, c["blas_kernel"]) == [])
+
+
+def test_probe_really_runs_here_and_reports_a_record():
+    """Real threadpoolctl, no fake: the record is well formed whatever this machine's kernel is."""
+    r = probe.record()
+    assert set(r) == {"requested_coretype", "openblas_pools"} and isinstance(r["openblas_pools"], list)
+
+
+
 SAVED = Path(os.environ.get("ANYFEM_N2C_SAVED", "C:/ANYworkspaceWork/wt-identity/harness-5377460"))
 HAVE_SAVED = (SAVED / "NC1-N-serial/out/plan.json").exists() and (SAVED / "NC4-T-4t/out/plan.json").exists()
 LOCAL_ONLY = "saved 2026-11-13 N2c outputs not on this machine (local-only test, set ANYFEM_N2C_SAVED)"
 
 
+def saved_with_kernel(tmp_path, name, blas):
+    """Copy a saved output folder; the 2026-11-13 child predates kernel recording, so the blas field is ADDED here (marked added_by_test)."""
+    dst = tmp_path / name
+    shutil.copytree(SAVED / name, dst)
+    if blas is not None:
+        edit_result(dst, lambda d: d.__setitem__("blas", dict(blas, added_by_test="the 2026-11-13 run predates kernel recording; machine default kernel was SkylakeX (T7b section C)")))
+    return dst
+
+
+CONSTANTS = ROOT / "tools" / "n2c_identity_constants.json"
+
+
 @pytest.mark.skipif(not HAVE_SAVED, reason=LOCAL_ONLY)
-def test_saved_2026_11_13_outputs_pass_the_committed_constants():
-    c = ROOT / "tools" / "n2c_identity_constants.json"
-    assert gate.main([str(SAVED / "NC1-N-serial"), str(SAVED / "NC4-T-4t"), "--constants", str(c)]) == 0
+def test_saved_2026_11_13_outputs_without_a_kernel_record_fail_closed(capsys):
+    """They predate kernel recording: a record-less run is never accepted, even with digests identical to the constants."""
+    assert gate.main([str(SAVED / "NC1-N-serial"), str(SAVED / "NC4-T-4t"), "--constants", str(CONSTANTS)]) == gate.EXIT_KERNEL
+    out = capsys.readouterr().out
+    assert "KERNEL" in out and "digest" not in out
+
+
+@pytest.mark.skipif(not HAVE_SAVED, reason=LOCAL_ONLY)
+def test_saved_2026_11_13_outputs_with_an_added_skylakex_record_pass(tmp_path):
+    s, t = (saved_with_kernel(tmp_path, n, good_blas()) for n in ("NC1-N-serial", "NC4-T-4t"))
+    assert gate.main([str(s), str(t), "--constants", str(CONSTANTS)]) == 0
+
+
+@pytest.mark.skipif(not HAVE_SAVED, reason=LOCAL_ONLY)
+@pytest.mark.parametrize("req,arch", [("HASWELL", "Haswell"), ("NEHALEM", "Nehalem"), ("SKYLAKEX", "Haswell")])
+def test_saved_outputs_with_identical_digests_but_another_kernel_fail(tmp_path, req, arch):
+    s, t = (saved_with_kernel(tmp_path, n, good_blas(req, arch)) for n in ("NC1-N-serial", "NC4-T-4t"))
+    assert gate.main([str(s), str(t), "--constants", str(CONSTANTS)]) == gate.EXIT_KERNEL
+
+
+T7B = Path(os.environ.get("ANYFEM_N2C_T7B", "C:/ANYworkspaceWork/wt-identity/harness-t7b"))
+
+
+@pytest.mark.skipif(not HAVE_SAVED or not (T7B / "P3-N-serial-haswell/out/plan.json").exists(), reason=LOCAL_ONLY)
+def test_real_t7b_haswell_run_fails_on_kernel_and_digests(tmp_path, capsys):
+    """The 2026-11-15 HASWELL full-model run (model 2aa9dd33a986): kernel record added (it was run with OPENBLAS_CORETYPE=HASWELL)."""
+    h = tmp_path / "P3"
+    shutil.copytree(T7B / "P3-N-serial-haswell", h)
+    edit_result(h, lambda d: d.__setitem__("blas", dict(good_blas("HASWELL", "Haswell"), added_by_test="run was made with OPENBLAS_CORETYPE=HASWELL")))
+    t = saved_with_kernel(tmp_path, "NC4-T-4t", good_blas())
+    assert gate.main([str(h), str(t), "--constants", str(CONSTANTS)]) == gate.EXIT_KERNEL
+    out = capsys.readouterr().out
+    assert "2aa9dd33a986" in out and "Haswell" in out
 
 
 @pytest.mark.skipif(not HAVE_SAVED, reason=LOCAL_ONLY)
 def test_saved_outputs_with_one_changed_byte_fail(tmp_path):
-    s = tmp_path / "s"
-    shutil.copytree(SAVED / "NC1-N-serial", s)
+    s = saved_with_kernel(tmp_path, "NC1-N-serial", good_blas())
+    t = saved_with_kernel(tmp_path, "NC4-T-4t", good_blas())
     p = s / "out/plan.json"
     p.write_bytes(p.read_bytes() + b" ")   # valid JSON, one byte longer
-    c = ROOT / "tools" / "n2c_identity_constants.json"
-    assert gate.main([str(s), str(SAVED / "NC4-T-4t"), "--constants", str(c)]) == gate.EXIT_FINDING
+    assert gate.main([str(s), str(t), "--constants", str(CONSTANTS)]) == gate.EXIT_FINDING
 
 
 WORKFLOW = (ROOT / ".github/workflows/n2c-identity-nightly.yml").read_text(encoding="utf-8")
@@ -370,3 +594,26 @@ def test_workflow_never_interpolates_inputs_or_vars_into_scripts():
             assert allowed.match(line), line
     assert "N2C_ENABLED" in WORKFLOW and "ci_n2c_gate.py" in WORKFLOW and "--constants tools/n2c_identity_constants.json" in WORKFLOW
     assert "--origin anygeometry=" in WORKFLOW and "--origin anyfem=" in WORKFLOW
+
+
+def test_workflow_pins_the_kernel_to_the_frozen_constants_for_every_run():
+    c = json.loads((ROOT / "tools" / "n2c_identity_constants.json").read_text())
+    job = WORKFLOW.split("  n2c-identity:\n", 1)[1]
+    env_block = job.split("    env:\n", 1)[1].split("    steps:", 1)[0]
+    assert re.search(r"^      OPENBLAS_CORETYPE: '?%s'?$" % c["blas_kernel"]["openblas_coretype"], env_block, re.M), env_block
+    # kernel preflight runs under both interpreters, before the serial run
+    assert job.count("tools/ci_blas_kernel.py") == 2
+    assert job.index("ci_blas_kernel.py") < job.index("Serial run (route OFF)")
+    assert "--constants tools/n2c_identity_constants.json" in job.split("Serial run (route OFF)")[0]
+    # no step overrides or unsets the pin
+    assert not re.search(r"OPENBLAS_CORETYPE\s*[:=]", job.split("    steps:", 1)[1])
+    assert "never overwritten" in (ROOT / "docs/N2C_IDENTITY_GATE.md").read_text(encoding="utf-8").replace("\n", " ")
+
+
+def test_wrong_kernel_never_suggests_a_counters_refresh(tmp_path, capsys):
+    """A counters-only difference under another kernel must not read as 'refresh the constants': the kernel is the explanation."""
+    other = dict(COUNTERS, alpha=4)
+    s = make_out(tmp_path / "s", threads=None, gil=True, counters=other, blas=good_blas("HASWELL", "Haswell"))
+    t = make_out(tmp_path / "t", uuid=UUID_B, shav=SHA_B, counters=other, blas=good_blas("HASWELL", "Haswell"))
+    assert gate.main([str(s), str(t), "--constants", str(constants(tmp_path / "c"))]) == gate.EXIT_KERNEL
+    assert "REFRESH" not in capsys.readouterr().out

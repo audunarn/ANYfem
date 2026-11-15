@@ -1,6 +1,6 @@
 {
   "_comment": "Frozen N2c full-model identity references. Change ONLY by a deliberate reviewed commit, never automatically. See docs/N2C_IDENTITY_GATE.md.",
-  "schema": 1,
+  "schema": 2,
   "frozen_on": "2026-11-13",
   "frozen_from": "ANYgeometry 5377460 + ANYfem 3462209, serial (CPython 3.14.2 GIL) and thread route ON (3.14.10t, 4 threads), NumPy 2.4.6; outputs wt-identity/harness-5377460 NC1-N-serial and NC4-T-4t",
   "model_input_sha256": "969cc5f9c8efe5b628686c9a89b1de02ea2dea8c1618f4295cb049c2621f468a",
@@ -10,5 +10,6 @@
   "counters_nontime_keys": 18,
   "faces_in": 561,
   "working_faces_out": 1269,
-  "numpy_version": "2.4.6"
+  "numpy_version": "2.4.6",
+  "blas_kernel": {"openblas_architecture": "SkylakeX", "openblas_coretype": "SKYLAKEX", "note": "keyed to this kernel: another kernel gets its OWN constants file, never an overwrite (docs/N2C_IDENTITY_GATE.md). Measured 2026-11-13 on the default kernel; pinned explicitly since 2026-11-15 (T7b section C: HASWELL/NEHALEM differ)."}
 }
