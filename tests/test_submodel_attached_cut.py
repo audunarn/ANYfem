@@ -310,17 +310,13 @@ def _deck_boundary_edge(geometry, deck, x):
     raise AssertionError(f"no deck edge at x = {x} used by the deck alone")
 
 
-def test_an_edge_attached_stiffener_on_the_wrong_offset_side_refuses_the_run():
-    """The offset-side check takes the plate of a stiffener attached to a plate edge from the
-    faces using that edge, as the mesher does (ANYmesh ``_offset_target_faces``).  A detached
-    stiffener along the deck's end edge, between two deck stiffeners, is attached to that edge
-    with a scalar eccentricity; the current mesh is accepted and mirrored offsets are refused
-    in the source mesh.  The cut itself refuses to carry an edge-attached stiffener (next test),
-    so only the source mesh near the box is checked here."""
+def edge_attached_stiffener():
+    """``(project, line, (y0, y1), z)``: the shipped barge plus a detached stiffener along the
+    deck's end edge at x = 5, between two deck stiffeners, attached to that edge by an exact
+    ``MEMBER_ON_BOUNDARY`` attachment over its own subinterval, with a scalar eccentricity on
+    the stiffener section."""
 
     from dataclasses import replace
-
-    from anyfem.submodel_jobs import _require_scalar_offset_sides
 
     project, (member_id, edge_id), (y, z) = shipped_barge()
     geometry = project.geometry
@@ -338,6 +334,19 @@ def test_an_edge_attached_stiffener_on_the_wrong_offset_side_refuses_the_run():
     span = float(b[1] - a[1])
     _attach_to_edge(geometry, member, target, (y0 - a[1]) / span, (y1 - a[1]) / span)
     assert isinstance(project.beam_offsets[line], float)
+    return project, line, (y0, y1), z
+
+
+def test_an_edge_attached_stiffener_on_the_wrong_offset_side_refuses_the_run():
+    """The offset-side check takes the plate of a stiffener attached to a plate edge from the
+    faces using that edge, as the mesher does (ANYmesh ``_offset_target_faces``).  The current
+    mesh is accepted and mirrored offsets are refused in the source mesh.  The cut itself
+    refuses to carry an edge-attached stiffener (next test), so only the source mesh near the
+    box is checked here; the box reaches the new stiffener and no other beam."""
+
+    from anyfem.submodel_jobs import _require_scalar_offset_sides
+
+    project, line, (y0, y1), z = edge_attached_stiffener()
     mesh = project.generate_mesh(0.25)
     definition = SimpleNamespace(volume=BoxVolume((4.9, y0 - 0.01, z - 0.02), (5.1, y1 + 0.01, z + 0.02)).to_dict())
     _require_scalar_offset_sides(project, mesh, definition)
@@ -346,13 +355,11 @@ def test_an_edge_attached_stiffener_on_the_wrong_offset_side_refuses_the_run():
 
 
 def test_an_edge_attached_stiffener_across_the_box_refuses_the_cut():
-    """Only an exact member_on_face attachment is carried into the child; a stiffener attached
-    to a plate edge instead is refused, not carried with an unchecked offset side."""
+    """Only an exact member_on_face attachment is carried into the child; the edge-attached
+    stiffener, crossed by a box inside the deck, is refused, not carried with an unchecked
+    offset side."""
 
-    project, (member_id, edge_id), (y, z) = shipped_barge()
-    geometry = project.geometry
-    deck = geometry.attachments[next(iter(geometry.attachments_for_member(member_id)))].target_id
-    target, _a, _b = _deck_boundary_edge(geometry, deck, 0.0)
-    _attach_to_edge(geometry, member_id, target, 0.5, 0.5)
-    with pytest.raises(SubmodelError, match="CUT_ATTACHED_UNSUPPORTED.*member_on_boundary to a edge"):
-        run_cut(project, stiffened_box(y, z))
+    project, line, (y0, y1), z = edge_attached_stiffener()
+    (member,) = project.geometry.members_using_edge(line)
+    with pytest.raises(SubmodelError, match=f"CUT_ATTACHED_UNSUPPORTED: member {member} .*member_on_boundary to a edge"):
+        run_cut(project, BoxVolume((4.6, y0 + 0.05, z - 0.02), (5.0, y1 - 0.05, z + 0.02)))
