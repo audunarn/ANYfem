@@ -22,9 +22,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CLOSURE = ROOT / "tests" / "data" / "sector60_closure.json.gz"
 _MASK = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-f]{64}")
-_STR_KEYS = ("numpy", "python", "scipy", "shapely", "anygeometry", "anyfem", "masked_sha256")
+_STR_KEYS = ("numpy", "python", "scipy", "shapely", "anygeometry", "anyfem", "closure_sha256", "anygeometry_src_sha256", "anyfem_src_sha256",
+             "masked_sha256")
 _ENV = ("OPENBLAS_CORETYPE", "NPY_DISABLE_CPU_FEATURES", "OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "NUMPY_MADVISE_HUGEPAGE")
 DETECTED, NOT_DETECTED, INPUT = 0, 1, 2
+
+
+def _tree_sha256(folder: Path) -> str:
+    """sha256 over (relative path, file sha256) of every .py file below ``folder``: the SOURCE that was measured, not just where it lives."""
+    digest = hashlib.sha256()
+    for path in sorted(folder.rglob("*.py")):
+        digest.update(path.relative_to(folder).as_posix().encode("utf-8") + b"\0" + hashlib.sha256(path.read_bytes()).hexdigest().encode() + b"\n")
+    return digest.hexdigest()
 
 
 def mask(text: str) -> str:
@@ -52,7 +61,10 @@ def measure(out: Path) -> dict:
     env = {name: os.environ.get(name, "") for name in _ENV}
     record = {"numpy": numpy.__version__, "python": sys.version.split()[0], "scipy": scipy.__version__, "shapely": shapely.__version__,
               "masked_sha256": hashlib.sha256(blob.encode()).hexdigest(), "faces": len(work.faces), "env": env,
-              "anygeometry": str(Path(anygeometry.__file__).resolve().parent), "anyfem": str(Path(anyfem.__file__).resolve().parent)}
+              "anygeometry": str(Path(anygeometry.__file__).resolve().parent), "anyfem": str(Path(anyfem.__file__).resolve().parent),
+              "closure_sha256": hashlib.sha256(CLOSURE.read_bytes()).hexdigest(),
+              "anygeometry_src_sha256": _tree_sha256(Path(anygeometry.__file__).resolve().parent),
+              "anyfem_src_sha256": _tree_sha256(Path(anyfem.__file__).resolve().parent)}
     out.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
     Path(str(out) + ".blob").write_bytes(blob.encode())
     return record
@@ -70,6 +82,10 @@ def _load(path: Path) -> dict:
     return record
 
 
+def _no_constant(name):
+    raise ValueError("non-standard JSON constant %s (NaN/Infinity cannot be compared)" % name)
+
+
 def _blob(path: Path, record: dict) -> object:
     """The masked result next to a record; it must be the one the record's digest names (the verdict is bound to the measured bytes)."""
     try:
@@ -79,7 +95,7 @@ def _blob(path: Path, record: dict) -> object:
     if hashlib.sha256(raw).hexdigest() != record["masked_sha256"]:
         raise ValueError("blob of %s does not match its recorded digest" % path)
     try:
-        return json.loads(raw.decode("utf-8"))
+        return json.loads(raw.decode("utf-8"), parse_constant=_no_constant)
     except ValueError as exc:
         raise ValueError("blob of %s is not JSON: %s" % (path, exc))
 
@@ -95,7 +111,7 @@ def _walk(a, b, counts: list) -> None:
         for x, y in zip(a, b):
             _walk(x, y, counts)
     elif type(a) is float and type(b) is float:
-        counts[0] += a != b
+        counts[0] += repr(a) != repr(b)  # repr: 0.0 vs -0.0 is a bit change, ordinary == would miss it
     elif type(a) is not type(b) or a != b:
         counts[1] += 1
 
@@ -106,13 +122,12 @@ def verdict(pinned: dict, canary: dict, expect_pin: str) -> tuple:
         return INPUT, "reference record is NumPy %s, not the pin %s" % (pinned["numpy"], expect_pin)
     if not re.fullmatch(r"2\.5\.\d+", canary["numpy"]):
         return INPUT, "canary record is NumPy %s, not 2.5.x" % canary["numpy"]
-    for key in _STR_KEYS + ("env",):
+    for key in _STR_KEYS + ("env", "faces"):
         if key not in ("numpy", "masked_sha256") and pinned[key] != canary[key]:
             return INPUT, "records differ in %s (%r vs %r): the comparison would not isolate NumPy" % (key, pinned[key], canary[key])
-    if pinned["masked_sha256"] == canary["masked_sha256"] and pinned["faces"] == canary["faces"]:
+    if pinned["masked_sha256"] == canary["masked_sha256"]:
         return NOT_DETECTED, "NOT DETECTED: sector60 result is bit-identical under NumPy %s and %s" % (pinned["numpy"], canary["numpy"])
-    return DETECTED, "DETECTED: sector60 differs (%s vs %s, faces %s vs %s)" % (
-        pinned["masked_sha256"][:12], canary["masked_sha256"][:12], pinned["faces"], canary["faces"])
+    return DETECTED, "DETECTED: sector60 differs (%s vs %s)" % (pinned["masked_sha256"][:12], canary["masked_sha256"][:12])
 
 
 def compare(a: Path, b: Path, expect_pin: str) -> int:

@@ -194,7 +194,8 @@ def _env(**over):
 
 def _record(numpy="2.4.6", blob=None, **over):
     raw = json.dumps(BASE_BLOB if blob is None else blob, sort_keys=True, separators=(",", ":"))
-    record = {"numpy": numpy, "python": "3.14.10", "scipy": "1.17.1", "shapely": "2.1.2", "anygeometry": "/ag", "anyfem": "/af",
+    record = {"numpy": numpy, "python": "3.14.10", "scipy": "1.17.1", "shapely": "2.1.2", "anygeometry": "/ag", "anyfem": "/af", "closure_sha256": "c" * 64,
+              "anygeometry_src_sha256": "d" * 64, "anyfem_src_sha256": "e" * 64,
               "masked_sha256": hashlib.sha256(raw.encode()).hexdigest(), "faces": 97, "env": _env()}
     record.update(over)
     return record, raw
@@ -257,13 +258,30 @@ def test_l3_the_verdict_is_bound_to_the_blobs(canary, tmp_path):
 
 @pytest.mark.parametrize("pinned,other", [(dict(numpy="2.4.5"), dict()), (dict(), dict(numpy="2.4.6")), (dict(), dict(numpy="2.6.0")),
                                           (dict(), dict(python="3.14.2")), (dict(), dict(scipy="1.18.0")), (dict(), dict(shapely="2.2.0")),
-                                          (dict(), dict(anygeometry="/other")), (dict(), dict(anyfem="/other")),
+                                          (dict(), dict(anygeometry="/other")), (dict(), dict(anyfem="/other")), (dict(), dict(faces=98)),
+                                          (dict(), dict(closure_sha256="f" * 64)), (dict(), dict(anygeometry_src_sha256="f" * 64)),
+                                          (dict(), dict(anyfem_src_sha256="f" * 64)),
                                           (dict(), dict(env=_env(OPENBLAS_CORETYPE="HASWELL"))),
                                           (dict(), dict(env=_env(NPY_DISABLE_CPU_FEATURES="AVX2")))])
 def test_l3_anything_but_numpy_that_differs_between_the_environments_fails_closed(canary, tmp_path, pinned, other):
     a = _write(tmp_path, "a", **dict({"numpy": "2.4.6"}, **pinned))
     b = _write(tmp_path, "b", **dict({"numpy": "2.5.4", "blob": _drift(x=0.2)}, **other))
     assert canary.compare(a, b, "2.4.6") == canary.INPUT
+
+
+def test_l3_signed_zero_is_a_float_difference(canary, tmp_path):
+    a = _write(tmp_path, "a", blob=_drift(x=0.0))
+    b = _write(tmp_path, "b", numpy="2.5.4", blob=_drift(x=-0.0))
+    assert canary.compare(a, b, "2.4.6") == canary.DETECTED
+
+
+def test_l3_nan_and_infinity_constants_fail_closed_even_for_whitespace_only_differences(canary, tmp_path):
+    a = _write(tmp_path, "a", blob_text='{"x":NaN}', masked_sha256=hashlib.sha256(b'{"x":NaN}').hexdigest())
+    b = _write(tmp_path, "b", numpy="2.5.4", blob_text='{"x": NaN}', masked_sha256=hashlib.sha256(b'{"x": NaN}').hexdigest())
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT
+    c = _write(tmp_path, "c", blob_text='{"x":Infinity}', masked_sha256=hashlib.sha256(b'{"x":Infinity}').hexdigest())
+    d = _write(tmp_path, "d", numpy="2.5.4", blob_text='{"x":1.0}', masked_sha256=hashlib.sha256(b'{"x":1.0}').hexdigest())
+    assert canary.compare(c, d, "2.4.6") == canary.INPUT
 
 
 def test_l3_malformed_records_fail_closed(canary, tmp_path):
