@@ -66,7 +66,26 @@ def _takeoff_row(scope, gauge, quantity, entries):
 
 
 # Concurrent DWG converter processes (OpenCAD Studio converts one file per process).
-_DWG_WORKERS = max(1, min(8, (os.cpu_count() or 2) // 2))
+# Only on Windows, where a cancelled conversion's whole process tree can be
+# stopped; elsewhere the conversions run one after another as before.
+_WINDOWS = os.name == "nt"
+_DWG_WORKERS = max(1, min(8, (os.cpu_count() or 2) // 2)) if _WINDOWS else 1
+
+
+def _stop_tree(process):
+    """Kill a converter this call started, with any helper processes it spawned.
+
+    ``process`` is a live Popen whose handle is still open, so its PID cannot have
+    been reused; the tree is stopped by that PID only, never by image name.
+    """
+    if _WINDOWS and process.poll() is None:
+        taskkill = Path(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+        try:
+            subprocess.run([str(taskkill), "/F", "/T", "/PID", str(process.pid)], capture_output=True,
+                           timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError):
+            pass
+    process.kill()
 
 
 def _make_dwg_copies(executable, source, target, *, backend="oda"):
@@ -93,14 +112,18 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)) as process:
             with lock:
                 running[index] = process
-                if index > failed[0]:
-                    process.kill()
+                late = index > failed[0]
+            if late:
+                _stop_tree(process)
             try:
                 try:
                     stdout, stderr = process.communicate(timeout=120)
                 except subprocess.TimeoutExpired as error:
-                    process.kill()
-                    error.stdout, error.stderr = process.communicate()
+                    process.kill()  # exactly as subprocess.run
+                    if _WINDOWS:
+                        error.stdout, error.stderr = process.communicate()
+                    else:
+                        process.wait()
                     raise
                 except BaseException:
                     process.kill()
@@ -135,21 +158,25 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
     # One converter process per file (OpenCAD Studio) runs concurrently.  Results
     # are checked in input order, so the error raised is the one a sequential run
     # stops at.  No conversion after a known failure starts, and once that error
-    # is raised the later conversions still running (this call's own processes)
-    # are killed; their files are in the package that the failure discards.
+    # is raised (or the call is interrupted) the later conversions still running
+    # are stopped with their process trees; their files are in the package that
+    # the failure discards.
     workers = min(len(commands), _DWG_WORKERS)
     if workers > 1:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(convert, index) for index in range(len(commands))]
+            futures = []
             try:
+                for index in range(len(commands)):
+                    futures.append(pool.submit(convert, index))
                 for future in futures:
                     check(future.result())
             except BaseException:
                 with lock:
-                    failed[0] = -1
-                    for process in running.values():
-                        process.kill()
+                    failed[0] = -1  # nothing starts from here on; late starters stop themselves
+                    started = list(running.values())
+                for process in started:
+                    _stop_tree(process)
                 raise
             finally:
                 for future in futures:

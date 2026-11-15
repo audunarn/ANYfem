@@ -1,6 +1,9 @@
 """The per-call drawing memo: shared inside one call, never stale across workbench edits."""
 import csv
+import os
 import threading
+import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -162,6 +165,7 @@ class _Converter:
 
     def __init__(self, plan, launched, killed):
         self.plan, self.launched, self.killed = plan, launched, killed
+        self.drained, self.waited, self.trees = [], [], []
 
     def __call__(self, command, **options):
         import subprocess
@@ -177,9 +181,12 @@ class _Converter:
         class Process:
             returncode = None
 
+            pid = None
+
             def __init__(self):
                 self.stop = threading.Event()
                 self.args = command
+                self.timed_out = False
 
             def __enter__(self):
                 return self
@@ -188,7 +195,10 @@ class _Converter:
                 return False
 
             def communicate(self, input=None, timeout=None):
+                if self.timed_out:
+                    converter.drained.append(name)
                 if not self.stop.is_set() and not self.stop.wait(seconds) and outcome == "timeout":
+                    self.timed_out = True
                     raise subprocess.TimeoutExpired(command, timeout)
                 if self.stop.is_set():
                     self.returncode = 1
@@ -202,6 +212,10 @@ class _Converter:
 
             def poll(self):
                 return self.returncode
+
+            def wait(self, timeout=None):
+                converter.waited.append(name)
+                return self.returncode
         return Process()
 
 
@@ -209,8 +223,13 @@ def _convert(tmp_path, monkeypatch, plan, names, workers):
     import sys
     from anyfem.application import plate_drawings
     launched, killed = [], []
-    monkeypatch.setattr(plate_drawings.subprocess, "Popen", _Converter(plan, launched, killed))
+    converter = _Converter(plan, launched, killed)
+    monkeypatch.setattr(plate_drawings.subprocess, "Popen", converter)
     monkeypatch.setattr(plate_drawings, "_DWG_WORKERS", workers)
+    # The fake processes have no real tree; record the tree stops instead.
+    monkeypatch.setattr(plate_drawings, "_stop_tree",
+                        lambda process: (converter.trees.append(Path(process.args[2]).stem), process.kill()))
+    _convert.converter = converter
     folder = _dxf_folder(tmp_path/f"case{len(list(tmp_path.iterdir()))}", names)
     try:
         plate_drawings._make_dwg_copies(sys.executable, folder, folder/"dwg", backend="studio")
@@ -291,3 +310,60 @@ def test_each_thread_has_its_own_memo():
         thread.join()
         assert drawing_cache.memo("probe", 1, lambda: "again") == "main"
     assert seen == {"memo": None, "value": "worker"}
+
+
+def test_parallel_dwg_interrupted_while_submitting_stops_what_started(tmp_path, monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    submit, calls = ThreadPoolExecutor.submit, []
+
+    def interrupted(self, *args, **kwargs):
+        future = submit(self, *args, **kwargs)
+        calls.append(future)
+        if len(calls) == 2:
+            time.sleep(.2)  # both conversions are running
+            raise KeyboardInterrupt
+        return future
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", interrupted)
+    started = time.perf_counter()
+    with pytest.raises(KeyboardInterrupt):
+        _convert(tmp_path, monkeypatch, {"a": (30., 0), "b": (30., 0)}, "abcd", workers=3)
+    assert time.perf_counter() - started < 5, "an interrupted call must stop its conversions"
+    assert _convert.launched == ["a", "b"] and sorted(_convert.converter.trees) == ["a", "b"]
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_dwg_timeout_drains_output_exactly_as_subprocess_run(tmp_path, monkeypatch, windows):
+    from anyfem.application import plate_drawings
+    monkeypatch.setattr(plate_drawings, "_WINDOWS", windows)
+    with pytest.raises(ValueError, match="timed out"):
+        _convert(tmp_path, monkeypatch, {"a": (0., "timeout")}, "a", workers=1)
+    # subprocess.run: communicate() again on Windows, wait() on POSIX (output already read).
+    assert (_convert.converter.drained, _convert.converter.waited) == ((["a"], []) if windows else ([], ["a"]))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="tree stop is Windows-only; elsewhere DWG runs sequentially")
+def test_stop_tree_ends_helpers_that_hold_the_converter_pipes(tmp_path):
+    import subprocess
+    import sys
+    from anyfem.application import plate_drawings
+    record = tmp_path/"helper.pid"
+    # The "converter" starts a helper that inherits its stdout/stderr, then both sleep.
+    parent = ("import subprocess,sys,time;"
+              "h=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
+              f"open(r'{record}','w').write(str(h.pid));time.sleep(60)")
+    with subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        for _ in range(200):
+            if record.exists() and record.read_text():
+                break
+            time.sleep(.05)
+        helper = int(record.read_text())
+        try:
+            plate_drawings._stop_tree(process)
+            process.communicate(timeout=10)  # a surviving helper would keep the pipes open
+        finally:
+            alive = str(helper) in subprocess.run(["tasklist", "/FI", f"PID eq {helper}", "/NH"],
+                                                  capture_output=True, text=True).stdout
+            if alive:  # our own helper (its PID was just recorded by our own parent)
+                subprocess.run(["taskkill", "/F", "/PID", str(helper)], capture_output=True)
+        assert not alive
