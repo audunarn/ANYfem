@@ -45,7 +45,7 @@ jobs:
       - name: Gate unit tests (synthetic data, committed constants)
         shell: bash
         run: |
-          python -m pip install pytest numpy==2.4.6 threadpoolctl
+          python -m pip install pytest pyyaml numpy==2.4.6 threadpoolctl
           python -m pytest -q -p no:cacheprovider --junitxml=n2c-gate.xml tests/test_ci_n2c_gate.py
       # the seven saved-output tests (ANYFEM_N2C_SAVED / _T7B) may skip off the owner's machine, nothing else may
       - name: Gate tests must have run

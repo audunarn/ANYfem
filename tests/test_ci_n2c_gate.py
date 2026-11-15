@@ -637,7 +637,7 @@ def test_workflow_pins_the_kernel_to_the_frozen_constants_for_every_run():
     # the preflight must be able to fail the job: no continue-on-error, no || true
     assert "continue-on-error" not in WORKFLOW and "|| true" not in WORKFLOW
     # hosted self-test: real probe needs numpy+threadpoolctl; the local-only tests are the allowed skips
-    assert "pip install pytest numpy==2.4.6 threadpoolctl" in WORKFLOW and "--max-skipped 7" in WORKFLOW
+    assert "pip install pytest pyyaml numpy==2.4.6 threadpoolctl" in WORKFLOW and "--max-skipped 7" in WORKFLOW
     assert "never overwritten" in (ROOT / "docs/N2C_IDENTITY_GATE.md").read_text(encoding="utf-8").replace("\n", " ")
 
 
@@ -668,3 +668,37 @@ def test_non_openblas_pools_with_a_known_api_are_accepted(pair):
     b["pools"] += [{"internal_api": "openmp", "architecture": None, "num_threads": 4}, {"internal_api": "mkl", "architecture": None, "num_threads": 2}]
     set_blas(pair[:2], b)
     assert run(pair) == 0
+
+
+def test_workflow_job_structure_parsed_every_validation_step_is_unconditional_and_exact():
+    """Structural (PyYAML) check of the n2c-identity job: any quoting/spelling of `if`, continue-on-error or env tricks fails here."""
+    yaml = pytest.importorskip("yaml")
+    doc = yaml.safe_load(WORKFLOW)
+    job = doc["jobs"]["n2c-identity"]
+    assert job["if"] == "${{ vars.N2C_ENABLED == 'true' }}"
+    assert set(job) == {"if", "runs-on", "timeout-minutes", "env", "steps"}
+    assert job["env"]["OPENBLAS_CORETYPE"] == "SKYLAKEX"
+    steps = job["steps"]
+    by_name = {s["name"]: s for s in steps if "name" in s}
+    for st in steps:
+        if "run" in st:
+            assert set(st) == {"name", "shell", "run"}, st            # no if / continue-on-error / env / working-directory
+            assert st["shell"] == "bash"
+    upload = [st for st in steps if st.get("uses", "").startswith("actions/upload-artifact@")][0]
+    assert [st for st in steps if "if" in st] == [upload]
+    assert upload["if"] == "always()" and set(upload) == {"uses", "if", "with"}
+    names = [st.get("name") for st in steps]
+    ordered = [n for n in names if n and n.startswith(("Kernel preflight", "Serial run", "Thread route ON", "Identity gate"))]
+    assert [n.split(" (")[0] for n in ordered] == ["Kernel preflight", "Serial run", "Thread route ON run", "Identity gate"], ordered
+    run = {n.split(" (")[0]: by_name[n]["run"] for n in ordered}
+    G = "$GITHUB_WORKSPACE/.ecosystem/ANYgeometry"
+    assert run["Kernel preflight"] == (
+        '"$N2C_PY_SERIAL" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n'
+        '"$N2C_PY_THREAD" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n')
+    assert run["Serial run"].rstrip("\n").endswith(
+        '"$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --geometry-repo "%s" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-serial"' % G)
+    assert run["Thread route ON run"] == (
+        '"$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads "$N2C_THREADS" --geometry-repo "%s" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-on"' % G)
+    assert run["Identity gate"] == (
+        '"$N2C_PY_THREAD" tools/ci_n2c_gate.py "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on" --constants tools/n2c_identity_constants.json '
+        '--origin anygeometry="%s" --origin anyfem="$GITHUB_WORKSPACE"' % G)
