@@ -695,8 +695,25 @@ def test_workflow_job_structure_parsed_every_validation_step_is_unconditional_an
     assert run["Kernel preflight"] == (
         '"$N2C_PY_SERIAL" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n'
         '"$N2C_PY_THREAD" tools/ci_blas_kernel.py --constants tools/n2c_identity_constants.json\n')
-    assert run["Serial run"].rstrip("\n").endswith(
-        '"$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --geometry-repo "%s" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-serial"' % G)
+    assert run["Serial run"] == (
+        'rm -rf "$RUNNER_TEMP/n2c-serial" "$RUNNER_TEMP/n2c-on"\n'
+        '"$N2C_PY_SERIAL" "$N2C_DRIVER" --mode serial --geometry-repo "%s" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-serial"\n' % G)
+    # interpreter / driver bindings come from the repository variables, nothing else
+    assert job["env"] == {"N2C_DRIVER": "${{ vars.N2C_DRIVER }}", "N2C_PY_SERIAL": "${{ vars.N2C_PY_SERIAL }}",
+                          "N2C_PY_THREAD": "${{ vars.N2C_PY_THREAD }}", "N2C_THREADS": "${{ inputs.threads || '4' }}",
+                          "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "OPENBLAS_CORETYPE": "SKYLAKEX"}
+    # hosted self-test job: unconditional, exact commands
+    st = doc["jobs"]["gate-selftest"]
+    assert set(st) == {"runs-on", "timeout-minutes", "steps"} and st["runs-on"] == "windows-latest"
+    runs = [x for x in st["steps"] if "run" in x]
+    for x in st["steps"]:
+        assert not ({"if", "continue-on-error", "env"} & set(x)), x
+    assert [x["run"] for x in runs] == [
+        "python -m pip install pytest pyyaml numpy==2.4.6 threadpoolctl\n"
+        "python -m pytest -q -p no:cacheprovider --junitxml=n2c-gate.xml tests/test_ci_n2c_gate.py\n",
+        "python tools/ci_junit_floor.py n2c-gate.xml --min-tests 130 --max-skipped 7"]
+    assert all(x["shell"] == "bash" for x in runs)
+    assert doc["permissions"] == {"contents": "read"} and set(doc["jobs"]) == {"gate-selftest", "n2c-identity"}
     assert run["Thread route ON run"] == (
         '"$N2C_PY_THREAD" "$N2C_DRIVER" --mode on --threads "$N2C_THREADS" --geometry-repo "%s" --fem-repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/n2c-on"' % G)
     assert run["Identity gate"] == (
