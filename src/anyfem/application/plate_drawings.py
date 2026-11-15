@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import math
+import os
 from collections import defaultdict
 from pathlib import Path
 import re
@@ -63,6 +64,10 @@ def _takeoff_row(scope, gauge, quantity, entries):
             f"{area:.9f}", f"{mass:.6f}", f"{quantity * area:.9f}", f"{quantity * mass:.6f}", basis)
 
 
+# Concurrent DWG converter processes (OpenCAD Studio converts one file per process).
+_DWG_WORKERS = max(1, min(8, (os.cpu_count() or 2) // 2))
+
+
 def _make_dwg_copies(executable, source, target, *, backend="oda"):
     tool = Path(executable).resolve(strict=True)
     target.mkdir()
@@ -76,15 +81,33 @@ def _make_dwg_copies(executable, source, target, *, backend="oda"):
         commands = [[str(tool), str(source), str(target), "ACAD2018", "DWG", "0", "0", "*.dxf"]]
     else:
         raise ValueError(f"Unknown DWG converter {backend}")
-    try:
+    def convert(command):
+        try:
+            return subprocess.run(command, cwd=target, capture_output=True, timeout=120,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired as error:
+            return error
+
+    # One converter process per file (OpenCAD Studio) runs concurrently; outcomes
+    # are checked in input order, so the reported failure is the one a
+    # sequential run would have stopped at.
+    workers = min(len(commands), _DWG_WORKERS) or 1
+    if workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            outcomes = list(pool.map(convert, commands))
+    else:
+        outcomes = []
         for command in commands:
-            result = subprocess.run(command, cwd=target, capture_output=True, timeout=120,
-                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            if result.returncode:
-                detail = result.stderr.decode(errors="replace").strip()[-600:]
-                raise ValueError(f"{name} returned {result.returncode} during DWG conversion. {detail}")
-    except subprocess.TimeoutExpired as error:
-        raise ValueError(f"{name} timed out while writing DWG files") from error
+            outcomes.append(convert(command))
+            if isinstance(outcomes[-1], subprocess.TimeoutExpired) or outcomes[-1].returncode:
+                break
+    for result in outcomes:
+        if isinstance(result, subprocess.TimeoutExpired):
+            raise ValueError(f"{name} timed out while writing DWG files") from result
+        if result.returncode:
+            detail = result.stderr.decode(errors="replace").strip()[-600:]
+            raise ValueError(f"{name} returned {result.returncode} during DWG conversion. {detail}")
     expected = {file.stem for file in inputs}
     files = list(target.glob("*.dwg"))
     if expected != {file.stem for file in files}:
