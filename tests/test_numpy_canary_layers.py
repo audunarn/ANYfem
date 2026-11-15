@@ -341,7 +341,10 @@ def test_the_canary_workflow_is_nightly_and_manual_never_on_pull_requests_and_ha
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     keys = sorted(line.strip().rstrip(":") for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("   "))
     assert keys == ["schedule", "workflow_dispatch"], keys  # no push / pull_request / pull_request_target / workflow_run
-    assert triggers.count("cron") == 1 and re.search(r"^    - cron: .(?:[0-9]|[1-5][0-9]) (?:[0-9]|1[0-9]|2[0-3]) \* \* \*.$", triggers, re.M), triggers  # exactly one cron, once a day: fixed minute, fixed hour
+    # Whitelist: the trigger block may hold ONLY these lines (comments aside), so no escaped / quoted / flow-style key can add a schedule.
+    allowed = [r"schedule:", r"    - cron: '(?:[0-9]|[1-5][0-9]) (?:[0-9]|1[0-9]|2[0-3]) \* \* \*'", r"workflow_dispatch:"]
+    lines = [line for line in triggers.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    assert len(lines) == 3 and all(re.fullmatch(r"(?:  )?" + pattern, line) for line, pattern in zip(lines, allowed)), lines  # one daily cron
     assert "--require-hashes" in text and "tools/numpy_canary_requirements.txt" in text
     pins = [line for line in (ROOT / "tools" / "numpy_canary_requirements.txt").read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
     assert len(pins) == 1 and pins[0].startswith("numpy==2.5.") and "--hash=sha256:" in pins[0]
