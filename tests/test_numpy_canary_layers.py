@@ -311,3 +311,16 @@ def test_the_canary_workflow_is_manual_only_and_hash_pins_its_numpy():
     assert "--require-hashes" in text and "tools/numpy_canary_requirements.txt" in text
     pins = [line for line in (ROOT / "tools" / "numpy_canary_requirements.txt").read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
     assert len(pins) == 1 and pins[0].startswith("numpy==2.5.") and "--hash=sha256:" in pins[0]
+
+
+CASES = {"overflow": ('{"x":1e400}', '{"x":1.0}'), "negative-overflow": ('{"x":1.0}', '{"x":-1e999}'),
+         "duplicate-keys": ('{"k":0,"k":1,"x":0.1}', '{"k":9,"k":1,"x":0.2}'),
+         "runaway-nesting": ("[" * 200000 + "]" * 200000, "[" * 200000 + "0.5" + "]" * 200000)}
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_l3_overflow_duplicate_keys_and_runaway_nesting_fail_closed(canary, tmp_path, case):
+    text_a, text_b = CASES[case]
+    a = _write(tmp_path, "a", blob_text=text_a, masked_sha256=hashlib.sha256(text_a.encode()).hexdigest())
+    b = _write(tmp_path, "b", numpy="2.5.4", blob_text=text_b, masked_sha256=hashlib.sha256(text_b.encode()).hexdigest())
+    assert canary.compare(a, b, "2.4.6") == canary.INPUT

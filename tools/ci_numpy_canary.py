@@ -86,6 +86,20 @@ def _no_constant(name):
     raise ValueError("non-standard JSON constant %s (NaN/Infinity cannot be compared)" % name)
 
 
+def _finite(text: str) -> float:
+    value = float(text)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("non-finite number %s (overflowed or NaN; cannot be compared)" % text)
+    return value
+
+
+def _no_duplicates(pairs):
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate key in the measured result")
+    return dict(pairs)
+
+
 def _blob(path: Path, record: dict) -> object:
     """The masked result next to a record; it must be the one the record's digest names (the verdict is bound to the measured bytes)."""
     try:
@@ -95,7 +109,7 @@ def _blob(path: Path, record: dict) -> object:
     if hashlib.sha256(raw).hexdigest() != record["masked_sha256"]:
         raise ValueError("blob of %s does not match its recorded digest" % path)
     try:
-        return json.loads(raw.decode("utf-8"), parse_constant=_no_constant)
+        return json.loads(raw.decode("utf-8"), parse_constant=_no_constant, parse_float=_finite, object_pairs_hook=_no_duplicates)
     except ValueError as exc:
         raise ValueError("blob of %s is not JSON: %s" % (path, exc))
 
@@ -144,7 +158,7 @@ def compare(a: Path, b: Path, expect_pin: str) -> int:
                     raise ValueError("the results differ in more than floating-point values (%d float leaves, %d other differences): "
                                      "not a clean numeric canary, investigate" % tuple(counts))
                 message += "; %d differing float leaves, nothing else" % counts[0]
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         print("INPUT PROBLEM:", exc, file=sys.stderr)
         return INPUT
     (sys.stdout if code == DETECTED else sys.stderr).write(message + "\n")
