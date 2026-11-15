@@ -141,12 +141,7 @@ def _kernel32():
                 ("AssignProcessToJobObject", boolean, (handle, handle)),
                 ("TerminateJobObject", boolean, (handle, wintypes.UINT)),
                 ("CloseHandle", boolean, (handle,)),
-                ("OpenProcess", handle, (dword, boolean, dword)),
-                ("OpenThread", handle, (dword, boolean, dword)),
-                ("ResumeThread", dword, (handle,)),
-                ("CreateToolhelp32Snapshot", handle, (dword, dword)),
-                ("Thread32First", boolean, (handle, ctypes.c_void_p)),
-                ("Thread32Next", boolean, (handle, ctypes.c_void_p))):
+                ("OpenProcess", handle, (dword, boolean, dword))):
             getattr(kernel32, function).restype = result
             getattr(kernel32, function).argtypes = arguments
         _kernel32.dll = kernel32
@@ -190,46 +185,38 @@ def _job_object():
 
 
 def _join_and_resume(job, pid):
-    """Put a suspended process this call created into ``job``, then resume its threads."""
-    import ctypes
-    from ctypes import wintypes
+    """Put a suspended process this call created into ``job``, then resume it.
 
-    class Thread(ctypes.Structure):
-        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD),
-                    ("th32OwnerProcessID", wintypes.DWORD), ("tpBasePri", wintypes.LONG),
-                    ("tpDeltaPri", wintypes.LONG), ("dwFlags", wintypes.DWORD)]
+    ntdll's NtResumeProcess resumes every thread of the process in one call (the
+    route psutil uses for Process.resume); walking a Toolhelp thread snapshot of the
+    whole system instead cost about 90 ms per converter, mostly holding the GIL.
+    """
+    import ctypes
     kernel32 = _kernel32()
-    process = kernel32.OpenProcess(0x0101, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    # PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_SUSPEND_RESUME
+    process = kernel32.OpenProcess(0x0901, False, pid)
     if not process:
         raise _windows_error("OpenProcess")
     try:
         if not kernel32.AssignProcessToJobObject(job, process):
             raise _windows_error("AssignProcessToJobObject")
+        status = _ntdll().NtResumeProcess(process)
+        if status != 0:
+            raise OSError(f"NtResumeProcess failed for the DWG converter: NTSTATUS {status & 0xFFFFFFFF:#010x}")
     finally:
         kernel32.CloseHandle(process)
-    snapshot = kernel32.CreateToolhelp32Snapshot(0x4, 0)  # TH32CS_SNAPTHREAD
-    if snapshot == wintypes.HANDLE(-1).value:
-        raise _windows_error("CreateToolhelp32Snapshot")
-    resumed = 0
-    try:
-        entry = Thread(dwSize=ctypes.sizeof(Thread))
-        found = kernel32.Thread32First(snapshot, ctypes.byref(entry))
-        while found:
-            if entry.th32OwnerProcessID == pid:
-                thread = kernel32.OpenThread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
-                if not thread:
-                    raise _windows_error("OpenThread")
-                try:
-                    if kernel32.ResumeThread(thread) == 0xFFFFFFFF:
-                        raise _windows_error("ResumeThread")
-                finally:
-                    kernel32.CloseHandle(thread)
-                resumed += 1
-            found = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
-    finally:
-        kernel32.CloseHandle(snapshot)
-    if not resumed:
-        raise OSError("DWG converter process has no thread to resume")
+
+
+def _ntdll():
+    import ctypes
+    from ctypes import wintypes
+    ntdll = getattr(_ntdll, "dll", None)
+    if ntdll is None:
+        ntdll = ctypes.WinDLL("ntdll")
+        ntdll.NtResumeProcess.restype = ctypes.c_long  # NTSTATUS
+        ntdll.NtResumeProcess.argtypes = (wintypes.HANDLE,)
+        _ntdll.dll = ntdll
+    return ntdll
 
 
 def _make_dwg_copies(executable, source, target, *, backend="oda"):
