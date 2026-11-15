@@ -170,7 +170,7 @@ def test_l2_a_foreign_wheel_under_the_24_lock_is_refused(build_tool, tmp_path, c
 
 def test_l2_the_shipped_lock_pins_24_and_no_workflow_installs_an_unpinned_numpy():
     assert json.loads((ROOT / "tools" / "runtime.lock.json").read_text(encoding="utf-8"))["numpy"] == "2.4.6"
-    for workflow in (ROOT / ".github" / "workflows").glob("*.yml"):
+    for workflow in sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "workflows").glob("*.yaml")]):
         if workflow.name == "numpy-canary.yml":  # the canary installs 2.5.x on purpose, hash-pinned, into a throwaway venv
             continue
         for line in workflow.read_text(encoding="utf-8").splitlines():
@@ -320,7 +320,7 @@ def test_the_nightly_canary_is_a_small_separate_job_outside_every_heavy_regime()
 
 
 def test_no_other_workflow_calls_the_canary_and_it_has_no_pull_request_trigger():
-    for workflow in (ROOT / ".github" / "workflows").glob("*.yml"):
+    for workflow in sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "workflows").glob("*.yaml")]):
         text = workflow.read_text(encoding="utf-8")
         if workflow.name == "numpy-canary.yml":
             head = text.split("\npermissions:", 1)[0]
@@ -341,7 +341,7 @@ def test_the_canary_workflow_is_nightly_and_manual_never_on_pull_requests_and_ha
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     keys = sorted(line.strip().rstrip(":") for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("   "))
     assert keys == ["schedule", "workflow_dispatch"], keys  # no push / pull_request / pull_request_target / workflow_run
-    assert len(re.findall(r"- cron: '[0-9*/, -]+ [0-9*/, -]+ \* \* \*'", triggers)) == 1  # one nightly cron
+    assert triggers.count("cron") == 1 and re.search(r"^    - cron: .(?:[0-9]|[1-5][0-9]) (?:[0-9]|1[0-9]|2[0-3]) \* \* \*.$", triggers, re.M), triggers  # exactly one cron, once a day: fixed minute, fixed hour
     assert "--require-hashes" in text and "tools/numpy_canary_requirements.txt" in text
     pins = [line for line in (ROOT / "tools" / "numpy_canary_requirements.txt").read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
     assert len(pins) == 1 and pins[0].startswith("numpy==2.5.") and "--hash=sha256:" in pins[0]
