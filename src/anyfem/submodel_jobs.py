@@ -568,8 +568,11 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
     the mapped route), and the child would then model the stiffener elsewhere.
     So the actual offsets are checked in both meshes: the parent's on its beam
     edges near the box (``definition`` given), the child's on all of its beams.
-    Edges whose plates are not flat with one normal are not checked here: the cut
-    carries no scalar offset from them.  In the source mesh the offset is checked
+    The plates of a beam are those using its edge and the attachment targets of the
+    members on it, as the mesher's offset uses them, so a stiffener attached to a
+    plate's interior (no face uses its edge) is checked against the plate it is
+    attached to.  Edges whose plates are not flat with one normal are not checked
+    here: the cut carries no scalar offset from them.  In the source mesh the offset is checked
     only over the beam inside the box, which is what the child models: at the ends
     of each segment's clipped part (exact, the offset being linear along a straight
     element).  Outside the box the parent's nodal normal may rightly tilt where
@@ -592,7 +595,7 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
         offset = offsets.get(edge)
         if offset is None or isinstance(offset, tuple):
             continue
-        faces = sorted(geometry.faces_using_edge(edge))
+        faces = _offset_plates(geometry, edge)
         if not faces or not all(isinstance(getattr(geometry.faces[f], "surface", None), Plane)
                                 or _planar_coons(geometry, f, getattr(geometry.faces[f], "surface", None))
                                 for f in faces):
@@ -637,6 +640,28 @@ def _require_scalar_offset_sides(project: Any, mesh: Any, definition: Any) -> No
                     + ("the parent was meshed with an older mesher (remesh and re-solve it), or the box ends "
                        "within a parent element of a plate meeting the beam (move the box)" if definition is not None
                        else "the mesher does not follow the plate-normal convention"))
+
+
+def _offset_plates(geometry: Any, edge: int) -> List[int]:
+    """The plates a beam edge's offset is taken from: the faces using the edge and the
+    attachment targets (face, edge or sheet) of the members on it."""
+
+    from anygeometry.structural import AttachmentTargetKind
+
+    faces = set(geometry.faces_using_edge(edge))
+    members = set(geometry.members_using_edge(edge))
+    for attachment in geometry.attachments.values():
+        if attachment.member_id is None or int(attachment.member_id) not in members:
+            continue
+        if attachment.target_kind is AttachmentTargetKind.FACE:
+            faces.add(int(attachment.target_id))
+        elif attachment.target_kind is AttachmentTargetKind.EDGE:
+            faces.update(geometry.faces_using_edge(attachment.target_id))
+        elif attachment.target_kind is AttachmentTargetKind.SHEET:
+            sheet = geometry.sheets.get(int(attachment.target_id))
+            if sheet is not None:
+                faces.update(geometry.face_uses[u].face_id for u in sheet.face_use_ids)
+    return sorted(int(f) for f in faces if f in geometry.faces)
 
 
 def _clip_segment(volume: Any, a: np.ndarray, b: np.ndarray, tolerance: float) -> Tuple[float, ...]:
