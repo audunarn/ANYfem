@@ -22,3 +22,15 @@ Results of the first local run are in the T7 report (thread-s3-t7-report.md).
 
 ## Not covered
 The full-model N2c gate (tools/ci_n2c_gate.py) under NumPy 2.5 has not been run (ledger spend needs the owner's go).
+
+## Nightly canary (T7b, permanent)
+`.github/workflows/numpy-canary.yml` runs on a nightly schedule (03:17 UTC, default branch) and by hand; never on push or pull request.
+It is one small job (20 min timeout; the measurement is ~15-25 s per interpreter once the two venvs exist) and is NOT part of any heavy test
+regime: no suites, no thread-route T-jobs, no full-model gate; no other workflow calls it (tests/test_numpy_canary_layers.py enforces this).
+A red run means NOT DETECTED (the cheap measurement lost its teeth) or an input problem; DETECTED is the expected green.
+The canary wheel hash was verified by download on 2026-11-15 (12,901,584 bytes, sha256 067374eb...).
+
+## Measured on 2026-11-15 (this machine, SkylakeX kernel; real cp314t child; see thread-s3-t7b-report.md)
+- sector60 serial, cp314t, NumPy 2.4.6 vs 2.5.4: a6ca5747f11e vs 580e36988ece, DETECTED (120 float leaves), same digests as on cp314.
+- T3 (ON == OFF in one run) with a scratch bundle whose parent and child are both 2.5.4 (guards edited in a scratch copy only): 7 passed, i.e. NOT detected.
+- Full-model N2c under 2.5.4: the gate FAILS (exit 1) on model and plan digests and on the NumPy version; counters sha unchanged.

@@ -1,10 +1,16 @@
 name: NumPy canary
-# T7: does the cheap identity measurement notice NumPy 2.5.x instead of the pinned 2.4.6?  MANUAL ONLY (workflow_dispatch; no push, no
-# pull_request, no schedule).  Two throwaway virtual environments on the same interpreter and the same hash-pinned scipy/shapely, differing
+# T7b: PERMANENT nightly same-machine canary + manual dispatch.  Does the cheap identity measurement notice NumPy 2.5.x instead of the
+# pinned 2.4.6?  Triggers: schedule (03:17 UTC, default branch only) and workflow_dispatch; NEVER push / pull_request.  One small job (timeout
+# 20 min; the measurement itself is ~15-25 s per interpreter once the venvs exist).  This workflow is NOT part of any heavy test regime:
+# it does not run the suites, the thread-route T-jobs or the full-model N2c gate, and no other workflow calls it.
+# The canary wheel numpy-2.5.4-cp314-cp314t-win_amd64.whl (12,901,584 bytes, sha256 067374eb...) was verified by download on 2026-11-15.
+# (original T7 text:)  Two throwaway virtual environments on the same interpreter and the same hash-pinned scipy/shapely, differing
 # only in NumPy (2.4.6 from tools/runtime.lock.json, 2.5.4 from tools/numpy_canary_requirements.txt); sector60 is prepared serially in each
 # and the masked results are compared.  Exit 0 = DETECTED (digests differ: the measurement has teeth), 1 = NOT DETECTED, 2 = input problem.
 # This does NOT replace the pin: lock/health check refuse a 2.5 bundle regardless (tests/test_numpy_canary_layers.py).  Procedure: docs/NUMPY_CANARY.md.
 on:
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +19,7 @@ env:
 jobs:
   numpy-canary:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'

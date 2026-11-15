@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -304,10 +305,43 @@ def test_l3_masking_hides_uuids_and_hashes_but_not_numbers(canary):
     assert canary.mask(text) == '{"id":"X","h":"X","x":1.0000000000000002}'
 
 
-def test_the_canary_workflow_is_manual_only_and_hash_pins_its_numpy():
-    text = (ROOT / ".github" / "workflows" / "numpy-canary.yml").read_text(encoding="utf-8")
+def _canary_workflow() -> str:
+    return (ROOT / ".github" / "workflows" / "numpy-canary.yml").read_text(encoding="utf-8")
+
+
+def test_the_nightly_canary_is_a_small_separate_job_outside_every_heavy_regime():
+    text = _canary_workflow()
+    jobs = text.split("\njobs:\n", 1)[1]
+    assert re.findall(r"^  ([A-Za-z0-9_-]+):$", jobs, re.M) == ["numpy-canary"]  # exactly one job
+    assert int(re.search(r"timeout-minutes: (\d+)", text).group(1)) <= 20  # small: the measurement is ~15 s per interpreter
+    assert "NOT part of any heavy test regime" in text.split("\non:\n", 1)[0]
+    for heavy in ("ci_n2c_gate", "n2c-model", "N2C_ENABLED", "test_t3_identity", "pytest", "build_runtime.py build"):
+        assert heavy not in text, heavy
+
+
+def test_no_other_workflow_calls_the_canary_and_it_has_no_pull_request_trigger():
+    for workflow in (ROOT / ".github" / "workflows").glob("*.yml"):
+        text = workflow.read_text(encoding="utf-8")
+        if workflow.name == "numpy-canary.yml":
+            head = text.split("\npermissions:", 1)[0]
+            code = "\n".join(line for line in head.splitlines() if not line.lstrip().startswith("#"))
+            assert "pull_request" not in code and "push" not in code
+        else:
+            assert "ci_numpy_canary" not in text and "numpy-canary" not in text, workflow.name
+
+
+def test_the_canary_requirement_hash_is_recorded_as_verified_by_download():
+    head = (ROOT / "tools" / "numpy_canary_requirements.txt").read_text(encoding="utf-8")
+    assert "verified by download" in head and "12901584" in head and "not yet verified" not in head
+    assert "not verified" not in _canary_workflow().lower()
+
+
+def test_the_canary_workflow_is_nightly_and_manual_never_on_pull_requests_and_hash_pins_its_numpy():
+    text = _canary_workflow()
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-    assert triggers.strip() == "workflow_dispatch:"  # no push / pull_request / schedule
+    keys = sorted(line.strip().rstrip(":") for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("   "))
+    assert keys == ["schedule", "workflow_dispatch"], keys  # no push / pull_request / pull_request_target / workflow_run
+    assert len(re.findall(r"- cron: '[0-9*/, -]+ [0-9*/, -]+ \* \* \*'", triggers)) == 1  # one nightly cron
     assert "--require-hashes" in text and "tools/numpy_canary_requirements.txt" in text
     pins = [line for line in (ROOT / "tools" / "numpy_canary_requirements.txt").read_text(encoding="utf-8").splitlines() if not line.startswith("#")]
     assert len(pins) == 1 and pins[0].startswith("numpy==2.5.") and "--hash=sha256:" in pins[0]
