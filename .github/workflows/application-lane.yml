@@ -16,7 +16,7 @@ on:
         default: all
       mesher_ref:
         type: string
-        default: '946b9353924dbca6f326feb8cb0327bcae5c4ccc'
+        default: '0d85b68052438b8a1a30b5c10223e49d359e0989'
       backend:
         type: string
         default: software
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 5dc4b1fffc3525dc707f784d582e2b723d441be7
+          ref: 169ce535ec6cf803c104f090d3c471df78937d2d
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfileIO
-          ref: e01bd7056e1832e7e9c6a1209aef8a9ad042c996
+          ref: 500b336a17e9aa8652844653ef8f4b33a1bca9a7
           path: .ecosystem/ANYfileIO
       - uses: actions/checkout@v4
         with:
