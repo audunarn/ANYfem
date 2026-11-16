@@ -48,7 +48,7 @@ dependencies = [
 orcawave = [
   "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@0d85b68052438b8a1a30b5c10223e49d359e0989",
   "ANYloads @ git+https://github.com/audunarn/ANYloads.git@0a671a30bfd213c30df16bb7142cfe4fa8e1fece",
-  "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@379dfd2a7ff2ea038ad35cf6f179e58ae675be52",
+  "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@05758642b29aa492d9f983de11301df91b197c39",
 ]
 fatigue = ["ANYfatigue>=0.1,<0.2"]
 drawings = ["ezdxf>=1.4,<2", "shapely>=2,<3"]
