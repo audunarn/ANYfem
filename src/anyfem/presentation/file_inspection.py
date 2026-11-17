@@ -20,8 +20,16 @@ class FileInspection:
         return dict(source=str(self.path),summary=self.summary,diagnostics=[item.as_dict() for item in self.diagnostics])
 
 
+_UNINSPECTABLE_SUFFIXES=(".sat",".xml",".anygeometry.json",".anygeometry.json.gz")
+
+
 def inspect_file(path):
-    target=Path(path);result=FileInspection(target,describe(target))
+    target=Path(path)
+    if target.name.lower().endswith(_UNINSPECTABLE_SUFFIXES):
+        # Newer ANYfileio registers geometry/model readers whose results have no
+        # inspector summary; refuse with the same typed error older versions gave.
+        raise FileFormatError(f"FEM010: the file inspector does not support '{target.name}'; use File > Import instead")
+    result=FileInspection(target,describe(target))
     if target.suffix.lower() in {".fem",".sif"}:
         document=read_sesam_fem_document(target,strict=False);result.document=document
         result.diagnostics=list(document.diagnostics)+list(validate_sesam_fem_document(document))
