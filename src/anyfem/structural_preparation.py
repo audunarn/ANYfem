@@ -9,6 +9,7 @@ ANYfem persists with the mesh record.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any, Callable, Iterable, Mapping
@@ -594,6 +595,246 @@ def _aggregate(
     }
 
 
+_ROUTE_FACE_LISTS = ("quad_first_face_ids", "legacy_face_ids")
+
+
+def _publish_route_face_ownership(mesh, face_owner: Mapping[int, tuple[int, ...]]) -> None:
+    """Move the quad-first/legacy merge record onto source faces with ``elements_of_face``.
+
+    ANYmesh's merge writes ``quad_first_face_ids``/``legacy_face_ids`` and one
+    ``"<face id>"`` backend record per legacy face, all on the faces it meshed.
+    Here those are prepared work faces, while ``elements_of_face`` has just been
+    aggregated onto source faces; permanent numbering checks the two against
+    each other.  Translate only when the source record is exact: every work face
+    has an owner, no source face is split across both routes and the legacy
+    records of one source face agree.  Otherwise the record is left as it was
+    and permanent numbering refuses it, as before.
+    """
+
+    record = getattr(mesh, "hybrid_diagnostics", None)
+    if not isinstance(record, Mapping) or not all(key in record for key in _ROUTE_FACE_LISTS):
+        return
+    owned: dict[str, set[int]] = {}
+    for key in _ROUTE_FACE_LISTS:
+        sources: set[int] = set()
+        for working_id in record[key]:
+            if type(working_id) is not int or not face_owner.get(working_id):
+                return
+            sources.update(face_owner[working_id])
+        owned[key] = sources
+    if owned["quad_first_face_ids"] & owned["legacy_face_ids"]:
+        return
+    backend: dict[str, Any] = {}
+    for key, value in record.items():
+        if not (isinstance(key, str) and key.isascii() and key.isdecimal()):
+            continue
+        sources = face_owner.get(int(key))
+        if not sources:
+            return
+        for source_id in sources:
+            if str(source_id) in backend and backend[str(source_id)] != value:
+                return
+            backend[str(source_id)] = value
+    if {int(key) for key in backend} != owned["legacy_face_ids"]:
+        return
+    translated: dict[Any, Any] = {}
+    for key, value in record.items():
+        if key in _ROUTE_FACE_LISTS:
+            translated[key] = sorted(owned[key])
+        elif not (isinstance(key, str) and key.isascii() and key.isdecimal()):
+            translated[key] = value
+    translated.update(sorted(backend.items(), key=lambda item: int(item[0])))
+    mesh.hybrid_diagnostics = translated
+
+
+_PLANAR_HIGH_ORDER_ROW = {
+    "geometry_family": "planar",
+    "chart_kind": "PlanarQuadDomain",
+    "boundary_projection": "source-edge-parameter-midpoint",
+    "interior_projection": "chord-midpoint",
+    "validity_status": "CERTIFIED_POSITIVE",
+}
+
+
+def _source_high_order_certificate(mesh, certificate, source_geometry, working_model_id):
+    """Re-certify a prepared planar quadratic shell's midsides on source geometry.
+
+    The quad-first promotion certifies Q8/T6 midsides against the prepared work
+    faces and work edges.  Element validity does not depend on how elements are
+    grouped into faces, so it carries over unchanged.  The geometry claims do
+    not: they are measured again here on each source face and source edge.  A
+    boundary midside must be the source-edge parameter midpoint of its station
+    and an interior midside the chord midpoint, both within a tight tolerance.
+    Returns ``None`` (no translation) whenever any claim cannot be re-established
+    exactly; permanent numbering then refuses the work-face certificate.
+    """
+
+    import numpy as np
+    from anymesher.errors import MeshError
+    from anymesher.quad.domain import PlanarQuadDomain
+    from anymesher.quad.high_order import (
+        HighOrderBoundaryMidside, HighOrderGeometryReport, HighOrderMeshCertificate, ValidityStatus,
+    )
+
+    if not isinstance(certificate, Mapping) or certificate.get("status") != "CERTIFIED_POSITIVE":
+        return None
+    rows = certificate.get("reports")
+    if (certificate.get("model_id") != str(working_model_id) or certificate.get("order") != "quadratic"
+            or not isinstance(rows, (list, tuple))):
+        return None
+    for row in rows:
+        if not isinstance(row, Mapping) or row.get("model_id") != str(working_model_id) or any(
+                row.get(key) != value for key, value in _PLANAR_HIGH_ORDER_ROW.items()):
+            return None
+    if (certificate.get("q8_count"), certificate.get("t6_count")) != (len(mesh.quads), len(mesh.tris)):
+        return None
+
+    corners_of = {int(e): tuple(int(n) for n in body[:4]) for e, body in mesh.quads.items()}
+    corners_of.update({int(e): tuple(int(n) for n in body[:3]) for e, body in mesh.tris.items()})
+    midside_of: dict[tuple[int, int], int] = {}
+    faces_of_edge: dict[tuple[int, int], set[int]] = {}
+    for element, body in ((int(e), b) for table in (mesh.quads, mesh.tris) for e, b in table.items()):
+        corners = corners_of[element]
+        for index, (first, second) in enumerate(zip(corners, corners[1:] + corners[:1])):
+            key = (min(first, second), max(first, second))
+            midside = int(body[len(corners) + index])
+            if midside_of.setdefault(key, midside) != midside:
+                return None
+    if len(midside_of) != certificate.get("unique_midside_count"):
+        return None
+    for face_id, elements in mesh.elements_of_face.items():
+        for element in elements:
+            corners = corners_of[int(element)]
+            for first, second in zip(corners, corners[1:] + corners[:1]):
+                faces_of_edge.setdefault((min(first, second), max(first, second)), set()).add(int(face_id))
+
+    nodes = {int(k): np.asarray(v, dtype=float) for k, v in mesh.nodes.items()}
+    scale = max(1.0, max((float(np.max(np.abs(p))) for p in nodes.values()), default=1.0))
+    tolerance = 1.0e-10 * scale
+
+    boundary_by_face: dict[int, list] = {}
+    boundary_keys: set[tuple[int, int]] = set()
+    # Coincident source edges (e.g. a beam line on a plate boundary) were one
+    # work edge, so after aggregation they carry the same shell segments.  Each
+    # midside is certified once, by the longest source chain that contains it;
+    # a chain whose segments are all certified already is skipped as a whole
+    # and a partial overlap is not an exact source record.
+    chains = sorted(((-len(chain), int(edge_id), [int(node) for node in chain])
+                     for edge_id, chain in mesh.nodes_of_edge.items() if chain))
+    for _length, edge_id, chain in chains:
+        segments = [(chain[i], chain[i + 1], chain[i + 2]) for i in range(0, len(chain) - 2, 2)]
+        keys = [(min(a, b), max(a, b)) for a, _mid, b in segments]
+        owned = [key in faces_of_edge for key in keys]
+        if not any(owned):
+            continue  # a beam-only line carries no shell midside
+        if len(chain) % 2 != 1 or not all(owned):
+            return None
+        covered = [key in boundary_keys for key in keys]
+        if all(covered):
+            continue
+        if any(covered):
+            return None
+        curve = type(source_geometry.edges[int(edge_id)].curve).__name__
+        curvature = "straight" if curve == "Straight" else "analytic_curved" if curve == "Arc" else "sampled"
+        for (first, middle, second), key in zip(segments, keys):
+            if midside_of.get(key) != middle:
+                return None
+            _p0, t0, _d0 = source_geometry.closest_edge_point(int(edge_id), nodes[first])
+            _p1, t1, _d1 = source_geometry.closest_edge_point(int(edge_id), nodes[second])
+            lower, upper = sorted((float(t0), float(t1)))
+            exact = np.asarray(source_geometry.sample_edge(int(edge_id), np.asarray([0.5 * (lower + upper)]))[0],
+                               dtype=float)
+            if float(np.linalg.norm(exact - nodes[middle])) > tolerance:
+                return None
+            _pm, parameter, residual = source_geometry.closest_edge_point(int(edge_id), nodes[middle])
+            try:
+                record = HighOrderBoundaryMidside(
+                    canonical_edge=(int(edge_id), round(lower, 15), round(upper, 15)),
+                    source_edge_id=int(edge_id), station_interval=(lower, upper),
+                    parameter=float(parameter), node_id=middle, residual=float(residual),
+                    curvature_class=curvature)
+            except ValueError:
+                return None
+            boundary_keys.add(key)
+            for face_id in faces_of_edge[key]:
+                boundary_by_face.setdefault(face_id, []).append(record)
+
+    reports = []
+    for face_id in sorted(int(f) for f in mesh.elements_of_face):
+        try:
+            domain = PlanarQuadDomain.from_geometry(source_geometry, face_id)
+        except (MeshError, KeyError, TypeError, ValueError):
+            return None
+        origin, normal = np.asarray(domain.origin, dtype=float), np.asarray(domain.normal, dtype=float)
+        elements = [int(e) for e in mesh.elements_of_face[face_id]]
+        edges = {(min(a, b), max(a, b)) for e in elements
+                 for a, b in zip(corners_of[e], corners_of[e][1:] + corners_of[e][:1])}
+        boundary = tuple(sorted(boundary_by_face.get(face_id, ()), key=lambda item: repr(item.canonical_edge)))
+        residuals = [float(item.residual) for item in boundary]
+        interior = sorted(edges - boundary_keys)
+        for first, second in interior:
+            midside = nodes[midside_of[(first, second)]]
+            if float(np.linalg.norm(midside - 0.5 * (nodes[first] + nodes[second]))) > tolerance:
+                return None
+            residuals.append(abs(float(np.dot(midside - origin, normal))))
+        # A preparation seam (e.g. a plate intersection imprinted on the work
+        # model) has no source edge: its midside is interior to every face
+        # meeting there.  It is measured on each of those planes above but
+        # counted once, by the lowest face id, so the certificate's unique
+        # midside total stays exact.
+        interior_count = sum(1 for key in interior if min(faces_of_edge[key]) == face_id)
+        for item in boundary:
+            residuals.append(abs(float(np.dot(nodes[item.node_id] - origin, normal))))
+        q8 = sum(e in mesh.quads for e in elements)
+        t6 = sum(e in mesh.tris for e in elements)
+        try:
+            reports.append(HighOrderGeometryReport(
+                model_id=str(source_geometry.model_id), revision=int(source_geometry.revision),
+                face_id=face_id, chart_origin=tuple(float(v) for v in origin),
+                q8_count=q8, t6_count=t6, certified_elements=q8 + t6, total_elements=q8 + t6,
+                boundary_midsides=boundary,
+                edge_curvature_classes=tuple(sorted({item.curvature_class for item in boundary})),
+                interior_midside_count=interior_count, max_geometry_residual=max(residuals, default=0.0),
+                **{key: value for key, value in _PLANAR_HIGH_ORDER_ROW.items() if key != "validity_status"},
+            ))
+        except ValueError:
+            return None
+    try:
+        result = HighOrderMeshCertificate(
+            status=ValidityStatus.CERTIFIED_POSITIVE, model_id=str(source_geometry.model_id),
+            revision=int(source_geometry.revision), reports=tuple(reports),
+            q8_count=len(mesh.quads), t6_count=len(mesh.tris), unique_midside_count=len(midside_of),
+            unique_boundary_midside_count=len({item.canonical_edge for r in reports for item in r.boundary_midsides}),
+            max_geometry_residual=max((r.max_geometry_residual for r in reports), default=0.0),
+            order="quadratic", target_size=float(certificate.get("target_size", 0.0)),
+            route=str(certificate.get("route", "quad-first")),
+        )
+    except ValueError:
+        return None
+    return result.to_dict()
+
+
+def _publish_source_high_order_certificate(mesh, source_geometry, working_model_id) -> None:
+    """Replace a work-face high-order certificate (flat and wrapped copies) by its source re-certification."""
+
+    record = getattr(mesh, "hybrid_diagnostics", None)
+    if source_geometry is None or not getattr(mesh, "is_quadratic", False) or not isinstance(record, Mapping):
+        return
+    certificate = record.get("high_order_geometry")
+    nested = record.get("quad_first")
+    wrapped = isinstance(nested, Mapping) and "high_order_geometry" in nested
+    if certificate is None or (wrapped and nested["high_order_geometry"] != certificate):
+        return
+    source = _source_high_order_certificate(mesh, certificate, source_geometry, working_model_id)
+    if source is None:
+        return
+    translated = dict(record)
+    translated["high_order_geometry"] = source
+    if wrapped:
+        translated["quad_first"] = {**nested, "high_order_geometry": copy.deepcopy(source)}
+    mesh.hybrid_diagnostics = translated
+
+
 def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
                          source_geometry=None, cancellation_check=None, qualification=None) -> None:
     """Publish prepared mesh associations against immutable source handles."""
@@ -693,6 +934,7 @@ def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
                 table[source_id] = list(dict.fromkeys(values)) if name == "elements_of_edge" else values
         edge_tables[name] = table
     mesh.elements_of_face = _aggregate(mesh.elements_of_face, face_owner)
+    _publish_route_face_ownership(mesh, face_owner)
     for name, table in edge_tables.items():
         setattr(mesh, name, table)
     seeding = getattr(mesh, "seeding", None)
@@ -733,6 +975,7 @@ def remap_mesh_to_source(mesh, closure: ModelClosure, *, edge_paths=None,
     }
     mesh.geometry_model_id = closure.source_model_id
     mesh.geometry_revision = closure.source_revision
+    _publish_source_high_order_certificate(mesh, source_geometry, closure.working_model.model_id)
     if qualified_authority is not None:
         qualified_authority["source_model_id"] = str(closure.source_model_id)
         qualified_authority["source_revision"] = int(closure.source_revision)
