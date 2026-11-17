@@ -53,16 +53,25 @@ jobs:
           venv-canary/Scripts/python.exe -m pip install -r canary-requirements.txt --require-hashes --no-deps --no-index --find-links wheelhouse-canary
           venv-pinned/Scripts/python.exe -c "import numpy; assert numpy.__version__ == '2.4.6', numpy.__version__"
           venv-canary/Scripts/python.exe -c "import numpy; assert numpy.__version__.startswith('2.5.'), numpy.__version__"
+      - name: Fail fast if the checkout is not importable (native Windows paths)
+        shell: bash
+        run: |
+          W="$(cygpath -w "$PWD")"
+          export PYTHONPATH="$W\.ecosystem\ANYgeometry\src;$W\src"
+          venv-pinned/Scripts/python.exe -s -c "import anygeometry, anyfem"
+          venv-canary/Scripts/python.exe -s -c "import anygeometry, anyfem"
       - name: Measure sector60 (serial) under both
         shell: bash
         run: |
-          export PYTHONPATH="$PWD/.ecosystem/ANYgeometry/src;$PWD/src"
+          W="$(cygpath -w "$PWD")"
+          export PYTHONPATH="$W\.ecosystem\ANYgeometry\src;$W\src"
           venv-pinned/Scripts/python.exe -s tools/ci_numpy_canary.py measure record-pinned.json
           venv-canary/Scripts/python.exe -s tools/ci_numpy_canary.py measure record-canary.json
       - name: Verdict (0 = DETECTED, 1 = NOT DETECTED, 2 = input problem)
         shell: bash
         run: |
-          export PYTHONPATH="$PWD/.ecosystem/ANYgeometry/src;$PWD/src"
+          W="$(cygpath -w "$PWD")"
+          export PYTHONPATH="$W\.ecosystem\ANYgeometry\src;$W\src"
           venv-pinned/Scripts/python.exe -s tools/ci_numpy_canary.py compare record-pinned.json record-canary.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
