@@ -364,7 +364,7 @@
       "bundled": false,
       "license_expression": "MPL-2.0",
       "name": "ANYhydro",
-      "requirement": "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@379dfd2a7ff2ea038ad35cf6f179e58ae675be52",
+      "requirement": "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@05758642b29aa492d9f983de11301df91b197c39",
       "scope": "optional:orcawave",
       "upstream": "https://github.com/audunarn/ANYhydro"
     },
