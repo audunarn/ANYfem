@@ -84,5 +84,6 @@ def test_examples_menu_creates_drawing_barge_without_source_documents(window, qa
     qapp.processEvents()
     assert len(window.project.geometry.faces) == 18
     assert len(window.project.edge_sections) > 1000
+    assert window.panels["Mesh"].order.currentText() == "quadratic"
     assert window.viewport._scene.faces
     assert window.session.dirty

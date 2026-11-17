@@ -48,7 +48,7 @@ def test_drawing_barge_60m_geometry_load_and_roundtrip():
     assert project.target_size == .5
     assert project.native_mesh_settings is not None
     assert project.native_mesh_settings.backend.value == "quad_first"
-    assert project.native_mesh_settings.element_order == "quadratic"
+    assert project.element_order == project.native_mesh_settings.element_order == "quadratic"
     assert project.native_mesh_settings.to_dict()["parameters"] == {
         "layout_policy": "adaptive", "quad_t3_angle_action": "warning",
     }
@@ -59,6 +59,7 @@ def test_drawing_barge_60m_geometry_load_and_roundtrip():
     project.validate()
     restored = project_from_dict(project_to_dict(project))
     assert len(restored.geometry.faces) == 18
+    assert restored.element_order == restored.native_mesh_settings.element_order == "quadratic"
     assert restored.face_sections == project.face_sections
     assert restored.edge_sections == project.edge_sections
 

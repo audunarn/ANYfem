@@ -130,6 +130,7 @@ def floating_barge_section(
     longitudinal_stiffener_splits: dict[tuple[str, float], tuple[float, ...]] | None = None,
     shell_deck_longitudinals: tuple[float, ...] = (),
     shell_mount_charts: bool = False,
+    side_longitudinal_heights: tuple[float, ...] | None = None,
     stress_scale: float = BARGE_LINEAR_STRESS_SCALE,
     target_size: float = .7,
     name: str = "Floating barge — midship section",
@@ -157,6 +158,9 @@ def floating_barge_section(
     lays a flat bar ``opening_bar`` = (height, thickness) along each hole edge
     (straight sides and corner arcs). ``bulkhead_stiffener`` = (hw, tw, b, tf) puts a
     vertical T-bar on every 700 mm grid line of each bulkhead outside the openings.
+    ``side_longitudinal_heights`` gives the side-shell longitudinal heights
+    explicitly (strictly increasing, between bottom and deck); by default they are
+    every ``stiffener_spacing`` from the keel.
     The defaults are the 5 m example.
     """
 
@@ -187,9 +191,16 @@ def floating_barge_section(
     ys = tuple(round(-half_breadth + i * stiffener_spacing, 6)
                for i in range(int(breadth / stiffener_spacing) + 1)
                if -half_breadth + i * stiffener_spacing < half_breadth) + (half_breadth,)
-    zs = tuple(round(i * stiffener_spacing, 6)
-               for i in range(int(depth / stiffener_spacing) + 1)
-               if i * stiffener_spacing < depth) + (depth,)
+    if side_longitudinal_heights is None:
+        zs = tuple(round(i * stiffener_spacing, 6)
+                   for i in range(int(depth / stiffener_spacing) + 1)
+                   if i * stiffener_spacing < depth) + (depth,)
+    else:
+        heights = tuple(float(value) for value in side_longitudinal_heights)
+        if (not all(0. < value < depth for value in heights)
+                or any(a >= b for a, b in zip(heights, heights[1:]))):
+            raise ValueError("side longitudinal heights must increase strictly between bottom and deck")
+        zs = (0., *(round(value, 6) for value in heights), float(depth))
     geometry = project.geometry
     vertices, edges, faces = {}, {}, {}
 
@@ -510,8 +521,10 @@ def drawing_barge_60m() -> Project:
 
     The source drawings are read in place and are not packaged with this example.
     Framing stations between the 5 m end modules are distributed uniformly; the
-    drawing varies them by about 100 mm. This is an application example, not a
-    traced fabrication or classification model.
+    drawing varies them by about 100 mm. Side longitudinals keep the 625 mm
+    spacing from the keel; the one that would sit 125 mm under the 2 m deck is
+    omitted, so the side shell has no sliver strip. This is an application
+    example, not a traced fabrication or classification model.
     """
     end_frames = tuple(i * .625 for i in range(9))
     port_half = end_frames + tuple(round(5. + i * 25. / 9., 6) for i in range(1, 10))
@@ -519,7 +532,8 @@ def drawing_barge_60m() -> Project:
     project = floating_barge_section(
         length=60., breadth=5., depth=2.,
         bulkheads=(5., 30., 55.), girders=stations,
-        stiffener_spacing=.625, centerline_bulkhead=True,
+        stiffener_spacing=.625, side_longitudinal_heights=(.625, 1.25),
+        centerline_bulkhead=True,
         plate_thicknesses=(.006, .006, .006), steel_grade="S235",
         stiffener_section=(.120, .007, .025, .007),
         girder_section=(.300, .012, .100, .012),
@@ -528,8 +542,9 @@ def drawing_barge_60m() -> Project:
         analysis_name="60 m drawing barge — illustrative end bending",
     )
     _add_drawing_barge_end_structures(project)
+    project.set_element_order("quadratic")
     project.set_native_mesh_settings(NativeMeshSettings.create(
-        .5, element_order="quadratic", backend="quad_first",
+        .5, element_order=project.element_order, backend="quad_first",
         parameters={"layout_policy": "adaptive",
                     "quad_t3_angle_action": "warning"},
     ))
