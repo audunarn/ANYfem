@@ -304,6 +304,16 @@ def _child_env(folder: Path, threads: int) -> dict:
     return keep  # no PATH, no PYTHONPATH, no other ANYGEOMETRY_* from the parent
 
 
+def _planning_env() -> dict:
+    """The parent's planning-configuration variables (exactly the two ``resolved_route`` reads), for the PLAN child only.
+
+    The child environment drops every other ANYGEOMETRY_* variable, so without this a parent running ring_split would
+    always be refused ("planning configuration differs").  Never given to the health child: its smoke digest is frozen
+    for the default configuration.  The comparison in ``_check_runtime`` stays as the fail-closed guard."""
+    from anygeometry.batch_intersections import PLANNING_MODE_ENVIRONMENT, SEAM_POLICY_ENVIRONMENT
+    return {k: os.environ[k] for k in (PLANNING_MODE_ENVIRONMENT, SEAM_POLICY_ENVIRONMENT) if k in os.environ}
+
+
 def _stop(process: subprocess.Popen, job: _KillOnCloseJob) -> None:
     """Kill only our own child: the Popen handle pins the PID against reuse; the job object takes descendants."""
     try:
@@ -748,6 +758,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     except (_GeometryError, TypeError, ValueError, OSError) as exc:
         return _unavailable("document cannot be serialised: %s" % exc)
     run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path", "child_main_health")}
+    run_kwargs["extra_env"] = {**_planning_env(), **(run_kwargs.get("extra_env") or {})}
     outcome = run_child(python, job, document, threads=thread_count(), timeout=timeout,
                         cancellation_check=cancellation_check, **run_kwargs)
     last_outcome = outcome
