@@ -182,3 +182,20 @@ Barge after round 4: 402 turned, 0 reversed, 0 ambiguous, 0 inconsistent,
 houses in the same 3 blocks. Tests: 75 passed (test_mesh_orientation incl.
 barge, test_qt_shell_local_axes, test_presentation_workspace,
 test_qt_sketch_overlay_lifetime).
+
+## Mesher version of the barge numbers
+
+Rounds 1-4 above were measured with `C:/Github/ANYmesh` at ANYmesher
+`0d85b68` (that checkout has uncommitted files). After the rebase onto ANYfem
+main `05b13c9` (which pins ANYmesher `432b4ed`), the barge was re-measured with
+the pinned, clean checkout `C:/ANYworkspaceWork/anyfem-runtime-main-20261111/owners/ANYmesh`
+(`432b4ed696bbb0fbf52bd62e72e4ba98cc008e00`):
+
+| ANYmesher | Turned | Reversed | Ambiguous | Inconsistent | Mixed (faces) | Unchecked | Deck turned / between end houses / blocks |
+|---|---|---|---|---|---|---|---|
+| 0d85b68 (dirty) | 402 | 0 | 0 | 0 | 968 (11) | 0 | 169 / 144 / 3 |
+| 432b4ed (pinned) | 402 | 0 | 0 | 0 | 968 (11) | 0 | 169 / 144 / 3 |
+
+Identical, including every per-face count. Check time with 432b4ed: 7.9 s
+(single run). The first D1 measurement (880 turned) and the round-1 to round-3
+numbers were all taken with 0d85b68.

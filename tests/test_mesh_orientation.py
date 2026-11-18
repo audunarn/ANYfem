@@ -664,6 +664,8 @@ def test_drawing_barge_60m_deck_patches_are_found():
 
     144 of the main-deck quads between the end houses have local x across the
     barge, in three blocks at x 4.98-7.80, 27.20-32.80 and 52.20-55.02 m.
+    Numbers measured with ANYmesher 432b4ed (the pin of ANYfem main 05b13c9)
+    and, identically, with 0d85b68.
     """
     from anyfem.application.examples import drawing_barge_60m
     from anyfem.jobs import _cancellation_token
