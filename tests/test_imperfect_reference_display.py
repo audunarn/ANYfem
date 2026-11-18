@@ -195,3 +195,83 @@ def test_artifact_of_an_unbound_imperfect_result_refuses_its_reference(plate_and
         build_persisted_result_scene(
             unbound.built.project, unbound.built.mesh, dataset, "displacement", scale=1.0
         )
+
+
+def test_element_csv_centroids_use_the_reference_geometry(plate_and_mode):
+    from anyfem.post.report import field_to_csv
+
+    solution = _runtime(plate_and_mode)
+    mesh = solution.built.mesh
+    ids = sorted(mesh.nodes)
+    reference = dict(zip(ids, _fe_coordinates(solution.solved_model(), ids)))
+    rows = [l.split(",") for l in field_to_csv(solution, "von_mises").splitlines()[1:]]
+    assert rows
+    for row in rows:
+        expected = np.mean([reference[n] for n in mesh.corners_of(int(row[0]))], axis=0)
+        np.testing.assert_allclose([float(v) for v in row[1:4]], expected, atol=1e-8)
+
+
+class _Patched:
+    """A real dataset with edited provenance or tables."""
+
+    def __init__(self, dataset, reference=None, tables=None):
+        self._d, self._reference, self._tables = dataset, reference, tables or {}
+
+    def __getattr__(self, name):
+        return getattr(self._d, name)
+
+    def metadata(self, name):
+        data = dict(self._d.metadata(name))
+        if name == "provenance" and self._reference is not None:
+            data["reference_geometry"] = self._reference
+        return data
+
+    def table(self, key, *args):
+        return self._tables[key] if key in self._tables else self._d.table(key, *args)
+
+
+@pytest.mark.parametrize("reference", [{"kind": "future"}, {}, "text"])
+def test_unrecognised_reference_record_is_refused(plate_and_mode, tmp_path, reference):
+    solution = _runtime(plate_and_mode)
+    store, artifact = _store(tmp_path, solution)
+    dataset = _Patched(store.open_result(artifact), reference=reference)
+    with pytest.raises(ValueError, match="unrecognised"):
+        build_persisted_result_scene(
+            solution.built.project, solution.built.mesh, dataset, "displacement", scale=1.0
+        )
+
+
+@pytest.mark.parametrize("damage", ["duplicate", "shape", "fractional"])
+def test_malformed_stored_reference_is_refused(plate_and_mode, tmp_path, damage):
+    solution = _runtime(plate_and_mode)
+    store, artifact = _store(tmp_path, solution)
+    real = store.open_result(artifact)
+    ids = np.asarray(real.table("reference_node_ids"))
+    xyz = np.asarray(real.table("reference_node_positions"))
+    tables = {
+        "duplicate": {"reference_node_ids": np.concatenate([ids[:-1], ids[-2:-1]])},
+        "shape": {"reference_node_positions": xyz[:-1]},
+        "fractional": {"reference_node_ids": ids + 0.5},
+    }[damage]
+    with pytest.raises(ValueError, match="malformed"):
+        build_persisted_result_scene(
+            solution.built.project, solution.built.mesh, _Patched(real, tables=tables),
+            "displacement", scale=1.0,
+        )
+
+
+def test_capacity_stage_fields_stay_on_the_perfect_geometry(plate_and_mode, tmp_path):
+    from anyfem.ui.scene import persisted_reference_positions
+
+    solution = _capacity(plate_and_mode)
+    store, artifact = _store(tmp_path, solution)
+    dataset = store.open_result(artifact)
+    assert "static_displacement" in dataset.field_keys
+    mesh = solution.built.mesh
+    ordered = sorted(mesh.nodes)
+    perfect = np.asarray([mesh.nodes[n] for n in ordered], dtype=float)
+    # Reference static and elastic buckling ran on the unmoved model.
+    np.testing.assert_array_equal(
+        persisted_reference_positions(dataset, mesh, ordered, perfect_stage=True), perfect
+    )
+    assert not np.array_equal(persisted_reference_positions(dataset, mesh, ordered), perfect)
