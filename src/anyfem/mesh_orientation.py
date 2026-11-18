@@ -31,6 +31,12 @@ This module measures that, without re-deriving any solver frame:
    build creates (ANYfem sets no ``material_direction`` or
    ``material_angle_deg``; an orthotropic material turns only the material
    axes, see D0); the material's admissibility is checked by the first call.
+   Scope: this is the model of a solve driven by the project as it stands
+   (project imperfections included).  An analysis that adds its own reference
+   geometry change at solve time (the ``imperfection`` argument of nonlinear or
+   arc-length solves, the eigenmode imperfection of a capacity analysis) is
+   not represented.  The build may normalise the project's section-assignment
+   records (adopting legacy maps) exactly as a solve would.
 3. Per geometry face, local x is measured against a fixed reference: the
    global axis least aligned with the face's normals (at the element
    centroids), projected onto the tangent plane at each centroid.  The face
@@ -44,15 +50,17 @@ This module measures that, without re-deriving any solver frame:
    resultant is too small to name a dominant direction has all its elements
    unchecked.
 
-   Curved faces: on a developable or gently curved face the projected global
-   axis is a smooth physical reference and the dominant direction is a constant
-   angle from it.  Where the face turns far enough that the axis becomes
-   nearly normal to it (projected length below 0.5) the element is unchecked;
-   on a strongly doubly curved face a constant angle from a projected axis is
-   not a meaningful layout and the check reports such faces as mixed rather
-   than claiming consistency.  Recovery frames are compared with the face
-   frame at the element centroid, so on a face curved strongly within one
-   element the face's turn across the element adds to the measured angle.
+   Curved faces: the reference is the projected global axis at each
+   centroid, and "consistent" means only that local x keeps a constant angle
+   (within the bands) from it.  On a developable or gently curved face that is
+   a smooth physical reference.  There is no curvature guard: on a strongly
+   doubly curved face a constant angle from a projected axis may or may not be
+   the layout that matters (meridional x on a sphere band is consistent against
+   projected z), and the check does not judge that.  Where the axis becomes
+   nearly normal to the face (projected length below 0.5) the element is
+   unchecked.  Recovery frames are compared with the face frame at the element
+   centroid, so on a face curved strongly within one element the face's turn
+   across the element adds to the measured angle.
 4. The normal at every recovery point is compared with the face normal; the
    face's majority side is the reference.  Reversing the normal with x kept
    flips e_y: ``membrane_xy``, ``bending_xx`` and ``bending_yy`` change sign,
@@ -60,8 +68,9 @@ This module measures that, without re-deriving any solver frame:
 
 The report never calls anything consistent that it did not fully compare:
 unchecked, ambiguous and inconsistent elements all make a face inconsistent
-and are counted in ``summary()``.  It is a diagnostic only: it changes no
-project, mesh or result (the solver model it builds is thrown away).
+and are counted in ``summary()``.  It changes no mesh or result and keeps
+no solver model; the one project change it can cause is the section-assignment
+normalisation any solve build performs (see Scope).
 """
 
 from __future__ import annotations
@@ -178,8 +187,9 @@ class FaceOrientation:
 
     @property
     def consistent(self) -> bool:
-        return not (self.turned or self.ambiguous or self.inconsistent
-                    or self.reversed or self.unchecked)
+        # A face with no shell element compared nothing, so it is not consistent.
+        return self.element_count > 0 and not (self.turned or self.ambiguous or self.inconsistent
+                                               or self.reversed or self.unchecked)
 
 
 @dataclass(frozen=True)

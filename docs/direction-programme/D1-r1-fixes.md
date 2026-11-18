@@ -84,3 +84,38 @@ Barge after round 2: identical to round 1 (402 turned, 968 unchecked, deck
 Not covered by a test: replacing the canvas object itself (the Qt test covers
 canvas.clear and Geometry/Mesh view switches; `maintain_shell_axes` also
 compares the group's viewer with the current canvas).
+
+## Round 3 (review `D1-review-r3.md` on de84a83, four findings) - stop report
+
+Fixed: finding 3 (a face with no elements now makes the report NOT
+consistent; `test_r3_f3_face_without_elements_is_not_consistent`, fails on
+de84a83) and finding 4 (module docstring: no curvature guard exists, so the
+curved-face text now says what "consistent" means there instead of promising
+a "mixed" verdict).
+
+Not fixed - stopped under the three-round rule. Rounds 1-3 each found more of
+one kind: the diagnostic's model is not exactly the model of the solve the
+owner cares about. Round 3's findings 1 and 2 are that kind:
+
+1. The build normalises the caller's project (legacy section maps adopted
+   into assignment/region/sheet/part records) - a solve does the same. The
+   project cannot be deep-copied (mappingproxy) and `project_to_dict` itself
+   normalises, so isolating the build is not a local fix.
+2. Analysis-time imperfections (nonlinear/arc-length `imperfection`,
+   capacity eigenmode imperfection) change the reference geometry after the
+   build; the project-level check cannot see them.
+
+Contract question for the owner (decide one):
+
+* A. Scope the check to "the model a static solve of the project as it stands
+  would build", documented (now in the module docstring "Scope"), and accept
+  the same section-assignment normalisation a solve performs; or
+* B. Make it strictly read-only: refuse (all unchecked) when the build would
+  normalise the project, which needs a read-only "would adopt" predicate in
+  `Project` (owner-reserved model code); and/or
+* C. Check frames per analysis: take the actual analysis model (after any
+  solve-time imperfection) from the analysis entry points, i.e. move the check
+  next to result recovery (D2 territory) rather than before the solve.
+
+Recommendation: A for D1 (it is a mesh-order diagnostic; the barge result does
+not depend on these cases), C as part of D2 where results carry their frames.

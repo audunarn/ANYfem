@@ -246,6 +246,14 @@ def test_empty_report_is_not_consistent():
     assert not report.consistent and "NOT consistent" in report.summary()
 
 
+def test_r3_f3_face_without_elements_is_not_consistent():
+    mesh = SimpleNamespace(nodes={}, quads={}, tris={}, elements_of_face={1: []})
+    report = model_orientation_report(_Plane(), mesh, SimpleNamespace(mesh=SimpleNamespace(elements={}),
+                                                                     materials={}))
+    assert len(report.faces) == 1 and not report.consistent
+    assert "NOT consistent" in report.summary()
+
+
 # --- round 1, finding 1: warped qualified Q4 recovers through ShellElement --
 
 def test_r1_f1_warped_q4_reports_the_shell_element_gauss_frames(shell_build):
