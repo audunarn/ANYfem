@@ -63,18 +63,46 @@ def _trusted_imperfection(imperfection: Any) -> bool:
         StandardImperfection,
     )
 
+    # Trust is decided by exact built-in types all the way down, without
+    # iterating anything that is not a built-in container: a custom mapping,
+    # sequence or array-like can run code when read, and a one-shot iterator
+    # would be consumed by the check itself.
     kind = type(imperfection)
     if kind is dict:
-        return True
+        return _plain_offsets(imperfection)
     if kind is ImperfectionField:
-        return isinstance(imperfection.offsets, Mapping) and isinstance(
-            imperfection.metadata, Mapping
+        return _plain_offsets(imperfection.offsets) and type(imperfection.metadata) is dict
+    if kind is EigenmodeImperfection:
+        return type(imperfection.buckling_result).__module__.startswith("anyfesolver.")
+    if kind is StandardImperfection:
+        return type(imperfection.node_ids) in (tuple, list) and all(
+            type(node) is int for node in imperfection.node_ids
         )
-    if kind in (EigenmodeImperfection, StandardImperfection):
-        return True
     if kind is CompositeImperfection:
-        return all(_trusted_imperfection(part) for part in imperfection.components)
+        return type(imperfection.components) in (tuple, list) and all(
+            _trusted_imperfection(part) for part in imperfection.components
+        )
     return False
+
+
+_PLAIN_NUMBERS = (int, float, np.float64, np.float32, np.int64, np.int32)
+
+
+def _plain_offsets(offsets: Any) -> bool:
+    if type(offsets) is not dict:
+        return False
+    for node, offset in offsets.items():
+        if type(node) not in (int, np.int64, np.int32):
+            return False
+        if type(offset) is np.ndarray:
+            if offset.dtype.kind not in "fiu":
+                return False
+        elif type(offset) in (tuple, list):
+            if not all(type(value) in _PLAIN_NUMBERS for value in offset):
+                return False
+        else:
+            return False
+    return True
 
 
 def owned_imperfection_field(base_model: Any, imperfection: Any):

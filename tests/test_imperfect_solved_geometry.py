@@ -393,3 +393,44 @@ def test_a_bound_result_recovers_identically_after_job_transport(plate_and_mode)
             np.testing.assert_array_equal(
                 _field(recover(transported), key), _field(expected, key)
             )
+
+
+def test_custom_containers_inside_trusted_types_go_to_the_solver_unchanged(plate_and_mode):
+    from collections.abc import Mapping as AbstractMapping
+
+    from anyfesolver.imperfections import CompositeImperfection, ImperfectionField, to_imperfection_field
+
+    from anyfem.post.results import UnboundSolvedGeometryError
+
+    class CustomOffsets(AbstractMapping):
+        def __init__(self, data):
+            self._data = dict(data)
+
+        def __getitem__(self, key):
+            return self._data[key]
+
+        def __iter__(self):
+            return iter(self._data)
+
+        def __len__(self):
+            return len(self._data)
+
+    project, mesh, buckling = plate_and_mode
+    base_field = to_imperfection_field(
+        buckling.built.fe_model, eigenmode_imperfection(buckling, 1, amplitude=AMPLITUDE)
+    )
+    plain = ImperfectionField(dict(base_field.offsets), name="mode")
+    reference = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=plain, max_load_factor=0.5, num_steps=1,
+    )
+    for untrusted in (
+        ImperfectionField(CustomOffsets(base_field.offsets), name="mode"),
+        CompositeImperfection(iter([plain]), name="mode"),
+    ):
+        solution = solve_nonlinear_static(
+            project, mesh=mesh, imperfection=untrusted, max_load_factor=0.5, num_steps=1,
+        )
+        # The solver saw the caller's object, so the solve is what it was before.
+        np.testing.assert_array_equal(solution.displacements, reference.displacements)
+        with pytest.raises(UnboundSolvedGeometryError):
+            solution.stresses()
