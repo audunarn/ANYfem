@@ -21,20 +21,27 @@ def test_late_empty_job_query_cannot_confirm_retirement(monkeypatch):
     assert "deadline" in tree.confirm_retirement(5.0)
 
 
-def test_late_empty_group_scan_cannot_confirm_retirement(monkeypatch):
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_late_empty_group_scan_cannot_confirm_retirement(monkeypatch, platform):
+    monkeypatch.setattr(worker.sys, "platform", platform)
     clock = [0.0]
     monkeypatch.setattr(worker.time, "monotonic", lambda: clock[0])
 
+    scans = []
+
     def late_scan(group, deadline):
+        scans.append(group)
         clock[0] = 6.0
         return None
 
     monkeypatch.setattr(worker, "_linux_group_survivor", late_scan)
-    monkeypatch.setattr(worker, "_darwin_group_survivor", late_scan)
+    # Darwin retirement scans the whole SESSION (_retirement_survivor), not the group.
+    monkeypatch.setattr(worker, "_darwin_session_survivor", late_scan)
     tree = worker.WorkerTree(SimpleNamespace(pid=42), group=42)
     tree._proven_group = 42
     tree._terminated = True
     assert "deadline" in tree.confirm_retirement(5.0)
+    assert scans == [42], "the patched scan must be the one the platform actually calls"
 
 
 @pytest.mark.skipif(worker.sys.platform != "linux", reason="Linux proc metadata")
