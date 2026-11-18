@@ -484,6 +484,59 @@ def test_r6_only_the_active_published_mesh_is_checked():
     assert all("unpublished mesh" in reason for reason in report.unchecked.values())
 
 
+def test_r7_curved_q8_narrow_between_its_corners_goes_to_the_probe():
+    """Codex round 6: x = xi, y = eta (1e-5 + xi^2) has well separated corners but is
+    about 1e-5 wide at xi = 0; at (1e6, -1e6, 1e6) the solver frame is no longer
+    probe-exact.  It must not be read through the solver-frame route."""
+    offset = np.array([1e6, -1e6, 1e6])
+    c, s_ = np.cos(.3), np.sin(.3)
+    rotation = np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]])
+    natural = [(-1, -1), (1, -1), (1, 1), (-1, 1), (0, -1), (1, 0), (0, 1), (-1, 0)]
+
+    def place(points, x0):
+        return [offset + rotation @ (np.array(p, float) + [x0, 0, 0]) for p in points]
+    square = place([(2 * (x + 1) / 2, (y + 1) / 2, 0) for x, y in natural], 0.0)
+    curved = place([(x, y * (1e-5 + x * x), 0) for x, y in natural], 4.0)
+    nodes, quads = {}, {}
+    for e, coords in ((1, square), (2, curved)):  # element 1 takes the verification sample
+        ids = []
+        for xyz in coords:
+            nodes[len(nodes) + 1] = xyz
+            ids.append(len(nodes))
+        quads[e] = tuple(ids)
+    mesh = SimpleNamespace(nodes=nodes, quads=quads, tris={}, elements_of_face={1: [1, 2]})
+    model = _shell_model(_stand_in(policy=ShellFormulationPolicy.legacy_compatible()), mesh)
+    report = model_orientation_report(_OffsetPlane(offset), mesh, model)
+    assert 2 not in report.element_axes or report.element_axes[2].frame_source == "stress-probe"
+    assert 2 in report.unchecked and "not a rotated orthonormal frame" in report.unchecked[2]
+    assert 1 not in report.unchecked  # an ordinary element is still checked (via the probe here)
+
+
+@pytest.mark.parametrize("count", [8, 6, 4, 3])
+def test_r7_frame_conditioning_matches_an_svd_reference(count):
+    from anyfesolver.elements import ShellElement
+
+    from anyfem.mesh_orientation import frame_conditioning
+
+    rng = np.random.default_rng(70 + count)
+    base = {8: [(0, 0), (1, 0), (1, 1), (0, 1), (.5, 0), (1, .5), (.5, 1), (0, .5)],
+            6: [(0, 0), (1, 0), (0, 1), (.5, 0), (.5, .5), (0, .5)],
+            4: [(0, 0), (1, 0), (1, 1), (0, 1)], 3: [(0, 0), (1, 0), (0, 1)]}[count]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        element = ShellElement(1, list(range(1, count + 1)), "steel", thickness=.01)
+    for scale in (1.0, 1e-3, 1e3):
+        coords = np.array([(x, y, .2 * x * y) for x, y in base]) * scale + rng.normal(scale=.03 * scale, size=(count, 3))
+        coords += 50.0 * scale
+        reference = 0.0
+        for xi, eta in element.gauss_points:
+            _n, d_xi, d_eta = element.compute_shape_functions(float(xi), float(eta))
+            tangents = np.column_stack([coords.T @ d_xi, coords.T @ d_eta])
+            smallest = np.linalg.svd(tangents, compute_uv=False)[-1]
+            reference = max(reference, np.abs(coords).max() * np.hypot(d_xi, d_eta).sum() / smallest)
+        assert frame_conditioning(element, coords) == pytest.approx(reference, rel=1e-9)
+
+
 class _OffsetPlane(_Plane):
     """Plane z = z0 with u along x."""
 

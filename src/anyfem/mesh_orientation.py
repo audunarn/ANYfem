@@ -46,6 +46,11 @@ This module measures that, without re-deriving any solver frame:
    guard catches the common cases but is not an exhaustive detector; a
    module-level patch the guard does not see (e.g. of
    ``recovery_shell_frames.native_recovery_frames``) is outside the contract.
+   The route also requires ``frame_conditioning`` (rounding amplification of
+   the frame at every recovery point, from the element's own Jacobian, so
+   curved and midside-narrowed elements count) to be at most 1e7; otherwise
+   the element goes through the full probe, which accepts or refuses it on
+   its residual.
    Scale: elements whose node coordinates lie more than 1e7 smallest element
    dimensions from the origin (or are not finite) are unchecked on either
    route - the solver's own frame loses precision there (0.04 deg at 1e12 m).
@@ -146,6 +151,12 @@ VERIFY_EVERY = 25
 # unchecked.  The smallest dimension (not the largest) bounds the error in the
 # element's narrow direction too (Codex round 5: a 1 x 1e-4 sliver at 1e6 m).
 COORDINATE_SCALE_LIMIT = 1.0e7
+# Largest frame conditioning R * sum_i |grad N_i| / sigma_min(J) at any recovery
+# point for the solver-frame route (see ``frame_conditioning``).  First-order
+# bound on the frame's rounding error: about 8 * eps * this ratio, i.e.
+# 2e-8 rad at the limit, well inside the probe's 1e-6 tolerance.  Elements
+# above it go through the full probe (fail closed).
+FRAME_CONDITIONING_LIMIT = 1.0e7
 
 SCOPE_NOTE = ("Static-solve model of the project as it stands; analysis-time "
               "imperfections (nonlinear, arc-length, capacity) are not included (D2).")
@@ -505,7 +516,8 @@ def model_recovery_frames(
                     # the full model scope must be admitted.
                     element.compute_stresses(fe_mesh, np.zeros(int(element.total_dofs)), material)
                     source = PROBE
-                    if fast_ok and _solver_frame_eligible(element, ShellElement):
+                    if (fast_ok and _solver_frame_eligible(element, ShellElement)
+                            and frame_conditioning(element, coords) <= FRAME_CONDITIONING_LIMIT):
                         frames = _legacy_recovery_frames(element, fe_mesh, material)
                         source = SOLVER_FRAME
                         if eligible_count % VERIFY_EVERY == 0:
@@ -577,6 +589,39 @@ def _scale_refusal(coords: np.ndarray, corners: np.ndarray) -> Optional[str]:
         return (f"node coordinates {ratio:.1e} smallest element dimensions from the origin exceed "
                 f"{COORDINATE_SCALE_LIMIT:.0e}: the solver's frame loses precision")
     return None
+
+
+def frame_conditioning(element: Any, coords: np.ndarray) -> float:
+    """Worst rounding amplification of the element's frame at its recovery points.
+
+    The solver frame at a recovery point comes from the tangents
+    ``J = [sum_i dN_i/dxi X_i, sum_i dN_i/deta X_i]``.  Their rounding error
+    is at most about ``n eps R sum_i |grad N_i|`` (``R`` the largest
+    coordinate magnitude, ``n`` nodes), and an orthonormalised frame built
+    from ``J`` turns by at most about that error over ``sigma_min(J)``, the
+    smallest singular value of the 3 x 2 tangent matrix - the element's local
+    width in the narrowest direction, including the effect of midside nodes
+    (a curved Q8 that is narrow between well separated corners has a small
+    ``sigma_min`` there).  Returns ``max R sum_i |grad N_i| / sigma_min(J)``
+    over ``gauss_points`` (infinite if ``J`` is singular).
+    """
+
+    coords = np.asarray(coords, dtype=float)
+    scale = max(float(np.abs(coords).max()), np.finfo(float).tiny)
+    derivatives = [element.compute_shape_functions(float(xi), float(eta))[1:]
+                   for xi, eta in np.asarray(element.gauss_points, dtype=float)]
+    d_xi = np.asarray([d for d, _e in derivatives], dtype=float)     # points x nodes
+    d_eta = np.asarray([e for _d, e in derivatives], dtype=float)
+    t_xi, t_eta = d_xi @ coords, d_eta @ coords                       # points x 3
+    # sigma_min of [t_xi t_eta] = |t_xi x t_eta| / sigma_max, with the area
+    # computed directly from the cross product (no cancellation).
+    area = np.linalg.norm(np.cross(t_xi, t_eta), axis=1)
+    gram_trace = np.einsum("ij,ij->i", t_xi, t_xi) + np.einsum("ij,ij->i", t_eta, t_eta)
+    sigma_max = np.sqrt(0.5 * (gram_trace + np.sqrt(np.maximum(gram_trace ** 2 - 4.0 * area ** 2, 0.0))))
+    smallest = area / np.maximum(sigma_max, np.finfo(float).tiny)
+    if not np.all(np.isfinite(smallest)) or not np.all(smallest > 0.0):
+        return float("inf")
+    return float((scale * np.hypot(d_xi, d_eta).sum(axis=1) / smallest).max())
 
 
 def _solver_frame_eligible(element: Any, shell_class: type) -> bool:

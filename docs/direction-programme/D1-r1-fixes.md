@@ -348,3 +348,33 @@ would add the build, admission and classification). Barge numbers unchanged: 402
 * Accepted under contract: C1 in-place edits of a published mesh (incl.
   edit-and-undo during a check); C2 runtime monkeypatches and mid-request
   solver-surface changes.
+
+## Round 7 (coordinator: fix the curved-Q8 width gate)
+
+The solver-frame route now also requires `frame_conditioning(element, coords)
+<= 1e7`: the worst `R * sum_i |grad N_i| / sigma_min(J)` over the element's
+recovery (Gauss) points, from its own shape functions - the first-order
+rounding amplification of the frame the route reads (bound about
+`8 eps` times the ratio, 2e-8 rad at the limit, inside the probe's 1e-6).
+`sigma_min` of the 3 x 2 tangent matrix is computed as
+`|t_xi x t_eta| / sigma_max` (checked against an SVD reference). It sees
+midside nodes and curvature, unlike the corner gate. Elements above the limit
+are not refused: they go through the full probe, which accepts or refuses
+them on its residual (fail closed). The corner scale gate stays for all
+elements.
+
+| Test | Result on 4aea087 |
+|---|---|
+| `test_r7_curved_q8_narrow_between_its_corners_goes_to_the_probe` (Codex's x = xi, y = eta (1e-5 + xi^2) at (1e6, -1e6, 1e6)) | read through the solver-frame route and checked |
+| `test_r7_frame_conditioning_matches_an_svd_reference` (Q8/Q6/Q4/Q3, three scales) | new function (no old counterpart) |
+
+Barge (ANYmesher `432b4ed`): worst ratio 4881, so all 4640 elements stay on
+the solver-frame route; numbers unchanged (402 turned, 0 reversed,
+0 ambiguous, 0 inconsistent, 968 mixed on 11 faces, 0 unchecked; deck
+169 / 144 / 3 blocks). The gate itself costs 0.63-0.66 s over the 4640
+elements. Whole-check timings today were noisy because of machine load
+(`scripts/time_check.py`: 6.55 / 6.86 / 10.61 s, then 11.74 / 7.37 / 9.47 s;
+in the slow runs the unchanged parts slowed by the same factor - admission
+3.6 s against 2.1 s in round 6). Tests: 87 passed (test_mesh_orientation incl.
+barge, test_qt_shell_local_axes, test_presentation_workspace,
+test_qt_sketch_overlay_lifetime).
