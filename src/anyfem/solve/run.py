@@ -1074,6 +1074,19 @@ def solve_capacity(
         reference_case=reference_name,
     )
     adequacy = result.mesh_adequacy
+    from ..post.solved_geometry import SolvedGeometry, _has_offset
+
+    # The workflow solved its own imperfect copy; recovery must use it.  A
+    # zero offset leaves the coordinates bit-identical, so that ordinary run
+    # keeps the built model.
+    imperfect_model = getattr(result, "imperfect_model", None)
+    solved_geometry = (
+        SolvedGeometry.exact(imperfect_model)
+        if imperfect_model is not None
+        and imperfect_model is not built.fe_model
+        and _has_offset(result.imperfection)
+        else None
+    )
     return CapacitySolution(
         displacements=result.nonlinear_result.displacements,
         built=built,
@@ -1099,12 +1112,38 @@ def solve_capacity(
         mesh_adequacy=(
             adequacy.to_dict() if hasattr(adequacy, "to_dict") else {}
         ),
+        solved_geometry=solved_geometry,
     )
 
 
 # ----------------------------------------------------------------------
 # nonlinear
 # ----------------------------------------------------------------------
+def _owned_imperfection(built: BuiltModel, imperfection: Any):
+    """Snapshot a run-time imperfection before the solver copies the model.
+
+    The solver applies it to a private copy of ``built.fe_model``; the
+    snapshot lets the result rebuild that exact copy for stress recovery.
+    The solver still receives the caller's object unchanged.
+    """
+
+    if imperfection is None:
+        return None
+    from ..post.solved_geometry import owned_imperfection_field
+
+    return owned_imperfection_field(built.fe_model, imperfection)
+
+
+def _solved_geometry(built: BuiltModel, owned_imperfection: Any, result: Any, context: str):
+    if owned_imperfection is None:
+        return None
+    from ..post.solved_geometry import SolvedGeometry
+
+    return SolvedGeometry.rebuild(
+        built.fe_model, owned_imperfection, result, context=context
+    )
+
+
 def solve_nonlinear_static(
     project: Optional[Project] = None,
     *,
@@ -1160,6 +1199,7 @@ def solve_nonlinear_static(
         f"{float(max_load_factor):.5g}; cutbacks/growth may change the final count",
     )
     structured_progress = solver_options.pop("progress_callback", None)
+    owned_imperfection = _owned_imperfection(built, imperfection)
     result = solve_static_nonlinear(
         built.fe_model,
         built.load_case,
@@ -1179,6 +1219,9 @@ def solve_nonlinear_static(
     return NonlinearSolution(
         displacements=result.displacements,
         built=built,
+        solved_geometry=_solved_geometry(
+            built, owned_imperfection, result, "nonlinear static"
+        ),
         label="nonlinear",
         value=float(result.load_factor),
         steps=list(result.steps),
@@ -1224,6 +1267,7 @@ def solve_arc_length(
     )
     _report(progress, "tracing the equilibrium path")
     structured_progress = solver_options.pop("progress_callback", None)
+    owned_imperfection = _owned_imperfection(built, imperfection)
     result = solve_static_arc_length(
         built.fe_model,
         built.load_case,
@@ -1239,6 +1283,9 @@ def solve_arc_length(
     return NonlinearSolution(
         displacements=result.displacements,
         built=built,
+        solved_geometry=_solved_geometry(
+            built, owned_imperfection, result, "arc length"
+        ),
         label="arc length",
         value=float(result.load_factor),
         steps=list(result.steps),
