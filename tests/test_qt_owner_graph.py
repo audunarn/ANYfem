@@ -1,4 +1,10 @@
-"""Qt checks use the approved owner graph without moving physical solver laws."""
+"""Qt checks use the approved owner graph without moving physical solver laws.
+
+Since 9f8254f the Qt release smoke (``qt-tests.yml``) and the headless matrix
+(``tests.yml``) carry no checkouts of their own: every job calls the bounded
+application lane, which owns the single pinned owner graph. These checks keep
+the two routes on that one graph and keep its pins and install rules exact.
+"""
 from pathlib import Path
 import re
 
@@ -6,11 +12,17 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QT = ROOT / '.github/workflows/qt-tests.yml'
-HEADLESS = ROOT / '.github/workflows/tests.yml'
+WORKFLOWS = ROOT / '.github/workflows'
+QT = WORKFLOWS / 'qt-tests.yml'
+HEADLESS = WORKFLOWS / 'tests.yml'
+LANE = WORKFLOWS / 'application-lane.yml'
+LANE_USE = './.github/workflows/application-lane.yml'
 PHYSICAL_SOLVER = 'f54e3cde5abf70cb8c989eb106119eedd3e33025'
 RESULTS_SOLVER = 'f54e3cde5abf70cb8c989eb106119eedd3e33025'
 POST = '9eb9713b92c1b3a476301150b5e89e350d515844'
+VIEWER = '6fa628bc3a9e1c74548901678ff2ee8033e6c5dc'
+GEOMETRY = '072ad0ddb6f1286e00578569152109dfcb9fa63c'
+MESHER = 'bd71c9e6a3b080cbbbd29a316fe93c029e86db09'
 
 
 def _checkouts(text):
@@ -19,58 +31,81 @@ def _checkouts(text):
         fields = {name: re.search(rf'^          {name}: (.+)$', step, re.M)
                   for name in ('repository', 'ref', 'path')}
         if all(fields.values()):
+            assert fields['path'][1] not in result, f"duplicate checkout {fields['path'][1]}"
             result[fields['path'][1]] = (fields['repository'][1], fields['ref'][1])
     return result
 
 
-@pytest.mark.parametrize(('input_name', 'path', 'expected'), (
-    ('geometry_ref', '.ecosystem/ANYgeometry', '072ad0ddb6f1286e00578569152109dfcb9fa63c'),
-    ('mesher_ref', '.ecosystem/ANYmesh', 'bd71c9e6a3b080cbbbd29a316fe93c029e86db09'),
-))
-def test_qt_default_and_automatic_owner_refs_match_headless(input_name, path, expected):
-    qt, headless = QT.read_text(), HEADLESS.read_text()
-    default_ref = "${{ inputs." + input_name + " || '" + expected + "' }}"
-    assert _checkouts(headless)[path][1] == (default_ref if input_name == 'mesher_ref' else expected)
-    if input_name == 'mesher_ref':
-        assert re.search(rf"^      mesher_ref:\n.*?^        default: '{expected}'$", headless, re.M | re.S)
-    block = re.search(rf'^      {input_name}:\n(.*?)(?=^      \w+:|^permissions:)',
-                      qt, re.M | re.S)
-    assert block is not None
-    assert re.search(rf'^        default: {expected}$', block[1], re.M)
-    assert _checkouts(qt)[path][1] == default_ref
+def _jobs(text):
+    body = text.split('\njobs:\n', 1)[1]
+    return dict(re.findall(r'^  (\w+):\n(.*?)(?=^  \w+:\n|\Z)', body, re.M | re.S))
+
+
+def _input_default(text, name):
+    match = re.search(rf"^      {name}:\n(?:^        .*\n)*?^        default: '?([^'\n]+)'?$", text, re.M)
+    assert match is not None, name
+    return match[1]
+
+
+@pytest.mark.parametrize('workflow', (QT, HEADLESS), ids=('qt', 'headless'))
+def test_every_job_runs_the_single_application_lane_owner_graph(workflow):
+    text = workflow.read_text()
+    jobs = _jobs(text)
+    assert jobs
+    for name, job in jobs.items():
+        assert re.search(rf'^    uses: {re.escape(LANE_USE)}$', job, re.M), name
+    # No route may pin owners of its own; the lane is the only owner graph.
+    assert _checkouts(text) == {}
+    assert 'actions/checkout' not in text
+
+
+def test_qt_default_and_automatic_owner_refs_match_headless():
+    lane, headless = LANE.read_text(), HEADLESS.read_text()
+    owners = _checkouts(lane)
+    assert owners['.ecosystem/ANYgeometry'] == ('audunarn/ANYgeometry', GEOMETRY)
+    assert owners['.ecosystem/ANYmesh'] == ('audunarn/ANYmesh', '${{ inputs.mesher_ref }}')
+    assert _input_default(lane, 'mesher_ref') == MESHER
+    # A manual development dispatch may override the mesher, but its default
+    # is the same pin, and it is forwarded rather than dropped.
+    assert _input_default(headless, 'mesher_ref') == MESHER
+    jobs = _jobs(headless)
+    assert re.search(r'^      mesher_ref: \$\{\{ inputs\.mesher_ref \}\}$', jobs['development'], re.M)
+    for name, job in {**jobs, **_jobs(QT.read_text())}.items():
+        if name != 'development':
+            assert 'mesher_ref' not in job, name
 
 
 def test_qt_preserves_physical_solver_and_separates_results_owner():
-    qt, headless = QT.read_text(), HEADLESS.read_text()
-    for text in (qt, headless):
-        owners = _checkouts(text)
-        assert owners['.ecosystem/ANYfeSolver'] == ('audunarn/ANYfeSolver', PHYSICAL_SOLVER)
-        assert owners['.ecosystem/ANYfeSolver-results'] == ('audunarn/ANYfeSolver', RESULTS_SOLVER)
-    assert '-e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost' in qt
-    assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in qt
-    assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in qt
-    assert '.ecosystem/ANYfeSolver/packages/results' not in qt
+    lane = LANE.read_text()
+    owners = _checkouts(lane)
+    assert owners['.ecosystem/ANYfeSolver'] == ('audunarn/ANYfeSolver', PHYSICAL_SOLVER)
+    assert owners['.ecosystem/ANYfeSolver-results'] == ('audunarn/ANYfeSolver', RESULTS_SOLVER)
+    assert '-e .ecosystem/ANYfeSolver -e .ecosystem/ANYpost' in lane
+    assert 'python -m pip install --no-deps .ecosystem/ANYfeSolver-results/packages/results' in lane
+    assert '-e .ecosystem/ANYfeSolver-results/packages/results' not in lane
+    assert '.ecosystem/ANYfeSolver/packages/results' not in lane
 
 
 def test_qt_post_owner_matches_headless():
-    for text in (QT.read_text(), HEADLESS.read_text()):
-        assert _checkouts(text)['.ecosystem/ANYpost'] == ('audunarn/ANYpost', POST)
+    assert _checkouts(LANE.read_text())['.ecosystem/ANYpost'] == ('audunarn/ANYpost', POST)
 
 
-def test_qt_keeps_viewer_runtime_matrix_and_opt_in_schema6_gates():
-    qt = QT.read_text()
-    viewer = '6fa628bc3a9e1c74548901678ff2ee8033e6c5dc'
-    assert f'default: {viewer}' in qt
-    assert _checkouts(qt)['.ecosystem/ANY3dView'][1] == "${{ inputs.viewer_ref || '" + viewer + "' }}"
-    assert '    timeout-minutes: 40' in qt.split('  qt:\n', 1)[1].split('    strategy:', 1)[0]
-    assert 'name: Shell and solid submodel jobs and Qt results\n        timeout-minutes: 10' in qt
-    assert 'os: [windows-latest, ubuntu-latest]' in qt
-    assert "python: ['3.11', '3.14']" in qt
-    assert re.search(r'^      schema6_fixtures:\n.*?^        default: false$', qt, re.M | re.S)
-    assert "ANYMESHER_REQUIRE_NATIVE: '1'" in qt
-    assert "ANYMESHER_DISABLE_NATIVE: '0'" in qt
-    assert 'python tools/check_licenses.py --check-installed' in qt
-    for backend in ('software', 'gpu'):
-        assert f'--profile qt --backend {backend}' in qt
-    assert "if: inputs.schema6_fixtures && runner.os == 'Windows'" in qt
-    assert "if: inputs.schema6_fixtures && runner.os == 'Linux'" in qt
+def test_qt_keeps_viewer_runtime_matrix_and_native_mesher_gates():
+    qt, lane = QT.read_text(), LANE.read_text()
+    assert _checkouts(lane)['.ecosystem/ANY3dView'] == ('audunarn/ANY3dView', VIEWER)
+    jobs = _jobs(qt)
+    assert set(jobs) == {'qt', 'gpu'}
+    assert 'os: [windows-latest, ubuntu-latest]' in jobs['qt']
+    assert "python: ['3.11', '3.14']" in jobs['qt']
+    for job in jobs.values():
+        assert re.search(r'^      profile: qt$', job, re.M)
+    assert re.search(r'^      backend: gpu$', jobs['gpu'], re.M)
+    assert 'backend' not in jobs['qt']
+    assert '    timeout-minutes: 45' in lane.split('  application:\n', 1)[1].split('    steps:', 1)[0]
+    assert "ANYMESHER_REQUIRE_NATIVE: '1'" in lane
+    assert "ANYMESHER_DISABLE_NATIVE: '0'" in lane
+    assert 'python tools/check_licenses.py --check-installed' in lane
+    assert "if: inputs.backend != 'gpu'" in lane
+    assert '--profile ${{ inputs.profile }} --backend software' in lane
+    assert "if: inputs.backend == 'gpu'" in lane
+    assert '--backend gpu' in lane
