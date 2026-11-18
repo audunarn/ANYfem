@@ -1509,6 +1509,20 @@ def run_in_worker_process(
             remote_type="JobNotTransferable",
         ) from error
 
+    if containment and os.name != "nt" and sys.platform == "darwin":
+        # Refuse BEFORE any multiprocessing object exists: Pipe/Event register
+        # with the resource tracker, which can start a process.  Missing
+        # psutil or guardian script must not spawn anything.
+        try:
+            refusal = _darwin_containment_refusal()
+        except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
+            refusal = f"{type(error).__name__}: {error}"
+        if refusal is not None:
+            raise WorkerProcessError(
+                "parallel meshing needs a contained worker process tree, but "
+                f"macOS containment is unavailable: {refusal}",
+                remote_type="ContainmentUnavailable",
+            )
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     cancel_event = context.Event()
@@ -1546,23 +1560,6 @@ def run_in_worker_process(
                 "process-tree containment is only supported on Linux, macOS and Windows",
                 remote_type="ContainmentUnavailable",
             )
-        elif sys.platform == "darwin":
-            # Refuse before any spawn when the guardian's prerequisites
-            # (psutil, the packaged script) are missing.
-            try:
-                refusal = _darwin_containment_refusal()
-            except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
-                refusal = f"{type(error).__name__}: {error}"
-            if refusal is not None:
-                _close_quietly(control_parent)
-                _close_quietly(control_child)
-                _close_quietly(receiver)
-                _close_quietly(sender)
-                raise WorkerProcessError(
-                    "parallel meshing needs a contained worker process tree, but "
-                    f"macOS containment is unavailable: {refusal}",
-                    remote_type="ContainmentUnavailable",
-                )
     worker_arguments = (sender, cancel_event, payload, control_child)
     if worker_priority == "normal":
         worker_arguments += (worker_priority,)

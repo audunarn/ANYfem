@@ -72,9 +72,11 @@ def test_darwin_refuses_before_any_spawn(monkeypatch, failure):
 
         class Guard:
             def __getattr__(self, name):
-                if name == "Process":
-                    created.append("Process")
-                    pytest.fail("a worker was created despite the refusal")
+                if name in ("Process", "Pipe", "Event"):
+                    # Event/Pipe register a SemLock/handle with multiprocessing's
+                    # resource tracker, which may start a process: also "a spawn".
+                    created.append(name)
+                    pytest.fail(f"context.{name} was used before the refusal")
                 return getattr(context, name)
 
         return Guard()
