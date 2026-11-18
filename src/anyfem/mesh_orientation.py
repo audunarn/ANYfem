@@ -613,8 +613,10 @@ def frame_conditioning(element: Any, coords: np.ndarray) -> float:
     d_xi = np.asarray([d for d, _e in derivatives], dtype=float)     # points x nodes
     d_eta = np.asarray([e for _d, e in derivatives], dtype=float)
     t_xi, t_eta = d_xi @ coords, d_eta @ coords                       # points x 3
-    # sigma_min of [t_xi t_eta] = |t_xi x t_eta| / sigma_max, with the area
-    # computed directly from the cross product (no cancellation).
+    # sigma_min of [t_xi t_eta] = |t_xi x t_eta| / sigma_max.  The identity is
+    # exact; the cross product can still lose relative accuracy for nearly
+    # parallel tangents (Codex round 7: 6 % at sigma_min ~ 1e-16), but such
+    # elements are far above the limit and go to the probe either way.
     area = np.linalg.norm(np.cross(t_xi, t_eta), axis=1)
     gram_trace = np.einsum("ij,ij->i", t_xi, t_xi) + np.einsum("ij,ij->i", t_eta, t_eta)
     sigma_max = np.sqrt(0.5 * (gram_trace + np.sqrt(np.maximum(gram_trace ** 2 - 4.0 * area ** 2, 0.0))))

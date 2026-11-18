@@ -371,10 +371,27 @@ elements.
 Barge (ANYmesher `432b4ed`): worst ratio 4881, so all 4640 elements stay on
 the solver-frame route; numbers unchanged (402 turned, 0 reversed,
 0 ambiguous, 0 inconsistent, 968 mixed on 11 faces, 0 unchecked; deck
-169 / 144 / 3 blocks). The gate itself costs 0.63-0.66 s over the 4640
-elements. Whole-check timings today were noisy because of machine load
-(`scripts/time_check.py`: 6.55 / 6.86 / 10.61 s, then 11.74 / 7.37 / 9.47 s;
-in the slow runs the unchanged parts slowed by the same factor - admission
-3.6 s against 2.1 s in round 6). Tests: 87 passed (test_mesh_orientation incl.
+169 / 144 / 3 blocks). The gate itself took 0.63 / 0.66 s over the 4640
+elements in two runs of an isolated measurement (`frame_conditioning` over
+the shell elements of the built barge model, inline script in the session;
+in the same runs the whole check took 10.66 / 11.06 s). Whole-check timings
+were noisy (`scripts/time_check.py`: 6.55 / 6.86 / 10.61 s, then
+11.74 / 7.37 / 9.47 s; round 6: 5.96-6.27 s). The profile's admission step,
+which this round did not change, also took 3.6 s against 2.1 s in round 6,
+so machine load is the likely cause of the spread - an inference, not
+isolated. Tests: 87 passed (test_mesh_orientation incl.
 barge, test_qt_shell_local_axes, test_presentation_workspace,
 test_qt_sketch_overlay_lifetime).
+
+## Round 7 review outcome (`D1-review-r7.md`): no P1/P2, two P3, verdict NOT CLEAN
+
+* P3 comment accuracy of the closed-form sigma_min: comment corrected (no code
+  change; Codex found such near-singular cases rejected by the gate).
+* P3 timing attribution: wording above qualified as an inference and the gate
+  measurement described.
+* Codex's counterexample search: 360 generated geometries (slivers, curved
+  Q8, reduced integration, warped), none passing the gate and failing the
+  probe; near the limit (ratio 9.9e6) the largest probe residual was 9.4e-10.
+* Accepted under contract: C1 published-mesh mutation; C2 monkeypatching and
+  mid-request solver-surface changes (not needed to dismiss any case here).
+* No round 8 (coordinator instruction).
