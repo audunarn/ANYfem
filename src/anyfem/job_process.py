@@ -1497,6 +1497,10 @@ def run_in_worker_process(
         # pickled (a caller __reduce__ may create an Event): Pipe/Event register
         # with the resource tracker, which can start a process.  Missing
         # psutil or guardian script must not spawn anything.
+        # Contract: "no spawn before refusal" covers ANYfem's own code. Callers
+        # are trusted in-process code; a caller hook (e.g. a str subclass's
+        # __eq__ in the option checks above) could spawn directly anyway, so
+        # such hooks are outside this guarantee by design.
         try:
             refusal = _darwin_containment_refusal()
         except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
