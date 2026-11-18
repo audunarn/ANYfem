@@ -160,9 +160,9 @@ maintained."
 ### Timings (drawing_barge_60m, 4640 legacy Q8/Q6, same machine)
 
 Command (from the worktree, PYTHONPATH as in the brief):
-`python <scratchpad>/time_check.py` - meshes the barge (0.5 m quadratic
+`python docs/direction-programme/scripts/time_check.py` - meshes the barge (0.5 m quadratic
 quad_first adaptive) and times `project_orientation_report` three times.
-Breakdown from `<scratchpad>/profile_check.py`.
+Breakdown from `docs/direction-programme/scripts/profile_check.py`.
 
 | Version | Check time (3 runs) |
 |---|---|
