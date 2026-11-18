@@ -8,43 +8,51 @@ where the stress field is smooth.
 
 This module measures that, without re-deriving any solver frame:
 
-1. Every shell element is constructed exactly as the solve constructs it
-   (``anyfem.solve.build._shell_element``: the project's formulation policy,
-   the S3 owner normals after the solve's admission check, the faceted S3
-   reference normal, the formulation identity checks).  An element the solve
-   would refuse is *unchecked* with the solve's reason.
-2. The element's own ``compute_stresses`` is called with six uniform strain
-   fields ``u = E x`` (``E`` running over a basis of symmetric tensors, zero
-   rotations) and a probe material with E = 1 and nu = 0.  At every recovery
-   point the solver then reports ``membrane_ab = e_a . E . e_b`` in its output
-   frame ``(e_x, e_y)``, so the six calls give that frame directly, including
-   any fallback the element takes (a warped qualified Q4 recovers through
+1. The finished solver model is built exactly as a solve builds it
+   (``anyfem.solve.build.build_fe_model`` without loads or support
+   requirements: publication checks, project validation, shells with the
+   formulation policy and the S3 owner-normal admission and faceted reference,
+   beams, couplings, supports, connections, masses, and the geometric
+   imperfections that move the stress-free reference geometry).  If the build
+   refuses, every shell element is unchecked with the build's reason.
+2. Each shell element of that model is first asked for an ordinary stress
+   recovery (zero displacements, its own registered material, the full model
+   mesh), so material and model-scope refusals make it unchecked.  Then its
+   ``compute_stresses`` is called with six uniform strain fields ``u = E x``
+   (``E`` running over a basis of symmetric tensors, zero rotations) and a
+   probe material with E = 1 and nu = 0.  At every recovery point the solver
+   then reports ``membrane_ab = e_a . E . e_b`` in its output frame
+   ``(e_x, e_y)``, so the six calls give that frame directly, including any
+   fallback the element takes (a warped qualified Q4 recovers through
    ``ShellElement.compute_stresses`` with a frame per Gauss point; a V2D
-   triangle uses its reference normal, faceted when the policy says so).  If
-   the response is not that of a rotated orthonormal frame the element is
-   unchecked.  The output frame does not depend on the material for the
-   elements the build creates (ANYfem sets no ``material_direction`` or
+   triangle uses its reference normal, faceted when the policy says so).  A
+   response that is not that of a rotated orthonormal frame is a refusal.
+   The output frame does not depend on the material for the elements the
+   build creates (ANYfem sets no ``material_direction`` or
    ``material_angle_deg``; an orthotropic material turns only the material
-   axes, see D0).
-3. Per geometry face, local x is measured in the face frame at the element
-   centroid's projection (``u`` = projected ``du``, normal ``du x dv``) as a
-   doubled angle, so x and -x agree.  The face's dominant direction is the mean
-   of the element doubled-angle unit vectors; each recovery point is then
+   axes, see D0); the material's admissibility is checked by the first call.
+3. Per geometry face, local x is measured against a fixed reference: the
+   global axis least aligned with the face's normals (at the element
+   centroids), projected onto the tangent plane at each centroid.  The face
+   normal is ``du x dv``.  Nothing depends on how the face is parameterised.
+   Angles are doubled, so x and -x agree.  The face's dominant direction is the
+   mean of the element doubled-angle unit vectors; each recovery point is then
    ``aligned`` (within 45 - 10 deg of it, folded to 0-90), ``turned`` (beyond
-   45 + 10 deg: xx and yy exchanged) or ``ambiguous`` (in between).  This does
-   not depend on how the face is parameterised.  An element is turned or
-   ambiguous when its points say so; an element whose points disagree (aligned
-   and turned, or normals on both sides) is ``inconsistent`` - a folded or
-   strongly curved element.  A face whose resultant is too small to name a
-   dominant direction has all its elements unchecked.
+   45 + 10 deg: xx and yy exchanged) or ``ambiguous`` (in between).  An element
+   whose points disagree (aligned and turned, or normals on both sides) is
+   ``inconsistent`` - a folded or strongly curved element.  A face whose
+   resultant is too small to name a dominant direction has all its elements
+   unchecked.
 
-   Curved faces: the reference is the face's own ``u`` direction at each
-   centroid, so the dominant direction is a constant angle *relative to the
-   parameter lines*.  That is a physical reference only where the parameter
-   lines are; near a degenerate point (``du`` or ``du x dv`` vanishing) the
-   element is unchecked.  Recovery frames are compared with the face frame at
-   the centroid, so on a face curved strongly within one element the face frame
-   turn across the element adds to the measured angle.
+   Curved faces: on a developable or gently curved face the projected global
+   axis is a smooth physical reference and the dominant direction is a constant
+   angle from it.  Where the face turns far enough that the axis becomes
+   nearly normal to it (projected length below 0.5) the element is unchecked;
+   on a strongly doubly curved face a constant angle from a projected axis is
+   not a meaningful layout and the check reports such faces as mixed rather
+   than claiming consistency.  Recovery frames are compared with the face
+   frame at the element centroid, so on a face curved strongly within one
+   element the face's turn across the element adds to the measured angle.
 4. The normal at every recovery point is compared with the face normal; the
    face's majority side is the reference.  Reversing the normal with x kept
    flips e_y: ``membrane_xy``, ``bending_xx`` and ``bending_yy`` change sign,
@@ -52,8 +60,8 @@ This module measures that, without re-deriving any solver frame:
 
 The report never calls anything consistent that it did not fully compare:
 unchecked, ambiguous and inconsistent elements all make a face inconsistent
-and are counted in ``summary()``.  It is a diagnostic only: it changes no mesh,
-no element and no result.
+and are counted in ``summary()``.  It is a diagnostic only: it changes no
+project, mesh or result (the solver model it builds is thrown away).
 """
 
 from __future__ import annotations
@@ -73,6 +81,8 @@ __all__ = [
     "OrientationReport",
     "RecoveryFrame",
     "element_recovery_frames",
+    "model_orientation_report",
+    "model_recovery_frames",
     "project_orientation_report",
     "project_recovery_frames",
     "shell_orientation_report",
@@ -96,10 +106,12 @@ FRAME_RESIDUAL_TOLERANCE = 1.0e-6
 # Smallest |cos| between a recovery normal and the face normal that is
 # accepted as a side; below it the element is unchecked.
 _NORMAL_COS_LIMIT = 0.5
-# Smallest in-plane length of local x after projection onto the face.
+# Smallest in-plane length of local x, or of the reference axis, after
+# projection onto the face's tangent plane.
 _IN_PLANE_LIMIT = 0.5
 
 _PAIRS = ((0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2))
+_AXES = ("x", "y", "z")
 
 
 @dataclass(frozen=True)
@@ -117,8 +129,8 @@ class RecoveryFrame:
 class ElementAxes:
     element_id: int
     face_id: int
-    formulation: str
     element_class: str
+    # Centroid of the corners in the solver model (imperfections applied).
     centroid: np.ndarray
     size: float
     frames: Tuple[RecoveryFrame, ...]
@@ -138,8 +150,10 @@ class FaceOrientation:
     face_id: int
     # Shell element references on the face, including missing ones.
     element_count: int
-    # Dominant local-x angle from the face u direction, degrees in (-90, 90];
-    # None when no dominant direction exists.
+    # Global axis the in-plane angles are measured from (None: no element compared).
+    reference_axis: Optional[str]
+    # Dominant local-x angle from the projected reference axis, degrees in
+    # (-90, 90]; None when no dominant direction exists.
     dominant_angle_deg: Optional[float]
     dominant_resultant: float
     aligned: Tuple[int, ...]
@@ -203,7 +217,8 @@ class OrientationReport:
 
     @property
     def consistent(self) -> bool:
-        return all(face.consistent for face in self.faces)
+        # An empty report compared nothing, so it is not consistent.
+        return bool(self.faces) and all(face.consistent for face in self.faces)
 
     def summary(self) -> str:
         total = sum(face.element_count for face in self.faces)
@@ -221,7 +236,7 @@ class OrientationReport:
             if face.consistent:
                 continue
             angle = ("no dominant direction" if face.dominant_angle_deg is None
-                     else f"dominant x {face.dominant_angle_deg:.1f} deg from u")
+                     else f"dominant x {face.dominant_angle_deg:.1f} deg from global {face.reference_axis}")
             lines.append(
                 f"  face {face.face_id}: {face.element_count} elements, {angle} "
                 f"(resultant {face.dominant_resultant:.2f}); aligned {len(face.aligned)}, "
@@ -254,8 +269,9 @@ def _probe_material():
 def element_recovery_frames(element: Any, fe_mesh: Any, material: Any = None) -> Tuple[RecoveryFrame, ...]:
     """Read the output frame at every recovery point from ``compute_stresses``.
 
-    Raises ``ValueError`` when the element's response is not that of an
-    orthonormal output frame (the element is then unchecked, never guessed).
+    ``fe_mesh`` is the solver mesh the element belongs to.  Raises
+    ``ValueError`` when the element's response is not that of an orthonormal
+    output frame (the element is then unchecked, never guessed).
     """
 
     material = _probe_material() if material is None else material
@@ -314,89 +330,6 @@ def element_recovery_frames(element: Any, fe_mesh: Any, material: Any = None) ->
     return tuple(frames)
 
 
-def project_recovery_frames(
-    project: Any,
-    mesh: Any,
-    *,
-    faces: Optional[Iterable[int]] = None,
-) -> Tuple[Dict[int, ElementAxes], Dict[int, Tuple[int, str]]]:
-    """Construct every shell element as the solve does and read its recovery frames.
-
-    Returns ``(axes, unchecked)``; ``unchecked`` maps element id to
-    ``(face id, reason)``.  Element ids referenced by a face but missing from
-    the mesh, elements the solve would refuse, and V2D triangles whose owner
-    normals the solve would refuse are all unchecked.
-    """
-
-    import warnings
-
-    from anyfesolver.fe_core import FEMesh
-
-    from .solve import build
-
-    face_ids = _face_ids(mesh, faces)
-    owner_normals: Mapping[int, Any] = {}
-    s3_refusal = None
-    try:
-        owner_normals = build._admitted_s3_owner_normals(project, mesh)
-    except Exception as error:  # the solve refuses: every V2D triangle is unchecked
-        s3_refusal = f"S3 owner normals refused by the solve build: {error}"
-    material = _probe_material()
-    axes: Dict[int, ElementAxes] = {}
-    unchecked: Dict[int, Tuple[int, str]] = {}
-    seen: Dict[int, int] = {}
-    for face_id in face_ids:
-        section_error = None
-        try:
-            section = project.plate_section_of(face_id)
-        except Exception as error:
-            section_error = f"plate section refused: {error}"
-        for raw in mesh.elements_of_face[face_id]:
-            element_id = int(raw)
-            if element_id in seen:
-                unchecked[element_id] = (face_id, f"element also on face {seen[element_id]}")
-                axes.pop(element_id, None)
-                continue
-            seen[element_id] = face_id
-            node_ids = mesh.quads.get(element_id, mesh.tris.get(element_id))
-            if node_ids is None:
-                unchecked[element_id] = (face_id, "face references a missing shell element")
-                continue
-            if section_error is not None:
-                unchecked[element_id] = (face_id, section_error)
-                continue
-            formulation = project.shell_formulation_policy.for_node_count(len(node_ids))
-            if formulation == "e4-pl-s3-v2d" and s3_refusal is not None:
-                unchecked[element_id] = (face_id, s3_refusal)
-                continue
-            try:
-                element = build._shell_element(project, mesh, section, face_id, element_id,
-                                               owner_normals)
-                fe_mesh = FEMesh()
-                for n in node_ids:
-                    x, y, z = mesh.nodes[n]
-                    fe_mesh.add_node(int(n), float(x), float(y), float(z))
-                fe_mesh.add_element(element_id, element)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    frames = element_recovery_frames(element, fe_mesh, material)
-            except Exception as error:  # solver refusal: report, never assume
-                unchecked[element_id] = (face_id, f"{type(error).__name__}: {error}")
-                continue
-            coords = np.asarray([mesh.nodes[n] for n in node_ids], dtype=float)
-            corners = coords[: 4 if len(node_ids) in (4, 8) else 3]
-            axes[element_id] = ElementAxes(
-                element_id=element_id,
-                face_id=face_id,
-                formulation=formulation,
-                element_class=type(element).__name__,
-                centroid=corners.mean(axis=0),
-                size=float(max(np.linalg.norm(a - b) for a in corners for b in corners)),
-                frames=frames,
-            )
-    return axes, unchecked
-
-
 def _face_ids(mesh: Any, faces: Optional[Iterable[int]]) -> Sequence[int]:
     known = sorted(int(face) for face in mesh.elements_of_face)
     if faces is None:
@@ -406,6 +339,93 @@ def _face_ids(mesh: Any, faces: Optional[Iterable[int]]) -> Sequence[int]:
     if missing:
         raise ValueError(f"faces {missing} have no mesh elements")
     return wanted
+
+
+def model_recovery_frames(
+    fe_model: Any,
+    mesh: Any,
+    *,
+    faces: Optional[Iterable[int]] = None,
+) -> Tuple[Dict[int, ElementAxes], Dict[int, Tuple[int, str]]]:
+    """Read the recovery frames of the shell elements of a built solver model.
+
+    ``mesh`` supplies the face membership (``elements_of_face``); every
+    element is taken from ``fe_model.mesh``, so its coordinates, neighbours
+    and material are the model's.  Returns ``(axes, unchecked)``;
+    ``unchecked`` maps element id to ``(face id, reason)``.
+    """
+
+    import warnings
+
+    from anyfesolver.elements import ShellElement
+
+    fe_mesh = fe_model.mesh
+    probe = _probe_material()
+    axes: Dict[int, ElementAxes] = {}
+    unchecked: Dict[int, Tuple[int, str]] = {}
+    seen: Dict[int, int] = {}
+    for face_id in _face_ids(mesh, faces):
+        for raw in mesh.elements_of_face[face_id]:
+            element_id = int(raw)
+            if element_id in seen:
+                unchecked[element_id] = (face_id, f"element also on face {seen[element_id]}")
+                axes.pop(element_id, None)
+                continue
+            seen[element_id] = face_id
+            element = fe_mesh.elements.get(element_id)
+            if element is None:
+                unchecked[element_id] = (face_id, "face references a shell element missing from the solver model")
+                continue
+            if not isinstance(element, ShellElement):
+                unchecked[element_id] = (face_id, f"not a shell element ({type(element).__name__})")
+                continue
+            try:
+                material = fe_model.materials[element.material_name]
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    # Ordinary recovery first: the element's own material and
+                    # the full model scope must be admitted.
+                    element.compute_stresses(fe_mesh, np.zeros(int(element.total_dofs)), material)
+                    frames = element_recovery_frames(element, fe_mesh, probe)
+            except Exception as error:  # solver refusal: report, never assume
+                unchecked[element_id] = (face_id, f"{type(error).__name__}: {error}")
+                continue
+            coords = np.asarray(element.get_node_coordinates(fe_mesh), dtype=float)
+            corners = coords[: 4 if len(coords) in (4, 8) else 3]
+            axes[element_id] = ElementAxes(
+                element_id=element_id,
+                face_id=face_id,
+                element_class=type(element).__name__,
+                centroid=corners.mean(axis=0),
+                size=float(max(np.linalg.norm(a - b) for a in corners for b in corners)),
+                frames=frames,
+            )
+    return axes, unchecked
+
+
+def project_recovery_frames(
+    project: Any,
+    mesh: Any,
+    *,
+    faces: Optional[Iterable[int]] = None,
+) -> Tuple[Dict[int, ElementAxes], Dict[int, Tuple[int, str]]]:
+    """Build the solver model as a solve does and read its shell recovery frames.
+
+    A build refusal makes every shell element referenced by the faces
+    unchecked with the build's reason.
+    """
+
+    from .solve import build
+
+    face_ids = _face_ids(mesh, faces)
+    try:
+        built = build.build_fe_model(project, mesh, load_case=None,
+                                     require_loads=False, require_supports=False)
+    except Exception as error:  # the solve refuses: nothing can be compared
+        reason = f"solve build refused: {type(error).__name__}: {error}"
+        return {}, {int(e): (face_id, reason) for face_id in face_ids
+                    for e in mesh.elements_of_face[face_id]}
+    return model_recovery_frames(built.fe_model, mesh, faces=face_ids)
 
 
 def _fold(angle_deg: float) -> float:
@@ -436,8 +456,8 @@ def shell_orientation_report(
         for e in references:
             if e not in ids and e not in face_unchecked:
                 face_unchecked[e] = "no recovery frames for this element"
-        # element id -> list of (doubled-angle unit vector, normal sign) per point
-        samples: Dict[int, list] = {}
+        # element id -> (face normal, centroid tangent plane) after projection
+        normals: Dict[int, np.ndarray] = {}
         if ids:
             centroids = np.asarray([axes[e].centroid for e in ids])
             try:
@@ -448,31 +468,43 @@ def shell_orientation_report(
                     face_unchecked[e] = f"face reference: {type(error).__name__}: {error}"
                 ids = []
             for row, e in enumerate(ids):
-                item = axes[e]
-                if not np.isfinite(distances[row]) or distances[row] > _PROJECTION_FRACTION * item.size:
+                if not np.isfinite(distances[row]) or distances[row] > _PROJECTION_FRACTION * axes[e].size:
                     face_unchecked[e] = f"centroid {float(distances[row]):.3g} m off the face"
                     continue
-                face_normal = _unit(np.cross(du[row], dv[row]))
-                u_dir = None if face_normal is None else _unit(
-                    du[row] - np.dot(du[row], face_normal) * face_normal)
-                if u_dir is None:
-                    face_unchecked[e] = "face has no usable u direction or normal here"
+                normal = _unit(np.cross(du[row], dv[row]))
+                if normal is None:
+                    face_unchecked[e] = "face has no usable normal here"
                     continue
-                v_dir = np.cross(face_normal, u_dir)
-                rows = []
-                for index, frame in enumerate(item.frames):
-                    cos_n = float(np.dot(frame.normal, face_normal))
-                    in_plane = frame.x_axis - np.dot(frame.x_axis, face_normal) * face_normal
-                    if abs(cos_n) < _NORMAL_COS_LIMIT or np.linalg.norm(in_plane) < _IN_PLANE_LIMIT:
-                        rows = None
-                        face_unchecked[e] = (f"recovery point {index}: local axes not tangent to the "
-                                             f"face (normal cos {cos_n:.2f})")
-                        break
-                    theta = np.arctan2(float(np.dot(in_plane, v_dir)), float(np.dot(in_plane, u_dir)))
-                    rows.append((np.array([np.cos(2 * theta), np.sin(2 * theta)]),
-                                 1 if cos_n > 0.0 else -1))
-                if rows is not None:
-                    samples[e] = rows
+                normals[e] = normal
+        # Fixed reference: the global axis least aligned with the face normals.
+        reference = None
+        if normals:
+            stack = np.abs(np.asarray(list(normals.values())))
+            reference = int(np.argmin(stack.max(axis=0)))
+        samples: Dict[int, list] = {}
+        for e, face_normal in normals.items():
+            axis = np.zeros(3)
+            axis[reference] = 1.0
+            ref_dir = axis - np.dot(axis, face_normal) * face_normal
+            if np.linalg.norm(ref_dir) < _IN_PLANE_LIMIT:
+                face_unchecked[e] = f"global {_AXES[reference]} is nearly normal to the face here"
+                continue
+            ref_dir = ref_dir / np.linalg.norm(ref_dir)
+            side_dir = np.cross(face_normal, ref_dir)
+            rows = []
+            for index, frame in enumerate(axes[e].frames):
+                cos_n = float(np.dot(frame.normal, face_normal))
+                in_plane = frame.x_axis - np.dot(frame.x_axis, face_normal) * face_normal
+                if abs(cos_n) < _NORMAL_COS_LIMIT or np.linalg.norm(in_plane) < _IN_PLANE_LIMIT:
+                    rows = None
+                    face_unchecked[e] = (f"recovery point {index}: local axes not tangent to the "
+                                         f"face (normal cos {cos_n:.2f})")
+                    break
+                theta = np.arctan2(float(np.dot(in_plane, side_dir)), float(np.dot(in_plane, ref_dir)))
+                rows.append((np.array([np.cos(2 * theta), np.sin(2 * theta)]),
+                             1 if cos_n > 0.0 else -1))
+            if rows is not None:
+                samples[e] = rows
         # Dominant direction: mean of the element mean doubled-angle unit vectors.
         element_vectors = []
         for rows in samples.values():
@@ -524,6 +556,7 @@ def shell_orientation_report(
         results.append(FaceOrientation(
             face_id=face_id,
             element_count=len(references),
+            reference_axis=None if reference is None else _AXES[reference],
             dominant_angle_deg=dominant,
             dominant_resultant=resultant,
             aligned=tuple(aligned),
@@ -538,8 +571,18 @@ def shell_orientation_report(
     return OrientationReport(tuple(results), used)
 
 
-def project_orientation_report(project: Any, mesh: Any, *, faces: Optional[Iterable[int]] = None) -> OrientationReport:
-    """Run the check on the elements the solve would build for ``project``."""
+def model_orientation_report(geometry: Any, mesh: Any, fe_model: Any, *,
+                             faces: Optional[Iterable[int]] = None) -> OrientationReport:
+    """Run the check on an already built solver model."""
 
+    faces = None if faces is None else list(faces)
+    axes, unchecked = model_recovery_frames(fe_model, mesh, faces=faces)
+    return shell_orientation_report(geometry, mesh, axes, unchecked, faces=faces)
+
+
+def project_orientation_report(project: Any, mesh: Any, *, faces: Optional[Iterable[int]] = None) -> OrientationReport:
+    """Run the check on the solver model a solve of ``project`` would build."""
+
+    faces = None if faces is None else list(faces)
     axes, unchecked = project_recovery_frames(project, mesh, faces=faces)
     return shell_orientation_report(project.geometry, mesh, axes, unchecked, faces=faces)

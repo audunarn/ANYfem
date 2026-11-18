@@ -1,8 +1,12 @@
 """Shell axis orientation check (direction programme D1).
 
 The check must report the frames the solver's stress recovery actually uses,
-at every recovery point, for the elements the solve build would construct
-(Codex D1 review round 1, findings 1-7).
+at every recovery point, for the solver model a solve would build (Codex D1
+review rounds 1 and 2).
+
+Most tests replace ``build_fe_model`` by the real shell part of the build
+(``build._add_shells`` on a small stand-in project) so they need no meshed
+project; the imperfection and barge tests use the full build.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from anyfem.mesh_orientation import project_orientation_report
+from anyfem.mesh_orientation import model_orientation_report, project_orientation_report
 from anyfem.model.formulations import ShellFormulationPolicy
 
 
@@ -38,12 +42,67 @@ class _Plane:
         return np.tile(self.u, (n, 1)), np.tile(self.v, (n, 1))
 
 
-def _project(geometry=None, policy=None):
+class _ShearedPlane:
+    """Plane z = 0 parameterised as r(u, v) = (u, v + g(u), 0), g' = 0 for u < 3, tan 80 deg after."""
+
+    slope = np.tan(np.radians(80.0))
+
+    def _g(self, u):
+        return np.where(u < 3.0, 0.0, (u - 3.0) * self.slope)
+
+    def project_to_face_many(self, face_id, xyz):
+        xyz = np.asarray(xyz, dtype=float)
+        points = xyz.copy()
+        points[:, 2] = 0.0
+        uv = np.column_stack([xyz[:, 0], xyz[:, 1] - self._g(xyz[:, 0])])
+        return points, uv, np.abs(xyz[:, 2])
+
+    def face_derivatives_many(self, face_id, uv):
+        du = np.zeros((len(uv), 3))
+        du[:, 0] = 1.0
+        du[:, 1] = np.where(uv[:, 0] < 3.0, 0.0, self.slope)
+        dv = np.tile([0.0, 1.0, 0.0], (len(uv), 1))
+        return du, dv
+
+
+def _stand_in(geometry=None, policy=None):
     return SimpleNamespace(
         geometry=_Plane() if geometry is None else geometry,
         shell_formulation_policy=ShellFormulationPolicy.current_default() if policy is None else policy,
         plate_section_of=lambda face_id: SimpleNamespace(material="steel", thickness=0.01),
     )
+
+
+def _shell_model(project, mesh, material=None):
+    """The shell part of the solve build: real FEModel, real ``_add_shells``."""
+    from anyfesolver.fe_core import FEModel, Material
+
+    from anyfem.solve import build
+
+    model = FEModel(name="axes")
+    model.register_material(material or Material(name="steel", elastic_modulus=210e9, poisson_ratio=.3))
+    for node_id, xyz in sorted(mesh.nodes.items()):
+        model.add_node(int(node_id), *map(float, xyz))
+    build._add_shells(project, mesh, model)
+    return model
+
+
+@pytest.fixture
+def shell_build(monkeypatch):
+    """Route ``project_orientation_report`` through the real shell build."""
+    from anyfem.solve import build
+
+    calls = []
+
+    def fake(project, mesh, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(fe_model=_shell_model(project, mesh))
+    monkeypatch.setattr(build, "build_fe_model", fake)
+    return calls
+
+
+def _report(mesh, geometry=None, policy=None, **kwargs):
+    return project_orientation_report(_stand_in(geometry, policy), mesh, **kwargs)
 
 
 def _grid_mesh(nx=4, ny=3, quadratic=True):
@@ -119,45 +178,55 @@ def _assert_frames(report_frames, oracle):
         np.testing.assert_allclose(got.normal, n_ref, atol=1e-9)
 
 
+def _s3_normals(monkeypatch, normals):
+    from anyfem.solve import build
+
+    unit = {k: np.asarray(v, float) / np.linalg.norm(v) for k, v in normals.items()}
+    monkeypatch.setattr(build, "_qualified_s3_owner_normals", lambda *_: (sorted(unit), unit))
+    monkeypatch.setattr(build, "assert_s3_admissible", lambda *a, **k: None)
+
+
 # --- ordinary behaviour --------------------------------------------------
 
 @pytest.mark.parametrize("quadratic", [True, False])
-def test_consistent_plate_reports_nothing(quadratic):
-    report = project_orientation_report(_project(), _grid_mesh(quadratic=quadratic))
+def test_consistent_plate_reports_nothing(shell_build, quadratic):
+    report = _report(_grid_mesh(quadratic=quadratic))
     assert report.consistent
     (face,) = report.faces
     assert len(face.aligned) == 12 and not face.turned
     assert face.normal_with == 12 and face.normal_against == 0
     assert "(consistent)" in report.summary()
+    # The build is asked for the model only: no loads, no supports needed.
+    assert shell_build[-1] == dict(load_case=None, require_loads=False, require_supports=False)
 
 
 @pytest.mark.parametrize("quadratic", [True, False])
-def test_turned_and_reversed_elements_are_found(quadratic):
+def test_turned_and_reversed_elements_are_found(shell_build, quadratic):
     mesh = _grid_mesh(quadratic=quadratic)
     mesh.quads[2] = _turn(mesh.quads[2], quadratic)
     mesh.quads[5] = _turn(mesh.quads[5], quadratic)
     mesh.quads[7] = _reverse(mesh.quads[7], quadratic)
-    report = project_orientation_report(_project(), mesh)
+    report = _report(mesh)
     assert not report.consistent
     assert report.turned == (2, 5)
     assert report.reversed == (7,)
     # A 180 degree in-plane turn changes no tensor component and is not reported.
     mesh.quads[2] = _turn(mesh.quads[2], quadratic)
-    assert project_orientation_report(_project(), mesh).turned == (5,)
+    assert _report(mesh).turned == (5,)
 
 
-def test_planar_qualified_q4_frame_is_the_equation7_frame():
+def test_planar_qualified_q4_frame_is_the_equation7_frame(shell_build):
     from anyfesolver.e4_pl_element import equation7_frame
 
     coords = np.array([[0, 0, 0], [1, .2, 0], [1.1, 1, 0], [0, .9, 0]], float)
-    report = project_orientation_report(_project(), _single(coords))
+    report = _report(_single(coords))
     axes = report.element_axes[1]
     assert axes.element_class == "QualifiedE4PLShellElement"
     frame = equation7_frame(coords)[0]
     _assert_frames(axes.frames, [(frame[:, 0], frame[:, 2])] * 4)
 
 
-def test_element_off_its_face_is_unchecked_not_consistent():
+def test_element_off_its_face_is_unchecked_not_consistent(shell_build):
     mesh = _grid_mesh()
     lifted = []
     for n in mesh.quads[3]:  # own copies, so neighbours stay on the face
@@ -165,22 +234,28 @@ def test_element_off_its_face_is_unchecked_not_consistent():
         mesh.nodes[new] = mesh.nodes[n] + np.array([0, 0, 5.0])
         lifted.append(new)
     mesh.quads[3] = tuple(lifted)
-    report = project_orientation_report(_project(), mesh)
+    report = _report(mesh)
     assert not report.consistent
     assert set(report.unchecked) == {3}
     assert "off the face" in report.unchecked[3]
 
 
-# --- finding 1: warped qualified Q4 recovers through ShellElement -----------
+def test_empty_report_is_not_consistent():
+    mesh = SimpleNamespace(nodes={}, quads={}, tris={}, elements_of_face={})
+    report = model_orientation_report(_Plane(), mesh, SimpleNamespace(mesh=None, materials={}))
+    assert not report.consistent and "NOT consistent" in report.summary()
 
-def test_r1_f1_warped_q4_reports_the_shell_element_gauss_frames():
+
+# --- round 1, finding 1: warped qualified Q4 recovers through ShellElement --
+
+def test_r1_f1_warped_q4_reports_the_shell_element_gauss_frames(shell_build):
     coords = np.array([[0, 0, 0], [2, 0, 0], [2, 1, .6], [0, 1, 0]], float)
-    report = project_orientation_report(_project(), _single(coords))
+    report = _report(_single(coords))
     _assert_frames(report.element_axes[1].frames, _legacy_frames(coords))
 
 
 @pytest.mark.parametrize("count", [8, 6])
-def test_r1_f1_higher_order_frames_match_the_legacy_gauss_frames(count):
+def test_r1_f1_higher_order_frames_match_the_legacy_gauss_frames(shell_build, count):
     rng = np.random.default_rng(count)
     if count == 8:
         corners = np.array([[0, 0, 0], [1.3, .1, .05], [1.2, 1.1, .12], [-.1, .9, .03]], float)
@@ -189,80 +264,85 @@ def test_r1_f1_higher_order_frames_match_the_legacy_gauss_frames(count):
         corners = np.array([[0, 0, 0], [1.2, .2, .04], [.3, 1.1, .09]], float)
         mids = [(corners[k] + corners[(k + 1) % 3]) / 2 for k in range(3)]
     coords = np.vstack([corners, mids]) + rng.normal(scale=.02, size=(count, 3))
-    mesh = _single(coords, "quads" if count == 8 else "tris")
-    report = project_orientation_report(_project(), mesh)
+    report = _report(_single(coords, "quads" if count == 8 else "tris"))
     _assert_frames(report.element_axes[1].frames, _legacy_frames(coords))
 
 
-# --- finding 2: a folded higher-order element is not consistent -------------
+# --- round 1, finding 2: a folded higher-order element is not consistent ----
 
-def test_r1_f2_folded_q8_is_inconsistent_within_the_element():
+def test_r1_f2_folded_q8_is_inconsistent_within_the_element(shell_build):
     coords = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
                        [.5, 0, 0], [1, .5, 0], [2, 1, 0], [0, .5, 0]], float)
     oracle = _legacy_frames(coords)
     assert len({int(np.sign(n[2])) for _x, n in oracle}) == 2  # the counterexample folds
-    report = project_orientation_report(_project(), _single(coords))
+    report = _report(_single(coords))
     assert not report.consistent
     assert report.inconsistent == (1,)
     assert "1 inconsistent within the element" in report.summary()
 
 
-# --- findings 3 and 4: V2D triangles use the build's reference normal -------
+# --- round 1, findings 3 and 4: V2D triangles use the build's reference normal
 
-def _triangle_project(monkeypatch, source_normal, reference_surface):
-    from anyfem.solve import build
-
-    source = np.asarray(source_normal, float) / np.linalg.norm(source_normal)
-    monkeypatch.setattr(build, "_qualified_s3_owner_normals", lambda *_: ([1], {1: source}))
-    monkeypatch.setattr(build, "assert_s3_admissible", lambda *a, **k: None)
-    policy = dataclasses.replace(ShellFormulationPolicy.current_default(),
-                                 s3_reference_surface=reference_surface)
-    return _project(policy=policy), _single([(0, 0, 0), (2, 0, 0), (0, 1, 0)], "tris")
+def _faceted(reference_surface):
+    return dataclasses.replace(ShellFormulationPolicy.current_default(),
+                               s3_reference_surface=reference_surface)
 
 
-def test_r1_f3_faceted_s3_reports_the_facet_normal_the_solver_uses(monkeypatch):
-    project, mesh = _triangle_project(monkeypatch, (0, 1, 1), "faceted")
-    report = project_orientation_report(project, mesh)
-    frames = report.element_axes[1].frames
-    for frame in frames:
+_TRIANGLE = [(0, 0, 0), (2, 0, 0), (0, 1, 0)]
+
+
+def test_r1_f3_faceted_s3_reports_the_facet_normal_the_solver_uses(shell_build, monkeypatch):
+    _s3_normals(monkeypatch, {1: (0, 1, 1)})
+    report = _report(_single(_TRIANGLE, "tris"), policy=_faceted("faceted"))
+    for frame in report.element_axes[1].frames:
         np.testing.assert_allclose(frame.normal, [0, 0, 1], atol=1e-12)
         assert abs(frame.x_axis[0]) == pytest.approx(1.0)
     assert report.consistent
 
 
-def test_r1_f4_s3_reference_normal_the_solver_rejects_is_unchecked(monkeypatch):
-    project, mesh = _triangle_project(monkeypatch, (0, 1, 1), "source")
-    report = project_orientation_report(project, mesh)
+def test_r1_f4_s3_reference_normal_the_solver_rejects_is_unchecked(shell_build, monkeypatch):
+    _s3_normals(monkeypatch, {1: (0, 1, 1)})
+    report = _report(_single(_TRIANGLE, "tris"), policy=_faceted("source"))
     assert not report.consistent
     assert set(report.unchecked) == {1}
     assert "not facet-normal" in report.unchecked[1]
 
 
-# --- finding 5: no S3 normal authority is never "consistent" ---------------
+# --- round 1, finding 5: no S3 normal authority is never "consistent" -------
 
-def test_r1_f5_s3_without_owner_normals_is_unchecked():
+def test_r1_f5_s3_without_owner_normals_is_unchecked(shell_build):
     mesh = _single([(0, 0, 0), (2, 0, 0), (2, .2, 0)], "tris")  # no structural_preparation
-    report = project_orientation_report(_project(), mesh)
+    report = _report(mesh)
     assert not report.consistent
     assert set(report.unchecked) == {1}
+    assert "solve build refused" in report.unchecked[1]
     assert "structural preparation" in report.unchecked[1]
     assert "NOT consistent" in report.summary() and "1 unchecked" in report.summary()
 
 
-# --- finding 6: classification does not depend on the face parameterisation -
+# --- round 1, finding 6 / round 2, finding 1: no parameterisation dependence -
 
 @pytest.mark.parametrize("u_angle", [0.0, 45.0, 30.0, -60.0])
-def test_r1_f6_turned_elements_found_whatever_the_u_direction(u_angle):
+def test_r1_f6_turned_elements_found_whatever_the_u_direction(shell_build, u_angle):
     mesh = _grid_mesh()
     mesh.quads[2] = _turn(mesh.quads[2])
     mesh.quads[9] = _turn(mesh.quads[9])
-    report = project_orientation_report(_project(_Plane(u_angle)), mesh)
+    report = _report(mesh, _Plane(u_angle))
     assert not report.consistent
     assert report.turned == (2, 9)
     assert not report.ambiguous
 
 
-def test_r1_f6_near_45_degrees_is_ambiguous_not_consistent():
+def test_r2_f1_spatially_varying_parameterisation_does_not_hide_turns(shell_build):
+    mesh = _grid_mesh()
+    for e in (10, 11, 12):  # the last column, where g' = tan 80 deg
+        mesh.quads[e] = _turn(mesh.quads[e])
+    for geometry in (_Plane(), _ShearedPlane()):
+        report = _report(mesh, geometry)
+        assert report.turned == (10, 11, 12) and not report.consistent
+
+
+def test_r1_f6_near_45_degrees_is_ambiguous_not_consistent(shell_build):
     mesh = _grid_mesh(quadratic=False)
     # Rotate element 4's nodes 45 degrees about its centroid: x at 45 deg.
     ids = mesh.quads[4]
@@ -275,36 +355,140 @@ def test_r1_f6_near_45_degrees_is_ambiguous_not_consistent():
         mesh.nodes[new] = centre + rotation @ (mesh.nodes[n] - centre)
         new_ids.append(new)
     mesh.quads[4] = tuple(new_ids)
-    report = project_orientation_report(_project(), mesh)
+    report = _report(mesh)
     assert report.ambiguous == (4,)
     assert not report.consistent
 
 
-def test_r1_f6_even_split_has_no_dominant_direction_and_is_unchecked():
+def test_r1_f6_even_split_has_no_dominant_direction_and_is_unchecked(shell_build):
     mesh = _grid_mesh(nx=2, ny=1)
     mesh.quads[2] = _turn(mesh.quads[2])
-    report = project_orientation_report(_project(), mesh)
+    report = _report(mesh)
     assert not report.consistent
     assert set(report.unchecked) == {1, 2}
     assert report.faces[0].dominant_angle_deg is None
 
 
-# --- finding 7: missing element references are unchecked -------------------
+# --- round 1, finding 7: missing element references are unchecked ----------
 
 def test_r1_f7_face_reference_to_a_missing_element_is_unchecked():
+    """Model level: the full build itself refuses a missing reference."""
     mesh = _grid_mesh()
+    model = _shell_model(_stand_in(), mesh)
     mesh.elements_of_face[1] = list(mesh.elements_of_face[1]) + [999]
-    report = project_orientation_report(_project(), mesh)
+    report = model_orientation_report(_Plane(), mesh, model)
     assert not report.consistent
     assert set(report.unchecked) == {999}
-    assert "missing shell element" in report.unchecked[999]
+    assert "missing from the solver model" in report.unchecked[999]
     assert report.faces[0].element_count == 13
 
 
-# --- finding 9: the sign rule documented in D0 ----------------------------
+def test_r1_f7_build_refusal_of_a_missing_reference_is_unchecked(shell_build):
+    mesh = _grid_mesh()
+    mesh.elements_of_face[1] = list(mesh.elements_of_face[1]) + [999]
+    report = _report(mesh)
+    assert not report.consistent and len(report.unchecked) == 13
+    assert "missing shell element 999" in report.unchecked[1]
 
-def test_r1_f9_normal_flip_with_x_kept_changes_bending_xx_not_bending_xy():
-    """Pure twisting on a legacy Q4 and on its mirror (x kept, normal flipped)."""
+
+# --- round 2, finding 2: imperfections move the solver's reference geometry -
+
+def _plate_project(imperfection=None):
+    from anygeometry import OrientedEdge
+
+    from anyfem import Project, steel
+    from anyfem.mesh_jobs import MeshSettings
+    from anyfem.model.imperfections import plate_mode
+
+    project = Project("axes plate")
+    project.add_material(steel("S355", .01))
+    project.add_plate_section("plate", .01, "S355")
+    g = project.geometry
+    edges = g.add_polyline(g.add_points(((0., 0., 0.), (2., 0., 0.), (2., 1., 0.), (0., 1., 0.))),
+                           close=True)
+    face = g.add_face_from_loop(tuple(OrientedEdge(e, True) for e in edges), corners=(0, 1, 2, 3))
+    g.add_sheet((face,))
+    project.assign_plate(face, "plate")
+    if imperfection:
+        project.add_imperfection(plate_mode(project.face(face), amplitude=imperfection))
+    mesh = project.mesh_session().generate_mesh(MeshSettings.create(.5, strategy="quad_first",
+                                                                     element_order="linear"))
+    return project, mesh
+
+
+def test_r2_f2_frames_include_the_imperfections_the_solve_applies():
+    from anyfem.solve.build import build_fe_model
+
+    project, mesh = _plate_project(imperfection=.1)
+    report = project_orientation_report(project, mesh)
+    model = build_fe_model(project, mesh, load_case=None, require_loads=False,
+                           require_supports=False).fe_model
+    moved = 0
+    for eid, axes in report.element_axes.items():
+        element = model.mesh.elements[eid]
+        imperfect = np.asarray(element.get_node_coordinates(model.mesh), float)
+        original = np.asarray([mesh.nodes[n] for n in mesh.quads[eid]], float)
+        _assert_frames(axes.frames, _legacy_frames(imperfect))  # warped Q4: Gauss frames
+        flat = _legacy_frames(original)
+        moved += max(np.degrees(np.arccos(min(1., abs(float(f.normal @ n)))))
+                     for f, (_x, n) in zip(axes.frames, flat)) > 1.0
+    assert len(report.element_axes) == len(mesh.quads) and moved > 0
+
+
+# --- round 2, findings 3 and 4: model scope and material are admitted -------
+
+def test_r2_f3_mixed_shell_scope_the_solver_refuses_is_unchecked(monkeypatch):
+    nodes = {1: (0, 0, 0), 2: (1, 0, 0), 3: (0, 1, 0), 4: (2, 0, 0), 5: (2, 1, 0), 6: (1, 1, 0)}
+    mesh = SimpleNamespace(nodes={k: np.asarray(v, float) for k, v in nodes.items()},
+                           tris={1: (1, 2, 3)}, quads={2: (2, 4, 5, 6)},
+                           elements_of_face={1: [1, 2]})
+    _s3_normals(monkeypatch, {1: (0, 0, 1)})
+    policy = ShellFormulationPolicy(q4="legacy", s3="e4-pl-s3-v2d")
+    model = _shell_model(_stand_in(policy=policy), mesh)
+    report = model_orientation_report(_Plane(), mesh, model)
+    assert not report.consistent
+    assert 1 in report.unchecked and "mixed shell scope" in report.unchecked[1]
+
+
+def test_r2_f4_material_the_solver_refuses_is_unchecked(monkeypatch):
+    from anyfesolver.materials import OrthotropicMaterial
+
+    _s3_normals(monkeypatch, {1: (0, 0, 1)})
+    mesh = _single(_TRIANGLE, "tris")
+    material = OrthotropicMaterial(
+        name="steel", elastic_modulus_1=150e9, elastic_modulus_2=12e9, elastic_modulus_3=10e9,
+        poisson_ratio_12=.25, poisson_ratio_13=.2, poisson_ratio_23=.3, shear_modulus_12=5e9,
+        shear_modulus_13=4e9, shear_modulus_23=3.8e9, density=1600.0)
+    model = _shell_model(_stand_in(), mesh, material)
+    report = model_orientation_report(_Plane(), mesh, model)
+    assert not report.consistent
+    assert set(report.unchecked) == {1} and "isotropic" in report.unchecked[1]
+
+
+# --- round 2, finding 5: a generator for faces is read once -----------------
+
+def test_r2_f5_generator_faces_argument(shell_build):
+    mesh = _grid_mesh()
+    mesh.quads[2] = _turn(mesh.quads[2])
+    report = _report(mesh, faces=(f for f in [1]))
+    assert report.turned == (2,) and len(report.faces) == 1 and not report.consistent
+
+
+# --- round 2, finding 6: unsupported connectivity becomes unchecked ---------
+
+def test_r2_f6_unsupported_connectivity_is_unchecked_not_raised(shell_build):
+    mesh = _grid_mesh(quadratic=False)
+    mesh.nodes[999] = np.array([.5, .5, 0.])
+    mesh.quads[1] = mesh.quads[1] + (999,)
+    report = _report(mesh)
+    assert not report.consistent and len(report.unchecked) == 12
+    assert "5 nodes" in report.unchecked[1]
+
+
+# --- round 1, finding 9 / round 2, finding 7: the D0 sign rule ---------------
+
+def test_r1_f9_normal_flip_with_x_kept_changes_bending_xx_yy_not_bending_xy():
+    """Bending, twist and in-plane shear on a legacy Q4 and its mirror (x kept, normal flipped)."""
     from anyfesolver.elements import ShellElement
     from anyfesolver.fe_core import FEMesh, Material
 
@@ -324,18 +508,18 @@ def test_r1_f9_normal_flip_with_x_kept_changes_bending_xx_not_bending_xy():
             u[6 * slot:6 * slot + 6] = field(corners[k])
         return element.compute_stresses(mesh, u, material)
 
-    def bend(p):  # w = x^2 + x y with Kirchhoff rotations: bending and twist
+    def bend(p):  # w = x^2 + x y + 2 y^2 with Kirchhoff rotations, plus in-plane shear
         x, y, _z = p
-        return [y, 0, x * x + x * y, x, -(2 * x + y), 0]  # plus in-plane shear
+        return [y, 0, x * x + x * y + 2 * y * y, x + 4 * y, -(2 * x + y), 0]
 
     base = recover([0, 1, 2, 3], bend)
     # Corner order (3, 2, 1, 0): local x still along +x, normal -z, so y flips.
     mirror = recover([3, 2, 1, 0], bend)
-    assert min(abs(np.mean(base[k])) for k in ("bending_xx", "bending_xy", "membrane_xy")) > 1e-6
-    np.testing.assert_allclose(np.mean(mirror["bending_xx"]), -np.mean(base["bending_xx"]), atol=1e-9)
-    np.testing.assert_allclose(np.mean(mirror["bending_yy"]), -np.mean(base["bending_yy"]), atol=1e-9)
-    np.testing.assert_allclose(np.mean(mirror["bending_xy"]), np.mean(base["bending_xy"]), atol=1e-9)
-    np.testing.assert_allclose(np.mean(mirror["membrane_xy"]), -np.mean(base["membrane_xy"]), atol=1e-9)
+    keys = ("bending_xx", "bending_yy", "bending_xy", "membrane_xy")
+    assert min(abs(np.mean(base[k])) for k in keys) > 1e-6
+    for key, sign in (("bending_xx", -1), ("bending_yy", -1), ("bending_xy", 1),
+                      ("membrane_xy", -1), ("membrane_xx", 1)):
+        np.testing.assert_allclose(np.mean(mirror[key]), sign * np.mean(base[key]), atol=1e-9)
 
 
 def test_drawing_barge_60m_deck_patches_are_found():

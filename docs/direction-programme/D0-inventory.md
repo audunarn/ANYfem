@@ -48,12 +48,15 @@ beyond fields.py; whether results record each element's normal.
 
 ## D1 measurement: drawing_barge_60m (quad_first, adaptive, 0.5 m, quadratic)
 
-`anyfem.mesh_orientation.project_orientation_report` after the round-1 review
-fixes. Each element is built as the solve builds it; its output frames are read
-from its own `compute_stresses` at every recovery point; local x is compared,
-as a doubled angle, with the face's dominant direction (independent of the
-face parameterisation), the normal with the face's majority side.
-All 4640 elements are legacy `ShellElement` (4596 Q8, 44 Q6). Check time 16.2 s.
+`anyfem.mesh_orientation.project_orientation_report` after the review fixes
+(rounds 1 and 2). The solver model is built by `build_fe_model` itself (no
+loads or support requirement; imperfections, model scope and materials as in a
+solve); each shell element's output frames are read from its own
+`compute_stresses` at every recovery point; local x is compared, as a doubled
+angle, with the face's dominant direction measured from a fixed global axis
+projected onto the face (independent of the face parameterisation), the normal
+with the face's majority side. All 4640 elements are legacy `ShellElement`
+(4596 Q8, 44 Q6). Check time 18.7 s.
 
 * 402 of 4640 shell elements have local x turned against their face's
   dominant direction; 0 reversed normals; 0 ambiguous; 0 inconsistent within

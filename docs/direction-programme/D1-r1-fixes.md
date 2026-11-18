@@ -1,4 +1,4 @@
-# D1 round-1 review fixes (2026-11-18)
+# D1 review fixes, rounds 1 and 2 (2026-11-18)
 
 Review: `D1-review-r1.md` (Codex gpt-6.1-sol high on e4ec0f8, nine findings).
 
@@ -52,3 +52,35 @@ deck unchanged (169 turned, 144 between the end houses in the same 3 blocks,
 eleven faces (3 bulkheads, 8 end-house walls) whose elements split almost
 evenly (resultant 0.03-0.12): no dominant direction, so unchecked instead of
 "turned against u". Check time 16.2 s (all legacy ShellElement).
+
+## Round 2 (review `D1-review-r2.md` on 23ed254, seven findings)
+
+Class: the probe was not the finished solver model (findings 2-4), and the
+face reference still followed the parameterisation locally (finding 1).
+
+* The check now builds the model with `build_fe_model(project, mesh,
+  load_case=None, require_loads=False, require_supports=False)` and probes the
+  shell elements of `fe_model.mesh` (imperfect coordinates, full model scope);
+  each element first runs an ordinary recovery with its own registered
+  material. A build refusal makes every element unchecked with the reason.
+  The `build.py` refactor of round 1 is no longer needed and was reverted
+  (`build.py` is identical to e4ec0f8).
+* The in-plane reference is the global axis least aligned with the face's
+  normals, projected onto the tangent plane at each centroid.
+* `faces` is materialised once; an empty report is not consistent.
+
+| # | Test | 23ed254 result |
+|---|---|---|
+| 1 | `test_r2_f1_spatially_varying_parameterisation_does_not_hide_turns` | sheared parameterisation: consistent=True, turned=() |
+| 2 | `test_r2_f2_frames_include_the_imperfections_the_solve_applies` | 0.1 m plate mode: consistent=True, all normals exactly +z |
+| 3 | `test_r2_f3_mixed_shell_scope_the_solver_refuses_is_unchecked` | consistent=True, 0 unchecked |
+| 4 | `test_r2_f4_material_the_solver_refuses_is_unchecked` | assigned material never used (probe material only) |
+| 5 | `test_r2_f5_generator_faces_argument` | "consistent: 0 elements on 0 faces" |
+| 6 | `test_r2_f6_unsupported_connectivity_is_unchecked_not_raised` | raised ValueError (no report) |
+| 7 | `test_r1_f9_normal_flip_..._bending_xx_yy_not_bending_xy` | test fix: bending_yy now nonzero (w gains 2 y^2) and asserted |
+
+Barge after round 2: identical to round 1 (402 turned, 968 unchecked, deck
+169 / 144 in 3 blocks, 0 reversed); check time 18.7 s.
+Not covered by a test: replacing the canvas object itself (the Qt test covers
+canvas.clear and Geometry/Mesh view switches; `maintain_shell_axes` also
+compares the group's viewer with the current canvas).
