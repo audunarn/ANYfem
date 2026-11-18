@@ -275,3 +275,59 @@ def test_capacity_stage_fields_stay_on_the_perfect_geometry(plate_and_mode, tmp_
         persisted_reference_positions(dataset, mesh, ordered, perfect_stage=True), perfect
     )
     assert not np.array_equal(persisted_reference_positions(dataset, mesh, ordered), perfect)
+
+
+def test_perfect_stage_is_deformed_by_its_own_vector(plate_and_mode):
+    from types import SimpleNamespace
+
+    project, mesh, _ = plate_and_mode
+    ids = np.asarray(sorted(mesh.nodes))
+    own = np.zeros((len(ids), 6)); own[:, 2] = 0.01
+    collapse = np.zeros((len(ids), 6)); collapse[:, 0] = 5.0
+    comps = ("ux", "uy", "uz", "rx", "ry", "rz")
+
+    def stored(array, provenance):
+        return SimpleNamespace(
+            descriptor=SimpleNamespace(
+                components=comps, provenance=provenance, location="node", unit="m",
+                label="d", reduction="none"),
+            shape=(1,) + array.shape, read=lambda frame, a=array: a,
+            read_component=lambda c, frame, a=array: a[:, comps.index(c)],
+            root_frame_index=lambda frame: 0,
+        )
+
+    fields = {"static_displacement": stored(own, {"capacity_stage": "reference_static"}),
+              "displacement": stored(collapse, {})}
+    shifted = np.asarray([mesh.nodes[n] for n in ids], dtype=float) + [0.0, 0.0, 0.5]
+    dataset = SimpleNamespace(
+        field_keys=tuple(fields), field=fields.__getitem__,
+        table_keys=("static_displacement_node_ids", "displacement_node_ids",
+                    "reference_node_ids", "reference_node_positions"),
+        table=lambda key: {"reference_node_ids": ids, "reference_node_positions": shifted}.get(key, ids),
+        metadata=lambda name: {"reference_geometry": {
+            "kind": "solved_imperfect", "ids_table": "reference_node_ids",
+            "positions_table": "reference_node_positions"}},
+    )
+    scene = build_persisted_result_scene(project, mesh, dataset, "static_displacement", scale=3.0)
+    perfect = np.asarray([mesh.nodes[n] for n in ids], dtype=float)
+    expected = dict(zip(ids.tolist(), perfect + [0.0, 0.0, 0.03]))
+    first = next(iter(mesh.shells))
+    corners = np.array([expected[n] for n in mesh.corners_of(first)])
+    polygons = [np.asarray(p) for patch in scene.faces for p in patch.polygons]
+    assert any(p.shape == corners.shape and np.allclose(p, corners) for p in polygons)
+
+
+def test_malformed_top_level_provenance_is_refused(plate_and_mode, tmp_path):
+    solution = _runtime(plate_and_mode)
+    store, artifact = _store(tmp_path, solution)
+    real = store.open_result(artifact)
+
+    class ListProvenance(_Patched):
+        def metadata(self, name):
+            return ["not", "a", "mapping"] if name == "provenance" else self._d.metadata(name)
+
+    with pytest.raises(ValueError, match="unrecognised"):
+        build_persisted_result_scene(
+            solution.built.project, solution.built.mesh, ListProvenance(real),
+            "displacement", scale=1.0,
+        )

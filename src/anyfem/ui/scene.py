@@ -1516,8 +1516,10 @@ def _reference_record(dataset):
     try:
         provenance = dataset.metadata("provenance")
     except (KeyError, AttributeError):
-        provenance = None
-    if not isinstance(provenance, Mapping) or "reference_geometry" not in provenance:
+        provenance = {}
+    if not isinstance(provenance, Mapping):
+        raise ValueError(f"unrecognised saved result provenance {type(provenance).__name__}")
+    if "reference_geometry" not in provenance:
         return "mesh_record", {}
     record = provenance["reference_geometry"]
     kind = record.get("kind") if isinstance(record, Mapping) else None
@@ -1587,12 +1589,14 @@ def build_persisted_result_scene(
     positions = persisted_reference_positions(
         dataset, mesh, ordered_nodes, perfect_stage=perfect_stage
     )
-    # A stage solved on the unmoved model is not deformed by the collapse
-    # displacement of a result whose later stages ran on moved geometry.
-    deform = not (perfect_stage and _reference_record(dataset)[0] == "solved_imperfect")
-    if deform and "displacement" in dataset.field_keys and scale != 0.0:
-        displacement = dataset.field("displacement")
-        displacement_key = "displacement_node_ids"
+    # A stage solved on the unmoved model is deformed by its own vector, not by
+    # the collapse displacement of a result whose later stages ran on moved
+    # geometry.  Everything else keeps the "displacement" field as before.
+    own_stage = perfect_stage and _reference_record(dataset)[0] == "solved_imperfect"
+    stage_key = field_key if own_stage else "displacement"
+    if stage_key in dataset.field_keys and scale != 0.0:
+        displacement = dataset.field(stage_key)
+        displacement_key = f"{stage_key}_node_ids"
         if displacement_key in dataset.table_keys:
             displacement_values = np.asarray(
                 displacement.read(_persisted_frame(displacement,frame)),
