@@ -247,6 +247,7 @@ def result_artifact_payload(
         thicknesses = submitted_plate_thicknesses(solution.built)
         if thicknesses:
             builder.add_table("shell_face_thickness_m", thicknesses)
+    reference_geometry = _add_reference_geometry(builder, solution)
     outcome = _solution_outcome(solution, raw)
 
     resolved_solver_quantities = (
@@ -260,6 +261,7 @@ def result_artifact_payload(
     _add_canonical_solver_quantities(builder, resolved_solver_quantities)
 
     built_provenance = _base_provenance(solution, raw)
+    built_provenance["reference_geometry"] = reference_geometry
     if outcome is not None:
         built_provenance["outcome"] = _json_safe(outcome.to_dict())
     built_provenance["solver_quantity_descriptors"] = [
@@ -363,6 +365,47 @@ def write_solution_artifact(
 # ---------------------------------------------------------------------------
 # Wrapper adapters
 # ---------------------------------------------------------------------------
+REFERENCE_GEOMETRY_MESH = "mesh_record"
+REFERENCE_GEOMETRY_SOLVED = "solved_imperfect"
+REFERENCE_GEOMETRY_UNBOUND = "unbound_imperfect"
+
+
+def _add_reference_geometry(builder: _Builder, solution: Any) -> dict[str, Any]:
+    """Say which coordinates the saved displacements are measured from.
+
+    Format 1 artifacts store no coordinates: the reference is the mesh record
+    named by ``mesh_id``, and an artifact without this provenance key reads as
+    exactly that.  A result solved on geometry moved by a run-time or capacity
+    imperfection also stores ``reference_node_ids`` and
+    ``reference_node_positions`` (one row per node, ascending ID) -- the
+    imperfect coordinates -- so reopening draws "imperfect + displacement".
+    A result whose moved geometry is unknown is marked as such, and its
+    reference is refused on reopen rather than guessed.
+    """
+
+    from ..post.solved_geometry import UnboundSolvedGeometryError, solved_reference_positions
+
+    try:
+        positions = solved_reference_positions(solution)
+    except UnboundSolvedGeometryError as error:
+        return {"kind": REFERENCE_GEOMETRY_UNBOUND, "reason": str(error)}
+    except AttributeError:
+        return {"kind": REFERENCE_GEOMETRY_MESH}
+    if positions is None:
+        return {"kind": REFERENCE_GEOMETRY_MESH}
+    builder.add_table(
+        "reference_node_ids",
+        np.asarray(sorted(int(node) for node in solution.built.mesh.nodes), dtype=np.int64),
+    )
+    builder.add_table("reference_node_positions", np.asarray(positions, dtype=np.float64))
+    return {
+        "kind": REFERENCE_GEOMETRY_SOLVED,
+        "ids_table": "reference_node_ids",
+        "positions_table": "reference_node_positions",
+        "unit": "m",
+    }
+
+
 def _add_canonical_solver_quantities(
     builder: _Builder,
     resolved_quantities: Sequence[Any],

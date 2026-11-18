@@ -155,8 +155,11 @@ def field_to_csv(shape, name: str = "magnitude", **kwargs: Any) -> str:
             if key in centroids
         ]
     else:
+        from .solved_geometry import reference_position_map
+
+        coordinates = reference_position_map(shape, mesh)
         rows = [
-            (key, mesh.nodes[key], value)
+            (key, coordinates[key], value)
             for key, value in sorted(evaluated.node_values.items())
         ]
 

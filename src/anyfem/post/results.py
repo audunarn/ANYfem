@@ -20,7 +20,12 @@ import numpy as np
 
 from anygeometry.entities import EntityRef
 from ..solve.build import BuiltModel
-from .solved_geometry import SolvedGeometry, UnboundSolvedGeometryError, solved_model_of
+from .solved_geometry import (
+    SolvedGeometry,
+    UnboundSolvedGeometryError,
+    solved_model_of,
+    solved_reference_positions,
+)
 
 __all__ = [
     "BucklingSolution",
@@ -183,8 +188,18 @@ class ShapeView:
     def deformed_positions(self, scale: float = 1.0) -> np.ndarray:
         """Node positions displaced by ``scale`` times the translation."""
 
-        base = self.built.mesh.node_positions()
-        return base + scale * self.translations()
+        return self.reference_positions() + scale * self.translations()
+
+    def reference_positions(self) -> np.ndarray:
+        """Node coordinates the displacements are measured from, by node ID.
+
+        The mesh coordinates, unless the solve ran on a copy moved by a
+        run-time or capacity-workflow imperfection; then the solved model's
+        coordinates (see :mod:`anyfem.post.solved_geometry`).
+        """
+
+        moved = solved_reference_positions(self)
+        return self.built.mesh.node_positions() if moved is None else moved
 
 
 @dataclass

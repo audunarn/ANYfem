@@ -99,7 +99,7 @@ def test_artifact_records_the_reference_geometry_and_reopens_on_it(plate_and_mod
     ids = sorted(solution.built.mesh.nodes)
     reference = _fe_coordinates(solution.solved_model(), ids)
 
-    assert dataset.provenance["reference_geometry"]["kind"] == "solved_imperfect"
+    assert dataset.metadata("provenance")["reference_geometry"]["kind"] == "solved_imperfect"
     np.testing.assert_array_equal(np.asarray(dataset.table("reference_node_ids")), ids)
     np.testing.assert_array_equal(np.asarray(dataset.table("reference_node_positions")), reference)
 
@@ -115,7 +115,7 @@ def test_ordinary_artifact_names_the_mesh_and_gains_no_table(plate_and_mode, tmp
     solution = solve_nonlinear_static(project, mesh=mesh, max_load_factor=0.5, num_steps=1)
     store, artifact = _store(tmp_path, solution)
     dataset = store.open_result(artifact)
-    assert dataset.provenance["reference_geometry"]["kind"] == "mesh_record"
+    assert dataset.metadata("provenance")["reference_geometry"]["kind"] == "mesh_record"
     assert "reference_node_positions" not in dataset.table_keys
     scene = build_persisted_result_scene(
         project, solution.built.mesh, dataset, "displacement", scale=3.0
@@ -133,9 +133,14 @@ def test_artifact_without_a_reference_record_reads_as_the_mesh(plate_and_mode, t
     dataset = store.open_result(artifact)
 
     class Old:  # an artifact written before the reference record existed
-        provenance = {}
         table_keys = tuple(k for k in dataset.table_keys if not k.startswith("reference_"))
         table = staticmethod(dataset.table)
+
+        @staticmethod
+        def metadata(name):
+            old = dict(dataset.metadata(name))
+            old.pop("reference_geometry", None)
+            return old
 
     ordered = sorted(mesh.nodes)
     np.testing.assert_array_equal(
@@ -172,3 +177,21 @@ def test_ordinary_and_build_time_displays_are_unchanged(plate_and_mode):
     np.testing.assert_array_equal(
         built_time.deformed_positions(2.0), m2.node_positions() + 2.0 * built_time.translations()
     )
+
+
+def test_artifact_of_an_unbound_imperfect_result_refuses_its_reference(plate_and_mode, tmp_path):
+    from anyfem.post.results import NonlinearSolution
+
+    solution = _runtime(plate_and_mode)
+    unbound = NonlinearSolution(
+        displacements=solution.displacements, built=solution.built,
+        raw_result=solution.raw_result, info=dict(solution.info),
+    )
+    store, artifact = _store(tmp_path, unbound)
+    dataset = store.open_result(artifact)
+    assert dataset.metadata("provenance")["reference_geometry"]["kind"] == "unbound_imperfect"
+    assert "reference_node_positions" not in dataset.table_keys
+    with pytest.raises(ValueError, match="does not store"):
+        build_persisted_result_scene(
+            unbound.built.project, unbound.built.mesh, dataset, "displacement", scale=1.0
+        )

@@ -1507,6 +1507,40 @@ def read_persisted_display_field(dataset,field_key,*,frame=0,component=None):
     return field,descriptor
 
 
+def persisted_reference_positions(dataset, mesh, ordered_nodes) -> np.ndarray:
+    """Coordinates a saved result's displacements are measured from.
+
+    The mesh record unless the artifact says it was solved on moved geometry,
+    in which case the stored imperfect coordinates are used.  Artifacts written
+    before the record existed have neither key and read as the mesh.  An
+    imperfect result whose geometry was not saved is refused.
+    """
+
+    try:
+        provenance = dataset.metadata("provenance")
+    except (KeyError, AttributeError):
+        provenance = None
+    record = provenance.get("reference_geometry") if isinstance(provenance, Mapping) else None
+    kind = record.get("kind") if isinstance(record, Mapping) else None
+    if kind == "unbound_imperfect":
+        raise ValueError(
+            "this result was solved on imperfect geometry that its artifact does not "
+            "store; the deformed shape is not drawn on the perfect mesh"
+        )
+    if kind == "solved_imperfect":
+        ids = np.asarray(dataset.table(record["ids_table"]), dtype=int).reshape(-1)
+        stored = np.asarray(dataset.table(record["positions_table"]), dtype=float).reshape(-1, 3)
+        row_of = {int(node): row for row, node in enumerate(ids)}
+        try:
+            return stored[[row_of[int(node)] for node in ordered_nodes]]
+        except KeyError as error:
+            raise ValueError(
+                f"the saved reference geometry has no node {error.args[0]}; "
+                "it does not match the result's mesh"
+            ) from None
+    return np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
+
+
 def build_persisted_result_scene(
     project: Project,
     mesh: Mesh,
@@ -1528,7 +1562,7 @@ def build_persisted_result_scene(
 
     field,descriptor = read_persisted_display_field(dataset,field_key,frame=frame,component=component)
     ordered_nodes = sorted(mesh.nodes)
-    positions = np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
+    positions = persisted_reference_positions(dataset, mesh, ordered_nodes)
     if "displacement" in dataset.field_keys and scale != 0.0:
         displacement = dataset.field("displacement")
         displacement_key = "displacement_node_ids"
@@ -1547,14 +1581,10 @@ def build_persisted_result_scene(
                     int(node): np.take(row,translation_indices,axis=-1).reshape(-1, 3)[0]
                     for node, row in zip(displacement_ids, displacement_values)
                 }
-                positions = np.asarray(
-                    [
-                        mesh.nodes[node]
-                        + scale * by_node.get(int(node), np.zeros(3))
-                        for node in ordered_nodes
-                    ],
+                positions = positions + scale * np.asarray(
+                    [by_node.get(int(node), np.zeros(3)) for node in ordered_nodes],
                     dtype=float,
-                )
+                ).reshape(-1, 3)
 
     shape = SimpleNamespace(
         built=SimpleNamespace(mesh=mesh, project=project),
