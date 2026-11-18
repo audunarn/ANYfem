@@ -16,7 +16,7 @@ on:
         default: all
       mesher_ref:
         type: string
-        default: '0d85b68052438b8a1a30b5c10223e49d359e0989'
+        default: 'bd71c9e6a3b080cbbbd29a316fe93c029e86db09'
       backend:
         type: string
         default: software
