@@ -40,12 +40,25 @@ def _digest(project, mesh, session):
 
 
 def _mesh(project):
-    from anyfem.jobs import _cancellation_token
-    from anyfem.mesh_jobs import MeshSettings, run_mesh_job
+    """A published mesh record (D1 checks only the active published mesh)."""
+    from anyfem.mesh_jobs import MeshSettings
     from anymesher import MeshAutomationOptions
     settings = MeshSettings.create(.5, element_order="quadratic", strategy="quad_first", layout_policy="adaptive",
                                    automation=MeshAutomationOptions(strict_method=False, allow_inspection=True))
-    return run_mesh_job(project, "axes", settings, lambda *a: None, _cancellation_token()).mesh
+    session = _SESSIONS.get(id(project))
+    if session is None or session.project is not project:
+        session = _SESSIONS[id(project)] = project.mesh_session()
+    return session.generate_mesh(settings)
+
+
+_SESSIONS = {}
+
+
+def _mesh_state(mesh):
+    nodes = sorted((k, tuple(np.asarray(v, float))) for k, v in mesh.nodes.items())
+    return hashlib.sha256(repr((nodes, sorted(mesh.quads.items()), sorted(mesh.tris.items()),
+                                sorted((k, list(v)) for k, v in mesh.elements_of_face.items()),
+                                getattr(mesh, "_anyfem_mesh_record_id", None))).encode()).hexdigest()
 
 
 def _wait(controls, qapp, limit=300.0):
@@ -67,12 +80,11 @@ def _section_state(project):
 
 def _raw_state(project, mesh, session):
     """Live project and mesh state read directly, without project_to_dict (which normalises)."""
-    from anyfem.mesh_orientation import mesh_content_digest
     assignments = sorted((key, repr(value)) for key, value in project.section_assignments.items())
     regions = sorted((key, repr(getattr(value, "__dict__", value))) for key, value in project.regions.items()) \
         if hasattr(project.regions, "items") else repr(project.regions)
     return (assignments, regions, _section_state(project), len(project.geometry.faces),
-            len(project.geometry.edges), mesh_content_digest(mesh), session.revision.id,
+            len(project.geometry.edges), _mesh_state(mesh), session.revision.id,
             session.revision.document_hash)
 
 
@@ -133,11 +145,17 @@ def test_shell_axes_overlay_counts_caption_clear_and_no_mutation(window, qapp, m
     controls.clear_shell_axes(); qapp.processEvents()
     assert _raw_state(project, mesh, window.session) == raw
     assert window.mesh is mesh and window.project is project
-    # An in-place edit of the same mesh object changes its content key: no cache reuse.
-    first = next(iter(mesh.quads))
-    mesh.quads[first] = tuple(reversed(mesh.quads[first][:4])) + tuple(mesh.quads[first][4:])
+    # A drawn overlay clears when another mesh is published, even though
+    # window.mesh is still the old object (keyed on the record, not identity).
+    controls.show_shell_axes(); assert _live(controls._shell_axes_group)
+    newer = _mesh(project); controls.poll(); qapp.processEvents()
+    assert controls._shell_axes_group is None and "published mesh changed" in controls.status.text()
+    # The old object is no longer the active publication: refused with the reason.
     controls.show_shell_axes()
-    assert controls.shell_axes_busy, "a mutated mesh must not reuse the cached check"
+    assert not controls.shell_axes_busy and "need the published mesh" in controls.status.text()
+    # The new publication is checked afresh (no reuse of the cached result).
+    window.mesh = newer; controls.show_shell_axes()
+    assert controls.shell_axes_busy, "a new publication must not reuse the cached check"
     _wait(controls, qapp); controls.clear_shell_axes()
 
 
@@ -171,13 +189,15 @@ def test_r1_f8_overlay_follows_scene_replacement_and_mesh_change(window, qapp, m
     window.viewport.canvas.clear(); controls.poll(); qapp.processEvents()
     assert _live(controls._shell_axes_group) and controls.shell_axes_stats == stats
 
-    # A different mesh: the check no longer applies, the overlay and state clear together.
+    # Nothing so far changed the project or the mesh.
+    assert _digest(project, mesh, window.session) == before
+    # A different (newly published) mesh: the check no longer applies, the
+    # overlay and state clear together.
     last = controls._shell_axes_group
     window.mesh = _mesh(project); controls.poll(); qapp.processEvents()
     assert controls._shell_axes_group is None and controls.shell_axes_stats is None
     assert last.removed or all(h.removed for h in last.handles)
-    assert "mesh changed" in controls.status.text()
-    assert _digest(project, mesh, window.session) == before
+    assert "changed" in controls.status.text()
 
 
 def test_r4_background_check_is_cancelled_by_a_mesh_change(window, qapp, monkeypatch):

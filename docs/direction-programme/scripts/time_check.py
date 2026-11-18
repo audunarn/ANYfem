@@ -8,7 +8,7 @@ import anyfem.mesh_orientation as mo
 project = drawing_barge_60m()
 settings = MeshSettings.create(.5, element_order="quadratic", strategy="quad_first", layout_policy="adaptive",
     automation=MeshAutomationOptions(strict_method=False, allow_inspection=True))
-mesh = run_mesh_job(project, "barge60-axes", settings, lambda *a: None, _cancellation_token()).mesh
+mesh = project.mesh_session().generate_mesh(settings)  # published record (D1 round 6)
 times=[]
 for _ in range(3):
     t=time.perf_counter(); r=mo.project_orientation_report(project, mesh); times.append(time.perf_counter()-t)

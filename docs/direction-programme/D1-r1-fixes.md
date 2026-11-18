@@ -293,3 +293,40 @@ Contract questions:
    the scale gate based on the smallest element dimension; or (b) drop the
    route and probe every element (barge about 24 s in the background, measured
    in round 5).
+
+## Round 6 (owner decision on the round-5 contract questions: "Both", option a)
+
+**Mesh: published records only.** Verified first that a published mesh is not
+mutated in place: every ANYfem writer of mesh nodes, elements, face map,
+`structural_preparation` or `hybrid_diagnostics` is on the generation path
+(`Project.generate_mesh`, `structural_preparation._publish_route_face_ownership`,
+`_publish_source_high_order_certificate`, `remap_mesh_to_source`,
+`_meshing_runtime.merge_geometry_runtime`, the SESAM importer building a new
+mesh); `mesh_publication` tags the object and hashes its final content
+(`mesh_semantic_hash`). `published_mesh_key(project, mesh)` returns
+(record id, record mesh hash) or raises the typed `UnpublishedMesh`; the
+project path makes every element unchecked with an "unpublished mesh" reason
+otherwise, and `build_fe_model` re-verifies the content against the record
+hash. Completion, the cache and the drawn overlay are keyed on (revision id,
+document hash, record id, record mesh hash); the D1-local mesh digest was
+removed.
+
+Round-5 findings, outcome:
+
+| r5 finding | Outcome | Test (fails on 1eb6889) |
+|---|---|---|
+| 1 worker reads the live mesh (edit and undo during a check) | accepted under the contract: a published mesh is immutable; build verifies its hash | - |
+| 2 digest misses `hybrid_diagnostics` etc. | resolved: keyed on the published record's semantic hash, unpublished meshes refused | `test_r6_unpublished_mesh_is_refused_without_touching_the_project`, `test_r6_only_the_active_published_mesh_is_checked` |
+| 3 drawn overlay kept on mesh identity | resolved: maintenance compares the record key | Qt `test_shell_axes_overlay_counts_caption_clear_and_no_mutation` (new publication clears the drawn overlay; old object refused; no cache reuse) |
+| 4 module-level patch of `native_recovery_frames` | accepted under the contract "no monkeypatching, no mid-request surface changes" (documented as the route's precondition) | - |
+| 5 scale gate on the largest dimension | resolved: gate on the smallest dimension (shortest corner distance or the width, second singular value of the centred corners) | `test_r6_sliver_far_from_the_origin_is_unchecked` |
+
+Tests, timings and barge (ANYmesher `432b4ed`; the barge is now published
+through `project.mesh_session().generate_mesh`, as in the GUI):
+82 passed (test_mesh_orientation incl. barge, test_qt_shell_local_axes,
+test_presentation_workspace, test_qt_sketch_overlay_lifetime). Check time
+(`scripts/time_check.py`, 3 runs): 6.02 / 6.27 / 5.96 s. Profile (one run,
+6.09 s): build 1.21 s (now includes the publication hash check, about 1.2 s),
+admission 2.06 s, classification 0.81 s; probing every element would take
+20.07 s. Barge numbers unchanged: 402 turned, 0 reversed, 0 ambiguous,
+0 inconsistent, 968 mixed on 11 faces, 0 unchecked; deck 169 / 144 / 3 blocks.

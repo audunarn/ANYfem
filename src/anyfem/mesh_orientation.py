@@ -41,9 +41,17 @@ This module measures that, without re-deriving any solver frame:
    As an extra cross-check, every 25th fast element (the first included) is
    also probed; a disagreement or probe failure switches every element to the
    probe.  Each element's ``frame_source`` says which route gave its frames.
-   Scale: elements whose node coordinates lie more than 1e7 element sizes
-   from the origin (or are not finite) are unchecked on either route - the
-   solver's own frame loses precision there (0.04 deg at 1e12 m).
+   Precondition of this route (owner solver contract, adopted for D1
+   2026-11-18): "no monkeypatching, no mid-request surface changes".  The
+   guard catches the common cases but is not an exhaustive detector; a
+   module-level patch the guard does not see (e.g. of
+   ``recovery_shell_frames.native_recovery_frames``) is outside the contract.
+   Scale: elements whose node coordinates lie more than 1e7 smallest element
+   dimensions from the origin (or are not finite) are unchecked on either
+   route - the solver's own frame loses precision there (0.04 deg at 1e12 m).
+   Mesh: only the project's active published mesh record is checked; any
+   other mesh is unchecked with an ``unpublished mesh`` reason (see
+   ``published_mesh_key``).
    Scope (owner decision 2026-11-18, option A): the check covers the model a
    static solve of the project as it stands would build, project imperfections
    included.  Like that solve's build it normalises the project's
@@ -111,8 +119,9 @@ __all__ = [
     "FaceOrientation",
     "OrientationReport",
     "RecoveryFrame",
+    "UnpublishedMesh",
     "element_recovery_frames",
-    "mesh_content_digest",
+    "published_mesh_key",
     "model_orientation_report",
     "model_recovery_frames",
     "project_orientation_report",
@@ -131,9 +140,11 @@ SOLVER_FRAME = "solver-frame"
 # Every n-th element read through SOLVER_FRAME is also probed; one
 # disagreement switches the whole check to the probe.
 VERIFY_EVERY = 25
-# Largest |node coordinate| in element sizes: beyond it the solver's own
-# frame loses precision (measured on a legacy Q8 2026-11-18: 1e9 m from the
-# origin 2e-5 deg, 1e12 m 0.04 deg), so the element is unchecked.
+# Largest |node coordinate| in smallest element dimensions: beyond it the
+# solver's own frame loses precision (measured on a legacy Q8 2026-11-18:
+# 1e9 m from the origin 2e-5 deg, 1e12 m 0.04 deg), so the element is
+# unchecked.  The smallest dimension (not the largest) bounds the error in the
+# element's narrow direction too (Codex round 5: a 1 x 1e-4 sliver at 1e6 m).
 COORDINATE_SCALE_LIMIT = 1.0e7
 
 SCOPE_NOTE = ("Static-solve model of the project as it stands; analysis-time "
@@ -315,26 +326,33 @@ class OrientationReport:
         return "\n".join(lines)
 
 
-def mesh_content_digest(mesh: Any) -> str:
-    """Content hash of what the check reads from a mesh (nodes, shells, faces, preparation).
+class UnpublishedMesh(ValueError):
+    """The mesh is not the project's active published mesh record (typed refusal)."""
 
-    Used to key cached or in-flight checks on content rather than object identity.
+
+def published_mesh_key(project: Any, mesh: Any) -> Tuple[str, str]:
+    """``(record id, record mesh hash)`` of the active published mesh, or ``UnpublishedMesh``.
+
+    D1 runs only on a published mesh record (owner decision 2026-11-18): the
+    mesh object must carry the publication tag of the project's active mesh
+    record, and that record must have its semantic mesh hash.  Precondition
+    (contract): a published mesh is immutable - no ANYfem code writes its
+    nodes, elements, face map, preparation or diagnostics after publication
+    (verified by inspection 2026-11-18: all writers are on the generation
+    path).  The solve build re-verifies the content against the record hash
+    (``matches_mesh_hash``) before anything is compared.
     """
 
-    import hashlib
-    import json
-
-    digest = hashlib.sha256()
-    nodes = sorted(mesh.nodes)
-    digest.update(np.asarray(nodes, dtype=np.int64).tobytes())
-    digest.update(np.asarray([mesh.nodes[n] for n in nodes], dtype=np.float64).tobytes())
-    for cells in (mesh.quads, mesh.tris):
-        digest.update(repr(sorted((int(k), tuple(int(n) for n in v)) for k, v in cells.items())).encode())
-    digest.update(repr(sorted((int(k), [int(e) for e in v]) for k, v in mesh.elements_of_face.items())).encode())
-    for name in ("structural_preparation", "_anyfem_mesh_record_id"):
-        value = getattr(mesh, name, None)
-        digest.update(json.dumps(value, sort_keys=True, default=repr).encode())
-    return "sha256:" + digest.hexdigest()
+    record_id = getattr(mesh, "_anyfem_mesh_record_id", None)
+    if record_id is None:
+        raise UnpublishedMesh("mesh is not a published mesh record; generate or update the mesh first")
+    numbering = getattr(project, "mesh_numbering", None)
+    if not getattr(numbering, "generation", 0) or getattr(numbering, "active_mesh_id", None) != record_id:
+        raise UnpublishedMesh("mesh is not the project's active published mesh")
+    record = getattr(project, "mesh_records", {}).get(record_id)
+    if record is None or not getattr(record, "mesh_hash", None):
+        raise UnpublishedMesh("the published mesh record has no mesh hash")
+    return str(record_id), str(record.mesh_hash)
 
 
 def _unit(vector: np.ndarray) -> Optional[np.ndarray]:
@@ -476,7 +494,7 @@ def model_recovery_frames(
                 coords = np.asarray(element.get_node_coordinates(fe_mesh), dtype=float)
                 corners = coords[: 4 if len(coords) in (4, 8) else 3]
                 size = float(np.linalg.norm(corners[:, None, :] - corners[None, :, :], axis=2).max())
-                refusal = _scale_refusal(coords, size)
+                refusal = _scale_refusal(coords, corners)
                 if refusal is not None:
                     unchecked[element_id] = (face_id, refusal)
                     continue
@@ -536,14 +554,27 @@ def model_recovery_frames(
     return axes, unchecked
 
 
-def _scale_refusal(coords: np.ndarray, size: float) -> Optional[str]:
+def smallest_dimension(corners: np.ndarray) -> float:
+    """Smallest extent of an element: its shortest corner-to-corner distance or,
+    if smaller, its width across the longest direction (second singular value
+    of the centred corners; equals the short side of a rectangle)."""
+
+    corners = np.asarray(corners, dtype=float)
+    pairs = np.linalg.norm(corners[:, None, :] - corners[None, :, :], axis=2)
+    shortest = float(pairs[np.triu_indices(len(corners), 1)].min())
+    singular = np.linalg.svd(corners - corners.mean(axis=0), compute_uv=False)
+    return min(shortest, float(singular[1]))
+
+
+def _scale_refusal(coords: np.ndarray, corners: np.ndarray) -> Optional[str]:
     if not np.all(np.isfinite(coords)):
         return "non-finite node coordinates"
-    if not size > 0.0:
-        return "degenerate element (zero size)"
-    ratio = float(np.abs(coords).max()) / size
+    smallest = smallest_dimension(corners)
+    if not smallest > 0.0:
+        return "degenerate element (zero width)"
+    ratio = float(np.abs(coords).max()) / smallest
     if ratio > COORDINATE_SCALE_LIMIT:
-        return (f"node coordinates {ratio:.1e} element sizes from the origin exceed "
+        return (f"node coordinates {ratio:.1e} smallest element dimensions from the origin exceed "
                 f"{COORDINATE_SCALE_LIMIT:.0e}: the solver's frame loses precision")
     return None
 
@@ -637,6 +668,12 @@ def project_recovery_frames(
 
     face_ids = _face_ids(mesh, faces)
     _check_cancel(cancel)
+    try:
+        published_mesh_key(project, mesh)
+    except UnpublishedMesh as error:
+        reason = f"unpublished mesh: {error}"
+        return {}, {int(e): (face_id, reason) for face_id in face_ids
+                    for e in mesh.elements_of_face[face_id]}
     try:
         built = build.build_fe_model(project, mesh, load_case=None,
                                      require_loads=False, require_supports=False)

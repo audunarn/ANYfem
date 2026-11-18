@@ -89,10 +89,17 @@ def _shell_model(project, mesh, material=None):
 
 @pytest.fixture
 def shell_build(monkeypatch):
-    """Route ``project_orientation_report`` through the real shell build."""
+    """Route ``project_orientation_report`` through the real shell build.
+
+    Test seam: the stand-in project has no mesh records, so the
+    published-mesh requirement is also stood in (tested on real projects in
+    ``test_r6_*``).
+    """
+    import anyfem.mesh_orientation as orientation
     from anyfem.solve import build
 
     calls = []
+    monkeypatch.setattr(orientation, "published_mesh_key", lambda project, mesh: ("stand-in", "stand-in"))
 
     def fake(project, mesh, **kwargs):
         calls.append(kwargs)
@@ -449,17 +456,69 @@ def _section_state(project):
                    for a in project.section_assignments.values()))
 
 
-def test_r4_check_normalises_exactly_like_a_static_solve_build():
-    from anyfem.solve.build import build_fe_model
-
+def test_r6_unpublished_mesh_is_refused_without_touching_the_project():
+    """A hand-made (unpublished) mesh is refused with a typed reason, before any build."""
     checked, mesh = _legacy_map_project()
-    solved, solved_mesh = _legacy_map_project()
     before = _section_state(checked)
     report = project_orientation_report(checked, mesh)
-    build_fe_model(solved, solved_mesh, load_case=None, require_loads=False, require_supports=False)
-    assert _section_state(checked) != before  # the solve-equivalent normalisation happened
-    assert _section_state(checked) == _section_state(solved)
-    assert report.consistent and "Static-solve model" in report.summary()
+    assert not report.consistent and "Static-solve model" in report.summary()
+    assert set(report.unchecked) == {1} and "unpublished mesh" in report.unchecked[1]
+    assert _section_state(checked) == before
+
+
+def test_r6_only_the_active_published_mesh_is_checked():
+    import copy
+
+    from anyfem.mesh_orientation import UnpublishedMesh, published_mesh_key
+
+    project, mesh = _plate_project()
+    record_id, mesh_hash = published_mesh_key(project, mesh)
+    assert mesh_hash == project.mesh_records[record_id].mesh_hash
+    assert project_orientation_report(project, mesh).consistent
+    detached = copy.copy(mesh)
+    del detached._anyfem_mesh_record_id
+    with pytest.raises(UnpublishedMesh):
+        published_mesh_key(project, detached)
+    report = project_orientation_report(project, detached)
+    assert not report.consistent
+    assert all("unpublished mesh" in reason for reason in report.unchecked.values())
+
+
+class _OffsetPlane(_Plane):
+    """Plane z = z0 with u along x."""
+
+    def __init__(self, offset):
+        super().__init__()
+        self.offset = np.asarray(offset, float)
+
+    def project_to_face_many(self, face_id, xyz):
+        points, _uv, _d = super().project_to_face_many(face_id, np.asarray(xyz) - self.offset)
+        return points + self.offset, _uv, np.abs(np.asarray(xyz)[:, 2] - self.offset[2])
+
+
+def test_r6_sliver_far_from_the_origin_is_unchecked():
+    """Codex round 5: a 1 x 1e-4 Q8 at (1e6, -1e6, 1e6) passed a largest-dimension gate."""
+    offset = np.array([1e6, -1e6, 1e6])
+    c, s_ = np.cos(.3), np.sin(.3)
+    rotation = np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]])
+
+    def q8(width, height, x0):
+        corners = np.array([[0, 0, 0], [width, 0, 0], [width, height, 0], [0, height, 0]], float)
+        mids = [(corners[k] + corners[(k + 1) % 4]) / 2 for k in range(4)]
+        return [offset + rotation @ (p + [x0, 0, 0]) for p in np.vstack([corners, mids])]
+    nodes = {}
+    quads = {}
+    for e, coords in ((1, q8(1.0, 1.0, 0.0)), (2, q8(1.0, 1e-4, 2.0))):
+        ids = []
+        for xyz in coords:
+            nodes[len(nodes) + 1] = xyz
+            ids.append(len(nodes))
+        quads[e] = tuple(ids)
+    mesh = SimpleNamespace(nodes=nodes, quads=quads, tris={}, elements_of_face={1: [1, 2]})
+    model = _shell_model(_stand_in(policy=ShellFormulationPolicy.legacy_compatible()), mesh)
+    report = model_orientation_report(_OffsetPlane(offset), mesh, model)
+    assert 2 in report.unchecked and "smallest element dimensions" in report.unchecked[2]
+    assert 1 not in report.unchecked
 
 
 def test_r4_cancel_stops_the_check(shell_build):
@@ -565,7 +624,7 @@ def test_r5_coordinates_far_beyond_the_element_scale_are_unchecked(shell_build):
         mesh.nodes[new] = mesh.nodes[n] + shift
     mesh.quads[2] = tuple(moved[n] for n in mesh.quads[2])
     report = _report(mesh, geometry=_FarPlane(), policy=ShellFormulationPolicy.legacy_compatible())
-    assert 2 in report.unchecked and "element sizes from the origin" in report.unchecked[2]
+    assert 2 in report.unchecked and "smallest element dimensions from the origin" in report.unchecked[2]
     assert not report.consistent
 
 
@@ -730,8 +789,7 @@ def test_drawing_barge_60m_deck_patches_are_found():
     and, identically, with 0d85b68.
     """
     from anyfem.application.examples import drawing_barge_60m
-    from anyfem.jobs import _cancellation_token
-    from anyfem.mesh_jobs import MeshSettings, run_mesh_job
+    from anyfem.mesh_jobs import MeshSettings
     from anymesher import MeshAutomationOptions
 
     project = drawing_barge_60m()
@@ -739,8 +797,8 @@ def test_drawing_barge_60m_deck_patches_are_found():
                                    layout_policy="adaptive",
                                    automation=MeshAutomationOptions(strict_method=False,
                                                                     allow_inspection=True))
-    mesh = run_mesh_job(project, "barge60-axes", settings, lambda *a: None,
-                        _cancellation_token()).mesh
+    # D1 checks only a published mesh record (round 6): publish through the mesh session.
+    mesh = project.mesh_session().generate_mesh(settings)
     report = project_orientation_report(project, mesh)
     # The end houses also use "Deck 6 mm"; the main deck is the one at z = 2.
     deck = next(f for f, s in project.face_sections.items() if s == "Deck 6 mm"

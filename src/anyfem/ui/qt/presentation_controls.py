@@ -755,11 +755,19 @@ class PresentationControls(QWidget):
         self._glyph_access=None;self._glyph_stable=None
 
     def _shell_axes_key(self,mesh):
-        """(revision, document hash, mesh content digest) of the current state; never object identity."""
-        from ...mesh_orientation import mesh_content_digest
+        """(revision, document hash, published record id, record mesh hash); never object identity.
+
+        Raises ``UnpublishedMesh`` when ``mesh`` is not the active published mesh record.
+        """
+        from ...mesh_orientation import published_mesh_key
         revision=getattr(getattr(self.app,'session',None),'revision',None)
-        return (getattr(revision,'id',None),getattr(revision,'document_hash',None),
-                None if mesh is None else mesh_content_digest(mesh))
+        record_id,mesh_hash=published_mesh_key(self.app.project,mesh)
+        return (getattr(revision,'id',None),getattr(revision,'document_hash',None),record_id,mesh_hash)
+
+    def _shell_axes_key_or_none(self,mesh):
+        from ...mesh_orientation import UnpublishedMesh
+        try:return self._shell_axes_key(mesh)
+        except UnpublishedMesh:return None
 
     def show_shell_axes(self):
         """Run the shell-axis check in a background worker, then draw its arrows.
@@ -768,15 +776,20 @@ class PresentationControls(QWidget):
         document snapshot (``session.snapshot()``, the same serialisation every
         commit, save and worker job uses) and the worker thaws a detached copy,
         on which the Scope-A normalisation and ``build_fe_model`` run.  Completion
-        and the cache are keyed on the revision, the document hash and the mesh
-        content digest; without a document hash nothing is cached.  A mesh change
-        cancels, any other change of the key discards the result.
+        and the cache are keyed on the revision, the document hash and the
+        published mesh record (id and mesh hash); without a document hash nothing
+        is cached.  Only the active published mesh is checked (published meshes
+        are immutable by contract); anything else is refused with its reason.
+        A mesh change cancels, any other change of the key discards the result.
         """
+        from ...mesh_orientation import UnpublishedMesh
         mesh=getattr(self.app,'mesh',None)
         if mesh is None:raise ValueError('Mesh the model before showing shell local axes')
         self.clear_shell_axes()
+        try:key=self._shell_axes_key(mesh)
+        except UnpublishedMesh as error:
+            self.status.setText(f'Shell local axes need the published mesh: {error}.');return
         snapshot=self.app.session.snapshot()
-        key=self._shell_axes_key(mesh)
         generation=self._shell_axes_generation=getattr(self,'_shell_axes_generation',0)+1
         cached=getattr(self,'_shell_axes_cache',None)
         if cached is not None and key[1] is not None and cached[0]==key:
@@ -792,7 +805,7 @@ class PresentationControls(QWidget):
             self._shell_axes_pending=None
             if result.cancelled or getattr(self.app,'_closing',False):return
             current=getattr(self.app,'mesh',None)
-            if current is not mesh or self._shell_axes_key(current)!=key:
+            if current is not mesh or self._shell_axes_key_or_none(current)!=key:
                 self.status.setText('Shell local axes discarded: the mesh or project changed during the check.');return
             if result.error is not None:
                 self.status.setText(f'Shell local axes check failed: {result.error}');return
@@ -849,11 +862,10 @@ class PresentationControls(QWidget):
         if group is None:return
         if id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:
             self.clear_shell_axes();self.status.setText('Shell local axes cleared: the mesh changed.');return
-        revision=getattr(getattr(self.app,'session',None),'revision',None)
         drawn=getattr(self,'_shell_axes_drawn_key',None)
-        if drawn is not None and (getattr(revision,'id',None),getattr(revision,'document_hash',None))!=drawn[:2]:
-            # A project edit may change the solve model: the drawn check no longer applies.
-            self.clear_shell_axes();self.status.setText('Shell local axes cleared: the project changed.');return
+        if drawn is not None and self._shell_axes_key_or_none(self.app.mesh)!=drawn:
+            # A project edit or another publication: the drawn check no longer applies.
+            self.clear_shell_axes();self.status.setText('Shell local axes cleared: the project or published mesh changed.');return
         if (group.removed or group.viewer is not self.app.viewport.canvas
                 or any(handle.removed for handle in group.handles)):
             self._remove_shell_axes_group(group);self._draw_shell_axes()
