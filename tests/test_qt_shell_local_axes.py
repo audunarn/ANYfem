@@ -65,6 +65,17 @@ def _section_state(project):
             dict(project.face_assignment_ids), dict(project.edge_assignment_ids))
 
 
+def _raw_state(project, mesh, session):
+    """Live project and mesh state read directly, without project_to_dict (which normalises)."""
+    from anyfem.mesh_orientation import mesh_content_digest
+    assignments = sorted((key, repr(value)) for key, value in project.section_assignments.items())
+    regions = sorted((key, repr(getattr(value, "__dict__", value))) for key, value in project.regions.items()) \
+        if hasattr(project.regions, "items") else repr(project.regions)
+    return (assignments, regions, _section_state(project), len(project.geometry.faces),
+            len(project.geometry.edges), mesh_content_digest(mesh), session.revision.id,
+            session.revision.document_hash)
+
+
 def _live(group):
     return bool(group.handles) and not group.removed and not any(h.removed for h in group.handles)
 
@@ -89,15 +100,11 @@ def test_shell_axes_overlay_counts_caption_clear_and_no_mutation(window, qapp, m
         return original(batch, *args, **kwargs)
     monkeypatch.setattr(canvas, "add_mesh_arrays", spy)
 
-    # Scope A: the check may perform exactly the section-assignment
-    # normalisation a static solve build performs, and nothing else.  Apply it
-    # first (as a solve would); the overlay must then change nothing at all.
-    project.resolve_section_assignments(strict=False)
-    sections = _section_state(project)
-    before = _digest(project, mesh, window.session)
-    report = project_orientation_report(project, mesh)
+    # Round 5: the worker builds on a thawed snapshot, so the live project is
+    # left exactly as it was - no prior normalisation, compared raw.
+    raw = _raw_state(project, mesh, window.session)
+    report = project_orientation_report(window.session.snapshot().thaw(), mesh)
     drawn = len(report.element_axes)
-    assert _digest(project, mesh, window.session) == before
     controls.show_shell_axes(); qapp.processEvents()
     assert controls.shell_axes_busy and "background" in controls.status.text()
     _wait(controls, qapp)
@@ -118,14 +125,20 @@ def test_shell_axes_overlay_counts_caption_clear_and_no_mutation(window, qapp, m
     controls.clear_shell_axes(); qapp.processEvents()
     assert group.removed and all(h.removed for h in group.handles)
     assert controls._shell_axes_group is None
-    # Show again on the same mesh and document: the cached check is drawn at once.
+    # Show again on the same mesh content and document: the cached check is drawn at once.
     controls.show_shell_axes()
     assert not controls.shell_axes_busy and controls.shell_axes_stats == stats
     assert _live(controls._shell_axes_group)
+    assert _raw_state(project, mesh, window.session) == raw
     controls.clear_shell_axes(); qapp.processEvents()
-    assert _digest(project, mesh, window.session) == before
-    assert _section_state(project) == sections
+    assert _raw_state(project, mesh, window.session) == raw
     assert window.mesh is mesh and window.project is project
+    # An in-place edit of the same mesh object changes its content key: no cache reuse.
+    first = next(iter(mesh.quads))
+    mesh.quads[first] = tuple(reversed(mesh.quads[first][:4])) + tuple(mesh.quads[first][4:])
+    controls.show_shell_axes()
+    assert controls.shell_axes_busy, "a mutated mesh must not reuse the cached check"
+    _wait(controls, qapp); controls.clear_shell_axes()
 
 
 def test_r1_f8_overlay_follows_scene_replacement_and_mesh_change(window, qapp, monkeypatch):
@@ -194,3 +207,53 @@ def test_r4_background_check_is_cancelled_by_a_mesh_change(window, qapp, monkeyp
     release.set(); _wait(controls, qapp)
     assert seen["cancelled"] is True
     assert controls._shell_axes_group is None and controls.shell_axes_stats is None
+
+
+def test_r5_worker_never_touches_the_live_project(window, qapp, monkeypatch):
+    """Codex round 4, finding 1: a worker build that clears the shared section maps
+    while the GUI resolves them corrupts the live project.  The worker must build on
+    a detached copy, so the interleaving cannot reach the live project."""
+    import threading
+    from PySide6.QtWidgets import QMessageBox
+    from anyfem.model.project import Project
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    window._actions["Floating barge section…"].trigger(); qapp.processEvents()
+    live = window.project
+    window.mesh = _mesh(live)
+    controls = window.panels["Visualization"].presentation_controls
+    assignments = len(live.section_assignments)
+    assert assignments > 0
+    paused, resume, touched = threading.Event(), threading.Event(), []
+    original = Project.resolve_section_assignments
+
+    def interleaved(self, *args, **kwargs):
+        if threading.current_thread() is not threading.main_thread() and not paused.is_set():
+            touched.append(self is live)
+            self.face_sections.clear()  # the worker's resolver mid-way: maps cleared
+            paused.set(); resume.wait(60)
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(Project, "resolve_section_assignments", interleaved)
+    controls.show_shell_axes()
+    assert paused.wait(120)
+    live.resolve_section_assignments(strict=False)  # the GUI resolves meanwhile
+    resume.set(); _wait(controls, qapp)
+    assert touched == [False]
+    assert len(live.section_assignments) == assignments
+    assert controls.shell_axes_stats is not None
+
+
+def test_r5_close_joins_the_worker_thread(window, qapp, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    window._actions["Floating barge section…"].trigger(); qapp.processEvents()
+    window.mesh = _mesh(window.project)
+    controls = window.panels["Visualization"].presentation_controls
+    controls.show_shell_axes()
+    executor = controls._shell_axes_requests._executor
+    threads = list(executor._threads)
+    assert threads
+    controls.close(); qapp.processEvents()
+    assert not any(thread.is_alive() for thread in threads)
+    assert controls._shell_axes_requests is None

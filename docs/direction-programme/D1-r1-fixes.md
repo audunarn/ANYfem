@@ -199,3 +199,70 @@ the pinned, clean checkout `C:/ANYworkspaceWork/anyfem-runtime-main-20261111/own
 Identical, including every per-face count. Check time with 432b4ed: 7.9 s
 (single run). The first D1 measurement (880 turned) and the round-1 to round-3
 numbers were all taken with 0d85b68.
+
+## Round 5 (coordinator decision on Codex round 4: two classes)
+
+Branch rebased onto ANYfem main `05b13c9` before this round (round-4 commit
+`0d8a12e` is now `77a496f`; `d1292b8` = round 4 plus the mesher record).
+All numbers below: ANYmesher `432b4ed` (pinned, clean runtime checkout).
+
+**Class A - the worker never touches the live project** (r4 findings 1, 3, 4, 5).
+`show_shell_axes` takes `session.snapshot()` on the GUI thread; the worker
+thaws it and runs the check (Scope-A normalisation and `build_fe_model`) on
+that detached copy only. Completion and the cache are keyed on (revision id,
+document hash, `mesh_content_digest(mesh)`); no document hash means no cache;
+a drawn overlay is cleared when the revision changes. `close()` retires the
+worker and joins it (`executor.shutdown(wait=True)`). The Qt test compares the
+live project and mesh raw (assignment and region records, section maps, mesh
+content digest, revision) - no `project_to_dict`, no prior normalisation.
+Note: `session.snapshot()` serialises with `project_to_dict`, which folds
+direct legacy-map edits on the GUI thread exactly as every commit, save and
+existing worker snapshot does; on a committed GUI project that changes nothing
+(the raw comparison holds).
+
+**Class B - the fast route only where correct by construction** (r4 finding 2).
+`_solver_frame_eligible` now requires the exact class, no generalised section,
+and the guard the solver's own `native_recovery_frames` uses: unchanged
+`ShellElement`/`Element` namespaces and frame helpers (as captured at solver
+import) and no instance attribute shadowing them. Everything else is probed.
+The 1-in-25 sample is only an extra cross-check; a disagreement or a probe
+failure switches every element to the probe. Scale gate on both routes:
+non-finite coordinates, or coordinates more than 1e7 element sizes from the
+origin, are unchecked.
+
+1e12 investigation (legacy Q8, `docs/direction-programme/scripts/scale_check.py`,
+frames compared with the unshifted element):
+
+| Shift | Solver frame error x / normal | Six-field probe |
+|---|---|---|
+| 0 | 0 / 1.2e-6 deg | accepted |
+| 1e3 | 8.5e-7 / 1.2e-6 deg | accepted |
+| 1e6 | 0 / 1.2e-6 deg | accepted |
+| 1e9 | 2.2e-5 / 2.1e-5 deg | accepted |
+| 1e12 | 3.8e-2 / 3.2e-2 deg | refused (residual 1.0e-3) |
+
+So it is precision, not a frame defect: at 1e12 m the solver's own frame (and
+its stresses) lose about 4 digits, and the probe's refusal is right. Outcome:
+the scale gate (1e7 element sizes) refuses such elements on either route.
+
+| Test | Result on d1292b8 (= r4 code) |
+|---|---|
+| `test_r5_worker_never_touches_the_live_project` (Qt; Codex's clearing interleaving) | worker resolved the live project (`touched == [True]`) |
+| `test_r5_close_joins_the_worker_thread` (Qt) | worker thread alive after close |
+| `test_shell_axes_overlay_counts_caption_clear_and_no_mutation` (raw state, in-place mesh edit defeats the cache) | fails (new helper; old cache keyed on identity) |
+| `test_r5_instance_override_is_probed_not_fast_tracked` | override accepted, report consistent |
+| `test_r5_coordinates_far_beyond_the_element_scale_are_unchecked` | 1e12-shifted element accepted |
+| `test_r5_a_failing_sample_probe_switches_everything_to_the_probe` | stayed on the solver-frame route |
+
+Timings (barge, `docs/direction-programme/scripts/time_check.py`, 3 runs):
+6.99 / 7.09 / 7.06 s (round 4: 6.92-7.48 s). `profile_check.py` breakdown
+(one run, 7.52 s): build 0.46 s, admission recovery 3.29 s, classification
+0.78 s; the rest is the solver-frame reads and the 186 sample probes. Probing
+every element instead would take 23.91 s. GUI thread: snapshot 0.145 s, mesh
+digest 0.018 s; worker: thaw 0.21 s.
+
+Barge: 402 turned, 0 reversed, 0 ambiguous, 0 inconsistent, 968 mixed on 11
+faces, 0 unchecked; deck 169 turned / 144 between the end houses / 3 blocks;
+all 4640 elements on the solver-frame route. Tests: 80 passed
+(test_mesh_orientation incl. barge, test_qt_shell_local_axes,
+test_presentation_workspace, test_qt_sketch_overlay_lifetime).

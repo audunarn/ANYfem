@@ -35,9 +35,15 @@ This module measures that, without re-deriving any solver frame:
    the frames are read from the two solver functions its ``compute_stresses``
    uses to pick them (``native_recovery_frames``, else
    ``_local_frame_and_derivatives`` at ``gauss_points``) instead of six
-   recoveries; every 25th such element (the first included) is also probed,
-   and one disagreement switches every element to the probe.  Each element's
-   ``frame_source`` says which route gave its frames.
+   recoveries - only where that is the recovery frame by construction (exact
+   class, unpatched class namespaces and helpers, no instance override; see
+   ``_solver_frame_eligible``).  Every other element goes through the probe.
+   As an extra cross-check, every 25th fast element (the first included) is
+   also probed; a disagreement or probe failure switches every element to the
+   probe.  Each element's ``frame_source`` says which route gave its frames.
+   Scale: elements whose node coordinates lie more than 1e7 element sizes
+   from the origin (or are not finite) are unchecked on either route - the
+   solver's own frame loses precision there (0.04 deg at 1e12 m).
    Scope (owner decision 2026-11-18, option A): the check covers the model a
    static solve of the project as it stands would build, project imperfections
    included.  Like that solve's build it normalises the project's
@@ -106,6 +112,7 @@ __all__ = [
     "OrientationReport",
     "RecoveryFrame",
     "element_recovery_frames",
+    "mesh_content_digest",
     "model_orientation_report",
     "model_recovery_frames",
     "project_orientation_report",
@@ -124,6 +131,10 @@ SOLVER_FRAME = "solver-frame"
 # Every n-th element read through SOLVER_FRAME is also probed; one
 # disagreement switches the whole check to the probe.
 VERIFY_EVERY = 25
+# Largest |node coordinate| in element sizes: beyond it the solver's own
+# frame loses precision (measured on a legacy Q8 2026-11-18: 1e9 m from the
+# origin 2e-5 deg, 1e12 m 0.04 deg), so the element is unchecked.
+COORDINATE_SCALE_LIMIT = 1.0e7
 
 SCOPE_NOTE = ("Static-solve model of the project as it stands; analysis-time "
               "imperfections (nonlinear, arc-length, capacity) are not included (D2).")
@@ -304,6 +315,28 @@ class OrientationReport:
         return "\n".join(lines)
 
 
+def mesh_content_digest(mesh: Any) -> str:
+    """Content hash of what the check reads from a mesh (nodes, shells, faces, preparation).
+
+    Used to key cached or in-flight checks on content rather than object identity.
+    """
+
+    import hashlib
+    import json
+
+    digest = hashlib.sha256()
+    nodes = sorted(mesh.nodes)
+    digest.update(np.asarray(nodes, dtype=np.int64).tobytes())
+    digest.update(np.asarray([mesh.nodes[n] for n in nodes], dtype=np.float64).tobytes())
+    for cells in (mesh.quads, mesh.tris):
+        digest.update(repr(sorted((int(k), tuple(int(n) for n in v)) for k, v in cells.items())).encode())
+    digest.update(repr(sorted((int(k), [int(e) for e in v]) for k, v in mesh.elements_of_face.items())).encode())
+    for name in ("structural_preparation", "_anyfem_mesh_record_id"):
+        value = getattr(mesh, name, None)
+        digest.update(json.dumps(value, sort_keys=True, default=repr).encode())
+    return "sha256:" + digest.hexdigest()
+
+
 def _unit(vector: np.ndarray) -> Optional[np.ndarray]:
     length = float(np.linalg.norm(vector))
     if not np.isfinite(length) or length <= 1.0e-14:
@@ -440,6 +473,13 @@ def model_recovery_frames(
                 unchecked[element_id] = (face_id, f"not a shell element ({type(element).__name__})")
                 continue
             try:
+                coords = np.asarray(element.get_node_coordinates(fe_mesh), dtype=float)
+                corners = coords[: 4 if len(coords) in (4, 8) else 3]
+                size = float(np.linalg.norm(corners[:, None, :] - corners[None, :, :], axis=2).max())
+                refusal = _scale_refusal(coords, size)
+                if refusal is not None:
+                    unchecked[element_id] = (face_id, refusal)
+                    continue
                 material = fe_model.materials[element.material_name]
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -451,24 +491,29 @@ def model_recovery_frames(
                         frames = _legacy_recovery_frames(element, fe_mesh, material)
                         source = SOLVER_FRAME
                         if eligible_count % VERIFY_EVERY == 0:
-                            probed = element_recovery_frames(element, fe_mesh, probe)
-                            if not _same_frames(frames, probed):
+                            # Extra cross-check only: eligibility, not this sample,
+                            # is what admits the fast route.  Any disagreement or
+                            # probe failure sends every element through the probe.
+                            try:
+                                probed = element_recovery_frames(element, fe_mesh, probe)
+                            except Exception:
+                                probed = None
+                            if probed is None or not _same_frames(frames, probed):
                                 fast_ok = False
-                                frames, source = probed, PROBE
+                                frames = element_recovery_frames(element, fe_mesh, probe)
+                                source = PROBE
                         eligible_count += 1
                     else:
                         frames = element_recovery_frames(element, fe_mesh, probe)
             except Exception as error:  # solver refusal: report, never assume
                 unchecked[element_id] = (face_id, f"{type(error).__name__}: {error}")
                 continue
-            coords = np.asarray(element.get_node_coordinates(fe_mesh), dtype=float)
-            corners = coords[: 4 if len(coords) in (4, 8) else 3]
             axes[element_id] = ElementAxes(
                 element_id=element_id,
                 face_id=face_id,
                 element_class=type(element).__name__,
                 centroid=corners.mean(axis=0),
-                size=float(np.linalg.norm(corners[:, None, :] - corners[None, :, :], axis=2).max()),
+                size=size,
                 frames=frames,
                 frame_source=source,
             )
@@ -491,11 +536,45 @@ def model_recovery_frames(
     return axes, unchecked
 
 
-def _solver_frame_eligible(element: Any, shell_class: type) -> bool:
-    """Exact legacy ShellElement on its ordinary (non-generalised) recovery path."""
+def _scale_refusal(coords: np.ndarray, size: float) -> Optional[str]:
+    if not np.all(np.isfinite(coords)):
+        return "non-finite node coordinates"
+    if not size > 0.0:
+        return "degenerate element (zero size)"
+    ratio = float(np.abs(coords).max()) / size
+    if ratio > COORDINATE_SCALE_LIMIT:
+        return (f"node coordinates {ratio:.1e} element sizes from the origin exceed "
+                f"{COORDINATE_SCALE_LIMIT:.0e}: the solver's frame loses precision")
+    return None
 
-    return (type(element) is shell_class and getattr(element, "shell_section", None) is None
-            and getattr(element, "gauss_points", None) is not None)
+
+def _solver_frame_eligible(element: Any, shell_class: type) -> bool:
+    """True only where the solver-frame route is the recovery frame by construction.
+
+    Exact ``ShellElement`` on its ordinary path (no generalised section), with
+    the same guard the solver's ``native_recovery_frames`` applies: the
+    ``ShellElement`` and ``Element`` class namespaces and the frame helpers are
+    the ones captured when anyfesolver.elements was imported, and no instance
+    attribute shadows any of their names (so ``compute_stresses`` and the
+    frame functions it calls are the originals for this element).
+    """
+
+    from anyfesolver import elements
+
+    if type(element) is not shell_class or getattr(element, "shell_section", None) is not None:
+        return False
+    if getattr(element, "gauss_points", None) is None:
+        return False
+    instance = vars(element)
+    for cls, name in ((elements.ShellElement, "_SHELL_RECOVERY_FRAME_METHODS"),
+                      (elements.Element, "_SHELL_RECOVERY_BASE_METHODS")):
+        expected = getattr(elements, name, None)
+        namespace = vars(cls)
+        if expected is None or len(namespace) != len(expected) or any(
+                namespace.get(key) is not value or key in instance for key, value in expected):
+            return False
+    helpers = getattr(elements, "_SHELL_RECOVERY_FRAME_HELPERS", None)
+    return helpers is not None and all(getattr(elements, key, None) is value for key, value in helpers)
 
 
 def _legacy_recovery_frames(element: Any, fe_mesh: Any, material: Any) -> Tuple[RecoveryFrame, ...]:

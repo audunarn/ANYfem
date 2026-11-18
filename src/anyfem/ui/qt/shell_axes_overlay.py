@@ -7,9 +7,11 @@ ambiguous, inconsistent and mixed-face elements purple; unchecked elements get
 no arrows and are counted in the caption.
 
 Scope (option A): the check reads the model a static solve of the project as
-it stands would build; it leaves the mesh unchanged and performs on the
-project only the section-assignment normalisation that solve's build
-performs.  Analysis-time imperfections are not included (D2).
+it stands would build.  In the GUI it runs on a detached copy thawed from the
+document snapshot (``session.snapshot()``), so the Scope-A normalisation and
+the build never touch the live project; the snapshot itself is the
+application's ordinary GUI-thread serialisation.  Analysis-time imperfections
+are not included (D2).
 """
 import numpy as np
 

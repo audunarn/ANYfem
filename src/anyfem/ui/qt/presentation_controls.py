@@ -754,49 +754,52 @@ class PresentationControls(QWidget):
         if access is not None:access.release_pane_publication('glyphs')
         self._glyph_access=None;self._glyph_stable=None
 
-    def _shell_axes_document(self):
+    def _shell_axes_key(self,mesh):
+        """(revision, document hash, mesh content digest) of the current state; never object identity."""
+        from ...mesh_orientation import mesh_content_digest
         revision=getattr(getattr(self.app,'session',None),'revision',None)
-        return getattr(revision,'document_hash',None)
+        return (getattr(revision,'id',None),getattr(revision,'document_hash',None),
+                None if mesh is None else mesh_content_digest(mesh))
 
     def show_shell_axes(self):
         """Run the shell-axis check in a background worker, then draw its arrows.
 
-        The check builds the solver model (about 19 s on the 60 m barge), so it runs
-        on its own serial worker; completions are delivered on the GUI thread by
-        poll().  A mesh change, a project edit, clear or close discards the run.
-        Scope (option A): the solve-equivalent section-assignment normalisation is
-        done here on the GUI thread first, so the worker's build only reads.
+        The worker never touches the live project: the GUI thread takes the
+        document snapshot (``session.snapshot()``, the same serialisation every
+        commit, save and worker job uses) and the worker thaws a detached copy,
+        on which the Scope-A normalisation and ``build_fe_model`` run.  Completion
+        and the cache are keyed on the revision, the document hash and the mesh
+        content digest; without a document hash nothing is cached.  A mesh change
+        cancels, any other change of the key discards the result.
         """
         mesh=getattr(self.app,'mesh',None)
         if mesh is None:raise ValueError('Mesh the model before showing shell local axes')
-        project=self.app.project
         self.clear_shell_axes()
-        project.resolve_section_assignments(strict=False)
+        snapshot=self.app.session.snapshot()
+        key=self._shell_axes_key(mesh)
         generation=self._shell_axes_generation=getattr(self,'_shell_axes_generation',0)+1
-        document=self._shell_axes_document()
         cached=getattr(self,'_shell_axes_cache',None)
-        if cached is not None and cached[0] is mesh and cached[1] is project and cached[2]==document and document is not None:
-            # Same mesh object, same project, same document revision: reuse the last check.
-            _mesh,_project,_document,batches,caption,stats=cached
-            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=dict(stats)
-            self._draw_shell_axes();self.status.setText(caption);return
+        if cached is not None and key[1] is not None and cached[0]==key:
+            _key,batches,caption,stats=cached
+            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self._shell_axes_drawn_key=key
+            self.shell_axes_stats=dict(stats);self._draw_shell_axes();self.status.setText(caption);return
         self._shell_axes_pending=id(mesh)
         def load(cancel):
             from .shell_axes_overlay import prepare_shell_axes
-            return prepare_shell_axes(project,mesh,cancel=cancel)
+            return prepare_shell_axes(snapshot.thaw(),mesh,cancel=cancel)
         def complete(result):
             if generation!=getattr(self,'_shell_axes_generation',0):return
             self._shell_axes_pending=None
             if result.cancelled or getattr(self.app,'_closing',False):return
-            if (getattr(self.app,'mesh',None) is not mesh or self.app.project is not project
-                    or self._shell_axes_document()!=document):
+            current=getattr(self.app,'mesh',None)
+            if current is not mesh or self._shell_axes_key(current)!=key:
                 self.status.setText('Shell local axes discarded: the mesh or project changed during the check.');return
             if result.error is not None:
                 self.status.setText(f'Shell local axes check failed: {result.error}');return
             batches,caption,stats=result.value
-            self._shell_axes_cache=(mesh,project,document,batches,caption,dict(stats))
-            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
-            self._draw_shell_axes();self.status.setText(caption)
+            if key[1] is not None:self._shell_axes_cache=(key,batches,caption,dict(stats))
+            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self._shell_axes_drawn_key=key
+            self.shell_axes_stats=stats;self._draw_shell_axes();self.status.setText(caption)
         if getattr(self,'_shell_axes_requests',None) is None:
             from ...application.result_requests import ResultRequests
             self._shell_axes_queue=SimpleQueue()
@@ -846,6 +849,11 @@ class PresentationControls(QWidget):
         if group is None:return
         if id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:
             self.clear_shell_axes();self.status.setText('Shell local axes cleared: the mesh changed.');return
+        revision=getattr(getattr(self.app,'session',None),'revision',None)
+        drawn=getattr(self,'_shell_axes_drawn_key',None)
+        if drawn is not None and (getattr(revision,'id',None),getattr(revision,'document_hash',None))!=drawn[:2]:
+            # A project edit may change the solve model: the drawn check no longer applies.
+            self.clear_shell_axes();self.status.setText('Shell local axes cleared: the project changed.');return
         if (group.removed or group.viewer is not self.app.viewport.canvas
                 or any(handle.removed for handle in group.handles)):
             self._remove_shell_axes_group(group);self._draw_shell_axes()
@@ -860,7 +868,7 @@ class PresentationControls(QWidget):
         group=getattr(self,'_shell_axes_group',None)
         if group is not None:self._remove_shell_axes_group(group)
         self._shell_axes_group=None;self._shell_axes_mesh=None;self.shell_axes_stats=None
-        self._shell_axes_batches=()
+        self._shell_axes_batches=();self._shell_axes_drawn_key=None
 
     def pause_glyphs(self):
         if getattr(self,'_glyph_group',None) is not None or getattr(self,'_glyph_pending',False):
@@ -979,6 +987,10 @@ class PresentationControls(QWidget):
         if self._reference_requests is not None:
             self._reference_requests.cancel_channel('reference:display');self._reference_requests=None
         self.clear_shell_axes();self._shell_axes_cache=None
-        if getattr(self,'_shell_axes_requests',None) is not None:
-            self._shell_axes_requests.retire();self._shell_axes_requests=None
+        requests=getattr(self,'_shell_axes_requests',None)
+        if requests is not None:
+            # Retire, then join the worker so no thread outlives the panel (the
+            # cancel event stops the check at its next element).
+            requests.retire();requests._executor.shutdown(wait=True,cancel_futures=True)
+            self._shell_axes_requests=None;self._shell_axes_queue=None
         if self.reference is not None:self.reference.close()

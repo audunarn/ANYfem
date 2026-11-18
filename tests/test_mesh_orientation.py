@@ -528,6 +528,68 @@ def test_r4_a_disagreeing_solver_frame_switches_everything_to_the_probe(shell_bu
     assert {a.frame_source for a in report.element_axes.values()} == {"stress-probe"}
 
 
+# --- round 5, class B: the fast route only where it is correct by construction
+
+def test_r5_instance_override_is_probed_not_fast_tracked(shell_build, monkeypatch):
+    """An element whose stress path is overridden on the instance goes through the probe."""
+    import anyfem.mesh_orientation as orientation
+
+    real = orientation.model_recovery_frames
+
+    def patched(fe_model, mesh, **kwargs):
+        element = fe_model.mesh.elements[2]  # not the sampled first element
+        original = element.compute_stresses
+
+        def doubled(*args, **kw):
+            result = dict(original(*args, **kw))
+            for key in ("membrane_xx", "membrane_yy", "membrane_xy"):
+                result[key] = 2.0 * np.asarray(result[key])
+            return result
+        element.compute_stresses = doubled
+        return real(fe_model, mesh, **kwargs)
+    monkeypatch.setattr(orientation, "model_recovery_frames", patched)
+    report = _report(_grid_mesh(nx=2, ny=1), policy=ShellFormulationPolicy.legacy_compatible())
+    assert not report.consistent
+    assert set(report.unchecked) == {2} and "not a rotated orthonormal frame" in report.unchecked[2]
+
+
+def test_r5_coordinates_far_beyond_the_element_scale_are_unchecked(shell_build):
+    """At 1e12 m from the origin the solver's own frame is off by ~0.04 deg: refuse it."""
+    mesh = _grid_mesh(nx=2, ny=1)
+    shift = np.array([1e12, -1e12, 0.0])
+    moved = {}
+    for n in mesh.quads[2]:
+        new = max(mesh.nodes) + 1 + len(moved)
+        moved[n] = new
+    for n, new in moved.items():
+        mesh.nodes[new] = mesh.nodes[n] + shift
+    mesh.quads[2] = tuple(moved[n] for n in mesh.quads[2])
+    report = _report(mesh, geometry=_FarPlane(), policy=ShellFormulationPolicy.legacy_compatible())
+    assert 2 in report.unchecked and "element sizes from the origin" in report.unchecked[2]
+    assert not report.consistent
+
+
+class _FarPlane(_Plane):
+    """z = 0 plane that also reports a zero distance far from the origin."""
+
+
+def test_r5_a_failing_sample_probe_switches_everything_to_the_probe(shell_build, monkeypatch):
+    import anyfem.mesh_orientation as orientation
+
+    real = orientation.element_recovery_frames
+    calls = {"n": 0}
+
+    def flaky(element, fe_mesh, material=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("transient probe failure")
+        return real(element, fe_mesh, material)
+    monkeypatch.setattr(orientation, "element_recovery_frames", flaky)
+    report = _report(_grid_mesh(), policy=ShellFormulationPolicy.legacy_compatible())
+    assert {a.frame_source for a in report.element_axes.values()} == {"stress-probe"}
+    assert report.consistent and len(report.element_axes) == 12
+
+
 # --- round 2, finding 2: imperfections move the solver's reference geometry -
 
 def _plate_project(imperfection=None):
