@@ -411,7 +411,7 @@ class PresentationControls(QWidget):
                 if self.reference is not None:self.reference.clear()
         if hasattr(self.app,'project'):
             try:
-                if getattr(self,'_shell_axes_group',None) is not None and id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:self.clear_shell_axes()
+                self.maintain_shell_axes()
                 self.observe_clipping();self.update_annotations();self.maintain_glyphs()
             except Exception as error:self.status.setText(f'Annotation display unavailable: {error}')
         if self.reference is None or not self.compare.isChecked():return
@@ -761,21 +761,43 @@ class PresentationControls(QWidget):
         from .shell_axes_overlay import prepare_shell_axes
         batches,caption,stats=prepare_shell_axes(self.app.project,mesh)
         self.clear_shell_axes()
+        self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
+        self._draw_shell_axes()
+        self.status.setText(caption)
+
+    def _draw_shell_axes(self):
         canvas=self.app.viewport.canvas;group=canvas.annotation_group()
         with group:
-            for batch,color in batches:
+            for batch,color in self._shell_axes_batches:
                 canvas.add_mesh_arrays(batch,color=color,line_color=color,line_width=2,
                     pickable=False,draw_overlay=True,lit=False,layer=45)
-        self._shell_axes_group=group;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
-        self.status.setText(caption);canvas.redraw()
+        self._shell_axes_group=group;canvas.redraw()
+
+    def maintain_shell_axes(self):
+        """Keep the drawn arrows and the published state in step after scene changes.
+
+        A different mesh clears the overlay (its check no longer applies); a scene
+        redraw that removed the arrows (canvas.clear, a replaced canvas) redraws the
+        prepared arrows of the same mesh.
+        """
+        group=getattr(self,'_shell_axes_group',None)
+        if group is None:return
+        if id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:
+            self.clear_shell_axes();self.status.setText('Shell local axes cleared: the mesh changed.');return
+        if (group.removed or group.viewer is not self.app.viewport.canvas
+                or any(handle.removed for handle in group.handles)):
+            self._remove_shell_axes_group(group);self._draw_shell_axes()
+
+    def _remove_shell_axes_group(self,group):
+        try:group.remove()
+        except RuntimeError:
+            if getattr(group,'viewer',None) is self.app.viewport.canvas:raise
 
     def clear_shell_axes(self):
         group=getattr(self,'_shell_axes_group',None)
-        if group is not None:
-            try:group.remove()
-            except RuntimeError:
-                if getattr(group,'viewer',None) is self.app.viewport.canvas:raise
+        if group is not None:self._remove_shell_axes_group(group)
         self._shell_axes_group=None;self._shell_axes_mesh=None;self.shell_axes_stats=None
+        self._shell_axes_batches=()
 
     def pause_glyphs(self):
         if getattr(self,'_glyph_group',None) is not None or getattr(self,'_glyph_pending',False):

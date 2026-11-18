@@ -251,7 +251,23 @@ def _build_combination(
 
 
 def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
-    qualified_ids: list[int] = []
+    owner_normals = _admitted_s3_owner_normals(project, mesh)
+    for face_id, element_ids in mesh.elements_of_face.items():
+        section = project.plate_section_of(face_id)
+        for element_id in element_ids:
+            fe_model.add_element(
+                element_id,
+                _shell_element(project, mesh, section, face_id, element_id, owner_normals),
+            )
+
+
+def _admitted_s3_owner_normals(project: Project, mesh: Mesh) -> dict[int, np.ndarray]:
+    """Return the S3 owner normals after the solve's admission check.
+
+    Shared by the solve build and the read-only shell-axis check
+    (``anyfem.mesh_orientation``), so both see the same refusals.
+    """
+
     owner_normals: dict[int, np.ndarray] = {}
     if project.shell_formulation_policy.s3 == "e4-pl-s3-v2d":
         qualified_ids, owner_normals = _qualified_s3_owner_normals(project, mesh)
@@ -266,62 +282,75 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                 raise ProjectError(
                     f"qualified S3 mesh admission failed: {error}"
                 ) from error
+    return owner_normals
 
-    for face_id, element_ids in mesh.elements_of_face.items():
-        section = project.plate_section_of(face_id)
-        for element_id in element_ids:
-            if element_id in mesh.quads:
-                node_ids = mesh.quads[element_id]
-            elif element_id in mesh.tris:
-                node_ids = mesh.tris[element_id]
-            else:
-                raise ProjectError(
-                    f"face {face_id} references missing shell element {element_id}"
-                )
-            formulation = project.shell_formulation_policy.for_node_count(
-                len(node_ids)
+
+def _shell_element(
+    project: Project,
+    mesh: Mesh,
+    section: Any,
+    face_id: int,
+    element_id: int,
+    owner_normals: Mapping[int, np.ndarray],
+) -> Any:
+    """Construct one shell element exactly as the solve does.
+
+    Shared with ``anyfem.mesh_orientation`` so the axis check reads the stress
+    frames of the very element the solve would assemble.
+    """
+
+    if element_id in mesh.quads:
+        node_ids = mesh.quads[element_id]
+    elif element_id in mesh.tris:
+        node_ids = mesh.tris[element_id]
+    else:
+        raise ProjectError(
+            f"face {face_id} references missing shell element {element_id}"
+        )
+    formulation = project.shell_formulation_policy.for_node_count(
+        len(node_ids)
+    )
+    extra: dict[str, Any] = {}
+    if formulation == "e4-pl-s3-v2d":
+        reference = owner_normals[int(element_id)]
+        if project.shell_formulation_policy.s3_reference_surface == "faceted":
+            # Source normals have already passed signed-area, owner alignment
+            # and shape admission above. Keep their physical side on each chord facet.
+            a, b, c = (np.asarray(mesh.nodes[n], dtype=float) for n in node_ids)
+            facet = np.cross(b - a, c - a)
+            length = np.linalg.norm(facet)
+            if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
+                raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
+            reference = facet / length
+        extra["reference_normal"] = reference
+    # The application policy is explicit and persisted, so the solver's
+    # user-facing deprecation warning would otherwise be repeated once
+    # per legacy Q4 element.  Keep the warning for direct solver callers.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LegacyQ4DeprecationWarning)
+        element = create_shell_element(
+            element_id,
+            list(node_ids),
+            material_name=section.material,
+            thickness=section.thickness,
+            formulation=formulation,
+            **extra,
+        )
+    expected_id = project.shell_formulation_policy.formulation_id_for_node_count(
+        len(node_ids)
+    )
+    if formulation in {"e4-pl", "e4-pl-s3-v2d"}:
+        if getattr(element, "formulation_id", None) != expected_id:
+            raise ProjectError(
+                f"shell element {element_id} formulation identity mismatch: "
+                f"expected {expected_id}"
             )
-            extra: dict[str, Any] = {}
-            if formulation == "e4-pl-s3-v2d":
-                reference = owner_normals[int(element_id)]
-                if project.shell_formulation_policy.s3_reference_surface == "faceted":
-                    # Source normals have already passed signed-area, owner alignment
-                    # and shape admission above. Keep their physical side on each chord facet.
-                    a, b, c = (np.asarray(mesh.nodes[n], dtype=float) for n in node_ids)
-                    facet = np.cross(b - a, c - a)
-                    length = np.linalg.norm(facet)
-                    if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
-                        raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
-                    reference = facet / length
-                extra["reference_normal"] = reference
-            # The application policy is explicit and persisted, so the solver's
-            # user-facing deprecation warning would otherwise be repeated once
-            # per legacy Q4 element.  Keep the warning for direct solver callers.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", LegacyQ4DeprecationWarning)
-                element = create_shell_element(
-                    element_id,
-                    list(node_ids),
-                    material_name=section.material,
-                    thickness=section.thickness,
-                    formulation=formulation,
-                    **extra,
-                )
-            expected_id = project.shell_formulation_policy.formulation_id_for_node_count(
-                len(node_ids)
-            )
-            if formulation in {"e4-pl", "e4-pl-s3-v2d"}:
-                if getattr(element, "formulation_id", None) != expected_id:
-                    raise ProjectError(
-                        f"shell element {element_id} formulation identity mismatch: "
-                        f"expected {expected_id}"
-                    )
-            elif type(element) is not LegacyShellElement:
-                raise ProjectError(
-                    f"shell element {element_id} did not resolve to the "
-                    "persisted legacy identity"
-                )
-            fe_model.add_element(element_id, element)
+    elif type(element) is not LegacyShellElement:
+        raise ProjectError(
+            f"shell element {element_id} did not resolve to the "
+            "persisted legacy identity"
+        )
+    return element
 
 
 def _qualified_s3_owner_normals(
