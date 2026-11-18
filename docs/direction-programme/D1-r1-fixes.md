@@ -326,7 +326,25 @@ through `project.mesh_session().generate_mesh`, as in the GUI):
 82 passed (test_mesh_orientation incl. barge, test_qt_shell_local_axes,
 test_presentation_workspace, test_qt_sketch_overlay_lifetime). Check time
 (`scripts/time_check.py`, 3 runs): 6.02 / 6.27 / 5.96 s. Profile (one run,
-6.09 s): build 1.21 s (now includes the publication hash check, about 1.2 s),
-admission 2.06 s, classification 0.81 s; probing every element would take
-20.07 s. Barge numbers unchanged: 402 turned, 0 reversed, 0 ambiguous,
+6.09 s): build 1.21 s (the whole `build_fe_model` call; on a published mesh it
+includes the publication content check - a separate measurement of
+`matches_mesh_hash` on the barge took 1.16 s, but the script does not isolate
+it inside the build), admission 2.06 s, classification 0.81 s; the six-field
+probe loop alone over every element takes 20.07 s (a full probe-only check
+would add the build, admission and classification). Barge numbers unchanged: 402 turned, 0 reversed, 0 ambiguous,
 0 inconsistent, 968 mixed on 11 faces, 0 unchecked; deck 169 / 144 / 3 blocks.
+
+## Round 6 review outcome (`D1-review-r6.md`, NOT CLEAN: 1 x P2, 1 x P3)
+
+* P3 (timing attribution): wording corrected above.
+* P2, open: the smallest-dimension gate uses corner positions only. A valid
+  curved Q8 (x = xi, y = eta (1e-5 + xi^2)) has well separated corners but a
+  width of about 1e-5 near xi = 0; at (1e6, -1e6, 1e6) it passes the gate, is
+  read through the solver-frame route and stays checked while the probe
+  refuses it (residual 1.7e-5). Proposed fix (not done, round 7 not
+  authorised): take the width from the element's own Jacobian at its
+  recovery points (smallest singular value of the 3 x 2 tangent matrix from
+  `compute_jacobian` at `gauss_points`) and gate on that.
+* Accepted under contract: C1 in-place edits of a published mesh (incl.
+  edit-and-undo during a check); C2 runtime monkeypatches and mid-request
+  solver-surface changes.
