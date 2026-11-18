@@ -46,25 +46,71 @@ class UnboundSolvedGeometryError(ProjectError):
     """A result's solved geometry is unknown or disagrees with its solver record."""
 
 
+def _trusted_imperfection(imperfection: Any) -> bool:
+    """Plain data or the solver's own pure converters, checked by exact type.
+
+    Only these are converted outside the solver.  A caller-defined converter,
+    or a subclass of a mapping or field, may run code, return different
+    offsets on another call or mutate the model; it is therefore handed to the
+    solver unchanged so the solver's own dispatch, validation and mutation
+    guard still apply -- and its geometry is not reproduced for recovery.
+    """
+
+    from anyfesolver.imperfections import (
+        CompositeImperfection,
+        EigenmodeImperfection,
+        ImperfectionField,
+        StandardImperfection,
+    )
+
+    kind = type(imperfection)
+    if kind is dict:
+        return True
+    if kind is ImperfectionField:
+        return isinstance(imperfection.offsets, Mapping) and isinstance(
+            imperfection.metadata, Mapping
+        )
+    if kind in (EigenmodeImperfection, StandardImperfection):
+        return True
+    if kind is CompositeImperfection:
+        return all(_trusted_imperfection(part) for part in imperfection.components)
+    return False
+
+
 def owned_imperfection_field(base_model: Any, imperfection: Any):
     """An immutable snapshot of ``imperfection`` as the solver will see it.
 
-    The conversion mirrors the solver's own owned-input snapshot: offsets as
-    float64 copies keyed by integer node id, the field's name and a plain copy
-    of its metadata.  Converting against ``base_model`` before the solve is the
-    same model state the solver converts against.
+    Returns ``None`` for an input that is not :func:`_trusted_imperfection`;
+    the caller must then pass the original object to the solver and treat the
+    solved geometry as not reproducible.  Otherwise the conversion follows the
+    solver's own owned-input snapshot: a plain mapping is the offsets (name
+    ``"imperfection"``, no metadata), a field keeps its name and metadata, and
+    a converter is called once against ``base_model`` -- the model state the
+    solver converts against.  Offsets become float64 copies keyed by integer
+    node id.
     """
 
-    from anyfesolver.imperfections import ImperfectionField, to_imperfection_field
+    from anyfesolver.imperfections import ImperfectionField
 
-    converted = to_imperfection_field(base_model, imperfection)
-    offsets = {
+    if not _trusted_imperfection(imperfection):
+        return None
+    if type(imperfection) is dict:
+        offsets, name, metadata = imperfection, "imperfection", {}
+    else:
+        field = (
+            imperfection
+            if type(imperfection) is ImperfectionField
+            else imperfection.to_field(base_model)
+        )
+        if type(field) is not ImperfectionField or not isinstance(field.offsets, Mapping) \
+                or not isinstance(field.metadata, Mapping):
+            return None
+        offsets, name, metadata = field.offsets, field.name, field.metadata
+    owned = {
         int(node_id): np.asarray(offset, dtype=np.float64).reshape(-1).copy()
-        for node_id, offset in converted.offsets.items()
+        for node_id, offset in offsets.items()
     }
-    return ImperfectionField(
-        offsets, name=str(converted.name), metadata=dict(converted.metadata)
-    )
+    return ImperfectionField(owned, name=str(name), metadata=dict(metadata))
 
 
 def _has_offset(imperfection_field: Any) -> bool:

@@ -286,9 +286,21 @@ class _FlippingImperfection:
         )
 
 
-def test_a_stateful_imperfection_is_converted_once_for_solve_and_recovery(plate_and_mode):
-    from anyfesolver import recover_stress_result
+class _OffsetDict(dict):
+    """A mapping subclass whose converter disagrees with its own entries."""
+
+    def to_field(self, model):
+        from anyfesolver.imperfections import ImperfectionField
+
+        return ImperfectionField({node: -np.asarray(v) for node, v in self.items()})
+
+
+def test_untrusted_imperfection_inputs_go_to_the_solver_unchanged_and_refuse_recovery(
+    plate_and_mode,
+):
     from anyfesolver.imperfections import to_imperfection_field
+
+    from anyfem.post.results import UnboundSolvedGeometryError
 
     project, mesh, buckling = plate_and_mode
     base_field = to_imperfection_field(
@@ -298,22 +310,42 @@ def test_a_stateful_imperfection_is_converted_once_for_solve_and_recovery(plate_
     solution = solve_nonlinear_static(
         project, mesh=mesh, imperfection=flipping, max_load_factor=0.5, num_steps=1,
     )
+    # Only the solver converted it, under its own guard.
     assert flipping.calls == 1
-    # The solve with the first conversion equals a solve given that field directly.
     direct = solve_nonlinear_static(
         project, mesh=mesh, imperfection=base_field, max_load_factor=0.5, num_steps=1,
     )
     np.testing.assert_array_equal(solution.displacements, direct.displacements)
-    solved = _imperfect_copy(solution.built.fe_model, base_field)
-    np.testing.assert_array_equal(
-        _coordinates(solution.solved_model()), _coordinates(solved)
+    with pytest.raises(UnboundSolvedGeometryError):
+        solution.stresses()
+    with pytest.raises(UnboundSolvedGeometryError):
+        recover(solution)
+
+    subclass = _OffsetDict({node: offset for node, offset in base_field.offsets.items()})
+    by_subclass = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=subclass, max_load_factor=0.5, num_steps=1,
     )
-    expected = recover_stress_result(
-        solved, solution.displacements, nonlinear_result=solution.raw_result
+    as_plain = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=dict(subclass), max_load_factor=0.5, num_steps=1,
     )
-    for key in GEOMETRY_KEYS:
-        np.testing.assert_array_equal(
-            _field(solution.stresses(), key), _field(expected, key)
+    # The solver reads a mapping as its entries, exactly as before this change.
+    np.testing.assert_array_equal(by_subclass.displacements, as_plain.displacements)
+    with pytest.raises(UnboundSolvedGeometryError):
+        by_subclass.stresses()
+    _assert_recovered_on(
+        as_plain, as_plain.stresses(), _imperfect_copy(as_plain.built.fe_model, dict(subclass))
+    )
+
+
+def test_invalid_imperfection_metadata_is_still_refused_by_the_solver(plate_and_mode):
+    from anyfesolver.imperfections import ImperfectionField
+
+    project, mesh, buckling = plate_and_mode
+    offsets = {node: (0.0, 0.0, 1.0e-3) for node in list(buckling.built.fe_model.mesh.nodes)[:3]}
+    bad = ImperfectionField(offsets, metadata=[("source", "test")])
+    with pytest.raises(TypeError):
+        solve_nonlinear_static(
+            project, mesh=mesh, imperfection=bad, max_load_factor=0.5, num_steps=1,
         )
 
 
