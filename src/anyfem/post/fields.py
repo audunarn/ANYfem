@@ -258,8 +258,10 @@ def recover(shape, **kwargs: Any):
         and "element_states" not in kwargs
     ):
         kwargs.setdefault("nonlinear_result", nonlinear_result)
+    from .solved_geometry import solved_model_of
+
     result = recover_stress_result(
-        shape.built.fe_model, shape.displacements, **kwargs
+        solved_model_of(shape), shape.displacements, **kwargs
     )
     if not caller_options:
         try:

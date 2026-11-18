@@ -20,6 +20,7 @@ import numpy as np
 
 from anygeometry.entities import EntityRef
 from ..solve.build import BuiltModel
+from .solved_geometry import SolvedGeometry, UnboundSolvedGeometryError, solved_model_of
 
 __all__ = [
     "BucklingSolution",
@@ -34,6 +35,7 @@ __all__ = [
     "NonlinearSolution",
     "NonlinearIncrementView",
     "ShapeView",
+    "SolvedGeometry",
     "TransientSolution",
 ]
 
@@ -68,6 +70,15 @@ class ShapeView:
         if kind not in attributes:
             raise ValueError(f"Unknown retained stress recovery {kind!r}")
         return getattr(self, attributes[kind], None)
+
+    def solved_model(self):
+        """The FE model whose reference coordinates these displacements use.
+
+        ``built.fe_model`` unless the solve ran on a copy moved by a run-time
+        or capacity-workflow imperfection; see :mod:`anyfem.post.solved_geometry`.
+        """
+
+        return solved_model_of(self)
 
     # ------------------------------------------------------------------
     # displacement access
@@ -554,7 +565,7 @@ def _recover_committed_stresses(view, kwargs):
     kinematics = getattr(view, "recovery_kinematics", None)
     if kinematics is not None and "kinematics" not in kwargs:
         kwargs["kinematics"] = kinematics
-    result = recover_stress_result(view.built.fe_model, view.displacements, **kwargs)
+    result = recover_stress_result(solved_model_of(view), view.displacements, **kwargs)
     if not caller_options:
         view._stress = result
     return result
@@ -576,6 +587,8 @@ class NonlinearSolution(ShapeView):
     raw_result: Any = field(default=None, repr=False)
     _stress: Any = field(default=None, repr=False)
     _increment_views: Optional[List[Any]] = field(default=None, init=False, repr=False)
+    # Set when the solve ran on an imperfect copy of ``built.fe_model``.
+    solved_geometry: Optional[SolvedGeometry] = field(default=None, repr=False, compare=False)
 
     @property
     def shapes(self) -> List[Any]:
@@ -598,6 +611,15 @@ class NonlinearSolution(ShapeView):
         count = len(snapshots)
         raw_info = getattr(self.raw_result, "info", None)
         kinematics = raw_info.get("kinematics") if isinstance(raw_info, Mapping) else None
+        geometry = self.solved_geometry
+        if geometry is None and snapshots:
+            # Snapshots carry no imperfection record of their own; an unbound
+            # imperfect parent must make its increments refuse as well.
+            from .solved_geometry import unbound_refusal
+
+            refusal = unbound_refusal(self)
+            if refusal is not None:
+                geometry = SolvedGeometry.refused(refusal)
         self._increment_views = [
             NonlinearIncrementView(
                 displacements=np.asarray(snapshot.displacements, dtype=float),
@@ -610,6 +632,7 @@ class NonlinearSolution(ShapeView):
                 step=steps.get(int(getattr(snapshot, "step_index", index))),
                 raw_result=snapshot,
                 recovery_kinematics=kinematics,
+                solved_geometry=geometry,
             )
             for index, snapshot in enumerate(snapshots, start=1)
         ]
@@ -718,6 +741,7 @@ class NonlinearIncrementView(ShapeView):
     raw_result: Any = field(default=None, repr=False)
     _stress: Any = field(default=None, repr=False)
     recovery_kinematics: Optional[str] = None
+    solved_geometry: Optional[SolvedGeometry] = field(default=None, repr=False, compare=False)
 
     def stresses(self, **kwargs):
         """Recover this committed snapshot through the shared owner adapter."""
