@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYgeometry
-          ref: 169ce535ec6cf803c104f090d3c471df78937d2d
+          ref: 072ad0ddb6f1286e00578569152109dfcb9fa63c
           path: .ecosystem/ANYgeometry
       - uses: actions/checkout@v4
         with:
