@@ -1120,11 +1120,13 @@ def solve_capacity(
 # nonlinear
 # ----------------------------------------------------------------------
 def _owned_imperfection(built: BuiltModel, imperfection: Any):
-    """Snapshot a run-time imperfection before the solver copies the model.
+    """Convert a run-time imperfection once, into an owned snapshot.
 
-    The solver applies it to a private copy of ``built.fe_model``; the
-    snapshot lets the result rebuild that exact copy for stress recovery.
-    The solver still receives the caller's object unchanged.
+    The snapshot is what the solver receives and what the result's solved
+    geometry is rebuilt from, so a stateful or mutable caller object cannot
+    make the solved and the recovered geometry differ.  The solver makes the
+    same owned conversion of an ImperfectionField (float64 copies, name,
+    plain metadata), so the solve itself is unchanged.
     """
 
     if imperfection is None:
@@ -1205,7 +1207,7 @@ def solve_nonlinear_static(
         built.load_case,
         max_load_factor=max_load_factor,
         num_steps=num_steps,
-        imperfection=imperfection,
+        imperfection=owned_imperfection,
         fracture_config=fracture,
         resource_config=resources,
         status_callback=None if progress is None else progress,
@@ -1272,7 +1274,7 @@ def solve_arc_length(
         built.fe_model,
         built.load_case,
         control=control,
-        imperfection=imperfection,
+        imperfection=owned_imperfection,
         progress_callback=_step_reporter(
             progress, "arc step", structured_progress
         ),

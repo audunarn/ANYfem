@@ -13,17 +13,16 @@ perfect model mixes two geometries and silently returns wrong stresses.
 it refuses:
 
 * the capacity workflow returns the very model it solved, which is kept as is;
-* for nonlinear static and arc length the solver keeps its copy to itself, so
-  the copy is rebuilt deterministically from an owned snapshot of the same
-  imperfection field taken before the solve, through the solver's own
-  :func:`apply_imperfection` (bit-identical coordinates).  The snapshot is
-  checked against the solver's provenance record after the solve, and the base
-  coordinates are checked again when the copy is finally rebuilt, so a
-  disagreement or a later geometry edit is a typed refusal, not a plausible
-  number.
+* for nonlinear static and arc length the solver keeps its copy to itself.
+  ANYfem converts the imperfection once into an owned snapshot, hands that
+  snapshot to the solver, checks it against the solver's provenance record
+  after the solve, and immediately makes the same copy through the solver's
+  own :func:`apply_imperfection` (bit-identical coordinates, and the model
+  state as it was when solved).  A disagreement is a typed refusal, not a
+  plausible number.
 
-The rebuild is lazy: it costs one model copy at the first recovery, nothing on
-the solve path, and nothing at all for runs that never recover stresses.
+The copy costs one model deep copy after an imperfect solve; runs without an
+imperfection pay nothing.
 """
 
 from __future__ import annotations
@@ -39,19 +38,12 @@ __all__ = [
     "UnboundSolvedGeometryError",
     "owned_imperfection_field",
     "solved_model_of",
+    "unbound_refusal",
 ]
 
 
 class UnboundSolvedGeometryError(ProjectError):
     """A result's solved geometry is unknown or disagrees with its solver record."""
-
-
-def _node_coordinates(model: Any) -> np.ndarray:
-    nodes = model.mesh.nodes
-    return np.array(
-        [[nodes[key].x, nodes[key].y, nodes[key].z] for key in sorted(nodes)],
-        dtype=np.float64,
-    ).reshape(-1, 3)
 
 
 def owned_imperfection_field(base_model: Any, imperfection: Any):
@@ -102,18 +94,15 @@ def _solver_imperfection_records(raw_result: Any) -> Optional[List[Mapping[str, 
 
 
 class SolvedGeometry:
-    """Lazily resolved FE model whose coordinates a result is measured from."""
+    """The FE model a result's displacements are measured from, or a refusal."""
 
-    __slots__ = ("_base", "_field", "_base_coordinates", "_model")
+    __slots__ = ("_model", "_refusal")
 
-    def __init__(self, *, model: Any = None, base: Any = None, field: Any = None,
-                 base_coordinates: Optional[np.ndarray] = None) -> None:
-        if model is None and (base is None or field is None or base_coordinates is None):
-            raise ValueError("SolvedGeometry needs a solved model or a base model and field")
+    def __init__(self, *, model: Any = None, refusal: Optional[str] = None) -> None:
+        if (model is None) == (refusal is None):
+            raise ValueError("SolvedGeometry needs exactly one of a model or a refusal")
         self._model = model
-        self._base = base
-        self._field = field
-        self._base_coordinates = base_coordinates
+        self._refusal = refusal
 
     # ------------------------------------------------------------------
     @classmethod
@@ -123,27 +112,34 @@ class SolvedGeometry:
         return cls(model=model)
 
     @classmethod
+    def refused(cls, reason: str) -> "SolvedGeometry":
+        """A binding that refuses recovery, e.g. for views of an unbound result."""
+
+        return cls(refusal=str(reason))
+
+    @classmethod
     def rebuild(cls, base_model: Any, imperfection_field: Any, raw_result: Any,
                 *, context: str) -> Optional["SolvedGeometry"]:
-        """Bind to ``base_model`` plus a run-time imperfection the solver applied.
+        """Bind to ``base_model`` plus the run-time imperfection the solver applied.
 
-        ``imperfection_field`` should be the snapshot from
-        :func:`owned_imperfection_field` taken before the solve; any other
-        imperfection object is snapshotted here.  Returns ``None`` when every
-        offset is exactly zero: the solved coordinates are then the base
-        coordinates bit for bit, and the ordinary route stays untouched.
+        Call this straight after the solve, with the owned snapshot from
+        :func:`owned_imperfection_field` that was also the object handed to the
+        solver -- so solve and recovery consume one conversion.  The copy is
+        made here, eagerly, so later edits to the built model (coordinates,
+        thickness, materials, connectivity) cannot leak into it: it is the same
+        deep copy of the same model state the solver made, moved by the same
+        offsets through the same :func:`apply_imperfection`.  Returns ``None``
+        when every offset is exactly zero: the solved coordinates are then the
+        base coordinates bit for bit, and the ordinary route stays untouched.
         """
 
         from anyfesolver.imperfections import ImperfectionField
 
-        owned = (
-            imperfection_field
-            if isinstance(imperfection_field, ImperfectionField)
-            else owned_imperfection_field(base_model, imperfection_field)
-        )
+        if not isinstance(imperfection_field, ImperfectionField):
+            raise TypeError("rebuild needs the owned ImperfectionField given to the solver")
         records = _solver_imperfection_records(raw_result)
         build_records = _records(getattr(base_model, "imperfection_metadata", None))
-        expected = {"name": owned.name, "max_offset": owned.max_offset}
+        expected = {"name": imperfection_field.name, "max_offset": imperfection_field.max_offset}
         if (
             records is None
             or len(records) != len(build_records) + 1
@@ -156,40 +152,25 @@ class SolvedGeometry:
                 f"run-time imperfection {expected!r}; the solved geometry cannot be "
                 "reproduced, so no stresses are recovered on it"
             )
-        if not _has_offset(owned):
+        if not _has_offset(imperfection_field):
             return None
-        return cls(base=base_model, field=owned,
-                   base_coordinates=_node_coordinates(base_model))
+        from anyfesolver import apply_imperfection
+
+        return cls(model=apply_imperfection(base_model, imperfection_field, copy_model=True))
 
     # ------------------------------------------------------------------
     def model(self) -> Any:
-        """The solved FE model, rebuilt once on first use when necessary."""
+        """The solved FE model; raises when this binding is a refusal."""
 
-        if self._model is None:
-            if not np.array_equal(_node_coordinates(self._base), self._base_coordinates):
-                raise UnboundSolvedGeometryError(
-                    "the built model's coordinates changed after the nonlinear solve; "
-                    "its imperfect solved geometry can no longer be reproduced"
-                )
-            from anyfesolver import apply_imperfection
-
-            self._model = apply_imperfection(self._base, self._field, copy_model=True)
+        if self._refusal is not None:
+            raise UnboundSolvedGeometryError(self._refusal)
         return self._model
 
-    @property
-    def rebuilt(self) -> bool:
-        """True when the model is reproduced from the base rather than retained."""
-
-        return self._base is not None
-
     def __getstate__(self):
-        # A rebuildable binding travels as base + field; the copy is remade on
-        # the receiving side instead of doubling the transported model.
-        model = None if self._base is not None else self._model
-        return (self._base, self._field, self._base_coordinates, model)
+        return (self._model, self._refusal)
 
     def __setstate__(self, state) -> None:
-        self._base, self._field, self._base_coordinates, self._model = state
+        self._model, self._refusal = state
 
 
 def _runtime_imperfection_unbound(view: Any) -> Optional[str]:
@@ -209,6 +190,19 @@ def _runtime_imperfection_unbound(view: Any) -> Optional[str]:
     return None
 
 
+def unbound_refusal(view: Any) -> Optional[str]:
+    """The refusal message for an imperfect result without a binding, if any."""
+
+    reason = _runtime_imperfection_unbound(view)
+    if reason is None:
+        return None
+    return (
+        f"this result was solved on geometry moved by {reason}, but it carries "
+        "no binding to that solved model; stresses recovered on the perfect "
+        "built model would be wrong, so recovery is refused"
+    )
+
+
 def solved_model_of(view: Any) -> Any:
     """The FE model to recover ``view``'s displacements on.
 
@@ -221,11 +215,7 @@ def solved_model_of(view: Any) -> Any:
     geometry = getattr(view, "solved_geometry", None)
     if geometry is not None:
         return geometry.model()
-    reason = _runtime_imperfection_unbound(view)
-    if reason is not None:
-        raise UnboundSolvedGeometryError(
-            f"this result was solved on geometry moved by {reason}, but it carries "
-            "no binding to that solved model; stresses recovered on the perfect "
-            "built model would be wrong, so recovery is refused"
-        )
+    refusal = unbound_refusal(view)
+    if refusal is not None:
+        raise UnboundSolvedGeometryError(refusal)
     return view.built.fe_model

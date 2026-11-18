@@ -101,9 +101,12 @@ def test_nonlinear_runtime_imperfection_recovers_on_the_solved_geometry(plate_an
     )
     solved = _imperfect_copy(solution.built.fe_model, imperfection)
 
-    _assert_recovered_on(solution, solution.stresses(), solved)
     _assert_recovered_on(solution, recover(solution), solved)
+    solution._stress = None
+    _assert_recovered_on(solution, solution.stresses(), solved)
     increment = solution.shapes[-1]
+    _assert_recovered_on(increment, recover(increment), solved)
+    increment._stress = None
     _assert_recovered_on(increment, increment.stresses(), solved)
     np.testing.assert_array_equal(
         _coordinates(solution.solved_model()), _coordinates(solved)
@@ -121,8 +124,9 @@ def test_arc_length_runtime_imperfection_recovers_on_the_solved_geometry(plate_a
     )
     solved = _imperfect_copy(solution.built.fe_model, imperfection)
 
-    _assert_recovered_on(solution, solution.stresses(), solved)
     _assert_recovered_on(solution, recover(solution), solved)
+    solution._stress = None
+    _assert_recovered_on(solution, solution.stresses(), solved)
 
 
 def test_capacity_recovers_on_the_workflow_imperfect_model(plate_and_mode):
@@ -133,8 +137,9 @@ def test_capacity_recovers_on_the_workflow_imperfect_model(plate_and_mode):
     )
     solved = solution.info["raw"].imperfect_model
 
-    _assert_recovered_on(solution, solution.stresses(), solved)
     _assert_recovered_on(solution, recover(solution), solved)
+    solution._stress = None
+    _assert_recovered_on(solution, solution.stresses(), solved)
     assert solution.solved_model() is solved
 
 
@@ -206,7 +211,12 @@ def test_a_rebuilt_geometry_that_disagrees_with_the_solver_is_refused(plate_and_
     solution = solve_nonlinear_static(
         project, mesh=mesh, imperfection=imperfection, max_load_factor=0.5, num_steps=1,
     )
-    other = eigenmode_imperfection(buckling, 1, amplitude=2.0 * AMPLITUDE)
+    from anyfem.post.solved_geometry import owned_imperfection_field
+
+    other = owned_imperfection_field(
+        solution.built.fe_model,
+        eigenmode_imperfection(buckling, 1, amplitude=2.0 * AMPLITUDE),
+    )
     with pytest.raises(UnboundSolvedGeometryError):
         SolvedGeometry.rebuild(
             solution.built.fe_model, other, solution.raw_result, context="test"
@@ -229,25 +239,125 @@ def test_an_unbound_capacity_imperfection_refuses_recovery(plate_and_mode):
         unbound.stresses()
 
 
-def test_a_rebuilt_binding_survives_job_transport_and_refuses_moved_geometry(plate_and_mode):
-    from anyfem.job_process import dumps, loads
-    from anyfem.post.results import UnboundSolvedGeometryError
+def test_an_unbound_parent_makes_its_increments_refuse(plate_and_mode):
+    from anyfem.post.results import (
+        CapacitySolution, NonlinearSolution, UnboundSolvedGeometryError,
+    )
 
+    project, mesh, buckling = plate_and_mode
+    imperfection = eigenmode_imperfection(buckling, 1, amplitude=AMPLITUDE)
+    nonlinear = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=imperfection, max_load_factor=0.5,
+        num_steps=1, record_increment_snapshots=True,
+    )
+    capacity = solve_capacity(
+        project, mesh=mesh, num_buckling_modes=1, imperfection_amplitude=AMPLITUDE,
+        num_steps=1, max_load_factor=0.5, record_increment_snapshots=True,
+    )
+    for kind, solution in ((NonlinearSolution, nonlinear), (CapacitySolution, capacity)):
+        unbound = kind(
+            displacements=solution.displacements, built=solution.built,
+            raw_result=solution.raw_result, info=dict(solution.info),
+            steps=list(solution.steps),
+        )
+        assert unbound.shapes
+        increment = unbound.shapes[-1]
+        with pytest.raises(UnboundSolvedGeometryError):
+            increment.stresses()
+        with pytest.raises(UnboundSolvedGeometryError):
+            recover(increment)
+
+
+class _FlippingImperfection:
+    """A stateful converter: each conversion returns the opposite offsets."""
+
+    def __init__(self, field):
+        self.field = field
+        self.calls = 0
+
+    def to_field(self, model):
+        from anyfesolver.imperfections import ImperfectionField
+
+        self.calls += 1
+        sign = 1.0 if self.calls % 2 else -1.0
+        return ImperfectionField(
+            {node: sign * np.asarray(offset) for node, offset in self.field.offsets.items()},
+            name=self.field.name, metadata=dict(self.field.metadata),
+        )
+
+
+def test_a_stateful_imperfection_is_converted_once_for_solve_and_recovery(plate_and_mode):
+    from anyfesolver import recover_stress_result
+    from anyfesolver.imperfections import to_imperfection_field
+
+    project, mesh, buckling = plate_and_mode
+    base_field = to_imperfection_field(
+        buckling.built.fe_model, eigenmode_imperfection(buckling, 1, amplitude=AMPLITUDE)
+    )
+    flipping = _FlippingImperfection(base_field)
+    solution = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=flipping, max_load_factor=0.5, num_steps=1,
+    )
+    assert flipping.calls == 1
+    # The solve with the first conversion equals a solve given that field directly.
+    direct = solve_nonlinear_static(
+        project, mesh=mesh, imperfection=base_field, max_load_factor=0.5, num_steps=1,
+    )
+    np.testing.assert_array_equal(solution.displacements, direct.displacements)
+    solved = _imperfect_copy(solution.built.fe_model, base_field)
+    np.testing.assert_array_equal(
+        _coordinates(solution.solved_model()), _coordinates(solved)
+    )
+    expected = recover_stress_result(
+        solved, solution.displacements, nonlinear_result=solution.raw_result
+    )
+    for key in GEOMETRY_KEYS:
+        np.testing.assert_array_equal(
+            _field(solution.stresses(), key), _field(expected, key)
+        )
+
+
+def test_edits_to_the_built_model_after_the_solve_do_not_reach_the_solved_copy(plate_and_mode):
     project, mesh, buckling = plate_and_mode
     imperfection = eigenmode_imperfection(buckling, 1, amplitude=AMPLITUDE)
     solution = solve_nonlinear_static(
         project, mesh=mesh, imperfection=imperfection, max_load_factor=0.5, num_steps=1,
     )
-    expected = solution.stresses()
-    assert solution.solved_geometry.rebuilt
+    solved = _imperfect_copy(solution.built.fe_model, imperfection)
+    element_id = next(iter(solution.built.fe_model.mesh.elements))
+    original = solution.built.fe_model.mesh.elements[element_id].thickness
+    try:
+        solution.built.fe_model.mesh.elements[element_id].thickness = 2.0 * original
+        next(iter(solution.built.fe_model.mesh.nodes.values())).z += 1.0e-3
+        model = solution.solved_model()
+        assert model.mesh.elements[element_id].thickness == original
+        np.testing.assert_array_equal(_coordinates(model), _coordinates(solved))
+    finally:
+        solution.built.fe_model.mesh.elements[element_id].thickness = original
+        next(iter(solution.built.fe_model.mesh.nodes.values())).z -= 1.0e-3
 
-    copy = loads(dumps(solution))
-    assert copy.solved_geometry._model is None  # the copy is rebuilt, not shipped
-    for key in GEOMETRY_KEYS:
-        np.testing.assert_array_equal(_field(copy.stresses(), key), _field(expected, key))
 
-    moved = loads(dumps(solution))
-    node = next(iter(moved.built.fe_model.mesh.nodes.values()))
-    node.z += 1.0e-3
-    with pytest.raises(UnboundSolvedGeometryError):
-        moved.solved_model()
+def test_a_bound_result_recovers_identically_after_job_transport(plate_and_mode):
+    from anyfem.job_process import dumps, loads
+
+    project, mesh, buckling = plate_and_mode
+    imperfection = eigenmode_imperfection(buckling, 1, amplitude=AMPLITUDE)
+    for solve in (
+        lambda: solve_nonlinear_static(
+            project, mesh=mesh, imperfection=imperfection, max_load_factor=0.5, num_steps=1),
+        lambda: solve_capacity(
+            project, mesh=mesh, num_buckling_modes=1, imperfection_amplitude=AMPLITUDE,
+            num_steps=1, max_load_factor=0.5),
+    ):
+        solution = solve()
+        transported = loads(dumps(solution))  # before any recovery: nothing cached
+        assert transported._stress is None
+        assert transported.solved_model() is not transported.built.fe_model
+        np.testing.assert_array_equal(
+            _coordinates(transported.solved_model()), _coordinates(solution.solved_model())
+        )
+        expected = solution.stresses()
+        for key in GEOMETRY_KEYS:
+            np.testing.assert_array_equal(
+                _field(recover(transported), key), _field(expected, key)
+            )

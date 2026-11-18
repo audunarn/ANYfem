@@ -611,6 +611,15 @@ class NonlinearSolution(ShapeView):
         count = len(snapshots)
         raw_info = getattr(self.raw_result, "info", None)
         kinematics = raw_info.get("kinematics") if isinstance(raw_info, Mapping) else None
+        geometry = self.solved_geometry
+        if geometry is None and snapshots:
+            # Snapshots carry no imperfection record of their own; an unbound
+            # imperfect parent must make its increments refuse as well.
+            from .solved_geometry import unbound_refusal
+
+            refusal = unbound_refusal(self)
+            if refusal is not None:
+                geometry = SolvedGeometry.refused(refusal)
         self._increment_views = [
             NonlinearIncrementView(
                 displacements=np.asarray(snapshot.displacements, dtype=float),
@@ -623,7 +632,7 @@ class NonlinearSolution(ShapeView):
                 step=steps.get(int(getattr(snapshot, "step_index", index))),
                 raw_result=snapshot,
                 recovery_kinematics=kinematics,
-                solved_geometry=self.solved_geometry,
+                solved_geometry=geometry,
             )
             for index, snapshot in enumerate(snapshots, start=1)
         ]
