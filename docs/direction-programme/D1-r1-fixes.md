@@ -266,3 +266,30 @@ faces, 0 unchecked; deck 169 turned / 144 between the end houses / 3 blocks;
 all 4640 elements on the solver-frame route. Tests: 80 passed
 (test_mesh_orientation incl. barge, test_qt_shell_local_axes,
 test_presentation_workspace, test_qt_sketch_overlay_lifetime).
+
+## Round 5 review - stop report (`D1-review-r5.md`, NOT CLEAN, 5 x P2)
+
+Stopped as instructed: round 5 found more of the same two classes.
+
+* Class A (live state): the worker still reads the live mesh object (an edit
+  made and undone during the check is invisible to completion-time digests);
+  `mesh_content_digest` omits build inputs such as `hybrid_diagnostics`
+  (publication admission); the drawn overlay is maintained on mesh identity.
+* Class B (fast route): the eligibility guard does not cover
+  `recovery_shell_frames.native_recovery_frames` patched at module level; the
+  scale gate divides by the largest element dimension, so a 1 x 1e-4 sliver at
+  1e6 m passes while its frame is no longer probe-exact.
+
+Contract questions:
+
+1. Mesh snapshot. Is a detached mesh copy taken on the GUI thread acceptable
+   (cost to be measured; the mesh has no snapshot/revision API), keyed on a
+   mesh hash owned by `mesh_jobs` (e.g. the full canonical mesh serialisation
+   or the published mesh hash) instead of a D1-local digest? Or should D1
+   require a published, immutable mesh record and refuse otherwise?
+2. Fast route. Either (a) adopt the existing solver contract "no
+   monkeypatching, no mid-request surface changes" (owner decision recorded
+   for ANYsolver) as the stated precondition of the solver-frame route, with
+   the scale gate based on the smallest element dimension; or (b) drop the
+   route and probe every element (barge about 24 s in the background, measured
+   in round 5).
