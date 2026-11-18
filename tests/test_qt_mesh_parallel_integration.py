@@ -1,6 +1,7 @@
 """Real Qt caller, contained parallel job, cancellation and measured UI ticks."""
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -33,6 +34,15 @@ def owned_descendants(tree):
         assert _windows_kernel32().QueryInformationJobObject(
             tree._job, 3, ctypes.byref(info), ctypes.sizeof(info), None)
         return list(info.pids[:info.count])
+    if sys.platform == "darwin":
+        import psutil
+        from anyfem._darwin_process import pid_state
+
+        # At the gated task barrier the outer worker and pool parents are live.
+        # Query actual descendants; /proc would silently miss them on macOS.
+        process = psutil.Process(tree._process.pid)
+        return [process.pid, *[child.pid for child in process.children(recursive=True)
+                               if pid_state(child.pid) == "running"]]
     parents = {}
     for path in Path("/proc").glob("[0-9]*/stat"):
         try:

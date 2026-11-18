@@ -282,6 +282,14 @@
     },
     {
       "bundled": false,
+      "license_expression": "BSD-3-Clause",
+      "name": "psutil",
+      "requirement": "psutil>=7,<8; sys_platform == 'darwin'",
+      "scope": "runtime",
+      "upstream": "https://github.com/giampaolo/psutil"
+    },
+    {
+      "bundled": false,
       "license_expression": "LGPL-3.0-only",
       "name": "PySide6",
       "requirement": "PySide6>=6.10.1,<6.11",

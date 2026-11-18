@@ -54,6 +54,7 @@ INSTALLED_LICENSE_ALIASES = {
     "ezdxf": {"MIT", "MIT License"},
     "shapely": {"BSD-3-Clause"},
     "build": {"MIT"},
+    "psutil": {"BSD-3-Clause", "BSD License"},
     "h5py": {"BSD-3-Clause", "BSD License"},
     "numpy": {
         "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
@@ -167,6 +168,11 @@ def _check_installed(rows: list[dict[str, object]]) -> None:
     for row in rows:
         if row["scope"] == "build":
             continue
+        from packaging.requirements import Requirement
+
+        requirement = Requirement(str(row["requirement"])) if "requirement" in row else None
+        if requirement is not None and requirement.marker is not None and not requirement.marker.evaluate():
+            continue  # a platform-only dependency that is inactive here
         name = _normalized_name(str(row["name"]))
         try:
             distribution = importlib_metadata.distribution(str(row["name"]))

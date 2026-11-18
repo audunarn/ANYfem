@@ -192,6 +192,62 @@ def validate_run_receipt(output, profile):
 _PROCESS_OWNER = None
 
 
+def load_required_ids(path):
+    """Exact pytest node IDs from a JSON list file; anything else is refused."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data or any(not isinstance(item, str) for item in data):
+        raise ValueError("required test IDs must be a non-empty JSON list of strings")
+    if len(set(data)) != len(data):
+        raise ValueError("required test IDs contain duplicates")
+    for item in data:
+        path_part, separator, name = item.partition("::")
+        if (not separator or not name or not path_part.startswith("tests/") or "\\" in item
+                or ".." in path_part.split("/") or not path_part.endswith(".py")):
+            raise ValueError(f"not an exact repository pytest node ID: {item!r}")
+    return list(data)
+
+
+def junit_node_id(classname, name, root=None):
+    """Reconstruct a node ID: the longest classname prefix naming a test file, then classes, then name."""
+    root = ROOT if root is None else root
+    parts = classname.split(".") if classname else []
+    for count in range(len(parts), 0, -1):
+        relative = "/".join(parts[:count]) + ".py"
+        if (Path(root) / relative).is_file():
+            return "::".join([relative, *parts[count:], name])
+    return "::".join(["/".join(parts) + ".py" if parts else "", name])
+
+
+_OUTCOME_RANK = {"passed": 0, "skipped": 1, "xfail": 2, "failed": 3}
+
+
+def junit_outcomes(xml_path, root=None):
+    """Worst recorded outcome per node ID (setup/teardown errors count as failed)."""
+    outcomes = {}
+    for case in ET.parse(xml_path).getroot().iter("testcase"):
+        node = junit_node_id(case.get("classname", ""), case.get("name", ""), root)
+        outcome = "passed"
+        if case.find("failure") is not None or case.find("error") is not None:
+            outcome = "failed"
+        else:
+            skipped = case.find("skipped")
+            if skipped is not None:
+                outcome = "xfail" if skipped.get("type") == "pytest.xfail" else "skipped"
+        previous = outcomes.get(node)
+        if previous is None or _OUTCOME_RANK[outcome] > _OUTCOME_RANK[previous]:
+            outcomes[node] = outcome
+    return outcomes
+
+
+def check_required(xml_path, required, root=None):
+    """``({id: outcome-or-'missing'}, problems)``; only exactly 'passed' is success."""
+    outcomes = junit_outcomes(xml_path, root)
+    statuses = {identifier: outcomes.get(identifier, "missing") for identifier in required}
+    problems = [f"{identifier}: {status}" for identifier, status in statuses.items()
+                if status != "passed"]
+    return statuses, problems
+
+
 def _process_owner():
     global _PROCESS_OWNER
     if _PROCESS_OWNER is None:
@@ -459,11 +515,15 @@ def main(argv=None):
     parser.add_argument("--fail-fast", action="store_true",
                         help="stop pytest after its first failure; never establish partial acceptance")
     parser.add_argument("--out", type=Path, help="new evidence directory; existing paths are refused")
+    parser.add_argument("--require-passed", type=Path, metavar="FILE",
+                        help="JSON list of exact pytest node IDs that must be reported passed "
+                             "(missing, skipped, xfail, error or failed IDs fail the run)")
     parser.add_argument("tests", nargs="*")
     options = parser.parse_args(argv)
     try:
         selected = selectors(options.profile, options.tests)
-    except ValueError as error:
+        required = load_required_ids(options.require_passed) if options.require_passed else []
+    except (ValueError, OSError) as error:
         parser.error(str(error))
     if not selected:
         parser.error("profile has no test modules; refusing pytest fallback collection")
@@ -474,6 +534,7 @@ def main(argv=None):
         command += ["--maxfail=1"]
     if options.dry_run:
         print(json.dumps({"profile": options.profile, "command": command,
+                          **({"required_tests": required} if required else {}),
                           "acceptance": "not established"}, indent=2))
         return 0
     output = options.out or ROOT / "reports" / "tests" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -543,6 +604,15 @@ def main(argv=None):
             suites = ET.parse(output / "pytest.xml").getroot().findall("testsuite")
             report["counts"] = {key: sum(int(suite.get(key, "0")) for suite in suites)
                                 for key in ("tests", "failures", "errors", "skipped")}
+        if required:
+            if (output / "pytest.xml").exists():
+                statuses, problems = check_required(output / "pytest.xml", required)
+            else:
+                statuses = {identifier: "missing" for identifier in required}
+                problems = [f"{identifier}: missing" for identifier in required]
+            report["required_tests"] = statuses
+            if problems and code == 0:
+                raise RuntimeError("required tests did not pass: " + "; ".join(problems))
         if code == 0:
             report['validated_union']=validate_run_receipt(output,options.profile)
             counts = report.get("counts", {})

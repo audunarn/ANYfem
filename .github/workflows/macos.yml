@@ -1,0 +1,32 @@
+name: macOS developer contracts
+# One bounded Apple Silicon job.  Never on push or pull_request: it runs only on
+# manual dispatch or the weekly schedule.  All ecosystem pins live in the shared
+# application lane; this file owns none.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    uses: ./.github/workflows/application-lane.yml
+    with:
+      profile: focused
+      os: macos-15
+      python: '3.14'
+      require_macos_tests: true
+      focused_tests: >-
+        tests/test_macos_containment.py
+        tests/test_darwin_process.py
+        tests/test_darwin_containment_gate.py
+        tests/test_macos_bootstrap.py
+        tests/test_job_process_containment.py
+        tests/test_worker_retirement_edges.py
+        tests/test_recovery.py
+        tests/test_qt_mesh_parallel_integration.py
+        tests/test_qt_geometry_cleaner.py::test_cancel_and_close_retire_actual_worker_without_mutation
+        tests/test_qt_workbench.py::test_quick_selection_buttons_follow_all_selection_routes

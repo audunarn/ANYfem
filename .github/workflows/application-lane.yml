@@ -20,6 +20,12 @@ on:
       backend:
         type: string
         default: software
+      focused_tests:
+        type: string
+        default: ''
+      require_macos_tests:
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -164,11 +170,27 @@ jobs:
         run: |
           python -m pip install --force-reinstall --no-deps dist/*.whl
       - name: Run bounded application contracts
-        if: inputs.backend != 'gpu'
+        if: inputs.backend != 'gpu' && inputs.profile != 'focused'
         env:
           ANYGEOMETRY_REQUIRE_QUALIFIED_PLANNING_TESTS: ${{ inputs.profile == 'caller' && '1' || '0' }}
           ANYFEM_REQUIRE_INSTALLED_WHEEL: ${{ (inputs.profile == 'compatibility' || inputs.profile == 'full') && '1' || '0' }}
         run: python tools/test_anyfem.py --profile ${{ inputs.profile }} --backend software --ci-diagnostics --out reports/application
+      - name: Run focused contracts
+        if: inputs.backend != 'gpu' && inputs.profile == 'focused'
+        shell: bash
+        env:
+          ANYFEM_RUN_PARALLEL_MESH_TESTS: '1'
+          FOCUSED_TESTS: ${{ inputs.focused_tests }}
+          REQUIRE_MACOS_TESTS: ${{ inputs.require_macos_tests && '1' || '0' }}
+        run: |
+          required=()
+          if [ "$REQUIRE_MACOS_TESTS" = "1" ]; then
+            # Skipped, missing, xfailed or failed Darwin scenarios must not read as green.
+            python tools/macos_required_tests.py --out reports/required-tests.json
+            required=(--require-passed reports/required-tests.json)
+          fi
+          # shellcheck disable=SC2086
+          python tools/test_anyfem.py --profile focused --backend software --ci-diagnostics --out reports/application "${required[@]}" $FOCUSED_TESTS
       - name: Focused GPU application smoke
         if: inputs.backend == 'gpu'
         env:

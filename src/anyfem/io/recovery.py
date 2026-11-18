@@ -397,6 +397,16 @@ def _pid_is_live(pid: int) -> bool | None:
         if error.errno == errno.EPERM:
             return True
         return None
+    if sys.platform == "darwin":
+        # A zombie still answers signal 0 but is dead.  Only a proven zombie
+        # changes the answer; an uninspectable process stays conservatively live.
+        try:
+            from .._darwin_process import pid_state
+
+            if pid_state(pid) == "zombie":
+                return False
+        except Exception:  # noqa: BLE001 - unknown is never dead
+            pass
     return True
 
 
@@ -430,6 +440,15 @@ def _process_start_token(pid: int) -> str | None:
             value = (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
             return f"windows-filetime:{value}"
         except Exception:  # pragma: no cover - defensive platform fallback
+            return None
+    if sys.platform == "darwin":
+        # No /proc: psutil creation time, same token slot, no schema change.
+        # Any failure is None, so a missing token never makes a lock stale.
+        try:
+            from .._darwin_process import process_start_token
+
+            return process_start_token(int(pid))
+        except Exception:  # noqa: BLE001
             return None
     stat = Path(f"/proc/{int(pid)}/stat")
     try:
