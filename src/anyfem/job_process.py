@@ -1492,6 +1492,21 @@ def run_in_worker_process(
         raise ValueError("terminate_on_cancel requires an owned contained process tree")
     if worker_priority not in ("background", "normal"):
         raise ValueError("worker_priority must be 'background' or 'normal'")
+    if containment and os.name != "nt" and sys.platform == "darwin":
+        # Refuse BEFORE any multiprocessing object exists AND before the job is
+        # pickled (a caller __reduce__ may create an Event): Pipe/Event register
+        # with the resource tracker, which can start a process.  Missing
+        # psutil or guardian script must not spawn anything.
+        try:
+            refusal = _darwin_containment_refusal()
+        except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
+            refusal = f"{type(error).__name__}: {error}"
+        if refusal is not None:
+            raise WorkerProcessError(
+                "parallel meshing needs a contained worker process tree, but "
+                f"macOS containment is unavailable: {refusal}",
+                remote_type="ContainmentUnavailable",
+            )
     try:
         payload = dumps(
             {
@@ -1509,20 +1524,6 @@ def run_in_worker_process(
             remote_type="JobNotTransferable",
         ) from error
 
-    if containment and os.name != "nt" and sys.platform == "darwin":
-        # Refuse BEFORE any multiprocessing object exists: Pipe/Event register
-        # with the resource tracker, which can start a process.  Missing
-        # psutil or guardian script must not spawn anything.
-        try:
-            refusal = _darwin_containment_refusal()
-        except Exception as error:  # noqa: BLE001 - an unknown state is a refusal
-            refusal = f"{type(error).__name__}: {error}"
-        if refusal is not None:
-            raise WorkerProcessError(
-                "parallel meshing needs a contained worker process tree, but "
-                f"macOS containment is unavailable: {refusal}",
-                remote_type="ContainmentUnavailable",
-            )
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     cancel_event = context.Event()

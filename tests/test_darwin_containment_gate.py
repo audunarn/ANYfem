@@ -82,6 +82,14 @@ def test_darwin_refuses_before_any_spawn(monkeypatch, failure):
         return Guard()
 
     monkeypatch.setattr(job_process.multiprocessing, "get_context", spying)
+
+    def no_dumps(*args, **kwargs):
+        # Pickling runs caller-supplied __reduce__/__getstate__ hooks, which may
+        # create a spawn-context Event and start the resource tracker.
+        created.append("dumps")
+        pytest.fail("the job was serialized before the refusal")
+
+    monkeypatch.setattr(job_process, "dumps", no_dumps)
     with pytest.raises(WorkerProcessError) as error:
         run_in_worker_process(
             function=os.getpid,
