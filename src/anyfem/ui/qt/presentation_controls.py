@@ -754,16 +754,74 @@ class PresentationControls(QWidget):
         if access is not None:access.release_pane_publication('glyphs')
         self._glyph_access=None;self._glyph_stable=None
 
+    def _shell_axes_document(self):
+        revision=getattr(getattr(self.app,'session',None),'revision',None)
+        return getattr(revision,'document_hash',None)
+
     def show_shell_axes(self):
-        # Synchronous on purpose (no worker): the check is read-only and linear in shell elements.
+        """Run the shell-axis check in a background worker, then draw its arrows.
+
+        The check builds the solver model (about 19 s on the 60 m barge), so it runs
+        on its own serial worker; completions are delivered on the GUI thread by
+        poll().  A mesh change, a project edit, clear or close discards the run.
+        Scope (option A): the solve-equivalent section-assignment normalisation is
+        done here on the GUI thread first, so the worker's build only reads.
+        """
         mesh=getattr(self.app,'mesh',None)
         if mesh is None:raise ValueError('Mesh the model before showing shell local axes')
-        from .shell_axes_overlay import prepare_shell_axes
-        batches,caption,stats=prepare_shell_axes(self.app.project,mesh)
+        project=self.app.project
         self.clear_shell_axes()
-        self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
-        self._draw_shell_axes()
-        self.status.setText(caption)
+        project.resolve_section_assignments(strict=False)
+        generation=self._shell_axes_generation=getattr(self,'_shell_axes_generation',0)+1
+        document=self._shell_axes_document()
+        cached=getattr(self,'_shell_axes_cache',None)
+        if cached is not None and cached[0] is mesh and cached[1] is project and cached[2]==document and document is not None:
+            # Same mesh object, same project, same document revision: reuse the last check.
+            _mesh,_project,_document,batches,caption,stats=cached
+            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=dict(stats)
+            self._draw_shell_axes();self.status.setText(caption);return
+        self._shell_axes_pending=id(mesh)
+        def load(cancel):
+            from .shell_axes_overlay import prepare_shell_axes
+            return prepare_shell_axes(project,mesh,cancel=cancel)
+        def complete(result):
+            if generation!=getattr(self,'_shell_axes_generation',0):return
+            self._shell_axes_pending=None
+            if result.cancelled or getattr(self.app,'_closing',False):return
+            if (getattr(self.app,'mesh',None) is not mesh or self.app.project is not project
+                    or self._shell_axes_document()!=document):
+                self.status.setText('Shell local axes discarded: the mesh or project changed during the check.');return
+            if result.error is not None:
+                self.status.setText(f'Shell local axes check failed: {result.error}');return
+            batches,caption,stats=result.value
+            self._shell_axes_cache=(mesh,project,document,batches,caption,dict(stats))
+            self._shell_axes_batches=batches;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
+            self._draw_shell_axes();self.status.setText(caption)
+        if getattr(self,'_shell_axes_requests',None) is None:
+            from ...application.result_requests import ResultRequests
+            self._shell_axes_queue=SimpleQueue()
+            self._shell_axes_requests=ResultRequests(self._shell_axes_queue.put)
+        self.status.setText('Checking shell local axes in the background…')
+        self._shell_axes_requests.request(load,complete,channel='shell-axes',independent=True)
+
+    def drain_shell_axes(self):
+        queue=getattr(self,'_shell_axes_queue',None)
+        while queue is not None:
+            try:queue.get_nowait()()
+            except Empty:break
+
+    def cancel_shell_axes(self):
+        self._shell_axes_generation=getattr(self,'_shell_axes_generation',0)+1
+        requests=getattr(self,'_shell_axes_requests',None)
+        if requests is not None:requests.cancel_channel('shell-axes')
+        pending=getattr(self,'_shell_axes_pending',None) is not None
+        self._shell_axes_pending=None
+        return pending
+
+    @property
+    def shell_axes_busy(self):
+        requests=getattr(self,'_shell_axes_requests',None)
+        return getattr(self,'_shell_axes_pending',None) is not None or bool(requests is not None and requests._tasks)
 
     def _draw_shell_axes(self):
         canvas=self.app.viewport.canvas;group=canvas.annotation_group()
@@ -780,6 +838,10 @@ class PresentationControls(QWidget):
         redraw that removed the arrows (canvas.clear, a replaced canvas) redraws the
         prepared arrows of the same mesh.
         """
+        self.drain_shell_axes()
+        pending=getattr(self,'_shell_axes_pending',None)
+        if pending is not None and id(getattr(self.app,'mesh',None))!=pending:
+            self.cancel_shell_axes();self.status.setText('Shell local axes cancelled: the mesh changed.');return
         group=getattr(self,'_shell_axes_group',None)
         if group is None:return
         if id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:
@@ -794,6 +856,7 @@ class PresentationControls(QWidget):
             if getattr(group,'viewer',None) is self.app.viewport.canvas:raise
 
     def clear_shell_axes(self):
+        self.cancel_shell_axes()
         group=getattr(self,'_shell_axes_group',None)
         if group is not None:self._remove_shell_axes_group(group)
         self._shell_axes_group=None;self._shell_axes_mesh=None;self.shell_axes_stats=None
@@ -915,4 +978,7 @@ class PresentationControls(QWidget):
                 if callable(clear):clear()
         if self._reference_requests is not None:
             self._reference_requests.cancel_channel('reference:display');self._reference_requests=None
+        self.clear_shell_axes();self._shell_axes_cache=None
+        if getattr(self,'_shell_axes_requests',None) is not None:
+            self._shell_axes_requests.retire();self._shell_axes_requests=None
         if self.reference is not None:self.reference.close()

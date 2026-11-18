@@ -1,4 +1,4 @@
-# D1 review fixes, rounds 1 and 2 (2026-11-18)
+# D1 review fixes, rounds 1-4 (2026-11-18)
 
 Review: `D1-review-r1.md` (Codex gpt-6.1-sol high on e4ec0f8, nine findings).
 
@@ -119,3 +119,66 @@ Contract question for the owner (decide one):
 
 Recommendation: A for D1 (it is a mesh-order diagnostic; the barge result does
 not depend on these cases), C as part of D2 where results carry their frames.
+
+## Round 4 (owner decisions after the stop report)
+
+Owner: "A now, C in D2" and "As always ensure speed and perfomance is
+maintained."
+
+* Scope A made explicit: module docstring Scope, `SCOPE_NOTE` in the first
+  summary line (the overlay caption), overlay module docstring. The Qt test
+  applies `Project.resolve_section_assignments(strict=False)` first (what a
+  static solve build does) and then asserts the overlay changes nothing
+  (full digest and the section stores); the headless twin test asserts the
+  check's normalisation equals a `build_fe_model` run on an identical project.
+* `mixed`: faces with no dominant direction are a counted, non-consistent
+  state; their normals are still compared. `unchecked` is only for what could
+  not be compared.
+* Overlay off the GUI thread: its own serial `ResultRequests` worker,
+  completions drained on the GUI thread in `poll()`; a mesh change cancels
+  (status "cancelled"), a project or document change discards, clear/close
+  cancel and retire. The last result is cached per (mesh object, project,
+  document hash), so Show after Clear is instant.
+* Speed: for exact legacy `ShellElement`s the frames come from the two solver
+  functions `compute_stresses` uses to pick them, instead of six recoveries;
+  every 25th such element is also probed and one disagreement switches every
+  element to the probe (`frame_source` records the route).
+* Opt-in: nothing new runs on the mesh or solve path (`git diff e4ec0f8 --
+  src/anyfem/solve/build.py src/anyfem/mesh_jobs.py src/anyfem/mesh_session.py`
+  is empty; `mesh_orientation` is imported only by the overlay; `poll()` adds
+  only a queue drain and identity checks).
+
+| Test | Result on b72e9dd |
+|---|---|
+| `test_r4_even_split_is_mixed_not_unchecked` | AttributeError: no `mixed` |
+| `test_r4_normals_are_still_compared_on_a_mixed_face` | 0 + 0 normals compared, expected 4 |
+| `test_r4_check_normalises_exactly_like_a_static_solve_build` | normalisation equal (scope A held already); fails on the missing scope text |
+| `test_r4_cancel_stops_the_check` | ImportError: no `OrientationCancelled` |
+| `test_r4_background_check_is_cancelled_by_a_mesh_change` (Qt) | check ran on the GUI thread with no cancel event |
+| `test_r4_solver_frame_route_equals_the_probe`, `..._switches_everything_to_the_probe` | new route (no old counterpart) |
+
+### Timings (drawing_barge_60m, 4640 legacy Q8/Q6, same machine)
+
+Command (from the worktree, PYTHONPATH as in the brief):
+`python <scratchpad>/time_check.py` - meshes the barge (0.5 m quadratic
+quad_first adaptive) and times `project_orientation_report` three times.
+Breakdown from `<scratchpad>/profile_check.py`.
+
+| Version | Check time (3 runs) |
+|---|---|
+| e4ec0f8 (centre frames, no build) | about 1.6 s (earlier measurement, not repeated) |
+| b72e9dd | 28.20-30.37 s (single run earlier the same day: 18.2-18.7 s; machine load varies) |
+| this round | 6.92-7.48 s |
+
+Breakdown before (18.45 s run): model build 0.31 s, admission recovery 2.04 s,
+six-field probe 15.32 s, classification 0.69 s. After: the probe runs on 186
+of 4640 elements (verification sample); the rest is the admission recovery
+(one `compute_stresses` per element with its own material - kept, it is what
+catches material and per-element refusals), the solver-frame reads and the
+classification. In the GUI the check runs in the background either way.
+
+Barge after round 4: 402 turned, 0 reversed, 0 ambiguous, 0 inconsistent,
+968 mixed on 11 faces, 0 unchecked; deck 169 turned, 144 between the end
+houses in the same 3 blocks. Tests: 75 passed (test_mesh_orientation incl.
+barge, test_qt_shell_local_axes, test_presentation_workspace,
+test_qt_sketch_overlay_lifetime).

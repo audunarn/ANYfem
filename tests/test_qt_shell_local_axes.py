@@ -48,6 +48,23 @@ def _mesh(project):
     return run_mesh_job(project, "axes", settings, lambda *a: None, _cancellation_token()).mesh
 
 
+def _wait(controls, qapp, limit=300.0):
+    """Let the background check finish and its completion reach the GUI thread."""
+    import time
+    deadline = time.monotonic() + limit
+    while controls.shell_axes_busy:
+        assert time.monotonic() < deadline, "shell-axis check did not finish"
+        qapp.processEvents(); controls.poll(); time.sleep(.02)
+    qapp.processEvents(); controls.poll()
+
+
+def _section_state(project):
+    """What the solve-equivalent normalisation may touch (scope A)."""
+    return (len(project.section_assignments), len(project.regions), len(project.geometry.sheets),
+            dict(project.face_sections), dict(project.edge_sections),
+            dict(project.face_assignment_ids), dict(project.edge_assignment_ids))
+
+
 def _live(group):
     return bool(group.handles) and not group.removed and not any(h.removed for h in group.handles)
 
@@ -72,10 +89,18 @@ def test_shell_axes_overlay_counts_caption_clear_and_no_mutation(window, qapp, m
         return original(batch, *args, **kwargs)
     monkeypatch.setattr(canvas, "add_mesh_arrays", spy)
 
+    # Scope A: the check may perform exactly the section-assignment
+    # normalisation a static solve build performs, and nothing else.  Apply it
+    # first (as a solve would); the overlay must then change nothing at all.
+    project.resolve_section_assignments(strict=False)
+    sections = _section_state(project)
+    before = _digest(project, mesh, window.session)
     report = project_orientation_report(project, mesh)
     drawn = len(report.element_axes)
-    before = _digest(project, mesh, window.session)
+    assert _digest(project, mesh, window.session) == before
     controls.show_shell_axes(); qapp.processEvents()
+    assert controls.shell_axes_busy and "background" in controls.status.text()
+    _wait(controls, qapp)
 
     stats = controls.shell_axes_stats
     assert drawn > 0
@@ -93,7 +118,13 @@ def test_shell_axes_overlay_counts_caption_clear_and_no_mutation(window, qapp, m
     controls.clear_shell_axes(); qapp.processEvents()
     assert group.removed and all(h.removed for h in group.handles)
     assert controls._shell_axes_group is None
+    # Show again on the same mesh and document: the cached check is drawn at once.
+    controls.show_shell_axes()
+    assert not controls.shell_axes_busy and controls.shell_axes_stats == stats
+    assert _live(controls._shell_axes_group)
+    controls.clear_shell_axes(); qapp.processEvents()
     assert _digest(project, mesh, window.session) == before
+    assert _section_state(project) == sections
     assert window.mesh is mesh and window.project is project
 
 
@@ -109,7 +140,7 @@ def test_r1_f8_overlay_follows_scene_replacement_and_mesh_change(window, qapp, m
     window.show_mesh(); qapp.processEvents()
     controls = window.panels["Visualization"].presentation_controls
     before = _digest(project, mesh, window.session)
-    controls.show_shell_axes(); qapp.processEvents()
+    controls.show_shell_axes(); _wait(controls, qapp)
     first = controls._shell_axes_group
     stats = dict(controls.shell_axes_stats)
     batches = len(first.handles)
@@ -134,3 +165,32 @@ def test_r1_f8_overlay_follows_scene_replacement_and_mesh_change(window, qapp, m
     assert last.removed or all(h.removed for h in last.handles)
     assert "mesh changed" in controls.status.text()
     assert _digest(project, mesh, window.session) == before
+
+
+def test_r4_background_check_is_cancelled_by_a_mesh_change(window, qapp, monkeypatch):
+    """The check runs off the GUI thread; a mesh change while it runs discards it."""
+    import threading
+    from PySide6.QtWidgets import QMessageBox
+    from anyfem.ui.qt import shell_axes_overlay
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    window._actions["Floating barge section…"].trigger(); qapp.processEvents()
+    project = window.project
+    window.mesh = _mesh(project)
+    controls = window.panels["Visualization"].presentation_controls
+    started, release, seen = threading.Event(), threading.Event(), {}
+    original = shell_axes_overlay.prepare_shell_axes
+
+    def held(project, mesh, cancel=None):
+        seen["thread"] = threading.current_thread()
+        started.set(); release.wait(60)
+        seen["cancelled"] = cancel.is_set()
+        return original(project, mesh, cancel=cancel)
+    monkeypatch.setattr(shell_axes_overlay, "prepare_shell_axes", held)
+    controls.show_shell_axes()
+    assert started.wait(60) and seen["thread"] is not threading.main_thread()
+    window.mesh = _mesh(project); controls.poll(); qapp.processEvents()
+    assert "cancelled" in controls.status.text()
+    release.set(); _wait(controls, qapp)
+    assert seen["cancelled"] is True
+    assert controls._shell_axes_group is None and controls.shell_axes_stats is None

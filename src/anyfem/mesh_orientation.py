@@ -31,12 +31,23 @@ This module measures that, without re-deriving any solver frame:
    build creates (ANYfem sets no ``material_direction`` or
    ``material_angle_deg``; an orthotropic material turns only the material
    axes, see D0); the material's admissibility is checked by the first call.
-   Scope: this is the model of a solve driven by the project as it stands
-   (project imperfections included).  An analysis that adds its own reference
-   geometry change at solve time (the ``imperfection`` argument of nonlinear or
-   arc-length solves, the eigenmode imperfection of a capacity analysis) is
-   not represented.  The build may normalise the project's section-assignment
-   records (adopting legacy maps) exactly as a solve would.
+   Speed: for an exact legacy ``ShellElement`` on its ordinary recovery path
+   the frames are read from the two solver functions its ``compute_stresses``
+   uses to pick them (``native_recovery_frames``, else
+   ``_local_frame_and_derivatives`` at ``gauss_points``) instead of six
+   recoveries; every 25th such element (the first included) is also probed,
+   and one disagreement switches every element to the probe.  Each element's
+   ``frame_source`` says which route gave its frames.
+   Scope (owner decision 2026-11-18, option A): the check covers the model a
+   static solve of the project as it stands would build, project imperfections
+   included.  Like that solve's build it normalises the project's
+   section-assignment records (``Project.resolve_section_assignments``, which
+   adopts legacy ``face_sections``/``edge_sections`` edits into assignment,
+   region, sheet and part records); it changes nothing else.  Out of scope:
+   reference-geometry changes an analysis adds at solve time (the
+   ``imperfection`` argument of nonlinear and arc-length solves, the
+   eigenmode imperfection of a capacity analysis).  Those belong to D2
+   (option C: frames checked per analysis, next to result recovery).
 3. Per geometry face, local x is measured against a fixed reference: the
    global axis least aligned with the face's normals (at the element
    centroids), projected onto the tangent plane at each centroid.  The face
@@ -47,8 +58,9 @@ This module measures that, without re-deriving any solver frame:
    45 + 10 deg: xx and yy exchanged) or ``ambiguous`` (in between).  An element
    whose points disagree (aligned and turned, or normals on both sides) is
    ``inconsistent`` - a folded or strongly curved element.  A face whose
-   resultant is too small to name a dominant direction has all its elements
-   unchecked.
+   resultant is too small to name a dominant direction (its elements split
+   between layouts with no majority) is ``mixed``: its compared elements are
+   counted as mixed - not consistent, and not unchecked.
 
    Curved faces: the reference is the projected global axis at each
    centroid, and "consistent" means only that local x keeps a constant angle
@@ -67,14 +79,15 @@ This module measures that, without re-deriving any solver frame:
    ``bending_xy`` and ``membrane_xx/yy`` do not, and top and bottom swap.
 
 The report never calls anything consistent that it did not fully compare:
-unchecked, ambiguous and inconsistent elements all make a face inconsistent
-and are counted in ``summary()``.  It changes no mesh or result and keeps
-no solver model; the one project change it can cause is the section-assignment
-normalisation any solve build performs (see Scope).
+unchecked (could not be compared), mixed, ambiguous and inconsistent elements
+all make a face inconsistent and are counted in ``summary()``.  It changes no
+mesh or result and keeps no solver model; its one project change is the
+solve-equivalent section-assignment normalisation (see Scope).
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -84,6 +97,9 @@ __all__ = [
     "ALIGNED",
     "AMBIGUOUS",
     "INCONSISTENT",
+    "MIXED",
+    "OrientationCancelled",
+    "SCOPE_NOTE",
     "TURNED",
     "ElementAxes",
     "FaceOrientation",
@@ -101,6 +117,20 @@ ALIGNED = "aligned"
 TURNED = "turned"
 AMBIGUOUS = "ambiguous"
 INCONSISTENT = "inconsistent"
+MIXED = "mixed"
+
+PROBE = "stress-probe"
+SOLVER_FRAME = "solver-frame"
+# Every n-th element read through SOLVER_FRAME is also probed; one
+# disagreement switches the whole check to the probe.
+VERIFY_EVERY = 25
+
+SCOPE_NOTE = ("Static-solve model of the project as it stands; analysis-time "
+              "imperfections (nonlinear, arc-length, capacity) are not included (D2).")
+
+
+class OrientationCancelled(RuntimeError):
+    """The caller's cancel event was set while recovery frames were being read."""
 
 # Half-width of the band around 45 degrees that is reported as ambiguous.
 AMBIGUOUS_HALF_BAND_DEG = 10.0
@@ -143,6 +173,9 @@ class ElementAxes:
     centroid: np.ndarray
     size: float
     frames: Tuple[RecoveryFrame, ...]
+    # PROBE (six-field compute_stresses probe) or SOLVER_FRAME (the frame
+    # function compute_stresses itself calls; legacy ShellElement only).
+    frame_source: str = "stress-probe"
 
     def display_frame(self) -> RecoveryFrame:
         """The recovery frame nearest the element's natural centre (else the first)."""
@@ -173,6 +206,8 @@ class FaceOrientation:
     # Recovery points of one element in different axis classes or on
     # different normal sides.
     inconsistent: Tuple[int, ...]
+    # Compared elements of a face with no dominant direction.
+    mixed: Tuple[int, ...]
     normal_with: int
     normal_against: int
     # Elements whose normal is on the minority side of the face (the
@@ -189,7 +224,7 @@ class FaceOrientation:
     def consistent(self) -> bool:
         # A face with no shell element compared nothing, so it is not consistent.
         return self.element_count > 0 and not (self.turned or self.ambiguous or self.inconsistent
-                                               or self.reversed or self.unchecked)
+                                               or self.mixed or self.reversed or self.unchecked)
 
 
 @dataclass(frozen=True)
@@ -217,6 +252,10 @@ class OrientationReport:
     def reversed(self) -> Tuple[int, ...]:
         return self._all("reversed")
 
+    @property
+    def mixed(self) -> Tuple[int, ...]:
+        return self._all("mixed")
+
     # Names kept from the first D1 version.
     axis_minority = turned
     normal_minority = reversed
@@ -240,7 +279,9 @@ class OrientationReport:
             f"{len(self.reversed)} with reversed normal, "
             f"{len(self.ambiguous)} ambiguous (near 45 deg), "
             f"{len(self.inconsistent)} inconsistent within the element, "
-            f"{len(unchecked)} unchecked."
+            f"{len(self.mixed)} on {sum(1 for f in self.faces if f.mixed)} mixed faces "
+            f"(no dominant direction), "
+            f"{len(unchecked)} unchecked. {SCOPE_NOTE}"
         ]
         for face in self.faces:
             if face.consistent:
@@ -251,7 +292,7 @@ class OrientationReport:
                 f"  face {face.face_id}: {face.element_count} elements, {angle} "
                 f"(resultant {face.dominant_resultant:.2f}); aligned {len(face.aligned)}, "
                 f"turned {len(face.turned)}, ambiguous {len(face.ambiguous)}, "
-                f"inconsistent {len(face.inconsistent)}; normal with/against "
+                f"inconsistent {len(face.inconsistent)}, mixed {len(face.mixed)}; normal with/against "
                 f"{face.normal_with}/{face.normal_against}, reversed {len(face.reversed)}; "
                 f"unchecked {len(face.unchecked)}"
             )
@@ -351,11 +392,17 @@ def _face_ids(mesh: Any, faces: Optional[Iterable[int]]) -> Sequence[int]:
     return wanted
 
 
+def _check_cancel(cancel: Any) -> None:
+    if cancel is not None and cancel.is_set():
+        raise OrientationCancelled("shell axis check cancelled")
+
+
 def model_recovery_frames(
     fe_model: Any,
     mesh: Any,
     *,
     faces: Optional[Iterable[int]] = None,
+    cancel: Any = None,
 ) -> Tuple[Dict[int, ElementAxes], Dict[int, Tuple[int, str]]]:
     """Read the recovery frames of the shell elements of a built solver model.
 
@@ -371,11 +418,14 @@ def model_recovery_frames(
 
     fe_mesh = fe_model.mesh
     probe = _probe_material()
+    fast_ok = True
+    eligible_count = 0
     axes: Dict[int, ElementAxes] = {}
     unchecked: Dict[int, Tuple[int, str]] = {}
     seen: Dict[int, int] = {}
     for face_id in _face_ids(mesh, faces):
         for raw in mesh.elements_of_face[face_id]:
+            _check_cancel(cancel)
             element_id = int(raw)
             if element_id in seen:
                 unchecked[element_id] = (face_id, f"element also on face {seen[element_id]}")
@@ -396,7 +446,18 @@ def model_recovery_frames(
                     # Ordinary recovery first: the element's own material and
                     # the full model scope must be admitted.
                     element.compute_stresses(fe_mesh, np.zeros(int(element.total_dofs)), material)
-                    frames = element_recovery_frames(element, fe_mesh, probe)
+                    source = PROBE
+                    if fast_ok and _solver_frame_eligible(element, ShellElement):
+                        frames = _legacy_recovery_frames(element, fe_mesh, material)
+                        source = SOLVER_FRAME
+                        if eligible_count % VERIFY_EVERY == 0:
+                            probed = element_recovery_frames(element, fe_mesh, probe)
+                            if not _same_frames(frames, probed):
+                                fast_ok = False
+                                frames, source = probed, PROBE
+                        eligible_count += 1
+                    else:
+                        frames = element_recovery_frames(element, fe_mesh, probe)
             except Exception as error:  # solver refusal: report, never assume
                 unchecked[element_id] = (face_id, f"{type(error).__name__}: {error}")
                 continue
@@ -407,10 +468,77 @@ def model_recovery_frames(
                 face_id=face_id,
                 element_class=type(element).__name__,
                 centroid=corners.mean(axis=0),
-                size=float(max(np.linalg.norm(a - b) for a in corners for b in corners)),
+                size=float(np.linalg.norm(corners[:, None, :] - corners[None, :, :], axis=2).max()),
                 frames=frames,
+                frame_source=source,
             )
+    if not fast_ok:
+        # A sampled cross-check disagreed: trust only the probe, for every element.
+        for element_id, item in list(axes.items()):
+            if item.frame_source != SOLVER_FRAME:
+                continue
+            _check_cancel(cancel)
+            element = fe_mesh.elements[element_id]
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    frames = element_recovery_frames(element, fe_mesh, probe)
+            except Exception as error:
+                del axes[element_id]
+                unchecked[element_id] = (item.face_id, f"{type(error).__name__}: {error}")
+                continue
+            axes[element_id] = dataclasses.replace(item, frames=frames, frame_source=PROBE)
     return axes, unchecked
+
+
+def _solver_frame_eligible(element: Any, shell_class: type) -> bool:
+    """Exact legacy ShellElement on its ordinary (non-generalised) recovery path."""
+
+    return (type(element) is shell_class and getattr(element, "shell_section", None) is None
+            and getattr(element, "gauss_points", None) is not None)
+
+
+def _legacy_recovery_frames(element: Any, fe_mesh: Any, material: Any) -> Tuple[RecoveryFrame, ...]:
+    """The frames ``ShellElement.compute_stresses`` itself uses, read without recovering stresses.
+
+    Mirrors the frame selection of anyfesolver/elements.py ``ShellElement.
+    compute_stresses`` (``native_recovery_frames``, else
+    ``_local_frame_and_derivatives`` at each of ``gauss_points``) by calling the
+    same two solver functions; only eligible elements (see
+    ``_solver_frame_eligible``) use it, and a sample is cross-checked with the
+    six-field probe.
+    """
+
+    from anyfesolver.recovery_shell_frames import native_recovery_frames
+
+    coords = element.get_node_coordinates(fe_mesh)
+    points = np.asarray(element.gauss_points, dtype=float)
+    native = native_recovery_frames(element, coords, points, material)
+    frames = []
+    for index, (xi, eta) in enumerate(points):
+        if native is None:
+            _n, d_xi, d_eta = element.compute_shape_functions(float(xi), float(eta))
+            rotation = element._local_frame_and_derivatives(coords, d_xi, d_eta)[0]
+        else:
+            rotation = native[index][1]
+        rotation = np.asarray(rotation, dtype=float).reshape(3, 3)
+        frames.append(RecoveryFrame(rotation[:, 0].copy(), rotation[:, 1].copy(),
+                                    rotation[:, 2].copy(), (float(xi), float(eta))))
+    return tuple(frames)
+
+
+def _same_frames(left: Sequence[RecoveryFrame], right: Sequence[RecoveryFrame], tolerance: float = 1.0e-9) -> bool:
+    """Same output frames: x up to sign (the probe cannot see it), y and normal exactly."""
+
+    if len(left) != len(right):
+        return False
+    for a, b in zip(left, right):
+        sign = 1.0 if float(np.dot(a.x_axis, b.x_axis)) >= 0.0 else -1.0
+        if not (np.allclose(a.x_axis, sign * b.x_axis, atol=tolerance)
+                and np.allclose(a.y_axis, sign * b.y_axis, atol=tolerance)
+                and np.allclose(a.normal, b.normal, atol=tolerance)):
+            return False
+    return True
 
 
 def project_recovery_frames(
@@ -418,6 +546,7 @@ def project_recovery_frames(
     mesh: Any,
     *,
     faces: Optional[Iterable[int]] = None,
+    cancel: Any = None,
 ) -> Tuple[Dict[int, ElementAxes], Dict[int, Tuple[int, str]]]:
     """Build the solver model as a solve does and read its shell recovery frames.
 
@@ -428,6 +557,7 @@ def project_recovery_frames(
     from .solve import build
 
     face_ids = _face_ids(mesh, faces)
+    _check_cancel(cancel)
     try:
         built = build.build_fe_model(project, mesh, load_case=None,
                                      require_loads=False, require_supports=False)
@@ -435,7 +565,7 @@ def project_recovery_frames(
         reason = f"solve build refused: {type(error).__name__}: {error}"
         return {}, {int(e): (face_id, reason) for face_id in face_ids
                     for e in mesh.elements_of_face[face_id]}
-    return model_recovery_frames(built.fe_model, mesh, faces=face_ids)
+    return model_recovery_frames(built.fe_model, mesh, faces=face_ids, cancel=cancel)
 
 
 def _fold(angle_deg: float) -> float:
@@ -523,19 +653,24 @@ def shell_orientation_report(
             element_vectors.append(mean / length if length > 1.0e-9 else np.zeros(2))
         resultant = 0.0
         dominant = None
+        mixed: list = []
         if element_vectors:
             total = np.mean(element_vectors, axis=0)
             resultant = float(np.linalg.norm(total))
             if resultant >= MIN_DOMINANT_RESULTANT:
                 dominant = 0.5 * float(np.degrees(np.arctan2(total[1], total[0])))
-            else:
-                for e in samples:
-                    face_unchecked[e] = (f"face has no dominant local-x direction "
-                                         f"(resultant {resultant:.2f} < {MIN_DOMINANT_RESULTANT})")
-                samples = {}
         aligned, turned, ambiguous, inconsistent = [], [], [], []
         normal_sign: Dict[int, int] = {}
         for e, rows in sorted(samples.items()):
+            signs = {sign for _vector, sign in rows}
+            if dominant is None:
+                # Mixed face: no axis class, but the normal is still compared.
+                if len(signs) > 1:
+                    inconsistent.append(e)
+                else:
+                    mixed.append(e)
+                    normal_sign[e] = signs.pop()
+                continue
             classes = set()
             for vector, _sign in rows:
                 deviation = _fold(0.5 * float(np.degrees(np.arctan2(vector[1], vector[0]))) - dominant)
@@ -545,7 +680,6 @@ def shell_orientation_report(
                     classes.add(TURNED)
                 else:
                     classes.add(AMBIGUOUS)
-            signs = {sign for _vector, sign in rows}
             if len(signs) > 1 or {ALIGNED, TURNED} <= classes:
                 inconsistent.append(e)
                 continue
@@ -573,6 +707,7 @@ def shell_orientation_report(
             turned=tuple(turned),
             ambiguous=tuple(ambiguous),
             inconsistent=tuple(inconsistent),
+            mixed=tuple(mixed),
             normal_with=with_count,
             normal_against=against_count,
             reversed=reversed_,
@@ -590,9 +725,14 @@ def model_orientation_report(geometry: Any, mesh: Any, fe_model: Any, *,
     return shell_orientation_report(geometry, mesh, axes, unchecked, faces=faces)
 
 
-def project_orientation_report(project: Any, mesh: Any, *, faces: Optional[Iterable[int]] = None) -> OrientationReport:
-    """Run the check on the solver model a solve of ``project`` would build."""
+def project_orientation_report(project: Any, mesh: Any, *, faces: Optional[Iterable[int]] = None,
+                               cancel: Any = None) -> OrientationReport:
+    """Run the check on the solver model a static solve of ``project`` would build.
+
+    ``cancel`` is an optional event; when it is set the check raises
+    ``OrientationCancelled`` at the next element.
+    """
 
     faces = None if faces is None else list(faces)
-    axes, unchecked = project_recovery_frames(project, mesh, faces=faces)
+    axes, unchecked = project_recovery_frames(project, mesh, faces=faces, cancel=cancel)
     return shell_orientation_report(project.geometry, mesh, axes, unchecked, faces=faces)

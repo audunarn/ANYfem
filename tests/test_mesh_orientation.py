@@ -368,13 +368,29 @@ def test_r1_f6_near_45_degrees_is_ambiguous_not_consistent(shell_build):
     assert not report.consistent
 
 
-def test_r1_f6_even_split_has_no_dominant_direction_and_is_unchecked(shell_build):
+def test_r4_even_split_is_mixed_not_unchecked(shell_build):
     mesh = _grid_mesh(nx=2, ny=1)
     mesh.quads[2] = _turn(mesh.quads[2])
     report = _report(mesh)
     assert not report.consistent
-    assert set(report.unchecked) == {1, 2}
+    assert report.mixed == (1, 2) and not report.unchecked
     assert report.faces[0].dominant_angle_deg is None
+    assert "2 on 1 mixed faces" in report.summary()
+    assert set(report.element_axes) == {1, 2}  # compared, so drawn by the overlay
+
+
+def test_r4_normals_are_still_compared_on_a_mixed_face(shell_build):
+    mesh = _grid_mesh(nx=2, ny=2)
+    mesh.quads[3] = _turn(mesh.quads[3])
+    mesh.quads[4] = _turn(mesh.quads[4])
+    mesh.quads[2] = _reverse(mesh.quads[2])
+    mesh.quads[1] = _reverse(mesh.quads[1])
+    mesh.quads[4] = _reverse(mesh.quads[4])
+    report = _report(mesh)
+    (face,) = report.faces
+    assert face.dominant_angle_deg is None
+    assert face.normal_with + face.normal_against == 4
+    assert report.reversed == (3,)
 
 
 # --- round 1, finding 7: missing element references are unchecked ----------
@@ -397,6 +413,119 @@ def test_r1_f7_build_refusal_of_a_missing_reference_is_unchecked(shell_build):
     report = _report(mesh)
     assert not report.consistent and len(report.unchecked) == 13
     assert "missing shell element 999" in report.unchecked[1]
+
+
+# --- round 4: scope A (static-solve model, solve-equivalent normalisation) --
+
+def _legacy_map_project():
+    """One-face project assigned only through the legacy face_sections map."""
+    from anygeometry import OrientedEdge
+    from anymesher import Mesh
+
+    from anyfem import Project, steel
+
+    project = Project("legacy map")
+    project.add_material(steel("S355", .01))
+    project.add_plate_section("plate", .01, "S355")
+    g = project.geometry
+    edges = g.add_polyline(g.add_points(((0., 0., 0.), (2., 0., 0.), (2., 1., 0.), (0., 1., 0.))),
+                           close=True)
+    face = g.add_face_from_loop(tuple(OrientedEdge(e, True) for e in edges), corners=(0, 1, 2, 3))
+    project.face_sections[face] = "plate"
+    mesh = Mesh()
+    mesh.nodes = {1: np.array([0., 0, 0]), 2: np.array([2., 0, 0]), 3: np.array([2., 1, 0]),
+                  4: np.array([0., 1, 0])}
+    mesh.quads = {1: (1, 2, 3, 4)}
+    mesh.elements_of_face = {face: [1]}
+    return project, mesh
+
+
+def _section_state(project):
+    """UUID-free view of what section-assignment normalisation touches."""
+    return (len(project.section_assignments), len(project.regions), len(project.geometry.sheets),
+            len(getattr(project.geometry, "parts", ())), dict(project.face_sections),
+            dict(project.edge_sections),
+            sorted((a.kind, project._section_name(a.kind, a.section_id))
+                   for a in project.section_assignments.values()))
+
+
+def test_r4_check_normalises_exactly_like_a_static_solve_build():
+    from anyfem.solve.build import build_fe_model
+
+    checked, mesh = _legacy_map_project()
+    solved, solved_mesh = _legacy_map_project()
+    before = _section_state(checked)
+    report = project_orientation_report(checked, mesh)
+    build_fe_model(solved, solved_mesh, load_case=None, require_loads=False, require_supports=False)
+    assert _section_state(checked) != before  # the solve-equivalent normalisation happened
+    assert _section_state(checked) == _section_state(solved)
+    assert report.consistent and "Static-solve model" in report.summary()
+
+
+def test_r4_cancel_stops_the_check(shell_build):
+    import threading
+
+    from anyfem.mesh_orientation import OrientationCancelled
+
+    event = threading.Event()
+    event.set()
+    with pytest.raises(OrientationCancelled):
+        _report(_grid_mesh(), cancel=event)
+
+
+# --- round 4: speed - solver-frame route, cross-checked by the probe ------
+
+@pytest.mark.parametrize("count", [8, 6, 4, 3])
+def test_r4_solver_frame_route_equals_the_probe(count):
+    """For every legacy element of a curved, noisy mesh both routes give the same frames."""
+    from anyfesolver.fe_core import Material
+
+    from anyfem.mesh_orientation import (_legacy_recovery_frames, _probe_material, _same_frames,
+                                         element_recovery_frames)
+
+    rng = np.random.default_rng(10 + count)
+    mesh = _grid_mesh(quadratic=count in (6, 8))
+    for n, xyz in mesh.nodes.items():
+        x, y, _z = xyz
+        mesh.nodes[n] = np.array([x, y, .15 * x * x - .1 * x * y]) + rng.normal(scale=.01, size=3)
+    if count in (3, 6):  # split every quad into two triangles
+        tris = {}
+        for e, ids in mesh.quads.items():
+            c = ids[:4]
+            if count == 3:
+                tris[2 * e - 1], tris[2 * e] = (c[0], c[1], c[2]), (c[0], c[2], c[3])
+            else:
+                mid = ids[4:]
+                diag = max(mesh.nodes) + 1
+                mesh.nodes[diag] = (mesh.nodes[c[0]] + mesh.nodes[c[2]]) / 2
+                tris[2 * e - 1] = (c[0], c[1], c[2], mid[0], mid[1], diag)
+                tris[2 * e] = (c[0], c[2], c[3], diag, mid[2], mid[3])
+        mesh = SimpleNamespace(nodes=mesh.nodes, quads={}, tris=tris, elements_of_face={1: sorted(tris)})
+    policy = ShellFormulationPolicy.legacy_compatible()
+    model = _shell_model(_stand_in(policy=policy), mesh)
+    steel = Material(name="steel", elastic_modulus=210e9, poisson_ratio=.3)
+    for element in model.mesh.elements.values():
+        assert type(element).__name__ == "ShellElement"
+        fast = _legacy_recovery_frames(element, model.mesh, steel)
+        assert _same_frames(fast, element_recovery_frames(element, model.mesh, _probe_material()))
+    report = model_orientation_report(_Plane(), mesh, model)
+    assert {a.frame_source for a in report.element_axes.values()} == {"solver-frame"}
+
+
+def test_r4_a_disagreeing_solver_frame_switches_everything_to_the_probe(shell_build, monkeypatch):
+    import anyfem.mesh_orientation as orientation
+
+    real = orientation._legacy_recovery_frames
+
+    def wrong(element, fe_mesh, material):  # every frame turned 90 degrees
+        return tuple(orientation.RecoveryFrame(f.y_axis, -f.x_axis, f.normal, f.natural_point)
+                     for f in real(element, fe_mesh, material))
+    monkeypatch.setattr(orientation, "_legacy_recovery_frames", wrong)
+    mesh = _grid_mesh()
+    mesh.quads[5] = _turn(mesh.quads[5])
+    report = _report(mesh, policy=ShellFormulationPolicy.legacy_compatible())
+    assert report.turned == (5,)
+    assert {a.frame_source for a in report.element_axes.values()} == {"stress-probe"}
 
 
 # --- round 2, finding 2: imperfections move the solver's reference geometry -
@@ -557,12 +686,12 @@ def test_drawing_barge_60m_deck_patches_are_found():
     turned = [e for e in deck_report.turned if e in mesh.quads]
     centres = np.array([np.mean([mesh.nodes[n] for n in mesh.quads[e][:4]], axis=0)
                         for e in turned])
-    # Measured 2026-11-18 after the round-1 fixes: 402 of 4640 turned, none
-    # reversed; 968 unchecked on the three bulkheads and eight end-house walls
-    # whose elements split almost evenly (no dominant direction).
+    # Measured 2026-11-18 after the round-4 changes: 402 of 4640 turned, none
+    # reversed; 968 mixed on the three bulkheads and eight end-house walls
+    # whose elements split almost evenly (no dominant direction); 0 unchecked.
     assert not report.reversed and not report.ambiguous and not report.inconsistent
-    assert len(report.turned) == 402 and len(report.unchecked) == 968
-    assert all("no dominant local-x direction" in r for r in report.unchecked.values())
+    assert len(report.turned) == 402 and len(report.mixed) == 968 and not report.unchecked
+    assert sum(1 for face in report.faces if face.mixed) == 11
     between = (centres[:, 0] > 5) & (centres[:, 0] < 55)
     assert int(between.sum()) == 144
     blocks = sorted({(5 if x < 10 else 30 if x < 40 else 55) for x in centres[between, 0]})

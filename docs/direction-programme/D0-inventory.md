@@ -56,7 +56,7 @@ solve); each shell element's output frames are read from its own
 angle, with the face's dominant direction measured from a fixed global axis
 projected onto the face (independent of the face parameterisation), the normal
 with the face's majority side. All 4640 elements are legacy `ShellElement`
-(4596 Q8, 44 Q6). Check time 18.7 s.
+(4596 Q8, 44 Q6). Check time 7.3 s (18.2-30.4 s before the round-4 speed work, see D1-r1-fixes.md).
 
 * 402 of 4640 shell elements have local x turned against their face's
   dominant direction; 0 reversed normals; 0 ambiguous; 0 inconsistent within
@@ -65,15 +65,21 @@ with the face's majority side. All 4640 elements are legacy `ShellElement`
   houses in three blocks, x 4.98-7.80, 27.20-32.80, 52.20-55.02 m (element
   centres 5.23-7.55, 27.45-32.55, 52.45-54.77 m; the grey squares).
 * Bottom 171/992, sides 30/496 and 32/496.
-* 968 unchecked: the three transverse bulkheads (56 each, resultant 0.12) and
-  eight end-house walls (100 each, resultant 0.03) split almost evenly between
-  two layouts, so no dominant direction exists and the check refuses to call
-  either half "turned" (`MIN_DOMINANT_RESULTANT = 0.2`).
+* 968 mixed (a counted, non-consistent state, not "unchecked"): the three
+  transverse bulkheads (56 each, resultant 0.12) and eight end-house walls
+  (100 each, resultant 0.03) split almost evenly between two layouts, so no
+  dominant direction exists and the check refuses to call either half
+  "turned" (`MIN_DOMINANT_RESULTANT = 0.2`). Their normals are still compared
+  (none reversed). 0 unchecked.
 
 Change from the first D1 measurement (880 turned, 0 unchecked): the same
 deck, bottom and side counts; the 478 elements previously counted as turned on
 the eleven evenly split faces (against the face u direction) are now, with
-their faces' other elements, unchecked because no majority exists.
+their faces' other elements, counted as mixed because no majority exists.
+
+Scope (owner decision 2026-11-18, option A): the static-solve model of the
+project as it stands, with the solve's section-assignment normalisation;
+analysis-time imperfections are D2 (option C).
 
 So the problem is general on this mesher route, not a deck special case.
 Every "xx"/"yy" plot on element-local components is affected wherever such

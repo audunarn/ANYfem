@@ -1,9 +1,15 @@
-"""Presentation-only geometry for the shell local-axes overlay (read-only on project and mesh).
+"""Presentation geometry for the shell local-axes overlay.
 
 Arrows show the frame the solver's stress recovery reports (see
 ``anyfem.mesh_orientation``), at the element centroid, using the recovery
-point nearest the element's natural centre.  Unchecked elements get no arrows;
-they are counted in the caption.
+point nearest the element's natural centre.  Turned elements are orange;
+ambiguous, inconsistent and mixed-face elements purple; unchecked elements get
+no arrows and are counted in the caption.
+
+Scope (option A): the check reads the model a static solve of the project as
+it stands would build; it leaves the mesh unchanged and performs on the
+project only the section-assignment normalisation that solve's build
+performs.  Analysis-time imperfections are not included (D2).
 """
 import numpy as np
 
@@ -12,13 +18,13 @@ COLOURS = dict(x='#c0392b', x_warn='#ff8c00', x_doubt='#8e44ad',
                normal='#2a6fdb', normal_warn='#c71585')
 
 
-def prepare_shell_axes(project, mesh):
+def prepare_shell_axes(project, mesh, cancel=None):
     """Return (batches, caption, stats); batches is a list of (MeshArrays, colour)."""
     from ...mesh_orientation import project_orientation_report
     from .glyph_preparation import arrow_batch
-    report = project_orientation_report(project, mesh)
+    report = project_orientation_report(project, mesh, cancel=cancel)
     turned, reversed_ = set(report.turned), set(report.reversed)
-    doubtful = set(report.ambiguous) | set(report.inconsistent)
+    doubtful = set(report.ambiguous) | set(report.inconsistent) | set(report.mixed)
     inconsistent = set(report.inconsistent)
     groups = {key: ([], []) for key in COLOURS}
     for eid, axes in sorted(report.element_axes.items()):
@@ -36,7 +42,7 @@ def prepare_shell_axes(project, mesh):
             batch = arrow_batch(starts, ends)
             if batch is not None:
                 batches.append((batch, COLOURS[key]))
-    stats.update(unchecked=len(report.unchecked), elements=len(report.element_axes),
+    stats.update(unchecked=len(report.unchecked), mixed=len(report.mixed), elements=len(report.element_axes),
                  arrows=sum(stats[k] for k in COLOURS))
     caption = report.summary().splitlines()[0]
     return batches, caption, stats
