@@ -126,6 +126,8 @@ class PresentationControls(QWidget):
         button('Show displacement vector glyphs',self.vector_glyphs)
         button('Show principal stress axes',self.principal_glyphs)
         button('Clear glyphs',self.clear_glyphs)
+        button('Show shell local axes',self.show_shell_axes)
+        button('Clear shell local axes',self.clear_shell_axes)
         self.status=QLabel();self.status.setWordWrap(True);root_layout.addWidget(self.status)
         self.job.currentIndexChanged.connect(self.refresh_fields);self.field.currentIndexChanged.connect(self.refresh_components)
         self._timer=QTimer(self);self._timer.setInterval(50);self._timer.timeout.connect(self.poll);self._timer.start()
@@ -408,7 +410,9 @@ class PresentationControls(QWidget):
                 self.cancel_reference();self.release_reference()
                 if self.reference is not None:self.reference.clear()
         if hasattr(self.app,'project'):
-            try:self.observe_clipping();self.update_annotations();self.maintain_glyphs()
+            try:
+                if getattr(self,'_shell_axes_group',None) is not None and id(getattr(self.app,'mesh',None))!=self._shell_axes_mesh:self.clear_shell_axes()
+                self.observe_clipping();self.update_annotations();self.maintain_glyphs()
             except Exception as error:self.status.setText(f'Annotation display unavailable: {error}')
         if self.reference is None or not self.compare.isChecked():return
         try:
@@ -749,6 +753,29 @@ class PresentationControls(QWidget):
         access=getattr(self,'_glyph_access',None)
         if access is not None:access.release_pane_publication('glyphs')
         self._glyph_access=None;self._glyph_stable=None
+
+    def show_shell_axes(self):
+        # Synchronous on purpose (no worker): the check is read-only and linear in shell elements.
+        mesh=getattr(self.app,'mesh',None)
+        if mesh is None:raise ValueError('Mesh the model before showing shell local axes')
+        from .shell_axes_overlay import prepare_shell_axes
+        batches,caption,stats=prepare_shell_axes(self.app.project,mesh)
+        self.clear_shell_axes()
+        canvas=self.app.viewport.canvas;group=canvas.annotation_group()
+        with group:
+            for batch,color in batches:
+                canvas.add_mesh_arrays(batch,color=color,line_color=color,line_width=2,
+                    pickable=False,draw_overlay=True,lit=False,layer=45)
+        self._shell_axes_group=group;self._shell_axes_mesh=id(mesh);self.shell_axes_stats=stats
+        self.status.setText(caption);canvas.redraw()
+
+    def clear_shell_axes(self):
+        group=getattr(self,'_shell_axes_group',None)
+        if group is not None:
+            try:group.remove()
+            except RuntimeError:
+                if getattr(group,'viewer',None) is self.app.viewport.canvas:raise
+        self._shell_axes_group=None;self._shell_axes_mesh=None;self.shell_axes_stats=None
 
     def pause_glyphs(self):
         if getattr(self,'_glyph_group',None) is not None or getattr(self,'_glyph_pending',False):
