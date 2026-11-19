@@ -1,6 +1,6 @@
 # Direction programme — D2 design: result axes tied to the geometry (2026-11-18)
 
-Status: DESIGN ONLY, revision 3d, Codex-clean after round 8 (rounds 1-8; and the D1
+Status: revision 4 (2026-11-19: O5 changed to B2, see sections 1, 5, 5a, 8, 9), previously DESIGN ONLY, revision 3d, Codex-clean after round 8 (rounds 1-8; and the D1
 review facts relayed by the coordinator). No source or test
 changes. Review record in section 9.
 
@@ -124,9 +124,35 @@ normals), emitted only with `return_global=True`, existing keys and values
 unchanged; or (b) ANYfem rotates the stored native local families with a frame
 it recomputes from the mesh, proven by a test that the recomputed frame
 reproduces the solver's own `global_*` surface values to 1e-13 relative.
-Decided (a). Reason it was recommended: (b) duplicates each element's frame
-rule, and for warped Q4 the per-family frame split (F3) is exactly where
-duplication drifts. (b) is not pursued.
+Decided (a) on 2026-11-18; **REVISED 2026-11-19 (owner: "B2 with cross-check")
+to (b), implemented in an unpinned solver module.** Reason: ANYfeSolver PR #74
+implemented (a) and was stopped because the qualified source files are pinned by
+a successor record that binds each carrier byte-for-byte to its upstream blob
+(`docs/reference_cases/e4_pl_source_binding_20261111.json`, schema v2; 12 tests
+fail on any edit to `e4_pl_element.py`, `e4_pl_s3_element.py`, `elements.py`),
+by a frozen contract (`ge_beam3_g3c_contract_v1.json`) and by
+`release_043_runtime.json`. A schema v3 successor would be a change to the
+qualification process, which the owner declined. Revised rule (B2):
+* A new, unpinned module in ANYfeSolver (`src/anyfesolver/shell_axes_outputs.py`)
+  derives, from the dict that `compute_stresses(return_global=True)` already
+  returns plus the mesh, displacements and material, the station positions, the
+  tensor-basis normals, the director polarity metadata and, where the branch
+  emits none (legacy homogeneous, e4-pl warped homogeneous), the three global
+  family tensors, by rotating the native local N, M, Q forms with frames it
+  recomputes through the existing read-only helpers. Every pinned file stays
+  byte-identical; nothing is called unless a caller invokes the function (the
+  entry hook is in ANYfem's post/recovery path).
+* **Cross-check on every call (acceptance, not an option).** The derived tensors
+  are rotated back into the element's own local output frame and must match the
+  element's `compute_stresses` local components, and for homogeneous branches
+  the recomputed frame must reproduce the solver's own `global_*_{top,bot}`
+  surface values, to 1e-13 relative to the family's max abs; otherwise a typed
+  refusal `AXES_FRAME_RULE_MISMATCH` (a frame-rule drift fails closed). The
+  duplicated rules and the per-family frame split (F3) are the risk this guards.
+* Consequence for D2-6 (nonlinear, corotational): the module must reproduce the
+  recovery's rotated current-geometry stress frame (S/recovery.py:1254, 1275)
+  per frame; if that cannot be cross-checked to the bound, the analysis is
+  refused (`AXES_ANALYSIS_NOT_QUALIFIED`) until a solver hook is agreed.
 
 **Solver changes are coordinated first (owner instruction 2026-11-18: "For
 solver related issues coordinate with the task 'ANYsolver CI cleanup'").** The
@@ -392,7 +418,7 @@ files without `result_axes` keep exact bytes.
 | O2 | **DECIDED 2026-11-19: yes for ordinary models; opt-in above a payload threshold (about 256 MB raw estimated per case as the starting point, number fixed and justified from measurements in D2-7).** Request the global route by default whenever shells are solved | barge 2.2-9.0 MB raw per case + 1.2-2.3 MB once; 1 M shells 0.48-0.86 GB per case; recovery time measured | re-expression without re-solve |
 | O3 | **DECIDED 2026-11-19: projected global X, falling back to Y then Z.** Default definition: projected X -> Y -> Z, band 10 deg (proposed) vs drawing axes | changes the axes (hence values) on groups where the two differ; counted per group | meaning of "xx" |
 | O4 | **DECIDED 2026-11-19: band 10 deg, fold limit 30 deg.** Band 10 deg, fold limit 30 deg | availability and rung, hence values on boundary groups | fail-closed thresholds |
-| O5 | Missing outputs: (a) additive solver outputs or (b) ANYfem recomputes | **DECIDED 2026-11-18: (a)**; adds solver keys only under `return_global`, existing keys and values unchanged | contract surface; was needed before D2-1 |
+| O5 | Missing outputs: (a) additive solver outputs or (b) recompute outside the pinned files | **DECIDED 2026-11-18: (a); REVISED 2026-11-19 to (b) as B2 with cross-check** (new unpinned solver module, every pinned file byte-identical, `AXES_FRAME_RULE_MISMATCH` on a cross-check failure) | (a) needs a schema-v3 successor record for the pinned qualified sources, declined by the owner |
 | O6 | **DECIDED 2026-11-19: labels name the basis, "(element axes)" / "(result axes)"; keys unchanged.** Existing labels gain axis text: "Membrane xx (element axes)" | text only, keys unchanged | basis visible |
 | O7 | **NOT part of D2 (owner 2026-11-19): separate investigation.** Orthotropic shells: today their material axes follow node order (F12) | not measured; a modelling defect independent of D2 | flagged for a separate decision |
 | O8 | Performance budget with an axes request (P-b): solve-path added time <= 10 % of the solve stage, load <= 10 %, first evaluation <= 1 s (barge) / <= 10 % of solve (larger), field change <= 0.2 s, memory <= 2 x raw payload | **DECIDED 2026-11-18: approved** ("O8 budget approved"); pass/fail per slice | owner: "ensure speed and performance is maintained" |
@@ -454,11 +480,15 @@ mesh settings) in D2-1; candidate: the barge meshed at a 0.25 m target.
   Carried by D2-1 (solver outputs and persistence), D2-2 (transform core,
   timed on stored barge arrays), D2-4 (evaluation and display on a field
   change), D2-6 (per-frame directors).
-* **P-c, no second build and no per-element Python loop on the solve path.**
+* **P-c, no second build; per-element Python loop only in the opt-in B2 module.**
   The per-analysis frame check (RC) runs on the arrays the recovery already
-  returns: no second FE model build, no geometry re-mesh, no Python loop over
-  elements or stations. The O5(a) solver outputs are copies inside the existing
-  per-element recovery loop (no new loop). Checks and grouping are vectorized
+  returns: no second FE model build, no geometry re-mesh. **Amended 2026-11-19
+  (owner, with O5 = B2):** the B2 derivation module (section 1) may loop over
+  elements in Python, on the axes-request path only; the ordinary path
+  (no `axes_*` request) gains no loop and stays bit-identical (P-a), and the O8
+  time budget (P-b) stays pass/fail with the module's cost measured on the barge
+  and on the larger model. The checks and grouping of the transform are still
+  vectorized
   numpy (face projection with the geometry's `*_many` batch calls as D1 does;
   groups by sparse connected components). Verified by (i) a test that counts
   model builds per analysis (exactly one, as today) with and without an axes
@@ -483,7 +513,7 @@ per cell, every cell checked by a small probe; O5 decided by the owner ((a), 202
 
 **D2-1 Data.** Adapters, persistence, request gates. Precondition (first
 slice touching the solver): ANYfeSolver main fast-forwarded to
-`claude/ci-green-kernel-20261117`, and the O5(a) change agreed with the
+`claude/ci-green-kernel-20261117`, and the O5 change (now B2, revision 4) agreed with the
 "ANYsolver CI cleanup" session (section 1). **Met 2026-11-18** (coordinator):
 ANYfeSolver origin/main fast-forwarded to `7f006b7a3`, layout
 `src/anyfesolver/`; that SHA is the base for the first solver slice (D2-1). The
@@ -600,7 +630,7 @@ faces, triangles or imported meshes; complementary at most).
 O1 DECIDED 2026-11-19: GUI default to result axes; O2 DECIDED 2026-11-19: global route by
 default for shell solves on ordinary models, opt-in above a payload threshold (about 256 MB raw per case as the
 starting point, fixed in D2-7 from measurements); O3 DECIDED 2026-11-19: default definition projected X -> Y -> Z;
-O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), solver adds the missing outputs as extra keys, only under `return_global`; O6 DECIDED 2026-11-19: labels name the basis,
+O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), REVISED 2026-11-19 to B2 with cross-check (new unpinned solver module, `AXES_FRAME_RULE_MISMATCH`; reason: pinned qualified sources, section 10); O6 DECIDED 2026-11-19: labels name the basis,
 keys unchanged; O7 orthotropic material axes follow node order today (separate defect; NOT part of this work, separate investigation, owner 2026-11-19);
 O8 DECIDED 2026-11-18: performance budget approved, pass/fail (section 5a);
 solver changes (O5(a) and any other) coordinated with "ANYsolver CI cleanup"
@@ -790,3 +820,14 @@ Not probed (carried into D2-1/D2-5): legacy 6/8-node reversed numbering; orthotr
 Hill materials, custom `natural_points`, nonzero initial stress; nonlinear and corotational
 recovery frames; ANYfem's recovery wrapper (`_RecoveryIsotropicMaterial`); strict-flat
 V2/V2B/V2C candidates; the barge's planar/warped split.
+
+### Revision 4 (owner decision 2026-11-19, "B2 with cross-check")
+
+Triggered by D2-1 implementation: ANYfeSolver#74 (additive solver outputs) was
+correct and Codex-clean but cannot merge without a v3 successor record, because
+`e4_pl_source_binding_20261111.json` binds the qualified Q4/S3/legacy sources to their
+upstream blobs and symbol-closure hashes (12 pin tests), and `ge_beam3_g3c_contract_v1.json`
+and `release_043_runtime.json` pin the same files. Changed text: section 1 (O5 paragraph),
+section 5 (O5 row), section 5a (P-c), section 6 (D2-1 precondition), section 8. The cross-check
+bound (1e-13 relative to the family max abs) is the one section 1 had already required for
+option (b). Review of the changed text: see the round record below.
