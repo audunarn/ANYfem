@@ -11,6 +11,14 @@
   the prepared-model cache and the mesh identity, and saved with the project. No environment variable is used; models
   without it, and old files, are unchanged. The floating tripod example selects `ring_split`, quad-first, 0.5 m, linear.
 
+- Help → Loaded packages… lists the ANY* and key third-party packages loaded in the session with
+  version, version source, the import path actually used (and its resolved target through
+  `.ecosystem` junctions) and the checkout HEAD commit; installed metadata is shown only when it owns
+  the loaded copy, otherwise the module `__version__` or "unknown". Copy to clipboard included.
+
+- Menus: File now holds Import, Export and Examples submenus; the import, export, plate-drawing and
+  example actions moved there unchanged (names, shortcuts, behaviour). The top-level Examples menu is gone.
+
 - Use the ANYfeSolver 0.5 package for structural analyses.
 
 - SAT import: two optional reader tolerances (vertex relocation, approximate curve), empty/off by default, recorded on the imported part; a refusal naming one points to its field. Requires ANYfileio 0.3.4.

@@ -1,0 +1,87 @@
+"""Menu grouping (File > Import/Export/Examples) and Help > Loaded packages in Qt."""
+import os
+from pathlib import Path
+
+import pytest
+
+if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
+    pytest.skip("set ANYFEM_RUN_QT_TESTS=1", allow_module_level=True)
+pytest.importorskip("PySide6")
+from PySide6.QtWidgets import QMenu, QPushButton, QTableWidget
+from test_qt_geometry_actions import qapp, window
+
+IMPORT = ["Import SESAM model", "Import SAT geometry…", "Import CalculiX results", "Import SESAM results"]
+EXPORT = ["Export CalculiX deck", "Create plate drawings…"]
+EXAMPLES = [
+    "5 m barge — internal bracket weld fatigue…",
+    "Support B — plate drawings…",
+    "Floating barge section…",
+    "Floating barge section — end moment on a distributing connection…",
+    "Floating barge section — end moment on a rigid connection…",
+    "Floating barge section — seaway time history (600 load cases)…",
+    "Floating barge section — 15 m with bulkhead openings…",
+    "Drawing barge — 60 m structural example…",
+]
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+    from anyfem.ui.qt import app
+    monkeypatch.setattr(app, "QSettings", lambda *_: QSettings(str(tmp_path / "layout.ini"), QSettings.IniFormat))
+
+
+def _menu(parent, title):
+    return next(menu for menu in parent.findChildren(QMenu) if menu.title() == title)
+
+
+def test_file_menu_groups_import_export_and_examples(window):
+    assert [action.text() for action in window.menuBar().actions()] == ["File", "Edit", "View", "Analysis", "Workspace", "Help"]
+    file = _menu(window.menuBar(), "File")
+    entries = [action.text() for action in file.actions() if not action.isSeparator()]
+    assert entries == ["New", "Open", "Recent projects", "Save", "Save as", "Recover autosave",
+                       "Open file inspector", "Import", "Export", "Examples", "Close"]
+    for title, names in (("Import", IMPORT), ("Export", EXPORT), ("Examples", EXAMPLES)):
+        submenu = _menu(file, title)
+        assert submenu.parent() is file
+        assert submenu.actions() == [window._actions[name] for name in names]
+    moved = set(IMPORT + EXPORT + EXAMPLES)
+    elsewhere = [action.text() for menu in window.menuBar().findChildren(QMenu)
+                 if menu.title() not in {"Import", "Export", "Examples"}
+                 for action in menu.actions() if action.text() in moved]
+    assert elsewhere == []
+    # Moved, not changed: shortcuts and the menu-bar commands keep theirs.
+    assert all(window._actions[name].shortcut().isEmpty() for name in moved)
+    assert [window._actions[name].shortcut().toString() for name in ("New", "Open", "Save", "Save as", "Close")] == \
+        ["Ctrl+N", "Ctrl+O", "Ctrl+S", "Ctrl+Shift+S", "Ctrl+Q"]
+    assert window._actions["Floating barge section…"].toolTip().startswith("Create an S355 barge section")
+
+
+def test_help_loaded_packages_dialog_lists_loaded_paths_and_copies(window, qapp, monkeypatch):
+    import anyfem
+    help_menu = _menu(window.menuBar(), "Help")
+    assert [action.text() for action in help_menu.actions()] == ["Copy diagnosis", "Loaded packages…"]
+    assert not hasattr(window, "_loaded_packages_dialog")  # nothing collected at start-up
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    assert dialog.isVisible() and dialog.windowTitle() == "Loaded packages"
+    report = dialog.report
+    assert report.elapsed_ms < 2000  # measured ~70-90 ms warm
+    table = dialog.findChild(QTableWidget, "LoadedPackagesTable")
+    assert table.rowCount() == len(report.rows)
+    cells = {table.item(index, 0).text(): [table.item(index, column).text() for column in range(table.columnCount())]
+             for index in range(table.rowCount())}
+    anyfem_row = cells["ANYfem"]
+    assert anyfem_row[1].lstrip("⚠ ") not in ("", "—")
+    assert anyfem_row[3].splitlines()[0] == str(Path(anyfem.__file__).parent)
+    for module_name in ("PySide6", "numpy"):
+        row = next(row for row in report.rows if row.module == module_name)
+        assert row.loaded and cells[row.name][1].lstrip("⚠ ") == row.version != "unknown"
+    not_loaded = [row for row in report.rows if not row.loaded]
+    assert all(cells[row.name][1:3] == ["—", "not loaded in this session"] for row in not_loaded)
+    copied = []
+    monkeypatch.setattr(window.clipboard, "copy_text", copied.append)
+    dialog.findChild(QPushButton, "CopyLoadedPackages").click()
+    assert copied == [report.text()]
+    assert f"ANYfem: {report.rows[0].version}" in copied[0]
+    dialog.close(); qapp.processEvents()
