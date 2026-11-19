@@ -167,23 +167,37 @@ qualification process, which the owner declined. Revised rule (B2):
   stations and components of |reference|; pass iff all values are finite and
   r <= 1e-13 s; if s == 0 pass iff r == 0 (an all-zero family is accepted only as
   exactly zero); a missing or nonfinite reference or derived value is a refusal.
-  The check validates **frames, not families** (Codex r2): a surface or sum
-  reference mixes families, so a small family cannot be resolved by it. Rules:
-  (1) every distinct frame the module recomputes (each station frame; the centre
-  frame where a family uses it) must be validated by at least one solver-emitted
-  reference that depends on that frame; (2) all families rotated with a frame
-  that passed inherit that validation (legacy, e4-pl planar, S3 and V2D use one
-  frame per station for every family, so the dominant family validates it for
-  the 1e-8-smaller one); (3) a family that uses a frame **no other family
-  shares** (warped Q4 shear in the centre frame) is validated only against a
-  reference in which it is resolvable, i.e. its own magnitude s_f >= 1e-6 s_ref
-  of that reference (the surface xz, yz components of the station tangent frame
-  for homogeneous warped Q4); otherwise that family is refused with reason
-  `unresolvable_family`, never accepted on the larger family's agreement.
-  Regression tests (D2-1): a fixture with isotropic bending magnitude 1 and
-  anisotropic membrane magnitude 1e-8 and a deliberately wrong frame (1e-6 rad)
-  must be refused; the same fixture with the right frame passes; a warped Q4
-  with shear 1e-9 of bending and a wrong centre frame is refused for shear.
+  The check validates **frame angles**, and certifies a family only through the
+  angle resolution it achieves (Codex r2-r3): a surface or sum reference mixes
+  families, and an isotropic tensor carries no orientation information, so a
+  small anisotropic family cannot be certified by agreement on the surface scale
+  alone. Rules, per distinct frame (each station frame; the centre frame where a
+  family uses it) and per element:
+  (1) validation reference: a solver-emitted quantity that depends on that frame;
+  r = max |rebuilt - reference| must satisfy r <= 1e-13 s_ref (s_ref = max abs of
+  the reference);
+  (2) orientation sensitivity of a tensor: sigma = max over stations of the norm
+  of its deviatoric in-plane part and its out-of-plane/shear components (the
+  derivative of the rotated tensor with respect to a rotation about the
+  normal); sigma = 0 for an isotropic in-plane tensor;
+  (3) angle resolution of the validation: theta_res = 1e-13 s_ref / sigma_ref
+  (infinite if sigma_ref = 0);
+  (4) a family f rotated with that frame is certified iff sigma_f = 0 (its
+  rotation about the normal changes nothing) or theta_res sigma_f <= 1e-9 s_f,
+  i.e. an undetected frame error could change the family by at most 1e-9 of its
+  own magnitude; otherwise the family is refused with reason
+  `unresolvable_family`, never accepted on a larger family's agreement. A family
+  with s_f = 0 is certified only if its derived tensor is exactly zero;
+  (5) a family used with a frame no other family shares (warped Q4 shear in the
+  centre frame) is judged against the reference in which it is resolvable (its
+  own xz, yz components in the station tangent frame); the same rule (4) applies.
+  Regression tests (D2-1): (a) isotropic bending of magnitude 1 and anisotropic
+  membrane 1e-8 with a wrong frame (1e-6 rad): the membrane is refused
+  (`unresolvable_family`, since sigma_ref = 0), and so is the same fixture with
+  the right frame (it cannot be certified); (b) anisotropic bending of magnitude 1
+  and anisotropic membrane 1e-8: right frame certified, a 1e-6 rad frame error
+  refused as a residual failure; (c) warped Q4 with shear 1e-9 of bending and a
+  wrong centre frame: shear refused.
   On failure: typed refusal `AXES_FRAME_RULE_MISMATCH` for the element (nothing
   is stored for it), so a frame-rule drift fails closed. Because the scale is the
   family's own magnitude, a frame error in a family that is below 1e-13 of its own
