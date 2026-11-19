@@ -28,6 +28,16 @@ are unaffected. Option B (per-element `material_direction` from a D2 reference) 
   and still test that results, recovery and probes handle orthotropic solver materials. They do not
   author the material through the project. Injecting after build remains an unguarded
   path (solver-level material objects), which the refusal does not cover.
+* Two other tests used test doubles that the guard now meets and were adapted without changing
+  what they assert: `tests/test_e4_pl_default_routing.py::test_anyfem_retains_the_q4_only_transition_policy`
+  (its fake FE model now carries `materials={"steel": isotropic}`) and
+  `tests/test_mesh_orientation.py::test_r2_f4_material_the_solver_refuses_is_unchecked` (`_shell_model`
+  injects the orthotropic solver material after `_add_shells`, as `test_workflow.py` does). Because
+  `project_orientation_report` builds through `build_fe_model`, an orthotropic project now raises the
+  refusal there too instead of reporting "unchecked".
+* Full suite (13 Nov-style run, same ignores): branch 196 failed / 4560 passed vs baseline
+  `fullsuite-20261118/junit-disp.xml` 192 / 4558; the 4 extra were these 2 plus 2 timing/load
+  failures (`test_native_meshing_cache_reuse`, `test_test_runner` deadline) that pass alone.
 * Isotropic bit-identity, 60 m drawing barge (`drawing_barge_60m`, target 1.0 m, 8292 elements),
   sha256 of nodes, element `to_dict()` and materials of the built FE model
   (`scripts/o7_barge_hash.py`): old `03c387d764ae...a3023`, new identical. Build time, 3 runs each:

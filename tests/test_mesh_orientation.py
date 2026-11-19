@@ -80,10 +80,14 @@ def _shell_model(project, mesh, material=None):
     from anyfem.solve import build
 
     model = FEModel(name="axes")
-    model.register_material(material or Material(name="steel", elastic_modulus=210e9, poisson_ratio=.3))
+    model.register_material(Material(name="steel", elastic_modulus=210e9, poisson_ratio=.3))
     for node_id, xyz in sorted(mesh.nodes.items()):
         model.add_node(int(node_id), *map(float, xyz))
     build._add_shells(project, mesh, model)
+    if material is not None:
+        # O7: the shell build refuses non-isotropic shell materials, so a
+        # solver material the build would refuse is injected after the build.
+        model.materials[material.name] = material
     return model
 
 
