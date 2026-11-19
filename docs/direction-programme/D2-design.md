@@ -1,6 +1,6 @@
 # Direction programme — D2 design: result axes tied to the geometry (2026-11-18)
 
-Status: DESIGN ONLY, revision 3d, Codex-clean after round 8 (rounds 1-8; and the D1
+Status: revision 4 (2026-11-19: O5 changed to B2, see sections 1, 5, 5a, 8, 9), previously DESIGN ONLY, revision 3d, Codex-clean after round 8 (rounds 1-8; and the D1
 review facts relayed by the coordinator). No source or test
 changes. Review record in section 9.
 
@@ -54,7 +54,7 @@ Per shell element and recovery station, when result axes are requested:
 
 | Item | floats | Branches | Status today |
 |---|---|---|---|
-| native family tensors in global axes: membrane (6), bending (6), transverse shear vector (3), each rotated once by the element from its native local values with the frame that family is in | 15 / case | all | emitted as resultants by the F2 branches; **missing** for legacy homogeneous and e4-pl warped homogeneous (additive solver output, O5 = (a) decided) |
+| native family tensors in global axes: membrane (6), bending (6), transverse shear vector (3), each rotated once by the element from its native local values with the frame that family is in | 15 / case | all | emitted as resultants by the F2 branches; **missing** for legacy homogeneous and e4-pl warped homogeneous (derived by the B2 module, cross-checked; O5 = B2, revision 4) |
 | global surface stress top and bot (6 + 6) | 12 / case | homogeneous, only when surface fields are requested | persisted when the global route is requested (F1) |
 | station physical position (3) | 3 / artifact | all | derived per branch (normalization contract) |
 | tensor-basis normal per station (3) and per centre-frame family per element (3) | 3 / station + 3 / element | all | e4-pl partly; V2D via `frame`; legacy none |
@@ -68,8 +68,9 @@ minimum sine over every frame it consumes, refusal code.
 check stays a diagnostic of the static solve model (option A). D2 checks frames
 **per analysis, at result recovery** (option C): stations, tensor-basis normals
 and physical directors are the ones the solver used in *that* analysis, taken
-from its recovery output (O5(a) solver keys), never recomputed from the static
-mesh or the initial build. They therefore include analysis-time imperfections:
+from its recovery output and the solved reference model of that analysis (through
+the B2 module of revision 4, which recomputes frames on the model the analysis
+solved and cross-checks them), never taken from the static mesh or the initial build. They therefore include analysis-time imperfections:
 the nonlinear / arc-length `imperfection` and the capacity eigenmode
 imperfection applied after the initial build. The artifact records, per
 analysis, the imperfection provenance (kind, mode or field, amplitude) next to
@@ -124,16 +125,109 @@ normals), emitted only with `return_global=True`, existing keys and values
 unchanged; or (b) ANYfem rotates the stored native local families with a frame
 it recomputes from the mesh, proven by a test that the recomputed frame
 reproduces the solver's own `global_*` surface values to 1e-13 relative.
-Decided (a). Reason it was recommended: (b) duplicates each element's frame
-rule, and for warped Q4 the per-family frame split (F3) is exactly where
-duplication drifts. (b) is not pursued.
+Decided (a) on 2026-11-18; **REVISED 2026-11-19 (owner: "B2 with cross-check")
+to (b), implemented in an unpinned solver module.** Reason: ANYfeSolver PR #74
+implemented (a) and was stopped because the qualified source files are pinned by
+a successor record that binds each carrier byte-for-byte to its upstream blob
+(`docs/reference_cases/e4_pl_source_binding_20261111.json`, schema v2; 12 tests
+fail on any edit to `e4_pl_element.py`, `e4_pl_s3_element.py`, `elements.py`),
+by a frozen contract (`ge_beam3_g3c_contract_v1.json`) and by
+`release_043_runtime.json`. A schema v3 successor would be a change to the
+qualification process, which the owner declined. Revised rule (B2):
+* A new, unpinned module in ANYfeSolver (`src/anyfesolver/shell_axes_outputs.py`)
+  derives, from the dict that `compute_stresses(return_global=True)` already
+  returns plus the mesh, displacements and material, the station positions, the
+  tensor-basis normals, the director polarity metadata and, where the branch
+  emits none (legacy homogeneous, e4-pl warped homogeneous), the three global
+  family tensors, by rotating the native local N, M, Q forms with frames it
+  recomputes through the existing read-only helpers. Every pinned file stays
+  byte-identical; nothing is called unless a caller invokes the function (the
+  entry hook is in ANYfem's post/recovery path).
+* **Cross-check on every call (acceptance, not an option).** The module's
+  recomputed frames are compared with a quantity the solver itself emitted that
+  depends on the same frame, so the check is never an identity of the recomputed
+  frame with itself:
+  - homogeneous branches: the solver's `global_{xx,yy,zz,xy,xz,yz}_{top,bot}`
+    (full tensors) against the same tensors rebuilt from the solver's local
+    surface values (`local_*`, including `local_shear` and, for warped Q4, the
+    centre-frame shear projected into each station's tangent plane as the
+    solver documents it) rotated with the module's recomputed station frame;
+  - generalized branches: the solver-emitted `global_membrane_resultant_tensors`,
+    `global_bending_resultant_tensors`, `global_transverse_shear_resultants`
+    against the solver's local N, M, Q components rotated with the recomputed
+    frame of that family (station frame for membrane and bending; centre frame
+    for shear where the branch uses it, F3), with the branch's polarity
+    convention (F3a) applied exactly as the adapter records;
+  - the stored tensor-basis normals have unit length (checked), and each derived
+    membrane and bending tensor T (in-plane by construction) satisfies
+    |nu . T| <= 1e-13 s_T; the shear vector is not required tangent (warped Q4
+    centre-frame shear), its normal component nu . Q is recorded (section 4).
+  If no solver-emitted frame-dependent reference exists for a family, the
+  family is refused (`AXES_FRAME_RULE_MISMATCH` with reason `no_reference`).
+  The check is **per family, at the resolution the reference allows** (Codex
+  r2-r4; no orientation-sensitivity machinery): every family f (membrane,
+  bending, shear) of an element is compared separately.
+  (1) Family reference. Generalized, flat Q4, S3 and V2D emit each family's
+  global tensor, so the reference is that tensor and the allowance is
+  a_f = 1e-13 s_f. Homogeneous branches that emit only the surface tensors
+  (legacy, warped Q4) resolve the families after rotating the solver's global
+  surface tensors into the module's recomputed station frame (G^T S G):
+  membrane = in-plane components (xx, yy, xy) of (top + bot)/2, bending =
+  in-plane components of (top - bot)/2 (both surfaces carry the same transverse
+  shear, which survives the sum and cancels in the difference), shear = (xz, yz)
+  of (top + bot)/2; for warped Q4 the native shear is the centre-frame vector, so
+  the derived shear is compared after the same projection into the station's
+  tangent plane that the solver documents (F3); the allowance is a_f = 1e-13 s_f + 64 eps s_surf with eps = 2^-52
+  and s_surf = max abs of the element's surface tensors (the roundoff of the
+  emitted m +- b, F3c). Here the derived family is compared with the reference
+  resolved from the solver's own surfaces, never reconstructed for storage.
+  (2) Residual r_f = max over the element's stations and components of
+  |derived_f - reference_f|, s_f = max over the same of |reference_f|; all values
+  must be finite; a missing reference refuses the family (`no_reference`).
+  (3) Certification: a family is certified iff r_f <= a_f **and**
+  a_f <= 1e-9 s_f (the check can detect any error of the family above 1e-9 of its
+  own magnitude, including a reversed sign or a rotation by pi). A family that
+  fails the second inequality (for surface-resolved families, roughly
+  s_f < 1.4e-5 s_surf) is refused with reason `unresolvable_family`, even when
+  its numbers happen to agree; a family with s_f = 0 is certified only if its
+  derived tensor is exactly zero.
+  (4) Each distinct frame is thereby checked through every family that uses it;
+  the centre frame of warped Q4 shear is checked through the shear family only.
+  (5) Out-of-plane check, in addition to the per-family rule: on surface-only
+  branches the full solver surface tensors (all six components, including zz, xz,
+  yz) are compared with the tensors rebuilt from the derived families and the
+  recomputed frame (rotated back out), residual <= 1e-13 s_surf + 64 eps s_surf;
+  on direct-reference branches the stored global family tensors are compared
+  with the solver's own (rule (1)) and |nu . T| is checked. A tilt of the
+  recomputed normal, which in-plane family projections cannot see, fails here.
+  Regression tests (D2-1): (a) isotropic bending of magnitude 1 and membrane
+  1e-8 with a wrong frame (1e-6 rad): the membrane is refused
+  (`unresolvable_family`, because 1e-8 < 1.4e-5), the bending certified or
+  refused on its own agreement; the same with the right frame also refuses the
+  membrane (it cannot be certified, by design); (b) anisotropic bending (xx 1, yy -1) and anisotropic membrane (xx 1e-3,
+  yy -1e-3): right frame certified for both, a 1e-6 rad frame error refused with a
+  residual failure; (c) anisotropic bending 1 with shear (xz 1e-14) and a frame reversed by pi:
+  shear refused (`unresolvable_family`); (e) surface-only branch with surfaces +-diag(1, -1, 0) and a recomputed frame
+  tilted by 1e-7 rad about the in-plane Y axis: refused by rule (5) although the
+  in-plane family residual passes; (d) generalized branch with anisotropic N, M and a Q vector: a wrong frame
+  of 1e-12 rad is detected at 1e-13 s_f.
+  On failure (`r_f > a_f`, nonfinite values, `no_reference`, or
+  `unresolvable_family`, or a failure of the out-of-plane check (5)): typed refusal `AXES_FRAME_RULE_MISMATCH` for that family
+  of that element (nothing is stored for it; the reason is recorded), so a
+  frame-rule drift fails closed. These rules (1)-(5) together, applied jointly, are the only
+  acceptance rule of the cross-check (a failure of any one refuses, with nothing stored); it supersedes every earlier "1e-13 relative
+  to the family max" wording.
+* Consequence for D2-6 (nonlinear, corotational): the module must reproduce the
+  recovery's rotated current-geometry stress frame (S/recovery.py:1254, 1275)
+  per frame; if that cannot be cross-checked to the bound, the analysis is
+  refused (`AXES_ANALYSIS_NOT_QUALIFIED`) until a solver hook is agreed.
 
 **Solver changes are coordinated first (owner instruction 2026-11-18: "For
 solver related issues coordinate with the task 'ANYsolver CI cleanup'").** The
-O5(a) outputs and any other ANYfeSolver change in a D2 slice are agreed with the
+B2 module (revision 4; formerly the O5(a) outputs) and any other ANYfeSolver change in a D2 slice are agreed with the
 "ANYsolver CI cleanup" session (local_13c40095-3e8f-4330-8826-a8dc2198b6e9)
 before implementation starts. That session confirmed (2026-11-18, relayed by
-the coordinator) that O5(a) does not conflict with its work, with one
+the coordinator) that the then-planned O5(a) change did not conflict with its work, with one
 precondition: no D2 solver change starts until ANYfeSolver main has been
 fast-forwarded to `claude/ci-green-kernel-20261117` (moves the package from
 `src/anysolver/` to `src/anyfesolver/`; expected within hours of that date).
@@ -370,7 +464,7 @@ Solve side (ANYfem): a request for any `axes_*` quantity sets **both**
 `requested_stress` and `requested_global_stress` (F7), and persists the station
 records and, for generalized branches, N, M and Q. Each analysis route claimed
 in a slice gets a save, reopen and evaluate test that requests only `axes_*`
-fields. Solver: numerics untouched; the additive O5(a) keys (decided).
+fields. Solver: numerics untouched and every pinned file byte-identical; the B2 module is new and unpinned (revision 4).
 
 Rejected locations: solver recovery (needs sheets and geometry the solver must
 not know, and would change solver outputs); anypost (no geometry or sheet
@@ -392,7 +486,7 @@ files without `result_axes` keep exact bytes.
 | O2 | **DECIDED 2026-11-19: yes for ordinary models; opt-in above a payload threshold (about 256 MB raw estimated per case as the starting point, number fixed and justified from measurements in D2-7).** Request the global route by default whenever shells are solved | barge 2.2-9.0 MB raw per case + 1.2-2.3 MB once; 1 M shells 0.48-0.86 GB per case; recovery time measured | re-expression without re-solve |
 | O3 | **DECIDED 2026-11-19: projected global X, falling back to Y then Z.** Default definition: projected X -> Y -> Z, band 10 deg (proposed) vs drawing axes | changes the axes (hence values) on groups where the two differ; counted per group | meaning of "xx" |
 | O4 | **DECIDED 2026-11-19: band 10 deg, fold limit 30 deg.** Band 10 deg, fold limit 30 deg | availability and rung, hence values on boundary groups | fail-closed thresholds |
-| O5 | Missing outputs: (a) additive solver outputs or (b) ANYfem recomputes | **DECIDED 2026-11-18: (a)**; adds solver keys only under `return_global`, existing keys and values unchanged | contract surface; was needed before D2-1 |
+| O5 | Missing outputs: (a) additive solver outputs or (b) recompute outside the pinned files | **DECIDED 2026-11-18: (a); REVISED 2026-11-19 to (b) as B2 with cross-check** (new unpinned solver module, every pinned file byte-identical, `AXES_FRAME_RULE_MISMATCH` on a cross-check failure) | (a) needs a schema-v3 successor record for the pinned qualified sources, declined by the owner |
 | O6 | **DECIDED 2026-11-19: labels name the basis, "(element axes)" / "(result axes)"; keys unchanged.** Existing labels gain axis text: "Membrane xx (element axes)" | text only, keys unchanged | basis visible |
 | O7 | **NOT part of D2 (owner 2026-11-19): separate investigation.** Orthotropic shells: today their material axes follow node order (F12) | not measured; a modelling defect independent of D2 | flagged for a separate decision |
 | O8 | Performance budget with an axes request (P-b): solve-path added time <= 10 % of the solve stage, load <= 10 %, first evaluation <= 1 s (barge) / <= 10 % of solve (larger), field change <= 0.2 s, memory <= 2 x raw payload | **DECIDED 2026-11-18: approved** ("O8 budget approved"); pass/fail per slice | owner: "ensure speed and performance is maintained" |
@@ -454,11 +548,15 @@ mesh settings) in D2-1; candidate: the barge meshed at a 0.25 m target.
   Carried by D2-1 (solver outputs and persistence), D2-2 (transform core,
   timed on stored barge arrays), D2-4 (evaluation and display on a field
   change), D2-6 (per-frame directors).
-* **P-c, no second build and no per-element Python loop on the solve path.**
+* **P-c, no second build; per-element Python loop only in the opt-in B2 module.**
   The per-analysis frame check (RC) runs on the arrays the recovery already
-  returns: no second FE model build, no geometry re-mesh, no Python loop over
-  elements or stations. The O5(a) solver outputs are copies inside the existing
-  per-element recovery loop (no new loop). Checks and grouping are vectorized
+  returns: no second FE model build, no geometry re-mesh. **Amended 2026-11-19
+  (owner, with O5 = B2):** the B2 derivation module (section 1) may loop over
+  elements in Python, on the axes-request path only; the ordinary path
+  (no `axes_*` request) gains no loop and stays bit-identical (P-a), and the O8
+  time budget (P-b) stays pass/fail with the module's cost measured on the barge
+  and on the larger model. The checks and grouping of the transform are still
+  vectorized
   numpy (face projection with the geometry's `*_many` batch calls as D1 does;
   groups by sparse connected components). Verified by (i) a test that counts
   model builds per analysis (exactly one, as today) with and without an axes
@@ -479,11 +577,11 @@ generalized, including whether warped Q4 recovers through
 `faceted` reference-surface modes): which global family tensors, stations,
 tensor-basis normals per family, physical director and polarity handling,
 offsets, top sign convention. Accept: a table with file:line
-per cell, every cell checked by a small probe; O5 decided by the owner ((a), 2026-11-18).
+per cell, every cell checked by a small probe; O5 decided by the owner ((a) 2026-11-18, revised to B2 2026-11-19).
 
 **D2-1 Data.** Adapters, persistence, request gates. Precondition (first
 slice touching the solver): ANYfeSolver main fast-forwarded to
-`claude/ci-green-kernel-20261117`, and the O5(a) change agreed with the
+`claude/ci-green-kernel-20261117`, and the O5 change (now B2, revision 4) agreed with the
 "ANYsolver CI cleanup" session (section 1). **Met 2026-11-18** (coordinator):
 ANYfeSolver origin/main fast-forwarded to `7f006b7a3`, layout
 `src/anyfesolver/`; that SHA is the base for the first solver slice (D2-1). The
@@ -495,7 +593,13 @@ on the +physical-director side;
 own frame reproduce its native local membrane, bending and shear values to
 1e-13 relative to a fixed nonzero scale per family (the family's max abs over the
 fixture), including a mixed-magnitude fixture (membrane 1e-8 of bending and the
-reverse) that would fail any surface reconstruction; (iii) ordinary-use bit-identical check (section 5);
+reverse) that would fail any surface reconstruction. Revision 4: this storage
+test applies to every branch (the derived tensors are rotations of the native
+local values, never reconstructed). The **runtime cross-check** of section 1
+additionally certifies a family only if it is resolvable: on direct-reference
+branches (generalized, flat Q4, S3, V2D) the 1e-8 fixture is stored and
+certified; on surface-only branches (legacy and warped Q4 homogeneous) the
+1e-8 family is an expected refusal `unresolvable_family`, tested as such; (iii) ordinary-use bit-identical check (section 5);
 (iv) barge measurements: n_p, raw and gzip size per case, peak memory, recovery
 seconds, signed normal agreement per face (du x dv and drawing normal), angle of
 local x to the projected reference per element, A1 vs A2 at 1/10/100 cases.
@@ -600,10 +704,10 @@ faces, triangles or imported meshes; complementary at most).
 O1 DECIDED 2026-11-19: GUI default to result axes; O2 DECIDED 2026-11-19: global route by
 default for shell solves on ordinary models, opt-in above a payload threshold (about 256 MB raw per case as the
 starting point, fixed in D2-7 from measurements); O3 DECIDED 2026-11-19: default definition projected X -> Y -> Z;
-O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), solver adds the missing outputs as extra keys, only under `return_global`; O6 DECIDED 2026-11-19: labels name the basis,
+O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), REVISED 2026-11-19 to B2 with cross-check (new unpinned solver module, `AXES_FRAME_RULE_MISMATCH`; reason: pinned qualified sources, section 10); O6 DECIDED 2026-11-19: labels name the basis,
 keys unchanged; O7 orthotropic material axes follow node order today (separate defect; NOT part of this work, separate investigation, owner 2026-11-19);
 O8 DECIDED 2026-11-18: performance budget approved, pass/fail (section 5a);
-solver changes (O5(a) and any other) coordinated with "ANYsolver CI cleanup"
+solver changes (the B2 module and any other) coordinated with "ANYsolver CI cleanup"
 before implementation; O9 imperfect-run recovery
 on the solved model (D2-6a, changes existing values of imperfect runs).
 
@@ -742,8 +846,8 @@ Corrections to section 0 and new facts that the later slices rely on:
 1. F6: ordinary homogeneous V2D (polarity +1, offset 0) returns no `director_polarity`
    or offset keys (V2C shortcut, `e4_pl_s3_v2d_element.py:1605-1611`); they appear for
    generalized sections, polarity -1 or nonzero offset. Qualified S3 always returns the
-   offset keys but no `director_polarity` key (`e4_pl_s3_element.py:5284-5314`). O5(a) must
-   make V2D return both always and S3 return the polarity.
+   offset keys but no `director_polarity` key (`e4_pl_s3_element.py:5284-5314`). under B2 the
+   module supplies polarity and offsets for both (the pinned sources are not changed).
 2. F5: e4-pl warped returns no `natural_point_coordinates` (planar path only,
    `e4_pl_element.py:7091`); it returns `physical_director` and per-station
    `physical_directors`. Warped without `reference_normal` returns no metadata at all.
@@ -781,7 +885,7 @@ Corrections to section 0 and new facts that the later slices rely on:
 12. `faceted` is an ANYfem build choice (`build.py:287-295`), not a solver mode; the
     solver refuses a reference normal off the facet normal.
 
-O5(a) missing outputs per branch are listed in `matrix.md`. In short: legacy homogeneous
+The missing outputs per branch (now derived by the B2 module) are listed in `matrix.md`. In short: legacy homogeneous
 and e4-pl warped homogeneous lack the three family tensors; every branch except V2D lacks
 station positions; tensor-basis normals per family are missing except V2D `frame`; qualified
 S3 returns no frame or director.
@@ -790,3 +894,23 @@ Not probed (carried into D2-1/D2-5): legacy 6/8-node reversed numbering; orthotr
 Hill materials, custom `natural_points`, nonzero initial stress; nonlinear and corotational
 recovery frames; ANYfem's recovery wrapper (`_RecoveryIsotropicMaterial`); strict-flat
 V2/V2B/V2C candidates; the barge's planar/warped split.
+
+### Revision 4 (owner decision 2026-11-19, "B2 with cross-check")
+
+Triggered by D2-1 implementation: ANYfeSolver#74 (additive solver outputs) was
+correct and Codex-clean but cannot merge without a v3 successor record, because
+`e4_pl_source_binding_20261111.json` binds the qualified Q4/S3/legacy sources to their
+upstream blobs and symbol-closure hashes (12 pin tests), and `ge_beam3_g3c_contract_v1.json`
+and `release_043_runtime.json` pin the same files. Changed text: section 1 (O5 paragraph),
+section 5 (O5 row), section 5a (P-c), section 6 (D2-1 precondition), section 8. The cross-check
+bound (1e-13 relative to the family max abs) is the one section 1 had already required for
+option (b). Review of the changed text: see the round record below.
+
+Codex review of revision 4 (GPT 6.1 Sol, high; rounds 1-9 on the changed text only, transcripts kept
+outside the repository): r1 3 P2 (surviving O5(a) wording, generalized branches had no independent
+comparison, tolerance undefined); r2 1 P2 (a mixed-family reference cannot resolve a small family);
+r3-r4 the first angle-resolution attempt, rejected as over-engineered (pi flips, unit and norm
+inconsistencies); r5 per-family resolution rule, 3 P2 + 1 P3 (old 1e-13 wording, membrane/shear
+separation, D2-1 (ii) conflict, isotropic fixtures); r6-r7 tangency scope and out-of-plane tilt
+(rule (5), fixture (e)); r8 acceptance wording; r9 CLEAN. The cross-check is exactly rules (1)-(5) of
+section 1; D2-1 implements them with the regression tests (a)-(e) listed there.
