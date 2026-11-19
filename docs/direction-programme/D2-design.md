@@ -28,8 +28,8 @@ by the round-1 review and confirmed by me.
 | F3b | From the D1 review (relayed by the coordinator, not re-checked here): warped qualified Q4 recovers through `ShellElement.compute_stresses` with frames at each recovery point, not `equation7_frame`; with `s3_reference_surface="faceted"` the solve build uses the signed facet normal, not the source normal (F/solve/build.py:287-295); higher-order frames vary within an element, and a folded Q8 can have normals of mixed sign across its recovery points | coordinator message 2026-11-18 |
 | F3c | Surface stresses are formed as rounded `m + b`, `m - b` (S/elements.py:3534; anyfesolver_results formulas.py:126), so recovering m and b from surfaces is lossy in float64 (Codex r2 example: m = 1, b = 2^54 recovers m = 0) | (Codex r2) |
 | F4 | Local `membrane_xx`, `bending_xx`, `shear_xz` are **stresses** in Pa: N/t, 6M/t^2, Q/t | S/e4_pl_element.py:7160-7175 (Codex r1, checked) |
-| F5 | Station and frame metadata is not uniform: e4-pl reports `physical_director(s)`, `natural_point_coordinates`; S3 V2D reports `frame`, `hammer_points`, `external_barycentric_coordinates`, `physical_station_coordinates`, offsets; legacy reports none of these | S/e4_pl_element.py:6759-6762, 7091 (checked); S/e4_pl_s3_v2d_element.py:1659-1680 (checked); grep S/elements.py (checked) |
-| F6 | S3 V2D reports moment reference and physical surface offsets (`reference_surface_offset`, `section_origin_offset_from_reference`, `physical_{bottom,top}_offset_from_reference`) | S/e4_pl_s3_v2d_element.py:1673-1680 (checked) |
+| F5 | (qualified in section 10 items 1-2: ordinary homogeneous V2D returns no polarity or offset keys; e4-pl warped returns no `natural_point_coordinates`) Station and frame metadata is not uniform: e4-pl reports `physical_director(s)`, `natural_point_coordinates`; S3 V2D reports `frame`, `hammer_points`, `external_barycentric_coordinates`, `physical_station_coordinates`, offsets; legacy reports none of these | S/e4_pl_element.py:6759-6762, 7091 (checked); S/e4_pl_s3_v2d_element.py:1659-1680 (checked); grep S/elements.py (checked) |
+| F6 | (qualified in section 10 item 1: not returned for ordinary homogeneous V2D at polarity +1, offset 0) S3 V2D reports moment reference and physical surface offsets (`reference_surface_offset`, `section_origin_offset_from_reference`, `physical_{bottom,top}_offset_from_reference`) | S/e4_pl_s3_v2d_element.py:1673-1680 (checked) |
 | F7 | ANYfem runs recovery only if `requested_stress` (a `stress*` quantity key requested) and adds the global route only if `requested_global_stress` (basis global, not patch); modal and buckling shapes are not traversed by that loop | F/application/workflow.py:1475-1490, 4664-4691 (checked; modal/buckling: Codex r1, to verify) |
 | F8 | The artifact persists the global surface stresses as `stress_global_*` (12 keys); the global resultant tensors are not persisted; a centre director table `shell_surface_directors` is written by `_add_requested_surface_history` (linear batch and transient) | F/io/result_artifact.py:43, 238-249, 812-826, 997 (checked; 997 Codex r1) |
 | F9 | Local fields are stored with `basis="element_local"`; keys carry no axis text | F/io/result_artifact.py:1709, 1809; F/post/fields.py:41-60 (checked) |
@@ -308,7 +308,7 @@ not only availability: a group near the boundary moves to another rung and its
 label.
 
 Triangles need no special rule (global tensors and the element's own director;
-V2D director = mesher reference normal, D0).
+V2D basis normal = mesher reference normal, D0; its physical director is `polarity * reference_normal`, F3a).
 
 ## 4. Top/bottom and signs from geometry (D3 coupling)
 
@@ -330,7 +330,7 @@ adapter.
 
 | Family | Result-axes value |
 |---|---|
-| surface stress | choose the physical surface first: "top" = the +n_side surface = solver `top` if the adapter's physical-director sign q = sign(physical director . n_side) is +1 else `bot` (q comes from the physical director and polarity, not from s, which is built on the tensor-basis normal; they differ e.g. for V2D at polarity -1, where the basis normal is the owner reference normal but solver `top` is on the +director side, D2-0 round 2); then the **full** tensor G^T S G, all six components; no further sign change |
+| surface stress | choose the physical surface first: "top" = the +n_side surface = solver `top` if the adapter's physical-director sign q = sign(physical director . n_side) is +1 else `bot` (for legacy branches, which have no physical director, solver `top` follows the numbered normal and q = s; otherwise q comes from the physical director and polarity, not from s, which is built on the tensor-basis normal; they differ e.g. for V2D at polarity -1, where the basis normal is the owner reference normal but solver `top` is on the +director side, D2-0 round 2); then the **full** tensor G^T S G, all six components; no further sign change |
 | membrane (stress or N) | a_i . N a_j (invariant to s) |
 | bending (stress or M) | s (a_i . M a_j), M as stored after the adapter has removed any polarity factor the branch applied (F3a) |
 | shear (stress or Q) | s (a_i . Q), with the frame of the normal Q was built with (centre for warped Q4, F3); residual nu . Q recorded |
@@ -760,7 +760,7 @@ Corrections to section 0 and new facts that the later slices rely on:
    Adapters must match stations by position, never by index.
 7. n_p: legacy T3 3, T6 7, Q4 4, Q8 9 (4 if reduced); e4-pl Q4 4; qualified S3 7; V2D 3.
 8. Polarity convention differs per branch (polarity -1): e4-pl global M, Q negate and the
-   frame normal is the director; V2D global M, Q negate but the basis normal is the owner
+   frame normal is the director only when the reference normal is collinear with the numbered-frame normal (see the caveat at the end of this item); V2D global M, Q negate but the basis normal is the owner
    `reference_normal`; qualified S3 global M, Q are multiplied back to the owner convention
    while its surfaces stay in director convention (so S3's global M disagrees in sign with
    its own surfaces). Negative polarity stays refused until each adapter is qualified. These statements rest
