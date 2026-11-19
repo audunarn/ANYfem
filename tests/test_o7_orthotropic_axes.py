@@ -55,3 +55,33 @@ def test_an_unused_orthotropic_material_does_not_block_an_isotropic_model():
         poisson_ratio_12=0.05, poisson_ratio_13=0.25, poisson_ratio_23=0.25,
         shear_modulus_12=30e9, shear_modulus_13=30e9, shear_modulus_23=30e9)))
     build_fe_model(project, project.generate_mesh(0.25))
+
+
+def test_a_face_without_shell_elements_does_not_refuse():
+    from anyfem.solve import build as B
+
+    project = probe.make("ortho")
+    mesh = project.generate_mesh(0.25)
+    mesh.elements_of_face = {face: [] for face in mesh.elements_of_face}
+    fe = B.FEModel(name="x")
+    for spec in project.materials.values():
+        fe.register_material(spec.build())
+    B._add_shells(project, mesh, fe)  # no orthotropic shell element is created
+    assert not fe.mesh.elements
+
+
+def test_the_registered_solver_material_decides_not_the_project_key():
+    """A spec registered under another name must not hide an orthotropic solver material."""
+    from anyfem.solve import build as B
+    from anyfem.solve.build import FEModel
+
+    fe = FEModel(name="x")
+
+    class NoSymmetry:
+        name = "S355"
+
+    fe.materials["S355"] = NoSymmetry()
+    with pytest.raises(B.OrthotropicShellAxesError):
+        B._refuse_orthotropic_shell_material(fe, 1, "S355")
+    with pytest.raises(B.OrthotropicShellAxesError):
+        B._refuse_orthotropic_shell_material(fe, 1, "missing")
