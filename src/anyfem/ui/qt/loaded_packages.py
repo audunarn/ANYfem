@@ -185,8 +185,16 @@ def _filesystem_distribution(name: str):
     ``find_distributions``, which may run arbitrary code; custom providers are
     treated as unavailable here.
     """
-    context = metadata.DistributionFinder.Context(name=name, path=list(sys.path))
+    entries = sys.path if type(sys.path) is list else []
+    path = [entry for entry in list(entries) if type(entry) is str]  # exact strings only: no __hash__/__fspath__ hooks
+    context = metadata.DistributionFinder.Context(name=name, path=path)
     return next(iter(metadata.MetadataPathFinder.find_distributions(context)), None)
+
+
+try:  # the real class, so that look-alikes are not trusted
+    from importlib._bootstrap_external import _NamespacePath as _NAMESPACE_PATH
+except ImportError:  # pragma: no cover - layout of another Python
+    _NAMESPACE_PATH = None
 
 
 def _inert_paths(paths) -> list:
@@ -196,10 +204,10 @@ def _inert_paths(paths) -> list:
     its cached list (iterating it can recalculate through path hooks and
     finders).  Any other object is not inspected.
     """
-    if type(paths) in (list, tuple):
+    kind = type(paths)  # identity checks only: never ==, never the type's attributes
+    if kind is list or kind is tuple:
         return [entry for entry in paths if type(entry) is str]
-    kind = type(paths)
-    if kind.__name__ == "_NamespacePath" and kind.__module__ in ("importlib._bootstrap_external", "_frozen_importlib_external"):
+    if _NAMESPACE_PATH is not None and kind is _NAMESPACE_PATH:
         try:
             cached = dict.get(object.__getattribute__(paths, "__dict__"), "_path")
         except Exception:
@@ -507,7 +515,21 @@ def _extra_ecosystem_modules(modules, known):
     return sorted(extra)
 
 
-def collect_loaded_packages(modules=None) -> PackageReport:
+def _qt_runtime(qtcore) -> str:
+    """``qVersion()`` only if it is the extension's own builtin bound to that module."""
+    if qtcore is None:
+        return UNKNOWN
+    function = dict.get(_namespace(qtcore), "qVersion")
+    if type(function) is not types.BuiltinFunctionType or function.__self__ is not qtcore:
+        return UNKNOWN
+    try:
+        value = function()
+    except Exception:
+        return UNKNOWN
+    return value if type(value) is str and value else UNKNOWN
+
+
+def collect_loaded_packages(modules=None, qt_runtime=None) -> PackageReport:
     """Describe the loaded packages without importing anything new."""
     start = time.perf_counter()
     modules = dict(sys.modules if modules is None else modules)
@@ -520,14 +542,8 @@ def collect_loaded_packages(modules=None) -> PackageReport:
         rows.append(_safe_row("Third party", module_name, display, candidates, modules, git_cache, False))
     # Loaded first, then the not-loaded names, each in table order.
     rows.sort(key=lambda row: (row.group != "ANY ecosystem", not row.loaded))
-    qt_runtime = UNKNOWN
-    qtcore = modules.get("PySide6.QtCore")
-    qversion = dict.get(_namespace(qtcore), "qVersion") if qtcore is not None else None
-    if callable(qversion):
-        try:
-            qt_runtime = str(qversion())
-        except Exception:
-            qt_runtime = UNKNOWN
+    if type(qt_runtime) is not str or not qt_runtime:  # the dialog passes the GUI thread's qVersion()
+        qt_runtime = _qt_runtime(modules.get("PySide6.QtCore"))
     elapsed = (time.perf_counter() - start) * 1000.0
     notes = ("Commits are the checkout HEAD read from .git; uncommitted changes are not checked.",)
     return PackageReport(sys.version.split()[0], sys.executable, qt_runtime,
@@ -580,8 +596,11 @@ def open_loaded_packages(window):
     from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
                                    QPushButton, QTableWidget, QVBoxLayout)
 
+    from PySide6.QtCore import qVersion
+
     opened = time.perf_counter()
     modules = dict(sys.modules)
+    qt_runtime = str(qVersion())
     dialog = QDialog(window)
     dialog.setObjectName("LoadedPackagesDialog")
     dialog.setWindowTitle("Loaded packages")
@@ -657,7 +676,7 @@ def open_loaded_packages(window):
 
     def work():  # touches only the snapshot, the box and the event
         try:
-            box["report"] = collect_loaded_packages(modules)
+            box["report"] = collect_loaded_packages(modules, qt_runtime)
         except Exception as caught:  # collect is guarded per row; this is the last net
             box["error"] = caught
         finally:

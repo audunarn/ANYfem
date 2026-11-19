@@ -404,3 +404,72 @@ def test_package_paths_are_read_without_import_machinery(tmp_path, monkeypatch):
     assert calls == []
     assert Path(_row(report, "anynspkg").import_path) == namespace_root / "anynspkg"
     assert all(row.module != "anycustompath" for row in report.rows)  # no inert location: not listed
+
+
+# Review round 6 regressions (failed on 28659e6).
+
+def test_path_types_are_compared_by_identity_and_impostors_rejected(tmp_path):
+    calls = []
+
+    class Meta(type):
+        def __eq__(cls, other):
+            calls.append("__eq__")
+            return False
+
+        __hash__ = type.__hash__
+
+        def __getattribute__(cls, name):
+            if name in ("__name__", "__module__"):
+                calls.append(name)
+            return super().__getattribute__(name)
+
+    class Odd(metaclass=Meta):
+        pass
+
+    class _NamespacePath:  # look-alike of importlib's class
+        @property
+        def __dict__(self):
+            calls.append("__dict__")
+            return {"_path": [str(tmp_path)]}
+
+    _NamespacePath.__module__ = "importlib._bootstrap_external"
+    odd, impostor = types.ModuleType("anyodd"), types.ModuleType("anyimpostor")
+    odd.__path__, impostor.__path__ = Odd(), _NamespacePath()
+    report = lp.collect_loaded_packages({"anyodd": odd, "anyimpostor": impostor})
+    assert calls == []
+    assert all(row.module not in ("anyodd", "anyimpostor") for row in report.rows)
+
+
+def test_only_exact_string_sys_path_entries_reach_metadata_discovery(monkeypatch):
+    import numpy  # noqa: F401  (a real loaded row that needs metadata discovery)
+    calls = []
+
+    class Entry:
+        def __hash__(self):
+            calls.append("__hash__")
+            return 1
+
+        def __fspath__(self):
+            calls.append("__fspath__")
+            return "."
+
+    class Text(str):
+        def __hash__(self):
+            calls.append("str.__hash__")
+            return str.__hash__(self)
+
+    monkeypatch.setattr(sys, "path", [Entry(), Text("."), *sys.path])
+    row = _row(lp.collect_loaded_packages(), "numpy")
+    assert calls == []
+    assert row.version_source == "metadata (numpy)"
+
+
+def test_qt_runtime_comes_only_from_the_real_builtin(tmp_path):
+    calls = []
+    fake = types.ModuleType("PySide6.QtCore")
+    fake.qVersion = lambda: calls.append("qVersion") or "9.9.9"
+    assert lp.collect_loaded_packages({"PySide6.QtCore": fake}).qt_runtime == lp.UNKNOWN
+    assert calls == []
+    from PySide6 import QtCore
+    assert lp.collect_loaded_packages({"PySide6.QtCore": QtCore}).qt_runtime == QtCore.qVersion()
+    assert lp.collect_loaded_packages({}, qt_runtime="6.1.2").qt_runtime == "6.1.2"

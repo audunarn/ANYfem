@@ -104,10 +104,10 @@ def test_loaded_packages_dialog_opens_before_collection_finishes(window, qapp, m
     release, started = threading.Event(), threading.Event()
     real = lp.collect_loaded_packages
 
-    def slow(modules=None):
+    def slow(modules=None, qt_runtime=None):
         started.set()
         release.wait(10)
-        return real(modules)
+        return real(modules, qt_runtime)
 
     monkeypatch.setattr(lp, "collect_loaded_packages", slow)
     window._actions["Loaded packages…"].trigger(); qapp.processEvents()
@@ -132,10 +132,10 @@ def test_closing_the_dialog_early_drops_the_late_result(window, qapp, monkeypatc
     release, done = threading.Event(), threading.Event()
     real = lp.collect_loaded_packages
 
-    def slow(modules=None):
+    def slow(modules=None, qt_runtime=None):
         release.wait(10)
         try:
-            return real(modules)
+            return real(modules, qt_runtime)
         finally:
             done.set()
 
