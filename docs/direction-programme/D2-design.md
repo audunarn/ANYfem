@@ -167,37 +167,39 @@ qualification process, which the owner declined. Revised rule (B2):
   stations and components of |reference|; pass iff all values are finite and
   r <= 1e-13 s; if s == 0 pass iff r == 0 (an all-zero family is accepted only as
   exactly zero); a missing or nonfinite reference or derived value is a refusal.
-  The check validates **frame angles**, and certifies a family only through the
-  angle resolution it achieves (Codex r2-r3): a surface or sum reference mixes
-  families, and an isotropic tensor carries no orientation information, so a
-  small anisotropic family cannot be certified by agreement on the surface scale
-  alone. Rules, per distinct frame (each station frame; the centre frame where a
-  family uses it) and per element:
-  (1) validation reference: a solver-emitted quantity that depends on that frame;
-  r = max |rebuilt - reference| must satisfy r <= 1e-13 s_ref (s_ref = max abs of
-  the reference);
-  (2) orientation sensitivity of a tensor: sigma = max over stations of the norm
-  of its deviatoric in-plane part and its out-of-plane/shear components (the
-  derivative of the rotated tensor with respect to a rotation about the
-  normal); sigma = 0 for an isotropic in-plane tensor;
-  (3) angle resolution of the validation: theta_res = 1e-13 s_ref / sigma_ref
-  (infinite if sigma_ref = 0);
-  (4) a family f rotated with that frame is certified iff sigma_f = 0 (its
-  rotation about the normal changes nothing) or theta_res sigma_f <= 1e-9 s_f,
-  i.e. an undetected frame error could change the family by at most 1e-9 of its
-  own magnitude; otherwise the family is refused with reason
-  `unresolvable_family`, never accepted on a larger family's agreement. A family
-  with s_f = 0 is certified only if its derived tensor is exactly zero;
-  (5) a family used with a frame no other family shares (warped Q4 shear in the
-  centre frame) is judged against the reference in which it is resolvable (its
-  own xz, yz components in the station tangent frame); the same rule (4) applies.
-  Regression tests (D2-1): (a) isotropic bending of magnitude 1 and anisotropic
-  membrane 1e-8 with a wrong frame (1e-6 rad): the membrane is refused
-  (`unresolvable_family`, since sigma_ref = 0), and so is the same fixture with
-  the right frame (it cannot be certified); (b) anisotropic bending of magnitude 1
-  and anisotropic membrane 1e-8: right frame certified, a 1e-6 rad frame error
-  refused as a residual failure; (c) warped Q4 with shear 1e-9 of bending and a
-  wrong centre frame: shear refused.
+  The check is **per family, at the resolution the reference allows** (Codex
+  r2-r4; no orientation-sensitivity machinery): every family f (membrane,
+  bending, shear) of an element is compared separately.
+  (1) Family reference. Generalized, flat Q4, S3 and V2D emit each family's
+  global tensor, so the reference is that tensor and the allowance is
+  a_f = 1e-13 s_f. Homogeneous branches that emit only the surface tensors
+  (legacy, warped Q4) resolve the families as m = (top + bot)/2 and
+  b = (top - bot)/2 in the surface tensors, and shear from the xz, yz surface
+  components; the allowance is a_f = 1e-13 s_f + 64 eps s_surf with eps = 2^-52
+  and s_surf = max abs of the element's surface tensors (the roundoff of the
+  emitted m +- b, F3c). Here the derived family is compared with the reference
+  resolved from the solver's own surfaces, never reconstructed for storage.
+  (2) Residual r_f = max over the element's stations and components of
+  |derived_f - reference_f|, s_f = max over the same of |reference_f|; all values
+  must be finite; a missing reference refuses the family (`no_reference`).
+  (3) Certification: a family is certified iff r_f <= a_f **and**
+  a_f <= 1e-9 s_f (the check can detect any error of the family above 1e-9 of its
+  own magnitude, including a reversed sign or a rotation by pi). A family that
+  fails the second inequality (for surface-resolved families, roughly
+  s_f < 1.4e-5 s_surf) is refused with reason `unresolvable_family`, even when
+  its numbers happen to agree; a family with s_f = 0 is certified only if its
+  derived tensor is exactly zero.
+  (4) Each distinct frame is thereby checked through every family that uses it;
+  the centre frame of warped Q4 shear is checked through the shear family only.
+  Regression tests (D2-1): (a) isotropic bending of magnitude 1 and membrane
+  1e-8 with a wrong frame (1e-6 rad): the membrane is refused
+  (`unresolvable_family`, because 1e-8 < 1.4e-5), the bending certified or
+  refused on its own agreement; the same with the right frame also refuses the
+  membrane (it cannot be certified, by design); (b) bending 1 and membrane
+  1e-3: right frame certified for both, a 1e-6 rad frame error refused with a
+  residual failure; (c) shear 1e-14 of bending with a frame reversed by pi:
+  shear refused (`unresolvable_family`); (d) generalized branch: a wrong frame of
+  1e-12 rad is detected at 1e-13 s_f.
   On failure: typed refusal `AXES_FRAME_RULE_MISMATCH` for the element (nothing
   is stored for it), so a frame-rule drift fails closed. Because the scale is the
   family's own magnitude, a frame error in a family that is below 1e-13 of its own
