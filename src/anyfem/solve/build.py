@@ -250,6 +250,31 @@ def _build_combination(
     return folded
 
 
+class OrthotropicShellAxesError(ProjectError):
+    """An orthotropic shell material has no defined material direction (O7).
+
+    ANYfem passes the solver no ``material_direction``, so the material 1-axis
+    would follow each element's local x, which follows node order.  Refuse
+    until a direction can be set (docs/direction-programme/O7-orthotropic-axes.md).
+    """
+
+    code = "SHELL_ORTHOTROPIC_AXES_UNDEFINED"
+
+
+def _refuse_orthotropic_shell_material(
+    project: Project, face_id: int, material_name: str
+) -> None:
+    material = project.materials.get(material_name)
+    symmetry = getattr(material, "symmetry", "isotropic")
+    if symmetry != "isotropic":
+        raise OrthotropicShellAxesError(
+            f"{OrthotropicShellAxesError.code}: face {face_id} uses the "
+            f"{symmetry} material {material_name!r}, whose material axes would "
+            "follow element node order; ANYfem cannot yet set a material "
+            "direction, so orthotropic shells are refused"
+        )
+
+
 def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
     qualified_ids: list[int] = []
     owner_normals: dict[int, np.ndarray] = {}
@@ -269,6 +294,7 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
 
     for face_id, element_ids in mesh.elements_of_face.items():
         section = project.plate_section_of(face_id)
+        _refuse_orthotropic_shell_material(project, face_id, section.material)
         for element_id in element_ids:
             if element_id in mesh.quads:
                 node_ids = mesh.quads[element_id]

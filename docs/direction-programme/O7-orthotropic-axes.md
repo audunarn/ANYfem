@@ -1,6 +1,6 @@
 # O7: orthotropic shell material axes follow element node order
 
-Status: investigation only, nothing fixed (2026-11-19, branch `claude/o7-ortho-axes-20261119`, from origin/main ca9b137).
+Status: option A implemented (see Decision); option B not built (2026-11-19, branch `claude/o7-ortho-axes-20261119`, from origin/main ca9b137).
 Paths: F = src/anyfem, S = ANYfeSolver src/anyfesolver (main e23aa8c4b), M = ANYmaterial owner.
 
 ## Verdict
@@ -11,6 +11,28 @@ without any material direction, and the solver then puts the material 1-axis at 
 E1 = 40 GPa, E2 = 200 GPa, turning the node order of half the quads by 90 deg changes max
 deflection by **+10.6 %** and von Mises by up to **49 %** of the maximum. Isotropic results are
 unchanged (rounding level, 3e-15). The solver already has a mechanism that fixes it (section 5).
+
+## Decision (owner, 2026-11-19): "A now, B after D2"
+
+Option A is implemented: `_add_shells` (F/solve/build.py) refuses, before creating any element,
+a face whose plate section uses a non-isotropic material, with
+`OrthotropicShellAxesError(ProjectError)`, `code = "SHELL_ORTHOTROPIC_AXES_UNDEFINED"`. Only materials
+used by a shell section are refused; an unused orthotropic material does not block a model. Beams
+are unaffected. Option B (per-element `material_direction` from a D2 reference) is not built.
+
+* Regression test: `tests/test_o7_orthotropic_axes.py` (the former strict xfail is now the refusal
+  test; on the old code it fails with "DID NOT RAISE ProjectError"), plus the solve entry point,
+  the unused-material case and the isotropic node-order control.
+* `tests/test_workflow.py:293-370` are unchanged: they inject a solver `OrthotropicMaterial` into an
+  already built model (`built.fe_model.materials[...] = ...`), so they never pass the build refusal
+  and still test that results, recovery and probes handle orthotropic solver materials. They do not
+  author the material through the project. Injecting after build remains an unguarded
+  path (solver-level material objects), which the refusal does not cover.
+* Isotropic bit-identity, 60 m drawing barge (`drawing_barge_60m`, target 1.0 m, 8292 elements),
+  sha256 of nodes, element `to_dict()` and materials of the built FE model
+  (`scripts/o7_barge_hash.py`): old `03c387d764ae...a3023`, new identical. Build time, 3 runs each:
+  old 0.316 / 0.452 / 0.410 s, new 0.327 / 0.345 / 0.437 s (same within noise; the check is one
+  dict lookup per face).
 
 ## 1. Material types and path to the solver
 
