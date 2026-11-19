@@ -384,17 +384,17 @@ Checked by comparing arrays bit-for-bit and keys/descriptors/labels exactly
 the existing artifact and project-file regression tests unchanged. Project
 files without `result_axes` keep exact bytes.
 
-### Every changed default or label (owner decisions; none in D2-0..D2-6; O5 and O8 decided, the others open)
+### Every changed default or label (owner decisions; none takes effect before D2-7; O1-O6, O8 decided 2026-11-18/19, O7 is a separate investigation, O9 belongs to the imperfect-runs fix)
 
 | # | Change | Size (measured in D2-1/D2-5 before decision) | Reason |
 |---|---|---|---|
-| O1 | GUI "Membrane xx" etc. show result axes instead of element local | per element: the field change from rotating by the measured angle between local x and the projected reference; on elements near 90 deg xx and yy swap (difference about abs(sigma_xx - sigma_yy)); barge counts and max differences reported per face | removes squares |
-| O2 | Request the global route by default whenever shells are solved | barge 2.2-9.0 MB raw per case + 1.2-2.3 MB once; 1 M shells 0.48-0.86 GB per case; recovery time measured | re-expression without re-solve |
-| O3 | Default definition: projected X -> Y -> Z, band 10 deg (proposed) vs drawing axes | changes the axes (hence values) on groups where the two differ; counted per group | meaning of "xx" |
-| O4 | Band 10 deg, fold limit 30 deg | availability and rung, hence values on boundary groups | fail-closed thresholds |
+| O1 | **DECIDED 2026-11-19: yes (default, set in D2-7).** GUI "Membrane xx" etc. show result axes instead of element local | per element: the field change from rotating by the measured angle between local x and the projected reference; on elements near 90 deg xx and yy swap (difference about abs(sigma_xx - sigma_yy)); barge counts and max differences reported per face | removes squares |
+| O2 | **DECIDED 2026-11-19: yes for ordinary models; opt-in above a payload threshold (about 256 MB raw estimated per case as the starting point, number fixed and justified from measurements in D2-7).** Request the global route by default whenever shells are solved | barge 2.2-9.0 MB raw per case + 1.2-2.3 MB once; 1 M shells 0.48-0.86 GB per case; recovery time measured | re-expression without re-solve |
+| O3 | **DECIDED 2026-11-19: projected global X, falling back to Y then Z.** Default definition: projected X -> Y -> Z, band 10 deg (proposed) vs drawing axes | changes the axes (hence values) on groups where the two differ; counted per group | meaning of "xx" |
+| O4 | **DECIDED 2026-11-19: band 10 deg, fold limit 30 deg.** Band 10 deg, fold limit 30 deg | availability and rung, hence values on boundary groups | fail-closed thresholds |
 | O5 | Missing outputs: (a) additive solver outputs or (b) ANYfem recomputes | **DECIDED 2026-11-18: (a)**; adds solver keys only under `return_global`, existing keys and values unchanged | contract surface; was needed before D2-1 |
-| O6 | Existing labels gain axis text: "Membrane xx (element axes)" | text only, keys unchanged | basis visible |
-| O7 | Orthotropic shells: today their material axes follow node order (F12) | not measured; a modelling defect independent of D2 | flagged for a separate decision |
+| O6 | **DECIDED 2026-11-19: labels name the basis, "(element axes)" / "(result axes)"; keys unchanged.** Existing labels gain axis text: "Membrane xx (element axes)" | text only, keys unchanged | basis visible |
+| O7 | **NOT part of D2 (owner 2026-11-19): separate investigation.** Orthotropic shells: today their material axes follow node order (F12) | not measured; a modelling defect independent of D2 | flagged for a separate decision |
 | O8 | Performance budget with an axes request (P-b): solve-path added time <= 10 % of the solve stage, load <= 10 %, first evaluation <= 1 s (barge) / <= 10 % of solve (larger), field change <= 0.2 s, memory <= 2 x raw payload | **DECIDED 2026-11-18: approved** ("O8 budget approved"); pass/fail per slice | owner: "ensure speed and performance is maintained" |
 | O9 | Recovery of imperfect nonlinear/arc-length/capacity runs on the solved imperfect model instead of the initial build (separate fix "imperfect-runs-stresses"; D2-6a is the dependency) | changes existing recovered values of those runs; sized in that fix | today's values are evaluated on the perfect geometry (pre-existing gap, Codex r5) |
 
@@ -597,9 +597,11 @@ faces, triangles or imported meshes; complementary at most).
 
 ## 8. Owner decisions summary
 
-O1 GUI default to result axes; O2 global route by default; O3 default
-definition; O4 thresholds; O5 DECIDED 2026-11-18: (a), solver adds the missing outputs as extra keys; O6 label
-text; O7 orthotropic material axes follow node order today (separate defect);
+O1 DECIDED 2026-11-19: GUI default to result axes; O2 DECIDED 2026-11-19: global route by
+default for shell solves on ordinary models, opt-in above a payload threshold (about 256 MB raw per case as the
+starting point, fixed in D2-7 from measurements); O3 DECIDED 2026-11-19: default definition projected X -> Y -> Z;
+O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), solver adds the missing outputs as extra keys, only under `return_global`; O6 DECIDED 2026-11-19: labels name the basis,
+keys unchanged; O7 orthotropic material axes follow node order today (separate defect; NOT part of this work, separate investigation, owner 2026-11-19);
 O8 DECIDED 2026-11-18: performance budget approved, pass/fail (section 5a);
 solver changes (O5(a) and any other) coordinated with "ANYsolver CI cleanup"
 before implementation; O9 imperfect-run recovery
@@ -729,3 +731,54 @@ Final state: revision 3d, Codex-clean (round 8 covered the finding-34 text;
 rounds 1-7 covered the rest). Not covered by any round: the text-only owner and
 coordinator records (O5 and O8 decisions, solver-coordination note, fast-forward
 precondition). Open owner decisions: O1-O4, O6, O7, O9.
+
+## 10. D2-0 result: capability matrix (2026-11-19)
+
+Matrix and probes: `evidence/d2-0/matrix.md`, `probe_capability.py`, `capability.json`
+(25 branches, each cell probed; run time about 20 s, 4 threads). Solver checkout
+ANYfeSolver `e23aa8c4b` (D2 base `7f006b7a3` plus 17 comment lines in the V2D file).
+Corrections to section 0 and new facts that the later slices rely on:
+
+1. F6: ordinary homogeneous V2D (polarity +1, offset 0) returns no `director_polarity`
+   or offset keys (V2C shortcut, `e4_pl_s3_v2d_element.py:1605-1611`); they appear for
+   generalized sections, polarity -1 or nonzero offset. Qualified S3 always returns them.
+   O5(a) must make V2D return them always.
+2. F5: e4-pl warped returns no `natural_point_coordinates` (planar path only,
+   `e4_pl_element.py:7091`); it returns `physical_director` and per-station
+   `physical_directors`. Warped without `reference_normal` returns no metadata at all.
+3. F3b: holds for warped homogeneous only; generalized goes through
+   `ShellElement._compute_generalized_section_results` (`elements.py:3253`).
+4. Pointers moved: legacy F1 `elements.py:3572-3617`; V2D global resultants 1763-1790;
+   key set `recovery.py:1145-1148`.
+5. `create_shell_element(formulation="e4-pl-s3")` builds V2D; qualified S3 is reachable
+   only by direct construction, and ANYfem allows only `legacy-s3` / `e4-pl-s3-v2d`.
+   There are no qualified 6/8-node e4-pl variants (refused by the solver).
+6. Station order is data dependent: planar Q4 `natural_point_coordinates` are
+   (-,-),(+,-),(+,+),(-,+); warped and legacy Q4 are (-,-),(+,-),(-,+),(+,+). The same
+   index is a different physical point depending on whether warpage exceeds 1e-10.
+   Adapters must match stations by position, never by index.
+7. n_p: legacy T3 3, T6 7, Q4 4, Q8 9 (4 if reduced); e4-pl Q4 4; qualified S3 7; V2D 3.
+8. Polarity convention differs per branch (polarity -1): e4-pl global M, Q negate and the
+   frame normal is the director; V2D global M, Q negate but the basis normal is the owner
+   `reference_normal`; qualified S3 global M, Q are multiplied back to the owner convention
+   while its surfaces stay in director convention (so S3's global M disagrees in sign with
+   its own surfaces). Negative polarity stays refused until each adapter is qualified.
+9. Top side: `top = m + b` is on the +director side for e4-pl, S3 and V2D at both
+   polarities; e4-pl is unaffected by reversed numbering. Legacy has no director: top is
+   the +numbered-normal side and flips with node order.
+10. Global tensors carry no normal sign; the sign must come from director metadata.
+11. Legacy warped Q4 generalized and e4-pl warped without `reference_normal`: the shear
+    is computed in the centre frame but rotated with the station frame (a mixed-frame
+    case for the adapter, to be handled or refused).
+12. `faceted` is an ANYfem build choice (`build.py:287-295`), not a solver mode; the
+    solver refuses a reference normal off the facet normal.
+
+O5(a) missing outputs per branch are listed in `matrix.md`. In short: legacy homogeneous
+and e4-pl warped homogeneous lack the three family tensors; every branch except V2D lacks
+station positions; tensor-basis normals per family are missing except V2D `frame`; qualified
+S3 returns no frame or director.
+
+Not probed (carried into D2-1/D2-5): legacy 6/8-node reversed numbering; orthotropic and
+Hill materials, custom `natural_points`, nonzero initial stress; nonlinear and corotational
+recovery frames; ANYfem's recovery wrapper (`_RecoveryIsotropicMaterial`); strict-flat
+V2/V2B/V2C candidates; the barge's planar/warped split.

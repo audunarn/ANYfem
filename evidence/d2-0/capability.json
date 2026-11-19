@@ -1,0 +1,5817 @@
+{
+ "branches": {
+  "legacy-L3-h": {
+   "spec": {
+    "id": "legacy-L3-h",
+    "kind": "legacy",
+    "topo": "t3",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      3
+     ],
+     "bending_xy": [
+      3
+     ],
+     "bending_yy": [
+      3
+     ],
+     "equivalent_stress": [
+      3
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      3
+     ],
+     "global_xx_top": [
+      3
+     ],
+     "global_xy_bot": [
+      3
+     ],
+     "global_xy_top": [
+      3
+     ],
+     "global_xz_bot": [
+      3
+     ],
+     "global_xz_top": [
+      3
+     ],
+     "global_yy_bot": [
+      3
+     ],
+     "global_yy_top": [
+      3
+     ],
+     "global_yz_bot": [
+      3
+     ],
+     "global_yz_top": [
+      3
+     ],
+     "global_zz_bot": [
+      3
+     ],
+     "global_zz_top": [
+      3
+     ],
+     "hill_utilization": [
+      3
+     ],
+     "local_xx_bot": [
+      3
+     ],
+     "local_xx_top": [
+      3
+     ],
+     "local_xy_bot": [
+      3
+     ],
+     "local_xy_top": [
+      3
+     ],
+     "local_xz_bot": [
+      3
+     ],
+     "local_xz_top": [
+      3
+     ],
+     "local_yy_bot": [
+      3
+     ],
+     "local_yy_top": [
+      3
+     ],
+     "local_yz_bot": [
+      3
+     ],
+     "local_yz_top": [
+      3
+     ],
+     "local_zz_bot": [
+      3
+     ],
+     "local_zz_top": [
+      3
+     ],
+     "membrane_xx": [
+      3
+     ],
+     "membrane_xy": [
+      3
+     ],
+     "membrane_yy": [
+      3
+     ],
+     "shear_xz": [
+      3
+     ],
+     "shear_yz": [
+      3
+     ],
+     "von_mises": [
+      3
+     ]
+    },
+    "n_p": 3,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 4,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     3,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 1.425195116457523e-16,
+     "max_rel_nn_in_station_frame": 1.425195116457523e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      0.16666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.6666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.16666666666666666,
+      0.6666666666666666
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 230769230.76923075,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 4,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 3,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -1.0,
+     "top_minus_bot_sigma_aa_mean": -461538461.5384616,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": -85384615.3846154,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 4,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "legacy-L3-g": {
+   "spec": {
+    "id": "legacy-L3-g",
+    "kind": "legacy",
+    "topo": "t3",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      3,
+      3
+     ],
+     "curvature": [
+      3,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      3,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      3,
+      3
+     ],
+     "membrane_strain": [
+      3,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      3,
+      2
+     ],
+     "transverse_shear_strain": [
+      3,
+      2
+     ]
+    },
+    "n_p": 3,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 4
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     3,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      0.16666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.6666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.16666666666666666,
+      0.6666666666666666
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.3846153848,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.3846153847,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 4
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 3,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.3846153848,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -142307.69230769237,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 4
+     }
+    }
+   ]
+  },
+  "legacy-L4flat-h": {
+   "spec": {
+    "id": "legacy-L4flat-h",
+    "kind": "legacy",
+    "topo": "q4",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "von_mises": [
+      4
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 5,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 4.305057082446461e-16,
+     "max_rel_nn_in_station_frame": 1.3349997209686728e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "top_minus_bot_sigma_aa_mean": 461538461.5384616,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 230769230.76923078,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -1.0,
+     "top_minus_bot_sigma_aa_mean": -461538461.5384617,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": -69230769.23076925,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "legacy-L4flat-g": {
+   "spec": {
+    "id": "legacy-L4flat-g",
+    "kind": "legacy",
+    "topo": "q4",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 5
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 1.4210854715202004e-14,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.3846153848,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -115384.61538461542,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5
+     }
+    }
+   ]
+  },
+  "legacy-L4warp-h": {
+   "spec": {
+    "id": "legacy-L4warp-h",
+    "kind": "legacy",
+    "topo": "q4w",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "von_mises": [
+      4
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 5,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 0.13926056753028038,
+     "max_rel_nn_in_station_frame": 1.6402811492300448e-16,
+     "frame": "station"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "top_minus_bot_sigma_aa_mean": 455370497.1308833,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 228850793.1947058,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -0.993712150471259,
+     "top_minus_bot_sigma_aa_mean": -455370497.1308832,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": -68655237.95841174,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "legacy-L4warp-g": {
+   "spec": {
+    "id": "legacy-L4warp-g",
+    "kind": "legacy",
+    "topo": "q4w",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:2036:_center_frame": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 5
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 3.7054913780981757,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 3.705491378098077,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 3.5193944121987926,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "max_centre_vs_station_normal_deg": 3.7054913780981757
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "M_aa_global_mean": 379475.41427573614,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 381417.9886578432,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -0.993712150471259,
+     "M_aa_global_mean": -379475.4142757362,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -114425.39659735293,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 5
+     }
+    }
+   ]
+  },
+  "legacy-L6flat-h": {
+   "spec": {
+    "id": "legacy-L6flat-h",
+    "kind": "legacy",
+    "topo": "t6",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      7
+     ],
+     "bending_xy": [
+      7
+     ],
+     "bending_yy": [
+      7
+     ],
+     "equivalent_stress": [
+      7
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      7
+     ],
+     "global_xx_top": [
+      7
+     ],
+     "global_xy_bot": [
+      7
+     ],
+     "global_xy_top": [
+      7
+     ],
+     "global_xz_bot": [
+      7
+     ],
+     "global_xz_top": [
+      7
+     ],
+     "global_yy_bot": [
+      7
+     ],
+     "global_yy_top": [
+      7
+     ],
+     "global_yz_bot": [
+      7
+     ],
+     "global_yz_top": [
+      7
+     ],
+     "global_zz_bot": [
+      7
+     ],
+     "global_zz_top": [
+      7
+     ],
+     "hill_utilization": [
+      7
+     ],
+     "local_xx_bot": [
+      7
+     ],
+     "local_xx_top": [
+      7
+     ],
+     "local_xy_bot": [
+      7
+     ],
+     "local_xy_top": [
+      7
+     ],
+     "local_xz_bot": [
+      7
+     ],
+     "local_xz_top": [
+      7
+     ],
+     "local_yy_bot": [
+      7
+     ],
+     "local_yy_top": [
+      7
+     ],
+     "local_yz_bot": [
+      7
+     ],
+     "local_yz_top": [
+      7
+     ],
+     "local_zz_bot": [
+      7
+     ],
+     "local_zz_top": [
+      7
+     ],
+     "membrane_xx": [
+      7
+     ],
+     "membrane_xy": [
+      7
+     ],
+     "membrane_yy": [
+      7
+     ],
+     "shear_xz": [
+      7
+     ],
+     "shear_yz": [
+      7
+     ],
+     "von_mises": [
+      7
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 7
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     7,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 5.05226271239366e-16,
+     "max_rel_nn_in_station_frame": 1.0718676516782143e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "top_minus_bot_sigma_aa_mean": 461538461.53846157,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 230769230.76923078,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 7
+     }
+    }
+   ]
+  },
+  "legacy-L6flat-g": {
+   "spec": {
+    "id": "legacy-L6flat-g",
+    "kind": "legacy",
+    "topo": "t6",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      7,
+      3
+     ],
+     "curvature": [
+      7,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      7,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      7,
+      3
+     ],
+     "membrane_strain": [
+      7,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      7,
+      2
+     ],
+     "transverse_shear_strain": [
+      7,
+      2
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 7
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 1.4210854715202004e-14,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     7,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.3846153848,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.3846153846,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 7
+     }
+    }
+   ]
+  },
+  "legacy-L6curv-h": {
+   "spec": {
+    "id": "legacy-L6curv-h",
+    "kind": "legacy",
+    "topo": "t6c",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      7
+     ],
+     "bending_xy": [
+      7
+     ],
+     "bending_yy": [
+      7
+     ],
+     "equivalent_stress": [
+      7
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      7
+     ],
+     "global_xx_top": [
+      7
+     ],
+     "global_xy_bot": [
+      7
+     ],
+     "global_xy_top": [
+      7
+     ],
+     "global_xz_bot": [
+      7
+     ],
+     "global_xz_top": [
+      7
+     ],
+     "global_yy_bot": [
+      7
+     ],
+     "global_yy_top": [
+      7
+     ],
+     "global_yz_bot": [
+      7
+     ],
+     "global_yz_top": [
+      7
+     ],
+     "global_zz_bot": [
+      7
+     ],
+     "global_zz_top": [
+      7
+     ],
+     "hill_utilization": [
+      7
+     ],
+     "local_xx_bot": [
+      7
+     ],
+     "local_xx_top": [
+      7
+     ],
+     "local_xy_bot": [
+      7
+     ],
+     "local_xy_top": [
+      7
+     ],
+     "local_xz_bot": [
+      7
+     ],
+     "local_xz_top": [
+      7
+     ],
+     "local_yy_bot": [
+      7
+     ],
+     "local_yy_top": [
+      7
+     ],
+     "local_yz_bot": [
+      7
+     ],
+     "local_yz_top": [
+      7
+     ],
+     "local_zz_bot": [
+      7
+     ],
+     "local_zz_top": [
+      7
+     ],
+     "membrane_xx": [
+      7
+     ],
+     "membrane_xy": [
+      7
+     ],
+     "membrane_yy": [
+      7
+     ],
+     "shear_xz": [
+      7
+     ],
+     "shear_yz": [
+      7
+     ],
+     "von_mises": [
+      7
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 7
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     7,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 0.2847370571349228,
+     "max_rel_nn_in_station_frame": 1.8025155235939655e-16,
+     "frame": "station"
+    },
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9841833239736953,
+     "top_minus_bot_sigma_aa_mean": 450833961.3823396,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 225416980.6911697,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 7
+     }
+    }
+   ]
+  },
+  "legacy-L6curv-g": {
+   "spec": {
+    "id": "legacy-L6curv-g",
+    "kind": "legacy",
+    "topo": "t6c",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      7,
+      3
+     ],
+     "curvature": [
+      7,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      7,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      7,
+      3
+     ],
+     "membrane_strain": [
+      7,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      7,
+      2
+     ],
+     "transverse_shear_strain": [
+      7,
+      2
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 7
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 13.09324872783118,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 13.09324872783118,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 7.411067810196357,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "max_centre_vs_station_normal_deg": 13.09324872783118
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     7,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9841833239736953,
+     "M_aa_global_mean": 375694.9678186163,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 375694.9678186163,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 7
+     }
+    }
+   ]
+  },
+  "legacy-L8flat-h": {
+   "spec": {
+    "id": "legacy-L8flat-h",
+    "kind": "legacy",
+    "topo": "q8",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      9
+     ],
+     "bending_xy": [
+      9
+     ],
+     "bending_yy": [
+      9
+     ],
+     "equivalent_stress": [
+      9
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      9
+     ],
+     "global_xx_top": [
+      9
+     ],
+     "global_xy_bot": [
+      9
+     ],
+     "global_xy_top": [
+      9
+     ],
+     "global_xz_bot": [
+      9
+     ],
+     "global_xz_top": [
+      9
+     ],
+     "global_yy_bot": [
+      9
+     ],
+     "global_yy_top": [
+      9
+     ],
+     "global_yz_bot": [
+      9
+     ],
+     "global_yz_top": [
+      9
+     ],
+     "global_zz_bot": [
+      9
+     ],
+     "global_zz_top": [
+      9
+     ],
+     "hill_utilization": [
+      9
+     ],
+     "local_xx_bot": [
+      9
+     ],
+     "local_xx_top": [
+      9
+     ],
+     "local_xy_bot": [
+      9
+     ],
+     "local_xy_top": [
+      9
+     ],
+     "local_xz_bot": [
+      9
+     ],
+     "local_xz_top": [
+      9
+     ],
+     "local_yy_bot": [
+      9
+     ],
+     "local_yy_top": [
+      9
+     ],
+     "local_yz_bot": [
+      9
+     ],
+     "local_yz_top": [
+      9
+     ],
+     "local_zz_bot": [
+      9
+     ],
+     "local_zz_top": [
+      9
+     ],
+     "membrane_xx": [
+      9
+     ],
+     "membrane_xy": [
+      9
+     ],
+     "membrane_yy": [
+      9
+     ],
+     "shear_xz": [
+      9
+     ],
+     "shear_yz": [
+      9
+     ],
+     "von_mises": [
+      9
+     ]
+    },
+    "n_p": 9,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     9,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 8.622347899492289e-16,
+     "max_rel_nn_in_station_frame": 1.8645718008840906e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      0.0,
+      -0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      -0.7745966692414834,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.7745966692414834,
+      0.0
+     ],
+     [
+      -0.7745966692414834,
+      0.7745966692414834
+     ],
+     [
+      0.0,
+      0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      0.7745966692414834
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 9,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9999999999999999,
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 230769230.76923078,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "legacy-L8flat-g": {
+   "spec": {
+    "id": "legacy-L8flat-g",
+    "kind": "legacy",
+    "topo": "q8",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      9,
+      3
+     ],
+     "curvature": [
+      9,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      9,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      9,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      9,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      9,
+      3
+     ],
+     "membrane_strain": [
+      9,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      9,
+      2
+     ],
+     "transverse_shear_strain": [
+      9,
+      2
+     ]
+    },
+    "n_p": 9,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 9
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 2.842170943040401e-14,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     9,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      0.0,
+      -0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      -0.7745966692414834,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.7745966692414834,
+      0.0
+     ],
+     [
+      -0.7745966692414834,
+      0.7745966692414834
+     ],
+     [
+      0.0,
+      0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      0.7745966692414834
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 9,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9999999999999999,
+     "M_aa_global_mean": 384615.38461538486,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 9
+     }
+    }
+   ]
+  },
+  "legacy-L8curv-h": {
+   "spec": {
+    "id": "legacy-L8curv-h",
+    "kind": "legacy",
+    "topo": "q8c",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      9
+     ],
+     "bending_xy": [
+      9
+     ],
+     "bending_yy": [
+      9
+     ],
+     "equivalent_stress": [
+      9
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      9
+     ],
+     "global_xx_top": [
+      9
+     ],
+     "global_xy_bot": [
+      9
+     ],
+     "global_xy_top": [
+      9
+     ],
+     "global_xz_bot": [
+      9
+     ],
+     "global_xz_top": [
+      9
+     ],
+     "global_yy_bot": [
+      9
+     ],
+     "global_yy_top": [
+      9
+     ],
+     "global_yz_bot": [
+      9
+     ],
+     "global_yz_top": [
+      9
+     ],
+     "global_zz_bot": [
+      9
+     ],
+     "global_zz_top": [
+      9
+     ],
+     "hill_utilization": [
+      9
+     ],
+     "local_xx_bot": [
+      9
+     ],
+     "local_xx_top": [
+      9
+     ],
+     "local_xy_bot": [
+      9
+     ],
+     "local_xy_top": [
+      9
+     ],
+     "local_xz_bot": [
+      9
+     ],
+     "local_xz_top": [
+      9
+     ],
+     "local_yy_bot": [
+      9
+     ],
+     "local_yy_top": [
+      9
+     ],
+     "local_yz_bot": [
+      9
+     ],
+     "local_yz_top": [
+      9
+     ],
+     "local_zz_bot": [
+      9
+     ],
+     "local_zz_top": [
+      9
+     ],
+     "membrane_xx": [
+      9
+     ],
+     "membrane_xy": [
+      9
+     ],
+     "membrane_yy": [
+      9
+     ],
+     "shear_xz": [
+      9
+     ],
+     "shear_yz": [
+      9
+     ],
+     "von_mises": [
+      9
+     ]
+    },
+    "n_p": 9,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     9,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 0.4216930729427391,
+     "max_rel_nn_in_station_frame": 1.8418418034389963e-16,
+     "frame": "station"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      0.0,
+      -0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      -0.7745966692414834,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.7745966692414834,
+      0.0
+     ],
+     [
+      -0.7745966692414834,
+      0.7745966692414834
+     ],
+     [
+      0.0,
+      0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      0.7745966692414834
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 9,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9723873019805175,
+     "top_minus_bot_sigma_aa_mean": 444762890.8479151,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 222381445.4239575,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "legacy-L8curv-g": {
+   "spec": {
+    "id": "legacy-L8curv-g",
+    "kind": "legacy",
+    "topo": "q8c",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      9,
+      3
+     ],
+     "curvature": [
+      9,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      9,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      9,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      9,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      9,
+      3
+     ],
+     "membrane_strain": [
+      9,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      9,
+      2
+     ],
+     "transverse_shear_strain": [
+      9,
+      2
+     ]
+    },
+    "n_p": 9,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:1926:_local_frame_and_derivatives": 9
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 10.399233235729893,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 10.399233235729506,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 9.406013201118952,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "max_centre_vs_station_normal_deg": 10.39923323572947
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     9,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      0.0,
+      -0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      -0.7745966692414834
+     ],
+     [
+      -0.7745966692414834,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.7745966692414834,
+      0.0
+     ],
+     [
+      -0.7745966692414834,
+      0.7745966692414834
+     ],
+     [
+      0.0,
+      0.7745966692414834
+     ],
+     [
+      0.7745966692414834,
+      0.7745966692414834
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 9,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9723873019805175,
+     "M_aa_global_mean": 370635.7423732627,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 370635.7423732626,
+     "calls": {
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:1926:_local_frame_and_derivatives": 9
+     }
+    }
+   ]
+  },
+  "e4pl-Q4flat-h": {
+   "spec": {
+    "id": "e4pl-Q4flat-h",
+    "kind": "e4pl",
+    "topo": "q4",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "compatible_curvature": [
+      4,
+      3
+     ],
+     "compatible_membrane_strain": [
+      4,
+      3
+     ],
+     "compatible_transverse_shear_strain": [
+      4,
+      2
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "implementation_id": "E4_PL_Q4_HYBRID_STATIONARY_RECOVERY_DIRECTOR_RUIZ_V7",
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "numerical_fields_excluded": true,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_stress_available": true,
+     "recovery_policy_id": "Q4_HYBRID_PLANAR_STATIONARY_WARPED_VARYING_FRAME_PHYSICAL_DIRECTOR_RECOVERY_V3",
+     "recovery_scope": "qualified_q4_local_and_global_physical",
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ],
+     "von_mises": [
+      4
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true
+    },
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 3,
+     "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+     "e4_pl_element.py:4011:_physical_director_context": 1
+    },
+    "recovery_scope": "qualified_q4_local_and_global_physical",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [
+     "natural_point_coordinates"
+    ],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "physical_director_shape": [
+     3
+    ],
+    "physical_director_vs_centre_normal_deg": 0.0,
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 1.4658381552044397e-16,
+     "max_rel_nn_in_station_frame": 1.4658381552044397e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 230769230.76923084,
+     "local_bending_resultant_xx_mean": 384615.38461538486,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 3,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.3846153848,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 69230769.23076926,
+     "local_bending_resultant_xx_mean": 115384.61538461545,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 3,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 1
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": -1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.38461538474,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": -461538461.5384617,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": -230769230.76923084,
+     "local_bending_resultant_xx_mean": -384615.38461538486,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 3,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 1
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "other",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "other",
+    "bending_xx": "negated",
+    "shear_xz": "negated",
+    "membrane_xx": "same",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "negated",
+    "global_transverse_shear_resultants": "negated",
+    "global_surface_top_bot": "top/bot swapped"
+   }
+  },
+  "e4pl-Q4flat-g": {
+   "spec": {
+    "id": "e4pl-Q4flat-g",
+    "kind": "e4pl",
+    "topo": "q4",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "compatible_curvature": [
+      4,
+      3
+     ],
+     "compatible_membrane_strain": [
+      4,
+      3
+     ],
+     "compatible_transverse_shear_strain": [
+      4,
+      2
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "implementation_id": "E4_PL_Q4_HYBRID_STATIONARY_RECOVERY_DIRECTOR_RUIZ_V7",
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "numerical_fields_excluded": true,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_stress_available": false,
+     "recovery_policy_id": "Q4_HYBRID_PLANAR_STATIONARY_WARPED_VARYING_FRAME_PHYSICAL_DIRECTOR_RECOVERY_V3",
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true
+    },
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 2,
+     "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+     "e4_pl_element.py:4011:_physical_director_context": 2
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [
+     "natural_point_coordinates"
+    ],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "physical_director_shape": [
+     3
+    ],
+    "physical_director_vs_centre_normal_deg": 0.0,
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.3846153848,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.38461538486,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 2,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 2
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.3846153848,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 115384.61538461545,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 2,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 2
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": -1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.3846153848,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -384615.38461538486,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 2,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 2
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "other",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "other",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "negated",
+    "global_transverse_shear_resultants": "negated"
+   }
+  },
+  "e4pl-Q4warp-h": {
+   "spec": {
+    "id": "e4pl-Q4warp-h",
+    "kind": "e4pl",
+    "topo": "q4w",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "implementation_id": "E4_PL_Q4_HYBRID_STATIONARY_RECOVERY_DIRECTOR_RUIZ_V7",
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "numbered_frame_director_sign": 1,
+     "numbered_frame_director_signs": [
+      4
+     ],
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_directors": [
+      4,
+      3
+     ],
+     "recovery_policy_id": "Q4_HYBRID_PLANAR_STATIONARY_WARPED_VARYING_FRAME_PHYSICAL_DIRECTOR_RECOVERY_V3",
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "von_mises": [
+      4
+     ],
+     "warped_direct": true
+    },
+    "n_p": 4,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "numbered_frame_director_sign": 1,
+     "numbered_frame_director_signs": [
+      4
+     ],
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_directors": [
+      4,
+      3
+     ],
+     "warped_direct": true
+    },
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 1,
+     "e4_pl_element.py:6808:_recover_warped_homogeneous_section": 1,
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:2036:_center_frame": 2,
+     "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+     "elements.py:1926:_local_frame_and_derivatives": 10,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1,
+     "e4_pl_element.py:4011:_physical_director_context": 5
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "physical_director_shape": [
+     3
+    ],
+    "physical_director_vs_centre_normal_deg": 0.0,
+    "physical_directors_shape": [
+     4,
+     3
+    ],
+    "physical_directors_vs_station_normal_max_deg": 0.0,
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 0.13947587498658942,
+     "max_rel_nn_in_station_frame": 1.562681706160158e-16,
+     "frame": "station"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "director_dot_N0": 0.9937121504712589,
+     "top_minus_bot_sigma_aa_mean": 455370497.13088334,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 228850793.1947058,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6808:_recover_warped_homogeneous_section": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 5
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 0.993712150471259,
+     "director_dot_N0": 0.993712150471259,
+     "top_minus_bot_sigma_aa_mean": 455370497.1308832,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 68655237.95841174,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6808:_recover_warped_homogeneous_section": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 5
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": -0.9937121504712589,
+     "director_dot_N0": -0.9937121504712589,
+     "top_minus_bot_sigma_aa_mean": -455370497.13088334,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": -228850793.1947058,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6808:_recover_warped_homogeneous_section": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 5
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "bending_xx": "negated",
+    "shear_xz": "negated",
+    "membrane_xx": "same",
+    "global_surface_top_bot": "top/bot swapped"
+   }
+  },
+  "e4pl-Q4warp-g": {
+   "spec": {
+    "id": "e4pl-Q4warp-g",
+    "kind": "e4pl",
+    "topo": "q4w",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "implementation_id": "E4_PL_Q4_HYBRID_STATIONARY_RECOVERY_DIRECTOR_RUIZ_V7",
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "numbered_frame_director_sign": 1,
+     "numbered_frame_director_signs": [
+      4
+     ],
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_directors": [
+      4,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_policy_id": "Q4_HYBRID_PLANAR_STATIONARY_WARPED_VARYING_FRAME_PHYSICAL_DIRECTOR_RECOVERY_V3",
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ],
+     "warped_direct": true
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "numbered_frame_director_sign": 1,
+     "numbered_frame_director_signs": [
+      4
+     ],
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": true,
+     "physical_directors": [
+      4,
+      3
+     ],
+     "warped_direct": true
+    },
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 1,
+     "e4_pl_element.py:6692:_recover_warped_generalized_section": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:2036:_center_frame": 2,
+     "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+     "elements.py:1926:_local_frame_and_derivatives": 10,
+     "e4_pl_element.py:4011:_physical_director_context": 10
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 3.7054913780981757,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 3.705491378098077,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 3.5152299735529198,
+      "frame": "centre"
+     },
+     "max_centre_vs_station_normal_deg": 3.7054913780981757
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "physical_director_shape": [
+     3
+    ],
+    "physical_director_vs_centre_normal_deg": 0.0,
+    "physical_directors_shape": [
+     4,
+     3
+    ],
+    "physical_directors_vs_station_normal_max_deg": 0.0,
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "director_dot_N0": 0.9937121504712589,
+     "M_aa_global_mean": 379475.41427573614,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 381417.9886578432,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6692:_recover_warped_generalized_section": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "e4_pl_element.py:4011:_physical_director_context": 10
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": 0.993712150471259,
+     "director_dot_N0": 0.993712150471259,
+     "M_aa_global_mean": 379475.4142757362,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 114425.39659735293,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6692:_recover_warped_generalized_section": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "e4_pl_element.py:4011:_physical_director_context": 10
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "returned 'physical_director'",
+     "basis_normal_dot_N0": -0.9937121504712589,
+     "director_dot_N0": -0.9937121504712589,
+     "M_aa_global_mean": -379475.41427573614,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -381417.9886578432,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "e4_pl_element.py:6692:_recover_warped_generalized_section": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 2,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10,
+      "e4_pl_element.py:4011:_physical_director_context": 10
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "other",
+    "bending_resultants": "other",
+    "transverse_shear_resultants": "other",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "negated",
+    "global_transverse_shear_resultants": "negated"
+   }
+  },
+  "e4pl-Q4warp-h-noref": {
+   "spec": {
+    "id": "e4pl-Q4warp-h-noref",
+    "kind": "e4pl",
+    "topo": "q4w",
+    "sec": "h",
+    "ref": false
+   },
+   "mix": {
+    "keys": {
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "von_mises": [
+      4
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {},
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 1,
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:2036:_center_frame": 1,
+     "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+     "elements.py:1926:_local_frame_and_derivatives": 5,
+     "recovery_shell_frames.py:10:native_recovery_frames": 1
+    },
+    "recovery_scope": null,
+    "basis_normals": null,
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 0.13926056753028038,
+     "max_rel_nn_in_station_frame": 1.6402811492300448e-16,
+     "frame": "station"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "top_minus_bot_sigma_aa_mean": 455370497.1308833,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 228850793.1947058,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -0.993712150471259,
+     "top_minus_bot_sigma_aa_mean": -455370497.1308832,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": -68655237.95841174,
+     "local_bending_resultant_xx_mean": null,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:2036:_center_frame": 1,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "recovery_shell_frames.py:10:native_recovery_frames": 1
+     }
+    }
+   ]
+  },
+  "e4pl-Q4warp-g-noref": {
+   "spec": {
+    "id": "e4pl-Q4warp-g-noref",
+    "kind": "e4pl",
+    "topo": "q4w",
+    "sec": "g",
+    "ref": false
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "physical_stress_available": false,
+     "recovery_scope": "section_resultants_only",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {},
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 1,
+     "elements.py:3398:compute_stresses": 1,
+     "elements.py:3253:_compute_generalized_section_results": 1,
+     "elements.py:2036:_center_frame": 1,
+     "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+     "elements.py:1926:_local_frame_and_derivatives": 5,
+     "e4_pl_element.py:4011:_physical_director_context": 5
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 3.7054913780981757,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 3.705491378098077,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 3.5193944121987926,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "station"
+     },
+     "max_centre_vs_station_normal_deg": 3.7054913780981757
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 0.9937121504712589,
+     "M_aa_global_mean": 379475.41427573614,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 381417.9886578432,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "e4_pl_element.py:4011:_physical_director_context": 5
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -0.993712150471259,
+     "M_aa_global_mean": -379475.4142757362,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -114425.39659735293,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 1,
+      "elements.py:3398:compute_stresses": 1,
+      "elements.py:3253:_compute_generalized_section_results": 1,
+      "elements.py:2036:_center_frame": 1,
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 5,
+      "elements.py:1926:_local_frame_and_derivatives": 5,
+      "e4_pl_element.py:4011:_physical_director_context": 5
+     }
+    }
+   ]
+  },
+  "e4pl-Q4flat-h-noref": {
+   "spec": {
+    "id": "e4pl-Q4flat-h-noref",
+    "kind": "e4pl",
+    "topo": "q4",
+    "sec": "h",
+    "ref": false
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      4,
+      3
+     ],
+     "bending_xx": [
+      4
+     ],
+     "bending_xy": [
+      4
+     ],
+     "bending_yy": [
+      4
+     ],
+     "compatible_curvature": [
+      4,
+      3
+     ],
+     "compatible_membrane_strain": [
+      4,
+      3
+     ],
+     "compatible_transverse_shear_strain": [
+      4,
+      2
+     ],
+     "curvature": [
+      4,
+      3
+     ],
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "equivalent_stress": [
+      4
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_bending_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      4,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      4,
+      3
+     ],
+     "global_xx_bot": [
+      4
+     ],
+     "global_xx_top": [
+      4
+     ],
+     "global_xy_bot": [
+      4
+     ],
+     "global_xy_top": [
+      4
+     ],
+     "global_xz_bot": [
+      4
+     ],
+     "global_xz_top": [
+      4
+     ],
+     "global_yy_bot": [
+      4
+     ],
+     "global_yy_top": [
+      4
+     ],
+     "global_yz_bot": [
+      4
+     ],
+     "global_yz_top": [
+      4
+     ],
+     "global_zz_bot": [
+      4
+     ],
+     "global_zz_top": [
+      4
+     ],
+     "hill_utilization": [
+      4
+     ],
+     "implementation_id": "E4_PL_Q4_HYBRID_STATIONARY_RECOVERY_DIRECTOR_RUIZ_V7",
+     "local_xx_bot": [
+      4
+     ],
+     "local_xx_top": [
+      4
+     ],
+     "local_xy_bot": [
+      4
+     ],
+     "local_xy_top": [
+      4
+     ],
+     "local_xz_bot": [
+      4
+     ],
+     "local_xz_top": [
+      4
+     ],
+     "local_yy_bot": [
+      4
+     ],
+     "local_yy_top": [
+      4
+     ],
+     "local_yz_bot": [
+      4
+     ],
+     "local_yz_top": [
+      4
+     ],
+     "local_zz_bot": [
+      4
+     ],
+     "local_zz_top": [
+      4
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      4,
+      3
+     ],
+     "membrane_strain": [
+      4,
+      3
+     ],
+     "membrane_xx": [
+      4
+     ],
+     "membrane_xy": [
+      4
+     ],
+     "membrane_yy": [
+      4
+     ],
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "numerical_fields_excluded": true,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": false,
+     "physical_stress_available": true,
+     "recovery_policy_id": "Q4_HYBRID_PLANAR_STATIONARY_WARPED_VARYING_FRAME_PHYSICAL_DIRECTOR_RECOVERY_V3",
+     "recovery_scope": "qualified_q4_local_and_global_physical",
+     "shear_xz": [
+      4
+     ],
+     "shear_yz": [
+      4
+     ],
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      4,
+      2
+     ],
+     "transverse_shear_strain": [
+      4,
+      2
+     ],
+     "von_mises": [
+      4
+     ]
+    },
+    "n_p": 4,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {
+     "director_polarity_policy_id": "Q4_ELEMENT_OWNED_PHYSICAL_DIRECTOR_INDEPENDENT_OF_D4_NUMBERING_V1",
+     "director_reversal_transform_id": "Q4_EPS_S_KAPPA_SIGN_S_SHEAR_SIGN_P_ABD_CONGRUENCE_V1",
+     "natural_point_coordinates": [
+      4,
+      2
+     ],
+     "numbered_frame_director_sign": 1,
+     "physical_director": [
+      3
+     ],
+     "physical_director_authoritative": false
+    },
+    "calls": {
+     "e4_pl_element.py:6988:compute_stresses": 1,
+     "e4_pl_element.py:2125:equation7_frame": 3,
+     "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+     "e4_pl_element.py:4011:_physical_director_context": 1
+    },
+    "recovery_scope": "qualified_q4_local_and_global_physical",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [
+     "natural_point_coordinates"
+    ],
+    "independent_station_positions_shape": [
+     4,
+     3
+    ],
+    "physical_director_shape": [
+     3
+    ],
+    "physical_director_vs_centre_normal_deg": 0.0,
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 1.4658381552044397e-16,
+     "max_rel_nn_in_station_frame": 1.4658381552044397e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      -0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      -0.5773502691896258
+     ],
+     [
+      0.5773502691896258,
+      0.5773502691896258
+     ],
+     [
+      -0.5773502691896258,
+      0.5773502691896258
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": 230769230.76923084,
+     "local_bending_resultant_xx_mean": 384615.38461538486,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 3,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 4,
+     "basis_normal_source": "numbered frame from private _center_frame (not returned)",
+     "basis_normal_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.3846153848,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "top_minus_bot_sigma_aa_mean": -461538461.5384617,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": true,
+     "local_bending_xx_mean": -69230769.23076926,
+     "local_bending_resultant_xx_mean": -115384.61538461545,
+     "calls": {
+      "e4_pl_element.py:6988:compute_stresses": 1,
+      "e4_pl_element.py:2125:equation7_frame": 3,
+      "e4_pl_element.py:6582:_recover_planar_mixed_fields": 1,
+      "e4_pl_element.py:4011:_physical_director_context": 1
+     }
+    }
+   ]
+  },
+  "s3-h": {
+   "spec": {
+    "id": "s3-h",
+    "kind": "s3",
+    "topo": "t3",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      7,
+      3
+     ],
+     "bending_xx": [
+      7
+     ],
+     "bending_xy": [
+      7
+     ],
+     "bending_yy": [
+      7
+     ],
+     "bubble_linearization_policy": "REFERENCE_ELASTIC_BUBBLE_SCHUR_DERIVATIVE_V1",
+     "bubble_rotations": [
+      2
+     ],
+     "curvature": [
+      7,
+      3
+     ],
+     "equivalent_stress": [
+      7
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "global_bending_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      7,
+      3
+     ],
+     "global_xx_bot": [
+      7
+     ],
+     "global_xx_top": [
+      7
+     ],
+     "global_xy_bot": [
+      7
+     ],
+     "global_xy_top": [
+      7
+     ],
+     "global_xz_bot": [
+      7
+     ],
+     "global_xz_top": [
+      7
+     ],
+     "global_yy_bot": [
+      7
+     ],
+     "global_yy_top": [
+      7
+     ],
+     "global_yz_bot": [
+      7
+     ],
+     "global_yz_top": [
+      7
+     ],
+     "global_zz_bot": [
+      7
+     ],
+     "global_zz_top": [
+      7
+     ],
+     "hill_utilization": [
+      7
+     ],
+     "local_xx_bot": [
+      7
+     ],
+     "local_xx_top": [
+      7
+     ],
+     "local_xy_bot": [
+      7
+     ],
+     "local_xy_top": [
+      7
+     ],
+     "local_xz_bot": [
+      7
+     ],
+     "local_xz_top": [
+      7
+     ],
+     "local_yy_bot": [
+      7
+     ],
+     "local_yy_top": [
+      7
+     ],
+     "local_yz_bot": [
+      7
+     ],
+     "local_yz_top": [
+      7
+     ],
+     "local_zz_bot": [
+      7
+     ],
+     "local_zz_top": [
+      7
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      7,
+      3
+     ],
+     "membrane_strain": [
+      7,
+      3
+     ],
+     "membrane_xx": [
+      7
+     ],
+     "membrane_xy": [
+      7
+     ],
+     "membrane_yy": [
+      7
+     ],
+     "numerical_fields_excluded": true,
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_stress_available": true,
+     "physical_top_offset_from_reference": 0.05,
+     "recovery_scope": "qualified_s3_local_and_global_physical",
+     "reference_surface_offset": 0.0,
+     "reference_surface_offset_policy_id": "SIGNED_SECTION_ORIGIN_TO_NODAL_REFERENCE_ALONG_PHYSICAL_DIRECTOR_V1",
+     "section_origin_offset_from_reference": -0.0,
+     "shear_xz": [
+      7
+     ],
+     "shear_yz": [
+      7
+     ],
+     "through_thickness_stress_profile": "HOMOGENEOUS_ELASTIC_LINEAR_THROUGH_THICKNESS_V1",
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      7,
+      2
+     ],
+     "transverse_shear_strain": [
+      7,
+      2
+     ],
+     "von_mises": [
+      7
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_top_offset_from_reference": 0.05,
+     "reference_surface_offset": 0.0,
+     "reference_surface_offset_policy_id": "SIGNED_SECTION_ORIGIN_TO_NODAL_REFERENCE_ALONG_PHYSICAL_DIRECTOR_V1",
+     "section_origin_offset_from_reference": -0.0
+    },
+    "calls": {
+     "e4_pl_s3_element.py:5476:compute_stresses": 1,
+     "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+     "e4_pl_s3_element.py:1343:triangle_frame": 1
+    },
+    "recovery_scope": "qualified_s3_local_and_global_physical",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 1.6353724990208894e-16,
+     "max_rel_nn_in_station_frame": 1.6353724990208894e-16,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "triangle_frame(reference_normal) (private; not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538486,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": 461538461.53846174,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 230769230.76923078,
+     "local_bending_resultant_xx_mean": 384615.3846153847,
+     "calls": {
+      "e4_pl_s3_element.py:5476:compute_stresses": 1,
+      "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+      "e4_pl_s3_element.py:1343:triangle_frame": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "error": "ValueError: qualified S3 quality admission failed: connectivity winding opposes the authoritative owner normal"
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "triangle_frame(reference_normal) (private; not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": 384615.38461538486,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "-director",
+     "top_minus_bot_sigma_aa_mean": -461538461.53846174,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": false,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": -230769230.76923078,
+     "local_bending_resultant_xx_mean": -384615.3846153847,
+     "calls": {
+      "e4_pl_s3_element.py:5476:compute_stresses": 1,
+      "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+      "e4_pl_s3_element.py:1343:triangle_frame": 1
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "same",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "negated",
+    "bending_xx": "negated",
+    "shear_xz": "negated",
+    "membrane_xx": "same",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "same",
+    "global_transverse_shear_resultants": "same",
+    "global_surface_top_bot": "top/bot swapped"
+   }
+  },
+  "s3-g": {
+   "spec": {
+    "id": "s3-g",
+    "kind": "s3",
+    "topo": "t3",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "bending_resultants": [
+      7,
+      3
+     ],
+     "bubble_rotations": [
+      2
+     ],
+     "curvature": [
+      7,
+      3
+     ],
+     "generalized_stress_scope": "section_resultants_only",
+     "global_bending_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      7,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      7,
+      3
+     ],
+     "membrane_resultant_order": "tuple",
+     "membrane_resultants": [
+      7,
+      3
+     ],
+     "membrane_strain": [
+      7,
+      3
+     ],
+     "numerical_fields_excluded": true,
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_stress_available": false,
+     "physical_top_offset_from_reference": 0.05,
+     "recovery_scope": "section_resultants_only",
+     "reference_surface_offset": 0.0,
+     "reference_surface_offset_policy_id": "SIGNED_SECTION_ORIGIN_TO_NODAL_REFERENCE_ALONG_PHYSICAL_DIRECTOR_V1",
+     "section_origin_offset_from_reference": -0.0,
+     "transverse_shear_resultant_order": "tuple",
+     "transverse_shear_resultants": [
+      7,
+      2
+     ],
+     "transverse_shear_strain": [
+      7,
+      2
+     ]
+    },
+    "n_p": 7,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_top_offset_from_reference": 0.05,
+     "reference_surface_offset": 0.0,
+     "reference_surface_offset_policy_id": "SIGNED_SECTION_ORIGIN_TO_NODAL_REFERENCE_ALONG_PHYSICAL_DIRECTOR_V1",
+     "section_origin_offset_from_reference": -0.0
+    },
+    "calls": {
+     "e4_pl_s3_element.py:5476:compute_stresses": 1,
+     "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+     "e4_pl_s3_element.py:1343:triangle_frame": 1
+    },
+    "recovery_scope": "section_resultants_only",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 0.0,
+      "max_out_of_plane_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_positions_returned": false,
+    "natural_coordinates_returned": [],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     [
+      0.470142064105115,
+      0.470142064105115
+     ],
+     [
+      0.05971587178977,
+      0.470142064105115
+     ],
+     [
+      0.470142064105115,
+      0.05971587178977
+     ],
+     [
+      0.101286507323456,
+      0.101286507323456
+     ],
+     [
+      0.797426985353087,
+      0.101286507323456
+     ],
+     [
+      0.101286507323456,
+      0.797426985353087
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "triangle_frame(reference_normal) (private; not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538486,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.3846153847,
+     "calls": {
+      "e4_pl_s3_element.py:5476:compute_stresses": 1,
+      "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+      "e4_pl_s3_element.py:1343:triangle_frame": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "error": "ValueError: qualified S3 quality admission failed: connectivity winding opposes the authoritative owner normal"
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 7,
+     "basis_normal_source": "triangle_frame(reference_normal) (private; not returned)",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": 384615.38461538486,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "-director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -384615.3846153847,
+     "calls": {
+      "e4_pl_s3_element.py:5476:compute_stresses": 1,
+      "e4_pl_s3_element.py:5212:_compute_stresses": 1,
+      "e4_pl_s3_element.py:1343:triangle_frame": 1
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "same",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "negated",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "same",
+    "global_transverse_shear_resultants": "same"
+   }
+  },
+  "s3v2d-h": {
+   "spec": {
+    "id": "s3v2d-h",
+    "kind": "v2d",
+    "topo": "t3",
+    "sec": "h"
+   },
+   "mix": {
+    "keys": {
+     "_recovery_coordinates": [
+      3,
+      3
+     ],
+     "_recovery_stress_frame": [
+      3,
+      3
+     ],
+     "_reference_surface_recovery_coordinates": [
+      3,
+      3
+     ],
+     "bending_resultants": [
+      3,
+      3
+     ],
+     "bending_xx": [
+      3
+     ],
+     "bending_xy": [
+      3
+     ],
+     "bending_yy": [
+      3
+     ],
+     "curvature": [
+      3,
+      3
+     ],
+     "equivalent_stress": [
+      3
+     ],
+     "equivalent_stress_measure": "von_mises",
+     "external_barycentric_coordinates": [
+      3,
+      3
+     ],
+     "formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+     "frame": [
+      3,
+      3
+     ],
+     "global_bending_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      3,
+      3
+     ],
+     "global_xx_bot": [
+      3
+     ],
+     "global_xx_top": [
+      3
+     ],
+     "global_xy_bot": [
+      3
+     ],
+     "global_xy_top": [
+      3
+     ],
+     "global_xz_bot": [
+      3
+     ],
+     "global_xz_top": [
+      3
+     ],
+     "global_yy_bot": [
+      3
+     ],
+     "global_yy_top": [
+      3
+     ],
+     "global_yz_bot": [
+      3
+     ],
+     "global_yz_top": [
+      3
+     ],
+     "global_zz_bot": [
+      3
+     ],
+     "global_zz_top": [
+      3
+     ],
+     "hammer_points": [
+      3,
+      2
+     ],
+     "implementation_id": "E4_PL_S3_V2D_RECOVERY_CURRENT_EIGEN_GATE_V1",
+     "internal_order": "tuple",
+     "local_xx_bot": [
+      3
+     ],
+     "local_xx_top": [
+      3
+     ],
+     "local_xy_bot": [
+      3
+     ],
+     "local_xy_top": [
+      3
+     ],
+     "local_xz_bot": [
+      3
+     ],
+     "local_xz_top": [
+      3
+     ],
+     "local_yy_bot": [
+      3
+     ],
+     "local_yy_top": [
+      3
+     ],
+     "local_yz_bot": [
+      3
+     ],
+     "local_yz_top": [
+      3
+     ],
+     "local_zz_bot": [
+      3
+     ],
+     "local_zz_top": [
+      3
+     ],
+     "membrane_resultants": [
+      3,
+      3
+     ],
+     "membrane_strain": [
+      3,
+      3
+     ],
+     "membrane_xx": [
+      3
+     ],
+     "membrane_xy": [
+      3
+     ],
+     "membrane_yy": [
+      3
+     ],
+     "min3_relaxation_phi_squared": 0.02691863231595404,
+     "numerical_fields_excluded": true,
+     "physical_layer_recovery_available": true,
+     "physical_station_coordinates": [
+      3,
+      3
+     ],
+     "physical_stress_available": true,
+     "physical_weights": [
+      3
+     ],
+     "qualified_recovery": false,
+     "recovery_scope": "PHYSICAL_GLOBAL_SURFACE_TENSORS",
+     "relaxation_authority_sha256": "0AE9DAA05B63A43D456423BCDC676E7421AB3583F152EE5DB3D0E36FE60A17A0",
+     "resultant_policy_id": "SHELL_VARIATIONAL_RESULTANTS_V1",
+     "shear_xz": [
+      3
+     ],
+     "shear_yz": [
+      3
+     ],
+     "transverse_shear_resultants": [
+      3,
+      2
+     ],
+     "transverse_shear_strain": [
+      3,
+      2
+     ],
+     "von_mises": [
+      3
+     ]
+    },
+    "n_p": 3,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [
+     "global_xx_top",
+     "global_yy_top",
+     "global_zz_top",
+     "global_xy_top",
+     "global_xz_top",
+     "global_yz_top",
+     "global_xx_bot",
+     "global_yy_bot",
+     "global_zz_bot",
+     "global_xy_bot",
+     "global_xz_bot",
+     "global_yz_bot"
+    ],
+    "metadata": {
+     "_recovery_stress_frame": [
+      3,
+      3
+     ],
+     "_reference_surface_recovery_coordinates": [
+      3,
+      3
+     ],
+     "external_barycentric_coordinates": [
+      3,
+      3
+     ],
+     "frame": [
+      3,
+      3
+     ],
+     "hammer_points": [
+      3,
+      2
+     ],
+     "internal_order": "tuple",
+     "physical_station_coordinates": [
+      3,
+      3
+     ],
+     "physical_weights": [
+      3
+     ]
+    },
+    "calls": {
+     "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+     "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1,
+     "e4_pl_s3_v2c_element.py:1675:compute_variational_resultants": 1
+    },
+    "recovery_scope": "PHYSICAL_GLOBAL_SURFACE_TENSORS",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 1.4210854715202004e-14,
+      "max_out_of_plane_deg_vs_station_normal": 1.4210854715202004e-14,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_position_check_hammer_on_external_nodes_max_abs_diff": 0.0,
+    "station_positions_returned": true,
+    "natural_coordinates_returned": [
+     "hammer_points",
+     "external_barycentric_coordinates"
+    ],
+    "surface_basis": {
+     "max_rel_nn_in_centre_frame": 9.598155009213471e-17,
+     "max_rel_nn_in_station_frame": 9.598155009213471e-17,
+     "frame": "constant frame"
+    },
+    "station_table_natural_coordinates": [
+     [
+      0.16666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.6666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.16666666666666666,
+      0.6666666666666666
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 230769230.7692308,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1,
+      "e4_pl_s3_v2c_element.py:1675:compute_variational_resultants": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": 461538461.5384617,
+     "top_side_is_plus_N0": true,
+     "top_on_plus_basis_normal": true,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": 230769230.7692308,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1,
+      "e4_pl_s3_v2c_element.py:1675:compute_variational_resultants": 1
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.38461538474,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "-basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "top_minus_bot_sigma_aa_mean": -461538461.5384617,
+     "top_side_is_plus_N0": false,
+     "top_on_plus_basis_normal": false,
+     "top_on_plus_director": true,
+     "local_bending_xx_mean": -230769230.7692308,
+     "local_bending_resultant_xx_mean": -384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "same",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "negated",
+    "bending_xx": "negated",
+    "shear_xz": "negated",
+    "membrane_xx": "same",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "negated",
+    "global_transverse_shear_resultants": "negated",
+    "global_surface_top_bot": "top/bot swapped"
+   }
+  },
+  "s3v2d-g": {
+   "spec": {
+    "id": "s3v2d-g",
+    "kind": "v2d",
+    "topo": "t3",
+    "sec": "g"
+   },
+   "mix": {
+    "keys": {
+     "_recovery_coordinates": [
+      3,
+      3
+     ],
+     "_recovery_stress_frame": [
+      3,
+      3
+     ],
+     "_reference_surface_recovery_coordinates": [
+      3,
+      3
+     ],
+     "bending_resultants": [
+      3,
+      3
+     ],
+     "curvature": [
+      3,
+      3
+     ],
+     "director_polarity": 1,
+     "external_barycentric_coordinates": [
+      3,
+      3
+     ],
+     "formulation_id": "CANDIDATE_E4_PL_S3_V2D_NATIVE_PARITY_V1",
+     "frame": [
+      3,
+      3
+     ],
+     "global_bending_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_membrane_resultant_tensors": [
+      3,
+      3,
+      3
+     ],
+     "global_transverse_shear_resultants": [
+      3,
+      3
+     ],
+     "hammer_points": [
+      3,
+      2
+     ],
+     "implementation_id": "E4_PL_S3_V2D_RECOVERY_CURRENT_EIGEN_GATE_V1",
+     "internal_order": "tuple",
+     "membrane_resultants": [
+      3,
+      3
+     ],
+     "membrane_strain": [
+      3,
+      3
+     ],
+     "min3_relaxation_phi_squared": 0.026918632315954046,
+     "native_section_policy_id": "S3_V2D_NATIVE_MIN3_GENERALIZED_SECTION_STATIONS_V1",
+     "numerical_fields_excluded": true,
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_layer_recovery_available": false,
+     "physical_station_coordinates": [
+      3,
+      3
+     ],
+     "physical_stress_available": false,
+     "physical_top_offset_from_reference": 0.05,
+     "physical_weights": [
+      3
+     ],
+     "qualified_recovery": false,
+     "recovery_scope": "PHYSICAL_GLOBAL_RESULTANTS_ONLY",
+     "reference_surface_offset": 0.0,
+     "resultant_policy_id": "SHELL_VARIATIONAL_RESULTANTS_V1",
+     "section_origin_offset_from_reference": -0.0,
+     "transverse_shear_resultants": [
+      3,
+      2
+     ],
+     "transverse_shear_strain": [
+      3,
+      2
+     ]
+    },
+    "n_p": 3,
+    "global_family_keys_present": [
+     "global_membrane_resultant_tensors",
+     "global_bending_resultant_tensors",
+     "global_transverse_shear_resultants"
+    ],
+    "global_surface_keys_present": [],
+    "metadata": {
+     "_recovery_stress_frame": [
+      3,
+      3
+     ],
+     "_reference_surface_recovery_coordinates": [
+      3,
+      3
+     ],
+     "director_polarity": 1,
+     "external_barycentric_coordinates": [
+      3,
+      3
+     ],
+     "frame": [
+      3,
+      3
+     ],
+     "hammer_points": [
+      3,
+      2
+     ],
+     "internal_order": "tuple",
+     "physical_bottom_offset_from_reference": -0.05,
+     "physical_station_coordinates": [
+      3,
+      3
+     ],
+     "physical_top_offset_from_reference": 0.05,
+     "physical_weights": [
+      3
+     ],
+     "reference_surface_offset": 0.0,
+     "section_origin_offset_from_reference": -0.0
+    },
+    "calls": {
+     "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+     "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1
+    },
+    "recovery_scope": "PHYSICAL_GLOBAL_RESULTANTS_ONLY",
+    "basis_normals": {
+     "membrane": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "bending": {
+      "max_dev_deg_vs_centre_normal": 0.0,
+      "max_dev_deg_vs_station_normal": 0.0,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "shear": {
+      "max_out_of_plane_deg_vs_centre_normal": 1.4210854715202004e-14,
+      "max_out_of_plane_deg_vs_station_normal": 1.4210854715202004e-14,
+      "frame": "indistinguishable (frame constant over the element)"
+     },
+     "max_centre_vs_station_normal_deg": 0.0
+    },
+    "station_position_check_hammer_on_external_nodes_max_abs_diff": 0.0,
+    "station_positions_returned": true,
+    "natural_coordinates_returned": [
+     "hammer_points",
+     "external_barycentric_coordinates"
+    ],
+    "surface_basis": null,
+    "station_table_natural_coordinates": [
+     [
+      0.16666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.6666666666666666,
+      0.16666666666666666
+     ],
+     [
+      0.16666666666666666,
+      0.6666666666666666
+     ]
+    ]
+   },
+   "bend_sign": [
+    {
+     "polarity": 1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1
+     }
+    },
+    {
+     "polarity": 1,
+     "reversed_numbering": true,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": 1.0,
+     "M_aa_global_mean": 384615.38461538474,
+     "M_aa_sign": 1,
+     "M_positive_means_tension_on_side": "+basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": 384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1
+     }
+    },
+    {
+     "polarity": -1,
+     "reversed_numbering": false,
+     "n_p": 3,
+     "basis_normal_source": "returned 'frame'[:,2]",
+     "basis_normal_dot_N0": 1.0,
+     "director_dot_N0": -1.0,
+     "M_aa_global_mean": -384615.38461538474,
+     "M_aa_sign": -1,
+     "M_positive_means_tension_on_side": "-basis_normal",
+     "M_positive_means_tension_on_side_vs_director": "+director",
+     "local_bending_xx_mean": null,
+     "local_bending_resultant_xx_mean": -384615.38461538474,
+     "calls": {
+      "e4_pl_s3_v2d_element.py:1685:compute_stresses": 1,
+      "e4_pl_s3_v2d_element.py:1600:compute_variational_resultants": 1
+     }
+    }
+   ],
+   "polarity_effect_minus1_vs_plus1": {
+    "membrane_resultants": "same",
+    "bending_resultants": "negated",
+    "transverse_shear_resultants": "negated",
+    "global_membrane_resultant_tensors": "same",
+    "global_bending_resultant_tensors": "negated",
+    "global_transverse_shear_resultants": "negated"
+   }
+  }
+ },
+ "extra": {
+  "warped_h_native_shear_equals_legacy_centre_frame_shear_max_abs_diff": 0.0,
+  "warped_h_native_shear_scale": 386154244.61639184,
+  "v2d_reference_surface_modes": {
+   "faceted_or_flat_source (normal == facet normal)": {
+    "ok": true,
+    "frame_normal_dot_reference_normal": 1.0,
+    "n_p": 3
+   },
+   "source_normal_tilted_off_facet": {
+    "ok": false,
+    "error": "NativeParityCapabilityError: S3 V2D reference normal is not facet-normal"
+   }
+  },
+  "metadata_variants": {
+   "s3v2d-h {'director_polarity': -1}": {
+    "_recovery_stress_frame": [
+     3,
+     3
+    ],
+    "_reference_surface_recovery_coordinates": [
+     3,
+     3
+    ],
+    "director_polarity": -1,
+    "external_barycentric_coordinates": [
+     3,
+     3
+    ],
+    "frame": [
+     3,
+     3
+    ],
+    "hammer_points": [
+     3,
+     2
+    ],
+    "internal_order": "tuple",
+    "physical_bottom_offset_from_reference": -0.05,
+    "physical_station_coordinates": [
+     3,
+     3
+    ],
+    "physical_top_offset_from_reference": 0.05,
+    "physical_weights": [
+     3
+    ],
+    "reference_surface_offset": 0.0,
+    "section_origin_offset_from_reference": -0.0
+   },
+   "s3v2d-h {'reference_surface_offset': 0.02}": {
+    "_recovery_stress_frame": [
+     3,
+     3
+    ],
+    "_reference_surface_recovery_coordinates": [
+     3,
+     3
+    ],
+    "director_polarity": 1,
+    "external_barycentric_coordinates": [
+     3,
+     3
+    ],
+    "frame": [
+     3,
+     3
+    ],
+    "hammer_points": [
+     3,
+     2
+    ],
+    "internal_order": "tuple",
+    "physical_bottom_offset_from_reference": -0.07,
+    "physical_station_coordinates": [
+     3,
+     3
+    ],
+    "physical_top_offset_from_reference": 0.030000000000000002,
+    "physical_weights": [
+     3
+    ],
+    "reference_surface_offset": 0.02,
+    "section_origin_offset_from_reference": -0.02
+   },
+   "s3-h {'reference_surface_offset': 0.02}": {
+    "physical_bottom_offset_from_reference": -0.07,
+    "physical_top_offset_from_reference": 0.030000000000000002,
+    "reference_surface_offset": 0.02,
+    "reference_surface_offset_policy_id": "SIGNED_SECTION_ORIGIN_TO_NODAL_REFERENCE_ALONG_PHYSICAL_DIRECTOR_V1",
+    "section_origin_offset_from_reference": -0.02
+   },
+   "s3v2d-g {'reference_surface_offset': 0.02}": {
+    "_recovery_stress_frame": [
+     3,
+     3
+    ],
+    "_reference_surface_recovery_coordinates": [
+     3,
+     3
+    ],
+    "director_polarity": 1,
+    "external_barycentric_coordinates": [
+     3,
+     3
+    ],
+    "frame": [
+     3,
+     3
+    ],
+    "hammer_points": [
+     3,
+     2
+    ],
+    "internal_order": "tuple",
+    "physical_bottom_offset_from_reference": -0.07,
+    "physical_station_coordinates": [
+     3,
+     3
+    ],
+    "physical_top_offset_from_reference": 0.030000000000000002,
+    "physical_weights": [
+     3
+    ],
+    "reference_surface_offset": 0.02,
+    "section_origin_offset_from_reference": -0.02
+   }
+  },
+  "higher_order_qualified_refusals": {
+   "e4-pl with 6 nodes": "ValueError: E4-PL is available only for four-node shell topology",
+   "e4-pl with 8 nodes": "ValueError: E4-PL is available only for four-node shell topology"
+  },
+  "s3_alias_resolution": "NativeParityE4PLS3V2DShellElement",
+  "solver_sha": "e23aa8c4b086535a57b145ecb5433fa37ccc6178",
+  "solver_module": "C:\\Github\\ANYfeSolver\\src\\anyfesolver\\__init__.py",
+  "thickness": 0.1,
+  "N0": [
+   0.5399233160834953,
+   -0.32595161345020274,
+   0.7760401783661794
+  ],
+  "q4_station_order": {
+   "flat_equals_warped": false,
+   "legacy_equals_warped": true,
+   "flat_table": [
+    [
+     -0.5773502691896258,
+     -0.5773502691896258
+    ],
+    [
+     0.5773502691896258,
+     -0.5773502691896258
+    ],
+    [
+     0.5773502691896258,
+     0.5773502691896258
+    ],
+    [
+     -0.5773502691896258,
+     0.5773502691896258
+    ]
+   ],
+   "warped_table": [
+    [
+     -0.5773502691896258,
+     -0.5773502691896258
+    ],
+    [
+     0.5773502691896258,
+     -0.5773502691896258
+    ],
+    [
+     -0.5773502691896258,
+     0.5773502691896258
+    ],
+    [
+     0.5773502691896258,
+     0.5773502691896258
+    ]
+   ],
+   "note": "same index means a different natural point on the planar (equation7) path than on the warped/legacy path"
+  },
+  "doc_claims": [
+   {
+    "id": "F1",
+    "claim": "homogeneous branches return all 12 global_{xx..yz}_{top,bot}",
+    "holds": true,
+    "observed": {
+     "legacy-L3-h": 12,
+     "legacy-L4flat-h": 12,
+     "legacy-L4warp-h": 12,
+     "legacy-L6flat-h": 12,
+     "legacy-L6curv-h": 12,
+     "legacy-L8flat-h": 12,
+     "legacy-L8curv-h": 12,
+     "e4pl-Q4flat-h": 12,
+     "e4pl-Q4warp-h": 12,
+     "e4pl-Q4warp-h-noref": 12,
+     "e4pl-Q4flat-h-noref": 12,
+     "s3-h": 12,
+     "s3v2d-h": 12
+    }
+   },
+   {
+    "id": "F2",
+    "claim": "global resultant tensors: not by legacy-h and not by e4-pl warped-h; by all others",
+    "holds": true,
+    "observed": "all match"
+   },
+   {
+    "id": "F3",
+    "claim": "warped Q4: generalized shear in centre frame, homogeneous surface tensors in station frames",
+    "holds": true,
+    "observed": {
+     "generalized_shear": "centre",
+     "generalized_membrane": "station",
+     "generalized_bending": "station",
+     "homogeneous_surfaces": "station",
+     "native_shear_vs_legacy_centre_diff": 0.0
+    }
+   },
+   {
+    "id": "F3a",
+    "claim": "S3 multiplies global M,Q by polarity (global M,Q unchanged under polarity flip); V2D director = polarity*reference_normal; V2D global M,Q not re-multiplied",
+    "holds": true,
+    "observed": {
+     "s3-h": {
+      "local_M": "negated",
+      "global_M": "same",
+      "global_Q": "same"
+     },
+     "s3-g": {
+      "local_M": "negated",
+      "global_M": "same",
+      "global_Q": "same"
+     },
+     "s3v2d-h": {
+      "local_M": "negated",
+      "global_M": "negated",
+      "global_Q": "negated"
+     },
+     "s3v2d-g": {
+      "local_M": "negated",
+      "global_M": "negated",
+      "global_Q": "negated"
+     }
+    }
+   },
+   {
+    "id": "F3b",
+    "claim": "warped qualified Q4 recovers through ShellElement.compute_stresses with a frame per recovery point",
+    "holds": true,
+    "observed": {
+     "homogeneous_calls": {
+      "e4_pl_element.py:3181:_local_frame_and_derivatives": 10,
+      "elements.py:1926:_local_frame_and_derivatives": 10
+     },
+     "homogeneous_enters_ShellElement_compute_stresses": true,
+     "generalized_enters_ShellElement_compute_stresses": false,
+     "generalized_enters_ShellElement__compute_generalized_section_results": true,
+     "equation7_frame_called_for_warpage_test_only": true
+    }
+   },
+   {
+    "id": "F5a",
+    "claim": "e4-pl reports physical_director(s) and natural_point_coordinates",
+    "holds": false,
+    "observed": {
+     "e4pl-Q4flat-h": [
+      "natural_point_coordinates",
+      "physical_director"
+     ],
+     "e4pl-Q4flat-g": [
+      "natural_point_coordinates",
+      "physical_director"
+     ],
+     "e4pl-Q4warp-h": [
+      "physical_director",
+      "physical_directors"
+     ],
+     "e4pl-Q4warp-g": [
+      "physical_director",
+      "physical_directors"
+     ],
+     "e4pl-Q4warp-h-noref": [],
+     "e4pl-Q4warp-g-noref": [],
+     "e4pl-Q4flat-h-noref": [
+      "natural_point_coordinates",
+      "physical_director"
+     ]
+    }
+   },
+   {
+    "id": "F5b",
+    "claim": "V2D reports frame, hammer_points, external_barycentric_coordinates, physical_station_coordinates",
+    "holds": true,
+    "observed": {
+     "s3v2d-h": [
+      "_recovery_stress_frame",
+      "_reference_surface_recovery_coordinates",
+      "external_barycentric_coordinates",
+      "frame",
+      "hammer_points",
+      "internal_order",
+      "physical_station_coordinates",
+      "physical_weights"
+     ],
+     "s3v2d-g": [
+      "_recovery_stress_frame",
+      "_reference_surface_recovery_coordinates",
+      "director_polarity",
+      "external_barycentric_coordinates",
+      "frame",
+      "hammer_points",
+      "internal_order",
+      "physical_bottom_offset_from_reference",
+      "physical_station_coordinates",
+      "physical_top_offset_from_reference",
+      "physical_weights",
+      "reference_surface_offset",
+      "section_origin_offset_from_reference"
+     ]
+    }
+   },
+   {
+    "id": "F5c",
+    "claim": "legacy reports none of these",
+    "holds": true,
+    "observed": "none"
+   },
+   {
+    "id": "F6",
+    "claim": "V2D reports moment reference and physical surface offsets",
+    "holds": false,
+    "observed": {
+     "ordinary_homogeneous": [],
+     "generalized": [
+      "physical_bottom_offset_from_reference",
+      "physical_top_offset_from_reference",
+      "reference_surface_offset",
+      "section_origin_offset_from_reference"
+     ],
+     "homogeneous_polarity_minus1": [
+      "physical_bottom_offset_from_reference",
+      "physical_top_offset_from_reference",
+      "reference_surface_offset",
+      "section_origin_offset_from_reference"
+     ]
+    }
+   }
+  ]
+ }
+}
