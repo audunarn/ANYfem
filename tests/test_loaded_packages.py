@@ -473,3 +473,11 @@ def test_qt_runtime_comes_only_from_the_real_builtin(tmp_path):
     from PySide6 import QtCore
     assert lp.collect_loaded_packages({"PySide6.QtCore": QtCore}).qt_runtime == QtCore.qVersion()
     assert lp.collect_loaded_packages({}, qt_runtime="6.1.2").qt_runtime == "6.1.2"
+
+
+# Review round 7 regressions (failed on 974b40e).
+
+def test_non_string_module_keys_do_not_abort_the_report():
+    import numpy
+    report = lp.collect_loaded_packages({1: types.ModuleType("x"), "numpy": numpy})
+    assert _row(report, "numpy").version_source == "metadata (numpy)"

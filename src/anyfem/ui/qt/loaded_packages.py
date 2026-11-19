@@ -503,7 +503,7 @@ def _extra_ecosystem_modules(modules, known):
     """Loaded top-level ``any*`` source packages that the table does not name."""
     extra = []
     for name, module in list(modules.items()):
-        if "." in name or name in known or not name.lower().startswith("any"):
+        if type(name) is not str or "." in name or name in known or not name.lower().startswith("any"):
             continue
         try:
             location = _module_location(module)
@@ -596,11 +596,9 @@ def open_loaded_packages(window):
     from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
                                    QPushButton, QTableWidget, QVBoxLayout)
 
-    from PySide6.QtCore import qVersion
-
     opened = time.perf_counter()
     modules = dict(sys.modules)
-    qt_runtime = str(qVersion())
+    qt_runtime = _qt_runtime(modules.get("PySide6.QtCore"))  # guarded; never raises
     dialog = QDialog(window)
     dialog.setObjectName("LoadedPackagesDialog")
     dialog.setWindowTitle("Loaded packages")

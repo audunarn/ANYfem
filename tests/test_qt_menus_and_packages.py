@@ -175,3 +175,17 @@ def test_repeated_opens_do_not_retain_closed_dialogs(window, qapp):
     window._loaded_packages_dialog = None
     gc.collect()
     assert [reference() for reference in references] == [None, None, None]
+
+
+def test_a_failing_qt_version_call_does_not_stop_the_dialog(window, qapp, monkeypatch):
+    from PySide6 import QtCore
+
+    def broken():
+        raise RuntimeError("qVersion replaced")
+
+    monkeypatch.setattr(QtCore, "qVersion", broken)
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    report = _wait_for_report(dialog, qapp)
+    assert report.qt_runtime == "unknown"
+    dialog.close(); qapp.processEvents()
