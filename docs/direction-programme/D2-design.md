@@ -735,14 +735,15 @@ precondition). Open owner decisions: O1-O4, O6, O7, O9.
 ## 10. D2-0 result: capability matrix (2026-11-19)
 
 Matrix and probes: `evidence/d2-0/matrix.md`, `probe_capability.py`, `capability.json`
-(25 branches, each cell probed; run time about 20 s, 4 threads). Solver checkout
+(25 branches; cells are probed except those the matrix marks source-derived; run time about 20 s, 4 threads). Solver checkout
 ANYfeSolver `e23aa8c4b` (D2 base `7f006b7a3` plus 17 comment lines in the V2D file).
 Corrections to section 0 and new facts that the later slices rely on:
 
 1. F6: ordinary homogeneous V2D (polarity +1, offset 0) returns no `director_polarity`
    or offset keys (V2C shortcut, `e4_pl_s3_v2d_element.py:1605-1611`); they appear for
-   generalized sections, polarity -1 or nonzero offset. Qualified S3 always returns them.
-   O5(a) must make V2D return them always.
+   generalized sections, polarity -1 or nonzero offset. Qualified S3 always returns the
+   offset keys but no `director_polarity` key (`e4_pl_s3_element.py:5284-5314`). O5(a) must
+   make V2D return both always and S3 return the polarity.
 2. F5: e4-pl warped returns no `natural_point_coordinates` (planar path only,
    `e4_pl_element.py:7091`); it returns `physical_director` and per-station
    `physical_directors`. Warped without `reference_normal` returns no metadata at all.
@@ -762,7 +763,14 @@ Corrections to section 0 and new facts that the later slices rely on:
    frame normal is the director; V2D global M, Q negate but the basis normal is the owner
    `reference_normal`; qualified S3 global M, Q are multiplied back to the owner convention
    while its surfaces stay in director convention (so S3's global M disagrees in sign with
-   its own surfaces). Negative polarity stays refused until each adapter is qualified.
+   its own surfaces). Negative polarity stays refused until each adapter is qualified. These statements rest
+   on pure-bending probes: they support the top-side rule and global M, Q negation only.
+   Local components do not negate uniformly (e4-pl maps curvature diag(p,p,1) and shear
+   diag(p,1), `e4_pl_element.py:4019-4022`); V2D surface tensors with transverse shear do
+   not simply swap top/bottom (mixed-load difference 1e7 Pa); and the recovered e4-pl
+   frame normal equals `polarity * reference_normal` only when the reference normal is the
+   numbered-frame normal (`:4038-4049`). D2-1 adapters keep the director and the tensor-basis
+   normal as separate vectors and probe polarity with mixed loads.
 9. Top side: `top = m + b` is on the +director side for e4-pl, S3 and V2D at both
    polarities; e4-pl is unaffected by reversed numbering. Legacy has no director: top is
    the +numbered-normal side and flips with node order.
