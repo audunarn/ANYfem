@@ -202,7 +202,11 @@ def test_anyfem_retains_the_q4_only_transition_policy() -> None:
             ),
         ),
         mesh,
-        SimpleNamespace(add_element=lambda key, value: actual.__setitem__(key, value)),
+        SimpleNamespace(
+            add_element=lambda key, value: actual.__setitem__(key, value),
+            # O7: the shell build inspects the registered solver material.
+            materials={"steel": SimpleNamespace(elastic_symmetry="isotropic")},
+        ),
     )
     assert type(actual[10]) is QualifiedE4PLShellElement
 
