@@ -905,3 +905,12 @@ and `release_043_runtime.json` pin the same files. Changed text: section 1 (O5 p
 section 5 (O5 row), section 5a (P-c), section 6 (D2-1 precondition), section 8. The cross-check
 bound (1e-13 relative to the family max abs) is the one section 1 had already required for
 option (b). Review of the changed text: see the round record below.
+
+Codex review of revision 4 (GPT 6.1 Sol, high; rounds 1-9 on the changed text only, transcripts kept
+outside the repository): r1 3 P2 (surviving O5(a) wording, generalized branches had no independent
+comparison, tolerance undefined); r2 1 P2 (a mixed-family reference cannot resolve a small family);
+r3-r4 the first angle-resolution attempt, rejected as over-engineered (pi flips, unit and norm
+inconsistencies); r5 per-family resolution rule, 3 P2 + 1 P3 (old 1e-13 wording, membrane/shear
+separation, D2-1 (ii) conflict, isotropic fixtures); r6-r7 tangency scope and out-of-plane tilt
+(rule (5), fixture (e)); r8 acceptance wording; r9 CLEAN. The cross-check is exactly rules (1)-(5) of
+section 1; D2-1 implements them with the regression tests (a)-(e) listed there.
