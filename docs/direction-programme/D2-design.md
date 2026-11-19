@@ -212,10 +212,10 @@ qualification process, which the owner declined. Revised rule (B2):
   in-plane family residual passes; (d) generalized branch with anisotropic N, M and a Q vector: a wrong frame
   of 1e-12 rad is detected at 1e-13 s_f.
   On failure (`r_f > a_f`, nonfinite values, `no_reference`, or
-  `unresolvable_family`): typed refusal `AXES_FRAME_RULE_MISMATCH` for that family
+  `unresolvable_family`, or a failure of the out-of-plane check (5)): typed refusal `AXES_FRAME_RULE_MISMATCH` for that family
   of that element (nothing is stored for it; the reason is recorded), so a
-  frame-rule drift fails closed. This per-family rule (1)-(4) is the only
-  acceptance rule of the cross-check; it supersedes every earlier "1e-13 relative
+  frame-rule drift fails closed. These rules (1)-(5) together, applied jointly, are the only
+  acceptance rule of the cross-check (a failure of any one refuses, with nothing stored); it supersedes every earlier "1e-13 relative
   to the family max" wording.
 * Consequence for D2-6 (nonlinear, corotational): the module must reproduce the
   recovery's rotated current-geometry stress frame (S/recovery.py:1254, 1275)
