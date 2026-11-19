@@ -330,7 +330,7 @@ adapter.
 
 | Family | Result-axes value |
 |---|---|
-| surface stress | choose the physical surface first: "top" = the +n_side surface = solver `top` if s = +1 else `bot`; then the **full** tensor G^T S G, all six components; no further sign change |
+| surface stress | choose the physical surface first: "top" = the +n_side surface = solver `top` if the adapter's physical-director sign q = sign(physical director . n_side) is +1 else `bot` (q comes from the physical director and polarity, not from s, which is built on the tensor-basis normal; they differ e.g. for V2D at polarity -1, where the basis normal is the owner reference normal but solver `top` is on the +director side, D2-0 round 2); then the **full** tensor G^T S G, all six components; no further sign change |
 | membrane (stress or N) | a_i . N a_j (invariant to s) |
 | bending (stress or M) | s (a_i . M a_j), M as stored after the adapter has removed any polarity factor the branch applied (F3a) |
 | shear (stress or Q) | s (a_i . Q), with the frame of the normal Q was built with (centre for warped Q4, F3); residual nu . Q recorded |
@@ -769,7 +769,7 @@ Corrections to section 0 and new facts that the later slices rely on:
    diag(p,1), `e4_pl_element.py:4019-4022`); V2D surface tensors with transverse shear do
    not simply swap top/bottom (mixed-load difference 1e7 Pa); and the recovered e4-pl
    frame normal equals `polarity * reference_normal` only when the reference normal is the
-   numbered-frame normal (`:4038-4049`). D2-1 adapters keep the director and the tensor-basis
+   numbered-frame normal, in either direction (`:4038-4053`); the returned `physical_director` is the tensor-frame normal and `physical_reference_director` is `polarity * reference_normal`. D2-1 adapters keep the director and the tensor-basis
    normal as separate vectors and probe polarity with mixed loads.
 9. Top side: `top = m + b` is on the +director side for e4-pl, S3 and V2D at both
    polarities; e4-pl is unaffected by reversed numbering. Legacy has no director: top is
