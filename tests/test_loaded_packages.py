@@ -156,3 +156,88 @@ def test_installed_wheel_uses_owned_metadata_and_nothing_is_imported():
     for row in report.rows:
         assert (f"{row.name}: not loaded in this session" in text) != row.loaded
     assert report.elapsed_ms < 2000  # measured ~70 ms warm with the GUI loaded
+
+
+# Review round 1 regressions (each failed on 203b17c).
+
+def test_unc_editable_url_does_not_claim_the_same_path_on_the_local_drive(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    local = tmp_path / "project"
+    drive_relative = local.resolve().as_posix().split(":", 1)[-1]  # /ANYworkspaceWork/...
+    info = site / "anyunc-5.0.0.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: anyunc\nVersion: 5.0.0\n", encoding="utf-8")
+    url = "file://anyfem-no-such-host.invalid" + drive_relative
+    (info / "direct_url.json").write_text(json.dumps({"url": url, "dir_info": {"editable": True}}), encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    module = _package(local / "src", "anyunc", version_attr="4.0.0")
+    row = _row(lp.collect_loaded_packages({"anyunc": module}), "anyunc")
+    assert (row.version, row.version_source) == ("4.0.0", "module __version__")
+    assert any("describes another copy" in note for note in row.notes)
+    assert lp._file_url_path("file://server/share/project") == "//server/share/project"
+    assert lp._file_url_path("file:///C:/Github/ANYgeometry") == "C:/Github/ANYgeometry"
+
+
+def test_symbolic_loose_ref_wins_over_an_older_packed_entry(tmp_path):
+    repo = tmp_path / "repo"
+    _git(repo, branch="main", sha=SHA)
+    (repo / ".git" / "refs" / "heads" / "alias").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (repo / ".git" / "packed-refs").write_text(f"{SHA2} refs/heads/alias\n", encoding="utf-8")
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/alias\n", encoding="utf-8")
+    module = _package(repo / "src", "anymaterial")
+    assert _row(lp.collect_loaded_packages({"anymaterial": module}), "anymaterial").commit == f"{SHA[:12]} (alias) in {repo.resolve()}"
+    (repo / ".git" / "refs" / "heads" / "main").write_text("ref: refs/heads/alias\n", encoding="utf-8")  # cycle
+    row = _row(lp.collect_loaded_packages({"anymaterial": module}), "anymaterial")
+    assert row.commit == f"{lp.UNKNOWN} (alias, unresolved) in {repo.resolve()}"
+
+
+@pytest.mark.parametrize("damage", ["metadata-bytes", "project-not-table", "direct-url-list"])
+def test_malformed_provenance_becomes_a_note_not_an_exception(tmp_path, monkeypatch, damage):
+    site = tmp_path / "site"
+    project = tmp_path / "project"
+    info = site / "anybroken-1.0.0.dist-info"
+    info.mkdir(parents=True)
+    if damage == "metadata-bytes":
+        (info / "METADATA").write_bytes(b"Metadata-Version: 2.1\nName: anybroken\nVersion: \xff\xfe\n")
+    else:
+        (info / "METADATA").write_text("Metadata-Version: 2.1\nName: anybroken\nVersion: 1.0.0\n", encoding="utf-8")
+    direct = "[]" if damage == "direct-url-list" else json.dumps({"url": project.resolve().as_uri(), "dir_info": {"editable": True}})
+    (info / "direct_url.json").write_text(direct, encoding="utf-8")
+    project.mkdir()
+    if damage == "project-not-table":
+        (project / "pyproject.toml").write_text('project = "invalid"\n', encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    module = _package(project / "src", "anybroken", version_attr="0.9.0")
+    report = lp.collect_loaded_packages({"anybroken": module})
+    row = _row(report, "anybroken")
+    expected = {"metadata-bytes": "metadata for anybroken", "project-not-table": "pyproject.toml",
+                "direct-url-list": "metadata for anybroken"}[damage]
+    assert any(note.startswith(expected) and "could not be read" in note for note in row.notes), row.notes
+    if damage == "project-not-table":
+        assert (row.version, row.version_source) == ("1.0.0", "metadata (anybroken)")
+    else:
+        assert (row.version, row.version_source) == ("0.9.0", "module __version__")
+    assert "anybroken" in report.text()
+
+
+def test_collection_imports_nothing_in_a_fresh_process():
+    import subprocess
+    code = ("import sys, anyfem.ui.qt.loaded_packages as lp; before=set(sys.modules); "
+            "lp.collect_loaded_packages(); print(sorted(set(sys.modules)-before))")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]"
+
+
+def test_every_owned_metadata_source_is_compared(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    project = tmp_path / "project"
+    _editable_dist(site, "anymulti", "6.10.1", project)
+    _editable_dist(site, "anymulti_essentials", "6.10.2", project)
+    monkeypatch.syspath_prepend(str(site))
+    module = _package(project / "src", "anymulti", version_attr="6.10.1")
+    row = lp._row("Third party", "anymulti", "anymulti", ("anymulti", "anymulti-essentials"),
+                  {"anymulti": module}, {}, False)
+    assert (row.version, row.version_source) == ("6.10.1", "metadata (anymulti)")
+    assert any("metadata (anymulti_essentials) says 6.10.2" in note for note in row.notes), row.notes
