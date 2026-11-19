@@ -158,24 +158,26 @@ qualification process, which the owner declined. Revised rule (B2):
     frame of that family (station frame for membrane and bending; centre frame
     for shear where the branch uses it, F3), with the branch's polarity
     convention (F3a) applied exactly as the adapter records;
-  - every derived tensor T additionally satisfies |nu . T| <= bound with nu the
-    stored tensor-basis normal (unit length checked).
+  - the stored tensor-basis normals have unit length (checked), and each derived
+    membrane and bending tensor T (in-plane by construction) satisfies
+    |nu . T| <= 1e-13 s_T; the shear vector is not required tangent (warped Q4
+    centre-frame shear), its normal component nu . Q is recorded (section 4).
   If no solver-emitted frame-dependent reference exists for a family, the
   family is refused (`AXES_FRAME_RULE_MISMATCH` with reason `no_reference`).
-  Residual and scale are defined per element and family: r = max over its
-  stations and components of |derived - reference|; s = max over the same
-  stations and components of |reference|; pass iff all values are finite and
-  r <= 1e-13 s; if s == 0 pass iff r == 0 (an all-zero family is accepted only as
-  exactly zero); a missing or nonfinite reference or derived value is a refusal.
   The check is **per family, at the resolution the reference allows** (Codex
   r2-r4; no orientation-sensitivity machinery): every family f (membrane,
   bending, shear) of an element is compared separately.
   (1) Family reference. Generalized, flat Q4, S3 and V2D emit each family's
   global tensor, so the reference is that tensor and the allowance is
   a_f = 1e-13 s_f. Homogeneous branches that emit only the surface tensors
-  (legacy, warped Q4) resolve the families as m = (top + bot)/2 and
-  b = (top - bot)/2 in the surface tensors, and shear from the xz, yz surface
-  components; the allowance is a_f = 1e-13 s_f + 64 eps s_surf with eps = 2^-52
+  (legacy, warped Q4) resolve the families after rotating the solver's global
+  surface tensors into the module's recomputed station frame (G^T S G):
+  membrane = in-plane components (xx, yy, xy) of (top + bot)/2, bending =
+  in-plane components of (top - bot)/2 (both surfaces carry the same transverse
+  shear, which survives the sum and cancels in the difference), shear = (xz, yz)
+  of (top + bot)/2; for warped Q4 the native shear is the centre-frame vector, so
+  the derived shear is compared after the same projection into the station's
+  tangent plane that the solver documents (F3); the allowance is a_f = 1e-13 s_f + 64 eps s_surf with eps = 2^-52
   and s_surf = max abs of the element's surface tensors (the roundoff of the
   emitted m +- b, F3c). Here the derived family is compared with the reference
   resolved from the solver's own surfaces, never reconstructed for storage.
@@ -195,17 +197,17 @@ qualification process, which the owner declined. Revised rule (B2):
   1e-8 with a wrong frame (1e-6 rad): the membrane is refused
   (`unresolvable_family`, because 1e-8 < 1.4e-5), the bending certified or
   refused on its own agreement; the same with the right frame also refuses the
-  membrane (it cannot be certified, by design); (b) bending 1 and membrane
-  1e-3: right frame certified for both, a 1e-6 rad frame error refused with a
-  residual failure; (c) shear 1e-14 of bending with a frame reversed by pi:
-  shear refused (`unresolvable_family`); (d) generalized branch: a wrong frame of
-  1e-12 rad is detected at 1e-13 s_f.
-  On failure: typed refusal `AXES_FRAME_RULE_MISMATCH` for the element (nothing
-  is stored for it), so a frame-rule drift fails closed. Because the scale is the
-  family's own magnitude, a frame error in a family that is below 1e-13 of its own
-  magnitude is numerically irrelevant by construction; a family far smaller than
-  its neighbour in the same element is checked on its own scale (mixed-magnitude
-  fixtures of D2-1 (ii) cover this).
+  membrane (it cannot be certified, by design); (b) anisotropic bending (xx 1, yy -1) and anisotropic membrane (xx 1e-3,
+  yy -1e-3): right frame certified for both, a 1e-6 rad frame error refused with a
+  residual failure; (c) anisotropic bending 1 with shear (xz 1e-14) and a frame reversed by pi:
+  shear refused (`unresolvable_family`); (d) generalized branch with anisotropic N, M and a Q vector: a wrong frame
+  of 1e-12 rad is detected at 1e-13 s_f.
+  On failure (`r_f > a_f`, nonfinite values, `no_reference`, or
+  `unresolvable_family`): typed refusal `AXES_FRAME_RULE_MISMATCH` for that family
+  of that element (nothing is stored for it; the reason is recorded), so a
+  frame-rule drift fails closed. This per-family rule (1)-(4) is the only
+  acceptance rule of the cross-check; it supersedes every earlier "1e-13 relative
+  to the family max" wording.
 * Consequence for D2-6 (nonlinear, corotational): the module must reproduce the
   recovery's rotated current-geometry stress frame (S/recovery.py:1254, 1275)
   per frame; if that cannot be cross-checked to the bound, the analysis is
@@ -582,7 +584,13 @@ on the +physical-director side;
 own frame reproduce its native local membrane, bending and shear values to
 1e-13 relative to a fixed nonzero scale per family (the family's max abs over the
 fixture), including a mixed-magnitude fixture (membrane 1e-8 of bending and the
-reverse) that would fail any surface reconstruction; (iii) ordinary-use bit-identical check (section 5);
+reverse) that would fail any surface reconstruction. Revision 4: this storage
+test applies to every branch (the derived tensors are rotations of the native
+local values, never reconstructed). The **runtime cross-check** of section 1
+additionally certifies a family only if it is resolvable: on direct-reference
+branches (generalized, flat Q4, S3, V2D) the 1e-8 fixture is stored and
+certified; on surface-only branches (legacy and warped Q4 homogeneous) the
+1e-8 family is an expected refusal `unresolvable_family`, tested as such; (iii) ordinary-use bit-identical check (section 5);
 (iv) barge measurements: n_p, raw and gzip size per case, peak memory, recovery
 seconds, signed normal agreement per face (du x dv and drawing normal), angle of
 local x to the projected reference per element, A1 vs A2 at 1/10/100 cases.
