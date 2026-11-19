@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import types
 import time
 import tomllib
 from dataclasses import dataclass, field
@@ -145,11 +146,23 @@ def _real(path) -> str:
         return str(path)
 
 
+def _namespace(module) -> dict:
+    """The module's own ``__dict__``, read without any overridden lookup.
+
+    ``getattr``/``hasattr``/``vars`` can run a module-level ``__getattr__`` or
+    a ``importlib.util.LazyLoader`` module's ``__getattribute__``, which
+    executes (imports) the deferred module.  ``ModuleType.__getattribute__``
+    bypasses both; non-module objects in ``sys.modules`` yield ``{}``.
+    """
+    if not isinstance(module, types.ModuleType):
+        return {}
+    namespace = types.ModuleType.__getattribute__(module, "__dict__")
+    return namespace if isinstance(namespace, dict) else {}
+
+
 def _module_location(module) -> str:
     """The file or package directory the module was imported from, or ''."""
-    # The module's own namespace only: getattr/hasattr could run a lazy
-    # module ``__getattr__`` (and so import) for a missing attribute.
-    namespace = vars(module)
+    namespace = _namespace(module)
     file = namespace.get("__file__")
     if isinstance(file, str) and file:
         return str(Path(file).parent) if "__path__" in namespace else file
@@ -388,7 +401,7 @@ def _row(group, module_name, display, candidates, modules, git_cache, with_commi
     owned, metadata_notes = (_guarded(notes, "installed metadata", _owned_metadata, module_name, real,
                                       candidates, default=([], [])) if real else ([], []))
     try:  # the module's own namespace only: a lazy module __getattr__ could import
-        attribute = vars(module).get("__version__")
+        attribute = _namespace(module).get("__version__")
     except Exception:
         attribute = None
     attribute = attribute.strip() if isinstance(attribute, str) else ""
@@ -462,9 +475,10 @@ def collect_loaded_packages(modules=None) -> PackageReport:
     rows.sort(key=lambda row: (row.group != "ANY ecosystem", not row.loaded))
     qt_runtime = UNKNOWN
     qtcore = modules.get("PySide6.QtCore")
-    if qtcore is not None and callable(getattr(qtcore, "qVersion", None)):
+    qversion = _namespace(qtcore).get("qVersion") if qtcore is not None else None
+    if callable(qversion):
         try:
-            qt_runtime = str(qtcore.qVersion())
+            qt_runtime = str(qversion())
         except Exception:
             qt_runtime = UNKNOWN
     elapsed = (time.perf_counter() - start) * 1000.0

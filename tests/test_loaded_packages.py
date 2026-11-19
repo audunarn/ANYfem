@@ -312,3 +312,26 @@ def test_ref_names_git_allows_still_resolve(tmp_path):
     _git(repo, branch="feature=fix", sha=SHA)
     module = _package(repo / "src", "anysolid")
     assert _row(lp.collect_loaded_packages({"anysolid": module}), "anysolid").commit == f"{SHA[:12]} (feature=fix) in {repo.resolve()}"
+
+
+# Review round 4 regression (failed on c080510/5a1feaa).
+
+def test_lazyloader_module_is_never_executed(tmp_path):
+    import builtins
+    import importlib.util
+    package = tmp_path / "anylazyload"
+    package.mkdir()
+    body = "import builtins\nbuiltins._anyfem_lazy_executed = True\n__version__ = '3.0'\n"
+    (package / "__init__.py").write_text(body, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("anylazyload", package / "__init__.py",
+                                                  submodule_search_locations=[str(package)])
+    spec.loader = importlib.util.LazyLoader(spec.loader)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # deferred: the body runs on first attribute access
+    try:
+        row = _row(lp.collect_loaded_packages({"anylazyload": module}), "anylazyload")
+        assert not hasattr(builtins, "_anyfem_lazy_executed")
+        assert row.loaded and row.import_path == str(package)
+    finally:
+        if hasattr(builtins, "_anyfem_lazy_executed"):
+            del builtins._anyfem_lazy_executed
