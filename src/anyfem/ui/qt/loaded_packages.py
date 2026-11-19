@@ -4,10 +4,17 @@ ANYfem normally loads its ecosystem through ``.ecosystem`` junctions or sibling
 source checkouts, so an installed distribution's metadata can describe a copy
 other than the one in ``sys.modules``.  The collector therefore reports metadata
 only when that distribution is shown to own the loaded path; otherwise it falls
-back to the loaded module's own ``__version__`` and finally to ``unknown``.  It
-never imports anything: packages that this session has not imported are listed
-as not loaded.  Everything is collected only when the dialog opens, on a
-worker thread.
+back to the loaded module's own ``__version__`` and finally to ``unknown``.
+Everything is collected only when the dialog opens, on a worker thread.
+
+Inspection contract: collection never imports a package.  It reads module
+namespaces through ``ModuleType``'s own descriptor (no ``__getattr__``,
+LazyLoader or proxy hooks), package paths only from plain lists/tuples or
+importlib's cached namespace path, distribution metadata only through the
+standard file-system finder (no ``sys.meta_path`` dispatch), and ``.git`` /
+``pyproject.toml`` as files.  Objects outside these standard structures are
+reported as unknown rather than inspected, and any failure stays in its row.
+Packages this session has not imported are listed as not loaded.
 """
 from __future__ import annotations
 
@@ -151,24 +158,64 @@ def _namespace(module) -> dict:
 
     ``getattr``/``hasattr``/``vars`` can run a module-level ``__getattr__`` or
     a ``importlib.util.LazyLoader`` module's ``__getattribute__``, which
-    executes (imports) the deferred module.  ``ModuleType.__getattribute__``
-    bypasses both; non-module objects in ``sys.modules`` yield ``{}``.
+    executes (imports) the deferred module.  The real type is checked with
+    ``type()`` (never the instance's ``__class__``) and the dict is read through
+    ModuleType's own ``__dict__`` descriptor, so subclass descriptors and
+    proxies are bypassed; anything else in ``sys.modules`` yields ``{}``.
     """
-    if not isinstance(module, types.ModuleType):
+    try:
+        if not issubclass(type(module), types.ModuleType):
+            return {}
+        namespace = _MODULE_DICT.__get__(module, types.ModuleType)
+    except Exception:
         return {}
-    namespace = types.ModuleType.__getattribute__(module, "__dict__")
-    return namespace if isinstance(namespace, dict) else {}
+    # Any dict subclass (PySide6 uses one) is read only via dict.get/__contains__,
+    # never through its own possibly lazy lookup methods.
+    return namespace if issubclass(type(namespace), dict) else {}
+
+
+_MODULE_DICT = types.ModuleType.__dict__["__dict__"]
+
+
+def _filesystem_distribution(name: str):
+    """First distribution called ``name`` on ``sys.path``, from the standard
+    file-system/zip metadata finder only.
+
+    ``metadata.distribution()`` dispatches to every ``sys.meta_path`` finder's
+    ``find_distributions``, which may run arbitrary code; custom providers are
+    treated as unavailable here.
+    """
+    context = metadata.DistributionFinder.Context(name=name, path=list(sys.path))
+    return next(iter(metadata.MetadataPathFinder.find_distributions(context)), None)
+
+
+def _inert_paths(paths) -> list:
+    """Entries of a package ``__path__`` without running import machinery.
+
+    Lists/tuples are read directly; importlib's namespace path is read from
+    its cached list (iterating it can recalculate through path hooks and
+    finders).  Any other object is not inspected.
+    """
+    if type(paths) in (list, tuple):
+        return [entry for entry in paths if type(entry) is str]
+    kind = type(paths)
+    if kind.__name__ == "_NamespacePath" and kind.__module__ in ("importlib._bootstrap_external", "_frozen_importlib_external"):
+        try:
+            cached = dict.get(object.__getattribute__(paths, "__dict__"), "_path")
+        except Exception:
+            return []
+        return [entry for entry in cached if type(entry) is str] if type(cached) is list else []
+    return []
 
 
 def _module_location(module) -> str:
     """The file or package directory the module was imported from, or ''."""
     namespace = _namespace(module)
-    file = namespace.get("__file__")
-    if isinstance(file, str) and file:
-        return str(Path(file).parent) if "__path__" in namespace else file
-    paths = namespace.get("__path__")
-    first = next(iter(list(paths)), None) if paths is not None else None
-    return str(first) if isinstance(first, str) else ""
+    file = dict.get(namespace, "__file__")
+    if type(file) is str and file:
+        return str(Path(file).parent) if dict.__contains__(namespace, "__path__") else file
+    paths = _inert_paths(dict.get(namespace, "__path__"))
+    return paths[0] if paths else ""
 
 
 def _is_inside(child: str, parent: str) -> bool:
@@ -216,9 +263,9 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
     owned, notes = [], []
     for candidate in candidates:
         try:
-            dist = metadata.distribution(candidate)
-        except metadata.PackageNotFoundError:
-            continue
+            dist = _filesystem_distribution(candidate)
+            if dist is None:
+                continue
         except Exception as error:
             notes.append(f"metadata for {candidate} could not be read ({type(error).__name__})")
             continue
@@ -401,10 +448,10 @@ def _row(group, module_name, display, candidates, modules, git_cache, with_commi
     owned, metadata_notes = (_guarded(notes, "installed metadata", _owned_metadata, module_name, real,
                                       candidates, default=([], [])) if real else ([], []))
     try:  # the module's own namespace only: a lazy module __getattr__ could import
-        attribute = _namespace(module).get("__version__")
+        attribute = dict.get(_namespace(module), "__version__")
     except Exception:
         attribute = None
-    attribute = attribute.strip() if isinstance(attribute, str) else ""
+    attribute = str.strip(attribute) if type(attribute) is str else ""
     checkout, _pyproject = (_guarded(notes, "pyproject.toml", _checkout_version, real, candidates,
                                      default=("", "")) if real else ("", ""))
     # Source checkouts: pyproject.toml is current, while editable/egg-info
@@ -475,7 +522,7 @@ def collect_loaded_packages(modules=None) -> PackageReport:
     rows.sort(key=lambda row: (row.group != "ANY ecosystem", not row.loaded))
     qt_runtime = UNKNOWN
     qtcore = modules.get("PySide6.QtCore")
-    qversion = _namespace(qtcore).get("qVersion") if qtcore is not None else None
+    qversion = dict.get(_namespace(qtcore), "qVersion") if qtcore is not None else None
     if callable(qversion):
         try:
             qt_runtime = str(qversion())
@@ -585,7 +632,7 @@ def open_loaded_packages(window):
     def finished(report, error):
         if error is not None:
             dialog.error = error
-            summary.setText(f"Could not collect the package list: {type(error).__name__}: {str(error)[:300]}")
+            summary.setText(escape(f"Could not collect the package list: {type(error).__name__}: {str(error)[:300]}"))
             return
         dialog.report = report
         dialog.ready_ms = (time.perf_counter() - opened) * 1000.0

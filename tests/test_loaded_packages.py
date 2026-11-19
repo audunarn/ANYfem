@@ -335,3 +335,72 @@ def test_lazyloader_module_is_never_executed(tmp_path):
     finally:
         if hasattr(builtins, "_anyfem_lazy_executed"):
             del builtins._anyfem_lazy_executed
+
+
+# Review round 5 regressions (failed on 23e5be8).
+
+def test_proxies_and_module_subclass_descriptors_are_not_invoked(tmp_path):
+    calls = []
+
+    class Proxy:
+        @property
+        def __class__(self):
+            calls.append("__class__")
+            return types.ModuleType
+
+        def __getattribute__(self, name):
+            calls.append(name)
+            raise RuntimeError("proxy touched")
+
+    class Deferred(types.ModuleType):
+        @property
+        def __dict__(self):
+            calls.append("__dict__")
+            raise RuntimeError("descriptor touched")
+
+    deferred = Deferred("anydeferred")
+    types.ModuleType.__dict__["__dict__"].__get__(deferred)["__file__"] = str(tmp_path / "anydeferred.py")
+    report = lp.collect_loaded_packages({"numpy": Proxy(), "PySide6.QtCore": Proxy(), "anydeferred": deferred})
+    assert calls == []
+    row = _row(report, "numpy")
+    assert row.loaded and row.version == lp.UNKNOWN and row.import_path == ""
+    assert report.qt_runtime == lp.UNKNOWN
+    assert _row(report, "anydeferred").import_path == str(tmp_path / "anydeferred.py")
+
+
+def test_package_paths_are_read_without_import_machinery(tmp_path, monkeypatch):
+    import importlib
+    calls = []
+
+    class Recorder:
+        def find_spec(self, *args, **kwargs):
+            calls.append(("find_spec", args[0]))
+            return None
+
+        def find_distributions(self, *args, **kwargs):
+            calls.append(("find_distributions",))
+            return iter(())
+
+    namespace_root = tmp_path / "ns"
+    (namespace_root / "anynspkg").mkdir(parents=True)
+    monkeypatch.syspath_prepend(str(namespace_root))
+    importlib.invalidate_caches()
+    package = importlib.import_module("anynspkg")
+    try:
+        assert type(package.__path__).__name__ == "_NamespacePath"
+        monkeypatch.syspath_prepend(str(tmp_path / "later"))  # iteration would now recalculate
+        monkeypatch.setattr(sys, "meta_path", [Recorder(), *sys.meta_path])
+
+        class CustomPath:
+            def __iter__(self):
+                calls.append(("iter",))
+                return iter([str(tmp_path)])
+
+        custom = types.ModuleType("anycustompath")
+        custom.__path__ = CustomPath()
+        report = lp.collect_loaded_packages({"anynspkg": package, "anycustompath": custom, "numpy": sys.modules.get("numpy")})
+    finally:
+        sys.modules.pop("anynspkg", None)
+    assert calls == []
+    assert Path(_row(report, "anynspkg").import_path) == namespace_root / "anynspkg"
+    assert all(row.module != "anycustompath" for row in report.rows)  # no inert location: not listed
