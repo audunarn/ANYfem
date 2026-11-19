@@ -114,6 +114,9 @@ def _editable_dist(site: Path, name: str, version: str, url: Path):
     info.mkdir(parents=True)
     (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n", encoding="utf-8")
     (info / "direct_url.json").write_text(json.dumps({"url": url.resolve().as_uri(), "dir_info": {"editable": True}}), encoding="utf-8")
+    url.mkdir(parents=True, exist_ok=True)
+    if not (url / "pyproject.toml").exists():  # a real editable project root; version from metadata
+        (url / "pyproject.toml").write_text(f'[project]\nname = "{name}"\ndynamic = ["version"]\n', encoding="utf-8")
 
 
 def test_editable_metadata_counts_only_for_its_own_project(tmp_path, monkeypatch):
@@ -220,12 +223,19 @@ def test_malformed_provenance_becomes_a_note_not_an_exception(tmp_path, monkeypa
     assert "anybroken" in report.text()
 
 
-def test_collection_imports_nothing_in_a_fresh_process():
+def test_collection_imports_nothing_in_a_fresh_process(tmp_path):
     import subprocess
-    code = ("import sys, anyfem.ui.qt.loaded_packages as lp; before=set(sys.modules); "
-            "lp.collect_loaded_packages(); print(sorted(set(sys.modules)-before))")
+    import zipfile
+    archive = tmp_path / "plain.zip"  # an ordinary zip on sys.path makes discovery open it
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("readme.txt", "x")
+    code = ("import sys, types, anyfem.ui.qt.loaded_packages as lp; "
+            f"sys.path.insert(0, {str(archive)!r}); "
+            "lazy = types.ModuleType('anylazy'); lazy.__file__ = __import__('os').path.abspath('anylazy.py'); "
+            "lazy.__getattr__ = lambda name: __import__('fractions'); sys.modules['anylazy'] = lazy; "
+            "before=set(sys.modules); lp.collect_loaded_packages(); print(sorted(set(sys.modules)-before))")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
-                            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+                            cwd=tmp_path, env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "[]"
 
@@ -241,3 +251,46 @@ def test_every_owned_metadata_source_is_compared(tmp_path, monkeypatch):
                   {"anymulti": module}, {}, False)
     assert (row.version, row.version_source) == ("6.10.1", "metadata (anymulti)")
     assert any("metadata (anymulti_essentials) says 6.10.2" in note for note in row.notes), row.notes
+
+
+# Review round 2 regressions (each failed on 13f6f53).
+
+def test_module_version_is_read_without_invoking_a_lazy_getattr(tmp_path):
+    calls = []
+    module = _package(tmp_path / "lazy", "anylazyattr")
+    module.__getattr__ = lambda name: calls.append(name) or "6.6.6"
+    row = _row(lp.collect_loaded_packages({"anylazyattr": module}), "anylazyattr")
+    assert calls == [] and row.version == lp.UNKNOWN
+
+
+@pytest.mark.parametrize("target", ["C:/other/.git/refs/heads/main", "/other/refs/heads/main",
+                                    "//server/share/refs/heads/main", "refs/heads/../../../other"])
+def test_symbolic_refs_outside_the_repository_are_refused(tmp_path, target):
+    other = tmp_path / "other"
+    _git(other, sha=SHA2)
+    repo = tmp_path / "repo"
+    _git(repo, sha=SHA)
+    target = target.replace("C:/other", other.resolve().as_posix())
+    (repo / ".git" / "refs" / "heads" / "main").write_text(f"ref: {target}\n", encoding="utf-8")
+    module = _package(repo / "src", "anyloads")
+    commit = _row(lp.collect_loaded_packages({"anyloads": module}), "anyloads").commit
+    assert SHA2[:12] not in commit
+    assert commit == f"{lp.UNKNOWN} (main, unresolved) in {repo.resolve()}"
+    (repo / ".git" / "HEAD").write_text(f"ref: {target}\n", encoding="utf-8")
+    commit = _row(lp.collect_loaded_packages({"anyloads": module}), "anyloads").commit
+    assert SHA2[:12] not in commit and commit.startswith(lp.UNKNOWN)
+
+
+def test_editable_project_does_not_own_a_nested_separate_checkout(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    outer = tmp_path / "project"
+    _editable_dist(site, "anynested", "9.0.0", outer)
+    monkeypatch.syspath_prepend(str(site))
+    _pyproject(outer, "anynested", "9.0.0")
+    second = outer / "second-copy"
+    second.mkdir()
+    (second / "pyproject.toml").write_text('[project]\nname = "anynested"\ndynamic = ["version"]\n', encoding="utf-8")
+    module = _package(second / "src", "anynested", version_attr="1.0.0")
+    row = _row(lp.collect_loaded_packages({"anynested": module}), "anynested")
+    assert (row.version, row.version_source) == ("1.0.0", "module __version__")
+    assert any("describes another copy" in note for note in row.notes)

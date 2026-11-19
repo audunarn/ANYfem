@@ -7,7 +7,7 @@ import pytest
 if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1", allow_module_level=True)
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QMenu, QPushButton, QTableWidget
+from PySide6.QtWidgets import QLabel, QMenu, QPushButton, QTableWidget
 from test_qt_geometry_actions import qapp, window
 
 IMPORT = ["Import SESAM model", "Import SAT geometry…", "Import CalculiX results", "Import SESAM results"]
@@ -29,6 +29,15 @@ def isolated_settings(tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
     from anyfem.ui.qt import app
     monkeypatch.setattr(app, "QSettings", lambda *_: QSettings(str(tmp_path / "layout.ini"), QSettings.IniFormat))
+
+
+def _wait_for_report(dialog, qapp, seconds=30):
+    import time
+    deadline = time.monotonic() + seconds
+    while dialog.report is None and dialog.error is None and time.monotonic() < deadline:
+        qapp.processEvents(); time.sleep(0.01)
+    assert dialog.error is None and dialog.report is not None
+    return dialog.report
 
 
 def _menu(parent, title):
@@ -65,8 +74,8 @@ def test_help_loaded_packages_dialog_lists_loaded_paths_and_copies(window, qapp,
     window._actions["Loaded packages…"].trigger(); qapp.processEvents()
     dialog = window._loaded_packages_dialog
     assert dialog.isVisible() and dialog.windowTitle() == "Loaded packages"
-    report = dialog.report
-    assert report.elapsed_ms < 2000  # measured ~70-90 ms warm
+    report = _wait_for_report(dialog, qapp)
+    assert report.elapsed_ms < 2000  # measured ~70-90 ms warm, on the worker thread
     table = dialog.findChild(QTableWidget, "LoadedPackagesTable")
     assert table.rowCount() == len(report.rows)
     cells = {table.item(index, 0).text(): [table.item(index, column).text() for column in range(table.columnCount())]
@@ -85,3 +94,55 @@ def test_help_loaded_packages_dialog_lists_loaded_paths_and_copies(window, qapp,
     assert copied == [report.text()]
     assert f"ANYfem: {report.rows[0].version}" in copied[0]
     dialog.close(); qapp.processEvents()
+
+
+def test_loaded_packages_dialog_opens_before_collection_finishes(window, qapp, monkeypatch):
+    """Provenance reads can stall on a network share; the GUI thread must not wait."""
+    import threading
+    from anyfem.ui.qt import loaded_packages as lp
+    release, started = threading.Event(), threading.Event()
+    real = lp.collect_loaded_packages
+
+    def slow(modules=None):
+        started.set()
+        release.wait(10)
+        return real(modules)
+
+    monkeypatch.setattr(lp, "collect_loaded_packages", slow)
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    try:
+        assert dialog.isVisible() and dialog.report is None
+        assert started.wait(5)
+        copy = dialog.findChild(QPushButton, "CopyLoadedPackages")
+        assert not copy.isEnabled()
+        assert "Collecting" in dialog.findChild(QLabel, "LoadedPackagesSummary").text()
+    finally:
+        release.set()
+    report = _wait_for_report(dialog, qapp)
+    assert copy.isEnabled() and dialog.findChild(QTableWidget, "LoadedPackagesTable").rowCount() == len(report.rows)
+    dialog.close(); qapp.processEvents()
+
+
+def test_closing_the_dialog_early_drops_the_late_result(window, qapp, monkeypatch):
+    import threading
+    import time
+    from anyfem.ui.qt import loaded_packages as lp
+    release, done = threading.Event(), threading.Event()
+    real = lp.collect_loaded_packages
+
+    def slow(modules=None):
+        release.wait(10)
+        try:
+            return real(modules)
+        finally:
+            done.set()
+
+    monkeypatch.setattr(lp, "collect_loaded_packages", slow)
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    window._loaded_packages_dialog.close(); qapp.processEvents()
+    release.set()
+    assert done.wait(10)
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        qapp.processEvents(); time.sleep(0.01)  # the queued result arrives and is ignored

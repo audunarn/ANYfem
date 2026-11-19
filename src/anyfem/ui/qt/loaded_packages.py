@@ -6,7 +6,8 @@ other than the one in ``sys.modules``.  The collector therefore reports metadata
 only when that distribution is shown to own the loaded path; otherwise it falls
 back to the loaded module's own ``__version__`` and finally to ``unknown``.  It
 never imports anything: packages that this session has not imported are listed
-as not loaded.  Everything is collected only when the dialog opens.
+as not loaded.  Everything is collected only when the dialog opens, on a
+worker thread.
 """
 from __future__ import annotations
 
@@ -23,10 +24,14 @@ from importlib import metadata
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-try:
-    import importlib.metadata._adapters  # noqa: F401  (private, but lazily imported by Distribution.metadata)
-except ImportError:  # pragma: no cover - layout of a future Python
-    pass
+import encodings.cp437  # noqa: F401  zipfile decodes legacy names with it when sys.path holds a zip
+import zipfile  # noqa: F401
+
+for _lazy in ("importlib.metadata._adapters", "zipfile._path"):  # private, imported lazily by the stdlib
+    try:
+        __import__(_lazy)
+    except ImportError:  # pragma: no cover - layout of another Python
+        pass
 
 UNKNOWN = "unknown"
 
@@ -211,8 +216,12 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
                     break
             if not match:
                 root = _editable_root(dist)
-                # A UNC root is compared as written: resolving it would contact the server.
-                match = bool(root) and _is_inside(real_location, root if root.startswith("//") else _real(root))
+                # The editable project must be the loaded copy's own project, not
+                # merely an ancestor of a separate nested checkout.  A UNC root is
+                # compared as written (resolving it would contact the server).
+                root = root if root.startswith("//") else _real(root) if root else ""
+                own = _project_root(real_location)
+                match = bool(root) and bool(own) and _norm(own) == _norm(root)
         except Exception as error:
             notes.append(f"metadata for {candidate} could not be read ({type(error).__name__})")
             continue
@@ -224,6 +233,18 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
             notes.append(f"installed metadata {name} {version or '(no version)'} "
                          f"describes another copy, not the loaded one")
     return owned, notes
+
+
+_PROJECT_MARKERS = ("pyproject.toml", "setup.py", "setup.cfg", ".git")
+
+
+def _project_root(real_location: str) -> str:
+    """Nearest enclosing directory that is a project or checkout root, or ''."""
+    directory = Path(real_location if os.path.isdir(real_location) else os.path.dirname(real_location))
+    for candidate in (directory, *directory.parents):
+        if any((candidate / marker).exists() for marker in _PROJECT_MARKERS):
+            return str(candidate)
+    return ""
 
 
 def _canonical(name: str) -> str:
@@ -279,12 +300,21 @@ def _git_head(start: str, cache: dict) -> str:
 
 
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_REF_PART = re.compile(r"[A-Za-z0-9._+@{}~^-]+")
+
+
+def _safe_refname(ref: str) -> bool:
+    """A relative ``refs/...`` name: never rooted, drive-qualified, UNC or ``..``."""
+    if not ref.startswith("refs/") or "\\" in ref or ":" in ref:
+        return False
+    return all(part and not part.startswith(".") and _REF_PART.fullmatch(part)
+               for part in ref.split("/"))
 
 
 def _resolve_ref(ref: str, gitdir: Path, common: Path, depth: int = 0) -> str:
     """Commit of ``ref``: loose refs (worktree, then common) before packed refs,
     following symbolic refs up to a fixed depth; '' when it does not resolve."""
-    if depth > 8 or ".." in Path(ref).parts:
+    if depth > 8 or not _safe_refname(ref):
         return ""
     for base in (gitdir, common):
         loose = base / ref
@@ -323,6 +353,8 @@ def _read_head(root: Path, dotgit: Path) -> str:
     if not head.startswith("ref:"):
         return ""
     ref = head[len("ref:"):].strip()
+    if not _safe_refname(ref):
+        return f"{UNKNOWN} (unsupported HEAD) in {root}"
     branch = ref.removeprefix("refs/heads/")
     sha = _resolve_ref(ref, gitdir, common)
     if sha:
@@ -348,8 +380,8 @@ def _row(group, module_name, display, candidates, modules, git_cache, with_commi
     real = _real(location) if location else ""
     owned, metadata_notes = (_guarded(notes, "installed metadata", _owned_metadata, module_name, real,
                                       candidates, default=([], [])) if real else ([], []))
-    try:
-        attribute = getattr(module, "__version__", None)
+    try:  # the module's own namespace only: a lazy module __getattr__ could import
+        attribute = vars(module).get("__version__")
     except Exception:
         attribute = None
     attribute = attribute.strip() if isinstance(attribute, str) else ""
@@ -437,36 +469,15 @@ def collect_loaded_packages(modules=None) -> PackageReport:
 COLUMNS = ("Package", "Version", "Version source", "Loaded from", "Commit", "Notes")
 
 
-def open_loaded_packages(window):
-    """Build the report now and show it in a non-modal dialog."""
-    from PySide6.QtCore import Qt
+def _fill_table(table, report):
     from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QHeaderView,
-                                   QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
+    from PySide6.QtWidgets import QHeaderView, QTableWidgetItem
 
-    report = collect_loaded_packages()
-    dialog = QDialog(window)
-    dialog.setObjectName("LoadedPackagesDialog")
-    dialog.setWindowTitle("Loaded packages")
-    dialog.setAttribute(Qt.WA_DeleteOnClose)
-    dialog.report = report
-    layout = QVBoxLayout(dialog)
-    summary = QLabel(
-        f"Python {report.python} — {report.executable}<br>"
-        f"Qt runtime {report.qt_runtime} — collected in {report.elapsed_ms:.0f} ms<br>"
-        f"<i>{report.notes[0]}</i>", dialog)
-    summary.setObjectName("LoadedPackagesSummary")
-    summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
-    layout.addWidget(summary)
-    table = QTableWidget(len(report.rows), len(COLUMNS), dialog)
-    table.setObjectName("LoadedPackagesTable")
-    table.setHorizontalHeaderLabels(COLUMNS)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    table.verticalHeader().setVisible(False)
+    table.setRowCount(len(report.rows))
     for index, row in enumerate(report.rows):
         if row.loaded:
-            path = row.import_path + (f"\n→ {row.real_path}" if row.real_path and _norm(row.real_path) != _norm(row.import_path) else "")
+            resolved = row.real_path and _norm(row.real_path) != _norm(row.import_path)
+            path = row.import_path + (f"\n→ {row.real_path}" if resolved else "")
             flagged = any(note.startswith("version sources disagree") for note in row.notes)
             values = (row.name, ("⚠ " if flagged else "") + row.version, row.version_source,
                       path, row.commit, "; ".join(row.notes))
@@ -479,29 +490,106 @@ def open_loaded_packages(window):
             if not row.loaded:
                 item.setForeground(QColor(128, 128, 128))
             table.setItem(index, column, item)
-    table.setWordWrap(False)
     header = table.horizontalHeader()
-    header.setStretchLastSection(True)
     table.resizeColumnsToContents()
     header.setSectionResizeMode(QHeaderView.Interactive)
+    header.setStretchLastSection(True)
     table.resizeRowsToContents()
+
+
+def open_loaded_packages(window):
+    """Show the dialog at once; collect on a worker thread and fill it in.
+
+    Provenance reads touch the file system (``sys.path`` scans, ``.git``,
+    ``pyproject.toml``), which can stall on a network share, so none of it runs
+    on the GUI thread.  ``sys.modules`` is snapshotted here, before the thread
+    starts.  A dialog closed early simply drops the late result.
+    """
+    import threading
+
+    import shiboken6
+    from PySide6.QtCore import QObject, Qt, Signal
+    from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
+                                   QPushButton, QTableWidget, QVBoxLayout)
+
+    opened = time.perf_counter()
+    modules = dict(sys.modules)
+    dialog = QDialog(window)
+    dialog.setObjectName("LoadedPackagesDialog")
+    dialog.setWindowTitle("Loaded packages")
+    dialog.setAttribute(Qt.WA_DeleteOnClose)
+    dialog.report = None
+    dialog.error = None
+    dialog.ready_ms = None
+    layout = QVBoxLayout(dialog)
+    summary = QLabel("Collecting loaded packages…", dialog)
+    summary.setObjectName("LoadedPackagesSummary")
+    summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    layout.addWidget(summary)
+    table = QTableWidget(0, len(COLUMNS), dialog)
+    table.setObjectName("LoadedPackagesTable")
+    table.setHorizontalHeaderLabels(COLUMNS)
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectRows)
+    table.setWordWrap(False)
+    table.verticalHeader().setVisible(False)
     layout.addWidget(table)
     buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
     copy = QPushButton("Copy to clipboard", dialog)
     copy.setObjectName("CopyLoadedPackages")
+    copy.setEnabled(False)
     buttons.addButton(copy, QDialogButtonBox.ActionRole)
     buttons.rejected.connect(dialog.close)
+    layout.addWidget(buttons)
 
     def copy_report():
-        window.clipboard.copy_text(report.text())
+        if dialog.report is None:
+            return
+        window.clipboard.copy_text(dialog.report.text())
         try:
             window.set_status("Loaded package list copied to clipboard.")
         except Exception:
             pass
 
     copy.clicked.connect(copy_report)
-    layout.addWidget(buttons)
+
+    class _Relay(QObject):
+        done = Signal(object, object)
+
+    relay = _Relay()  # lives in the GUI thread; emits from the worker are queued
+
+    def finished(report, error):
+        if not shiboken6.isValid(dialog):
+            return
+        if error is not None:
+            dialog.error = error
+            summary.setText(f"Could not collect the package list: {type(error).__name__}: {str(error)[:300]}")
+            return
+        dialog.report = report
+        dialog.ready_ms = (time.perf_counter() - opened) * 1000.0
+        summary.setText(
+            f"Python {report.python} — {report.executable}<br>"
+            f"Qt runtime {report.qt_runtime} — collected in {report.elapsed_ms:.0f} ms (background)<br>"
+            f"<i>{report.notes[0]}</i>")
+        _fill_table(table, report)
+        copy.setEnabled(True)
+
+    relay.done.connect(finished)
+    dialog._relay = relay
+
+    def work():
+        try:
+            result, error = collect_loaded_packages(modules), None
+        except Exception as caught:  # collect is guarded per row; this is the last net
+            result, error = None, caught
+        try:
+            relay.done.emit(result, error)
+        except RuntimeError:
+            pass  # the relay went away with the application
+
     dialog.resize(1400, 640)
     window._loaded_packages_dialog = dialog
     dialog.show()
+    dialog.shown_ms = (time.perf_counter() - opened) * 1000.0
+    threading.Thread(target=work, name="anyfem-loaded-packages", daemon=True).start()
     return dialog
