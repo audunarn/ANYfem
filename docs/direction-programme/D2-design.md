@@ -54,7 +54,7 @@ Per shell element and recovery station, when result axes are requested:
 
 | Item | floats | Branches | Status today |
 |---|---|---|---|
-| native family tensors in global axes: membrane (6), bending (6), transverse shear vector (3), each rotated once by the element from its native local values with the frame that family is in | 15 / case | all | emitted as resultants by the F2 branches; **missing** for legacy homogeneous and e4-pl warped homogeneous (additive solver output, O5 = (a) decided) |
+| native family tensors in global axes: membrane (6), bending (6), transverse shear vector (3), each rotated once by the element from its native local values with the frame that family is in | 15 / case | all | emitted as resultants by the F2 branches; **missing** for legacy homogeneous and e4-pl warped homogeneous (derived by the B2 module, cross-checked; O5 = B2, revision 4) |
 | global surface stress top and bot (6 + 6) | 12 / case | homogeneous, only when surface fields are requested | persisted when the global route is requested (F1) |
 | station physical position (3) | 3 / artifact | all | derived per branch (normalization contract) |
 | tensor-basis normal per station (3) and per centre-frame family per element (3) | 3 / station + 3 / element | all | e4-pl partly; V2D via `frame`; legacy none |
@@ -68,8 +68,9 @@ minimum sine over every frame it consumes, refusal code.
 check stays a diagnostic of the static solve model (option A). D2 checks frames
 **per analysis, at result recovery** (option C): stations, tensor-basis normals
 and physical directors are the ones the solver used in *that* analysis, taken
-from its recovery output (O5(a) solver keys), never recomputed from the static
-mesh or the initial build. They therefore include analysis-time imperfections:
+from its recovery output and the solved reference model of that analysis (through
+the B2 module of revision 4, which recomputes frames on the model the analysis
+solved and cross-checks them), never taken from the static mesh or the initial build. They therefore include analysis-time imperfections:
 the nonlinear / arc-length `imperfection` and the capacity eigenmode
 imperfection applied after the initial build. The artifact records, per
 analysis, the imperfection provenance (kind, mode or field, amplitude) next to
@@ -142,13 +143,36 @@ qualification process, which the owner declined. Revised rule (B2):
   recomputes through the existing read-only helpers. Every pinned file stays
   byte-identical; nothing is called unless a caller invokes the function (the
   entry hook is in ANYfem's post/recovery path).
-* **Cross-check on every call (acceptance, not an option).** The derived tensors
-  are rotated back into the element's own local output frame and must match the
-  element's `compute_stresses` local components, and for homogeneous branches
-  the recomputed frame must reproduce the solver's own `global_*_{top,bot}`
-  surface values, to 1e-13 relative to the family's max abs; otherwise a typed
-  refusal `AXES_FRAME_RULE_MISMATCH` (a frame-rule drift fails closed). The
-  duplicated rules and the per-family frame split (F3) are the risk this guards.
+* **Cross-check on every call (acceptance, not an option).** The module's
+  recomputed frames are compared with a quantity the solver itself emitted that
+  depends on the same frame, so the check is never an identity of the recomputed
+  frame with itself:
+  - homogeneous branches: the solver's `global_{xx,yy,zz,xy,xz,yz}_{top,bot}`
+    (full tensors) against the same tensors rebuilt from the solver's local
+    surface values (`local_*`, including `local_shear` and, for warped Q4, the
+    centre-frame shear projected into each station's tangent plane as the
+    solver documents it) rotated with the module's recomputed station frame;
+  - generalized branches: the solver-emitted `global_membrane_resultant_tensors`,
+    `global_bending_resultant_tensors`, `global_transverse_shear_resultants`
+    against the solver's local N, M, Q components rotated with the recomputed
+    frame of that family (station frame for membrane and bending; centre frame
+    for shear where the branch uses it, F3), with the branch's polarity
+    convention (F3a) applied exactly as the adapter records;
+  - every derived tensor T additionally satisfies |nu . T| <= bound with nu the
+    stored tensor-basis normal (unit length checked).
+  If no solver-emitted frame-dependent reference exists for a family, the
+  family is refused (`AXES_FRAME_RULE_MISMATCH` with reason `no_reference`).
+  Residual and scale are defined per element and family: r = max over its
+  stations and components of |derived - reference|; s = max over the same
+  stations and components of |reference|; pass iff all values are finite and
+  r <= 1e-13 s; if s == 0 pass iff r == 0 (an all-zero family is accepted only as
+  exactly zero); a missing or nonfinite reference or derived value is a refusal.
+  On failure: typed refusal `AXES_FRAME_RULE_MISMATCH` for the element (nothing
+  is stored for it), so a frame-rule drift fails closed. Because the scale is the
+  family's own magnitude, a frame error in a family that is below 1e-13 of its own
+  magnitude is numerically irrelevant by construction; a family far smaller than
+  its neighbour in the same element is checked on its own scale (mixed-magnitude
+  fixtures of D2-1 (ii) cover this).
 * Consequence for D2-6 (nonlinear, corotational): the module must reproduce the
   recovery's rotated current-geometry stress frame (S/recovery.py:1254, 1275)
   per frame; if that cannot be cross-checked to the bound, the analysis is
@@ -156,10 +180,10 @@ qualification process, which the owner declined. Revised rule (B2):
 
 **Solver changes are coordinated first (owner instruction 2026-11-18: "For
 solver related issues coordinate with the task 'ANYsolver CI cleanup'").** The
-O5(a) outputs and any other ANYfeSolver change in a D2 slice are agreed with the
+B2 module (revision 4; formerly the O5(a) outputs) and any other ANYfeSolver change in a D2 slice are agreed with the
 "ANYsolver CI cleanup" session (local_13c40095-3e8f-4330-8826-a8dc2198b6e9)
 before implementation starts. That session confirmed (2026-11-18, relayed by
-the coordinator) that O5(a) does not conflict with its work, with one
+the coordinator) that the then-planned O5(a) change did not conflict with its work, with one
 precondition: no D2 solver change starts until ANYfeSolver main has been
 fast-forwarded to `claude/ci-green-kernel-20261117` (moves the package from
 `src/anysolver/` to `src/anyfesolver/`; expected within hours of that date).
@@ -396,7 +420,7 @@ Solve side (ANYfem): a request for any `axes_*` quantity sets **both**
 `requested_stress` and `requested_global_stress` (F7), and persists the station
 records and, for generalized branches, N, M and Q. Each analysis route claimed
 in a slice gets a save, reopen and evaluate test that requests only `axes_*`
-fields. Solver: numerics untouched; the additive O5(a) keys (decided).
+fields. Solver: numerics untouched and every pinned file byte-identical; the B2 module is new and unpinned (revision 4).
 
 Rejected locations: solver recovery (needs sheets and geometry the solver must
 not know, and would change solver outputs); anypost (no geometry or sheet
@@ -509,7 +533,7 @@ generalized, including whether warped Q4 recovers through
 `faceted` reference-surface modes): which global family tensors, stations,
 tensor-basis normals per family, physical director and polarity handling,
 offsets, top sign convention. Accept: a table with file:line
-per cell, every cell checked by a small probe; O5 decided by the owner ((a), 2026-11-18).
+per cell, every cell checked by a small probe; O5 decided by the owner ((a) 2026-11-18, revised to B2 2026-11-19).
 
 **D2-1 Data.** Adapters, persistence, request gates. Precondition (first
 slice touching the solver): ANYfeSolver main fast-forwarded to
@@ -633,7 +657,7 @@ starting point, fixed in D2-7 from measurements); O3 DECIDED 2026-11-19: default
 O4 DECIDED 2026-11-19: band 10 deg, fold limit 30 deg; O5 DECIDED 2026-11-18: (a), REVISED 2026-11-19 to B2 with cross-check (new unpinned solver module, `AXES_FRAME_RULE_MISMATCH`; reason: pinned qualified sources, section 10); O6 DECIDED 2026-11-19: labels name the basis,
 keys unchanged; O7 orthotropic material axes follow node order today (separate defect; NOT part of this work, separate investigation, owner 2026-11-19);
 O8 DECIDED 2026-11-18: performance budget approved, pass/fail (section 5a);
-solver changes (O5(a) and any other) coordinated with "ANYsolver CI cleanup"
+solver changes (the B2 module and any other) coordinated with "ANYsolver CI cleanup"
 before implementation; O9 imperfect-run recovery
 on the solved model (D2-6a, changes existing values of imperfect runs).
 
@@ -772,8 +796,8 @@ Corrections to section 0 and new facts that the later slices rely on:
 1. F6: ordinary homogeneous V2D (polarity +1, offset 0) returns no `director_polarity`
    or offset keys (V2C shortcut, `e4_pl_s3_v2d_element.py:1605-1611`); they appear for
    generalized sections, polarity -1 or nonzero offset. Qualified S3 always returns the
-   offset keys but no `director_polarity` key (`e4_pl_s3_element.py:5284-5314`). O5(a) must
-   make V2D return both always and S3 return the polarity.
+   offset keys but no `director_polarity` key (`e4_pl_s3_element.py:5284-5314`). under B2 the
+   module supplies polarity and offsets for both (the pinned sources are not changed).
 2. F5: e4-pl warped returns no `natural_point_coordinates` (planar path only,
    `e4_pl_element.py:7091`); it returns `physical_director` and per-station
    `physical_directors`. Warped without `reference_normal` returns no metadata at all.
@@ -811,7 +835,7 @@ Corrections to section 0 and new facts that the later slices rely on:
 12. `faceted` is an ANYfem build choice (`build.py:287-295`), not a solver mode; the
     solver refuses a reference normal off the facet normal.
 
-O5(a) missing outputs per branch are listed in `matrix.md`. In short: legacy homogeneous
+The missing outputs per branch (now derived by the B2 module) are listed in `matrix.md`. In short: legacy homogeneous
 and e4-pl warped homogeneous lack the three family tensors; every branch except V2D lacks
 station positions; tensor-basis normals per family are missing except V2D `frame`; qualified
 S3 returns no frame or director.
