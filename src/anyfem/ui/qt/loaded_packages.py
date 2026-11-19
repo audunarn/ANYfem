@@ -513,6 +513,7 @@ def open_loaded_packages(window):
     starts.  A dialog closed early simply drops the late result.
     """
     import threading
+    from html import escape
 
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
@@ -530,6 +531,8 @@ def open_loaded_packages(window):
     layout = QVBoxLayout(dialog)
     summary = QLabel("Collecting loaded packages…", dialog)
     summary.setObjectName("LoadedPackagesSummary")
+    summary.setTextFormat(Qt.RichText)  # paths are not markup: only the summary's own <br>/<i> tags
+    summary.setWordWrap(True)
     summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
     layout.addWidget(summary)
     table = QTableWidget(0, len(COLUMNS), dialog)
@@ -573,11 +576,12 @@ def open_loaded_packages(window):
         dialog.report = report
         dialog.ready_ms = (time.perf_counter() - opened) * 1000.0
         summary.setText(
-            f"Python {report.python} — {report.executable}<br>"
-            f"Qt runtime {report.qt_runtime} — collected in {report.elapsed_ms:.0f} ms (background)<br>"
-            f"<i>{report.notes[0]}</i>")
+            f"Python {escape(report.python)} — {escape(report.executable)}<br>"
+            f"Qt runtime {escape(report.qt_runtime)} — collected in {report.elapsed_ms:.0f} ms (background)<br>"
+            f"<i>{escape(report.notes[0])}</i>")
         _fill_table(table, report)
         copy.setEnabled(True)
+        layout.activate()  # the summary grew from one line to three
 
     poller = QTimer(dialog)
     poller.setObjectName("LoadedPackagesPoller")
