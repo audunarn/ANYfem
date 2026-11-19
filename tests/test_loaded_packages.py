@@ -294,3 +294,21 @@ def test_editable_project_does_not_own_a_nested_separate_checkout(tmp_path, monk
     row = _row(lp.collect_loaded_packages({"anynested": module}), "anynested")
     assert (row.version, row.version_source) == ("1.0.0", "module __version__")
     assert any("describes another copy" in note for note in row.notes)
+
+
+# Review round 3 regressions (each failed on 7e3aec9).
+
+def test_module_location_never_invokes_a_lazy_getattr(tmp_path):
+    calls = []
+    module = types.ModuleType("anyfilelazy")
+    module.__file__ = str(tmp_path / "anyfilelazy.py")  # a plain module: no __path__
+    module.__getattr__ = lambda name: calls.append(name) or ["x"]
+    row = _row(lp.collect_loaded_packages({"anyfilelazy": module}), "anyfilelazy")
+    assert calls == [] and row.import_path == module.__file__
+
+
+def test_ref_names_git_allows_still_resolve(tmp_path):
+    repo = tmp_path / "repo"
+    _git(repo, branch="feature=fix", sha=SHA)
+    module = _package(repo / "src", "anysolid")
+    assert _row(lp.collect_loaded_packages({"anysolid": module}), "anysolid").commit == f"{SHA[:12]} (feature=fix) in {repo.resolve()}"

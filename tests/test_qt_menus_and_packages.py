@@ -1,5 +1,6 @@
 """Menu grouping (File > Import/Export/Examples) and Help > Loaded packages in Qt."""
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -138,11 +139,39 @@ def test_closing_the_dialog_early_drops_the_late_result(window, qapp, monkeypatc
         finally:
             done.set()
 
+    import shiboken6
+    from PySide6.QtCore import QEvent, QTimer
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *info: errors.append(info))  # Qt slot exceptions land here
     monkeypatch.setattr(lp, "collect_loaded_packages", slow)
     window._actions["Loaded packages…"].trigger(); qapp.processEvents()
-    window._loaded_packages_dialog.close(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    poller = dialog.findChild(QTimer, "LoadedPackagesPoller")
+    assert poller.isActive()
+    dialog.close(); qapp.processEvents()
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert not shiboken6.isValid(dialog) and not shiboken6.isValid(poller)  # the poller died with it
     release.set()
     assert done.wait(10)
-    deadline = time.monotonic() + 1
+    deadline = time.monotonic() + 0.5
     while time.monotonic() < deadline:
-        qapp.processEvents(); time.sleep(0.01)  # the queued result arrives and is ignored
+        qapp.processEvents(); time.sleep(0.01)  # nothing is left to deliver the late result to
+    assert errors == []
+
+
+def test_repeated_opens_do_not_retain_closed_dialogs(window, qapp):
+    import gc
+    import weakref
+    from PySide6.QtCore import QEvent
+    references = []
+    for _ in range(3):
+        window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+        dialog = window._loaded_packages_dialog
+        _wait_for_report(dialog, qapp)
+        references.append(weakref.ref(dialog))
+        dialog.close(); qapp.processEvents()
+        qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+        del dialog
+    window._loaded_packages_dialog = None
+    gc.collect()
+    assert [reference() for reference in references] == [None, None, None]

@@ -147,11 +147,15 @@ def _real(path) -> str:
 
 def _module_location(module) -> str:
     """The file or package directory the module was imported from, or ''."""
-    file = getattr(module, "__file__", None)
-    if file:
-        return str(Path(file).parent) if hasattr(module, "__path__") else str(file)
-    paths = list(getattr(module, "__path__", None) or ())
-    return str(paths[0]) if paths else ""
+    # The module's own namespace only: getattr/hasattr could run a lazy
+    # module ``__getattr__`` (and so import) for a missing attribute.
+    namespace = vars(module)
+    file = namespace.get("__file__")
+    if isinstance(file, str) and file:
+        return str(Path(file).parent) if "__path__" in namespace else file
+    paths = namespace.get("__path__")
+    first = next(iter(list(paths)), None) if paths is not None else None
+    return str(first) if isinstance(first, str) else ""
 
 
 def _is_inside(child: str, parent: str) -> bool:
@@ -300,15 +304,18 @@ def _git_head(start: str, cache: dict) -> str:
 
 
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-_REF_PART = re.compile(r"[A-Za-z0-9._+@{}~^-]+")
-
-
 def _safe_refname(ref: str) -> bool:
-    """A relative ``refs/...`` name: never rooted, drive-qualified, UNC or ``..``."""
+    """A relative ``refs/...`` name that stays inside the git directory.
+
+    Only path escapes are refused (rooted, drive-qualified, UNC, ``.``/``..``
+    or empty components, control characters); git refuses ``:`` and ``\\``
+    in ref names anyway.  Other characters git allows are kept.
+    """
     if not ref.startswith("refs/") or "\\" in ref or ":" in ref:
         return False
-    return all(part and not part.startswith(".") and _REF_PART.fullmatch(part)
-               for part in ref.split("/"))
+    if any(ord(character) < 32 or character == "\x7f" for character in ref):
+        return False
+    return all(part and not part.startswith(".") for part in ref.split("/"))
 
 
 def _resolve_ref(ref: str, gitdir: Path, common: Path, depth: int = 0) -> str:
@@ -507,8 +514,7 @@ def open_loaded_packages(window):
     """
     import threading
 
-    import shiboken6
-    from PySide6.QtCore import QObject, Qt, Signal
+    from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
                                    QPushButton, QTableWidget, QVBoxLayout)
 
@@ -553,14 +559,13 @@ def open_loaded_packages(window):
 
     copy.clicked.connect(copy_report)
 
-    class _Relay(QObject):
-        done = Signal(object, object)
-
-    relay = _Relay()  # lives in the GUI thread; emits from the worker are queued
+    # No Qt object crosses threads: the worker fills a plain box and sets an
+    # event; a timer owned by the dialog polls it on the GUI thread, so the
+    # poller, its closure and the dialog go away together.
+    box = {}
+    ready = threading.Event()
 
     def finished(report, error):
-        if not shiboken6.isValid(dialog):
-            return
         if error is not None:
             dialog.error = error
             summary.setText(f"Could not collect the package list: {type(error).__name__}: {str(error)[:300]}")
@@ -574,22 +579,29 @@ def open_loaded_packages(window):
         _fill_table(table, report)
         copy.setEnabled(True)
 
-    relay.done.connect(finished)
-    dialog._relay = relay
+    poller = QTimer(dialog)
+    poller.setObjectName("LoadedPackagesPoller")
+    poller.setInterval(25)
 
-    def work():
+    def poll():
+        if ready.is_set():
+            poller.stop()
+            finished(box.get("report"), box.get("error"))
+
+    poller.timeout.connect(poll)
+
+    def work():  # touches only the snapshot, the box and the event
         try:
-            result, error = collect_loaded_packages(modules), None
+            box["report"] = collect_loaded_packages(modules)
         except Exception as caught:  # collect is guarded per row; this is the last net
-            result, error = None, caught
-        try:
-            relay.done.emit(result, error)
-        except RuntimeError:
-            pass  # the relay went away with the application
+            box["error"] = caught
+        finally:
+            ready.set()
 
     dialog.resize(1400, 640)
     window._loaded_packages_dialog = dialog
     dialog.show()
     dialog.shown_ms = (time.perf_counter() - opened) * 1000.0
     threading.Thread(target=work, name="anyfem-loaded-packages", daemon=True).start()
+    poller.start()
     return dialog
