@@ -148,15 +148,20 @@ def field_to_csv(shape, name: str = "magnitude", **kwargs: Any) -> str:
     header = f"id,x,y,z,{name}" + (f"_{unit}" if unit else "")
 
     if evaluated.per_element:
-        centroids = element_centroids(mesh)
+        from .solved_geometry import reference_position_map
+
+        centroids = element_centroids(mesh, reference_position_map(shape, mesh))
         rows = [
             (key, centroids[key], value)
             for key, value in sorted(evaluated.element_values.items())
             if key in centroids
         ]
     else:
+        from .solved_geometry import reference_position_map
+
+        coordinates = reference_position_map(shape, mesh)
         rows = [
-            (key, mesh.nodes[key], value)
+            (key, coordinates[key], value)
             for key, value in sorted(evaluated.node_values.items())
         ]
 

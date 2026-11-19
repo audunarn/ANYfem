@@ -1507,6 +1507,63 @@ def read_persisted_display_field(dataset,field_key,*,frame=0,component=None):
     return field,descriptor
 
 
+_PERFECT_STAGES = frozenset({"reference_static", "elastic_buckling"})
+
+
+def _reference_record(dataset):
+    """``(kind, record)`` of the saved reference geometry; absent means the mesh."""
+
+    try:
+        provenance = dataset.metadata("provenance")
+    except (KeyError, AttributeError):
+        provenance = {}
+    if not isinstance(provenance, Mapping):
+        raise ValueError(f"unrecognised saved result provenance {type(provenance).__name__}")
+    if "reference_geometry" not in provenance:
+        return "mesh_record", {}
+    record = provenance["reference_geometry"]
+    kind = record.get("kind") if isinstance(record, Mapping) else None
+    if kind not in ("mesh_record", "solved_imperfect", "unbound_imperfect"):
+        raise ValueError(f"unrecognised saved reference geometry {record!r}")
+    return kind, record
+
+
+def persisted_reference_positions(dataset, mesh, ordered_nodes, *, perfect_stage=False) -> np.ndarray:
+    """Coordinates a saved result's displacements are measured from.
+
+    The mesh record unless the artifact says it was solved on moved geometry,
+    in which case the stored imperfect coordinates are used.  Artifacts written
+    before the record existed have no key and read as the mesh.  An imperfect
+    result whose geometry was not saved, or a record this reader does not
+    understand, is refused.  ``perfect_stage`` marks a capacity stage that was
+    solved on the unmoved model (reference static, elastic buckling).
+    """
+
+    kind, record = _reference_record(dataset)
+    if kind == "unbound_imperfect":
+        raise ValueError(
+            "this result was solved on imperfect geometry that its artifact does not "
+            "store; the deformed shape is not drawn on the perfect mesh"
+        )
+    if kind == "solved_imperfect" and not perfect_stage:
+        ids = np.asarray(dataset.table(record["ids_table"]))
+        stored = np.asarray(dataset.table(record["positions_table"]), dtype=float)
+        if (
+            ids.ndim != 1 or ids.dtype.kind not in "iu" or stored.shape != (len(ids), 3)
+            or len(set(ids.tolist())) != len(ids) or not np.isfinite(stored).all()
+        ):
+            raise ValueError("the saved reference geometry is malformed; it is not used")
+        row_of = {int(node): row for row, node in enumerate(ids)}
+        try:
+            return stored[[row_of[int(node)] for node in ordered_nodes]]
+        except KeyError as error:
+            raise ValueError(
+                f"the saved reference geometry has no node {error.args[0]}; "
+                "it does not match the result's mesh"
+            ) from None
+    return np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
+
+
 def build_persisted_result_scene(
     project: Project,
     mesh: Mesh,
@@ -1528,10 +1585,18 @@ def build_persisted_result_scene(
 
     field,descriptor = read_persisted_display_field(dataset,field_key,frame=frame,component=component)
     ordered_nodes = sorted(mesh.nodes)
-    positions = np.asarray([mesh.nodes[node] for node in ordered_nodes], dtype=float)
-    if "displacement" in dataset.field_keys and scale != 0.0:
-        displacement = dataset.field("displacement")
-        displacement_key = "displacement_node_ids"
+    perfect_stage = descriptor.provenance.get("capacity_stage") in _PERFECT_STAGES
+    positions = persisted_reference_positions(
+        dataset, mesh, ordered_nodes, perfect_stage=perfect_stage
+    )
+    # A stage solved on the unmoved model is deformed by its own vector, not by
+    # the collapse displacement of a result whose later stages ran on moved
+    # geometry.  Everything else keeps the "displacement" field as before.
+    own_stage = perfect_stage and _reference_record(dataset)[0] == "solved_imperfect"
+    stage_key = field_key if own_stage else "displacement"
+    if stage_key in dataset.field_keys and scale != 0.0:
+        displacement = dataset.field(stage_key)
+        displacement_key = f"{stage_key}_node_ids"
         if displacement_key in dataset.table_keys:
             displacement_values = np.asarray(
                 displacement.read(_persisted_frame(displacement,frame)),
@@ -1547,14 +1612,10 @@ def build_persisted_result_scene(
                     int(node): np.take(row,translation_indices,axis=-1).reshape(-1, 3)[0]
                     for node, row in zip(displacement_ids, displacement_values)
                 }
-                positions = np.asarray(
-                    [
-                        mesh.nodes[node]
-                        + scale * by_node.get(int(node), np.zeros(3))
-                        for node in ordered_nodes
-                    ],
+                positions = positions + scale * np.asarray(
+                    [by_node.get(int(node), np.zeros(3)) for node in ordered_nodes],
                     dtype=float,
-                )
+                ).reshape(-1, 3)
 
     shape = SimpleNamespace(
         built=SimpleNamespace(mesh=mesh, project=project),

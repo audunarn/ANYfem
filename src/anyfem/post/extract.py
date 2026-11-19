@@ -224,7 +224,10 @@ def along_line(
     if not node_ids:
         raise KeyError(f"{ref} has no nodes in the mesh")
 
-    positions = np.array([mesh.nodes[node_id] for node_id in node_ids])
+    from .solved_geometry import reference_position_map
+
+    coordinates = reference_position_map(shape, mesh)
+    positions = np.array([coordinates[node_id] for node_id in node_ids])
     steps = np.linalg.norm(np.diff(positions, axis=0), axis=1)
     distances = np.concatenate(([0.0], np.cumsum(steps)))
 

@@ -276,18 +276,19 @@ def _plasticity_field(shape,name):
     return evaluate_shape_field(shape,name)
 
 
-def element_centroids(mesh) -> Dict[int, np.ndarray]:
+def element_centroids(mesh, coordinates=None) -> Dict[int, np.ndarray]:
     """Centroid of every element, for locating element-based values in space."""
 
+    coordinates = mesh.nodes if coordinates is None else coordinates
     centroids: Dict[int, np.ndarray] = {}
     for element_id in mesh.shells:
         # Corners only: averaging in the mid-side nodes of a quadratic element
         # would pull the centroid towards whichever sides are longer.
         centroids[element_id] = np.mean(
-            [mesh.nodes[node] for node in mesh.corners_of(element_id)], axis=0
+            [coordinates[node] for node in mesh.corners_of(element_id)], axis=0
         )
     for element_id, nodes in mesh.beams.items():
         centroids[element_id] = np.mean(
-            [mesh.nodes[node] for node in nodes], axis=0
+            [coordinates[node] for node in nodes], axis=0
         )
     return centroids

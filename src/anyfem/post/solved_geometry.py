@@ -37,6 +37,8 @@ __all__ = [
     "SolvedGeometry",
     "UnboundSolvedGeometryError",
     "owned_imperfection_field",
+    "reference_position_map",
+    "solved_reference_positions",
     "solved_model_of",
     "unbound_refusal",
 ]
@@ -293,3 +295,39 @@ def solved_model_of(view: Any) -> Any:
     if refusal is not None:
         raise UnboundSolvedGeometryError(refusal)
     return view.built.fe_model
+
+
+def solved_reference_positions(view: Any) -> Optional[np.ndarray]:
+    """Reference coordinates of a result solved on moved geometry, else ``None``.
+
+    ``None`` means the ordinary route: the mesh coordinates are the reference,
+    untouched.  Otherwise the rows follow ``sorted(built.mesh.nodes)`` and come
+    from the bound solved model; a refused or missing binding raises.
+    """
+
+    geometry = getattr(view, "solved_geometry", None)
+    if geometry is None:
+        refusal = unbound_refusal(view)
+        if refusal is not None:
+            raise UnboundSolvedGeometryError(refusal)
+        return None
+    model = geometry.model()
+    get_node = model.mesh.get_node
+    rows = []
+    for node_id in sorted(view.built.mesh.nodes):
+        node = get_node(node_id)
+        if node is None:
+            raise UnboundSolvedGeometryError(
+                f"the solved model has no node {node_id}; its geometry does not match the mesh"
+            )
+        rows.append((node.x, node.y, node.z))
+    return np.asarray(rows, dtype=float).reshape(-1, 3)
+
+
+def reference_position_map(view: Any, mesh: Any) -> Any:
+    """``node id -> xyz`` of the reference geometry: ``mesh.nodes`` unless moved."""
+
+    positions = solved_reference_positions(view)
+    if positions is None:
+        return mesh.nodes
+    return {node_id: positions[row] for row, node_id in enumerate(sorted(mesh.nodes))}
