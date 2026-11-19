@@ -193,6 +193,13 @@ qualification process, which the owner declined. Revised rule (B2):
   derived tensor is exactly zero.
   (4) Each distinct frame is thereby checked through every family that uses it;
   the centre frame of warped Q4 shear is checked through the shear family only.
+  (5) Out-of-plane check, in addition to the per-family rule: on surface-only
+  branches the full solver surface tensors (all six components, including zz, xz,
+  yz) are compared with the tensors rebuilt from the derived families and the
+  recomputed frame (rotated back out), residual <= 1e-13 s_surf + 64 eps s_surf;
+  on direct-reference branches the stored global family tensors are compared
+  with the solver's own (rule (1)) and |nu . T| is checked. A tilt of the
+  recomputed normal, which in-plane family projections cannot see, fails here.
   Regression tests (D2-1): (a) isotropic bending of magnitude 1 and membrane
   1e-8 with a wrong frame (1e-6 rad): the membrane is refused
   (`unresolvable_family`, because 1e-8 < 1.4e-5), the bending certified or
@@ -200,7 +207,9 @@ qualification process, which the owner declined. Revised rule (B2):
   membrane (it cannot be certified, by design); (b) anisotropic bending (xx 1, yy -1) and anisotropic membrane (xx 1e-3,
   yy -1e-3): right frame certified for both, a 1e-6 rad frame error refused with a
   residual failure; (c) anisotropic bending 1 with shear (xz 1e-14) and a frame reversed by pi:
-  shear refused (`unresolvable_family`); (d) generalized branch with anisotropic N, M and a Q vector: a wrong frame
+  shear refused (`unresolvable_family`); (e) surface-only branch with surfaces +-diag(1, -1, 0) and a recomputed frame
+  tilted by 1e-7 rad about the in-plane Y axis: refused by rule (5) although the
+  in-plane family residual passes; (d) generalized branch with anisotropic N, M and a Q vector: a wrong frame
   of 1e-12 rad is detected at 1e-13 s_f.
   On failure (`r_f > a_f`, nonfinite values, `no_reference`, or
   `unresolvable_family`): typed refusal `AXES_FRAME_RULE_MISMATCH` for that family
