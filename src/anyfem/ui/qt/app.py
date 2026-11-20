@@ -661,6 +661,9 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action=self._action(examples,"Drawing barge — 60 m structural example…",lambda:self.open_barge_example("drawing60"))
         action.setToolTip("60 m hull with centreline and transverse bulkheads, framed end structures to 6 m, and an illustrative linear-static load")
         action.setStatusTip(action.toolTip())
+        action=self._action(examples,"Floating tripod — 12 m columns, 16 m draft…",self.open_tripod_example)
+        action.setToolTip("Generic semi-submersible tripod: three Ø12 m columns on a 46 m radius, 45° transitions and crossbeams meeting at a centre hub, 48 longitudinal webs per turn and rounded-hexagon heave plates; geometry, sections and meshing only")
+        action.setStatusTip(action.toolTip())
         help_menu=self.menuBar().addMenu("Help")
         action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)
         action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
@@ -1092,6 +1095,19 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
                         else "S355 barge in a seaway: 600 load cases over 60 s; generate mesh, then Batch linear static" if end_loading=="seaway"
                         else "S355 barge, 15 m: bulkhead openings with FB 120×10 edges; fixed X=0; My at X=15; generate mesh (250 mm), then solve" if large
                         else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
+        self._schedule_autosave()
+
+    def open_tripod_example(self):
+        from PySide6.QtWidgets import QMessageBox
+        from ...application.tripod_example import TRIPOD_NAME, floating_tripod, tripod_description
+        answer=QMessageBox.question(self,"Floating tripod",tripod_description()+"\n\nCreate this example as a new project?",
+                                   QMessageBox.Ok|QMessageBox.Cancel,QMessageBox.Cancel)
+        if answer!=QMessageBox.Ok or not self._confirm_discard():return
+        self._set_project(floating_tripod())
+        self.session.dirty=True
+        self.refresh_all()
+        self.show_geometry(reset_view=True)
+        self.set_status(f"{TRIPOD_NAME}: geometry, plate sections and wet column exteriors; no supports or loads; generate mesh")
         self._schedule_autosave()
 
     def open_support_drawing_example(self):

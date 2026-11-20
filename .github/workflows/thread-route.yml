@@ -64,8 +64,8 @@ on:
 permissions:
   contents: read
 env:
-  # Same ANYgeometry source the route tests were run against locally (072ad0d of ANYgeometry main).
-  ANYGEOMETRY_REF: 072ad0ddb6f1286e00578569152109dfcb9fa63c
+  # Same ANYgeometry source the route tests were run against locally (11dddb1 of ANYgeometry main).
+  ANYGEOMETRY_REF: 11dddb1fb659719f3a5e3ec21747b76c263dd98e
 jobs:
   # T2: route, lock, health and build-script tests on NORMAL (GIL) Python.  Tests that need the real free-threaded runtime skip themselves.
   route-tests:
