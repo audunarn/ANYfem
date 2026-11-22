@@ -120,10 +120,11 @@ def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan
         # resolves ring_split.
         from anygeometry.batch_intersections import resolve_seam_policy
         label = getattr(plan, "seam_policy", None)
-        if label is not None and label != "ring_split" or resolve_seam_policy(policy) != "ring_split":
+        resolved = resolve_seam_policy(policy)
+        if label is not None and label != "ring_split" or resolved != "ring_split":
             raise anygeometry.GeometryError(
-                "seam_policy 'ring_split' was requested but the owner planned with %r (a planning context changed "
-                "during preparation)" % (label or resolve_seam_policy(policy),))
+                "seam_policy 'ring_split' was requested but the owner now resolves %r (plan label %r; a planning context "
+                "changed during preparation)" % (resolved, label))
     if record_plan is not None:
         record_plan(plan)
     pairs = set()

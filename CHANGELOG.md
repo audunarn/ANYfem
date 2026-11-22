@@ -4,7 +4,9 @@
 
 - A model can select the owner's intersection seam policy itself: `NativeMeshSettings` parameter `seam_policy`
   (`baseline` or `ring_split`; `ring_split` is an attempt per face, the owner may decline an individual ring seam, and an
-  explicit `ring_split` the owner resolves to another policy, for example under decision tracing, is refused),
+  explicit `ring_split` the owner resolves to another policy, for example under decision tracing, is refused once when
+  each mesh or update request starts; a budget or diagnostic context that changes in the middle of a request is not
+  checked, and ANYmesh's read-only overlap audit places no seams),
   carried to structural preparation on every route (in-process, thread-route child),
   the prepared-model cache and the mesh identity, and saved with the project. No environment variable is used; models
   without it, and old files, are unchanged. The floating tripod example selects `ring_split`, quad-first, 0.5 m, linear.

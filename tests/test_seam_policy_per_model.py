@@ -260,3 +260,22 @@ def test_explicit_null_is_not_unset():
         seam_policy_of(settings(seam_policy=None))
     with pytest.raises(ProjectError):
         Project().set_native_mesh_settings(settings(seam_policy=None))
+
+
+@pytest.mark.parametrize("entry", ["plan_regional_update", "generate_regional_update"])
+def test_regional_dispatch_entries_check_the_policy_once_per_request(entry):
+    """Owner contract 'once per request': both regional entries refuse an explicit ring_split the owner resolves elsewhere."""
+    from anygeometry.exact_predicates import collect_decisions
+    from anyfem import regional_dispatch
+    function = getattr(regional_dispatch, entry)
+    args = ({"schema": "unknown"},) if entry == "plan_regional_update" else ({"schema": "unknown"}, object())
+    chosen, plain = crossing_project("ring_split"), crossing_project()
+    with collect_decisions():
+        with pytest.raises(StructuralPreparationError, match="ring_split.*baseline"):
+            function(chosen, None, *args)
+        try:  # unset: the seam check is not what stops this
+            function(plain, None, *args)
+        except StructuralPreparationError:
+            pytest.fail("an unset policy must never be refused by the seam check")
+        except Exception:
+            pass

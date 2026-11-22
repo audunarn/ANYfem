@@ -163,8 +163,10 @@ def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path)
     wall = time.perf_counter() - began
     # The seam policy is an attempt per face: prove the RESULT, not the request.
     assert heave["short"] == [], "heave-plate edges shorter than 0.125 m: %s" % heave["short"]
-    qualified = result.mesh.structural_preparation["qualified_s3"]
-    print("tripod mesh wall %.1f s" % wall, {key: qualified[key] for key in ("status", "legacy_fallback")})
+    mesh = result.mesh
+    counts = {name: sum(1 for nodes in mesh.shells.values() if len(nodes) == size) for name, size in (("Q4", 4), ("T3", 3))}
+    qualified = mesh.structural_preparation["qualified_s3"]
+    print("tripod mesh wall %.1f s" % wall, counts, {key: qualified[key] for key in ("status", "legacy_fallback")})
     assert qualified["status"] == "ADMITTED" and qualified["legacy_fallback"] == "FORBIDDEN"
     assert qualified["element_ids"]
     assert wall < float(os.environ.get("ANYFEM_TRIPOD_MESH_CAP", "590"))

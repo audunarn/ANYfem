@@ -70,7 +70,14 @@ def capture_regional_baseline(project, settings, mesh):
     return component.capture_regional_baseline(project, settings, mesh)
 
 
+def _check_seam_policy_once(project):
+    """Owner contract 'once per request': the seam policy is checked when a mesh or update request starts."""
+    from .structural_preparation import require_resolved_seam_policy, seam_policy_of
+    require_resolved_seam_policy(seam_policy_of(project.native_mesh_settings))
+
+
 def plan_regional_update(project, settings, baseline, **kwargs):
+    _check_seam_policy_once(project)
     if baseline.get('schema') == periodic.SCHEMA:
         return periodic.plan_periodic_update(project, settings, baseline, **kwargs)
     if baseline.get('schema') == general.SCHEMA:
@@ -95,6 +102,7 @@ def plan_regional_update(project, settings, baseline, **kwargs):
 
 
 def generate_regional_update(project, settings, baseline, old_mesh, *, mesh_cancellation=None, **kwargs):
+    _check_seam_policy_once(project)
     if baseline.get('schema') == periodic.SCHEMA:
         return periodic.generate_periodic_update(project, settings, baseline, old_mesh, **kwargs)
     if baseline.get('schema') == general.SCHEMA:

@@ -313,6 +313,12 @@ def prepare_structural_connectivity(
     is an attempt per face (the owner may decline an individual ring seam); an explicit ``ring_split`` that the owner
     resolves to another policy in this process (budgets, decision tracing, non-default planning contexts) is refused.
 
+    Contract (owner, 2026-11-22: "Once per request"): the policy is checked when each mesh or update request starts
+    (project mesh preparation, both regional dispatch entries, this function).  A budget or diagnostic context that
+    changes in the middle of a request is out of scope.  The read-only overlap audit that ANYmesh runs on a reused
+    preparation plans in IMPRINT mode and places no seams, so it takes no policy.  ``ring_split`` stays the owner's
+    opt-in attempt per face; nothing here guarantees that every ring seam is placed.
+
     Coplanar area overlap is intentionally not assigned an implicit owner.
     Engineers must run ANYfem's previewable Fragment Overlaps geometry command
     first.  Any unclassified local candidate likewise blocks instead of being
