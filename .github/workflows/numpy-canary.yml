@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 env:
-  ANYGEOMETRY_REF: 11dddb1fb659719f3a5e3ec21747b76c263dd98e
+  ANYGEOMETRY_REF: d71c5bc4db7867a1c6e0f135c7709200f2c5e607
 jobs:
   numpy-canary:
     runs-on: windows-latest

@@ -74,11 +74,80 @@ def test_tripod_roundtrip(tripod):
         name: set(faces) for name, faces in tripod.geometry.groups.items()}
 
 
+def test_tripod_mesh_preset_and_seam_policy_are_stored_on_the_model(tripod):
+    from anyfem.structural_preparation import seam_policy_of
+    settings = tripod.native_mesh_settings
+    assert (settings.target_size, settings.element_order, settings.backend.value) == (.5, "linear", "quad_first")
+    assert seam_policy_of(settings) == "ring_split"
+    assert (tripod.target_size, tripod.element_order) == (.5, "linear")
+    restored = project_from_dict(project_to_dict(tripod))
+    assert restored.native_mesh_settings == settings and seam_policy_of(restored.native_mesh_settings) == "ring_split"
+    assert "seam_policy" in tripod_description() or "ring-split" in tripod_description()
+
+
+@pytest.mark.parametrize("webs", [36, 48, 60])
+def test_support_domains_start_half_a_web_pitch_before_each_half(webs):
+    # Workaround for the open ANYgeometry seam defect: only the parameter seam moves, never the shape.
+    project = floating_tripod(TripodDimensions(webs_per_turn=webs))
+    starts = {round(face.surface.start_angle, 12) for name, ids in project.geometry.groups.items()
+              if name.endswith(" skin") for face in (project.geometry.faces[i.id] for i in ids)}
+    assert starts == {round(-math.pi / webs, 12), round(math.pi - math.pi / webs, 12)}
+
+
+def test_support_start_does_not_change_the_shape():
+    project = floating_tripod()
+    points = np.array([project.geometry.vertex_position(v) for v in project.geometry.vertices])
+    assert points.shape[0] and np.isfinite(points).all()
+    for name, ids in project.geometry.groups.items():
+        if name.endswith(" skin"):
+            for ref in ids:
+                face = project.geometry.faces[ref.id]
+                # every face boundary vertex lies on its (full-turn) support cylinder
+                surface = face.surface
+                axis = np.array(surface.axis, float); axis /= np.linalg.norm(axis)
+                origin = np.array(surface.origin, float)
+                for use in face.loop:
+                    edge = project.geometry.edges[use.edge]
+                    for vertex in (edge.start, edge.end):
+                        p = np.asarray(project.geometry.vertex_position(vertex), float) - origin
+                        assert abs(np.linalg.norm(p - axis * (p @ axis)) - surface.radius) < 1e-6
+
+
 @pytest.mark.parametrize("change", [dict(webs_per_turn=10), dict(webs_per_turn=0),
                                     dict(web_depth=0.), dict(web_depth=6.)])
 def test_tripod_rejects_invalid_web_layout(change):
     with pytest.raises(ValueError):
         floating_tripod(TripodDimensions(**change))
+
+
+@pytest.mark.skipif(os.environ.get("ANYFEM_RUN_TRIPOD_MESH") != "1",
+                    reason="set ANYFEM_RUN_TRIPOD_MESH=1 (about 10-15 minutes, one core busy; run under the machine slot)")
+def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path):
+    """The example as the menu creates it, saved and reopened, meshes with qualified S3 ADMITTED and no legacy fallback.
+
+    No environment variable is set: the seam policy comes from the model.  Uses whatever ANYgeometry / ANYmesh are on the
+    path; the pinned ones are ANYgeometry d71c5bc and the ANYmesh merge named in pyproject.toml."""
+    import time
+    from anyfem.jobs import _cancellation_token
+    from anyfem.mesh_execution import MeshExecutionPolicy
+    from anyfem.mesh_jobs import MeshSettings, run_mesh_job
+    from anyfem.io.project_file import project_from_dict, project_to_dict
+    from anyfem.structural_preparation import seam_policy_of
+    assert "ANYGEOMETRY_SEAM_POLICY" not in os.environ
+    project = project_from_dict(project_to_dict(floating_tripod()))
+    assert seam_policy_of(project.native_mesh_settings) == "ring_split"
+    settings = project.native_mesh_settings
+    began = time.perf_counter()
+    result = run_mesh_job(project, "m", MeshSettings.create(
+        settings.target_size, element_order=settings.element_order, strategy=settings.backend.value,
+        execution_policy=MeshExecutionPolicy.off()), lambda *a: None, _cancellation_token())
+    wall = time.perf_counter() - began
+    qualified = result.mesh.structural_preparation["qualified_s3"]
+    print("tripod mesh wall %.1f s" % wall, {key: qualified[key] for key in ("status", "legacy_fallback")})
+    assert qualified["status"] == "ADMITTED" and qualified["legacy_fallback"] == "FORBIDDEN"
+    assert qualified["element_ids"]
+    assert wall < float(os.environ.get("ANYFEM_TRIPOD_MESH_CAP", "590"))
+    assert "ANYGEOMETRY_SEAM_POLICY" not in os.environ
 
 
 @pytest.mark.skipif(os.environ.get("ANYFEM_RUN_TRIPOD_PREPARATION") != "1",

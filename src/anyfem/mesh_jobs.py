@@ -531,6 +531,13 @@ def mesh_semantic_hash(
     )
 
 
+def _seam_policy_key(project) -> dict:
+    from .structural_preparation import seam_policy_of
+
+    seam_policy = seam_policy_of(project.native_mesh_settings)
+    return {} if seam_policy is None else {"seam_policy": seam_policy}
+
+
 def matches_mesh_hash(mesh, expected, *, model_hash, mesh_input_hash, structural_preparation):
     inputs = dict(model_hash=model_hash, mesh_input_hash=mesh_input_hash,
                   structural_preparation=structural_preparation)
@@ -1147,6 +1154,8 @@ def run_mesh_job(
                 if resolved_strategy == "mapped"
                 else project.native_triangulation_backend
             ),
+            # Only a model that selects a seam policy adds a key: every other hash is unchanged.
+            **_seam_policy_key(project),
         }
     )
     mesh_hash = mesh_semantic_hash(

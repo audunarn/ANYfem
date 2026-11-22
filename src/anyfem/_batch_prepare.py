@@ -70,30 +70,35 @@ def _check(cancellation_check, phase: str) -> None:
 # function-local import): tests and diagnostics that replace ``anygeometry.plan_intersections`` / ``apply_intersections`` must see the call.
 
 
-def make_policy(cancellation_check=None) -> IntersectionBatchPolicy:
-    """The ONE policy of a preparation call (parent: with its cancellation check; thread-route child: without)."""
+def make_policy(cancellation_check=None, seam_policy=None) -> IntersectionBatchPolicy:
+    """The ONE policy of a preparation call (parent: with its cancellation check; thread-route child: without).
+
+    ``seam_policy`` is the per-model owner seam policy ("baseline", "ring_split" or None).  None adds no keyword at all, so the
+    owner resolves its default (and its environment sentinel) exactly as before."""
     def cancelled():
         _check(cancellation_check, "structural intersection batch")
         return False
+    extra = {} if seam_policy is None else {"seam_policy": seam_policy}
     return IntersectionBatchPolicy(ConnectionIntent.CONNECT,
-        cancellation_check=None if cancellation_check is None else cancelled)
+        cancellation_check=None if cancellation_check is None else cancelled, **extra)
 
 
-def resolved_route() -> list:
+def resolved_route(seam_policy=None) -> list:
     """The planning mode and seam policy the OWNER resolves for this process (environment included), as strings."""
     from anygeometry.batch_intersections import resolve_planning_mode, resolve_seam_policy
-    policy = make_policy(None)
+    policy = make_policy(None, seam_policy)
     return [str(resolve_planning_mode(policy)), str(resolve_seam_policy(policy))]
 
 
-def plan_only(geometry, operands):
+def plan_only(geometry, operands, seam_policy=None):
     """Plan stage alone (what the thread-route child runs); the parent adopts and applies the plan."""
-    return anygeometry.plan_intersections(geometry, operands, policy=make_policy(None))
+    return anygeometry.plan_intersections(geometry, operands, policy=make_policy(None, seam_policy))
 
 
-def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan=None, plan_source=None) -> BatchState:
+def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan=None, plan_source=None,
+                     seam_policy=None) -> BatchState:
     """``plan_source(policy)`` may supply an adopted plan instead of planning here; None (or a None result) plans serially."""
-    policy = make_policy(cancellation_check)
+    policy = make_policy(cancellation_check, seam_policy)
     # Report physical design-owner connections rather than one event per
     # cylindrical panel. Topology still retains every exact panel relation.
     sheets = face_sheet_map(geometry)

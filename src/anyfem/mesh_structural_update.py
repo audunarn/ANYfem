@@ -333,7 +333,7 @@ def plan_structural_update(project, settings, baseline, *, cancellation_check=No
 
 
 def _prepare_closure(project, check):
-    from .structural_preparation import prepare_structural_connectivity
+    from .structural_preparation import prepare_structural_connectivity, seam_policy_of
     g = project.geometry
     handles = [g.handle(kind, i) for kind, ids in (("face", g.faces), ("sheet", g.sheets),
                ("member", g.members), ("edge", project.beam_edges)) for i in ids]
@@ -342,7 +342,8 @@ def _prepare_closure(project, check):
     _require(closure.source_revision == g.revision, "The extracted structural closure is stale.")
     preparation = prepare_structural_connectivity(
         working, source_model_id=str(closure.source_model_id), source_revision=closure.source_revision,
-        member_ids=tuple(working.members), cancellation_check=check)
+        member_ids=tuple(working.members), cancellation_check=check,
+        seam_policy=seam_policy_of(project.native_mesh_settings))
     return closure, preparation
 
 

@@ -662,7 +662,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action.setToolTip("60 m hull with centreline and transverse bulkheads, framed end structures to 6 m, and an illustrative linear-static load")
         action.setStatusTip(action.toolTip())
         action=self._action(examples,"Floating tripod — 12 m columns, 16 m draft…",self.open_tripod_example)
-        action.setToolTip("Generic semi-submersible tripod: three Ø12 m columns on a 46 m radius, 45° transitions and crossbeams meeting at a centre hub, 48 longitudinal webs per turn and rounded-hexagon heave plates; geometry, sections and meshing only")
+        action.setToolTip("Generic semi-submersible tripod: three Ø12 m columns on a 46 m radius, 45° transitions and crossbeams meeting at a centre hub, 48 longitudinal webs per turn and rounded-hexagon heave plates; geometry, sections and meshing only (mesh preset: quad-first, 0.5 m, linear, ring-split seam policy)")
         action.setStatusTip(action.toolTip())
         help_menu=self.menuBar().addMenu("Help")
         action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)

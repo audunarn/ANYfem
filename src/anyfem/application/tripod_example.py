@@ -26,6 +26,7 @@ from .. import commands
 from ..model.materials import steel
 from ..model.project import Project
 from ..model.sections import PlateSection
+from ..native_meshing import NativeMeshSettings
 
 
 @dataclass(frozen=True)
@@ -55,8 +56,13 @@ _SEGMENTS = ("column", "inclined transition", "horizontal crossbeam")
 # Each support cylinder runs this far beyond its mitres; the face boundary carries the cuts.
 _SUPPORT_OVERRUN = 7.
 
-# Parameter-domain start of every half-skin support, away from the seams and webs.
-_SUPPORT_START_ANGLE = -.25
+# Parameter-domain start of every half-skin support: half a web pitch before the half (-pi / webs_per_turn).  The shape
+# does not depend on it; it only places the parameter seam of each skin's full-turn support.  WORKAROUND for the open
+# ANYgeometry defect (an artificial mid-sweep vertex on plane/cylinder circles plus default seam splinters): with this
+# start the heave plates mesh with no short edges.  Another model can still meet that defect; it is not fixed here.
+# Per-model seam policy and mesh settings of the example (set on the project, never through the environment).
+_SEAM_POLICY = "ring_split"
+_MESH_SIZE = .5
 
 
 def tripod_description(d: TripodDimensions = TRIPOD_DIMENSIONS) -> str:
@@ -74,6 +80,7 @@ def tripod_description(d: TripodDimensions = TRIPOD_DIMENSIONS) -> str:
         f"{d.transition_thickness * 1000:g} mm, crossbeams {d.crossbeam_thickness * 1000:g} mm, "
         f"heave plates {d.heave_plate_thickness * 1000:g} mm. "
         "Column exteriors are marked wet (clipped at the waterline z = 0). "
+        "Meshing is preset to quad-first, 0.5 m, linear elements, with the ring-split seam policy selected for this model. "
         "No supports or loads are defined; this example is for geometry, sections and meshing.")
 
 
@@ -250,7 +257,7 @@ def floating_tripod(d: TripodDimensions = TRIPOD_DIMENSIONS) -> Project:
                 loop = (ring_arc[segment][half], seams[1 - half] if half == 0 else seams[0],
                         far[half], seams[0] if half == 0 else seams[1])
                 # each half's support domain starts just before that half (theta = 0 or pi)
-                surface = Cylinder(**{**support, "start_angle": half * math.pi + _SUPPORT_START_ANGLE})
+                surface = Cylinder(**{**support, "start_angle": half * math.pi - math.pi / N})
                 skins.append(g.add_face(loop, corners=(0, 1, 2, 3), surface=surface))
             kind = ("Column", "Transition", "Crossbeam")[segment]
             group(f"{arm} - {name} skin", skins)
@@ -314,6 +321,11 @@ def floating_tripod(d: TripodDimensions = TRIPOD_DIMENSIONS) -> Project:
             g.add_to_group(name, [EntityRef("face", f) for f in faces])
     for kind in thicknesses:
         project.assign_plates(groups[f"_section {kind}"], section[kind])
+    # Meshing as qualified: quad-first, 0.5 m, linear; the owner's ring_split seam policy is selected for this model only.
+    project.target_size = _MESH_SIZE
+    project.set_element_order("linear")
+    project.set_native_mesh_settings(NativeMeshSettings.create(
+        _MESH_SIZE, element_order="linear", backend="quad_first", parameters={"seam_policy": _SEAM_POLICY}))
     for face in wet_faces:
         stack.run(commands.AddWetSurface(EntityRef("face", face), name="Column exterior; clipped at SWL z=0",
                                          fluid_side="positive_normal"))
