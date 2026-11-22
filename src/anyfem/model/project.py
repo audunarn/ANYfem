@@ -2830,7 +2830,6 @@ class Project:
                     "automatic_member_connections": False,
                     "automatic_member_sheet_connections": False,
                     "declare_missing_owners": True,
-                    **({} if seam_policy is None else {"seam_policy": seam_policy}),
                 },
                 mutation_policy="working_copy",
                 qualified_s3=(

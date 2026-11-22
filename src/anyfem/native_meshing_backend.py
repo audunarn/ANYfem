@@ -560,7 +560,6 @@ class NativeProjectMeshingSession:
                 "automatic_member_connections": False,
                 "automatic_member_sheet_connections": False,
                 "declare_missing_owners": True,
-                **({} if seam_policy_of(request.settings) is None else {"seam_policy": seam_policy_of(request.settings)}),
             },
             mutation_policy="working_copy",
             **supported,

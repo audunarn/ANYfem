@@ -137,11 +137,32 @@ def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path)
     project = project_from_dict(project_to_dict(floating_tripod()))
     assert seam_policy_of(project.native_mesh_settings) == "ring_split"
     settings = project.native_mesh_settings
+    import anymesher.hybrid as hybrid
+    heave = {}
+    real_execute = hybrid._quad_first_execute
+
+    def observed(geometry, *args, **kwargs):
+        short = []
+        for edge in geometry.edges.values():
+            if edge.start == edge.end:
+                continue
+            p, q = (np.asarray(geometry.vertex_position(v), float) for v in (edge.start, edge.end))
+            if abs(p[2] + 16.) < 1e-6 and abs(q[2] + 16.) < 1e-6 and np.linalg.norm(p - q) < .125:
+                short.append(float(np.linalg.norm(p - q)))
+        heave["short"] = short
+        return real_execute(geometry, *args, **kwargs)
+
+    hybrid._quad_first_execute = observed
     began = time.perf_counter()
-    result = run_mesh_job(project, "m", MeshSettings.create(
-        settings.target_size, element_order=settings.element_order, strategy=settings.backend.value,
-        execution_policy=MeshExecutionPolicy.off()), lambda *a: None, _cancellation_token())
+    try:
+        result = run_mesh_job(project, "m", MeshSettings.create(
+            settings.target_size, element_order=settings.element_order, strategy=settings.backend.value,
+            execution_policy=MeshExecutionPolicy.off()), lambda *a: None, _cancellation_token())
+    finally:
+        hybrid._quad_first_execute = real_execute
     wall = time.perf_counter() - began
+    # The seam policy is an attempt per face: prove the RESULT, not the request.
+    assert heave["short"] == [], "heave-plate edges shorter than 0.125 m: %s" % heave["short"]
     qualified = result.mesh.structural_preparation["qualified_s3"]
     print("tripod mesh wall %.1f s" % wall, {key: qualified[key] for key in ("status", "legacy_fallback")})
     assert qualified["status"] == "ADMITTED" and qualified["legacy_fallback"] == "FORBIDDEN"

@@ -177,3 +177,38 @@ def test_snapshot_for_the_process_route_keeps_the_policy():
     project = crossing_project("ring_split")
     restored = DocumentSession(project).snapshot().thaw()
     assert seam_policy_of(restored.native_mesh_settings) == "ring_split"
+
+
+@pytest.mark.parametrize("context", ["trace", "junction_bounds", "binding_budget"])
+def test_explicit_ring_split_that_the_owner_resolves_to_baseline_is_a_typed_refusal(monkeypatch, context):
+    """The ONE policy-level check: an explicit ring_split the owner does not resolve to ring_split is refused (serial and
+    thread route alike: the refusal comes before any child is spawned); unset and explicit baseline are unaffected."""
+    from contextlib import ExitStack
+    from anygeometry import arrangement_geometry, cylinder_charts
+    from anygeometry.exact_predicates import collect_decisions
+    monkeypatch.delenv("ANYGEOMETRY_SEAM_POLICY", raising=False)
+    monkeypatch.setattr(tr, "run_child", lambda *a, **k: pytest.fail("a child was spawned for a refused policy"))
+    with ExitStack() as stack:
+        if context == "trace":
+            stack.enter_context(collect_decisions())
+        elif context == "junction_bounds":
+            token = arrangement_geometry._JUNCTION_BOUNDS.set(True)
+            stack.callback(arrangement_geometry._JUNCTION_BOUNDS.reset, token)
+        else:
+            token = cylinder_charts._binding_budget.set(5)
+            stack.callback(cylinder_charts._binding_budget.reset, token)
+        for route_on in (False, True):
+            if route_on:
+                tr.configure(enabled=True, min_faces=0)
+            try:
+                with pytest.raises(StructuralPreparationError, match="ring_split.*baseline"):
+                    prepare_structural_connectivity(crossing(), seam_policy="ring_split")
+            finally:
+                tr.configure(reset=True)
+        prepare_structural_connectivity(crossing())
+        prepare_structural_connectivity(crossing(), seam_policy="baseline")
+
+
+def test_honoured_ring_split_is_not_refused():
+    report = prepare_structural_connectivity(crossing(), seam_policy="ring_split")
+    assert report.connections

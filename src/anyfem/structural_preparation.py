@@ -53,6 +53,18 @@ def seam_policy_of(settings) -> str | None:
     return value
 
 
+def _require_resolved_seam_policy(seam_policy) -> None:
+    """The one policy-level check: an explicit ``ring_split`` the owner resolves to anything else is a typed refusal."""
+    if seam_policy != "ring_split":
+        return
+    from ._batch_prepare import resolved_route
+    resolved = resolved_route(seam_policy)[1]
+    if resolved != "ring_split":
+        raise StructuralPreparationError(
+            f"seam_policy 'ring_split' was requested but the owner resolves {resolved!r} in this planning context "
+            "(a budget or a non-default planning context such as decision tracing forces the baseline seam policy)")
+
+
 class StructuralPreparationError(ValueError):
     """A candidate connection could not be classified or prepared safely."""
 
@@ -295,7 +307,9 @@ def prepare_structural_connectivity(
 ) -> StructuralPreparationReport:
     """Declare every qualified plate/beam connection on ``geometry``.
 
-    ``seam_policy`` is the per-model owner seam policy (None: the owner's default); see ``seam_policy_of``.
+    ``seam_policy`` is the per-model owner seam policy (None: the owner's default); see ``seam_policy_of``.  ``ring_split``
+    is an attempt per face (the owner may decline an individual ring seam); an explicit ``ring_split`` that the owner
+    resolves to another policy in this process (budgets, decision tracing, non-default planning contexts) is refused.
 
     Coplanar area overlap is intentionally not assigned an implicit owner.
     Engineers must run ANYfem's previewable Fragment Overlaps geometry command
@@ -318,6 +332,7 @@ def prepare_structural_connectivity(
             "preparation; install the coordinated ANYgeometry owner candidate"
         ) from error
 
+    _require_resolved_seam_policy(seam_policy)
     report = StructuralPreparationReport(
         source_model_id=str(source_model_id or geometry.model_id),
         source_revision=int(

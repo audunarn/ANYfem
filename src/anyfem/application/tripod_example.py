@@ -61,7 +61,7 @@ _SUPPORT_OVERRUN = 7.
 # ANYgeometry defect (an artificial mid-sweep vertex on plane/cylinder circles plus default seam splinters): with this
 # start the heave plates mesh with no short edges.  Another model can still meet that defect; it is not fixed here.
 # Per-model seam policy and mesh settings of the example (set on the project, never through the environment).
-_SEAM_POLICY = "ring_split"
+_SEAM_POLICY = "ring_split"  # an attempt per face: the owner may decline one; the acceptance test checks the result
 _MESH_SIZE = .5
 
 
@@ -80,7 +80,7 @@ def tripod_description(d: TripodDimensions = TRIPOD_DIMENSIONS) -> str:
         f"{d.transition_thickness * 1000:g} mm, crossbeams {d.crossbeam_thickness * 1000:g} mm, "
         f"heave plates {d.heave_plate_thickness * 1000:g} mm. "
         "Column exteriors are marked wet (clipped at the waterline z = 0). "
-        "Meshing is preset to quad-first, 0.5 m, linear elements, with the ring-split seam policy selected for this model. "
+        "Meshing is preset to quad-first, 0.5 m, linear elements, with the owner's ring-split seam placement requested for this model (attempted per face; the owner may decline one). "
         "No supports or loads are defined; this example is for geometry, sections and meshing.")
 
 
