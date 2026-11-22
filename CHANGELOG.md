@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A model can select the owner's intersection seam policy itself: `NativeMeshSettings` parameter `seam_policy`
+  (`baseline` or `ring_split`), carried to structural preparation on every route (in-process, thread-route child),
+  the prepared-model cache and the mesh identity, and saved with the project. No environment variable is used; models
+  without it, and old files, are unchanged. The floating tripod example selects `ring_split`, quad-first, 0.5 m, linear.
+
 - Use the ANYfeSolver 0.5 package for structural analyses.
 
 - SAT import: two optional reader tolerances (vertex relocation, approximate curve), empty/off by default, recorded on the imported part; a refusal naming one points to its field. Requires ANYfileio 0.3.4.
