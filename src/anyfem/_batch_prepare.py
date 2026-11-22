@@ -113,6 +113,17 @@ def plan_apply_phase(geometry, operands, *, cancellation_check=None, record_plan
     plan = plan_source(policy) if plan_source is not None else None
     if plan is None:
         plan = anygeometry.plan_intersections(geometry, operands, policy=policy)
+    if seam_policy == "ring_split":
+        # A planning context that started after the entry check (for example in a cancellation callback) makes the owner
+        # plan with baseline: an explicit ring_split must not be applied as baseline.  A plain plan without a seam label is
+        # the owner's existing-material/bounded route (no arrangement seams); it is accepted only while the owner still
+        # resolves ring_split.
+        from anygeometry.batch_intersections import resolve_seam_policy
+        label = getattr(plan, "seam_policy", None)
+        if label is not None and label != "ring_split" or resolve_seam_policy(policy) != "ring_split":
+            raise anygeometry.GeometryError(
+                "seam_policy 'ring_split' was requested but the owner planned with %r (a planning context changed "
+                "during preparation)" % (label or resolve_seam_policy(policy),))
     if record_plan is not None:
         record_plan(plan)
     pairs = set()

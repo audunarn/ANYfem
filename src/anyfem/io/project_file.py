@@ -102,7 +102,10 @@ SOLID_SUBMODELS_FORMAT = 20
 # Drawing thickness side overrides: an older reader would drop them on the next
 # save, so a file holding any is format 21 and refused there.
 DRAWING_THICKNESS_SIDES_FORMAT = 21
-MAX_READ_FORMAT = DRAWING_THICKNESS_SIDES_FORMAT
+# A model that selects an owner seam policy: an older reader would keep the field but mesh with the default policy,
+# so a file holding one is format 22 and refused there.
+SEAM_POLICY_FORMAT = 22
+MAX_READ_FORMAT = SEAM_POLICY_FORMAT
 SUFFIX = ".anyfem"
 _NATIVE_TRIANGULATION_BACKENDS = ("auto", "python", "native")
 
@@ -2258,6 +2261,9 @@ def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper 
     if any(_submodel_child_kind(key, entry) == "solid"
            for key in ("submodels", "submodel_runs") for entry in data.get(key, ())):
         data["anyfem"]["format"] = max(data["anyfem"]["format"], SOLID_SUBMODELS_FORMAT)
+    from ..structural_preparation import seam_policy_of
+    if seam_policy_of(project.native_mesh_settings) is not None:
+        data["anyfem"]["format"] = max(data["anyfem"]["format"], SEAM_POLICY_FORMAT)
     results = getattr(project, "floating_transient_results", None) or {}
     if results:
         data[FLOATING_TRANSIENT_RESULTS_KEY] = {name: ref.to_dict() for name, ref in sorted(results.items())}

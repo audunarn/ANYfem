@@ -212,3 +212,51 @@ def test_explicit_ring_split_that_the_owner_resolves_to_baseline_is_a_typed_refu
 def test_honoured_ring_split_is_not_refused():
     report = prepare_structural_connectivity(crossing(), seam_policy="ring_split")
     assert report.connections
+
+
+def test_refusal_does_not_depend_on_the_prepared_model_cache(monkeypatch):
+    """Review r1: a warm prepared-model cache must not let an explicit ring_split run under decision tracing."""
+    from anygeometry.exact_predicates import collect_decisions
+    from anyfem.jobs import _cancellation_token
+    from anyfem.mesh_execution import MeshExecutionPolicy
+    from anyfem.mesh_jobs import MeshSettings, run_mesh_job
+    monkeypatch.delenv("ANYGEOMETRY_SEAM_POLICY", raising=False)
+    project = crossing_project("ring_split")
+    settings = MeshSettings.create(1., element_order="linear", strategy="mapped", execution_policy=MeshExecutionPolicy.off())
+    run_mesh_job(project, "m", settings, lambda *a: None, _cancellation_token())      # warms the cache
+    with collect_decisions(), pytest.raises(Exception, match="ring_split.*baseline"):
+        run_mesh_job(project, "m", settings, lambda *a: None, _cancellation_token())
+
+
+def test_context_that_starts_during_preparation_is_refused_not_applied_as_baseline():
+    from contextlib import ExitStack
+    from anygeometry.exact_predicates import collect_decisions
+    stack = ExitStack()
+    started = []
+
+    def callback(stage):
+        if not started:
+            started.append(stack.enter_context(collect_decisions()))
+    try:
+        with pytest.raises(StructuralPreparationError, match="ring_split"):
+            prepare_structural_connectivity(crossing(), seam_policy="ring_split", cancellation_check=callback)
+    finally:
+        stack.close()
+    assert started
+
+
+def test_project_file_with_a_seam_policy_needs_the_new_format_and_unset_files_do_not():
+    from anyfem.io import project_file
+    plain, chosen = Project(), Project()
+    plain.set_native_mesh_settings(settings())
+    chosen.set_native_mesh_settings(settings(seam_policy="ring_split"))
+    assert project_to_dict(plain)["anyfem"]["format"] < project_file.SEAM_POLICY_FORMAT
+    assert project_to_dict(chosen)["anyfem"]["format"] == project_file.SEAM_POLICY_FORMAT == project_file.MAX_READ_FORMAT
+    assert seam_policy_of(project_from_dict(project_to_dict(chosen)).native_mesh_settings) == "ring_split"
+
+
+def test_explicit_null_is_not_unset():
+    with pytest.raises(StructuralPreparationError):
+        seam_policy_of(settings(seam_policy=None))
+    with pytest.raises(ProjectError):
+        Project().set_native_mesh_settings(settings(seam_policy=None))

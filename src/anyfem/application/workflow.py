@@ -1022,6 +1022,8 @@ class WorkbenchWorkflow:
                 {
                     "mesh_settings": settings.input_hash,
                     "native_backend": effective_native_backend,
+                    **({} if seam_policy_of(self.project.native_mesh_settings) is None
+                       else {"seam_policy": seam_policy_of(self.project.native_mesh_settings)}),
                 }
             ),
             mesh_hash="",

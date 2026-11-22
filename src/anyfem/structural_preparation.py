@@ -32,6 +32,7 @@ __all__ = [
     "source_work_mapping",
     "source_edge_paths",
     "seam_policy_of",
+    "require_resolved_seam_policy",
     "SEAM_POLICIES",
 ]
 
@@ -45,15 +46,16 @@ def seam_policy_of(settings) -> str | None:
     Anything but a known policy name is refused (fail closed); an unset model keeps every hash and key unchanged."""
     if settings is None:
         return None
-    value = dict(settings.parameters).get("seam_policy")
-    if value is None:
+    parameters = dict(settings.parameters)
+    if "seam_policy" not in parameters:
         return None
+    value = parameters["seam_policy"]  # an explicit null is not "unset": the only unset form is the missing key
     if type(value) is not str or value not in SEAM_POLICIES:
         raise StructuralPreparationError(f"seam_policy must be one of {SEAM_POLICIES} or unset, not {value!r}")
     return value
 
 
-def _require_resolved_seam_policy(seam_policy) -> None:
+def require_resolved_seam_policy(seam_policy) -> None:
     """The one policy-level check: an explicit ``ring_split`` the owner resolves to anything else is a typed refusal."""
     if seam_policy != "ring_split":
         return
@@ -332,7 +334,7 @@ def prepare_structural_connectivity(
             "preparation; install the coordinated ANYgeometry owner candidate"
         ) from error
 
-    _require_resolved_seam_policy(seam_policy)
+    require_resolved_seam_policy(seam_policy)
     report = StructuralPreparationReport(
         source_model_id=str(source_model_id or geometry.model_id),
         source_revision=int(

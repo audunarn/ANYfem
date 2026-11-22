@@ -35,6 +35,7 @@ from ..mesh_controls import MeshControls, StructuredMeshControls
 from ..structural_preparation import (
     StructuralPreparationError,
     seam_policy_of,
+    require_resolved_seam_policy,
     prepare_structural_connectivity,
     remap_mesh_to_source,
     source_work_mapping,
@@ -2445,6 +2446,8 @@ class Project:
             # Per-model owner seam policy: a different policy prepares a different model.
             *(() if seam_policy is None else (seam_policy,)),
         )
+        # Checked on every request, cache hit or not: a prepared-model cache never carries the planning context.
+        require_resolved_seam_policy(seam_policy)
         cached = self._mesh_preparation_cache
         cache_hit = cached is not None and cached[0] == cache_key
         qualification = self._mesh_preparation_qualification if cache_hit else None
