@@ -34,6 +34,22 @@ def test_make_policy_unset_adds_nothing_and_set_is_carried(monkeypatch):
     assert _batch_prepare.resolved_route()[1] == "baseline"
 
 
+def test_unset_policy_passes_no_keyword_to_the_owner(monkeypatch):
+    seen = []
+    real = _batch_prepare.IntersectionBatchPolicy
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(_batch_prepare, "IntersectionBatchPolicy", spy)
+    _batch_prepare.make_policy()
+    _batch_prepare.make_policy(None, None)
+    assert seen and all("seam_policy" not in kwargs for kwargs in seen)
+    _batch_prepare.make_policy(None, "ring_split")
+    assert seen[-1]["seam_policy"] == "ring_split"
+
+
 def test_per_model_value_beats_the_process_variable(monkeypatch):
     monkeypatch.setenv("ANYGEOMETRY_SEAM_POLICY", "baseline")
     assert _batch_prepare.resolved_route("ring_split")[1] == "ring_split"
