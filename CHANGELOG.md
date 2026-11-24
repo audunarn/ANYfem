@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Automatic stiffener offset: the profile foot now stands on the attached plate's surface, not on its mid-surface
+  (owner decision 2026-11-24). With `offset_mode="automatic"` the neutral-axis offset is the profile centroid plus half
+  the thickness of the first attached plate, along that plate's normal on the stiffener side (Front/Back); with
+  `rotation_deg` the half thickness still goes along the plate normal. A beam with no attached plate, or whose plate has
+  no section yet, gets nothing added. Manual and centerline offsets are unchanged. This changes results of every model
+  with automatic offsets, including saved projects on reload and the examples; there is no switch for the old behaviour.
+  Example: a T 250x8 + 100x12 on a 10 mm plate moves from 0.17413 m to 0.17913 m and a 5 m strip deflects 3.8 % less,
+  now within 0.03 % of transformed-section theory.
+
 - A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the
   source face(s) through the preparation lineage and their builder groups, for example
   `[quad-first face 794 near (-22.54, 29.57, -16); source face 302; groups: Arm 2 - heave plate]` (rendered at
