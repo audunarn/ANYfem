@@ -23,7 +23,7 @@ permissions:
   contents: read
 env:
   # Same ANYgeometry source as thread-route.yml (keep the two in step).
-  ANYGEOMETRY_REF: 072ad0ddb6f1286e00578569152109dfcb9fa63c
+  ANYGEOMETRY_REF: d71c5bc4db7867a1c6e0f135c7709200f2c5e607
 jobs:
   stress-repeat:
     runs-on: windows-latest

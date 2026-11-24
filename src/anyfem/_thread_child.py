@@ -96,7 +96,7 @@ def main(job_dir):
         modules = batch.loaded_modules(package_dir)
         return dict(modules=modules, loaded_digest=batch.files_digest(package_dir, modules),
                     gil_final=sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True,  # sampled AFTER planning
-                    route=batch.resolved_route())
+                    route=batch.resolved_route(job.get("seam_policy")))
 
     def unavailable(reason):
         _write_result(job_dir, job_id, "unavailable", dict(reason=reason, **health))
@@ -128,7 +128,7 @@ def main(job_dir):
             phase = 1
             try:
                 t = time.perf_counter()
-                plan = batch.plan_only(model, operands)
+                plan = batch.plan_only(model, operands, job.get("seam_policy"))
                 _emit(job_dir, "planned", seconds=time.perf_counter() - t)
             except GeometryError as exc:  # typed refusal: reported as is, never retried
                 diagnostic, diagnostic_type, cause, seen = None, None, exc, set()  # phase is always 1: only planning runs here
@@ -163,7 +163,7 @@ def main(job_dir):
                 faces=len(model.faces), **fields)
             if job.get("verify_apply"):  # diagnostic only: the child applies the same plan and reports the checksum
                 from anygeometry import apply_intersections
-                apply_intersections(model, plan, policy=batch.make_policy(None))
+                apply_intersections(model, plan, policy=batch.make_policy(None, job.get("seam_policy")))
                 body["apply_checksum"] = to_dict(model)["checksum"]["value"]
             _write_result(job_dir, job_id, "ok", body)
             return 0

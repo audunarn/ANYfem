@@ -304,14 +304,16 @@ def _child_env(folder: Path, threads: int) -> dict:
     return keep  # no PATH, no PYTHONPATH, no other ANYGEOMETRY_* from the parent
 
 
-def _planning_env() -> dict:
+def _planning_env(seam_policy=None) -> dict:
     """The parent's planning-configuration variables (exactly the two ``resolved_route`` reads), for the PLAN child only.
 
     The child environment drops every other ANYGEOMETRY_* variable, so without this a parent running ring_split would
     always be refused ("planning configuration differs").  Never given to the health child: its smoke digest is frozen
     for the default configuration.  The comparison in ``_check_runtime`` stays as the fail-closed guard."""
     from anygeometry.batch_intersections import PLANNING_MODE_ENVIRONMENT, SEAM_POLICY_ENVIRONMENT
-    return {k: os.environ[k] for k in (PLANNING_MODE_ENVIRONMENT, SEAM_POLICY_ENVIRONMENT) if k in os.environ}
+    names = (PLANNING_MODE_ENVIRONMENT,) if seam_policy is not None else (PLANNING_MODE_ENVIRONMENT, SEAM_POLICY_ENVIRONMENT)
+    # A per-model seam policy travels in the job and wins over the process variable, which then is not forwarded.
+    return {k: os.environ[k] for k in names if k in os.environ}
 
 
 def _stop(process: subprocess.Popen, job: _KillOnCloseJob) -> None:
@@ -616,12 +618,12 @@ def _genuine_proof(geometry) -> str:
     return ""
 
 
-def _declined_before_spawn(adoption, geometry, operands) -> str:
+def _declined_before_spawn(adoption, geometry, operands, seam_policy=None) -> str:
     """Owner-side refusals that depend only on the parent's model and operands (journaled, epoch, existing-material or
     bounded routes): the owner adopt call decides them before it looks at the packet, so an empty probe packet is enough
     and no child is wasted on a plan that could never be adopted."""
     try:
-        adoption.adopt_intersection_plan(geometry, b"", policy=_batch_prepare.make_policy(None), operands=operands,
+        adoption.adopt_intersection_plan(geometry, b"", policy=_batch_prepare.make_policy(None, seam_policy), operands=operands,
                                          job_id="probe", expected_source_checksum="0" * 64)
     except adoption.PlanAdoptionRefused as exc:
         reason = getattr(exc, "reason", "")
@@ -699,7 +701,8 @@ def _check_plan_body(body: dict, python: Optional[Path] = None, route: Optional[
     return packet, ""
 
 
-def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[str], None]] = None, **injection):
+def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[str], None]] = None, seam_policy=None,
+                **injection):
     """Run plan in the child, adopt + apply in this process.  Returns the applied ``BatchState`` or None (serial path).
 
     ``injection`` is for tests only (``temp_root``, ``child_main``, ``python_args``, ``extra_env``, ``timeout``, ``python``).
@@ -725,10 +728,11 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
     if adoption is None:
         return _unavailable("this ANYgeometry offers no verified plan adoption API; running serially")
     try:
-        parent_route = _batch_prepare.resolved_route()
+        parent_route = (_batch_prepare.resolved_route() if seam_policy is None
+                        else _batch_prepare.resolved_route(seam_policy))
     except GeometryError as exc:  # the serial path reports the invalid planning configuration itself
         return _unavailable("planning configuration is invalid in this process: %s" % exc)
-    declined = _declined_before_spawn(adoption, geometry, operands)
+    declined = _declined_before_spawn(adoption, geometry, operands, seam_policy)
     if declined:
         return _unavailable("plan adoption declines this model before any child is spawned (%s)" % declined)
     python = injection.pop("python", None) or locate_runtime()
@@ -754,11 +758,11 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
         expected_checksum = str(source["checksum"]["value"])
         document = json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8")
         job = dict(kind="plan", operands=[[h.kind, h.id] for h in operands], source_digest=_parent_source_digest(),
-                   verify_apply=verify)
+                   verify_apply=verify, **({} if seam_policy is None else {"seam_policy": seam_policy}))
     except (_GeometryError, TypeError, ValueError, OSError) as exc:
         return _unavailable("document cannot be serialised: %s" % exc)
     run_kwargs = {k: v for k, v in injection.items() if k not in ("python_args_health", "lock_path", "child_main_health")}
-    run_kwargs["extra_env"] = {**_planning_env(), **(run_kwargs.get("extra_env") or {})}
+    run_kwargs["extra_env"] = {**_planning_env(seam_policy), **(run_kwargs.get("extra_env") or {})}
     outcome = run_child(python, job, document, threads=thread_count(), timeout=timeout,
                         cancellation_check=cancellation_check, **run_kwargs)
     last_outcome = outcome
@@ -794,7 +798,7 @@ def try_prepare(geometry, operands, *, cancellation_check: Optional[Callable[[st
         return adopted["plan"]  # None -> plan_apply_phase plans serially on the untouched geometry
 
     state = _batch_prepare.plan_apply_phase(geometry, operands, cancellation_check=cancellation_check,
-                                            plan_source=plan_source)
+                                            plan_source=plan_source, seam_policy=seam_policy)
     if adopted["plan"] is None:
         return state  # adoption refused: the ordinary serial plan + apply has just run
     failure = _genuine_proof(geometry)

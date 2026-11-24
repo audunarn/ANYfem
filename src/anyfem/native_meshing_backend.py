@@ -26,6 +26,7 @@ from .native_meshing import (
 )
 from .structural_preparation import (
     prepare_structural_connectivity,
+    seam_policy_of,
     remap_mesh_to_source,
     source_work_mapping,
     source_edge_paths,
@@ -391,6 +392,7 @@ class NativeProjectMeshingSession:
             source_model_id=str(snapshot.model_id),
             source_revision=snapshot.revision,
             cancellation_check=request.cancellation.raise_if_cancelled,
+            seam_policy=seam_policy_of(request.settings),
         )
         preparation.source_edge_paths = source_edge_paths(snapshot.closure)
         preparation.source_to_working = source_work_mapping(snapshot.closure, edge_paths=preparation.source_edge_paths)

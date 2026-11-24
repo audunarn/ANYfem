@@ -35,6 +35,7 @@ from ..io.result_artifact import write_solution_artifact
 from ..io.sesam import import_sesam
 from ..solve.build import build_fe_model
 from ..model.project import Project, ProjectError
+from ..structural_preparation import seam_policy_of
 from ..model.records import AnalysisDefinition, MeshRecord
 from ..selection import MeshEntityRef, mode_label
 from ..solve.run import (
@@ -736,6 +737,9 @@ class WorkbenchWorkflow:
                     resolved_preference if resolved_strategy == "auto" else None
                 ),
                 "native_backend": effective_native_backend,
+                # Only a model that selects a seam policy adds a key: every other hash is unchanged.
+                **({} if seam_policy_of(self.project.native_mesh_settings) is None
+                   else {"seam_policy": seam_policy_of(self.project.native_mesh_settings)}),
                 "controls": (None if mesh_controls is None else mesh_controls.effective_dict(resolved_strategy)),
                 "quality_policy": (
                     dict(quality_policy or {}) if resolved_strategy == "auto" else None
@@ -1018,6 +1022,8 @@ class WorkbenchWorkflow:
                 {
                     "mesh_settings": settings.input_hash,
                     "native_backend": effective_native_backend,
+                    **({} if seam_policy_of(self.project.native_mesh_settings) is None
+                       else {"seam_policy": seam_policy_of(self.project.native_mesh_settings)}),
                 }
             ),
             mesh_hash="",

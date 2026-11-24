@@ -31,7 +31,40 @@ __all__ = [
     "remap_mesh_to_source",
     "source_work_mapping",
     "source_edge_paths",
+    "seam_policy_of",
+    "require_resolved_seam_policy",
+    "SEAM_POLICIES",
 ]
+
+#: The owner's intersection seam policies a model may select (``None``: the owner's default, unchanged).
+SEAM_POLICIES = ("baseline", "ring_split")
+
+
+def seam_policy_of(settings) -> str | None:
+    """The per-model seam policy stored in ``NativeMeshSettings.parameters['seam_policy']`` (None when unset).
+
+    Anything but a known policy name is refused (fail closed); an unset model keeps every hash and key unchanged."""
+    if settings is None:
+        return None
+    parameters = dict(settings.parameters)
+    if "seam_policy" not in parameters:
+        return None
+    value = parameters["seam_policy"]  # an explicit null is not "unset": the only unset form is the missing key
+    if type(value) is not str or value not in SEAM_POLICIES:
+        raise StructuralPreparationError(f"seam_policy must be one of {SEAM_POLICIES} or unset, not {value!r}")
+    return value
+
+
+def require_resolved_seam_policy(seam_policy) -> None:
+    """The one policy-level check: an explicit ``ring_split`` the owner resolves to anything else is a typed refusal."""
+    if seam_policy != "ring_split":
+        return
+    from ._batch_prepare import resolved_route
+    resolved = resolved_route(seam_policy)[1]
+    if resolved != "ring_split":
+        raise StructuralPreparationError(
+            f"seam_policy 'ring_split' was requested but the owner resolves {resolved!r} in this planning context "
+            "(a budget or a non-default planning context such as decision tracing forces the baseline seam policy)")
 
 
 class StructuralPreparationError(ValueError):
@@ -272,8 +305,19 @@ def prepare_structural_connectivity(
     source_revision: int | None = None,
     member_ids: Iterable[int] | None = None,
     cancellation_check: Callable[[str], None] | None = None,
+    seam_policy: str | None = None,
 ) -> StructuralPreparationReport:
     """Declare every qualified plate/beam connection on ``geometry``.
+
+    ``seam_policy`` is the per-model owner seam policy (None: the owner's default); see ``seam_policy_of``.  ``ring_split``
+    is an attempt per face (the owner may decline an individual ring seam); an explicit ``ring_split`` that the owner
+    resolves to another policy in this process (budgets, decision tracing, non-default planning contexts) is refused.
+
+    Contract (owner, 2026-11-22: "Once per request"): the policy is checked when each mesh or update request starts
+    (project mesh preparation, both regional dispatch entries, this function).  A budget or diagnostic context that
+    changes in the middle of a request is out of scope.  The read-only overlap audit that ANYmesh runs on a reused
+    preparation plans in IMPRINT mode and places no seams, so it takes no policy.  ``ring_split`` stays the owner's
+    opt-in attempt per face; nothing here guarantees that every ring seam is placed.
 
     Coplanar area overlap is intentionally not assigned an implicit owner.
     Engineers must run ANYfem's previewable Fragment Overlaps geometry command
@@ -296,6 +340,7 @@ def prepare_structural_connectivity(
             "preparation; install the coordinated ANYgeometry owner candidate"
         ) from error
 
+    require_resolved_seam_policy(seam_policy)
     report = StructuralPreparationReport(
         source_model_id=str(source_model_id or geometry.model_id),
         source_revision=int(
@@ -435,10 +480,10 @@ def prepare_structural_connectivity(
     try:
         # Opt-in child-process route (off by default): the child plans, this process adopts the plan through the
         # owner's verified adoption API and applies it; None means: run the ordinary in-process path below.
-        state = thread_route.try_prepare(geometry, operands, cancellation_check=cancellation_check)
+        state = thread_route.try_prepare(geometry, operands, cancellation_check=cancellation_check, seam_policy=seam_policy)
         if state is None:
             state = plan_apply_phase(geometry, operands, cancellation_check=cancellation_check,
-                                     record_plan=_record_preparation_plan)
+                                     record_plan=_record_preparation_plan, seam_policy=seam_policy)
     except GeometryError as error:
         if "positive-area" in str(error):
             raise StructuralPreparationError(

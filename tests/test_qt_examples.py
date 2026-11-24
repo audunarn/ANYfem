@@ -6,6 +6,7 @@ if os.environ.get("ANYFEM_RUN_QT_TESTS") != "1":
     pytest.skip("set ANYFEM_RUN_QT_TESTS=1", allow_module_level=True)
 pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QMessageBox
+from anyfem.structural_preparation import seam_policy_of
 from test_qt_geometry_actions import qapp, window
 
 
@@ -87,3 +88,30 @@ def test_examples_menu_creates_drawing_barge_without_source_documents(window, qa
     assert window.panels["Mesh"].order.currentText() == "quadratic"
     assert window.viewport._scene.faces
     assert window.session.dirty
+
+
+def test_examples_menu_creates_floating_tripod(window, qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
+    monkeypatch.setattr(window, "_confirm_discard", lambda: True)
+    action = window._actions["Floating tripod — 12 m columns, 16 m draft…"]
+    assert action.toolTip()
+    action.trigger(); qapp.processEvents()
+    assert len(window.project.geometry.faces) == 453
+    assert len(window.project.wet_surfaces) == 6
+    assert window.session.dirty and window.viewport._scene.faces
+    mesh = window.panels["Mesh"]
+    assert (mesh.strategy_token(), mesh.size.text(), mesh.order.currentText()) == ("quad_first", "0.5", "linear")
+    path = tmp_path/"tripod.anyfem"
+    window.save_project(path=str(path))
+    window.new_project(); window.open_project(str(path))
+    assert len(window.project.geometry.faces) == 453
+    assert len(window.project.face_sections) == 453
+    assert seam_policy_of(window.project.native_mesh_settings) == "ring_split"
+    assert window.panels["Mesh"].strategy_token() == "quad_first"
+
+
+def test_tripod_example_cancel_keeps_project(window, monkeypatch):
+    original = window.project
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Cancel)
+    window.open_tripod_example()
+    assert window.project is original
