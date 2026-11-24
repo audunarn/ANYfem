@@ -2203,17 +2203,17 @@ class Project:
             # Automatic admits only layout_policy='existing', so it carries no choice for quad_first: the rerun
             # takes quad_first's own default (stored layout_policy, else adaptive), as an explicit request would.
             retry.pop("layout_policy", None)
+            check = options.get("cancellation_check")
+            if check is not None:
+                check("automatic quad-first fallback")
             automation = options.get("automation")
             if automation is not None and automation.max_seconds is not None:
-                # One request, one recovery budget: the rerun gets only what the refused pass left.
+                # One request, one recovery budget: measured after the callback, the rerun gets only what is left.
                 remaining = automation.max_seconds - (perf_counter() - started)
                 if remaining <= 0.0:
                     refusal.add_note("Automatic did not fall back to quad_first: the automation time budget is spent")
                     raise
                 retry["automation"] = replace(automation, max_seconds=remaining)
-            check = options.get("cancellation_check")
-            if check is not None:
-                check("automatic quad-first fallback")
             try:
                 mesh = self._generate_mesh_once(target_size, **retry)
             except BaseException as error:
@@ -2230,7 +2230,10 @@ class Project:
 
         settings = self.native_mesh_settings
         strategy = options.get("strategy")
-        if strategy is None:
+        automation = options.get("automation")
+        if automation is not None and automation.strict_method:
+            return False  # "use only the selected method": no other method is tried
+        if not strategy:  # None or "": resolved from the stored settings, as in _generate_mesh_once
             backend = None if settings is None else getattr(settings.backend, "value", settings.backend)
             if backend not in (None, "automatic", "auto"):
                 return False

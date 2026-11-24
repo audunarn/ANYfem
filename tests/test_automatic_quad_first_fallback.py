@@ -197,3 +197,26 @@ def test_cancellation_is_checked_before_the_fallback_runs():
         cylinder().generate_mesh(.25, order='linear', strategy='auto', structured_controls=LIMIT,
                                  cancellation_check=check)
     assert stages[-1] == 'automatic quad-first fallback'
+
+
+def test_strict_automatic_keeps_the_refusal():
+    with pytest.raises(StructuredElementLimitExceeded) as caught:
+        cylinder().generate_mesh(.25, order='linear', strategy='auto', structured_controls=LIMIT,
+                                 automation=MeshAutomationOptions(strict_method=True))
+    assert not getattr(caught.value, '__notes__', None)
+
+
+def test_an_empty_strategy_is_automatic_too():
+    mesh = cylinder().generate_mesh(.25, order='linear', strategy='', structured_controls=LIMIT)
+    assert mesh.hybrid_diagnostics['automatic_fallback']['estimated'] == 520
+
+
+def test_the_budget_is_measured_after_the_cancellation_callback():
+    import time
+    project = cylinder()
+    calls = _scripted(project)
+    with pytest.raises(StructuredElementLimitExceeded):
+        project.generate_mesh(.25, order='linear', strategy='auto',
+                              automation=MeshAutomationOptions(max_seconds=.05),
+                              cancellation_check=lambda stage: time.sleep(.1))
+    assert len(calls) == 1
