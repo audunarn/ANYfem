@@ -674,7 +674,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
         action.setStatusTip(action.toolTip())
         def open_loaded_packages():
-            from .loaded_packages import open_loaded_packages  # imported on first use, not at start-up
+            from .loaded_packages_dialog import open_loaded_packages  # small Qt module; collector loads on the worker
             return open_loaded_packages(self)
         action=self._action(help_menu,"Loaded packages…",open_loaded_packages)
         action.setToolTip("List the ANY* and key third-party packages loaded in this session, with versions, import paths and checkout commits")

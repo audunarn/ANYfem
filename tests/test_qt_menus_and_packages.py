@@ -191,3 +191,21 @@ def test_a_failing_qt_version_call_does_not_stop_the_dialog(window, qapp, monkey
     report = _wait_for_report(dialog, qapp)
     assert report.qt_runtime == "unknown"
     dialog.close(); qapp.processEvents()
+
+
+def test_a_clipboard_failure_stays_in_the_dialog(window, qapp, monkeypatch):
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *info: errors.append(info))
+
+    def refuse(text):
+        raise RuntimeError("clipboard did not keep the text")
+
+    monkeypatch.setattr(window.clipboard, "copy_text", refuse)
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    _wait_for_report(dialog, qapp)
+    copy = dialog.findChild(QPushButton, "CopyLoadedPackages")
+    copy.click(); qapp.processEvents()
+    assert errors == []
+    assert "Could not copy to the clipboard" in copy.toolTip()
+    dialog.close(); qapp.processEvents()

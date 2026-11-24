@@ -18,7 +18,8 @@
   `__version__`, else "unknown"; disagreeing sources are flagged (⚠). Collected on a worker thread
   when the dialog opens (GUI thread ~5-8 ms); nothing is imported. Copy to clipboard included.
   Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, or an
-  editable install with an absolute project URL); symlinked/junctioned or case-aliased paths, egg-info,
+  editable install whose absolute file: URL is the loaded copy's own project root); symlinked/junctioned
+  or case-aliased paths, egg-info and zip-backed metadata,
   malformed RECORD rows and nested projects are out of scope and shown as not owned.
 
 - Menus: File now holds Import, Export and Examples submenus; the import, export, plate-drawing and

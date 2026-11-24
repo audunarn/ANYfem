@@ -199,9 +199,16 @@ def _filesystem_distributions(name: str) -> list:
     treated as unavailable here.
     """
     entries = sys.path if type(sys.path) is list else []
-    path = [entry for entry in list(entries) if type(entry) is str]  # exact strings only: no __hash__/__fspath__ hooks
-    context = metadata.DistributionFinder.Context(name=name, path=path)
-    return list(metadata.MetadataPathFinder.find_distributions(context))
+    found = []
+    for entry in list(entries):
+        if type(entry) is not str or "\x00" in entry:  # exact strings only: no __hash__/__fspath__ hooks
+            continue
+        try:  # one unusable entry must not hide distributions found on the others
+            context = metadata.DistributionFinder.Context(name=name, path=[entry])
+            found.extend(metadata.MetadataPathFinder.find_distributions(context))
+        except Exception:
+            continue
+    return found
 
 
 try:  # the real class, so that look-alikes are not trusted
@@ -248,10 +255,13 @@ def _file_url_path(url: str) -> str:
     host = parsed.netloc
     if host and host.lower() != "localhost":
         return "//" + host + path  # UNC: \\server\share\...
-    if re.match(r"^/[A-Za-z]:", path):
-        path = path[1:]
+    if os.name == "nt":
+        if re.match(r"^/[A-Za-z]:", path):
+            path = path[1:]  # file:///C:/x -> C:/x (Windows only; on POSIX /C:/x is a real path)
+        # Absolute means drive-qualified here; "/project" would resolve against the current drive.
+        return path if re.match(r"^[A-Za-z]:[/\\]", path) else ""
     # Relative forms (e.g. ``file:.``) would resolve against the working directory.
-    return path if path and os.path.isabs(path) else ""
+    return path if path.startswith("/") else ""
 
 
 def _editable_root(dist) -> str:
@@ -267,6 +277,10 @@ def _editable_root(dist) -> str:
         return ""
     url = data.get("url")
     return _file_url_path(url) if isinstance(url, str) else ""
+
+
+_RECORD_HASH = re.compile(r"(?:[A-Za-z0-9_]+=[A-Za-z0-9_\-]+)?")  # empty or algorithm=urlsafe-b64
+_RECORD_SIZE = re.compile(r"[0-9]*")
 
 
 def _records_file(dist, real_file: str) -> bool:
@@ -295,7 +309,7 @@ def _records_file(dist, real_file: str) -> bool:
     except csv.Error:
         return False  # malformed RECORD: no evidence
     for row in rows:
-        if len(row) != 3 or not row[0]:
+        if len(row) != 3 or not row[0] or not _RECORD_HASH.fullmatch(row[1]) or not _RECORD_SIZE.fullmatch(row[2]):
             continue  # path,hash,size: anything else is not a standard row
         entry = row[0]
         if "\r" in entry or "\n" in entry:
@@ -610,143 +624,6 @@ def collect_loaded_packages(modules=None, qt_runtime=None) -> PackageReport:
                          tuple(rows), elapsed, notes)
 
 
-COLUMNS = ("Package", "Version", "Version source", "Loaded from", "Commit", "Notes")
 SCOPE_NOTE = ("Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, "
-              "or an editable install with an absolute project URL); other layouts show the checkout or "
-              "module version, or unknown.")
-
-
-def _fill_table(table, report):
-    from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QHeaderView, QTableWidgetItem
-
-    table.setRowCount(len(report.rows))
-    for index, row in enumerate(report.rows):
-        if row.loaded:
-            resolved = row.real_path and _norm(row.real_path) != _norm(row.import_path)
-            path = row.import_path + (f"\n→ {row.real_path}" if resolved else "")
-            flagged = any(note.startswith("version sources disagree") for note in row.notes)
-            values = (row.name, ("⚠ " if flagged else "") + row.version, row.version_source,
-                      path, row.commit, "; ".join(row.notes))
-        else:
-            values = (row.name, "—", "not loaded in this session", "", "", "")
-        for column, value in enumerate(values):
-            # The commit cell names the checkout in its tooltip and the copied text.
-            item = QTableWidgetItem(value.split(" in ", 1)[0] if column == 4 else value)
-            item.setToolTip(value)
-            if not row.loaded:
-                item.setForeground(QColor(128, 128, 128))
-            table.setItem(index, column, item)
-    header = table.horizontalHeader()
-    table.resizeColumnsToContents()
-    header.setSectionResizeMode(QHeaderView.Interactive)
-    header.setStretchLastSection(True)
-    table.resizeRowsToContents()
-
-
-def open_loaded_packages(window):
-    """Show the dialog at once; collect on a worker thread and fill it in.
-
-    Provenance reads touch the file system (``sys.path`` scans, ``.git``,
-    ``pyproject.toml``), which can stall on a network share, so none of it runs
-    on the GUI thread.  ``sys.modules`` is snapshotted here, before the thread
-    starts.  A dialog closed early simply drops the late result.
-    """
-    import threading
-    from html import escape
-
-    from PySide6.QtCore import Qt, QTimer
-    from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QLabel,
-                                   QPushButton, QTableWidget, QVBoxLayout)
-
-    opened = time.perf_counter()
-    modules = dict(sys.modules)
-    qt_runtime = _qt_runtime(modules.get("PySide6.QtCore"))  # guarded; never raises
-    dialog = QDialog(window)
-    dialog.setObjectName("LoadedPackagesDialog")
-    dialog.setWindowTitle("Loaded packages")
-    dialog.setAttribute(Qt.WA_DeleteOnClose)
-    dialog.report = None
-    dialog.error = None
-    dialog.ready_ms = None
-    layout = QVBoxLayout(dialog)
-    summary = QLabel("Collecting loaded packages…", dialog)
-    summary.setObjectName("LoadedPackagesSummary")
-    summary.setTextFormat(Qt.RichText)  # paths are not markup: only the summary's own <br>/<i> tags
-    summary.setWordWrap(True)
-    summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
-    layout.addWidget(summary)
-    table = QTableWidget(0, len(COLUMNS), dialog)
-    table.setObjectName("LoadedPackagesTable")
-    table.setHorizontalHeaderLabels(COLUMNS)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    table.setWordWrap(False)
-    table.verticalHeader().setVisible(False)
-    layout.addWidget(table)
-    buttons = QDialogButtonBox(QDialogButtonBox.Close, dialog)
-    copy = QPushButton("Copy to clipboard", dialog)
-    copy.setObjectName("CopyLoadedPackages")
-    copy.setEnabled(False)
-    buttons.addButton(copy, QDialogButtonBox.ActionRole)
-    buttons.rejected.connect(dialog.close)
-    layout.addWidget(buttons)
-
-    def copy_report():
-        if dialog.report is None:
-            return
-        window.clipboard.copy_text(dialog.report.text())
-        try:
-            window.set_status("Loaded package list copied to clipboard.")
-        except Exception:
-            pass
-
-    copy.clicked.connect(copy_report)
-
-    # No Qt object crosses threads: the worker fills a plain box and sets an
-    # event; a timer owned by the dialog polls it on the GUI thread, so the
-    # poller, its closure and the dialog go away together.
-    box = {}
-    ready = threading.Event()
-
-    def finished(report, error):
-        if error is not None:
-            dialog.error = error
-            summary.setText(escape(f"Could not collect the package list: {type(error).__name__}: {str(error)[:300]}"))
-            return
-        dialog.report = report
-        dialog.ready_ms = (time.perf_counter() - opened) * 1000.0
-        summary.setText(
-            f"Python {escape(report.python)} — {escape(report.executable)}<br>"
-            f"Qt runtime {escape(report.qt_runtime)} — collected in {report.elapsed_ms:.0f} ms (background)<br>"
-            f"<i>{escape(report.notes[0])}<br>{escape(report.notes[1])}</i>")
-        _fill_table(table, report)
-        copy.setEnabled(True)
-        layout.activate()  # the summary grew from one line to three
-
-    poller = QTimer(dialog)
-    poller.setObjectName("LoadedPackagesPoller")
-    poller.setInterval(25)
-
-    def poll():
-        if ready.is_set():
-            poller.stop()
-            finished(box.get("report"), box.get("error"))
-
-    poller.timeout.connect(poll)
-
-    def work():  # touches only the snapshot, the box and the event
-        try:
-            box["report"] = collect_loaded_packages(modules, qt_runtime)
-        except Exception as caught:  # collect is guarded per row; this is the last net
-            box["error"] = caught
-        finally:
-            ready.set()
-
-    dialog.resize(1400, 640)
-    window._loaded_packages_dialog = dialog
-    dialog.show()
-    dialog.shown_ms = (time.perf_counter() - opened) * 1000.0
-    threading.Thread(target=work, name="anyfem-loaded-packages", daemon=True).start()
-    poller.start()
-    return dialog
+              "or an editable install whose absolute file: URL is the loaded copy's own project root); "
+              "other layouts show the checkout or module version, or unknown.")

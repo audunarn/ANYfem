@@ -178,7 +178,8 @@ def test_unc_editable_url_does_not_claim_the_same_path_on_the_local_drive(tmp_pa
     assert (row.version, row.version_source) == ("4.0.0", "module __version__")
     assert any("is not shown to own the loaded copy" in note for note in row.notes)
     assert lp._file_url_path("file://server/share/project") == "//server/share/project"
-    assert lp._file_url_path("file:///C:/Github/ANYgeometry") == "C:/Github/ANYgeometry"
+    expected = "C:/Github/ANYgeometry" if os.name == "nt" else "/C:/Github/ANYgeometry"
+    assert lp._file_url_path("file:///C:/Github/ANYgeometry") == expected
 
 
 def test_symbolic_loose_ref_wins_over_an_older_packed_entry(tmp_path):
@@ -609,3 +610,41 @@ def test_scope_note_is_in_the_report_text():
     report = lp.collect_loaded_packages({})
     assert lp.SCOPE_NOTE in report.notes and lp.SCOPE_NOTE in report.text()
     assert "standard layouts" in lp.SCOPE_NOTE
+
+
+# Review round 12 regressions (failed on 96aa5c2).
+
+def test_record_rows_with_malformed_hash_or_size_do_not_count(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    module = _package(site, "anyquote", version_attr="1.5")
+    _record_dist(site, "anyquote", "2.0.0", ['anyquote/__init__.py,,0"', "anyquote/__init__.py,sha256 x,"])
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anyquote": module}), "anyquote")
+    assert (row.version, row.version_source) == ("1.5", "module __version__")
+
+
+def test_editable_url_decoding_is_platform_aware():
+    if os.name == "nt":
+        assert lp._file_url_path("file:///C:/Github/ANYgeometry") == "C:/Github/ANYgeometry"
+        assert lp._file_url_path("file:///project") == ""  # would resolve against the current drive
+    else:
+        assert lp._file_url_path("file:///C:/work/project") == "/C:/work/project"
+        assert lp._file_url_path("file:///srv/project") == "/srv/project"
+    assert lp._file_url_path("file://server/share/project") == "//server/share/project"
+
+
+def test_an_unusable_sys_path_entry_does_not_hide_other_distributions(monkeypatch):
+    import numpy  # noqa: F401
+    monkeypatch.setattr(sys, "path", ["bad\x00entry", "C:/no<such>dir" if os.name == "nt" else "/no/such/dir", *sys.path])
+    row = _row(lp.collect_loaded_packages(), "numpy")
+    assert row.version_source == "metadata (numpy)"
+
+
+def test_the_dialog_module_does_not_load_the_collector():
+    import subprocess
+    code = ("import sys, anyfem.ui.qt.loaded_packages_dialog; "
+            "print('anyfem.ui.qt.loaded_packages' in sys.modules, 'tomllib' in sys.modules, 'csv' in sys.modules)")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120,
+                            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[0] == "False"
