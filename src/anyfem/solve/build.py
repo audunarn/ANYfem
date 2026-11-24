@@ -372,7 +372,10 @@ def _source_normal_is_facet_normal(corners: list[np.ndarray], reference: Any) ->
     source normal unchanged.
     """
 
-    normal = np.asarray(reference, dtype=np.float64)
+    # The element stores ``reference / ||reference||`` (``_immutable_vector``)
+    # and tests that, so normalise identically before testing.
+    vector = np.asarray(reference, dtype=np.float64).reshape(-1)
+    normal = vector / float(np.linalg.norm(vector))
     edge_12 = corners[1] - corners[0]
     edge_13 = corners[2] - corners[0]
     edge_23 = corners[2] - corners[1]

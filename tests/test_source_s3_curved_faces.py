@@ -92,3 +92,40 @@ def test_tolerance_matches_the_solver():
     from anyfesolver import e4_pl_s3_v2d_element as v2d
 
     assert build._S3_V2D_FACET_NORMAL_TOLERANCE == v2d._NORMAL_TOLERANCE
+
+
+def _solver_accepts(corners, normal):
+    from anyfesolver import FEModel
+    from anyfesolver.e4_pl_s3_v2d_element import NativeParityCapabilityError
+    from anyfesolver.elements import create_shell_element
+
+    model = FEModel("boundary")
+    model.add_material("steel", 210.e9, .3)
+    for k, point in enumerate(corners, start=1):
+        model.add_node(k, *map(float, point))
+    element = create_shell_element(1, [1, 2, 3], "steel", thickness=.01, reference_normal=tuple(normal))
+    model.add_element(1, element)
+    try:
+        element._geometry(model.mesh)
+    except NativeParityCapabilityError as error:
+        assert "facet-normal" in str(error)
+        return False
+    return True
+
+
+def test_acceptance_mirror_agrees_with_the_solver_at_the_tolerance_boundary():
+    """Codex review P2: the solver tests the normalised vector; so must ANYfem."""
+
+    corners = [np.array([0., 0., 0.]), np.array([1., 0., 0.]), np.array([0., 1., 0.])]
+    threshold = build._S3_V2D_FACET_NORMAL_TOLERANCE * np.sqrt(2.)
+    disagreements_without_normalising = 0
+    for t_scale in np.linspace(1. - 2.e-12, 1. + 2.e-12, 21):
+        for length in np.linspace(1. - 9.e-13, 1. + 9.e-13, 7):
+            unit = np.array([threshold * t_scale, 0., 1.])
+            unit /= np.linalg.norm(unit)
+            normal = unit * length
+            solver = _solver_accepts(corners, normal)
+            assert build._source_normal_is_facet_normal(corners, normal) == solver, (t_scale, length)
+            raw = max(abs((corners[1] - corners[0]) @ normal), abs((corners[2] - corners[0]) @ normal))
+            disagreements_without_normalising += (raw <= threshold) != solver
+    assert disagreements_without_normalising > 0
