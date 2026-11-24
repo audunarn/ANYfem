@@ -702,7 +702,8 @@ def test_a_blocked_hash_algorithm_rejects_only_its_own_row(tmp_path, monkeypatch
     import hashlib
     site = tmp_path / "site"
     module = _package(site, "anyblocked", version_attr="1.5")
-    rows = [f"other.txt,md5={_canonical_digest('md5')},0", "anyblocked/__init__.py,,"]
+    md5_of_empty = "1B2M2Y8AsgTpgAmY7PhCfg"  # literal: setup must not need md5 itself
+    rows = [f"other.txt,md5={md5_of_empty},0", "anyblocked/__init__.py,,"]
     _record_dist(site, "anyblocked", "2.0.0", rows)
     real_new = hashlib.new
 

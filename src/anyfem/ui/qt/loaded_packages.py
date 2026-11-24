@@ -289,8 +289,10 @@ def _record_hash_ok(field: str) -> bool:
     """Empty, or ``algorithm=digest`` as the PyPA RECORD spec writes it: an
     algorithm from ``hashlib.algorithms_guaranteed`` and the canonical unpadded
     urlsafe-base64 encoding of a digest of that algorithm's size (any non-empty
-    size for the variable-length SHAKE algorithms).  Anything else, including an
-    algorithm the runtime refuses, makes only this row non-evidence."""
+    size for the variable-length SHAKE algorithms; their digest is not
+    constructed, so a runtime block on SHAKE does not affect them).  Anything
+    else, including a fixed-size algorithm the runtime refuses, makes only this
+    row non-evidence."""
     if not field:
         return True
     algorithm, separator, digest = field.partition("=")
