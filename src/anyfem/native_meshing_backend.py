@@ -573,7 +573,8 @@ class NativeProjectMeshingSession:
                 # the application's established cancellation classification.
                 request.cancellation.raise_if_cancelled('hybrid component cancellation')
                 _name_source_of_face_refusal(error, preparation.source_to_working,
-                                             getattr(snapshot, "source_geometry", None))
+                                             getattr(snapshot, "source_geometry", None),
+                                             getattr(snapshot, "revision", None))
                 raise
 
         if recovery_selection is None:

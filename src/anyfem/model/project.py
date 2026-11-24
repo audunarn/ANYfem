@@ -2917,7 +2917,7 @@ class Project:
                 if mesh is None:
                     meshing_parameters["cancellation_check"] = source_check
                     mesh = call_naming_source_faces(
-                        generate_hybrid_mesh, preparation.source_to_working, self.geometry,
+                        generate_hybrid_mesh, preparation.source_to_working, source_geometry, closure.source_revision,
                         working, **meshing_parameters)
             else:
                 self._last_mesh_execution = {
@@ -2934,7 +2934,8 @@ class Project:
                     ) from error
                 meshing_parameters["cancellation_check"] = source_check
                 mesh = call_naming_source_faces(
-                    generate_automatic_mesh_result, preparation.source_to_working, self.geometry,
+                    generate_automatic_mesh_result, preparation.source_to_working, source_geometry,
+                    closure.source_revision,
                     working,
                     automation=automation,
                     **({'curvilinear_recovery_selection': curvilinear_recovery_selection}
