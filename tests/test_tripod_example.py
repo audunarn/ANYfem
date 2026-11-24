@@ -125,6 +125,7 @@ def test_tripod_rejects_invalid_web_layout(change):
 def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path):
     """The example as the menu creates it, saved and reopened, meshes with qualified S3 ADMITTED and no legacy fallback.
 
+    Time limit: the mesh job must finish within 1000 s (owner's slowdown guard; override with ANYFEM_TRIPOD_MESH_CAP).
     No environment variable is set: the seam policy comes from the model.  Uses whatever ANYgeometry / ANYmesh are on the
     path; the pinned ones are ANYgeometry d71c5bc and the ANYmesh merge named in pyproject.toml."""
     import time
@@ -173,10 +174,8 @@ def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path)
     print("tripod mesh wall %.1f s" % wall, counts, {key: qualified[key] for key in ("status", "legacy_fallback")})
     assert qualified["status"] == "ADMITTED" and qualified["legacy_fallback"] == "FORBIDDEN"
     assert qualified["element_ids"]
-    # The time limit is the owner's to set (590 s was a script value): the wall time is reported above; set
-    # ANYFEM_TRIPOD_MESH_CAP=<seconds> to make it an assertion.
-    if os.environ.get("ANYFEM_TRIPOD_MESH_CAP"):
-        assert wall < float(os.environ["ANYFEM_TRIPOD_MESH_CAP"])
+    # Owner's limit (2026-11-24): 1000 s, a slowdown guard (about 850 s measured under load), not a speed target.
+    assert wall < float(os.environ.get("ANYFEM_TRIPOD_MESH_CAP", "1000"))
     assert "ANYGEOMETRY_SEAM_POLICY" not in os.environ
 
 
