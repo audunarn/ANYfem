@@ -228,40 +228,46 @@ def _corner_project():
 
 
 def test_only_an_exact_connect_whole_member_declaration_names_the_plate():
-    """Owner decision 2026-11-24: such a declaration wins over the face order;
-    unverified, disconnected or partial declarations do not."""
+    """Owner contract 2026-11-24: topology or a declaration names the plate.
+
+    A free, undeclared line gets no half thickness; unverified, disconnected
+    or partial declarations do not count; several valid ones take the lowest
+    face ID."""
 
     from anygeometry.structural import (
         AttachmentEvidence, AttachmentKind, ConnectionIntent, ParameterRange,
     )
 
     project, line, deck, wall = _corner_project()
-    on_deck = (0.0, 0.0, 0.05 + 0.005)
-    assert project.beam_offset_vector(line) == pytest.approx(on_deck, abs=1e-15)
+    bare = (0.0, 0.0, 0.05)
+    assert project._beam_plate_face(line) is None
+    assert project.beam_offset_vector(line) == pytest.approx(bare, abs=1e-15)
     g = project.geometry
     member = g.add_member((line,))
-    for evidence, intent, span in (
-        (AttachmentEvidence.UNVERIFIED, ConnectionIntent.CONNECT, (0.0, 1.0)),
-        (AttachmentEvidence.EXACT, ConnectionIntent.KEEP_DISCONNECTED, (0.0, 1.0)),
-        (AttachmentEvidence.EXACT, ConnectionIntent.CONNECT, (0.0, 0.5)),
-    ):
+
+    def declare(face, evidence=AttachmentEvidence.EXACT,
+                intent=ConnectionIntent.CONNECT, span=(0.0, 1.0)):
         g.add_attachment(
-            member, AttachmentKind.MEMBER_ON_FACE, "face", wall,
+            member, AttachmentKind.MEMBER_ON_FACE, "face", face,
             ParameterRange(*span), (ParameterRange(0.0, 1.0), ParameterRange(0.0, 0.0)),
             evidence=evidence, connection_intent=intent,
         )
-        assert project._beam_plate_face(line) == deck
-        assert project.beam_offset_vector(line) == pytest.approx(on_deck, abs=1e-15)
-    g.add_attachment(
-        member, AttachmentKind.MEMBER_ON_FACE, "face", wall,
-        ParameterRange(0.0, 1.0), (ParameterRange(0.0, 1.0), ParameterRange(0.0, 0.0)),
-        evidence=AttachmentEvidence.EXACT, connection_intent=ConnectionIntent.CONNECT,
-    )
+
+    declare(wall, evidence=AttachmentEvidence.UNVERIFIED)
+    declare(wall, intent=ConnectionIntent.KEEP_DISCONNECTED)
+    declare(wall, span=(0.0, 0.5))
+    assert project._beam_plate_face(line) is None
+    assert project.beam_offset_vector(line) == pytest.approx(bare, abs=1e-15)
+    declare(wall)
     assert project._beam_plate_face(line) == wall
     # Web (0, 0, 1) lies in the wall's plane: Front takes the wall's +normal.
     normal = np.asarray(g.face_normal(wall, 0.5, 0.5))
-    expected = np.array([0.0, 0.0, 0.05]) + 0.02 * normal
-    np.testing.assert_allclose(project.beam_offset_vector(line), expected, rtol=0.0, atol=1e-15)
+    np.testing.assert_allclose(
+        project.beam_offset_vector(line), np.array(bare) + 0.02 * normal, rtol=0.0, atol=1e-15
+    )
+    declare(deck)
+    assert project._beam_plate_face(line) == deck == min(deck, wall)
+    assert project.beam_offset_vector(line) == pytest.approx((0.0, 0.0, 0.055), abs=1e-15)
 
 
 def test_line_that_only_pierces_a_plate_gets_no_half_thickness():
@@ -322,7 +328,7 @@ def test_curved_shell_half_thickness_is_radial_at_the_stiffener():
         np.testing.assert_allclose(extra, 0.005 * radial, rtol=0.0, atol=1e-12)
 
 
-def test_free_lines_do_not_project_onto_every_face(monkeypatch):
+def test_free_undeclared_lines_get_nothing_and_never_project(monkeypatch):
     project = Project(name="row")
     project.add_material(steel("S355", 0.01))
     project.add_plate_section("t10", thickness=0.010, material="S355")
@@ -348,8 +354,84 @@ def test_free_lines_do_not_project_onto_every_face(monkeypatch):
 
     monkeypatch.setattr(type(g), "project_to_face", counting)
     offsets = project.beam_offsets
-    # A few candidate faces near each line, never every face.
-    assert len(calls) <= 6 * len(lines)
-    assert len(set(calls)) <= 2 * len(lines)
+    assert calls == []
     for line in lines:
-        assert offsets[line][2] == pytest.approx(0.05 + 0.005, abs=1e-15)
+        assert offsets[line] == pytest.approx((0.0, 0.0, 0.05), abs=1e-15)
+
+
+def test_nurbs_plate_edge_uses_its_chart_normal():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_nurbs_preparation_authority import _crossing_patch
+
+    model, patch, _plate = _crossing_patch()
+    project = Project(name="nurbs", geometry=model)
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    project.assign_plate(patch, "t10")
+    project.add_beam_section(_flatbar())
+    offsets_checked = 0
+    for use in model.faces[patch].loop:
+        edge = use.edge
+        project.assign_beam(edge, "fb")
+        vector = np.asarray(project.beam_offset_vector(edge))
+        assert project.beam_offsets[edge] == pytest.approx(tuple(vector), abs=0.0)
+        axis, local_y, local_z = project.beam_section_frame(edge)
+        y, z = project.beam_section_of(edge).centroid_from_attachment()
+        extra = vector - (y * local_y + z * local_z)
+        curve = model.edges[edge].curve
+        degree = curve.pcurve.degree
+        knots = curve.pcurve.knots
+        uv = curve.chart(np.asarray([0.5 * (knots[degree] + knots[-degree - 1])]))[0]
+        normal = model.face_normal_many(patch, [uv])[0]
+        normal = normal if normal @ local_z >= 0.0 else -normal
+        np.testing.assert_allclose(extra, 0.005 * normal, rtol=0.0, atol=1e-15)
+        offsets_checked += 1
+    assert offsets_checked == 4
+
+
+def test_planar_plate_far_from_origin_keeps_its_normal():
+    project = Project(name="far")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t125", thickness=0.125, material="S355")
+    g = project.geometry
+    x = 1.0e12
+    from anygeometry.surfaces import Plane
+
+    pts = g.add_points([(x, 0, 0), (x + 1, 0, 0), (x + 1, 1, 0), (x, 1, 0)])
+    edges = g.add_polyline(pts, close=True)
+    face = g.add_face(edges, surface=Plane(
+        np.array([x, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])))
+    assert type(g.faces[face].surface).__name__ == "Plane"
+    project.assign_plate(face, "t125")
+    project.add_beam_section(_flatbar(web_direction=(0.0, 0.0, 1.0)))
+    project.assign_beam(edges[0], "fb")
+    assert project.beam_offset_vector(edges[0]) == pytest.approx(
+        (0.0, 0.0, 0.05 + 0.0625), abs=1e-15
+    )
+
+
+def test_half_thickness_uses_the_plate_normal_not_the_chord_normal():
+    """An extruded asymmetric spline: the normal at the line's middle is
+    not perpendicular to the chord; it must not be projected onto it."""
+
+    project = Project(name="spline")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    g = project.geometry
+    start, c1, c2, end = g.add_points([(0, 0, 0), (0.2, 0.6, 0), (0.3, 0.1, 0), (1, 0, 0)])
+    spline = g.add_spline(start, (c1, c2), end)
+    (face,) = g.extrude([spline], (0.0, 0.0, 1.0))
+    project.assign_plate(face, "t10")
+    project.add_beam_section(_flatbar())
+    project.assign_beam(spline, "fb")
+    axis, local_y, local_z = project.beam_section_frame(spline)
+    y, z = project.beam_section_of(spline).centroid_from_attachment()
+    extra = np.asarray(project.beam_offset_vector(spline)) - (y * local_y + z * local_z)
+    middle = np.asarray(g.sample_edge(spline, np.asarray((0.5,))))[0]
+    normal = g.face_normal_many(face, [g.face_local_uv(face, middle)])[0]
+    normal = normal if normal @ local_z >= 0.0 else -normal
+    assert abs(float(normal @ axis)) > 1e-3  # the case is really off-chord
+    np.testing.assert_allclose(extra, 0.005 * normal, rtol=0.0, atol=1e-15)

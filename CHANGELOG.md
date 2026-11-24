@@ -4,11 +4,13 @@
 
 - Automatic stiffener offset: the profile foot now stands on the attached plate's surface, not on its mid-surface
   (owner decision 2026-11-24). With `offset_mode="automatic"` the neutral-axis offset is the profile centroid plus half
-  the thickness of the plate the line lies along, along that plate's normal at the line on the stiffener side. The plate
-  is a face that uses the line, else a `member_on_face` declaration (exact, connect, whole member), else the first face
-  the line's start, middle and end lie on. The side follows the web; a web in the plate's plane takes Front (+normal) or
-  Back (-normal); with `rotation_deg` the half thickness still goes along the plate normal. A line with no such plate
-  (including one that only pierces a plate), or whose plate has no section yet, gets nothing added. Manual and centerline offsets are unchanged. This changes results of every model
+  the plate's thickness along the plate normal at the line, on the stiffener side. The plate is named by topology or a
+  declaration only: a face that uses the line as an edge (the face that also sets the default web direction), else a
+  `member_on_face` declaration with exact evidence, connect intent and the whole member range (lowest face ID if
+  several). A free, undeclared line, or a plate without a section, gets nothing added; declare the attachment to get
+  the surface offset. The side follows the web; a web in the plate's plane takes Front (+normal) or Back (-normal);
+  with `rotation_deg` the half thickness still goes along the plate normal. A plate normal that cannot be evaluated at
+  the line raises an error naming a manual or centerline offset. Manual and centerline offsets are unchanged. This changes results of every model
   with automatic offsets, including saved projects on reload and the examples; there is no switch for the old behaviour.
   Example: a T 250x8 + 100x12 on a 10 mm plate moves from 0.17413 m to 0.17913 m and a 5 m strip deflects 3.8 % less,
   now within 0.03 % of transformed-section theory.

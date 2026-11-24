@@ -1565,21 +1565,21 @@ class Project:
         return axis, local_y, local_z, side, face_ids
 
     def _beam_plate_face(self, edge_id: int) -> int | None:
-        """The plate a beam line lies along, for the automatic offset.
+        """The plate a beam stands on, for the automatic offset.
 
-        1. A face that uses the line as an edge (first in sorted order).
-        2. A declared plate: ``member_on_face`` attachments of the line's
-           members with exact evidence, connect intent and the whole member
-           range (owner decision 2026-11-24: a declared plate wins over the
-           face order).  Several declared plates are told apart by the
-           surface test below.  Other declarations are ignored.
-        3. The first face in sorted order that the line lies along: start,
-           middle and end within the surface tolerance (a line that only
-           pierces a plate does not lie along it).  Candidates come from the
-           geometry's maintained spatial index.
+        Owner contract 2026-11-24: only topology or a declaration names the
+        plate, never a geometric search.
+
+        1. A face that uses the line as an edge (first in sorted order: the
+           face that also defines the default web direction).
+        2. Otherwise a declared plate: ``member_on_face`` attachments of the
+           line's members with exact evidence, connect intent and the whole
+           member range (lowest face ID if several).  Other declarations are
+           ignored.  The declaration is trusted as stored; keeping it true
+           after geometry edits is the geometry model's witness contract.
+
+        ``None`` (no half thickness) for a free, undeclared line.
         """
-
-        import numpy as np
 
         geometry = self.geometry
         face_ids = sorted(geometry.faces_using_edge(int(edge_id)))
@@ -1600,51 +1600,88 @@ class Project:
                     and max(span.start, span.end) == 1.0
                 ):
                     declared.add(int(attachment.target_id))
-        if len(declared) == 1:
-            return next(iter(declared))
-        points = np.asarray(
-            geometry.sample_edge(int(edge_id), np.asarray((0.0, 0.5, 1.0))),
-            dtype=float,
+        return min(declared) if declared else None
+
+    def _plate_normal_at_line(
+        self, face_id: int, edge_id: int, normals: Dict[int, Any] | None
+    ) -> Any:
+        """Analytic unit normal of a plate where a beam line stands on it.
+
+        Planar faces: the constant normal (cached per call).  A NURBS edge of
+        the face: the edge's own chart point.  Other surfaces: the closest
+        local coordinates of the line's midpoint.  A surface that cannot be
+        located raises :class:`ProjectError` instead of guessing a normal.
+        """
+
+        import numpy as np
+
+        geometry = self.geometry
+        if normals is not None and face_id in normals:
+            return normals[face_id]
+        face = geometry.faces[int(face_id)]
+        evaluable = (
+            face.parameterization if face.parameterization is not None else face.surface
         )
-        lower, upper = points.min(axis=0), points.max(axis=0)
-        tolerance = geometry.tolerance.effective_surface_residual(
-            float(np.linalg.norm(upper - lower))
-        )
-        if declared:
-            candidates = sorted(declared)
-        else:
-            candidates = sorted(
-                int(identifier)
-                for kind, identifier in geometry.spatial_candidates(
-                    lower - tolerance, upper + tolerance, kinds=("face",)
-                )
-                if kind == "face" and int(identifier) in geometry.faces
+        planar = type(evaluable).__name__ == "Plane"
+        try:
+            if planar:
+                uv = (0.5, 0.5)
+            else:
+                curve = geometry.edges[int(edge_id)].curve
+                pcurve = getattr(curve, "pcurve", None)
+                if (
+                    face.parameterization is None
+                    and pcurve is not None
+                    and getattr(curve, "support", None) is face.surface
+                    and np.array_equal(
+                        np.asarray(curve.transform, dtype=float), np.eye(4)
+                    )
+                ):
+                    degree = int(pcurve.degree)
+                    start = float(pcurve.knots[degree])
+                    end = float(pcurve.knots[-degree - 1])
+                    uv = tuple(
+                        float(value)
+                        for value in curve.chart(np.asarray([0.5 * (start + end)]))[0]
+                    )
+                else:
+                    midpoint = np.asarray(
+                        geometry.sample_edge(int(edge_id), np.asarray((0.5,))),
+                        dtype=float,
+                    )[0]
+                    uv = geometry.face_local_uv(int(face_id), midpoint)
+            normal = np.asarray(
+                geometry.face_normal_many(int(face_id), [uv])[0], dtype=float
             )
-        for face_id in candidates:
-            if all(
-                float(geometry.project_to_face(face_id, point)[2]) <= tolerance
-                for point in points
-            ):
-                return face_id
-        return None
+        except (GeometryError, AttributeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                f"automatic offset of beam line {edge_id}: cannot evaluate the "
+                f"normal of plate face {face_id} at the line ({error}); "
+                "use a manual or centerline offset"
+            ) from error
+        if not np.all(np.isfinite(normal)):
+            raise ProjectError(
+                f"automatic offset of beam line {edge_id}: plate face {face_id} "
+                "has no finite normal at the line"
+            )
+        if planar and normals is not None:
+            normals[face_id] = normal
+        return normal
 
     def _beam_plate_half_thickness(
         self,
         edge_id: int,
-        axis: Any,
         side: Any,
         normals: Dict[int, Any] | None = None,
     ) -> Any | None:
         """Half the plate's thickness along its normal, stiffener side.
 
-        ``None`` when the line lies along no plate, the plate has no section
-        yet, or its normal is along the beam axis.  The normal is taken at
-        the line's midpoint (constant on a planar face, cached there per
-        call).  The side follows the unrotated web direction; a web lying in
-        the plate's plane takes Front (+normal) or Back (-normal).
+        ``None`` when no plate is named (see :meth:`_beam_plate_face`) or the
+        plate has no section yet.  The plate normal at the line is used as is
+        (not projected on the beam chord).  The side follows the unrotated web
+        direction; a web in the plate's plane takes Front (+normal) or Back
+        (-normal).
         """
-
-        import numpy as np
 
         face_id = self._beam_plate_face(int(edge_id))
         if face_id is None:
@@ -1652,38 +1689,7 @@ class Project:
         name = self.face_sections.get(face_id)
         if name is None or name not in self.plate_sections:
             return None
-        if normals is not None and face_id in normals:
-            normal = normals[face_id]
-        else:
-            face = self.geometry.faces[face_id]
-            evaluable = (
-                face.parameterization
-                if face.parameterization is not None
-                else face.surface
-            )
-            planar = type(evaluable).__name__ == "Plane"
-            if planar:
-                normal = np.asarray(
-                    self.geometry.face_normal(face_id, 0.5, 0.5), dtype=float
-                )
-            else:
-                # Analytic derivatives at the line: the finite-difference
-                # ``face_normal`` loses accuracy just inside a parameter edge.
-                midpoint = np.asarray(
-                    self.geometry.sample_edge(int(edge_id), np.asarray((0.5,))),
-                    dtype=float,
-                )[0]
-                u, v = self.geometry.face_local_uv(face_id, midpoint)
-                normal = np.asarray(
-                    self.geometry.face_normal_many(face_id, [[u, v]])[0], dtype=float
-                )
-            if planar and normals is not None:
-                normals[face_id] = normal
-        normal = normal - float(normal @ axis) * axis
-        length = float(np.linalg.norm(normal))
-        if length <= 1.0e-12:
-            return None
-        normal /= length
+        normal = self._plate_normal_at_line(face_id, int(edge_id), normals)
         facing = float(normal @ side)
         if abs(facing) > 1.0e-9:
             if facing < 0.0:
@@ -1715,12 +1721,12 @@ class Project:
         if section.offset_mode == "centerline":
             return (0.0, 0.0, 0.0)
         if section.offset_mode == "automatic":
-            axis, local_y, local_z, side, _faces = self._beam_section_frame_parts(
+            _axis, local_y, local_z, side, _faces = self._beam_section_frame_parts(
                 int(edge_id)
             )
             y, z = section.centroid_from_attachment()
             vector = y * local_y + z * local_z
-            half = self._beam_plate_half_thickness(int(edge_id), axis, side, normals)
+            half = self._beam_plate_half_thickness(int(edge_id), side, normals)
             if half is not None:
                 vector = vector + half
         else:
