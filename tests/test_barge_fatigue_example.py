@@ -113,10 +113,12 @@ def test_signed_series_is_a_pure_variable_bending_couple(project):
         if reference is None and MOMENT_FACTORS[index]:
             reference = moment[1] / MOMENT_FACTORS[index]
         moments.append(moment[1])
-    # Same end couple as the original 5 m beam-stiffened example.
-    from anyfem.application.examples import floating_barge_section
-    original = floating_barge_section().load_case().line_loads[0]
-    assert reference == pytest.approx(original.force_per_length[0] * 11. * 2.5)
+    # The retained end couple of the original 5 m beam-stiffened example (41.456941 MN m with
+    # mid-surface automatic offsets).  barge_fatigue keeps it fixed when the beam model changes;
+    # since the foot-on-surface automatic offset the live example's couple is 0.18 % lower.
+    from anyfem.application.barge_fatigue import _REFERENCE_MOMENT_NM
+    assert _REFERENCE_MOMENT_NM == 41_456_941.052910045
+    assert reference == pytest.approx(_REFERENCE_MOMENT_NM)
     np.testing.assert_allclose(moments, np.asarray(MOMENT_FACTORS) * reference)
 
 
