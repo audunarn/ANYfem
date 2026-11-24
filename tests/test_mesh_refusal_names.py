@@ -80,6 +80,8 @@ def test_a_cache_hit_refusal_is_named(monkeypatch):
     project.add_plate_section("plate", .01, "S355")
     _plate(project, ((0., 0., 0.), (2., 0., 0.), (2., 1., 0.), (0., 1., 0.)), (0, 1, 2, 3))
     skew = _plate(project, ((3., 0., 0.), (4.4, 0., 0.), (4.9, 1.2, 0.), (3.2, .8, 0.)), (0, 1, 2, 3))
+    # A crossing plate splits the skew plate, so working and source face ids differ.
+    _plate(project, ((3.9, -.5, -.5), (3.9, 1.5, -.5), (3.9, 1.5, .5), (3.9, -.5, .5)), (0, 1, 2, 3))
     project.geometry.add_to_group("skew plate", [EntityRef("face", skew)])
     project.generate_mesh(.5, strategy="quad_first")  # succeeds and stores the prepared-model cache
     assert project._mesh_preparation_cache is not None
@@ -92,8 +94,24 @@ def test_a_cache_hit_refusal_is_named(monkeypatch):
             project.generate_mesh(.5, strategy="quad_first", quad_t3_minimum_angle=59.0)
         text = str(caught.value)
         assert text.startswith("T3 cell ") and text.count("[quad-first face ") == 1, text
+        assert caught.value.quad_first_face != skew and caught.value.source_face_ids == (skew,)
         assert text.endswith(f"; source face {skew}; groups: skew plate]"), text
     assert extracted == [], "both refusals must come from the cached preparation"
+
+
+def test_strict_automatic_refusal_is_named_through_the_lineage():
+    from anymesher import MeshAutomationOptions
+
+    project, _sliver = _project_with_sliver(crossed=True)
+    with pytest.raises(MeshError) as caught:
+        project.generate_mesh(.5, strategy="quad_first", automation=MeshAutomationOptions(strict_method=True))
+    error = caught.value
+    (source,) = error.source_face_ids
+    assert error.quad_first_face != source
+    expected = tuple(sorted(name for name, items in project.geometry.groups.items()
+                            if EntityRef("face", source) in items))
+    assert expected and error.builder_groups == expected
+    assert str(error).count("[quad-first face ") == 1
 
 
 def test_native_meshing_session_refusal_names_source_face_and_groups():
