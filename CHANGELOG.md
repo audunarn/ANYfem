@@ -19,14 +19,11 @@
   (41.456941 to 41.382418 MN m), and the barge fatigue example follows it: its reference couple and the magnitude of every
   nonzero end load fall 0.18 % (zero steps stay zero). A regenerated fatigue example therefore has 0.18 % lower nominal stress ranges from the load
   (about 0.54 % less damage at S-N slope 3, 0.90 % at slope 5), on top of the offset change itself; the bundled
-  example keeps its saved loads and results (41.457 MN m), and its saved mesh opens as stale (below).
-  A mesh carries the offsets it was generated with, so building a solver model now compares every stored
-  automatic stiffener offset with the one the model gives and refuses on a difference (regenerate the mesh; saved
-  results stay viewable). This refuses meshes saved before this change in models where an automatic offset now adds
-  half a plate thickness, however they reach the solver; other meshes agree to about 1e-14 m. The check costs about
-  16 ms on the 5 m barge and 115 ms on the 1382-beam 60 m barge per model build. For display, new mesh records store
-  `beam_offset_rule` 2; a record saved without it shows as stale (workbench, mesh tree, submodel runs) in such
-  models. The bundled barge fatigue example's saved mesh is such a mesh.
+  example keeps its saved loads, mesh and results (41.457 MN m, mid-surface offsets).
+  **Regenerate saved meshes.** A mesh carries the offsets it was generated with, and its model hash does not change
+  with this rule, so a mesh saved before this change is still shown as current and solves with mid-surface offsets
+  until it is regenerated. This applies to every saved project with automatic-offset stiffeners on a plate,
+  including the bundled barge fatigue example. Detecting such meshes automatically is a separate follow-up.
 
 - A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the
   source face(s) through the preparation lineage and their builder groups, for example

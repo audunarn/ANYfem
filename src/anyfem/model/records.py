@@ -412,19 +412,8 @@ class AnalysisDefinition:
         )
 
 
-# Automatic beam-offset rule of newly generated meshes (see MeshRecord).
-BEAM_OFFSET_RULE = 2
-
-
 @dataclass
 class MeshRecord:
-    """Persisted mesh publication.
-
-    ``beam_offset_rule`` names the automatic beam-offset rule the mesh was
-    generated under: 1 = profile foot on the plate mid-surface (records saved
-    before the rule had a tag), 2 = foot on the plate surface (current).
-    """
-
     name: str
     source_model_hash: str
     mesh_input_hash: str
@@ -436,7 +425,6 @@ class MeshRecord:
     diagnostics: list[Any] = field(default_factory=list)
     structural_preparation: dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=_uuid)
-    beam_offset_rule: int = BEAM_OFFSET_RULE
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -451,7 +439,6 @@ class MeshRecord:
             "summary": dict(self.summary),
             "diagnostics": list(self.diagnostics),
             "structural_preparation": dict(self.structural_preparation),
-            "beam_offset_rule": int(self.beam_offset_rule),
         }
 
     @classmethod
@@ -468,7 +455,6 @@ class MeshRecord:
             summary=dict(data.get("summary", {})),
             diagnostics=list(data.get("diagnostics", [])),
             structural_preparation=dict(data.get("structural_preparation", {})),
-            beam_offset_rule=int(data.get("beam_offset_rule", 1)),
         )
 
 

@@ -923,13 +923,6 @@ def submodel_run_staleness(snapshot: Any, run: SubmodelRun, store: Any, *,
             or (numbering.get("generation") and numbering.get("active_mesh_id") != source["mesh_record_id"])
             or (mesh_record_id is not None and str(mesh_record_id) != source["mesh_record_id"])):
         reasons.append("SOURCE_MESH_CHANGED")
-    else:
-        from .application.mesh_publication import outdated_offset_rule
-        from .model.records import BEAM_OFFSET_RULE, MeshRecord
-        saved = MeshRecord.from_dict(record)
-        # Thaw the project only for a record saved before the offset-rule tag.
-        if saved.beam_offset_rule < BEAM_OFFSET_RULE and outdated_offset_rule(snapshot.thaw(), saved):
-            reasons.append("SOURCE_MESH_CHANGED")
 
     artifacts = _by_id(document, "artifacts")
     for key in ("mesh_artifact", "result_artifact"):

@@ -1107,10 +1107,6 @@ class WorkbenchWorkflow:
     def mesh_record_state(self, record: MeshRecord) -> str:
         """Return persisted state with revision-based staleness applied."""
 
-        if record.status in ("completed", "inspection_only"):
-            from .mesh_publication import outdated_offset_rule
-            if outdated_offset_rule(self.project, record):
-                return "stale"
         if record.status in ("completed", "inspection_only", "stale") and (
             record.source_model_hash
             and record.source_model_hash != self.session.revision.model_hash

@@ -8,7 +8,6 @@ from ...presentation.tree import bounded_entity_ids, bounded_unowned_entity_ids
 from ...presentation.points import displayed_geometry_point_ids
 from .geometry_actions import is_geometry_set,set_references
 from ...presentation.sets import is_user_set,set_geometry_references
-from ...application.mesh_publication import outdated_offset_rule
 
 
 LOAD_CASE_CHILD_LIMIT=200  # steps listed under a series; the rest are summarised
@@ -190,8 +189,7 @@ class QtModelTree(QTreeView):
                     status=str(getattr(state,"value",state))
                     if attribute=="jobs" and self.app._job_is_stale(value):
                         status += " (stale)"
-                    if attribute=="mesh_records" and (value.source_model_hash!=self.app.session.revision.model_hash
-                                                      or outdated_offset_rule(self.project,value)):
+                    if attribute=="mesh_records" and value.source_model_hash!=self.app.session.revision.model_hash:
                         status += " (stale)"
                     if attribute=="load_cases" and value.times is not None:
                         children_of[key]=self.project.series_children(value.name)
@@ -653,8 +651,7 @@ class QtModelTree(QTreeView):
         for mesh in self.project.mesh_records.values():
             state=getattr(mesh,"status","")
             state=str(getattr(state,"value",state))
-            if (mesh.source_model_hash!=self.app.session.revision.model_hash
-                    or outdated_offset_rule(self.project,mesh)):state += " (stale)"
+            if mesh.source_model_hash!=self.app.session.revision.model_hash:state += " (stale)"
             rows.append((mesh.id,mesh.name,state,("mesh_records",mesh.id)))
         self._sync_state_groups((("Meshes",rows),))
 

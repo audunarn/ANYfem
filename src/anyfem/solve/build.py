@@ -86,72 +86,6 @@ class BuiltModel:
         return self.fe_model.mesh.dof_manager.get_node_dofs(node_id)
 
 
-# A stored stiffener offset differs from the derived one by at least half a plate
-# thickness when the automatic-offset rule changed; fresh meshes agree to ~1e-14 m.
-_OFFSET_TOLERANCE_M = 1.0e-7
-
-
-def _require_current_automatic_offsets(project: Project, mesh: Mesh) -> None:
-    """Refuse a mesh whose stored automatic stiffener offsets are not the project's.
-
-    A mesh carries the offsets it was generated with.  Compare every coupling of
-    an automatic-offset beam line with the offset the project derives now, so a
-    mesh generated under an earlier automatic-offset rule (or otherwise out of
-    date) is refused whatever path it reached the solver by.  A node shared by
-    several lines may match any of them.  Mesh-only (imported) projects carry no
-    beam-line definitions and are not checked.
-    """
-
-    if project.mesh_only:
-        return
-    automatic = [
-        int(edge) for edge, name in project.edge_sections.items()
-        if name in project.beam_sections
-        and project.beam_sections[name].offset_mode == "automatic"
-    ]
-    if not automatic:
-        return
-    offsets = project.beam_offsets
-    nodes: list[int] = []
-    expected: list[Any] = []
-    for edge in automatic:
-        if edge not in offsets:
-            continue
-        line_nodes = mesh.offset_nodes_of_edge.get(edge)
-        if not line_nodes:
-            raise ProjectError(
-                f"the mesh has no offset stiffener nodes for automatic-offset beam line {edge}; "
-                "regenerate the mesh"
-            )
-        nodes.extend(int(node) for node in line_nodes)
-        expected.extend([offsets[edge]] * len(line_nodes))
-    if not nodes:
-        return
-    eccentricity = {
-        int(coupling.beam_node): coupling.eccentricity
-        for coupling in mesh.couplings.values()
-        if hasattr(coupling, "beam_node")
-    }
-    missing = next((node for node in nodes if node not in eccentricity), None)
-    if missing is not None:
-        raise ProjectError(
-            f"offset stiffener node {missing} has no plating coupling; regenerate the mesh"
-        )
-    stored = np.asarray([eccentricity[node] for node in nodes], dtype=float)
-    deviation = np.linalg.norm(stored - np.asarray(expected, dtype=float), axis=1)
-    # A node shared by several lines (a joint) may match any one of them.
-    best: dict[int, float] = {}
-    for node, value in zip(nodes, deviation.tolist()):
-        best[node] = min(value, best.get(node, value))
-    stale = next((node for node, value in best.items() if not value <= _OFFSET_TOLERANCE_M), None)
-    if stale is not None:
-        raise ProjectError(
-            f"stiffener node {stale} does not carry the automatic offset the model now gives "
-            "(the mesh was probably generated before automatic offsets put the stiffener foot "
-            "on the plate surface); regenerate the mesh before solving (saved results stay viewable)"
-        )
-
-
 def build_fe_model(
     project: Project,
     mesh: Mesh,
@@ -178,7 +112,6 @@ def build_fe_model(
         if not matches_mesh_hash(mesh, active.mesh_hash, model_hash=active.source_model_hash,
                                  mesh_input_hash=active.mesh_input_hash, structural_preparation=active.structural_preparation):
             raise ProjectError("mesh content differs from the active publication")
-    _require_current_automatic_offsets(project, mesh)
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
         raise ProjectError(
