@@ -28,11 +28,16 @@ def _groups(sources: tuple[int, ...], source_geometry: Any, source_revision: Any
     """Groups holding any source face, read only at the revision the lineage came from (else ``None``)."""
     if source_geometry is None or not sources:
         return ()
-    if source_revision is not None and int(getattr(source_geometry, "revision", -1)) != int(source_revision):
+    def current() -> bool:
+        return source_revision is None or int(getattr(source_geometry, "revision", -1)) == int(source_revision)
+
+    if not current():
         return None
     refs = {EntityRef("face", item) for item in sources}
     members = source_geometry.groups  # refusal path only: one membership view per refusal
-    return tuple(sorted(name for name, items in members.items() if refs.intersection(items)))
+    names = tuple(sorted(name for name, items in members.items() if refs.intersection(items)))
+    # A committed edit between the check and the read would mix revisions: check again.
+    return names if current() else None
 
 
 def name_source_of_face_refusal(error: BaseException, source_to_working: Mapping[str, Iterable[str]],

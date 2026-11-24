@@ -58,17 +58,16 @@ def test_project_generate_mesh_refusal_names_source_face_and_groups():
 
 
 def test_a_split_source_face_is_named_through_the_lineage():
-    project, _sliver = _project_with_sliver(crossed=True)
+    project, sliver = _project_with_sliver(crossed=True)
     with pytest.raises(MeshError) as caught:
         project.generate_mesh(.5, strategy="quad_first")
     error = caught.value
-    (source,) = error.source_face_ids
-    assert error.quad_first_face not in project.geometry.faces, "the crossing must split the refusing face"
-    expected = tuple(sorted(name for name, items in project.geometry.groups.items()
-                            if EntityRef("face", source) in items))
-    assert error.builder_groups == expected and expected
+    # The crossing plate splits the sliver; a sliver piece refuses under its own working id.
+    assert error.source_face_ids == (sliver,)
+    assert error.quad_first_face != sliver and error.quad_first_face not in project.geometry.faces
+    assert error.builder_groups == ("all plates", "sliver plate")
     assert str(error).count("[quad-first face ") == 1
-    assert f"; source face {source}; groups: {'; '.join(expected)}]" in str(error)
+    assert str(error).endswith(f"; source face {sliver}; groups: all plates; sliver plate]")
 
 
 def test_a_cache_hit_refusal_is_named(monkeypatch):
@@ -102,16 +101,14 @@ def test_a_cache_hit_refusal_is_named(monkeypatch):
 def test_strict_automatic_refusal_is_named_through_the_lineage():
     from anymesher import MeshAutomationOptions
 
-    project, _sliver = _project_with_sliver(crossed=True)
+    project, sliver = _project_with_sliver(crossed=True)
     with pytest.raises(MeshError) as caught:
         project.generate_mesh(.5, strategy="quad_first", automation=MeshAutomationOptions(strict_method=True))
     error = caught.value
-    (source,) = error.source_face_ids
-    assert error.quad_first_face != source
-    expected = tuple(sorted(name for name, items in project.geometry.groups.items()
-                            if EntityRef("face", source) in items))
-    assert expected and error.builder_groups == expected
+    assert error.source_face_ids == (sliver,) and error.quad_first_face != sliver
+    assert error.builder_groups == ("all plates", "sliver plate")
     assert str(error).count("[quad-first face ") == 1
+    assert str(error).endswith(f"; source face {sliver}; groups: all plates; sliver plate]")
 
 
 def test_native_meshing_session_refusal_names_source_face_and_groups():
@@ -197,3 +194,53 @@ def test_a_typed_cancellation_signal_is_passed_on_unwrapped():
     call_naming_source_faces(lambda *, cancellation_check: seen.append(cancellation_check), {}, None, None,
                              cancellation_check=signal)
     assert seen == [signal] and seen[0] is signal
+
+
+@pytest.mark.parametrize("explicit", (True, False))
+def test_a_refusal_raised_from_a_callback_exception_is_left_alone(explicit):
+    from anyfem.mesh_refusal_names import call_naming_source_faces
+
+    def check(stage):
+        raise RuntimeError("caller stop")
+
+    def action(*, cancellation_check):
+        try:
+            cancellation_check("stage")
+        except RuntimeError as stop:
+            wrapper = MeshError("stage refused")
+            wrapper.quad_first_face, wrapper.quad_first_location = 9, None
+            if explicit:
+                raise wrapper from stop
+            raise wrapper
+
+    with pytest.raises(MeshError) as caught:
+        call_naming_source_faces(action, {"face:2": ("face:9",)}, None, None, cancellation_check=check)
+    assert str(caught.value) == "stage refused"
+    assert not hasattr(caught.value, "source_face_ids") and not hasattr(caught.value, "builder_groups")
+
+
+def test_a_commit_between_the_revision_check_and_the_group_read_reports_unavailable(monkeypatch):
+    import anyfem.mesh_refusal_names as names
+
+    project, sliver = _project_with_sliver()
+    geometry = project.geometry
+    revision = geometry.revision
+
+    class Moving:
+        """The source geometry, whose revision moves on after the groups are read."""
+        reads = 0
+
+        @property
+        def revision(self):
+            return revision + (1 if Moving.reads else 0)
+
+        @property
+        def groups(self):
+            Moving.reads += 1
+            return geometry.groups
+
+    error = MeshError("refused")
+    error.quad_first_face, error.quad_first_location = 9, None
+    names.name_source_of_face_refusal(error, {f"face:{sliver}": ("face:9",)}, Moving(), revision)
+    assert error.builder_groups is None and Moving.reads == 1
+    assert str(error).endswith("groups: unavailable (geometry changed)]")
