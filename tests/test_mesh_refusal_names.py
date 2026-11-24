@@ -244,3 +244,31 @@ def test_a_commit_between_the_revision_check_and_the_group_read_reports_unavaila
     names.name_source_of_face_refusal(error, {f"face:{sliver}": ("face:9",)}, Moving(), revision)
     assert error.builder_groups is None and Moving.reads == 1
     assert str(error).endswith("groups: unavailable (geometry changed)]")
+
+
+def test_an_equal_but_distinct_refusal_is_still_named():
+    """The callback-ownership walk matches by identity: an equal genuine refusal is still rendered."""
+    from anyfem.mesh_refusal_names import call_naming_source_faces
+
+    class EqualRefusal(MeshError):
+        def __eq__(self, other):
+            return True
+
+        __hash__ = MeshError.__hash__
+
+    def check(stage):
+        raise EqualRefusal("caller stop")
+
+    def action(*, cancellation_check):
+        try:
+            cancellation_check("stage")
+        except EqualRefusal:
+            pass  # handled; the stage then refuses on its own (no cause, no context)
+        refusal = EqualRefusal("T3 cell 0 (0, 1, 2): corner angle 1.00 < 15 deg")
+        refusal.quad_first_face, refusal.quad_first_location = 9, None
+        raise refusal
+
+    with pytest.raises(MeshError) as caught:
+        call_naming_source_faces(action, {"face:2": ("face:9",)}, None, None, cancellation_check=check)
+    assert caught.value.source_face_ids == (2,)
+    assert str(caught.value).endswith("[quad-first face 9; source face 2]")
