@@ -2177,9 +2177,12 @@ class Project:
         the original refusal as context and a note.
         """
 
-        if not self._automatic_fallback_applies(options):
+        import anymesher.errors
+
+        # An ANYmesher without the typed refusal cannot report it, so Automatic stays exactly as it was.
+        StructuredElementLimitExceeded = getattr(anymesher.errors, "StructuredElementLimitExceeded", None)
+        if StructuredElementLimitExceeded is None or not self._automatic_fallback_applies(options):
             return self._generate_mesh_once(target_size, **options)
-        from anymesher.errors import StructuredElementLimitExceeded
 
         started = perf_counter()
         try:
@@ -2196,11 +2199,23 @@ class Project:
                 "refusal_seconds": perf_counter() - started,
                 "seam_policy": seam_policy_of(self.native_mesh_settings),
             }
+            retry = dict(options, strategy="quad_first")
+            # Automatic admits only layout_policy='existing', so it carries no choice for quad_first: the rerun
+            # takes quad_first's own default (stored layout_policy, else adaptive), as an explicit request would.
+            retry.pop("layout_policy", None)
+            automation = options.get("automation")
+            if automation is not None and automation.max_seconds is not None:
+                # One request, one recovery budget: the rerun gets only what the refused pass left.
+                remaining = automation.max_seconds - (perf_counter() - started)
+                if remaining <= 0.0:
+                    refusal.add_note("Automatic did not fall back to quad_first: the automation time budget is spent")
+                    raise
+                retry["automation"] = replace(automation, max_seconds=remaining)
             check = options.get("cancellation_check")
             if check is not None:
                 check("automatic quad-first fallback")
             try:
-                mesh = self._generate_mesh_once(target_size, **dict(options, strategy="quad_first"))
+                mesh = self._generate_mesh_once(target_size, **retry)
             except BaseException as error:
                 error.add_note(f"Automatic fell back to quad_first after: {refusal}")
                 raise
@@ -2225,9 +2240,10 @@ class Project:
             self.element_order if settings is None else settings.element_order)
         if order != "linear":
             return False
-        from anygeometry.surfaces import Plane
+        from ..mesh_curved_update import classify_curved_support
 
-        return any(not isinstance(face.surface, Plane) for face in self.geometry.faces.values())
+        # Non-planar means a support other than Plane, ANYfem's existing curved-support classification.
+        return bool(classify_curved_support(self))
 
     def _generate_mesh_once(
         self,

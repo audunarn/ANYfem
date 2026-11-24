@@ -17,6 +17,8 @@ from anyfem.mesh_controls import StructuredMeshControls
 from anyfem.mesh_execution import MeshExecutionPolicy
 from anyfem.mesh_jobs import MeshSettings, run_mesh_job
 from anyfem.native_meshing import NativeMeshSettings
+import anymesher.errors
+from anymesher import MeshAutomationOptions
 from anymesher.errors import StructuredElementLimitExceeded
 from anymesher.quad.public_integration import QuadPublicUnsupported
 
@@ -39,8 +41,10 @@ def plate():
 
 
 def signature(mesh):
-    return (sorted((int(k), tuple(np.round(v, 12))) for k, v in mesh.nodes.items()),
-            sorted((int(k), tuple(v)) for k, v in mesh.shells.items()))
+    """Exact: node coordinates bit for bit, shell and beam connectivity."""
+    return (sorted((int(k), np.asarray(v, dtype=float).tobytes()) for k, v in mesh.nodes.items()),
+            sorted((int(k), tuple(v)) for k, v in mesh.shells.items()),
+            sorted((int(k), tuple(v)) for k, v in mesh.beams.items()))
 
 
 def counts(mesh):
@@ -51,6 +55,60 @@ def test_within_the_limit_automatic_is_unchanged():
     mesh = cylinder().generate_mesh(.25, order='linear', strategy='auto')
     assert counts(mesh) == (520, 0)  # today's legacy Automatic result
     assert 'automatic_fallback' not in mesh.hybrid_diagnostics
+
+
+def test_an_anymesher_without_the_typed_refusal_keeps_automatic(monkeypatch):
+    expected = signature(cylinder().generate_mesh(.25, order='linear', strategy='auto'))
+    monkeypatch.delattr(anymesher.errors, 'StructuredElementLimitExceeded')
+    mesh = cylinder().generate_mesh(.25, order='linear', strategy='auto')
+    assert signature(mesh) == expected and 'automatic_fallback' not in mesh.hybrid_diagnostics
+
+
+def test_the_rerun_takes_quad_first_layout_default_not_automatic_existing():
+    # Automatic only admits layout_policy='existing' (mesh jobs pass it); an explicit quad_first request defaults
+    # to 'adaptive', so the rerun must not inherit 'existing'.
+    expected = cylinder().generate_mesh(.25, order='linear', strategy='quad_first', structured_controls=LIMIT)
+    existing = cylinder().generate_mesh(.25, order='linear', strategy='quad_first', layout_policy='existing',
+                                        structured_controls=LIMIT)
+    assert signature(existing) != signature(expected)  # the two layouts differ on this model
+    mesh = cylinder().generate_mesh(.25, order='linear', strategy='auto', layout_policy='existing',
+                                    structured_controls=LIMIT)
+    assert signature(mesh) == signature(expected)
+
+
+def _scripted(project, first_pass_seconds=0.):
+    calls = []
+    real = project._generate_mesh_once
+
+    def once(target_size, **options):
+        calls.append(options)
+        if len(calls) == 1:
+            if first_pass_seconds:
+                import time
+                time.sleep(first_pass_seconds)
+            raise StructuredElementLimitExceeded(520, 400)
+        return real(target_size, **options)
+
+    project._generate_mesh_once = once
+    return calls
+
+
+def test_the_rerun_gets_only_the_remaining_automation_budget():
+    project = cylinder()
+    calls = _scripted(project)
+    project.generate_mesh(.25, order='linear', strategy='auto', automation=MeshAutomationOptions(max_seconds=600.))
+    assert calls[1]['strategy'] == 'quad_first' and 'layout_policy' not in calls[1]
+    assert 0. < calls[1]['automation'].max_seconds < 600.
+
+
+def test_a_spent_automation_budget_keeps_the_refusal():
+    project = cylinder()
+    calls = _scripted(project, first_pass_seconds=.05)
+    with pytest.raises(StructuredElementLimitExceeded) as caught:
+        project.generate_mesh(.25, order='linear', strategy='auto',
+                              automation=MeshAutomationOptions(max_seconds=.01))
+    assert len(calls) == 1
+    assert any('time budget is spent' in note for note in caught.value.__notes__)
 
 
 @pytest.mark.parametrize('strategy', ['auto', None])
@@ -84,16 +142,17 @@ def test_fallback_uses_the_stored_seam_policy_and_stored_limit():
 
 
 def test_mesh_job_falls_back_to_the_explicit_quad_first_job():
-    def job(backend):
+    # The reference is the GUI's own Quad-first job: strategy='quad_first' with its default layout (adaptive).
+    def job(strategy):
         project = cylinder()
         project.set_native_mesh_settings(NativeMeshSettings.create(
-            .25, element_order='linear', backend=backend,
+            .25, element_order='linear', backend='automatic',
             parameters={'structured_maximum_estimated_elements': 400}))
-        return run_mesh_job(project, 'm', MeshSettings.create(.25, element_order='linear',
+        return run_mesh_job(project, 'm', MeshSettings.create(.25, element_order='linear', strategy=strategy,
                                                               execution_policy=MeshExecutionPolicy.off()),
                             lambda *a: None, _cancellation_token()).mesh
 
-    mesh = job('automatic')
+    mesh = job(None)
     assert mesh.hybrid_diagnostics['automatic_fallback']['estimated'] == 520
     assert signature(mesh) == signature(job('quad_first'))
 
