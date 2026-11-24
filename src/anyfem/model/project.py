@@ -83,6 +83,19 @@ from .ownership import (
 __all__ = ["FloatingTransientResultRef", "Project", "ProjectError"]
 
 
+def _same_support(first: Any, second: Any) -> bool:
+    """Whether two surface objects are the same support (also after reload)."""
+
+    if first is None or second is None:
+        return False
+    if first is second:
+        return True
+    try:
+        return bool(first == second)
+    except (TypeError, ValueError):
+        return False
+
+
 class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
 
@@ -1607,10 +1620,13 @@ class Project:
     ) -> Any:
         """Analytic unit normal of a plate where a beam line stands on it.
 
-        Planar faces: the constant normal (cached per call).  A NURBS edge of
-        the face: the edge's own chart point.  Other surfaces: the closest
-        local coordinates of the line's midpoint.  A surface that cannot be
-        located raises :class:`ProjectError` instead of guessing a normal.
+        Planar faces: the constant normal (cached per call).  A NURBS edge
+        that bounds the face on the face's own support: the edge's chart
+        point at its middle.  Other surfaces: the closest local coordinates of
+        the line's midpoint.  A surface that cannot be located there (for
+        example a NURBS face reached by a section trim or a declared interior
+        line, where ANYgeometry has no point inversion yet) raises
+        :class:`ProjectError` instead of guessing a normal.
         """
 
         import numpy as np
@@ -1628,21 +1644,18 @@ class Project:
                 uv = (0.5, 0.5)
             else:
                 curve = geometry.edges[int(edge_id)].curve
-                pcurve = getattr(curve, "pcurve", None)
                 if (
                     face.parameterization is None
-                    and pcurve is not None
-                    and getattr(curve, "support", None) is face.surface
+                    and int(face_id) in geometry.faces_using_edge(int(edge_id))
+                    and getattr(curve, "pcurve", None) is not None
+                    and _same_support(getattr(curve, "support", None), face.surface)
                     and np.array_equal(
                         np.asarray(curve.transform, dtype=float), np.eye(4)
                     )
                 ):
-                    degree = int(pcurve.degree)
-                    start = float(pcurve.knots[degree])
-                    end = float(pcurve.knots[-degree - 1])
+                    # ``chart`` takes the normalized edge parameter.
                     uv = tuple(
-                        float(value)
-                        for value in curve.chart(np.asarray([0.5 * (start + end)]))[0]
+                        float(value) for value in curve.chart(np.asarray([0.5]))[0]
                     )
                 else:
                     midpoint = np.asarray(
@@ -1662,7 +1675,7 @@ class Project:
         if not np.all(np.isfinite(normal)):
             raise ProjectError(
                 f"automatic offset of beam line {edge_id}: plate face {face_id} "
-                "has no finite normal at the line"
+                "has no finite normal at the line; use a manual or centerline offset"
             )
         if planar and normals is not None:
             normals[face_id] = normal

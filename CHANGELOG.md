@@ -10,7 +10,9 @@
   several). A free, undeclared line, or a plate without a section, gets nothing added; declare the attachment to get
   the surface offset. The side follows the web; a web in the plate's plane takes Front (+normal) or Back (-normal);
   with `rotation_deg` the half thickness still goes along the plate normal. A plate normal that cannot be evaluated at
-  the line raises an error naming a manual or centerline offset. Manual and centerline offsets are unchanged. This changes results of every model
+  the line raises an error naming a manual or centerline offset; today that is a NURBS plate reached by a section-trim
+  curve or by a declared interior line (ANYgeometry cannot yet locate a point on a NURBS face), where such models need
+  a manual offset until ANYgeometry supports it. Manual and centerline offsets are unchanged. This changes results of every model
   with automatic offsets, including saved projects on reload and the examples; there is no switch for the old behaviour.
   Example: a T 250x8 + 100x12 on a 10 mm plate moves from 0.17413 m to 0.17913 m and a 5 m strip deflects 3.8 % less,
   now within 0.03 % of transformed-section theory.

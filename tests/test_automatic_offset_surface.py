@@ -381,10 +381,7 @@ def test_nurbs_plate_edge_uses_its_chart_normal():
         axis, local_y, local_z = project.beam_section_frame(edge)
         y, z = project.beam_section_of(edge).centroid_from_attachment()
         extra = vector - (y * local_y + z * local_z)
-        curve = model.edges[edge].curve
-        degree = curve.pcurve.degree
-        knots = curve.pcurve.knots
-        uv = curve.chart(np.asarray([0.5 * (knots[degree] + knots[-degree - 1])]))[0]
+        uv = model.edges[edge].curve.chart(np.asarray([0.5]))[0]
         normal = model.face_normal_many(patch, [uv])[0]
         normal = normal if normal @ local_z >= 0.0 else -normal
         np.testing.assert_allclose(extra, 0.005 * normal, rtol=0.0, atol=1e-15)
@@ -435,3 +432,93 @@ def test_half_thickness_uses_the_plate_normal_not_the_chord_normal():
     normal = normal if normal @ local_z >= 0.0 else -normal
     assert abs(float(normal @ axis)) > 1e-3  # the case is really off-chord
     np.testing.assert_allclose(extra, 0.005 * normal, rtol=0.0, atol=1e-15)
+
+
+def _nurbs_patch(knots=(0.0, 0.0, 1.0, 1.0)):
+    from anygeometry import GeometryModel
+    from anygeometry.nurbs import CurveOnSurface, NurbsCurve, NurbsSurface
+
+    model = GeometryModel()
+    support = NurbsSurface(1, 1, (0., 0., 1., 1.), (0., 0., 1., 1.),
+                           (((0., 0., 0.), (0., 1., 0.)), ((1., 0., 0.), (1., 1., .4))))
+    corners = ((0., 0.), (1., 0.), (1., 1.), (0., 1.))
+    curves = tuple(CurveOnSurface(support, NurbsCurve(1, knots, (corners[i], corners[(i + 1) % 4])))
+                   for i in range(4))
+    vertices = tuple(model.add_point(*curve.exact_point(0)) for curve in curves)
+    edges = tuple(model.add_curve(vertices[i], vertices[(i + 1) % 4], curve)
+                  for i, curve in enumerate(curves))
+    return model, model.add_face(edges, surface=support), edges, support
+
+
+def _nurbs_project(model, patch):
+    project = Project(name="nurbs", geometry=model)
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    project.assign_plate(patch, "t10")
+    project.add_beam_section(_flatbar())
+    return project
+
+
+def _extra(project, edge):
+    _axis, local_y, local_z = project.beam_section_frame(edge)
+    y, z = project.beam_section_of(edge).centroid_from_attachment()
+    return np.asarray(project.beam_offset_vector(edge)) - (y * local_y + z * local_z), local_z
+
+
+@pytest.mark.parametrize("knots", [(0.0, 0.0, 1.0, 1.0), (2.0, 2.0, 4.0, 4.0), (0.0, 0.0, 0.5, 0.5)])
+def test_nurbs_edge_normal_is_at_the_middle_of_its_active_domain(knots):
+    model, patch, edges, _support = _nurbs_patch(knots)
+    project = _nurbs_project(model, patch)
+    for edge in edges:
+        project.assign_beam(edge, "fb")
+        extra, local_z = _extra(project, edge)
+        uv = model.edges[edge].curve.chart(np.asarray([0.5]))[0]
+        normal = model.face_normal_many(patch, [uv])[0]
+        normal = normal if normal @ local_z >= 0.0 else -normal
+        np.testing.assert_allclose(extra, 0.005 * normal, rtol=0.0, atol=1e-15)
+
+
+def test_nurbs_offsets_survive_save_and_reload():
+    import anygeometry
+
+    model, patch, edges, _support = _nurbs_patch()
+    project = _nurbs_project(model, patch)
+    for edge in edges:
+        project.assign_beam(edge, "fb")
+    before = project.beam_offsets
+    reloaded = anygeometry.from_dict(anygeometry.to_dict(model))
+    again = _nurbs_project(reloaded, patch)
+    for edge in edges:
+        again.assign_beam(edge, "fb")
+    after = again.beam_offsets
+    assert set(after) == set(before)
+    for edge in edges:
+        np.testing.assert_array_equal(np.asarray(after[edge]), np.asarray(before[edge]))
+
+
+def test_declared_interior_line_on_a_nurbs_plate_refuses():
+    from anygeometry.nurbs import CurveOnSurface, NurbsCurve
+    from anygeometry.structural import (
+        AttachmentEvidence, AttachmentKind, ConnectionIntent, ParameterRange,
+    )
+    from anyfem.model.project import ProjectError
+
+    model, patch, _edges, support = _nurbs_patch()
+    project = _nurbs_project(model, patch)
+    inner = CurveOnSurface(support, NurbsCurve(1, (0., 0., 1., 1.), ((0.2, 0.5), (0.8, 0.5))))
+    a = model.add_point(*inner.exact_point(0))
+    b = model.add_point(*inner.exact_point(1))
+    line = model.add_curve(a, b, inner)
+    assert patch not in model.faces_using_edge(line)
+    member = model.add_member((line,))
+    model.add_attachment(
+        member, AttachmentKind.MEMBER_ON_FACE, "face", patch,
+        ParameterRange(0.0, 1.0), (ParameterRange(0.2, 0.8), ParameterRange(0.5, 0.5)),
+        evidence=AttachmentEvidence.EXACT, connection_intent=ConnectionIntent.CONNECT,
+    )
+    project.add_beam_section(_flatbar(name="inner", web_direction=(0.0, 0.0, 1.0)))
+    project.assign_beam(line, "inner")
+    with pytest.raises(ProjectError, match="manual or centerline"):
+        project.beam_offset_vector(line)
+    with pytest.raises(ProjectError, match="manual or centerline"):
+        project.beam_offsets
