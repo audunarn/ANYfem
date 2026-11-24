@@ -1757,6 +1757,26 @@ class Project:
             vector = float(section.eccentricity) * local_z
         return tuple(float(value) for value in np.asarray(vector, dtype=float))
 
+    def has_plate_surface_offsets(self) -> bool:
+        """True when an automatic beam offset adds half a plate thickness.
+
+        Meshes generated before the foot-on-surface rule
+        (``MeshRecord.beam_offset_rule`` 1) are stale in such models.  A plate
+        whose normal cannot be evaluated counts as affected (fail closed).
+        """
+
+        normals: Dict[int, Any] = {}
+        for edge_id, name in self.edge_sections.items():
+            section = self.beam_sections.get(name)
+            if section is None or section.offset_mode != "automatic":
+                continue
+            try:
+                if self._beam_plate(int(edge_id), normals) is not None:
+                    return True
+            except ProjectError:
+                return True
+        return False
+
     @property
     def beam_offsets(self) -> Dict[int, float | tuple[float, float, float]]:
         """Non-zero neutral-axis offsets for assigned beam lines.

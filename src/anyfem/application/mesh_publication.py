@@ -36,6 +36,14 @@ def changed_mesh_sources(project, record):
                  if prior.get(key) != current.get(key))
 
 
+def outdated_offset_rule(project, record):
+    """True when a generated mesh predates the current automatic beam-offset rule
+    and the model has beams that the rule moves."""
+    from ..model.records import BEAM_OFFSET_RULE
+    return (record.kind != "imported" and int(getattr(record, "beam_offset_rule", BEAM_OFFSET_RULE)) < BEAM_OFFSET_RULE
+            and project.has_plate_surface_offsets())
+
+
 def verify_published_content(record, mesh):
     if record is None or "mesh_sources" not in record.summary:
         return
@@ -120,7 +128,8 @@ def check_ticket(workflow, ticket):
 def unchanged_record(workflow, ticket, settings, baseline):
     from ..regional_dispatch import plan_regional_update
     parent = workflow.project.mesh_records.get(ticket.parent_id)
-    if (parent and (parent.source_model_hash == ticket.model_hash or
+    if (parent and not outdated_offset_rule(workflow.project, parent)
+            and (parent.source_model_hash == ticket.model_hash or
                     ("mesh_sources" in parent.summary and not changed_mesh_sources(workflow.project, parent)))
             and parent.summary.get("regional_settings_hash") == settings.input_hash
             and plan_regional_update(workflow.project, settings, baseline).is_noop):

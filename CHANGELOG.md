@@ -17,6 +17,10 @@
   Example: a T 250x8 + 100x12 on a 10 mm plate moves from 0.17413 m to 0.17913 m and a 5 m strip deflects 3.8 % less,
   now within 0.03 % of transformed-section theory. The 5 m barge example's computed end couple falls 0.18 %
   (41.457 to 41.382 MN m); the barge fatigue example keeps its retained 41.457 MN m couple, so its loads are unchanged.
+  A mesh carries the offsets it was generated with: new mesh records store `beam_offset_rule` 2, and a generated
+  mesh saved before this change (no tag) opens as stale in a model where an automatic offset now adds half a plate
+  thickness, so it must be regenerated before solving; its saved results stay viewable. Other models keep their
+  saved meshes current. The bundled barge fatigue example's saved mesh is such a mesh.
 
 - A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the
   source face(s) through the preparation lineage and their builder groups, for example

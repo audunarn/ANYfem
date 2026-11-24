@@ -523,3 +523,72 @@ def test_declared_interior_line_on_a_nurbs_plate_refuses(web_direction):
         project.beam_offset_vector(line)
     with pytest.raises(ProjectError, match="manual or centerline"):
         project.beam_offsets
+
+
+def _mesh_state(project, record):
+    from types import SimpleNamespace
+
+    from anyfem.application.workflow import WorkbenchWorkflow
+    from anyfem.document import DocumentSession
+
+    app = SimpleNamespace(project=project, session=DocumentSession(project))
+    return WorkbenchWorkflow.mesh_record_state(app, record)
+
+
+def _saved_records(project, kind="generated"):
+    """A mesh record as written now, and as read from a file saved before the rule tag."""
+
+    from anyfem.document import DocumentSession
+    from anyfem.model.records import MeshRecord
+
+    current = MeshRecord(name="Mesh", kind=kind, mesh_input_hash="", mesh_hash="m",
+                         source_model_hash=DocumentSession(project).revision.model_hash)
+    saved = current.to_dict()
+    assert saved["beam_offset_rule"] == 2
+    assert MeshRecord.from_dict(saved).beam_offset_rule == 2
+    legacy = MeshRecord.from_dict({k: v for k, v in saved.items() if k != "beam_offset_rule"})
+    assert legacy.beam_offset_rule == 1
+    return current, legacy
+
+
+def test_mesh_saved_under_the_mid_surface_rule_is_stale_on_reopen():
+    # A mesh carries the offsets it was generated with and the model hash does not
+    # change with the rule, so a pre-rule mesh must not be accepted as current.
+    project, _edge = _strip(_tbar())
+    current, legacy = _saved_records(project)
+    assert _mesh_state(project, current) == "completed"
+    assert _mesh_state(project, legacy) == "stale"
+
+
+@pytest.mark.parametrize("case", ["manual", "centerline", "no plate section", "imported"])
+def test_pre_rule_mesh_stays_current_where_the_rule_moves_nothing(case):
+    if case == "no plate section":
+        project, _edge = _strip(_tbar(), plate_section=False)
+    elif case == "imported":
+        project, _edge = _strip(_tbar())
+    else:
+        project, _edge = _strip(_tbar(offset_mode=case, eccentricity=0.123))
+    _current, legacy = _saved_records(project, kind="imported" if case == "imported" else "generated")
+    assert _mesh_state(project, legacy) == "completed"
+
+
+@pytest.mark.parametrize("rule", [1, 2])
+def test_pre_rule_parent_mesh_is_not_reused_for_an_unchanged_update(rule, monkeypatch):
+    from types import SimpleNamespace
+
+    import anyfem.regional_dispatch as regional
+    from anyfem.application import mesh_publication
+
+    project, _edge = _strip(_tbar())
+    current, legacy = _saved_records(project)
+    record = legacy if rule == 1 else current
+    record.summary["regional_settings_hash"] = "h"
+    project.add_mesh_record(record)
+    monkeypatch.setattr(mesh_publication, "check_ticket", lambda *args: None)
+    monkeypatch.setattr(mesh_publication, "verify_published_content", lambda *args: None)
+    monkeypatch.setattr(mesh_publication, "retained_mesh", lambda *args: None)
+    monkeypatch.setattr(regional, "plan_regional_update", lambda *args: SimpleNamespace(is_noop=True))
+    ticket = SimpleNamespace(parent_id=record.id, model_hash=record.source_model_hash)
+    reused = mesh_publication.unchanged_record(SimpleNamespace(project=project), ticket,
+                                               SimpleNamespace(input_hash="h"), None)
+    assert (reused is record) is (rule == 2)

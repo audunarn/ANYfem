@@ -1105,7 +1105,7 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self.set_status("60 m drawing barge: illustrative geometry and load; generate mesh, then solve linear static" if drawing
                         else "S355 barge in a seaway: 600 load cases over 60 s; generate mesh, then Batch linear static" if end_loading=="seaway"
                         else "S355 barge, 15 m: bulkhead openings with FB 120×10 edges; fixed X=0; My at X=15; generate mesh (250 mm), then solve" if large
-                        else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.46 MN·m at X=5; generate mesh, then solve")
+                        else "S355 barge: plates 12/10/8 mm; fixed X=0; My≈41.38 MN·m at X=5; generate mesh, then solve")
         self._schedule_autosave()
 
     def open_tripod_example(self):
