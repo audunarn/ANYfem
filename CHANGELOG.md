@@ -13,13 +13,15 @@
   the line raises an error naming a manual or centerline offset; today that is a NURBS plate reached by a section-trim
   curve or by a declared interior line (ANYgeometry cannot yet locate a point on a NURBS face), where such models need
   a manual offset until ANYgeometry supports it. Manual and centerline offsets are unchanged. This changes results of every model
-  with automatic offsets, including saved projects on reload and the examples; there is no switch for the old behaviour.
+  with automatic offsets once its mesh is generated again, including saved projects and the examples; there is no switch
+  for the old behaviour.
   Example: a T 250x8 + 100x12 on a 10 mm plate moves from 0.17413 m to 0.17913 m and a 5 m strip deflects 3.8 % less,
   now within 0.03 % of transformed-section theory. The 5 m barge example's computed end couple falls 0.18 %
   (41.456941 to 41.382418 MN m), and the barge fatigue example follows it: its reference couple and the magnitude of every
-  nonzero end load fall 0.18 % (zero steps stay zero). A regenerated fatigue example therefore has 0.18 % lower nominal stress ranges from the load
+  nonzero end load fall 0.18 % (zero steps stay zero). A fatigue project rebuilt from the example generator therefore has 0.18 % lower nominal stress ranges from the load
   (about 0.54 % less damage at S-N slope 3, 0.90 % at slope 5), on top of the offset change itself; the bundled
-  example keeps its saved loads, mesh and results (41.457 MN m, mid-surface offsets).
+  example project keeps its saved loads, mesh and results (41.457 MN m, mid-surface offsets); regenerating only its
+  mesh applies the new offsets but keeps its saved 41.457 MN m loads.
   **Regenerate saved meshes.** A mesh carries the offsets it was generated with, and its model hash does not change
   with this rule, so a mesh saved before this change is still shown as current and solves with mid-surface offsets
   until it is regenerated. This applies to every saved project with automatic-offset stiffeners on a plate,
