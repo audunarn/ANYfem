@@ -317,9 +317,6 @@ def job_source(project: Any, reference: SourceReference, store: Any, *, document
     record = _select_mesh_record(project, job, mesh_record_id)
     if record.status != "completed" or record.source_model_hash != job.model_hash:
         raise SubmodelError("SOURCE_MESH", "the source mesh record is not a completed mesh of the job's model")
-    from .application.mesh_publication import OUTDATED_OFFSET_RULE_MESSAGE, outdated_offset_rule
-    if outdated_offset_rule(project, record):
-        raise SubmodelError("SOURCE_MESH", OUTDATED_OFFSET_RULE_MESSAGE)
     mesh_artifact = _registered(project, record.artifact_id, "mesh", "source mesh")
     _verified_path(store, mesh_artifact, "mesh", "source mesh")
     try:

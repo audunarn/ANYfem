@@ -594,44 +594,76 @@ def test_pre_rule_parent_mesh_is_not_reused_for_an_unchanged_update(rule, monkey
     assert (reused is record) is (rule == 2)
 
 
-def _saved_session(tmp_path, *, strip_rule):
-    """Mesh, save and reopen a stiffened strip; optionally as a file from before the rule tag."""
+def _old_rule(monkeypatch):
+    """Generate meshes as the mid-surface rule did: no half plate thickness."""
+
+    from anyfem.model.project import Project as _Project
+
+    monkeypatch.setattr(_Project, "_stiffener_side_half_thickness",
+                        lambda self, edge_id, side, plate: np.zeros(3))
+
+
+def _saved_session(tmp_path, monkeypatch, *, old_rule):
+    """Mesh and save a stiffened strip (optionally under the old rule), then reopen it."""
 
     import json
 
     from anyfem.io.project_file import load_project
-    from anyfem.mesh_session import ProjectMeshSession
     from anyfem.mesh_jobs import MeshSettings
+    from anyfem.mesh_session import ProjectMeshSession
 
     project, _edge = _strip(_tbar(), loads=True)
-    session = ProjectMeshSession(project)
-    session.generate_mesh(MeshSettings.create(.2, element_order="linear", strategy="mapped"))
-    path = session.save(tmp_path / "strip.anyfem")
-    session.close()
-    if strip_rule:
+    with monkeypatch.context() as patch:
+        if old_rule:
+            _old_rule(patch)
+        session = ProjectMeshSession(project)
+        session.generate_mesh(MeshSettings.create(.2, element_order="linear", strategy="mapped"))
+        path = session.save(tmp_path / "strip.anyfem")
+        session.close()
+    if old_rule:
+        # As written before the rule tag existed.
         data = json.loads(path.read_text(encoding="utf-8"))
-        records = data["mesh_records"]
-        assert records and all(entry.pop("beam_offset_rule") == 2 for entry in records)
+        for entry in data["mesh_records"]:
+            entry.pop("beam_offset_rule")
         path.write_text(json.dumps(data), encoding="utf-8")
     return ProjectMeshSession(load_project(path), path)
 
 
-@pytest.mark.parametrize("strip_rule", [False, True])
-def test_headless_solve_refuses_a_mesh_saved_under_the_mid_surface_rule(tmp_path, strip_rule):
+@pytest.mark.parametrize("old_rule", [False, True])
+def test_headless_solve_refuses_a_mesh_saved_under_the_mid_surface_rule(tmp_path, monkeypatch, old_rule):
+    from anymesher.serialize import mesh_from_dict, mesh_to_dict
+
     from anyfem.model.project import ProjectError
     from anyfem.solve.build import build_fe_model
 
-    restored = _saved_session(tmp_path, strip_rule=strip_rule)
+    restored = _saved_session(tmp_path, monkeypatch, old_rule=old_rule)
     try:
         mesh = restored.mesh
-        if strip_rule:
-            with pytest.raises(ProjectError, match="regenerate the mesh"):
-                build_fe_model(restored.project, mesh)
-        else:
-            build_fe_model(restored.project, mesh)
+        # A decoded copy has no publication tag; the check reads the mesh itself.
+        decoded = mesh_from_dict(mesh_to_dict(mesh))
+        assert getattr(decoded, "_anyfem_mesh_record_id", None) is None
+        for candidate in (mesh, decoded):
+            if old_rule:
+                with pytest.raises(ProjectError, match="regenerate the mesh"):
+                    build_fe_model(restored.project, candidate)
+            else:
+                build_fe_model(restored.project, candidate)
     finally:
         restored.close()
 
+
+def test_unpublished_mesh_with_mid_surface_offsets_is_refused(monkeypatch):
+    from anyfem.model.project import ProjectError
+    from anyfem.solve.build import build_fe_model
+
+    project, _edge = _strip(_tbar(), loads=True)
+    with monkeypatch.context() as patch:
+        _old_rule(patch)
+        old = project.generate_mesh(.2)
+    current = project.generate_mesh(.2)
+    build_fe_model(project, current)
+    with pytest.raises(ProjectError, match="regenerate the mesh"):
+        build_fe_model(project, old)
 
 
 def test_a_new_record_of_a_saved_mesh_keeps_its_offset_rule():
@@ -650,18 +682,9 @@ def test_a_new_record_of_a_saved_mesh_keeps_its_offset_rule():
     assert inherited_offset_rule(project, SimpleNamespace(_anyfem_mesh_record_id="unknown")) == 1
 
 
-def test_pressure_transfer_records_inherit_the_mesh_offset_rule():
-    import inspect
-
-    from anyfem.application import hydro_wave_pressure
-
-    assert "beam_offset_rule=inherited_offset_rule(project, mesh)" in inspect.getsource(
-        hydro_wave_pressure.map_barge_regular_wave)
-
-
-def test_submodel_parent_mesh_saved_under_the_mid_surface_rule_is_refused(tmp_path, monkeypatch):
+def test_submodel_run_on_a_pre_rule_parent_mesh_reports_the_mesh_changed(tmp_path, monkeypatch):
     from anyfem.model.project import Project as _Project
-    from test_submodel_jobs import Setup, refused_without_publication
+    from test_submodel_jobs import Setup
 
     setup = Setup(tmp_path)
     run = setup.run()
@@ -672,5 +695,3 @@ def test_submodel_parent_mesh_saved_under_the_mid_surface_rule_is_refused(tmp_pa
     setup.source()
     setup.edit(lambda _p: setattr(setup.record, "beam_offset_rule", 1))
     assert "SOURCE_MESH_CHANGED" in setup.staleness(run)
-    with refused_without_publication(setup.session, setup.store, "SOURCE_MESH"):
-        setup.source()
