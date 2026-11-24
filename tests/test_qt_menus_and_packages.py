@@ -22,6 +22,7 @@ EXAMPLES = [
     "Floating barge section — seaway time history (600 load cases)…",
     "Floating barge section — 15 m with bulkhead openings…",
     "Drawing barge — 60 m structural example…",
+    "Floating tripod — 12 m columns, 16 m draft…",
 ]
 
 
