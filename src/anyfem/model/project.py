@@ -9,6 +9,8 @@ front-end would later call into.
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from collections.abc import Callable
 from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
@@ -2164,7 +2166,70 @@ class Project:
         return ((staged_trim is not None and staged_trim(geometry))
                 or (classify is not None and classify(geometry)))
 
-    def generate_mesh(
+    def generate_mesh(self, target_size: float | None = None, **options) -> Mesh:
+        """Mesh every plate, plus every line carrying a beam.
+
+        Takes the keyword options of :meth:`_generate_mesh_once` (documented there).  Automatic keeps its
+        route unchanged; only when that route refuses with the exact global-seed element-limit refusal
+        (``StructuredElementLimitExceeded``) on a linear model with a non-planar face does Automatic rerun
+        the same request as ``strategy='quad_first'`` with the model's stored seam policy.  The fallback is
+        recorded in ``mesh.hybrid_diagnostics['automatic_fallback']``; if it fails too, its error carries
+        the original refusal as context and a note.
+        """
+
+        if not self._automatic_fallback_applies(options):
+            return self._generate_mesh_once(target_size, **options)
+        from anymesher.errors import StructuredElementLimitExceeded
+
+        started = perf_counter()
+        try:
+            return self._generate_mesh_once(target_size, **options)
+        except StructuredElementLimitExceeded as refusal:
+            from ..structural_preparation import seam_policy_of
+
+            record = {
+                "requested": "auto",
+                "selected": "quad_first",
+                "reason": str(refusal),
+                "estimated": refusal.estimated,
+                "maximum": refusal.maximum,
+                "refusal_seconds": perf_counter() - started,
+                "seam_policy": seam_policy_of(self.native_mesh_settings),
+            }
+            check = options.get("cancellation_check")
+            if check is not None:
+                check("automatic quad-first fallback")
+            try:
+                mesh = self._generate_mesh_once(target_size, **dict(options, strategy="quad_first"))
+            except BaseException as error:
+                error.add_note(f"Automatic fell back to quad_first after: {refusal}")
+                raise
+        diagnostics = getattr(mesh, "hybrid_diagnostics", None)
+        if isinstance(diagnostics, dict):
+            diagnostics["automatic_fallback"] = record
+        self._last_mesh_execution["automatic_fallback"] = record
+        return mesh
+
+    def _automatic_fallback_applies(self, options) -> bool:
+        """Whether this request is Automatic, linear, on a model with a non-planar face (owner decision A)."""
+
+        settings = self.native_mesh_settings
+        strategy = options.get("strategy")
+        if strategy is None:
+            backend = None if settings is None else getattr(settings.backend, "value", settings.backend)
+            if backend not in (None, "automatic", "auto"):
+                return False
+        elif strategy != "auto":
+            return False
+        order = options.get("order") or (
+            self.element_order if settings is None else settings.element_order)
+        if order != "linear":
+            return False
+        from anygeometry.surfaces import Plane
+
+        return any(not isinstance(face.surface, Plane) for face in self.geometry.faces.values())
+
+    def _generate_mesh_once(
         self,
         target_size: float | None = None,
         *,
@@ -2190,7 +2255,7 @@ class Project:
         execution_policy: object | None = None,
         pool_lease: object | None = None,
     ) -> Mesh:
-        """Mesh every plate, plus every line carrying a beam.
+        """One meshing pass (see :meth:`generate_mesh`, which adds the Automatic fallback).
 
         ``refinements`` and ``order`` default to the project's own, so a script
         that sets them once does not have to repeat them at every call, and a
