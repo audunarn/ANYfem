@@ -672,3 +672,46 @@ def test_record_rows_with_a_real_digest_still_count(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(site))
     row = _row(lp.collect_loaded_packages({"anydigest": module}), "anydigest")
     assert (row.version, row.version_source) == ("2.0.0", "metadata (anydigest)")
+
+
+# Review round 14 regressions (failed on 087b1cc).
+
+def _canonical_digest(algorithm, data=b"", length=None):
+    import base64
+    import hashlib
+    hasher = hashlib.new(algorithm, data)
+    raw = hasher.digest(length) if length else hasher.digest()
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def test_record_hash_validation_follows_the_spec():
+    import base64
+    good = _canonical_digest("sha256")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    raw = base64.urlsafe_b64decode(good + "=")
+    twins = [good[:-1] + c for c in alphabet if c != good[-1]
+             and base64.urlsafe_b64decode(good[:-1] + c + "=") == raw]
+    assert twins  # same bytes, non-canonical encoding (unused bits set)
+    assert lp._record_hash_ok("sha256=" + good)
+    assert not lp._record_hash_ok("sha256=" + twins[0])
+    assert lp._record_hash_ok("shake_256=" + _canonical_digest("shake_256", length=64))
+    assert lp._record_hash_ok("")
+
+
+def test_a_blocked_hash_algorithm_rejects_only_its_own_row(tmp_path, monkeypatch):
+    import hashlib
+    site = tmp_path / "site"
+    module = _package(site, "anyblocked", version_attr="1.5")
+    rows = [f"other.txt,md5={_canonical_digest('md5')},0", "anyblocked/__init__.py,,"]
+    _record_dist(site, "anyblocked", "2.0.0", rows)
+    real_new = hashlib.new
+
+    def blocking(name, *args, **kwargs):
+        if name == "md5":
+            raise ValueError("unsupported hash type md5 (FIPS)")
+        return real_new(name, *args, **kwargs)
+
+    monkeypatch.setattr(hashlib, "new", blocking)
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anyblocked": module}), "anyblocked")
+    assert (row.version, row.version_source) == ("2.0.0", "metadata (anyblocked)")

@@ -33,7 +33,6 @@ from __future__ import annotations
 import email.message  # noqa: F401  importlib.metadata imports these lazily on its first read;
 import email.parser  # noqa: F401   load them with this module so collection itself imports nothing
 import base64
-import binascii
 import csv
 import hashlib
 import io
@@ -287,20 +286,27 @@ _RECORD_SIZE = re.compile(r"[0-9]*")
 
 
 def _record_hash_ok(field: str) -> bool:
-    """Empty, or ``algorithm=digest`` with a hashlib-guaranteed algorithm and an
-    unpadded urlsafe-base64 digest of exactly that algorithm's size."""
+    """Empty, or ``algorithm=digest`` as the PyPA RECORD spec writes it: an
+    algorithm from ``hashlib.algorithms_guaranteed`` and the canonical unpadded
+    urlsafe-base64 encoding of a digest of that algorithm's size (any non-empty
+    size for the variable-length SHAKE algorithms).  Anything else, including an
+    algorithm the runtime refuses, makes only this row non-evidence."""
     if not field:
         return True
     algorithm, separator, digest = field.partition("=")
-    if not separator or algorithm not in hashlib.algorithms_guaranteed or algorithm.startswith("shake_"):
+    if not separator or algorithm not in hashlib.algorithms_guaranteed:
         return False
     if not re.fullmatch(r"[A-Za-z0-9_\-]+", digest):
         return False
     try:
         raw = base64.urlsafe_b64decode(digest + "=" * (-len(digest) % 4))
-    except (ValueError, binascii.Error):
+        if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != digest:
+            return False  # non-canonical: unused bits set
+        if algorithm.startswith("shake_"):
+            return len(raw) > 0
+        return len(raw) == hashlib.new(algorithm).digest_size
+    except Exception:  # a decoding error, or a runtime that blocks the algorithm
         return False
-    return len(raw) == hashlib.new(algorithm).digest_size
 
 
 def _records_file(dist, real_file: str) -> bool:

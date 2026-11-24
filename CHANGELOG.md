@@ -20,8 +20,8 @@
   Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, or an
   editable install whose absolute file: URL is the loaded copy's own project root); symlinked/junctioned
   or case-aliased paths, egg-info and zip-backed metadata,
-  malformed RECORD rows (including invalid hashes or names with line breaks) and nested projects are
-  out of scope and shown as not owned.
+  malformed RECORD rows (including non-canonical hashes), RECORD file names containing line breaks
+  and nested projects are out of scope and shown as not owned.
 
 - Menus: File now holds Import, Export and Examples submenus; the import, export, plate-drawing and
   example actions moved there unchanged (names, shortcuts, behaviour). The top-level Examples menu is gone.
