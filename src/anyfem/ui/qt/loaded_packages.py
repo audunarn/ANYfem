@@ -23,15 +23,19 @@ install whose absolute ``file:`` URL is the loaded copy's own project root.
 All same-name distributions on ``sys.path`` are examined and disagreements
 flagged.  Out of scope, reported as not owned rather than guessed: egg-info
 and zip-backed metadata, malformed RECORD rows, aliased paths (symlinks,
-junctions, case-sensitive Windows folders), relative editable URLs, and
-projects nested in other checkouts or virtual environments.
+junctions, case-sensitive Windows folders), RECORD file names containing
+line breaks, relative editable URLs, and projects nested in other checkouts
+or virtual environments.
 Packages this session has not imported are listed as not loaded.
 """
 from __future__ import annotations
 
 import email.message  # noqa: F401  importlib.metadata imports these lazily on its first read;
 import email.parser  # noqa: F401   load them with this module so collection itself imports nothing
+import base64
+import binascii
 import csv
+import hashlib
 import io
 import json
 import os
@@ -279,8 +283,24 @@ def _editable_root(dist) -> str:
     return _file_url_path(url) if isinstance(url, str) else ""
 
 
-_RECORD_HASH = re.compile(r"(?:[A-Za-z0-9_]+=[A-Za-z0-9_\-]+)?")  # empty or algorithm=urlsafe-b64
 _RECORD_SIZE = re.compile(r"[0-9]*")
+
+
+def _record_hash_ok(field: str) -> bool:
+    """Empty, or ``algorithm=digest`` with a hashlib-guaranteed algorithm and an
+    unpadded urlsafe-base64 digest of exactly that algorithm's size."""
+    if not field:
+        return True
+    algorithm, separator, digest = field.partition("=")
+    if not separator or algorithm not in hashlib.algorithms_guaranteed or algorithm.startswith("shake_"):
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", digest):
+        return False
+    try:
+        raw = base64.urlsafe_b64decode(digest + "=" * (-len(digest) % 4))
+    except (ValueError, binascii.Error):
+        return False
+    return len(raw) == hashlib.new(algorithm).digest_size
 
 
 def _records_file(dist, real_file: str) -> bool:
@@ -309,7 +329,7 @@ def _records_file(dist, real_file: str) -> bool:
     except csv.Error:
         return False  # malformed RECORD: no evidence
     for row in rows:
-        if len(row) != 3 or not row[0] or not _RECORD_HASH.fullmatch(row[1]) or not _RECORD_SIZE.fullmatch(row[2]):
+        if len(row) != 3 or not row[0] or not _record_hash_ok(row[1]) or not _RECORD_SIZE.fullmatch(row[2]):
             continue  # path,hash,size: anything else is not a standard row
         entry = row[0]
         if "\r" in entry or "\n" in entry:
@@ -615,7 +635,7 @@ def collect_loaded_packages(modules=None, qt_runtime=None) -> PackageReport:
         rows.append(_safe_row("Third party", module_name, display, candidates, modules, git_cache, False))
     # Loaded first, then the not-loaded names, each in table order.
     rows.sort(key=lambda row: (row.group != "ANY ecosystem", not row.loaded))
-    if type(qt_runtime) is not str or not qt_runtime:  # the dialog passes the GUI thread's qVersion()
+    if type(qt_runtime) is not str or not qt_runtime:  # normally read here, on the worker thread
         qt_runtime = _qt_runtime(modules.get("PySide6.QtCore"))
     elapsed = (time.perf_counter() - start) * 1000.0
     notes = ("Commits are the checkout HEAD read from .git; uncommitted changes are not checked.",

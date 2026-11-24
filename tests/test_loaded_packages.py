@@ -648,3 +648,27 @@ def test_the_dialog_module_does_not_load_the_collector():
                             env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
     assert result.returncode == 0, result.stderr
     assert result.stdout.split()[0] == "False"
+
+
+# Review round 13 regressions (failed on 7c5fb82).
+
+@pytest.mark.parametrize("hash_field", ["sha256=x", "not_a_hash=eA", "sha256=" + "A" * 42])
+def test_record_rows_with_invalid_hashes_do_not_count(tmp_path, monkeypatch, hash_field):
+    site = tmp_path / "site"
+    module = _package(site, "anyhash", version_attr="1.5")
+    _record_dist(site, "anyhash", "2.0.0", [f"anyhash/__init__.py,{hash_field},0"])
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anyhash": module}), "anyhash")
+    assert (row.version, row.version_source) == ("1.5", "module __version__")
+
+
+def test_record_rows_with_a_real_digest_still_count(tmp_path, monkeypatch):
+    import base64
+    import hashlib
+    site = tmp_path / "site"
+    module = _package(site, "anydigest", version_attr="1.5")
+    digest = base64.urlsafe_b64encode(hashlib.sha256(b"").digest()).rstrip(b"=").decode()
+    _record_dist(site, "anydigest", "2.0.0", [f"anydigest/__init__.py,sha256={digest},0"])
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anydigest": module}), "anydigest")
+    assert (row.version, row.version_source) == ("2.0.0", "metadata (anydigest)")

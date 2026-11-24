@@ -209,3 +209,21 @@ def test_a_clipboard_failure_stays_in_the_dialog(window, qapp, monkeypatch):
     assert errors == []
     assert "Could not copy to the clipboard" in copy.toolTip()
     dialog.close(); qapp.processEvents()
+
+
+def test_a_worker_start_failure_is_reported_in_the_dialog(window, qapp, monkeypatch):
+    import threading
+
+    def refuse(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    window._actions["Loaded packages…"].trigger(); qapp.processEvents()
+    dialog = window._loaded_packages_dialog
+    import time
+    deadline = time.monotonic() + 5
+    while dialog.error is None and time.monotonic() < deadline:
+        qapp.processEvents(); time.sleep(0.01)
+    assert isinstance(dialog.error, RuntimeError)
+    assert "Could not collect" in dialog.findChild(QLabel, "LoadedPackagesSummary").text()
+    dialog.close(); qapp.processEvents()

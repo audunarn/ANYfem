@@ -159,6 +159,10 @@ def open_loaded_packages(window):
     window._loaded_packages_dialog = dialog
     dialog.show()
     dialog.shown_ms = (time.perf_counter() - opened) * 1000.0
-    threading.Thread(target=work, name="anyfem-loaded-packages", daemon=True).start()
+    try:
+        threading.Thread(target=work, name="anyfem-loaded-packages", daemon=True).start()
+    except Exception as error:  # e.g. no thread could be started: report it in this dialog
+        box["error"] = error
+        ready.set()
     poller.start()
     return dialog
