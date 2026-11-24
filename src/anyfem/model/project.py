@@ -2175,6 +2175,12 @@ class Project:
         the same request as ``strategy='quad_first'`` with the model's stored seam policy.  The fallback is
         recorded in ``mesh.hybrid_diagnostics['automatic_fallback']``; if it fails too, its error carries
         the original refusal as context and a note.
+
+        "Non-planar" is ANYfem's support-class classification (:func:`classify_curved_support`): a face whose
+        support is not a ``Plane``.  A geometrically flat face on a curved support class (for example a flat
+        ``CoonsSurface``) therefore counts as curved and falls back too (owner decision 2026-11-24).  The rerun
+        is not tried with ``MeshAutomationOptions(strict_method=True)``, and it gets only the automation time
+        budget the refused pass left.
         """
 
         import anymesher.errors

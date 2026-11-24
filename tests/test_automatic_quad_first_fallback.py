@@ -220,3 +220,15 @@ def test_the_budget_is_measured_after_the_cancellation_callback():
                               automation=MeshAutomationOptions(max_seconds=.05),
                               cancellation_check=lambda stage: time.sleep(.1))
     assert len(calls) == 1
+
+
+def test_a_flat_face_on_a_curved_support_class_falls_back_too():
+    # Owner decision 2026-11-24 ("A: class-based"): non-planar means a support other than Plane.
+    from anygeometry.surfaces import CoonsSurface
+    project = plate()
+    face = next(iter(project.geometry.faces.values()))
+    if hasattr(face, 'surface'):
+        object.__setattr__(face, 'surface', CoonsSurface())
+    mesh = project.generate_mesh(.9, order='linear', strategy='auto',
+                                 structured_controls=StructuredMeshControls(maximum_estimated_elements=40))
+    assert mesh.hybrid_diagnostics['automatic_fallback']['estimated'] == 42
