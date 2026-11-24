@@ -29,7 +29,7 @@ import time
 import tomllib
 from dataclasses import dataclass, field
 from importlib import metadata
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import unquote, urlparse
 
 import encodings.cp437  # noqa: F401  zipfile decodes legacy names with it when sys.path holds a zip
@@ -260,7 +260,28 @@ def _editable_root(dist) -> str:
     return _file_url_path(url) if isinstance(url, str) else ""
 
 
-def _owned_metadata(module_name: str, real_location: str, candidates):
+def _records_file(dist, real_file: str) -> bool:
+    """True if the distribution's recorded file list (RECORD and the like)
+    contains the loaded module file, relative to the distribution's base."""
+    if not real_file:
+        return False
+    base = dist.locate_file("")
+    if not isinstance(base, PurePath):  # e.g. zip-backed metadata: not compared
+        return False
+    base = _real(base)
+    if not _is_inside(real_file, base):
+        return False
+    relative = os.path.normcase(Path(os.path.relpath(real_file, base)).as_posix())
+    record = dist.read_text("RECORD")
+    if record:  # one normalised text search instead of building thousands of PackagePath objects
+        text = "\n" + os.path.normcase(record).replace("\r", "")
+        return any(f"\n{prefix}{relative}{suffix}," in text for prefix, suffix in (("", ""), ('"', '"')))
+    # No RECORD (egg-info): its SOURCES.txt is relative to the project root, not
+    # to this base, and Distribution.files would stat every entry.  Not proof.
+    return False
+
+
+def _owned_metadata(module_name: str, real_location: str, candidates, real_file: str = ""):
     """Owned installed metadata for the loaded copy.
 
     Returns (owned, notes): ``owned`` lists (distribution name, version) for
@@ -268,7 +289,7 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
     whose PEP 610 editable project contains it, in candidate order.  Candidates
     describing another copy, or whose metadata cannot be read, become notes.
     """
-    owned, notes = [], []
+    owned, notes, project = [], [], {}
     for candidate in candidates:
         try:
             dist = _filesystem_distribution(candidate)
@@ -281,18 +302,19 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
             fields = dist.metadata  # parsed once; ``dist.version`` would parse it again
             version = str((fields.get("Version") if fields is not None else None) or "").strip()
             name = str((fields.get("Name") if fields is not None else None) or candidate)
-            match = False
-            for relative in (module_name, module_name + ".py"):
-                if _norm(_real(dist.locate_file(relative))) == _norm(real_location):
-                    match = True
-                    break
+            # Owned only if its recorded files list the loaded module file (a
+            # path constructed by locate_file() alone proves nothing), or it is
+            # the editable install of the loaded copy's own project.
+            match = _records_file(dist, real_file)
             if not match:
                 root = _editable_root(dist)
                 # The editable project must be the loaded copy's own project, not
                 # merely an ancestor of a separate nested checkout.  A UNC root is
                 # compared as written (resolving it would contact the server).
                 root = root if root.startswith("//") else _real(root) if root else ""
-                own = _project_root(real_location)
+                if root and "own" not in project:  # walk up once per row, only when needed
+                    project["own"] = _project_root(real_location)
+                own = project.get("own", "")
                 match = bool(root) and bool(own) and _norm(own) == _norm(root)
         except Exception as error:
             notes.append(f"metadata for {candidate} could not be read ({type(error).__name__})")
@@ -303,7 +325,7 @@ def _owned_metadata(module_name: str, real_location: str, candidates):
             notes.append(f"installed metadata {name} owns the loaded copy but has no version")
         else:
             notes.append(f"installed metadata {name} {version or '(no version)'} "
-                         f"describes another copy, not the loaded one")
+                         f"is not shown to own the loaded copy")
     return owned, notes
 
 
@@ -451,10 +473,19 @@ def _row(group, module_name, display, candidates, modules, git_cache, with_commi
     if module is None:
         return PackageRow(group, display, module_name, False)
     notes = []
+    namespace = _guarded(notes, "module namespace", _namespace, module, default={})
+    file = dict.get(namespace, "__file__")
+    if type(file) is not str or not file:
+        spread = _inert_paths(dict.get(namespace, "__path__"))
+        if len({_norm(entry) for entry in spread}) > 1:
+            return PackageRow(group, display, module_name, True, UNKNOWN,
+                              "namespace package spanning several locations", "; ".join(spread), "", "",
+                              (f"{len(spread)} locations; no single version or commit applies",))
     location = _guarded(notes, "module location", _module_location, module, default="")
     real = _real(location) if location else ""
+    real_file = _real(file) if type(file) is str and file else ""
     owned, metadata_notes = (_guarded(notes, "installed metadata", _owned_metadata, module_name, real,
-                                      candidates, default=([], [])) if real else ([], []))
+                                      candidates, real_file, default=([], [])) if real else ([], []))
     try:  # the module's own namespace only: a lazy module __getattr__ could import
         attribute = dict.get(_namespace(module), "__version__")
     except Exception:

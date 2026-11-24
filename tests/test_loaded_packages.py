@@ -106,7 +106,7 @@ def test_stale_egg_info_metadata_is_flagged_not_trusted(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(project / "src"))
     row = _row(lp.collect_loaded_packages({"anyfakeegg": module}), "anyfakeegg")
     assert row.version == "1.0.1" and row.version_source.startswith("pyproject.toml")
-    assert any("metadata (anyfakeegg) says 1.0.0" in note for note in row.notes)
+    assert any("anyfakeegg 1.0.0 is not shown to own the loaded copy" in note for note in row.notes)
 
 
 def _editable_dist(site: Path, name: str, version: str, url: Path):
@@ -132,7 +132,7 @@ def test_editable_metadata_counts_only_for_its_own_project(tmp_path, monkeypatch
     assert (row.version, row.version_source) == ("2.0.0", "metadata (anyowned)")
     row = _row(report, "anyelsewhere")
     assert row.version == lp.UNKNOWN
-    assert any("describes another copy" in note for note in row.notes)
+    assert any("is not shown to own the loaded copy" in note for note in row.notes)
 
 
 def test_module_version_is_the_fallback_and_site_packages_any_modules_are_not_ecosystem(tmp_path):
@@ -176,7 +176,7 @@ def test_unc_editable_url_does_not_claim_the_same_path_on_the_local_drive(tmp_pa
     module = _package(local / "src", "anyunc", version_attr="4.0.0")
     row = _row(lp.collect_loaded_packages({"anyunc": module}), "anyunc")
     assert (row.version, row.version_source) == ("4.0.0", "module __version__")
-    assert any("describes another copy" in note for note in row.notes)
+    assert any("is not shown to own the loaded copy" in note for note in row.notes)
     assert lp._file_url_path("file://server/share/project") == "//server/share/project"
     assert lp._file_url_path("file:///C:/Github/ANYgeometry") == "C:/Github/ANYgeometry"
 
@@ -293,7 +293,7 @@ def test_editable_project_does_not_own_a_nested_separate_checkout(tmp_path, monk
     module = _package(second / "src", "anynested", version_attr="1.0.0")
     row = _row(lp.collect_loaded_packages({"anynested": module}), "anynested")
     assert (row.version, row.version_source) == ("1.0.0", "module __version__")
-    assert any("describes another copy" in note for note in row.notes)
+    assert any("is not shown to own the loaded copy" in note for note in row.notes)
 
 
 # Review round 3 regressions (each failed on 7e3aec9).
@@ -481,3 +481,43 @@ def test_non_string_module_keys_do_not_abort_the_report():
     import numpy
     report = lp.collect_loaded_packages({1: types.ModuleType("x"), "numpy": numpy})
     assert _row(report, "numpy").version_source == "metadata (numpy)"
+
+
+# Final review (GPT 6.2 Sol) regressions (failed on 045ddcc).
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_metadata_counts_only_when_its_record_lists_the_loaded_file(tmp_path, monkeypatch, recorded):
+    site = tmp_path / "site"
+    module = _package(site, "anyrec", version_attr="1.5")
+    info = site / "anyrec-2.0.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: anyrec\nVersion: 2.0.0\n", encoding="utf-8")
+    lines = ["anyrec-2.0.0.dist-info/METADATA,,"] + (["anyrec/__init__.py,,"] if recorded else [])
+    (info / "RECORD").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anyrec": module}), "anyrec")
+    if recorded:
+        assert (row.version, row.version_source) == ("2.0.0", "metadata (anyrec)")
+    else:
+        assert (row.version, row.version_source) == ("1.5", "module __version__")
+        assert any("anyrec 2.0.0 is not shown to own the loaded copy" in note for note in row.notes)
+
+
+def test_namespace_package_spanning_checkouts_has_no_single_provenance(tmp_path, monkeypatch):
+    import importlib
+    first, second = tmp_path / "one", tmp_path / "two"
+    for root in (first, second):
+        _git(root)
+        (root / "anyspread").mkdir()
+        monkeypatch.syspath_prepend(str(root))
+    importlib.invalidate_caches()
+    package = importlib.import_module("anyspread")
+    try:
+        assert len(list(package.__path__)) == 2
+        row = _row(lp.collect_loaded_packages({"anyspread": package}), "anyspread")
+    finally:
+        sys.modules.pop("anyspread", None)
+    assert (row.version, row.commit) == (lp.UNKNOWN, "")
+    assert row.version_source == "namespace package spanning several locations"
+    assert str(first / "anyspread") in row.import_path and str(second / "anyspread") in row.import_path
+

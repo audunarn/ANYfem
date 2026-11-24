@@ -13,7 +13,7 @@
 
 - Help → Loaded packages… lists the ANY* and key third-party packages loaded in the session with
   version, version source, the import path actually used (and its resolved target through
-  `.ecosystem` junctions) and the checkout HEAD commit. Version: a source checkout's static
+  `.ecosystem` junctions) and, for ANY* packages, the checkout HEAD commit. Version: a source checkout's static
   `pyproject.toml` version, else installed metadata that owns the loaded copy, else the module's
   `__version__`, else "unknown"; disagreeing sources are flagged (⚠). Collected on a worker thread
   when the dialog opens (GUI thread ~5-8 ms); nothing is imported. Copy to clipboard included.
