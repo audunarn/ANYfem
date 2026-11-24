@@ -24,6 +24,7 @@ from .native_meshing import (
     NativeMeshSettings,
     NativeMeshingRuntime,
 )
+from .mesh_refusal_names import name_source_of_face_refusal as _name_source_of_face_refusal
 from .structural_preparation import (
     prepare_structural_connectivity,
     seam_policy_of,
@@ -567,10 +568,12 @@ class NativeProjectMeshingSession:
         def generate_checked(action, *args, **kwargs):
             try:
                 return action(*args, **kwargs)
-            except Exception:
+            except Exception as error:
                 # Geometry's passive signal returns typed non-success. Keep
                 # the application's established cancellation classification.
                 request.cancellation.raise_if_cancelled('hybrid component cancellation')
+                _name_source_of_face_refusal(error, preparation.source_to_working,
+                                             getattr(snapshot, "source_geometry", None))
                 raise
 
         if recovery_selection is None:
