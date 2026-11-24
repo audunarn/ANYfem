@@ -1,6 +1,6 @@
 # Plate drawings
 
-Open **Examples → Support B — plate drawings…** to load an editable copy of the 11-plate assembly. It opens the **Drawings** workspace beside **Submodelling**, with four assemblies and a nominal steel density of 7,850 kg/m³. The expected net mass is 199.28 kg per assembly. Choose **Drawings** directly to work on the current model.
+Open **File → Examples → Support B — plate drawings…** to load an editable copy of the 11-plate assembly. It opens the **Drawings** workspace beside **Submodelling**, with four assemblies and a nominal steel density of 7,850 kg/m³. The expected net mass is 199.28 kg per assembly. Choose **Drawings** directly to work on the current model.
 
 | Source | How to use it |
 |---|---|
@@ -14,7 +14,7 @@ DXF coordinates are true-size millimetres. A3 PDFs fit the view to the sheet. **
 
 ## Headless plate index and profiles
 
-The existing **File → Create plate drawings…** command and CLI export individual planar profiles and the stock takeoff. Each named Sheet supplies one physical plate mark. Use **Join Sheet** for faces that belong to one physical plate. Distinct fabricated plates retain separate Sheets even when they share a gauge and plane.
+The existing **File → Export → Create plate drawings…** command and CLI export individual planar profiles and the stock takeoff. Each named Sheet supplies one physical plate mark. Use **Join Sheet** for faces that belong to one physical plate. Distinct fabricated plates retain separate Sheets even when they share a gauge and plane.
 
 Install the optional drawing dependencies with `pip install "ANYfem[drawings]"`. The command line exports the same package from a saved project.
 
@@ -41,6 +41,6 @@ For Python callers, `assembly_views` defaults to global coordinates for compatib
 
 ## SAT geometry
 
-Choose **File → Import SAT geometry…** to create an editable project from an indexed ACIS SAT file. Surface pieces become individually selectable, unassigned Sheets. Join connected pieces belonging to one physical plate before assigning its material and section and generating a plate index or weight takeoff. Source coordinates convert to metres using the SAT units header. The saved project retains source identity, precision and topology maps.
+Choose **File → Import → Import SAT geometry…** to create an editable project from an indexed ACIS SAT file. Surface pieces become individually selectable, unassigned Sheets. Join connected pieces belonging to one physical plate before assigning its material and section and generating a plate index or weight takeoff. Source coordinates convert to metres using the SAT units header. The saved project retains source identity, precision and topology maps.
 
 Curved SAT import uses a local FreeCAD Python installation with InventorLoader. A missing reader or CAD adapter produces an actionable message. The supported reader covers planar and cylindrical faces, straight curves, analytic ellipse intervals and supported rational spline laws. Unsupported geometry produces entity diagnostics. Cancel or close the import to retain the current document.

@@ -20,7 +20,10 @@ def isolated_settings(tmp_path, monkeypatch):
 def test_examples_menu_creates_section(window, qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Ok)
     monkeypatch.setattr(window, "_confirm_discard", lambda: True)
-    assert "Examples" in [action.text() for action in window.menuBar().actions()]
+    from PySide6.QtWidgets import QMenu
+    file = next(menu for menu in window.menuBar().findChildren(QMenu) if menu.title() == "File")
+    examples = next(menu for menu in file.findChildren(QMenu) if menu.title() == "Examples")
+    assert window._actions["Floating barge section…"] in examples.actions()
     action = window._actions["Floating barge section…"]
     assert action.toolTip()
     action.trigger(); qapp.processEvents()
