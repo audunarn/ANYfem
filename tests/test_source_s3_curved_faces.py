@@ -35,8 +35,9 @@ def _facet(mesh, nodes):
 
 
 def _accepted_by_solver(corners, normal, tolerance=1.e-10):
-    """Independent copy of the S3 V2D facet-normal acceptance test."""
+    """Independent copy of the S3 V2D facet-normal acceptance test (on the normalised vector)."""
 
+    normal = np.asarray(normal, dtype=float) / float(np.linalg.norm(normal))
     e12, e13, e23 = corners[1] - corners[0], corners[2] - corners[0], corners[2] - corners[1]
     scale = max(e12 @ e12, e13 @ e13, e23 @ e23, np.finfo(float).tiny)
     return max(abs(e12 @ normal), abs(e13 @ normal)) <= tolerance * np.sqrt(scale)
@@ -57,7 +58,8 @@ def test_curved_nurbs_triangle_panel_solves_under_the_default_policy():
         director = built.fe_model.mesh.elements[eid].physical_reference_director
         corners = [np.asarray(mesh.nodes[n], dtype=float) for n in nodes]
         if _accepted_by_solver(corners, source):
-            np.testing.assert_array_equal(director, source)
+            # The element stores the normalised source normal.
+            np.testing.assert_array_equal(director, source / float(np.linalg.norm(source)))
         else:
             switched += 1
             facet = _facet(mesh, nodes)
