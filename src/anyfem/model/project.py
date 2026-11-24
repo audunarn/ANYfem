@@ -1681,19 +1681,14 @@ class Project:
             normals[face_id] = normal
         return normal
 
-    def _beam_plate_half_thickness(
-        self,
-        edge_id: int,
-        side: Any,
-        normals: Dict[int, Any] | None = None,
-    ) -> Any | None:
-        """Half the plate's thickness along its normal, stiffener side.
+    def _beam_plate(
+        self, edge_id: int, normals: Dict[int, Any] | None = None
+    ) -> tuple[float, Any] | None:
+        """``(half thickness, unit normal at the line)`` of the named plate.
 
         ``None`` when no plate is named (see :meth:`_beam_plate_face`) or the
-        plate has no section yet.  The plate normal at the line is used as is
-        (not projected on the beam chord).  The side follows the unrotated web
-        direction; a web in the plate's plane takes Front (+normal) or Back
-        (-normal).
+        plate has no section yet.  Evaluated before the section frame, so an
+        unlocatable plate refuses with :class:`ProjectError` first.
         """
 
         face_id = self._beam_plate_face(int(edge_id))
@@ -1703,13 +1698,26 @@ class Project:
         if name is None or name not in self.plate_sections:
             return None
         normal = self._plate_normal_at_line(face_id, int(edge_id), normals)
+        return 0.5 * float(self.plate_sections[name].thickness), normal
+
+    def _stiffener_side_half_thickness(
+        self, edge_id: int, side: Any, plate: tuple[float, Any]
+    ) -> Any:
+        """Half thickness along the plate normal on the stiffener side.
+
+        The plate normal is used as is (not projected on the beam chord).  The
+        side follows the unrotated web direction; a web in the plate's plane
+        takes Front (+normal) or Back (-normal).
+        """
+
+        half, normal = plate
         facing = float(normal @ side)
         if abs(facing) > 1.0e-9:
             if facing < 0.0:
                 normal = -normal
         elif self.beam_section_of(int(edge_id)).attachment_side == "back":
             normal = -normal
-        return 0.5 * float(self.plate_sections[name].thickness) * normal
+        return half * normal
 
     def beam_offset_vector(self, edge_id: int) -> tuple[float, float, float]:
         """Neutral-axis offset from the line attached to the plate.
@@ -1734,14 +1742,16 @@ class Project:
         if section.offset_mode == "centerline":
             return (0.0, 0.0, 0.0)
         if section.offset_mode == "automatic":
+            plate = self._beam_plate(int(edge_id), normals)
             _axis, local_y, local_z, side, _faces = self._beam_section_frame_parts(
                 int(edge_id)
             )
             y, z = section.centroid_from_attachment()
             vector = y * local_y + z * local_z
-            half = self._beam_plate_half_thickness(int(edge_id), side, normals)
-            if half is not None:
-                vector = vector + half
+            if plate is not None:
+                vector = vector + self._stiffener_side_half_thickness(
+                    int(edge_id), side, plate
+                )
         else:
             _axis, _local_y, local_z = self.beam_section_frame(int(edge_id))
             vector = float(section.eccentricity) * local_z

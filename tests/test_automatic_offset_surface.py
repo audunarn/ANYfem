@@ -496,7 +496,8 @@ def test_nurbs_offsets_survive_save_and_reload():
         np.testing.assert_array_equal(np.asarray(after[edge]), np.asarray(before[edge]))
 
 
-def test_declared_interior_line_on_a_nurbs_plate_refuses():
+@pytest.mark.parametrize("web_direction", [(0.0, 0.0, 1.0), None])
+def test_declared_interior_line_on_a_nurbs_plate_refuses(web_direction):
     from anygeometry.nurbs import CurveOnSurface, NurbsCurve
     from anygeometry.structural import (
         AttachmentEvidence, AttachmentKind, ConnectionIntent, ParameterRange,
@@ -516,7 +517,7 @@ def test_declared_interior_line_on_a_nurbs_plate_refuses():
         ParameterRange(0.0, 1.0), (ParameterRange(0.2, 0.8), ParameterRange(0.5, 0.5)),
         evidence=AttachmentEvidence.EXACT, connection_intent=ConnectionIntent.CONNECT,
     )
-    project.add_beam_section(_flatbar(name="inner", web_direction=(0.0, 0.0, 1.0)))
+    project.add_beam_section(_flatbar(name="inner", web_direction=web_direction))
     project.assign_beam(line, "inner")
     with pytest.raises(ProjectError, match="manual or centerline"):
         project.beam_offset_vector(line)
