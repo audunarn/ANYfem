@@ -171,13 +171,20 @@ def test_declared_attachments_give_the_same_plate_as_the_surface_search():
     for edge_id in sorted(project.edge_sections):
         section = project.beam_section_of(edge_id)
         assert section.offset_mode == "automatic"
-        samples = np.asarray(project.geometry.sample_edge(edge_id, np.asarray((0.0, 1.0))))
-        searched = project._beam_attached_face_ids(edge_id, samples)
-        declared = project._beam_declared_face_ids(edge_id)
-        assert declared[:1] == searched[:1], edge_id
+        g = project.geometry
+        points = np.asarray(g.sample_edge(edge_id, np.asarray((0.0, 0.5, 1.0))))
+        tolerance = g.tolerance.effective_surface_residual(
+            float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
+        )
+        # Brute force: every face, all three points within tolerance.
+        searched = [
+            f for f in sorted(g.faces)
+            if all(g.project_to_face(f, q)[2] <= tolerance for q in points)
+        ]
+        assert project._beam_plate_face(edge_id) in searched, edge_id
+        face = project._beam_plate_face(edge_id)
         axis, local_y, local_z = project.beam_section_frame(edge_id)
         y, z = section.centroid_from_attachment()
-        face = searched[0]
         thickness = project.plate_section_of(face).thickness
         normal = np.asarray(project.geometry.face_normal(face, 0.5, 0.5), dtype=float)
         normal -= float(normal @ axis) * axis
@@ -187,3 +194,162 @@ def test_declared_attachments_give_the_same_plate_as_the_surface_search():
         expected = y * local_y + z * local_z + 0.5 * thickness * normal
         np.testing.assert_allclose(offsets[edge_id], expected, rtol=0.0, atol=1e-15)
         assert project.beam_offset_vector(edge_id) == offsets[edge_id]
+
+
+# ----------------------------------------------------------------------
+# Review round 1 (Codex, 2026-11-24): which plate, which side, which normal
+# ----------------------------------------------------------------------
+
+def _flatbar(**kwargs) -> BeamSection:
+    values = dict(name="fb", profile="Flatbar", material="S355", flange_width=0.01,
+                  flange_thickness=0.1, offset_mode="automatic")
+    values.update(kwargs)
+    return BeamSection(**values)
+
+
+def _corner_project():
+    """A free line along the corner of a 10 mm deck (face 1) and a 40 mm wall (face 2)."""
+
+    project = Project(name="corner")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    project.add_plate_section("t40", thickness=0.040, material="S355")
+    g = project.geometry
+    deck = g.add_face(g.add_polyline(g.add_points([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)]), close=True))
+    wall = g.add_face(g.add_polyline(g.add_points([(0, 0, 0), (1, 0, 0), (1, 0, -1), (0, 0, -1)]), close=True))
+    a, b = g.add_points([(0, 0, 0), (1, 0, 0)])
+    line = g.add_line(a, b)
+    assert not g.faces_using_edge(line)
+    project.assign_plate(deck, "t10")
+    project.assign_plate(wall, "t40")
+    project.add_beam_section(_flatbar(web_direction=(0.0, 0.0, 1.0)))
+    project.assign_beam(line, "fb")
+    return project, line, deck, wall
+
+
+def test_only_an_exact_connect_whole_member_declaration_names_the_plate():
+    """Owner decision 2026-11-24: such a declaration wins over the face order;
+    unverified, disconnected or partial declarations do not."""
+
+    from anygeometry.structural import (
+        AttachmentEvidence, AttachmentKind, ConnectionIntent, ParameterRange,
+    )
+
+    project, line, deck, wall = _corner_project()
+    on_deck = (0.0, 0.0, 0.05 + 0.005)
+    assert project.beam_offset_vector(line) == pytest.approx(on_deck, abs=1e-15)
+    g = project.geometry
+    member = g.add_member((line,))
+    for evidence, intent, span in (
+        (AttachmentEvidence.UNVERIFIED, ConnectionIntent.CONNECT, (0.0, 1.0)),
+        (AttachmentEvidence.EXACT, ConnectionIntent.KEEP_DISCONNECTED, (0.0, 1.0)),
+        (AttachmentEvidence.EXACT, ConnectionIntent.CONNECT, (0.0, 0.5)),
+    ):
+        g.add_attachment(
+            member, AttachmentKind.MEMBER_ON_FACE, "face", wall,
+            ParameterRange(*span), (ParameterRange(0.0, 1.0), ParameterRange(0.0, 0.0)),
+            evidence=evidence, connection_intent=intent,
+        )
+        assert project._beam_plate_face(line) == deck
+        assert project.beam_offset_vector(line) == pytest.approx(on_deck, abs=1e-15)
+    g.add_attachment(
+        member, AttachmentKind.MEMBER_ON_FACE, "face", wall,
+        ParameterRange(0.0, 1.0), (ParameterRange(0.0, 1.0), ParameterRange(0.0, 0.0)),
+        evidence=AttachmentEvidence.EXACT, connection_intent=ConnectionIntent.CONNECT,
+    )
+    assert project._beam_plate_face(line) == wall
+    # Web (0, 0, 1) lies in the wall's plane: Front takes the wall's +normal.
+    normal = np.asarray(g.face_normal(wall, 0.5, 0.5))
+    expected = np.array([0.0, 0.0, 0.05]) + 0.02 * normal
+    np.testing.assert_allclose(project.beam_offset_vector(line), expected, rtol=0.0, atol=1e-15)
+
+
+def test_line_that_only_pierces_a_plate_gets_no_half_thickness():
+    project = Project(name="pierce")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    g = project.geometry
+    face = g.add_face(g.add_polyline(g.add_points([(-2, -2, 0), (2, -2, 0), (2, 2, 0), (-2, 2, 0)]), close=True))
+    project.assign_plate(face, "t10")
+    a, b = g.add_points([(-1, 0, -1), (1, 0, 1)])
+    line = g.add_line(a, b)
+    project.add_beam_section(_flatbar(web_direction=(-1.0, 0.0, 1.0)))
+    project.assign_beam(line, "fb")
+    _axis, local_y, local_z = project.beam_section_frame(line)
+    y, z = project.beam_section_of(line).centroid_from_attachment()
+    assert project._beam_plate_face(line) is None
+    np.testing.assert_array_equal(
+        np.asarray(project.beam_offset_vector(line)), y * local_y + z * local_z
+    )
+
+
+@pytest.mark.parametrize("side, sign", [("front", 1.0), ("back", -1.0)])
+def test_web_in_the_plate_plane_takes_front_or_back(side, sign):
+    project, edge = _strip(_tbar(web_direction=(0.0, 1.0, 0.0), attachment_side=side))
+    _axis, local_y, local_z = project.beam_section_frame(edge)
+    y, z = project.beam_section_of(edge).centroid_from_attachment()
+    offset = np.asarray(project.beam_offset_vector(edge))
+    expected = y * local_y + z * local_z + np.array([0.0, 0.0, sign * T / 2.0])
+    np.testing.assert_allclose(offset, expected, rtol=0.0, atol=1e-15)
+
+
+def test_curved_shell_half_thickness_is_radial_at_the_stiffener():
+    from anyfem.commands import AddCylinder
+    from anyfem.document import DocumentSession
+
+    session = DocumentSession(Project("cylinder"))
+    session.execute(AddCylinder(1.0, 2.0, circumferential_segments=8,
+                                longitudinal_spacing=1.0, ring_spacing=2.0))
+    project = session.project
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("shell", thickness=0.010, material="S355")
+    project.assign_plates(sorted(project.geometry.faces), "shell")
+    project.add_beam_section(_flatbar())
+    g = project.geometry
+    axial = []
+    for edge in sorted(g.edges):
+        ends = np.asarray(g.sample_edge(edge, np.asarray((0.0, 1.0))))
+        if abs(ends[0][2] - ends[1][2]) > 0.5:
+            project.assign_beam(edge, "fb")
+            axial.append((edge, ends[0]))
+    assert len(axial) == 8
+    offsets = project.beam_offsets
+    for edge, start in axial:
+        _axis, local_y, local_z = project.beam_section_frame(edge)
+        y, z = project.beam_section_of(edge).centroid_from_attachment()
+        extra = np.asarray(offsets[edge]) - (y * local_y + z * local_z)
+        radial = np.array([start[0], start[1], 0.0]) / np.hypot(start[0], start[1])
+        np.testing.assert_allclose(extra, 0.005 * radial, rtol=0.0, atol=1e-12)
+
+
+def test_free_lines_do_not_project_onto_every_face(monkeypatch):
+    project = Project(name="row")
+    project.add_material(steel("S355", 0.01))
+    project.add_plate_section("t10", thickness=0.010, material="S355")
+    g = project.geometry
+    faces = []
+    for i in range(30):
+        x = 1.5 * i
+        faces.append(g.add_face(g.add_polyline(
+            g.add_points([(x, 0, 0), (x + 1, 0, 0), (x + 1, 1, 0), (x, 1, 0)]), close=True)))
+    project.assign_plates(faces, "t10")
+    project.add_beam_section(_flatbar(web_direction=(0.0, 0.0, 1.0)))
+    lines = []
+    for i in (3, 17, 29):
+        a, b = g.add_points([(1.5 * i + 0.2, 0.5, 0), (1.5 * i + 0.8, 0.5, 0)])
+        lines.append(g.add_line(a, b))
+        project.assign_beam(lines[-1], "fb")
+    calls = []
+    original = type(g).project_to_face
+
+    def counting(self, face_id, point):
+        calls.append(face_id)
+        return original(self, face_id, point)
+
+    monkeypatch.setattr(type(g), "project_to_face", counting)
+    offsets = project.beam_offsets
+    # A few candidate faces near each line, never every face.
+    assert len(calls) <= 6 * len(lines)
+    assert len(set(calls)) <= 2 * len(lines)
+    for line in lines:
+        assert offsets[line][2] == pytest.approx(0.05 + 0.005, abs=1e-15)
