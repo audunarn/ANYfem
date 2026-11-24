@@ -244,10 +244,12 @@ def map_barge_regular_wave(output_directory, *, source=None, prepared=None):
     folder = Path(output_directory); folder.mkdir(parents=True,exist_ok=True)
     path = folder/'barge-wave-pressure.anyfem'
     model_hash = DocumentSession(project).revision.model_hash
+    from .mesh_publication import inherited_offset_rule
     record = MeshRecord(name='Pressure transfer mesh',source_model_hash=model_hash,
                         mesh_input_hash='',mesh_hash=mesh_hash,
                         summary={'nodes':mesh.num_nodes,'elements':mesh.num_elements},
-                        structural_preparation=preparation)
+                        structural_preparation=preparation,
+                        beam_offset_rule=inherited_offset_rule(project, mesh))
     artifact = ArtifactStore(path).write_mesh(mesh,mesh_id=record.id,
         document_id=project.document_id,model_hash=model_hash,mesh_hash=mesh_hash,
         structural_preparation=record.structural_preparation)

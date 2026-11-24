@@ -22,7 +22,8 @@
   example keeps its saved loads and results (41.457 MN m), and its saved mesh opens as stale (below).
   A mesh carries the offsets it was generated with: new mesh records store `beam_offset_rule` 2, and a generated
   mesh saved before this change (no tag) opens as stale in a model where an automatic offset now adds half a plate
-  thickness, so it must be regenerated before solving; its saved results stay viewable. Other models keep their
+  thickness: solving or building a model from it, and using it as a submodel parent, refuse until the mesh is
+  regenerated; existing submodel runs on it report the source mesh changed; its saved results stay viewable. Other models keep their
   saved meshes current. The bundled barge fatigue example's saved mesh is such a mesh.
 
 - A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the

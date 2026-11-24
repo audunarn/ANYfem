@@ -1761,19 +1761,17 @@ class Project:
         """True when an automatic beam offset adds half a plate thickness.
 
         Meshes generated before the foot-on-surface rule
-        (``MeshRecord.beam_offset_rule`` 1) are stale in such models.  A plate
-        whose normal cannot be evaluated counts as affected (fail closed).
+        (``MeshRecord.beam_offset_rule`` 1) are stale in such models.  Only the
+        plate and its section are looked up; a plate whose normal cannot be
+        evaluated therefore also counts (fail closed).
         """
 
-        normals: Dict[int, Any] = {}
         for edge_id, name in self.edge_sections.items():
             section = self.beam_sections.get(name)
             if section is None or section.offset_mode != "automatic":
                 continue
-            try:
-                if self._beam_plate(int(edge_id), normals) is not None:
-                    return True
-            except ProjectError:
+            face_id = self._beam_plate_face(int(edge_id))
+            if face_id is not None and self.face_sections.get(face_id) in self.plate_sections:
                 return True
         return False
 

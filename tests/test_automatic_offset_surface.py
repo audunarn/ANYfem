@@ -592,3 +592,85 @@ def test_pre_rule_parent_mesh_is_not_reused_for_an_unchanged_update(rule, monkey
     reused = mesh_publication.unchanged_record(SimpleNamespace(project=project), ticket,
                                                SimpleNamespace(input_hash="h"), None)
     assert (reused is record) is (rule == 2)
+
+
+def _saved_session(tmp_path, *, strip_rule):
+    """Mesh, save and reopen a stiffened strip; optionally as a file from before the rule tag."""
+
+    import json
+
+    from anyfem.io.project_file import load_project
+    from anyfem.mesh_session import ProjectMeshSession
+    from anyfem.mesh_jobs import MeshSettings
+
+    project, _edge = _strip(_tbar(), loads=True)
+    session = ProjectMeshSession(project)
+    session.generate_mesh(MeshSettings.create(.2, element_order="linear", strategy="mapped"))
+    path = session.save(tmp_path / "strip.anyfem")
+    session.close()
+    if strip_rule:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        records = data["mesh_records"]
+        assert records and all(entry.pop("beam_offset_rule") == 2 for entry in records)
+        path.write_text(json.dumps(data), encoding="utf-8")
+    return ProjectMeshSession(load_project(path), path)
+
+
+@pytest.mark.parametrize("strip_rule", [False, True])
+def test_headless_solve_refuses_a_mesh_saved_under_the_mid_surface_rule(tmp_path, strip_rule):
+    from anyfem.model.project import ProjectError
+    from anyfem.solve.build import build_fe_model
+
+    restored = _saved_session(tmp_path, strip_rule=strip_rule)
+    try:
+        mesh = restored.mesh
+        if strip_rule:
+            with pytest.raises(ProjectError, match="regenerate the mesh"):
+                build_fe_model(restored.project, mesh)
+        else:
+            build_fe_model(restored.project, mesh)
+    finally:
+        restored.close()
+
+
+
+def test_a_new_record_of_a_saved_mesh_keeps_its_offset_rule():
+    from types import SimpleNamespace
+
+    from anyfem.application.mesh_publication import inherited_offset_rule
+
+    project, _edge = _strip(_tbar())
+    current, legacy = _saved_records(project)
+    legacy.id = "legacy"
+    for record in (current, legacy):
+        project.add_mesh_record(record)
+    assert inherited_offset_rule(project, SimpleNamespace()) == 2
+    assert inherited_offset_rule(project, SimpleNamespace(_anyfem_mesh_record_id=current.id)) == 2
+    assert inherited_offset_rule(project, SimpleNamespace(_anyfem_mesh_record_id=legacy.id)) == 1
+    assert inherited_offset_rule(project, SimpleNamespace(_anyfem_mesh_record_id="unknown")) == 1
+
+
+def test_pressure_transfer_records_inherit_the_mesh_offset_rule():
+    import inspect
+
+    from anyfem.application import hydro_wave_pressure
+
+    assert "beam_offset_rule=inherited_offset_rule(project, mesh)" in inspect.getsource(
+        hydro_wave_pressure.map_barge_regular_wave)
+
+
+def test_submodel_parent_mesh_saved_under_the_mid_surface_rule_is_refused(tmp_path, monkeypatch):
+    from anyfem.model.project import Project as _Project
+    from test_submodel_jobs import Setup, refused_without_publication
+
+    setup = Setup(tmp_path)
+    run = setup.run()
+    assert setup.staleness(run) == ()
+    # Make the parent model one the rule moves (its own beams are not plate-attached).
+    monkeypatch.setattr(_Project, "has_plate_surface_offsets", lambda self: True)
+    assert setup.staleness(run) == ()
+    setup.source()
+    setup.edit(lambda _p: setattr(setup.record, "beam_offset_rule", 1))
+    assert "SOURCE_MESH_CHANGED" in setup.staleness(run)
+    with refused_without_publication(setup.session, setup.store, "SOURCE_MESH"):
+        setup.source()

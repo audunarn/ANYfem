@@ -112,6 +112,11 @@ def build_fe_model(
         if not matches_mesh_hash(mesh, active.mesh_hash, model_hash=active.source_model_hash,
                                  mesh_input_hash=active.mesh_input_hash, structural_preparation=active.structural_preparation):
             raise ProjectError("mesh content differs from the active publication")
+    from ..application.mesh_publication import (
+        OUTDATED_OFFSET_RULE_MESSAGE, mesh_record_of, outdated_offset_rule)
+    published = mesh_record_of(project, mesh)
+    if published is not None and outdated_offset_rule(project, published):
+        raise ProjectError(OUTDATED_OFFSET_RULE_MESSAGE)
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
         raise ProjectError(
