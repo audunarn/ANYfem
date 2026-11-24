@@ -2213,7 +2213,7 @@ class Project:
             if check is not None:
                 check("automatic quad-first fallback")
             automation = options.get("automation")
-            if automation is not None and automation.max_seconds is not None:
+            if getattr(automation, "max_seconds", None) is not None:
                 # One request, one recovery budget: measured after the callback, the rerun gets only what is left.
                 remaining = automation.max_seconds - (perf_counter() - started)
                 if remaining <= 0.0:
@@ -2237,7 +2237,7 @@ class Project:
         settings = self.native_mesh_settings
         strategy = options.get("strategy")
         automation = options.get("automation")
-        if automation is not None and automation.strict_method:
+        if getattr(automation, "strict_method", False) is True:  # invalid objects reach the mesh API's TypeError
             return False  # "use only the selected method": no other method is tried
         if not strategy:  # None or "": resolved from the stored settings, as in _generate_mesh_once
             backend = None if settings is None else getattr(settings.backend, "value", settings.backend)

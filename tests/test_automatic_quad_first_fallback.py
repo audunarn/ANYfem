@@ -232,3 +232,9 @@ def test_a_flat_face_on_a_curved_support_class_falls_back_too():
     mesh = project.generate_mesh(.9, order='linear', strategy='auto',
                                  structured_controls=StructuredMeshControls(maximum_estimated_elements=40))
     assert mesh.hybrid_diagnostics['automatic_fallback']['estimated'] == 42
+
+
+@pytest.mark.parametrize('strategy', ['mapped', 'auto'])
+def test_an_invalid_automation_object_still_reaches_the_type_check(strategy):
+    with pytest.raises(TypeError, match='automation must be MeshAutomationOptions'):
+        cylinder().generate_mesh(.25, order='linear', strategy=strategy, automation={})
