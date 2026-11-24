@@ -169,3 +169,31 @@ def test_refusals_without_a_working_face_and_other_exceptions_are_untouched():
     other = Hostile("not a mesher refusal")
     name_source_of_face_refusal(other, {"face:1": ("face:2",)}, None)
     assert str(other) == "not a mesher refusal"
+
+
+def test_a_refusal_raised_by_the_cancellation_callback_is_left_alone():
+    from anyfem.mesh_refusal_names import call_naming_source_faces
+
+    reused = MeshError("refused earlier")
+    reused.quad_first_face, reused.quad_first_location = 9, None
+
+    def action(*, cancellation_check):
+        cancellation_check("stage")
+
+    def check(stage):
+        raise reused
+
+    with pytest.raises(MeshError) as caught:
+        call_naming_source_faces(action, {"face:2": ("face:9",)}, None, None, cancellation_check=check)
+    assert caught.value is reused and str(reused) == "refused earlier"
+    assert not hasattr(reused, "source_face_ids")
+
+
+def test_a_typed_cancellation_signal_is_passed_on_unwrapped():
+    from anygeometry.cancellation import CancellationSignal
+    from anyfem.mesh_refusal_names import call_naming_source_faces
+
+    signal, seen = CancellationSignal(), []
+    call_naming_source_faces(lambda *, cancellation_check: seen.append(cancellation_check), {}, None, None,
+                             cancellation_check=signal)
+    assert seen == [signal] and seen[0] is signal
