@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import email.message  # noqa: F401  importlib.metadata imports these lazily on its first read;
 import email.parser  # noqa: F401   load them with this module so collection itself imports nothing
+import csv
+import io
 import json
 import os
 import re
@@ -261,23 +263,35 @@ def _editable_root(dist) -> str:
 
 
 def _records_file(dist, real_file: str) -> bool:
-    """True if the distribution's recorded file list (RECORD and the like)
-    contains the loaded module file, relative to the distribution's base."""
+    """True if the distribution's RECORD lists the loaded module file.
+
+    RECORD is parsed as CSV (quoted names, escaped quotes, embedded newlines);
+    each row's first field is a path relative to the distribution's base, or
+    absolute (PEP 376 / PyPA spec).  Paths are compared after normalisation,
+    without touching the file system per entry.
+    """
     if not real_file:
         return False
     base = dist.locate_file("")
     if not isinstance(base, PurePath):  # e.g. zip-backed metadata: not compared
         return False
-    base = _real(base)
-    if not _is_inside(real_file, base):
-        return False
-    relative = os.path.normcase(Path(os.path.relpath(real_file, base)).as_posix())
     record = dist.read_text("RECORD")
-    if record:  # one normalised text search instead of building thousands of PackagePath objects
-        text = "\n" + os.path.normcase(record).replace("\r", "")
-        return any(f"\n{prefix}{relative}{suffix}," in text for prefix, suffix in (("", ""), ('"', '"')))
-    # No RECORD (egg-info): its SOURCES.txt is relative to the project root, not
-    # to this base, and Distribution.files would stat every entry.  Not proof.
+    if not record:
+        # No RECORD (egg-info): its SOURCES.txt is relative to the project root,
+        # not to this base, and Distribution.files would stat every entry.
+        return False
+    base = _real(base)
+    target = os.path.normcase(os.path.normpath(real_file))
+    name = os.path.basename(target)
+    for row in csv.reader(io.StringIO(record)):
+        if not row or not row[0]:
+            continue
+        entry = row[0]
+        if os.path.normcase(os.path.basename(entry.replace("/", os.sep))) != name:
+            continue  # cheap filter before path normalisation
+        path = entry if os.path.isabs(entry) else os.path.join(base, entry)
+        if os.path.normcase(os.path.normpath(path)) == target:
+            return True
     return False
 
 

@@ -508,6 +508,7 @@ def test_namespace_package_spanning_checkouts_has_no_single_provenance(tmp_path,
     first, second = tmp_path / "one", tmp_path / "two"
     for root in (first, second):
         _git(root)
+        _pyproject(root, "anyspread", "7.7.7")  # a first-checkout version must not leak
         (root / "anyspread").mkdir()
         monkeypatch.syspath_prepend(str(root))
     importlib.invalidate_caches()
@@ -521,3 +522,22 @@ def test_namespace_package_spanning_checkouts_has_no_single_provenance(tmp_path,
     assert row.version_source == "namespace package spanning several locations"
     assert str(first / "anyspread") in row.import_path and str(second / "anyspread") in row.import_path
 
+
+@pytest.mark.parametrize("form", ["absolute", "dot-relative", "quoted-decoy"])
+def test_record_entries_are_parsed_as_csv_paths(tmp_path, monkeypatch, form):
+    site = tmp_path / "site"
+    module = _package(site, "anycsv", version_attr="1.5")
+    info = site / "anycsv-2.0.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: anycsv\nVersion: 2.0.0\n", encoding="utf-8")
+    entry = {"absolute": str((site / "anycsv" / "__init__.py").resolve()),
+             "dot-relative": "./anycsv/__init__.py",
+             # one quoted file name whose second line looks like the loaded file's row
+             "quoted-decoy": '"other\nanycsv/__init__.py,,"'}[form]
+    (info / "RECORD").write_text(f"{entry},,\nanycsv-2.0.0.dist-info/METADATA,,\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anycsv": module}), "anycsv")
+    if form == "quoted-decoy":
+        assert (row.version, row.version_source) == ("1.5", "module __version__")
+    else:
+        assert (row.version, row.version_source) == ("2.0.0", "metadata (anycsv)")
