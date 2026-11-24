@@ -523,7 +523,7 @@ def test_namespace_package_spanning_checkouts_has_no_single_provenance(tmp_path,
     assert str(first / "anyspread") in row.import_path and str(second / "anyspread") in row.import_path
 
 
-@pytest.mark.parametrize("form", ["absolute", "dot-relative", "quoted-decoy"])
+@pytest.mark.parametrize("form", ["absolute", "dot-relative", "quoted-decoy", "escaped-quote", "crlf-name", "dotdot-symlink"])
 def test_record_entries_are_parsed_as_csv_paths(tmp_path, monkeypatch, form):
     site = tmp_path / "site"
     module = _package(site, "anycsv", version_attr="1.5")
@@ -533,11 +533,27 @@ def test_record_entries_are_parsed_as_csv_paths(tmp_path, monkeypatch, form):
     entry = {"absolute": str((site / "anycsv" / "__init__.py").resolve()),
              "dot-relative": "./anycsv/__init__.py",
              # one quoted file name whose second line looks like the loaded file's row
-             "quoted-decoy": '"other\nanycsv/__init__.py,,"'}[form]
+             "quoted-decoy": '"other\nanycsv/__init__.py,,"',
+             "escaped-quote": '"anycsv/__init__.py"',  # a plain quoted entry after an escaped-quote row
+             "crlf-name": '"anycsv\r\n/__init__.py"',
+             "dotdot-symlink": "link/../anycsv/__init__.py"}[form]
+    if form == "escaped-quote":
+        entry = '"we""ird.txt",,\n' + entry
+    if form == "dotdot-symlink":  # link -> elsewhere/sub
+        (tmp_path / "elsewhere" / "sub").mkdir(parents=True)
+        link = site / "link"
+        if os.name == "nt":
+            winapi = pytest.importorskip("_winapi")
+            winapi.CreateJunction(str(tmp_path / "elsewhere" / "sub"), str(link))
+        else:
+            os.symlink(tmp_path / "elsewhere" / "sub", link, target_is_directory=True)
     (info / "RECORD").write_text(f"{entry},,\nanycsv-2.0.0.dist-info/METADATA,,\n", encoding="utf-8")
     monkeypatch.syspath_prepend(str(site))
     row = _row(lp.collect_loaded_packages({"anycsv": module}), "anycsv")
-    if form == "quoted-decoy":
+    # Win32 resolves ".." lexically before the file system, so there link/.. is site;
+    # on POSIX it follows the symlink to "elsewhere" and must not count as ownership.
+    not_owned = ("quoted-decoy", "crlf-name") + (() if os.name == "nt" else ("dotdot-symlink",))
+    if form in not_owned:
         assert (row.version, row.version_source) == ("1.5", "module __version__")
     else:
         assert (row.version, row.version_source) == ("2.0.0", "metadata (anycsv)")

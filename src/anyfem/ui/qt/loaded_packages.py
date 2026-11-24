@@ -228,11 +228,6 @@ def _module_location(module) -> str:
     return paths[0] if paths else ""
 
 
-def _is_inside(child: str, parent: str) -> bool:
-    child, parent = _norm(child), _norm(parent)
-    return child == parent or child.startswith(parent.rstrip(os.sep) + os.sep)
-
-
 def _file_url_path(url: str) -> str:
     """Local or UNC path of a ``file:`` URL; '' when it is not one."""
     parsed = urlparse(url)
@@ -287,9 +282,13 @@ def _records_file(dist, real_file: str) -> bool:
         if not row or not row[0]:
             continue
         entry = row[0]
+        if "\r" in entry or "\n" in entry:
+            continue  # read_text() folds line endings, so such a name cannot be compared exactly
         if os.path.normcase(os.path.basename(entry.replace("/", os.sep))) != name:
             continue  # cheap filter before path normalisation
         path = entry if os.path.isabs(entry) else os.path.join(base, entry)
+        if ".." in Path(path).parts:
+            path = _real(path)  # lexical normalisation of '..' is wrong through symlinks
         if os.path.normcase(os.path.normpath(path)) == target:
             return True
     return False
