@@ -9,6 +9,7 @@ node set -- happens here through the mesh association map.
 from __future__ import annotations
 
 import builtins as _builtins
+import math
 import os
 import sys
 import types
@@ -314,15 +315,18 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
             extra: dict[str, Any] = {}
             if formulation == "e4-pl-s3-v2d":
                 reference = owner_normals[int(element_id)]
-                if project.shell_formulation_policy.s3_reference_surface == "faceted":
+                corners = [np.asarray(mesh.nodes[n], dtype=float) for n in node_ids]
+                if (
+                    project.shell_formulation_policy.s3_reference_surface == "faceted"
+                    or not _source_normal_is_facet_normal(corners, reference)
+                ):
                     # Source normals have already passed signed-area, owner alignment
                     # and shape admission above. Keep their physical side on each chord facet.
-                    a, b, c = (np.asarray(mesh.nodes[n], dtype=float) for n in node_ids)
-                    facet = np.cross(b - a, c - a)
-                    length = np.linalg.norm(facet)
-                    if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
-                        raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
-                    reference = facet / length
+                    # Under the default "source" policy this applies only where the source
+                    # normal is not the flat facet's own normal (a curved face): the S3 V2D
+                    # element is a flat facet and refuses such a director.  Every triangle
+                    # that is accepted today keeps its source normal bit for bit.
+                    reference = _source_oriented_facet_normal(corners, reference, element_id)
                 extra["reference_normal"] = reference
             # The application policy is explicit and persisted, so the solver's
             # user-facing deprecation warning would otherwise be repeated once
@@ -352,6 +356,45 @@ def _add_shells(project: Project, mesh: Mesh, fe_model: FEModel) -> None:
                     "persisted legacy identity"
                 )
             fe_model.add_element(element_id, element)
+
+
+# ANYfeSolver's S3 V2D element accepts a reference normal only when it is the
+# facet normal to this relative tolerance (``e4_pl_s3_v2d_element._NORMAL_TOLERANCE``;
+# a test keeps the two equal).
+_S3_V2D_FACET_NORMAL_TOLERANCE = 1.0e-10
+
+
+def _source_normal_is_facet_normal(corners: list[np.ndarray], reference: Any) -> bool:
+    """True when the S3 V2D element accepts ``reference`` as this facet's normal.
+
+    Mirrors the solver's own test operation for operation (same edge vectors,
+    edge scale and tangency), so a triangle the solver accepts today keeps its
+    source normal unchanged.
+    """
+
+    normal = np.asarray(reference, dtype=np.float64)
+    edge_12 = corners[1] - corners[0]
+    edge_13 = corners[2] - corners[0]
+    edge_23 = corners[2] - corners[1]
+    edge_scale = max(
+        float(edge_12 @ edge_12),
+        float(edge_13 @ edge_13),
+        float(edge_23 @ edge_23),
+        np.finfo(np.float64).tiny,
+    )
+    tangency = max(abs(float(edge_12 @ normal)), abs(float(edge_13 @ normal)))
+    return tangency <= _S3_V2D_FACET_NORMAL_TOLERANCE * math.sqrt(edge_scale)
+
+
+def _source_oriented_facet_normal(
+    corners: list[np.ndarray], reference: Any, element_id: int
+) -> np.ndarray:
+    a, b, c = corners
+    facet = np.cross(b - a, c - a)
+    length = np.linalg.norm(facet)
+    if not np.isfinite(length) or length <= 0 or np.dot(facet, reference) <= 0:
+        raise ProjectError(f"S3 facet {element_id} lacks a positive source-oriented area")
+    return facet / length
 
 
 def _qualified_s3_owner_normals(
