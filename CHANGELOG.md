@@ -17,6 +17,9 @@
   `pyproject.toml` version, else installed metadata that owns the loaded copy, else the module's
   `__version__`, else "unknown"; disagreeing sources are flagged (⚠). Collected on a worker thread
   when the dialog opens (GUI thread ~5-8 ms); nothing is imported. Copy to clipboard included.
+  Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, or an
+  editable install with an absolute project URL); symlinked/junctioned or case-aliased paths, egg-info,
+  malformed RECORD rows and nested projects are out of scope and shown as not owned.
 
 - Menus: File now holds Import, Export and Examples submenus; the import, export, plate-drawing and
   example actions moved there unchanged (names, shortcuts, behaviour). The top-level Examples menu is gone.

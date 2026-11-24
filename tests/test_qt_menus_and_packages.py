@@ -78,6 +78,7 @@ def test_help_loaded_packages_dialog_lists_loaded_paths_and_copies(window, qapp,
     assert dialog.isVisible() and dialog.windowTitle() == "Loaded packages"
     report = _wait_for_report(dialog, qapp)
     assert report.elapsed_ms < 2000  # measured ~70-90 ms warm, on the worker thread
+    assert "standard layouts" in dialog.findChild(QLabel, "LoadedPackagesSummary").text()
     table = dialog.findChild(QTableWidget, "LoadedPackagesTable")
     assert table.rowCount() == len(report.rows)
     cells = {table.item(index, 0).text(): [table.item(index, column).text() for column in range(table.columnCount())]

@@ -557,3 +557,55 @@ def test_record_entries_are_parsed_as_csv_paths(tmp_path, monkeypatch, form):
         assert (row.version, row.version_source) == ("1.5", "module __version__")
     else:
         assert (row.version, row.version_source) == ("2.0.0", "metadata (anycsv)")
+
+
+# Owner decision 2026-11-24 "standard layouts only": the three guards (each failed on 10b219a).
+
+def _record_dist(site, name, version, rows):
+    info = site / f"{name}-{version}.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n", encoding="utf-8")
+    (info / "RECORD").write_text("".join(row + "\n" for row in rows), encoding="utf-8")
+
+
+def test_record_rows_need_exactly_three_fields(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    module = _package(site, "anythree", version_attr="1.5")
+    _record_dist(site, "anythree", "2.0.0", ["anythree/__init__.py", "anythree/__init__.py,sha256=x"])
+    monkeypatch.syspath_prepend(str(site))
+    row = _row(lp.collect_loaded_packages({"anythree": module}), "anythree")
+    assert (row.version, row.version_source) == ("1.5", "module __version__")
+
+
+def test_relative_editable_url_is_not_ownership(tmp_path, monkeypatch):
+    site, project = tmp_path / "site", tmp_path / "project"
+    info = site / "anyrelurl-4.0.0.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: anyrelurl\nVersion: 4.0.0\n", encoding="utf-8")
+    (info / "direct_url.json").write_text(json.dumps({"url": "file:.", "dir_info": {"editable": True}}), encoding="utf-8")
+    (project / "pyproject.toml").parent.mkdir(parents=True)
+    (project / "pyproject.toml").write_text('[project]\nname = "anyrelurl"\ndynamic = ["version"]\n', encoding="utf-8")
+    module = _package(project / "src", "anyrelurl", version_attr="3.0")
+    monkeypatch.syspath_prepend(str(site))
+    monkeypatch.chdir(project)  # "file:." would otherwise resolve to the loaded copy's project
+    row = _row(lp.collect_loaded_packages({"anyrelurl": module}), "anyrelurl")
+    assert (row.version, row.version_source) == ("3.0", "module __version__")
+    assert lp._file_url_path("file:.") == "" and lp._file_url_path("file:relative/dir") == ""
+
+
+def test_every_same_name_distribution_is_examined(tmp_path, monkeypatch):
+    loaded_site, other_site = tmp_path / "loaded", tmp_path / "other"
+    module = _package(loaded_site, "anytwice", version_attr="2.0.0")
+    _record_dist(other_site, "anytwice", "1.0.0", ["anytwice/__init__.py,,"])  # first on sys.path, another copy
+    _record_dist(loaded_site, "anytwice", "2.0.0", ["anytwice/__init__.py,,"])
+    monkeypatch.syspath_prepend(str(loaded_site))
+    monkeypatch.syspath_prepend(str(other_site))
+    row = _row(lp.collect_loaded_packages({"anytwice": module}), "anytwice")
+    assert (row.version, row.version_source) == ("2.0.0", "metadata (anytwice)")
+    assert not any("version sources disagree" in note for note in row.notes)  # 1.0.0 belongs to another copy
+
+
+def test_scope_note_is_in_the_report_text():
+    report = lp.collect_loaded_packages({})
+    assert lp.SCOPE_NOTE in report.notes and lp.SCOPE_NOTE in report.text()
+    assert "standard layouts" in lp.SCOPE_NOTE

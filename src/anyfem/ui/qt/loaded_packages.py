@@ -14,6 +14,17 @@ importlib's cached namespace path, distribution metadata only through the
 standard file-system finder (no ``sys.meta_path`` dispatch), and ``.git`` /
 ``pyproject.toml`` as files.  Objects outside these standard structures are
 reported as unknown rather than inspected, and any failure stays in its row.
+
+Metadata ownership contract (owner, 2026-11-24: "standard layouts only"):
+installed metadata is credited to the loaded copy only when a distribution of
+that name has a RECORD whose three-field rows list the loaded module file
+(relative to the distribution base, or absolute), or is a PEP 610 editable
+install whose absolute ``file:`` URL is the loaded copy's own project root.
+All same-name distributions on ``sys.path`` are examined and disagreements
+flagged.  Out of scope, reported as not owned rather than guessed: egg-info
+and zip-backed metadata, malformed RECORD rows, aliased paths (symlinks,
+junctions, case-sensitive Windows folders), relative editable URLs, and
+projects nested in other checkouts or virtual environments.
 Packages this session has not imported are listed as not loaded.
 """
 from __future__ import annotations
@@ -179,9 +190,9 @@ def _namespace(module) -> dict:
 _MODULE_DICT = types.ModuleType.__dict__["__dict__"]
 
 
-def _filesystem_distribution(name: str):
-    """First distribution called ``name`` on ``sys.path``, from the standard
-    file-system/zip metadata finder only.
+def _filesystem_distributions(name: str) -> list:
+    """Every distribution called ``name`` on ``sys.path``, in path order, from
+    the standard file-system/zip metadata finder only.
 
     ``metadata.distribution()`` dispatches to every ``sys.meta_path`` finder's
     ``find_distributions``, which may run arbitrary code; custom providers are
@@ -190,7 +201,7 @@ def _filesystem_distribution(name: str):
     entries = sys.path if type(sys.path) is list else []
     path = [entry for entry in list(entries) if type(entry) is str]  # exact strings only: no __hash__/__fspath__ hooks
     context = metadata.DistributionFinder.Context(name=name, path=path)
-    return next(iter(metadata.MetadataPathFinder.find_distributions(context)), None)
+    return list(metadata.MetadataPathFinder.find_distributions(context))
 
 
 try:  # the real class, so that look-alikes are not trusted
@@ -239,7 +250,8 @@ def _file_url_path(url: str) -> str:
         return "//" + host + path  # UNC: \\server\share\...
     if re.match(r"^/[A-Za-z]:", path):
         path = path[1:]
-    return path
+    # Relative forms (e.g. ``file:.``) would resolve against the working directory.
+    return path if path and os.path.isabs(path) else ""
 
 
 def _editable_root(dist) -> str:
@@ -278,9 +290,13 @@ def _records_file(dist, real_file: str) -> bool:
     base = _real(base)
     target = os.path.normcase(os.path.normpath(real_file))
     name = os.path.basename(target)
-    for row in csv.reader(io.StringIO(record)):
-        if not row or not row[0]:
-            continue
+    try:
+        rows = list(csv.reader(io.StringIO(record), strict=True))
+    except csv.Error:
+        return False  # malformed RECORD: no evidence
+    for row in rows:
+        if len(row) != 3 or not row[0]:
+            continue  # path,hash,size: anything else is not a standard row
         entry = row[0]
         if "\r" in entry or "\n" in entry:
             continue  # read_text() folds line endings, so such a name cannot be compared exactly
@@ -303,14 +319,13 @@ def _owned_metadata(module_name: str, real_location: str, candidates, real_file:
     describing another copy, or whose metadata cannot be read, become notes.
     """
     owned, notes, project = [], [], {}
+    found = []
     for candidate in candidates:
         try:
-            dist = _filesystem_distribution(candidate)
-            if dist is None:
-                continue
+            found.extend((candidate, dist) for dist in _filesystem_distributions(candidate))
         except Exception as error:
             notes.append(f"metadata for {candidate} could not be read ({type(error).__name__})")
-            continue
+    for candidate, dist in found:
         try:
             fields = dist.metadata  # parsed once; ``dist.version`` would parse it again
             version = str((fields.get("Version") if fields is not None else None) or "").strip()
@@ -589,12 +604,16 @@ def collect_loaded_packages(modules=None, qt_runtime=None) -> PackageReport:
     if type(qt_runtime) is not str or not qt_runtime:  # the dialog passes the GUI thread's qVersion()
         qt_runtime = _qt_runtime(modules.get("PySide6.QtCore"))
     elapsed = (time.perf_counter() - start) * 1000.0
-    notes = ("Commits are the checkout HEAD read from .git; uncommitted changes are not checked.",)
+    notes = ("Commits are the checkout HEAD read from .git; uncommitted changes are not checked.",
+             SCOPE_NOTE)
     return PackageReport(sys.version.split()[0], sys.executable, qt_runtime,
                          tuple(rows), elapsed, notes)
 
 
 COLUMNS = ("Package", "Version", "Version source", "Loaded from", "Commit", "Notes")
+SCOPE_NOTE = ("Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, "
+              "or an editable install with an absolute project URL); other layouts show the checkout or "
+              "module version, or unknown.")
 
 
 def _fill_table(table, report):
@@ -700,7 +719,7 @@ def open_loaded_packages(window):
         summary.setText(
             f"Python {escape(report.python)} — {escape(report.executable)}<br>"
             f"Qt runtime {escape(report.qt_runtime)} — collected in {report.elapsed_ms:.0f} ms (background)<br>"
-            f"<i>{escape(report.notes[0])}</i>")
+            f"<i>{escape(report.notes[0])}<br>{escape(report.notes[1])}</i>")
         _fill_table(table, report)
         copy.setEnabled(True)
         layout.activate()  # the summary grew from one line to three
