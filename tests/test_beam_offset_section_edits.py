@@ -483,3 +483,30 @@ def test_a_cached_offset_failure_is_raised_without_growing_its_traceback(tmp_pat
         except ValueError as error:
             depths.append(len(traceback.extract_tb(error.__traceback__)))
     assert len(depths) == 3 and depths[1] == depths[2]
+
+
+def test_qt_update_mesh_names_changed_offsets_before_reading_retained_meshes(tmp_path):
+    pytest.importorskip("PySide6")
+    from types import SimpleNamespace
+    from anyfem.ui.qt.tasks import MeshTask
+    session, project, _ = _session(tmp_path)
+    path = session.path
+    session.close()
+    editor = FileWorkbench(_model()[0])
+    editor.open_project(str(path))
+    try:
+        editor.project.mesh_numbering = replace(editor.project.mesh_numbering, generation=0, active_mesh_id=None)
+        record = next(iter(editor.project.mesh_records.values()))
+        editor.mesh_record_id = record.id
+        editor._meshes.clear()
+        record.artifact_id = "missing-sidecar"
+        editor.run(AddPlateSection(PlateSection(name="plate", thickness=0.02, material="S355")))
+        panel = SimpleNamespace(
+            app=editor, settings=lambda updating=False: {},
+            order=SimpleNamespace(currentText=lambda: editor.project.element_order),
+            s3_reference=SimpleNamespace(
+                currentData=lambda: editor.project.shell_formulation_policy.s3_reference_surface))
+        with pytest.raises(ValueError, match=CHANGED + ".*full rebuild"):
+            MeshTask.start_update(panel)
+    finally:
+        editor._project_lock.release()
