@@ -7,8 +7,8 @@
   record stays current (state "completed", not stale) after an edit that changes neither a mesh input nor a beam
   offset, such as adding an unused section. An edit that changes an offset or another mesh input still makes it
   stale. The workbench, as for any generated mesh, drops the loaded mesh after a model edit and asks for a mesh
-  before the next solve. The example generator records no regional baseline, so for this bundle that means
-  Generate mesh (a full rebuild), not Update mesh. Results are
+  before the next solve. Undoing the edit restores it. The example generator records no regional baseline, so
+  remeshing this bundle after an edit is Generate mesh (a full rebuild), not Update mesh. Results are
   unchanged from #41: same mesh, same saved fields and the same four governing damages.
 
 - Saved shell surface directors are complete on mixed triangle/quad meshes (owner decision A, 2026-11-25). The
