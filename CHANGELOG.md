@@ -5,6 +5,27 @@
 - Pins ANYgeometry 5f68177 (ANYgeometry #51): the intersection arrangement no longer splits a transition skin/web contact
   curve where no other path meets it, so the floating tripod's 36- and 60-web variants no longer get a short artificial
   segment at the upper mitre of their transition web roots.
+  The bundled 48-web tripod example meshes differently because its transition web roots are no longer split either:
+  Q4 83,755 (unchanged), T3 2,535 to 2,553, qualified S3 still admitted.
+- Saved shell surface directors are complete on mixed triangle/quad meshes (owner decision A, 2026-11-25). The
+  solver reports `physical_director` for Q4 shells but not for the S3 triangle, so the result writer saved a partial
+  `shell_surface_directors` table and ANYfatigue refused it ("the saved shell surface directors are incomplete"):
+  fatigue on any mixed mesh failed. The writer now fills each shell without a solver director from its built element,
+  `director_polarity * reference_normal` (the S3 element's own "top" side). Linear static, linear batch and transient
+  results saved with requested global shell surface stresses now carry the table, a single static result included
+  (before: batch and transient only, and only when some shell had a solver director); committed nonlinear histories
+  do not, and ANYfatigue does not admit those. A shell with neither a solver director nor a valid reference
+  normal is left out, and the table is written even when empty, so ANYfatigue refuses instead of guessing the side
+  from the corner order. Changed behaviour: fatigue on legacy shell formulations (`legacy` Q4, `legacy-s3`), which
+  used the corner order before, is now refused with "the saved shell surface directors are incomplete".
+- The bundled barge fatigue example is regenerated with the foot-on-plate-surface offsets and the live 41.382 MN m
+  couple, so it opens without stale marks. Same mesh size (6995 nodes, 8147 elements), same governing elements and
+  frames. Governing Miner damage for the 25-year illustration, old to new: Port deck toe 75.406 to 76.307 (+1.2 %),
+  Starboard deck toe 96.534 to 97.626 (+1.1 %), Port bulkhead toe 0.25469 to 0.30187 (+18.5 %), Starboard bulkhead toe
+  0.0052119 to 0.0075067 (+44 %; small damages near the S-N knee magnify the stress-range change, Port bulkhead toe
+  range 28.95 to 29.95 MPa, +3.4 %). The saved directors equal the corner-order normals on this mesh (none flipped), so
+  these changes come from the model, not the directors. Maximum displacement -0.31 %. `examples/build_barge_fatigue.py`
+  runs again: it passed a keyword `Project.generate_mesh` does not take, and it now resolves its output folder.
 
 - Automatic stiffener offset: the profile foot now stands on the attached plate's surface, not on its mid-surface
   (owner decision 2026-11-24). With `offset_mode="automatic"` the neutral-axis offset is the profile centroid plus half

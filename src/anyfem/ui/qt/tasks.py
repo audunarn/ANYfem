@@ -431,6 +431,8 @@ class MeshTask(QWidget):
             raise ValueError("Triangle reference surface changed; use Generate mesh to apply it")
         # The preview raises an accurate error (for example no regional baseline) before anything is submitted.
         from ...mesh_preview import MeshUpdatePreview
+        # Offset-rule and changed-offset refusals come before the ticket reads retained meshes.
+        self.app._refuse_regional_parent()
         ticket = publication_ticket(self.app)
         seeding = dict(self.app.seeding_overrides)
         impact = self.app.preview_regional_update(include_impact=True, **options)

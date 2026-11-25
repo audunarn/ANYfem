@@ -14,7 +14,7 @@ from anyfesolver import RecoveryConfig
 
 from anyfem.application.barge_fatigue import barge_fatigue_detail, bracketed_barge_fatigue
 from anyfem.application.fatigue import load_fatigue_input, prepare_fatigue_location
-from anyfem.application.mesh_publication import mesh_source_digests
+from anyfem.application.mesh_publication import BEAM_OFFSETS_KEY, mesh_source_digests, recorded_beam_offsets
 from anyfem.document import DocumentSession, canonical_hash
 from anyfem.io.artifacts import ArtifactStore
 from anyfem.io.project_file import load_project, save_project
@@ -29,7 +29,7 @@ from anyfem.solve.run import solve_linear_static_many
 def mesh_project(path):
     project = bracketed_barge_fatigue()
     print("Generating bracketed 5 m mesh", flush=True)
-    mesh = project.generate_mesh(project.target_size, _publication_allocation=project.mesh_numbering)
+    mesh = project.generate_mesh(project.target_size)
     if mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":
         raise ValueError("The generated mesh was marked inspection only")
     mesh = number_full_mesh(mesh, project.mesh_numbering, source_geometry=project.geometry)
@@ -43,7 +43,8 @@ def mesh_project(path):
                         mesh_input_hash=settings_hash, mesh_hash=mesh_hash,
                         structural_preparation=preparation,
                         summary={"active_mesh": True, "nodes": mesh.num_nodes, "elements": mesh.num_elements,
-                                 "mesh_sources": mesh_source_digests(project)})
+                                 "mesh_sources": mesh_source_digests(project),
+                                 BEAM_OFFSETS_KEY: recorded_beam_offsets(project)})
     ref = ArtifactStore(path).write_mesh(mesh, mesh_id=record.id, document_id=project.document_id,
                                          model_hash=model_hash, mesh_hash=mesh_hash,
                                          structural_preparation=preparation)
@@ -168,6 +169,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="output directory for the new example")
     args = parser.parse_args()
+    # A resolved folder keeps relative_to() exact when Windows paths mix short and long names.
+    args.directory = args.directory.resolve()
     args.directory.mkdir(parents=True, exist_ok=True)
     path = args.directory / "Barge5Fatigue.anyfem"
     if path.exists() or ArtifactStore(path).root.exists():
