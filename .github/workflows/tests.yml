@@ -16,7 +16,7 @@ on:
         options: [all, reported-spline-four-face]
       mesher_ref:
         type: string
-        default: 'bfad0c2f3938985a3987bda66fb5224cb0735bca'
+        default: 'e889e62331d980ceb7042ff5c338a5117dca0162'
 permissions:
   contents: read
 # Superseded pull-request runs are cancelled.  A re-run attempt and every other run (main pushes, tags, schedules,

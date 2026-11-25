@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Pins ANYmesh e889e62 (ANYmesh #23): quad-first planar seeding's Python finite-hull triangulation fallback is faster,
+  with results unchanged. Measured on the bench PC, the floating tripod example meshes 9.4 % faster (999.9 -> 906.4 s)
+  and the N2c owner model 9.5 % faster (1260.1 -> 1140.9 s), with identical meshes.
+
 - The bundled barge fatigue example is rebuilt once more so its mesh record carries the beam offsets it was generated
   with (#43). The example rebuilt in #41 had none, so its mesh record went stale after the first model edit. Now its
   record stays current (state "completed", not stale) after an edit that changes neither a mesh input nor a beam
