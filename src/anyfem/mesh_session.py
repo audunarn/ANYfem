@@ -95,6 +95,12 @@ class ProjectMeshSession:
 
     def _baseline(self):
         record = self.project.mesh_records.get(self.mesh_record_id)
+        from .beam_offset_rule import REFUSAL, has_rule_stale_records
+        if record is None and has_rule_stale_records(self.project):
+            # The only saved meshes were marked stale by the offset-rule migration.
+            raise ValueError(REFUSAL)
+        from .application.mesh_publication import require_regional_parent
+        require_regional_parent(self.project, record)
         if record is None or "regional_baseline" not in record.summary:
             if record is not None and record.summary.get("regional_refusal"):
                 raise ValueError(record.summary["regional_refusal"])

@@ -18,22 +18,86 @@ def _model_hash(project):
     return canonical_hash(_model_payload(project_to_dict(project)))
 
 
+_SOURCE_KEYS = (
+    "geometry", "meshing", "ownership", "face_sections", "edge_sections",
+    "imperfections", "geometry_attachment_regions",
+)
+#: Mesh-record summary key holding the beam offsets the mesher was handed.
+BEAM_OFFSETS_KEY = "beam_offsets"
+BEAM_OFFSETS_REFUSAL = (
+    "the beam offsets changed since this mesh was generated (beam section, plate "
+    "thickness, offset mode, attachment side or rotation edit); generate the mesh "
+    "again (full rebuild)"
+)
+
+
+def _source_digests(model):
+    return {key: canonical_hash(model[key]) for key in _SOURCE_KEYS if key in model}
+
+
 def mesh_source_digests(project):
     """Mesh-affecting document inputs, also available after reopening the project."""
-    model = _model_payload(project_to_dict(project))
-    return {key: canonical_hash(model[key]) for key in (
-        "geometry", "meshing", "ownership", "face_sections", "edge_sections",
-        "imperfections", "geometry_attachment_regions",
-    ) if key in model}
+    return _source_digests(_model_payload(project_to_dict(project)))
+
+
+def recorded_beam_offsets(project, model_hash=None):
+    """The beam offsets the mesher receives, in the form a mesh record stores.
+
+    Element thickness, section stiffness and materials are read from the
+    project when the solver model is built; a generated mesh depends on the
+    beam and plate sections only through these offsets (owner contract
+    2026-11-25).  Scalar (unrotated manual) and vector offsets keep their
+    form, because the mesher interprets them differently.  The value is
+    cached per model hash: the offsets are a function of the model payload.
+    """
+    cached = project.__dict__.get("_anyfem_recorded_beam_offsets")
+    if model_hash is not None and cached is not None and cached[0] == model_hash:
+        return cached[1]
+    offsets = {
+        str(int(edge)): ([float(v) for v in offset] if isinstance(offset, tuple) else float(offset))
+        for edge, offset in sorted(project.beam_offsets.items())
+    }
+    if model_hash is not None:
+        project.__dict__["_anyfem_recorded_beam_offsets"] = (model_hash, offsets)
+    return offsets
+
+
+def beam_offsets_changed(project, record, model_hash=None):
+    """Whether ``record``'s mesh was generated with other beam offsets.
+
+    A record published before offsets were recorded is treated as changed
+    once the model differs from the one it was generated from and the model
+    has beam lines (owner decision 2026-11-25: fail closed after the next
+    edit).  Imported meshes carry their own offsets and are not checked.
+    """
+    if getattr(record, "kind", "generated") == "imported":
+        return False
+    if model_hash is None:
+        model_hash = _model_hash(project)
+    if record.source_model_hash and record.source_model_hash == model_hash:
+        return False
+    prior = record.summary.get(BEAM_OFFSETS_KEY)
+    if prior is None:
+        return bool(project.edge_sections)
+    return prior != recorded_beam_offsets(project, model_hash)
 
 
 def changed_mesh_sources(project, record):
+    model = _model_payload(project_to_dict(project))
     prior = record.summary.get("mesh_sources")
-    if prior is None:
-        return ()
-    current = mesh_source_digests(project)
-    return tuple(key for key in sorted(set(prior) | set(current))
-                 if prior.get(key) != current.get(key))
+    changed = []
+    if prior is not None:
+        current = _source_digests(model)
+        changed = [key for key in sorted(set(prior) | set(current)) if prior.get(key) != current.get(key)]
+    if beam_offsets_changed(project, record, canonical_hash(model)):
+        changed.append(BEAM_OFFSETS_KEY)
+    return tuple(changed)
+
+
+def require_regional_parent(project, record):
+    """Refuse a regional update whose parent mesh has other beam offsets."""
+    if record is not None and beam_offsets_changed(project, record):
+        raise ValueError(BEAM_OFFSETS_REFUSAL)
 
 
 def verify_published_content(record, mesh):
@@ -180,6 +244,7 @@ def commit_generated_mesh(workflow, ticket, record, mesh, baseline, *,
             if refusal:
                 record.summary["regional_refusal"] = refusal
         record.summary["mesh_sources"] = mesh_source_digests(project)
+        record.summary[BEAM_OFFSETS_KEY] = recorded_beam_offsets(project, ticket.model_hash)
         command = PublishMesh(ticket.expected, state, ticket.parent_id, record, references)
         if references is not None and selection is not None:
             command._selection_before = list(selection.items)

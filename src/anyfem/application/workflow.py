@@ -871,6 +871,11 @@ class WorkbenchWorkflow:
 
     def _regional_parent(self, ticket):
         record = self.project.mesh_records.get(ticket.parent_id)
+        from ..beam_offset_rule import REFUSAL, has_rule_stale_records
+        if record is None and has_rule_stale_records(self.project):
+            raise ValueError(REFUSAL)
+        from .mesh_publication import require_regional_parent
+        require_regional_parent(self.project, record)
         baseline = record.summary.get("regional_baseline") if record else None
         if baseline is None:
             if record is not None and record.summary.get("regional_refusal"):
@@ -1111,9 +1116,28 @@ class WorkbenchWorkflow:
             record.source_model_hash
             and record.source_model_hash != self.session.revision.model_hash
         ):
-            if record.summary.get("mesh_sources") is not None:
-                from .mesh_publication import changed_mesh_sources
-                if not changed_mesh_sources(self.project, record):
+            sources = record.summary.get("mesh_sources")
+            if sources is not None:
+                from .mesh_publication import BEAM_OFFSETS_KEY, changed_mesh_sources
+                # The verdict is a function of the committed model and the
+                # record's own inputs; cache it per revision so a tree refresh
+                # pays the source comparison (and the beam offsets) once per
+                # edit, not once per paint.  Never cached inside a transaction,
+                # where the project can differ from its revision.
+                offsets = record.summary.get(BEAM_OFFSETS_KEY)
+                key = (record.id, self.session.revision.model_hash, record.source_model_hash,
+                       id(sources), id(offsets))
+                cache = self.__dict__.setdefault("_mesh_source_verdicts", {})
+                hit = cache.get(key)
+                if hit is not None and hit[1] is sources and hit[2] is offsets:
+                    changed = hit[0]
+                else:
+                    changed = bool(changed_mesh_sources(self.project, record))
+                    if not getattr(self.session, "_transaction_depth", 0):
+                        if len(cache) > 64:
+                            cache.clear()
+                        cache[key] = (changed, sources, offsets)
+                if not changed:
                     return str(record.status)
             return "stale"
         return str(record.status)
