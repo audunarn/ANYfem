@@ -19,10 +19,10 @@ on:
         default: 'bfad0c2f3938985a3987bda66fb5224cb0735bca'
 permissions:
   contents: read
-# Superseded pull-request runs are cancelled.  Every other run (main pushes, tags, schedules,
+# Superseded pull-request runs are cancelled.  A re-run attempt and every other run (main pushes, tags, schedules,
 # dispatches) gets a group of its own, so it is never cancelled or replaced by a newer run.
 concurrency:
-  group: tests-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  group: tests-${{ github.event_name == 'pull_request' && github.run_attempt == '1' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}-{1}', github.run_id, github.run_attempt) }}
   cancel-in-progress: true
 
 jobs:
