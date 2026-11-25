@@ -24,7 +24,7 @@ def test_macos_pins_are_the_shared_lanes_pins():
     lane = (root / ".github/workflows/application-lane.yml").read_text(encoding="utf-8")
     pins = source_pins()
     assert pins["ANYmesh"] == "bfad0c2f3938985a3987bda66fb5224cb0735bca"
-    assert pins["ANYgeometry"] == "d71c5bc4db7867a1c6e0f135c7709200f2c5e607"
+    assert pins["ANYgeometry"] == "5f68177e42fe0a53341dceb80cc8e4fb73482745"
     for name, sha in pins.items():
         assert f"repository: audunarn/{name}" in lane and sha in lane
     assert not (root / "tools" / "macos-ecosystem.json").exists(), "no second pin list"

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Pins ANYgeometry 5f68177 (ANYgeometry #51): the intersection arrangement no longer splits a transition skin/web contact
+  curve where no other path meets it, so the floating tripod's 36- and 60-web variants no longer get a short artificial
+  segment at the upper mitre of their transition web roots.
+
 - Automatic stiffener offset: the profile foot now stands on the attached plate's surface, not on its mid-surface
   (owner decision 2026-11-24). With `offset_mode="automatic"` the neutral-axis offset is the profile centroid plus half
   the plate's thickness along the plate normal at the line, on the stiffener side. The plate is named by topology or a
