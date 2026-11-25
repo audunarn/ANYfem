@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The bundled barge fatigue example is rebuilt once more so its mesh record carries the beam offsets it was generated
+  with (#43). The example rebuilt in #41 had none, so its mesh went stale after the first model edit; it now stays
+  current after an edit that keeps every offset and is still refused after one that changes them. Results are
+  unchanged from #41: same mesh, same saved fields and the same four governing damages.
+
 - Saved shell surface directors are complete on mixed triangle/quad meshes (owner decision A, 2026-11-25). The
   solver reports `physical_director` for Q4 shells but not for the S3 triangle, so the result writer saved a partial
   `shell_surface_directors` table and ANYfatigue refused it ("the saved shell surface directors are incomplete"):

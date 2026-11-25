@@ -170,3 +170,34 @@ def test_bundled_example_is_current_with_the_live_model(project, tmp_path):
                                       for load in case.line_loads]))
         return steps
     assert history(bundled) == history(project)
+
+
+def test_bundled_example_mesh_stays_current_after_an_edit_that_keeps_every_offset(tmp_path):
+    """The packaged mesh records its beam offsets, so an unrelated edit does not make it stale."""
+    from importlib import resources
+    from zipfile import ZipFile
+
+    from anyfem.application.mesh_publication import (
+        BEAM_OFFSETS_KEY, beam_offsets_changed, current_mesh_sources, recorded_beam_offsets,
+    )
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.project_file import load_project
+    from anyfem.solve.build import build_fe_model
+
+    resource = resources.files("anyfem").joinpath("example_data", "barge5_fatigue.zip")
+    with resource.open("rb") as stream, ZipFile(stream) as archive:
+        names = [n for n in archive.namelist() if n == "Barge5Fatigue.anyfem" or n.endswith(".anymesh.h5")]
+        archive.extractall(tmp_path, members=names)
+    path = tmp_path / "Barge5Fatigue.anyfem"
+    bundled = load_project(path)
+    record, = bundled.mesh_records.values()
+    assert record.summary.get(BEAM_OFFSETS_KEY) == recorded_beam_offsets(bundled)
+    mesh = ArtifactStore(path).read_mesh(bundled.artifacts[record.artifact_id], mesh_id=record.id,
+                                         document_id=bundled.document_id, mesh_hash=record.mesh_hash)
+    # An unused plate section changes the model but no beam offset.
+    material = next(iter(bundled.plate_sections.values())).material
+    bundled.add_plate_section("Unused 12 mm", thickness=.012, material=material)
+    model_hash, _ = current_mesh_sources(bundled)
+    assert model_hash != record.source_model_hash
+    assert not beam_offsets_changed(bundled, record, model_hash)
+    build_fe_model(bundled, mesh, require_loads=False, require_supports=False)
