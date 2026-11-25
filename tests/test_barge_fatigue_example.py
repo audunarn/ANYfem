@@ -1,5 +1,7 @@
 """Editable small barge ownership, physical loading and retained-result requests."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -137,3 +139,34 @@ def test_mount_chart_coordinates_are_restricted_to_the_small_hull():
     from anyfem.application.examples import floating_barge_section
     with pytest.raises(ValueError,match="5 × 11 × 2.5"):
         floating_barge_section(length=15.,shell_mount_charts=True)
+
+
+def test_bundled_example_is_current_with_the_live_model(project, tmp_path):
+    """The packaged ZIP opens without stale meshes and carries the live couple."""
+    from importlib import resources
+    from zipfile import ZipFile
+
+    from anyfem.beam_offset_rule import CURRENT_RULE, HEADER_KEY, has_rule_stale_records, is_rule_stale
+    from anyfem.io.project_file import load_project
+
+    resource = resources.files("anyfem").joinpath("example_data", "barge5_fatigue.zip")
+    with resource.open("rb") as stream, ZipFile(stream) as archive:
+        archive.extract("Barge5Fatigue.anyfem", tmp_path)
+        header = json.loads(archive.read("Barge5Fatigue.anyfem"))["anyfem"]
+    assert header.get(HEADER_KEY) == CURRENT_RULE
+    bundled = load_project(tmp_path / "Barge5Fatigue.anyfem")
+    assert not has_rule_stale_records(bundled)
+    record, = bundled.mesh_records.values()
+    assert record.status != "stale" and not is_rule_stale(record)
+    job, = bundled.jobs.values()
+    assert job.mesh_hash == record.mesh_hash
+    # The saved signed history is the one the live model applies now: the end
+    # couple of every step, including its time factor.
+    def history(p):
+        steps = []
+        for step in p.series_children(SERIES):
+            case = p.resolve_case(step)
+            steps.append((step.time, [(load.ref.id, tuple(load.force_per_length), case.envelope_factor(load.envelope))
+                                      for load in case.line_loads]))
+        return steps
+    assert history(bundled) == history(project)

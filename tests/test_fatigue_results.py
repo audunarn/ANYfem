@@ -277,3 +277,103 @@ def test_native_transient_production_recovery_save_reopen_and_rainflow(solved_pl
     solution.times = times[::-1]
     with pytest.raises(ValueError, match="increasing"):
         load_fatigue_input(solution=solution, mesh=mesh)
+
+
+def _mixed_plate(policy=None):
+    """An L-shaped plate that meshes into both quads and triangles, solved once."""
+    from dataclasses import replace
+
+    from anyfem import Project, pinned, steel
+    from anyfem.solve.run import solve_linear_static
+
+    p = Project(name="Mixed shells")
+    if policy:
+        p.shell_formulation_policy = replace(p.shell_formulation_policy, **policy)
+    p.add_material(steel("S355", .01))
+    p.add_plate_section("plate", thickness=.01, material="S355")
+    corners = p.geometry.add_points([(0, 0, 0), (1, 0, 0), (1, .4, 0), (.4, .4, 0), (.4, 1, 0), (0, 1, 0)])
+    edges = p.geometry.add_polyline(corners, close=True)
+    plate = p.geometry.add_face(edges)
+    p.assign_plate(plate, "plate")
+    for edge in edges:
+        p.add_support(pinned(p.edge(edge)))
+    p.load_case().add_pressure(p.face(plate), 1e4)
+    static = solve_linear_static(p, target_size=.25)
+    assert static.built.mesh.tris and static.built.mesh.quads
+    return p, static
+
+
+def _mixed_history(p, static):
+    from anyfem.post.results import LinearBatchSolution, LinearSolution
+
+    shapes = [LinearSolution(sign * static.displacements, static.built) for sign in (1., -1.)]
+    for shape in shapes:
+        shape._requested_global_stress = shape.stresses(return_global=True)
+    names = ("up", "down")
+    for name, time in zip(names, (0., 1.)):
+        p.load_case(name).time = time
+    return LinearBatchSolution(static.built, shapes, case_names=names)
+
+
+def _saved_input(p, static, solution, tmp_path):
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.result_artifact import write_solution_artifact
+
+    store = ArtifactStore(tmp_path / "mixed.anyfem")
+    identity = dict(mesh_id="mesh", document_id=p.document_id, model_hash="model", mesh_hash="hash")
+    store.write_mesh(static.built.mesh, **identity)
+    artifact = write_solution_artifact(store, solution, job_id="mixed", analysis_hash="analysis", **identity)
+    dataset = store.open_result(artifact)
+    try:
+        return load_fatigue_input(dataset=dataset, mesh=static.built.mesh, project=p)
+    finally:
+        dataset.close()
+
+
+def test_mixed_triangle_and_quad_history_is_admitted_with_complete_directors(tmp_path):
+    """S3 triangles report no solver director; the writer completes the table from the built element."""
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    p, static = _mixed_plate()
+    built, mesh = static.built, static.built.mesh
+    batch = _mixed_history(p, static)
+    recovered = batch.shapes[0]._requested_global_stress.element_stresses
+    # The premise: the solver reports a director for every quad and for no triangle.
+    assert all("physical_director" in recovered[eid] for eid in mesh.quads)
+    assert not any("physical_director" in recovered[eid] for eid in mesh.tris)
+    directors = result_artifact_payload(batch).tables["shell_surface_directors"]
+    assert set(directors) == {str(eid) for eid in mesh.shells}
+    for eid in mesh.quads:
+        np.testing.assert_array_equal(directors[str(eid)], recovered[eid]["physical_director"])
+    for eid in mesh.tris:
+        element = built.fe_model.mesh.elements[eid]
+        np.testing.assert_array_equal(directors[str(eid)], element.physical_reference_director)
+    surface = _saved_input(p, static, batch, tmp_path).source.mesh
+    for eid in mesh.shells:
+        normal = surface.normals_for([surface.element_row(eid)])[0]
+        np.testing.assert_allclose(normal, directors[str(eid)], atol=1e-12)
+
+
+def test_single_static_global_surface_save_completes_directors():
+    """A single static result with global surface stresses saves the same complete table."""
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    _, static = _mixed_plate()
+    static._requested_global_stress = static.stresses(return_global=True)
+    tables = result_artifact_payload(static).tables
+    assert "stress_global_xx_top" in result_artifact_payload(static).fields
+    assert set(tables["shell_surface_directors"]) == {str(eid) for eid in static.built.mesh.shells}
+
+
+@pytest.mark.parametrize("policy", [{"s3": "legacy-s3"}, {"q4": "legacy", "s3": "legacy-s3"}],
+                         ids=["legacy-s3", "all-legacy"])
+def test_shells_without_a_director_are_refused_not_guessed(policy, tmp_path):
+    """No solver director and no reference normal: the saved table stays incomplete and fatigue refuses."""
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    p, static = _mixed_plate(policy)
+    batch = _mixed_history(p, static)
+    directors = result_artifact_payload(batch).tables["shell_surface_directors"]
+    assert not any(str(eid) in directors for eid in static.built.mesh.tris)
+    with pytest.raises(Exception, match="directors are incomplete"):
+        _saved_input(p, static, batch, tmp_path)

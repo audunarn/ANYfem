@@ -29,7 +29,7 @@ from anyfem.solve.run import solve_linear_static_many
 def mesh_project(path):
     project = bracketed_barge_fatigue()
     print("Generating bracketed 5 m mesh", flush=True)
-    mesh = project.generate_mesh(project.target_size, _publication_allocation=project.mesh_numbering)
+    mesh = project.generate_mesh(project.target_size)
     if mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":
         raise ValueError("The generated mesh was marked inspection only")
     mesh = number_full_mesh(mesh, project.mesh_numbering, source_geometry=project.geometry)
@@ -168,6 +168,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="output directory for the new example")
     args = parser.parse_args()
+    # A resolved folder keeps relative_to() exact when Windows paths mix short and long names.
+    args.directory = args.directory.resolve()
     args.directory.mkdir(parents=True, exist_ok=True)
     path = args.directory / "Barge5Fatigue.anyfem"
     if path.exists() or ArtifactStore(path).root.exists():
