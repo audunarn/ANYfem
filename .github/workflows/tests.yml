@@ -16,7 +16,7 @@ on:
         options: [all, reported-spline-four-face]
       mesher_ref:
         type: string
-        default: 'fd0ea76dfa6bb739988a183a1d9e0f0ed32db02f'
+        default: 'bfad0c2f3938985a3987bda66fb5224cb0735bca'
 permissions:
   contents: read
 jobs:
