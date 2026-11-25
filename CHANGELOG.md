@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The bundled barge fatigue example is rebuilt once more so its mesh record carries the beam offsets it was generated
+  with (#43). The example rebuilt in #41 had none, so its mesh record went stale after the first model edit. Now its
+  record stays current (state "completed", not stale) after an edit that changes neither a mesh input nor a beam
+  offset, such as adding an unused section. An edit that changes an offset or another mesh input still makes it
+  stale. The workbench, as for any generated mesh, drops the loaded mesh after a model edit and asks for a mesh
+  before the next solve. Undoing the edit restores it. The example generator records no regional baseline, so
+  remeshing this bundle after an edit is Generate mesh (a full rebuild), not Update mesh. Results are
+  unchanged from #41: same mesh, same saved fields and the same four governing damages.
+
 - Pins ANYgeometry 5f68177 (ANYgeometry #51): the intersection arrangement no longer splits a transition skin/web contact
   curve where no other path meets it, so the floating tripod's 36- and 60-web variants no longer get a short artificial
   segment at the upper mitre of their transition web roots.
