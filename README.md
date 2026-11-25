@@ -172,7 +172,7 @@ python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3d
 python -m pip install -e ".[gui]"
 ```
 
-The `gui` extra requires ANY3dView 0.5.6 or later with its Qt host; the source commit
+The `gui` extra requires `ANY3dView[gpu,qt]>=0.5.6,<0.6` with its Qt host; the source commit
 above (ANY3dView 0.5.6, the one CI checks out) provides it. The GUI extra also pins
 the coordinated ANYmesher source because the published 0.5.0 wheel lacks the
 workbench's meshing-control APIs. The ANYfeSolver, ANYgeometry, ANYmesher and ANY3dView
@@ -196,8 +196,8 @@ mesh size and thickness layers can be edited. Replacing or deleting a solid keep
 earlier runs available under **Results**.
 
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
-ANYgeometry 0.4.5 now publishes that API. The coordinated pins above are the ones in
-`pyproject.toml` and CI; package version numbers alone do not identify this candidate. The scientific matrix and full Qt acceptance remain
+ANYgeometry 0.4.5 now publishes that API. CI checks out the four revisions above; the `gui` extra pins only ANYgeometry and ANYmesher
+by commit. Package version numbers alone do not identify this candidate. The scientific matrix and full Qt acceptance remain
 separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
