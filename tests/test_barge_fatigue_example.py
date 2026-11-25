@@ -160,6 +160,13 @@ def test_bundled_example_is_current_with_the_live_model(project, tmp_path):
     assert record.status != "stale" and not is_rule_stale(record)
     job, = bundled.jobs.values()
     assert job.mesh_hash == record.mesh_hash
-    # The saved end couple is the one the live model applies now.
-    loads = lambda p: [(load.ref.id, tuple(load.force_per_length)) for load in p.load_cases[SERIES].line_loads]
-    assert loads(bundled) == loads(project)
+    # The saved signed history is the one the live model applies now: the end
+    # couple of every step, including its time factor.
+    def history(p):
+        steps = []
+        for step in p.series_children(SERIES):
+            case = p.resolve_case(step)
+            steps.append((step.time, [(load.ref.id, tuple(load.force_per_length), case.envelope_factor(load.envelope))
+                                      for load in case.line_loads]))
+        return steps
+    assert history(bundled) == history(project)

@@ -239,6 +239,8 @@ def result_artifact_payload(
     if global_stress is not None:
         _add_static_stresses(builder, global_stress, prefix="stress", global_only=True,
                              frames=_recovery_frames(global_stress))
+        _add_shell_surface_directors(builder, getattr(global_stress, "element_stresses", None),
+                                     getattr(solution, "built", None))
     patch_stress = getattr(solution, "_requested_patch_stress", None)
     if patch_stress is not None:
         _add_patch_stresses(builder, (patch_stress,), _recovery_frames(patch_stress))
@@ -852,15 +854,32 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
     _add_requested_surface_history(builder, shapes, names)
 
 
-def _built_shell_directors(element_ids, built):
-    """Physical directors of solved shells whose recovery reports none.
+def _add_shell_surface_directors(builder, element_stresses, built):
+    """Save the physical director of every shell that has global surface stresses.
 
-    The solver reports ``physical_director`` for its Q4 shells but not for the
-    S3 triangle, whose surface sign follows ``director_polarity`` times the
-    submitted ``reference_normal``.  A director is filled only from that built
-    element; any element without one is left out, so a consumer that needs a
-    complete table still refuses.
+    A surface stress is only meaningful with the side it belongs to.  The solver
+    reports ``physical_director`` for its Q4 shells but not for the S3 triangle,
+    whose surface sign follows ``director_polarity`` times the submitted
+    ``reference_normal``; that director is filled from the built element.  A shell
+    with neither is left out of the table, and the table is written even when it
+    is empty, so a consumer that needs a complete table refuses instead of
+    guessing the side from the corner order.
     """
+
+    if not isinstance(element_stresses, Mapping):
+        return
+    shells = [eid for eid, values in element_stresses.items()
+              if isinstance(values, Mapping) and any(key in _GLOBAL_SURFACE_STRESSES for key in values)]
+    if not shells:
+        return
+    directors = {str(eid): _json_safe(element_stresses[eid]["physical_director"])
+                 for eid in shells if "physical_director" in element_stresses[eid]}
+    directors.update(_built_shell_directors([eid for eid in shells if str(eid) not in directors], built))
+    builder.add_table("shell_surface_directors", directors)
+
+
+def _built_shell_directors(element_ids, built):
+    """Directors of ``element_ids`` from their built elements (see above)."""
 
     elements = getattr(getattr(getattr(built, "fe_model", None), "mesh", None), "elements", None)
     if not element_ids or elements is None:
@@ -891,14 +910,8 @@ def _add_requested_surface_history(builder, shapes, names=()):
                 if fields:
                     shell_fields[eid] = fields
             frames.append(shell_fields)
-        first = global_recovered[0].element_stresses
-        directors = {str(eid): _json_safe(first[eid]["physical_director"])
-                     for eid in frames[0] if "physical_director" in first[eid]}
-        directors.update(_built_shell_directors(
-            [eid for eid in frames[0] if str(eid) not in directors],
-            getattr(shapes[0], "built", None)))
-        if directors:
-            builder.add_table("shell_surface_directors", directors)
+        _add_shell_surface_directors(builder, global_recovered[0].element_stresses,
+                                     getattr(shapes[0], "built", None))
         provenance = {"case_recovery": [_stress_provenance(value) for value in global_recovered]}
         if names:
             provenance["load_cases"] = list(names)
