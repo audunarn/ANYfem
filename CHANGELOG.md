@@ -27,6 +27,27 @@
   until it is regenerated. This applies to every saved project with automatic-offset stiffeners on a plate,
   including the bundled barge fatigue example. Detecting such meshes automatically is a separate follow-up.
 
+- Meshes saved before the foot-on-plate-surface offset rule open as stale (owner decision B, 2026-11-25). The project
+  file header now names the rule (`"beam_offset_rule": "foot_on_plate_surface"`), written only when the project defines
+  a beam section, so documents without beams keep their exact bytes. A document that defines a beam section and does
+  not name this rule opens, in the workbench, a headless `ProjectMeshSession`, `load_project` or a submodel parent, with
+  every saved generated mesh marked stale: it is not adopted, not reused by Update mesh (which refuses and asks for a
+  full rebuild), not admitted by `build_fe_model`, and a submodel source or run from it is refused or reported stale.
+  Generating the mesh again clears it; saving without regenerating keeps the stale marks. Results solved on such a
+  mesh normally show as stale in the workbench through its existing job check, which is not part of this guarantee.
+  Imported meshes are unchanged.
+  Limits (owner decisions B and B1): the check is by document, not by offset values, so it also marks meshes whose
+  offsets did not change (for example explicit-only offsets, or a document saved by ANYfem between the offset change
+  and this one). It follows the document link: the active published mesh of a numbered document and a mesh read from
+  its saved artifact record. Not checked: identifying an untagged mesh copy (a decoded mesh dictionary, a worker
+  transport, a read by bare URI string) by its content, which is refused only when its numbered document's active
+  published mesh is stale; a direct call of a regional-update backend with a baseline and mesh supplied by the caller, and
+  a hand-assembled `BuiltModel`. The workbench does not adopt a stale mesh, so it never hands one to a worker. Legacy
+  pressure recovery on open still reads a stale mesh's shell cells, which do not depend on the beam offset rule.
+  Opening a document costs one header check and one pass over its mesh records. The
+  bundled barge fatigue example now opens with its mesh and results stale (they were made with mid-surface offsets);
+  its fatigue assessment still opens from the saved result.
+
 - A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the
   source face(s) through the preparation lineage and their builder groups, for example
   `[quad-first face 794 near (-22.54, 29.57, -16); source face 302; groups: Arm 2 - heave plate]` (rendered at
