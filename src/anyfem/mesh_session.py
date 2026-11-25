@@ -115,6 +115,8 @@ class ProjectMeshSession:
             raise ValueError("mesh session is closed")
         if not isinstance(settings, MeshSettings) or settings.regional is not None or settings.publication_allocation is not None:
             raise ValueError("expected MeshSettings without a preselected parent")
+        if regional:
+            self._baseline()  # its refusals (offset rule, changed offsets) come first
         ticket = publication_ticket(self)
         if regional:
             if unchanged_record(self, ticket, settings, self._baseline()):

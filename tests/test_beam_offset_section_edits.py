@@ -319,3 +319,76 @@ def test_workbench_verdict_cache_sees_a_changed_record(tmp_path):
         assert editor.mesh_record_state(record) == "completed"
     finally:
         editor._project_lock.release()
+
+
+def test_synchronous_generation_refuses_offsets_that_differ_from_the_ticket(tmp_path):
+    """An edit that reaches the mesher and is reverted before commit must not be published."""
+    editor = _workbench(tmp_path)
+    try:
+        project = editor.project
+        before = set(project.mesh_records)
+        original = project.generate_mesh
+
+        def edited_generation(*args, **kwargs):
+            plate = project.plate_sections["plate"]
+            project.plate_sections["plate"] = replace(plate, thickness=0.05)
+            try:
+                return original(*args, **kwargs)
+            finally:
+                project.plate_sections["plate"] = plate
+
+        project.generate_mesh = edited_generation
+        with pytest.raises(ValueError, match="superseded"):
+            editor.generate_mesh(.5, strategy="mapped")
+        assert {r.id for r in project.mesh_records.values() if r.status == "completed"} <= before
+    finally:
+        editor._project_lock.release()
+
+
+def test_workbench_state_inside_the_first_transaction_after_publication_is_live(tmp_path):
+    editor = _workbench(tmp_path)
+    try:
+        record = _active(editor.project)
+        assert editor.mesh_record_state(record) == "completed"
+        with editor.session.transaction("open edit"):
+            plate = editor.project.plate_sections["plate"]
+            editor.project.plate_sections["plate"] = replace(plate, thickness=0.02)
+            assert editor.mesh_record_state(record) == "stale"
+            editor.project.plate_sections["plate"] = plate
+        assert editor.mesh_record_state(record) == "completed"
+    finally:
+        editor._project_lock.release()
+
+
+def test_workbench_verdict_cache_sees_a_changed_record_kind(tmp_path):
+    editor = _workbench(tmp_path)
+    try:
+        record = _active(editor.project)
+        editor.run(AddPlateSection(PlateSection(name="plate", thickness=0.02, material="S355")))
+        assert editor.mesh_record_state(record) == "stale"
+        record.kind = "imported"
+        assert editor.mesh_record_state(record) == "completed"
+    finally:
+        editor._project_lock.release()
+
+
+def test_headless_update_names_the_offset_rule_before_reading_retained_meshes(tmp_path):
+    import json
+    project, edges = _model()
+    session = ProjectMeshSession(project)
+    session.generate_mesh(SETTINGS)
+    path = session.save(tmp_path / "old.anyfem")
+    session.close()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["anyfem"].pop("beam_offset_rule", None)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    project = load_project(path)
+    project.mesh_numbering = replace(project.mesh_numbering, generation=0, active_mesh_id=None)
+    for record in project.mesh_records.values():
+        record.artifact_id = "missing-sidecar"
+    session = ProjectMeshSession(project, path)
+    try:
+        with pytest.raises(ValueError, match="offset rule.*full rebuild"):
+            session.update_mesh(replace(SETTINGS, overrides=((edges[0][1], 4),)))
+    finally:
+        session.close()

@@ -40,6 +40,14 @@ def mesh_source_digests(project):
     return _source_digests(_model_payload(project_to_dict(project)))
 
 
+def stored_offsets(offsets):
+    """``Project.beam_offsets``-shaped values in the stored (JSON) form."""
+    return {
+        str(int(edge)): ([float(v) for v in offset] if isinstance(offset, tuple) else float(offset))
+        for edge, offset in sorted(offsets.items())
+    }
+
+
 def recorded_beam_offsets(project, model_hash=None):
     """The beam offsets the mesher receives, in the form a mesh record stores.
 
@@ -53,11 +61,15 @@ def recorded_beam_offsets(project, model_hash=None):
     """
     cached = project.__dict__.get("_anyfem_recorded_beam_offsets")
     if model_hash is not None and cached is not None and cached[0] == model_hash:
+        if isinstance(cached[1], BaseException):
+            raise cached[1]
         return cached[1]
-    offsets = {
-        str(int(edge)): ([float(v) for v in offset] if isinstance(offset, tuple) else float(offset))
-        for edge, offset in sorted(project.beam_offsets.items())
-    }
+    try:
+        offsets = stored_offsets(project.beam_offsets)
+    except (ValueError, ArithmeticError) as error:
+        if model_hash is not None:  # one evaluation per revision, also when it fails
+            project.__dict__["_anyfem_recorded_beam_offsets"] = (model_hash, error)
+        raise
     if model_hash is not None:
         project.__dict__["_anyfem_recorded_beam_offsets"] = (model_hash, offsets)
     return offsets
@@ -76,7 +88,8 @@ def beam_offsets_changed(project, record, model_hash=None):
     edit).  Offsets that cannot be evaluated count as changed.  Imported
     meshes carry their own offsets and are not checked.  Equal model hashes
     imply equal offsets: publication records the offsets of the model the
-    publication ticket (and, for snapshot jobs, the meshing snapshot) proved.
+    publication ticket proved, and refuses when the meshing snapshot (job
+    paths) or the offsets the mesher was handed (synchronous path) differ.
     """
     if getattr(record, "kind", "generated") == "imported":
         return False
@@ -222,7 +235,7 @@ def unchanged_record(workflow, ticket, settings, baseline):
 
 def commit_generated_mesh(workflow, ticket, record, mesh, baseline, *,
                           retained_nodes=(), retained_elements=(), repairs=None, settings_hash=None,
-                          on_rollback=None, before_publish=None):
+                          on_rollback=None, before_publish=None, mesher_offsets=None):
     """Commit the active artifact, selected references and both high-water marks together."""
     from ..mesh_reference_update import stage_mesh_references
 
@@ -267,7 +280,10 @@ def commit_generated_mesh(workflow, ticket, record, mesh, baseline, *,
             if refusal:
                 record.summary["regional_refusal"] = refusal
         record.summary["mesh_sources"] = mesh_source_digests(project)
-        record.summary[BEAM_OFFSETS_KEY] = _copy_offsets(recorded_beam_offsets(project, ticket.model_hash))
+        offsets = recorded_beam_offsets(project, ticket.model_hash)
+        if mesher_offsets is not None and stored_offsets(mesher_offsets) != offsets:
+            raise ValueError("mesh candidate was superseded by a model edit or another publication")
+        record.summary[BEAM_OFFSETS_KEY] = _copy_offsets(offsets)
         command = PublishMesh(ticket.expected, state, ticket.parent_id, record, references)
         if references is not None and selection is not None:
             command._selection_before = list(selection.items)

@@ -2869,9 +2869,13 @@ class Project:
                 }
             )
         )
+        source_offsets = self.beam_offsets
+        # The source-edge offsets this pass hands the mesher (read once), so a
+        # publication can prove it records what the mesh was made with.
+        self.__dict__["_anyfem_mesher_beam_offsets"] = dict(source_offsets)
         working_offsets = {
             item.id: offset
-            for source_id, offset in self.beam_offsets.items()
+            for source_id, offset in source_offsets.items()
             for item in descendants("edge", source_id)
         }
         source_overrides = (

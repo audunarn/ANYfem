@@ -695,6 +695,7 @@ class WorkbenchWorkflow:
                 element_high_water=ticket.allocation.element_high_water)
             created_mesh = update.mesh
         else:
+            self.project.__dict__.pop("_anyfem_mesher_beam_offsets", None)
             created_mesh = self.project.generate_mesh(
                 target_size,
                 overrides=self.seeding_overrides,
@@ -841,7 +842,9 @@ class WorkbenchWorkflow:
             commit_generated_mesh(self, ticket, record, created_mesh, baseline,
                                   retained_nodes=update.retained_nodes if update else (),
                                   retained_elements=update.retained_elements if update else (),
-                                  repairs=_reference_repairs, settings_hash=settings.input_hash)
+                                  repairs=_reference_repairs, settings_hash=settings.input_hash,
+                                  mesher_offsets=None if update else
+                                  self.project.__dict__.get("_anyfem_mesher_beam_offsets"))
         self._mesh_details_record_id = record.id
         self._meshes[record.id] = created_mesh
         if inspection_only:
@@ -1114,24 +1117,29 @@ class WorkbenchWorkflow:
     def mesh_record_state(self, record: MeshRecord) -> str:
         """Return persisted state with revision-based staleness applied."""
 
+        session = self.session
+        # The project equals its committed revision outside a transaction and
+        # while the revision is being published.  Inside an open transaction
+        # the state is computed against the live model and nothing is cached.
+        cacheable = (not getattr(session, "_transaction_depth", 0)
+                     or getattr(session, "_publishing_revision", False))
+        live = None
+        if not cacheable and record.status in ("completed", "inspection_only", "stale"):
+            from .mesh_publication import current_mesh_sources
+            live = current_mesh_sources(self.project)
+        reference = live[0] if live is not None else session.revision.model_hash
         if record.status in ("completed", "inspection_only", "stale") and (
             record.source_model_hash
-            and record.source_model_hash != self.session.revision.model_hash
+            and record.source_model_hash != reference
         ):
             sources = record.summary.get("mesh_sources")
             if sources is not None:
                 from copy import deepcopy
                 from .mesh_publication import BEAM_OFFSETS_KEY, changed_mesh_sources, current_mesh_sources
-                # The project equals its committed revision outside a
-                # transaction and while the revision is being published.  Then
-                # the current sources are computed once per revision and each
-                # record's verdict is cached against copies of its own inputs,
-                # so a tree refresh pays the comparison once per edit, not per
-                # record per paint.  Inside an open transaction nothing cached
-                # is read or written.
-                session = self.session
-                cacheable = (not getattr(session, "_transaction_depth", 0)
-                             or getattr(session, "_publishing_revision", False))
+                # Outside a transaction the current sources are computed once
+                # per revision and each record's verdict is cached against
+                # copies of its own inputs, so a tree refresh pays the
+                # comparison once per edit, not per record per paint.
                 revision = session.revision.model_hash
                 offsets = record.summary.get(BEAM_OFFSETS_KEY)
                 if cacheable:
@@ -1140,15 +1148,15 @@ class WorkbenchWorkflow:
                         memo = self.__dict__["_mesh_source_memo"] = (revision, current_mesh_sources(self.project), {})
                     current, verdicts = memo[1], memo[2]
                     hit = verdicts.get(record.id)
-                    if (hit is not None and hit[1] == record.source_model_hash
+                    if (hit is not None and hit[1] == record.source_model_hash and hit[4] == record.kind
                             and hit[2] == sources and hit[3] == offsets):
                         changed = hit[0]
                     else:
                         changed = bool(changed_mesh_sources(self.project, record, current))
                         verdicts[record.id] = (changed, record.source_model_hash,
-                                               deepcopy(sources), deepcopy(offsets))
+                                               deepcopy(sources), deepcopy(offsets), record.kind)
                 else:
-                    changed = bool(changed_mesh_sources(self.project, record))
+                    changed = bool(changed_mesh_sources(self.project, record, live))
                 if not changed:
                     return str(record.status)
             return "stale"
