@@ -175,9 +175,10 @@ python -m pip install -e ".[gui]"
 The `gui` extra requires ANY3dView 0.5.6 or later with its Qt host; the source commit
 above (ANY3dView 0.5.6, the one CI checks out) provides it. The GUI extra also pins
 the coordinated ANYmesher source because the published 0.5.0 wheel lacks the
-workbench's meshing-control APIs. All three commands use the revisions CI uses.
-The committed owner snapshots above match the candidate
-CI inputs; they do not change the qualified release graph. In that environment,
+workbench's meshing-control APIs. The ANYfeSolver, ANYgeometry, ANYmesher and ANY3dView
+revisions above are the ones CI checks out; the application lane
+(`.github/workflows/application-lane.yml`) lists the full dependency set. They do not
+change the qualified release graph. In that environment,
 launch with `anyfem`, `anyfem-qt`, `python -m anyfem.ui.qt`, or
 `python run_gui.py` (also accepts `--qt`). Qt is the default frontend.
 For the retained legacy frontend, install `.[tk]` and use `anyfem-tk`,
@@ -195,9 +196,8 @@ mesh size and thickness layers can be edited. Replacing or deleting a solid keep
 earlier runs available under **Results**.
 
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
-ANYgeometry 0.4.5 now publishes that API. The coordinated pins above match merged
-PR10 and its paired mesher/solver inputs; package version numbers alone do not
-identify this candidate. The scientific matrix and full Qt acceptance remain
+ANYgeometry 0.4.5 now publishes that API. The coordinated pins above are the ones in
+`pyproject.toml` and CI; package version numbers alone do not identify this candidate. The scientific matrix and full Qt acceptance remain
 separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
