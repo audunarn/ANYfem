@@ -98,6 +98,9 @@ def build_fe_model(
 ) -> BuiltModel:
     """Build the solver model for one load case or combination."""
 
+    from ..beam_offset_rule import REFUSAL, rule_stale_record_for
+    if rule_stale_record_for(project, mesh) is not None:
+        raise ProjectError(REFUSAL)
     producing_id = getattr(mesh, "_anyfem_mesh_record_id", None)
     active_id = project.mesh_numbering.active_mesh_id
     if project.mesh_numbering.generation:

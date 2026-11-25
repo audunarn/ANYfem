@@ -2395,3 +2395,29 @@ def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper o
             raise ProjectFileError(f"drawing_thickness_sides: {error}") from None
         return project
     return _sides_base_project_from_dict(data, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Automatic stiffener offset rule.  Written only when the project defines a beam
+# section, so documents without beams keep their exact bytes.  A beam document
+# read without the current rule opens with its saved generated meshes stale
+# (see anyfem.beam_offset_rule for the contract and its limits).
+
+_rule_base_project_to_dict = project_to_dict
+_rule_base_project_from_dict = project_from_dict
+
+
+def project_to_dict(project, *args, **kwargs):  # noqa: F811 - additive wrapper over the established writer
+    from ..beam_offset_rule import CURRENT_RULE, HEADER_KEY, needs_rule
+    data = _rule_base_project_to_dict(project, *args, **kwargs)
+    if needs_rule(project):
+        data["anyfem"][HEADER_KEY] = CURRENT_RULE
+    return data
+
+
+def project_from_dict(data, *args, **kwargs):  # noqa: F811 - additive wrapper over the established reader
+    from ..beam_offset_rule import CURRENT_RULE, header_rule, migrate_pre_rule_meshes
+    project = _rule_base_project_from_dict(data, *args, **kwargs)
+    if header_rule(data) != CURRENT_RULE:
+        migrate_pre_rule_meshes(project)
+    return project

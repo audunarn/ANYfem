@@ -119,7 +119,10 @@ def check_ticket(workflow, ticket):
 
 def unchanged_record(workflow, ticket, settings, baseline):
     from ..regional_dispatch import plan_regional_update
+    from ..beam_offset_rule import is_rule_stale
     parent = workflow.project.mesh_records.get(ticket.parent_id)
+    if parent is not None and is_rule_stale(parent):
+        return None
     if (parent and (parent.source_model_hash == ticket.model_hash or
                     ("mesh_sources" in parent.summary and not changed_mesh_sources(workflow.project, parent)))
             and parent.summary.get("regional_settings_hash") == settings.input_hash
