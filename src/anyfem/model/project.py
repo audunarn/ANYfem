@@ -2869,10 +2869,10 @@ class Project:
                 }
             )
         )
+        # The source-edge offsets this pass hands the mesher, read once.  The
+        # returned mesh carries them so a publication can prove it records
+        # what that mesh was made with.
         source_offsets = self.beam_offsets
-        # The source-edge offsets this pass hands the mesher (read once), so a
-        # publication can prove it records what the mesh was made with.
-        self.__dict__["_anyfem_mesher_beam_offsets"] = dict(source_offsets)
         working_offsets = {
             item.id: offset
             for source_id, offset in source_offsets.items()
@@ -3334,6 +3334,7 @@ class Project:
             self._mesh_preparation_cache = pending_mesh_preparation_cache
             self._mesh_preparation_qualification = qualification
         self._last_mesh_preparation = preparation_payload
+        mesh._anyfem_mesher_beam_offsets = dict(source_offsets)
         return mesh
 
     def native_meshing_session(

@@ -673,6 +673,8 @@ class WorkbenchWorkflow:
         effective_native_backend = (
             None if resolved_strategy == "mapped" else requested_backend
         )
+        if _regional_update:
+            self._refuse_regional_parent()
         ticket = publication_ticket(self)
         settings = MeshSettings.create(
             target_size, element_order=self.project.element_order, overrides=self.seeding_overrides,
@@ -695,7 +697,6 @@ class WorkbenchWorkflow:
                 element_high_water=ticket.allocation.element_high_water)
             created_mesh = update.mesh
         else:
-            self.project.__dict__.pop("_anyfem_mesher_beam_offsets", None)
             created_mesh = self.project.generate_mesh(
                 target_size,
                 overrides=self.seeding_overrides,
@@ -712,6 +713,8 @@ class WorkbenchWorkflow:
                 execution_policy=execution_policy,
                 pool_lease=pool_lease,
             )
+        # Offsets the mesher was handed for this mesh (numbering returns a new object).
+        mesher_offsets = None if update else getattr(created_mesh, "_anyfem_mesher_beam_offsets", None)
         automation_result = created_mesh.hybrid_diagnostics.get("automation", {})
         inspection_only = automation_result.get("status") == "inspection_only"
         if update is None and not inspection_only:
@@ -843,8 +846,7 @@ class WorkbenchWorkflow:
                                   retained_nodes=update.retained_nodes if update else (),
                                   retained_elements=update.retained_elements if update else (),
                                   repairs=_reference_repairs, settings_hash=settings.input_hash,
-                                  mesher_offsets=None if update else
-                                  self.project.__dict__.get("_anyfem_mesher_beam_offsets"))
+                                  mesher_offsets=mesher_offsets)
         self._mesh_details_record_id = record.id
         self._meshes[record.id] = created_mesh
         if inspection_only:
@@ -872,13 +874,25 @@ class WorkbenchWorkflow:
         self.refresh_panels()
         return created_mesh
 
-    def _regional_parent(self, ticket):
-        record = self.project.mesh_records.get(ticket.parent_id)
+    def _refuse_regional_parent(self, parent_id=None):
+        """Offset-rule and changed-offset refusals of the Update mesh parent.
+
+        Called before the publication ticket, which reads retained meshes.
+        """
+        if parent_id is None:
+            numbering = self.project.mesh_numbering
+            parent_id = (numbering.active_mesh_id if numbering.generation
+                         else getattr(self, "mesh_record_id", None))
+        record = self.project.mesh_records.get(parent_id)
         from ..beam_offset_rule import REFUSAL, has_rule_stale_records
         if record is None and has_rule_stale_records(self.project):
             raise ValueError(REFUSAL)
         from .mesh_publication import require_regional_parent
         require_regional_parent(self.project, record)
+        return record
+
+    def _regional_parent(self, ticket):
+        record = self._refuse_regional_parent(ticket.parent_id)
         baseline = record.summary.get("regional_baseline") if record else None
         if baseline is None:
             if record is not None and record.summary.get("regional_refusal"):
@@ -975,6 +989,7 @@ class WorkbenchWorkflow:
         )
         if _preview_update:
             from ..regional_dispatch import plan_regional_update
+            self._refuse_regional_parent()
             ticket = publication_ticket(self)
             parent_mesh, baseline = self._regional_parent(ticket)
             plan = plan_regional_update(self.project, settings, baseline)
@@ -1007,6 +1022,8 @@ class WorkbenchWorkflow:
         effective_native_backend = (
             None if settings.strategy == "mapped" else requested_backend
         )
+        if _regional_update:
+            self._refuse_regional_parent()
         ticket = publication_ticket(self)
         if _regional_update:
             from ..mesh_jobs import RegionalJobInput

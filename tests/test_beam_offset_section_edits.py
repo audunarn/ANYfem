@@ -392,3 +392,94 @@ def test_headless_update_names_the_offset_rule_before_reading_retained_meshes(tm
             session.update_mesh(replace(SETTINGS, overrides=((edges[0][1], 4),)))
     finally:
         session.close()
+
+
+def test_a_wrapper_that_returns_an_earlier_pass_is_refused(tmp_path):
+    """The offsets travel on the returned mesh, not in a slot a later pass overwrites."""
+    editor = _workbench(tmp_path)
+    try:
+        project = editor.project
+        original = project.generate_mesh
+
+        def two_passes(*args, **kwargs):
+            plate = project.plate_sections["plate"]
+            project.plate_sections["plate"] = replace(plate, thickness=0.05)
+            try:
+                first = original(*args, **kwargs)
+            finally:
+                project.plate_sections["plate"] = plate
+            original(*args, **kwargs)
+            return first
+
+        project.generate_mesh = two_passes
+        with pytest.raises(ValueError, match="superseded"):
+            editor.generate_mesh(.5, strategy="mapped")
+    finally:
+        editor._project_lock.release()
+
+
+class _EditAtPublication:
+    """A cancellation token whose second publication check edits the supporting plate."""
+
+    def __init__(self, project):
+        self.project, self.calls = project, 0
+
+    def raise_if_cancelled(self, phase="", *args, **kwargs):
+        if phase == "mesh publication":
+            self.calls += 1
+            if self.calls == 2:
+                plate = self.project.plate_sections["plate"]
+                self.project.plate_sections["plate"] = replace(plate, thickness=0.05)
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: False
+
+
+def test_a_publication_callback_that_edits_the_model_is_refused(tmp_path):
+    project, _ = _model()
+    session = ProjectMeshSession(project)
+    token = _EditAtPublication(project)
+    try:
+        with pytest.raises(ValueError, match="superseded"):
+            session.generate_mesh(SETTINGS, cancellation=token)
+        assert token.calls == 2
+        assert not [r for r in project.mesh_records.values() if r.status == "completed"]
+    finally:
+        session.close()
+
+
+def test_workbench_update_in_an_unnumbered_document_refuses_changed_offsets_before_reading_meshes(tmp_path):
+    session, project, _ = _session(tmp_path)
+    path = session.path
+    session.close()
+    editor = FileWorkbench(_model()[0])
+    editor.open_project(str(path))
+    try:
+        editor.project.mesh_numbering = replace(editor.project.mesh_numbering, generation=0, active_mesh_id=None)
+        record = next(iter(editor.project.mesh_records.values()))
+        editor.mesh_record_id = record.id
+        editor._meshes.clear()
+        record.artifact_id = "missing-sidecar"
+        editor.run(AddPlateSection(PlateSection(name="plate", thickness=0.02, material="S355")))
+        with pytest.raises(ValueError, match=CHANGED + ".*full rebuild"):
+            editor.update_mesh(.5, strategy="mapped")
+    finally:
+        editor._project_lock.release()
+
+
+def test_a_cached_offset_failure_is_raised_without_growing_its_traceback(tmp_path):
+    import traceback
+    from anyfem.application.mesh_publication import _model_hash, recorded_beam_offsets
+    project, edges = _model()
+    start = project.geometry.vertices[project.geometry.edges[edges[0][0]].start]
+    end = project.geometry.vertices[project.geometry.edges[edges[0][0]].end]
+    along = tuple(float(b - a) for a, b in zip(getattr(start, "position", start), getattr(end, "position", end)))
+    project.add_beam_section(replace(project.beam_sections["beam"], web_direction=along))
+    model_hash = _model_hash(project)
+    depths = []
+    for _ in range(3):
+        try:
+            recorded_beam_offsets(project, model_hash)
+        except ValueError as error:
+            depths.append(len(traceback.extract_tb(error.__traceback__)))
+    assert len(depths) == 3 and depths[1] == depths[2]

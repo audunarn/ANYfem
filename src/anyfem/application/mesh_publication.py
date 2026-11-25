@@ -62,7 +62,8 @@ def recorded_beam_offsets(project, model_hash=None):
     cached = project.__dict__.get("_anyfem_recorded_beam_offsets")
     if model_hash is not None and cached is not None and cached[0] == model_hash:
         if isinstance(cached[1], BaseException):
-            raise cached[1]
+            from copy import copy
+            raise copy(cached[1]).with_traceback(None)
         return cached[1]
     try:
         offsets = stored_offsets(project.beam_offsets)
@@ -309,6 +310,9 @@ def commit_generated_mesh(workflow, ticket, record, mesh, baseline, *,
                 transaction.on_rollback(on_rollback)
             if before_publish is not None:
                 before_publish()
+                # The callback must not have edited the model the offsets were
+                # recorded from (the final hash below includes any edit).
+                check_ticket(workflow, ticket)
             if ticket.journal is not None:
                 def write_numbers():
                     lock = getattr(workflow, "_file_lock", None) or getattr(workflow, "_project_lock", None)
