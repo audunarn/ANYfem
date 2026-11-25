@@ -6,9 +6,10 @@
   solver reports `physical_director` for Q4 shells but not for the S3 triangle, so the result writer saved a partial
   `shell_surface_directors` table and ANYfatigue refused it ("the saved shell surface directors are incomplete"):
   fatigue on any mixed mesh failed. The writer now fills each shell without a solver director from its built element,
-  `director_polarity * reference_normal` (the S3 element's own "top" side). Every saved result with global shell
-  surface stresses now carries the table, a single static result included (before: batch and history results only,
-  and only when some shell had a solver director). A shell with neither a solver director nor a valid reference
+  `director_polarity * reference_normal` (the S3 element's own "top" side). Linear static, linear batch and transient
+  results saved with requested global shell surface stresses now carry the table, a single static result included
+  (before: batch and transient only, and only when some shell had a solver director); committed nonlinear histories
+  do not, and ANYfatigue does not admit those. A shell with neither a solver director nor a valid reference
   normal is left out, and the table is written even when empty, so ANYfatigue refuses instead of guessing the side
   from the corner order. Changed behaviour: fatigue on legacy shell formulations (`legacy` Q4, `legacy-s3`), which
   used the corner order before, is now refused with "the saved shell surface directors are incomplete".
