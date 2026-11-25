@@ -12,12 +12,16 @@ marked stale (:func:`migrate_pre_rule_meshes`): it is not adopted, reused as a
 regional-update parent or admitted for solving until the mesh is generated
 again with a full rebuild.
 
-Scope (owner decision B, 2026-11-25): the guarantee covers meshes saved in a
-document.  A mesh that reaches assembly or a regional update without its
-record tag is still recognised when it reproduces a stale record's semantic
-mesh hash.  A hand-assembled ``BuiltModel``, and a mesh dictionary of another
-document, are not checked.  Legacy pressure recovery on open still reads a
-stale record's shell cells: plate cells do not depend on the beam offset rule.
+Scope (owner decisions B and B1, 2026-11-25): the guarantee covers meshes
+saved in a document and reached through it: the active published mesh of a
+numbered document, and a mesh read from its saved artifact record (which
+carries the record tag).  Not checked: an untagged mesh copy (a decoded
+dictionary, a worker transport, a read by bare URI string), a direct call of
+a regional-update backend with a caller-supplied baseline and mesh, and a
+hand-assembled ``BuiltModel``.  The workbench never hands a stale mesh to a
+worker, because it does not adopt one.  Legacy pressure recovery on open
+still reads a stale record's shell cells, which do not depend on the beam
+offset rule.
 """
 from __future__ import annotations
 
@@ -86,68 +90,25 @@ def rule_stale_record_for(project: Any, mesh: Any) -> Any:
 
     A mesh belongs to the active published record of a numbered document, or
     to the record (or artifact) its read tag names.  A mesh without a tag (a
-    decoded copy, a worker transport, a read by URI string) belongs to a
-    rule-stale record whose semantic mesh hash it reproduces.  A mesh that
-    :meth:`Project.generate_mesh` produced in this process is current.
+    decoded copy, a worker transport, a read by bare URI string) has no link
+    to its document and is not checked (owner decision B1, 2026-11-25).
     """
 
     records = project.mesh_records
-    stale = [record for record in records.values() if is_rule_stale(record)]
-    if not stale:
+    if not has_rule_stale_records(project):
         return None
     numbering = project.mesh_numbering
     if numbering.generation:
         active = records.get(numbering.active_mesh_id)
         if active is not None and is_rule_stale(active):
             return active
-    if getattr(mesh, "_anyfem_rule_fresh", False):
-        return None
     tag = getattr(mesh, "_anyfem_mesh_record_id", None)
-    if tag is not None:
-        for record in records.values():
-            if record.id == tag or record.artifact_id == tag:
-                return record if is_rule_stale(record) else None
-    return _stale_by_content(records, mesh)
-
-
-def _stale_by_content(records: Mapping[str, Any], mesh: Any) -> Any:
-    """Match an untagged mesh by content against the saved records.
-
-    Records hash either the semantic form (``mesh_semantic_hash``) or, for
-    older workbench, imported and pressure-transfer records, the plain codec
-    digest.  A mesh whose content is a current record's content is current
-    (it reproduces a publication made under the current rule); otherwise a
-    match with a rule-stale record makes it stale.
-    """
-
-    from anymesher.serialize import mesh_to_dict
-
-    from .document import canonical_hash
-    from .mesh_jobs import matches_mesh_hash
-
-    codec_digest = canonical_hash(mesh_to_dict(mesh))
-
-    def reproduces(record: Any) -> bool:
-        if not record.mesh_hash:
-            return False
-        if record.mesh_hash == codec_digest:
-            return True
-        try:
-            return matches_mesh_hash(
-                mesh, record.mesh_hash, model_hash=record.source_model_hash,
-                mesh_input_hash=record.mesh_input_hash,
-                structural_preparation=record.structural_preparation)
-        except (TypeError, ValueError):
-            return False
-
-    stale_match = None
-    for record in sorted(records.values(), key=is_rule_stale):
-        if not reproduces(record):
-            continue
-        if not is_rule_stale(record):
-            return None
-        stale_match = stale_match or record
-    return stale_match
+    if tag is None:
+        return None
+    for record in records.values():
+        if (record.id == tag or record.artifact_id == tag) and is_rule_stale(record):
+            return record
+    return None
 
 
 def is_pre_rule_document(document: Mapping[str, Any]) -> bool:

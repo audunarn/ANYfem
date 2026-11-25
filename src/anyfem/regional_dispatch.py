@@ -103,15 +103,11 @@ def plan_regional_update(project, settings, baseline, **kwargs):
 
 def generate_regional_update(project, settings, baseline, old_mesh, *, mesh_cancellation=None, **kwargs):
     _check_seam_policy_once(project)
-    from .beam_offset_rule import REFUSAL, has_rule_stale_records, rule_stale_record_for
-    if has_rule_stale_records(project):
-        parent = old_mesh
-        from collections.abc import Mapping
-        if isinstance(parent, Mapping):
-            from anymesher.serialize import mesh_from_dict
-            parent = mesh_from_dict(parent)
-        if rule_stale_record_for(project, parent) is not None:
-            raise component.RegionalUpdateUnsupported(REFUSAL)
+    from .beam_offset_rule import REFUSAL, rule_stale_record_for
+    # Tag and active-record check only: a caller-held untagged parent is not
+    # linked to its document (anyfem.beam_offset_rule scope).
+    if rule_stale_record_for(project, old_mesh) is not None:
+        raise component.RegionalUpdateUnsupported(REFUSAL)
     if baseline.get('schema') == periodic.SCHEMA:
         return periodic.generate_periodic_update(project, settings, baseline, old_mesh, **kwargs)
     if baseline.get('schema') == general.SCHEMA:

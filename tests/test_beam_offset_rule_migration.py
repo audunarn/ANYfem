@@ -182,20 +182,6 @@ def _unnumbered_pre_rule(tmp_path):
     return path, project, record, edges
 
 
-def test_untagged_copies_of_a_pre_rule_mesh_are_refused(tmp_path):
-    from anymesher.serialize import mesh_from_dict, mesh_to_dict
-
-    path, project, record, _ = _unnumbered_pre_rule(tmp_path)
-    store = ArtifactStore(path)
-    artifact = project.artifacts[record.artifact_id]
-    # A worker transport / decoded copy, and a read by URI string, carry no record tag.
-    copies = (mesh_from_dict(mesh_to_dict(store.read_mesh(artifact))), store.read_mesh(artifact.uri))
-    for mesh in copies:
-        assert getattr(mesh, "_anyfem_mesh_record_id", None) is None
-        with pytest.raises(ProjectError, match="offset rule"):
-            build_fe_model(project, mesh, require_loads=False, require_supports=False)
-
-
 def test_a_freshly_generated_mesh_of_a_migrated_unnumbered_project_is_admitted(tmp_path):
     from anymesher.serialize import mesh_from_dict, mesh_to_dict
 
@@ -212,10 +198,6 @@ def test_a_freshly_generated_mesh_of_a_migrated_unnumbered_project_is_admitted(t
                        require_loads=False, require_supports=False)
     finally:
         session.close()
-    # Documented limit: an untagged copy of an unpublished rebuild that reproduces the
-    # stale record exactly (unchanged offsets, same numbers) is refused, failing closed.
-    with pytest.raises(ProjectError, match="offset rule"):
-        build_fe_model(project, mesh_from_dict(mesh_to_dict(fresh)), require_loads=False, require_supports=False)
 
 
 def test_a_regional_update_from_a_pre_rule_parent_is_refused_on_every_dispatch_path(tmp_path):
@@ -277,31 +259,6 @@ def test_run_staleness_of_a_raw_pre_rule_snapshot_is_stale(tmp_path, monkeypatch
     document["anyfem"].pop(RULE_KEY)
     raw = ProjectSnapshot(document=document, revision=snap.revision)
     assert "SOURCE_MESH_CHANGED" in submodel_run_staleness(raw, run, setup.store)
-
-
-def test_untagged_copy_matches_a_stale_record_with_a_legacy_codec_digest(tmp_path):
-    from anymesher.serialize import mesh_from_dict, mesh_to_dict
-    from anyfem.document import canonical_hash
-
-    path, project, record, _ = _unnumbered_pre_rule(tmp_path)
-    mesh = ArtifactStore(path).read_mesh(project.artifacts[record.artifact_id])
-    # Older workbench and pressure-transfer records store the plain codec digest.
-    record.mesh_hash = canonical_hash(mesh_to_dict(mesh))
-    with pytest.raises(ProjectError, match="offset rule"):
-        build_fe_model(project, mesh_from_dict(mesh_to_dict(mesh)), require_loads=False, require_supports=False)
-
-
-def test_content_of_a_current_record_is_current_even_if_a_stale_record_matches(tmp_path):
-    from anymesher.serialize import mesh_from_dict, mesh_to_dict
-    from anyfem.document import canonical_hash
-    from anyfem.model.records import MeshRecord
-
-    path, project, record, _ = _unnumbered_pre_rule(tmp_path)
-    mesh = ArtifactStore(path).read_mesh(project.artifacts[record.artifact_id])
-    digest = canonical_hash(mesh_to_dict(mesh))
-    current = MeshRecord(name="rebuilt", source_model_hash="h", mesh_input_hash="", mesh_hash=digest)
-    project.mesh_records[current.id] = current
-    build_fe_model(project, mesh_from_dict(mesh_to_dict(mesh)), require_loads=False, require_supports=False)
 
 
 def test_regional_dispatch_accepts_any_mapping_parent_after_a_rebuild(tmp_path):

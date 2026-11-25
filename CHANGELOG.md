@@ -35,12 +35,12 @@
   full rebuild), not admitted by `build_fe_model`, and a submodel source or run from it is refused or reported stale.
   Generating the mesh again clears it; saving without regenerating keeps the stale marks. Results solved on such a
   mesh show as stale in the workbench. Imported meshes are unchanged.
-  A copy of such a mesh without its record tag (a decoded or worker copy, a read by bare URI string) is recognised by
-  its semantic mesh hash and refused too, in `build_fe_model` and in regional updates.
-  Limits: the check is by document, not by offset values, so it also marks meshes whose offsets did not change (for
-  example explicit-only offsets, or a document saved by ANYfem between the offset change and this one); an untagged
-  copy of an unpublished `Project.generate_mesh` result that reproduces such a stale mesh exactly is refused as well
-  (published rebuilds take fresh numbers and are not affected). A hand-assembled `BuiltModel` is not checked. Legacy
+  Limits (owner decisions B and B1): the check is by document, not by offset values, so it also marks meshes whose
+  offsets did not change (for example explicit-only offsets, or a document saved by ANYfem between the offset change
+  and this one). It follows the document link: the active published mesh of a numbered document and a mesh read from
+  its saved artifact record. Not checked: an untagged mesh copy (a decoded mesh dictionary, a worker transport, a read
+  by bare URI string), a direct call of a regional-update backend with a baseline and mesh supplied by the caller, and
+  a hand-assembled `BuiltModel`. The workbench does not adopt a stale mesh, so it never hands one to a worker. Legacy
   pressure recovery on open still reads a stale mesh's shell cells, which do not depend on the beam offset rule.
   Opening a document costs one header check and one pass over its mesh records. The
   bundled barge fatigue example now opens with its mesh and results stale (they were made with mid-surface offsets);

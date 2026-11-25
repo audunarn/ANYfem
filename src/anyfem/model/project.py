@@ -2377,13 +2377,6 @@ class Project:
                 or (classify is not None and classify(geometry)))
 
     def generate_mesh(self, target_size: float | None = None, **options) -> Mesh:
-        mesh = self._generate_mesh_public(target_size, **options)
-        # Generated now, under the current beam offset rule: never mistaken for
-        # a stale saved mesh with identical content (anyfem.beam_offset_rule).
-        mesh._anyfem_rule_fresh = True
-        return mesh
-
-    def _generate_mesh_public(self, target_size: float | None = None, **options) -> Mesh:
         """Mesh every plate, plus every line carrying a beam.
 
         Takes the keyword options of :meth:`_generate_mesh_once` (documented there).  Automatic keeps its
