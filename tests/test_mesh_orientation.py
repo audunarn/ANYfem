@@ -319,12 +319,18 @@ def test_r1_f3_faceted_s3_reports_the_facet_normal_the_solver_uses(shell_build, 
     assert report.consistent
 
 
-def test_r1_f4_s3_reference_normal_the_solver_rejects_is_unchecked(shell_build, monkeypatch):
+def test_r1_f4_s3_source_normal_the_solver_would_reject_reports_the_facet_normal(shell_build, monkeypatch):
+    # Owner decision 2026-11-24: under the "source" policy a triangle whose
+    # source normal the S3 V2D element would refuse (not facet-normal) gets the
+    # source-oriented facet normal, so the solver no longer rejects it and the
+    # report shows the frame the solver uses.  (Before: unchecked, "not
+    # facet-normal".)
     _s3_normals(monkeypatch, {1: (0, 1, 1)})
     report = _report(_single(_TRIANGLE, "tris"), policy=_faceted("source"))
-    assert not report.consistent
-    assert set(report.unchecked) == {1}
-    assert "not facet-normal" in report.unchecked[1]
+    for frame in report.element_axes[1].frames:
+        np.testing.assert_allclose(frame.normal, [0, 0, 1], atol=1e-12)
+    assert report.consistent
+    assert not report.unchecked
 
 
 # --- round 1, finding 5: no S3 normal authority is never "consistent" -------
