@@ -329,6 +329,7 @@ def test_r1_f4_s3_source_normal_the_solver_would_reject_reports_the_facet_normal
     report = _report(_single(_TRIANGLE, "tris"), policy=_faceted("source"))
     for frame in report.element_axes[1].frames:
         np.testing.assert_allclose(frame.normal, [0, 0, 1], atol=1e-12)
+        assert abs(frame.x_axis[0]) == pytest.approx(1.0)
     assert report.consistent
     assert not report.unchecked
 
