@@ -24,6 +24,7 @@ from .native_meshing import (
     NativeMeshSettings,
     NativeMeshingRuntime,
 )
+from .mesh_refusal_names import call_naming_source_faces as _call_naming_source_faces
 from .structural_preparation import (
     prepare_structural_connectivity,
     seam_policy_of,
@@ -566,7 +567,10 @@ class NativeProjectMeshingSession:
         )
         def generate_checked(action, *args, **kwargs):
             try:
-                return action(*args, **kwargs)
+                # A mesher face refusal also names its source face and groups.
+                return _call_naming_source_faces(action, preparation.source_to_working,
+                                                 getattr(snapshot, "source_geometry", None),
+                                                 getattr(snapshot, "revision", None), *args, **kwargs)
             except Exception:
                 # Geometry's passive signal returns typed non-success. Keep
                 # the application's established cancellation classification.

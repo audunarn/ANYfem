@@ -27,6 +27,7 @@ from anygeometry.model import GeometryModel
 from ..mesh.mapped import ELEMENT_ORDERS, Mesh, generate_mesh as generate_mapped_mesh
 from ..mesh_numbering import MeshNumbering
 from anymesher.hybrid import generate_hybrid_mesh
+from ..mesh_refusal_names import call_naming_source_faces
 from anymesher import check_mappable
 if TYPE_CHECKING:
     from anymesher import MeshAutomationOptions
@@ -3005,7 +3006,9 @@ class Project:
                         mesh = None
                 if mesh is None:
                     meshing_parameters["cancellation_check"] = source_check
-                    mesh = generate_hybrid_mesh(working, **meshing_parameters)
+                    mesh = call_naming_source_faces(
+                        generate_hybrid_mesh, preparation.source_to_working, source_geometry, closure.source_revision,
+                        working, **meshing_parameters)
             else:
                 self._last_mesh_execution = {
                     "route": "serial",
@@ -3020,7 +3023,9 @@ class Project:
                         "with the MeshAutomationOptions owner API"
                     ) from error
                 meshing_parameters["cancellation_check"] = source_check
-                mesh = generate_automatic_mesh_result(
+                mesh = call_naming_source_faces(
+                    generate_automatic_mesh_result, preparation.source_to_working, source_geometry,
+                    closure.source_revision,
                     working,
                     automation=automation,
                     **({'curvilinear_recovery_selection': curvilinear_recovery_selection}
