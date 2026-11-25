@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- A quad-first face refusal now names the working face, a location near the failing cell or lost segments, the
+  source face(s) through the preparation lineage and their builder groups, for example
+  `[quad-first face 794 near (-22.54, 29.57, -16); source face 302; groups: Arm 2 - heave plate]` (rendered at
+  ANYfem's outer meshing boundaries only; `source_face_ids` and `builder_groups` on the error; groups read only at the
+  revision the lineage came from). Pins ANYmesh bfad0c2, whose exact `orient2d` fallback lets the tripod's 0.7 m variant
+  mesh (qualified S3 admitted); ordinary meshes are unchanged.
+
+- Automatic meshing of a linear model with a curved face (any support other than `Plane`, including a geometrically flat
+  `CoonsSurface`) reruns the request once as `quad_first` with the model's stored seam policy, but only when Automatic
+  refuses with ANYmesh's exact global-seed element-limit refusal (`StructuredElementLimitExceeded`, same number and text).
+  Everything that meshes today is unchanged; planar and quadratic models, explicit strategies and
+  `MeshAutomationOptions(strict_method=True)` keep the refusal. The rerun takes quad_first's own layout default and only
+  the remaining automation time budget, and is recorded in `hybrid_diagnostics['automatic_fallback']`. Pins ANYmesh
+  fd0ea76.
+
 - A model can select the owner's intersection seam policy itself: `NativeMeshSettings` parameter `seam_policy`
   (`baseline` or `ring_split`; `ring_split` is an attempt per face, the owner may decline an individual ring seam, and an
   explicit `ring_split` the owner resolves to another policy, for example under decision tracing, is refused once when
