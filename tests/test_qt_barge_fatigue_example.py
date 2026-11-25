@@ -87,6 +87,10 @@ def test_saved_example_opens_with_rainflow_ready_and_saves_a_portable_copy(windo
     fingerprint = hashlib.sha256(resource.read_bytes()).digest()
     with resource.open("rb") as stream, ZipFile(stream) as archive:
         preset = json.loads(archive.read("preset.json"))
+    # The offscreen default leaves the docked viewport about 30 px wide, where the
+    # weld chord and a crossing mesh chord project within a pixel of each other.
+    window.resize(1600, 1000)
+    qapp.processEvents()
     window._actions[ACTION].trigger()
     panel = window.panels["Results"]
     # Allow the software renderer to open the bundled mesh and display the

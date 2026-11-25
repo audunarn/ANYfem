@@ -852,6 +852,34 @@ def _adapt_linear_batch(builder: _Builder, solution: Any) -> None:
     _add_requested_surface_history(builder, shapes, names)
 
 
+def _built_shell_directors(element_ids, built):
+    """Physical directors of solved shells whose recovery reports none.
+
+    The solver reports ``physical_director`` for its Q4 shells but not for the
+    S3 triangle, whose surface sign follows ``director_polarity`` times the
+    submitted ``reference_normal``.  A director is filled only from that built
+    element; any element without one is left out, so a consumer that needs a
+    complete table still refuses.
+    """
+
+    elements = getattr(getattr(getattr(built, "fe_model", None), "mesh", None), "elements", None)
+    if not element_ids or elements is None:
+        return {}
+    filled = {}
+    for eid in element_ids:
+        element = elements.get(eid) if hasattr(elements, "get") else None
+        normal = getattr(element, "reference_normal", None)
+        polarity = getattr(element, "director_polarity", None)
+        if normal is None or type(polarity) is not int or polarity not in (-1, 1):
+            continue
+        director = float(polarity) * np.asarray(normal, dtype=float)
+        length = float(np.linalg.norm(director)) if director.shape == (3,) else 0.0
+        if not np.isfinite(length) or abs(length - 1.0) > 1.0e-9:
+            continue
+        filled[str(eid)] = _json_safe(director / length)
+    return filled
+
+
 def _add_requested_surface_history(builder, shapes, names=()):
     global_recovered = tuple(getattr(shape, "_requested_global_stress", None) for shape in shapes)
     if global_recovered and all(value is not None for value in global_recovered):
@@ -866,6 +894,9 @@ def _add_requested_surface_history(builder, shapes, names=()):
         first = global_recovered[0].element_stresses
         directors = {str(eid): _json_safe(first[eid]["physical_director"])
                      for eid in frames[0] if "physical_director" in first[eid]}
+        directors.update(_built_shell_directors(
+            [eid for eid in frames[0] if str(eid) not in directors],
+            getattr(shapes[0], "built", None)))
         if directors:
             builder.add_table("shell_surface_directors", directors)
         provenance = {"case_recovery": [_stress_provenance(value) for value in global_recovered]}

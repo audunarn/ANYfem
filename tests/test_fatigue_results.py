@@ -277,3 +277,57 @@ def test_native_transient_production_recovery_save_reopen_and_rainflow(solved_pl
     solution.times = times[::-1]
     with pytest.raises(ValueError, match="increasing"):
         load_fatigue_input(solution=solution, mesh=mesh)
+
+
+def test_mixed_triangle_and_quad_history_is_admitted_with_complete_directors(tmp_path):
+    """S3 triangles report no solver director; the writer completes the table from the built element."""
+    from anyfem import Project, pinned, steel
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.result_artifact import result_artifact_payload, write_solution_artifact
+    from anyfem.post.results import LinearBatchSolution, LinearSolution
+    from anyfem.solve.run import solve_linear_static
+
+    p = Project(name="Mixed shells")
+    p.add_material(steel("S355", .01))
+    p.add_plate_section("plate", thickness=.01, material="S355")
+    corners = p.geometry.add_points([(0, 0, 0), (1, 0, 0), (1, .4, 0), (.4, .4, 0), (.4, 1, 0), (0, 1, 0)])
+    edges = p.geometry.add_polyline(corners, close=True)
+    plate = p.geometry.add_face(edges)
+    p.assign_plate(plate, "plate")
+    for edge in edges:
+        p.add_support(pinned(p.edge(edge)))
+    p.load_case().add_pressure(p.face(plate), 1e4)
+    static = solve_linear_static(p, target_size=.25)
+    built, mesh = static.built, static.built.mesh
+    assert mesh.tris and mesh.quads
+    shapes = [LinearSolution(sign * static.displacements, built) for sign in (1., -1.)]
+    for shape in shapes:
+        shape._requested_global_stress = shape.stresses(return_global=True)
+    recovered = shapes[0]._requested_global_stress.element_stresses
+    # The premise: the solver reports a director for every quad and for no triangle.
+    assert all("physical_director" in recovered[eid] for eid in mesh.quads)
+    assert not any("physical_director" in recovered[eid] for eid in mesh.tris)
+    names = ("up", "down")
+    for name, time in zip(names, (0., 1.)):
+        p.load_case(name).time = time
+    batch = LinearBatchSolution(built, shapes, case_names=names)
+    directors = result_artifact_payload(batch).tables["shell_surface_directors"]
+    assert set(directors) == {str(eid) for eid in mesh.shells}
+    for eid in mesh.quads:
+        np.testing.assert_array_equal(directors[str(eid)], recovered[eid]["physical_director"])
+    for eid in mesh.tris:
+        element = built.fe_model.mesh.elements[eid]
+        np.testing.assert_array_equal(directors[str(eid)], element.physical_reference_director)
+    store = ArtifactStore(tmp_path / "mixed.anyfem")
+    identity = dict(mesh_id="mesh", document_id=p.document_id, model_hash="model", mesh_hash="hash")
+    store.write_mesh(mesh, **identity)
+    artifact = write_solution_artifact(store, batch, job_id="mixed", analysis_hash="analysis", **identity)
+    dataset = store.open_result(artifact)
+    try:
+        retained = load_fatigue_input(dataset=dataset, mesh=mesh, project=p)
+        surface = retained.source.mesh
+        for eid in mesh.shells:
+            normal = surface.normals_for([surface.element_row(eid)])[0]
+            np.testing.assert_allclose(normal, directors[str(eid)], atol=1e-12)
+    finally:
+        dataset.close()
