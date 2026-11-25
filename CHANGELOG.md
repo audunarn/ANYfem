@@ -11,6 +11,11 @@
   remeshing this bundle after an edit is Generate mesh (a full rebuild), not Update mesh. Results are
   unchanged from #41: same mesh, same saved fields and the same four governing damages.
 
+- Pins ANYgeometry 5f68177 (ANYgeometry #51): the intersection arrangement no longer splits a transition skin/web contact
+  curve where no other path meets it, so the floating tripod's 36- and 60-web variants no longer get a short artificial
+  segment at the upper mitre of their transition web roots.
+  The bundled 48-web tripod example meshes differently because its transition web roots are no longer split either:
+  Q4 83,755 (unchanged), T3 2,535 to 2,553, qualified S3 still admitted.
 - Saved shell surface directors are complete on mixed triangle/quad meshes (owner decision A, 2026-11-25). The
   solver reports `physical_director` for Q4 shells but not for the S3 triangle, so the result writer saved a partial
   `shell_surface_directors` table and ANYfatigue refused it ("the saved shell surface directors are incomplete"):

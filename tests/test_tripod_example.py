@@ -127,7 +127,7 @@ def test_tripod_example_meshes_with_qualified_s3_after_save_and_reopen(tmp_path)
 
     Time limit: the mesh job must finish within 1000 s (owner's slowdown guard; override with ANYFEM_TRIPOD_MESH_CAP).
     No environment variable is set: the seam policy comes from the model.  Uses whatever ANYgeometry / ANYmesh are on the
-    path; the pinned ones are ANYgeometry d71c5bc and the ANYmesh merge named in pyproject.toml."""
+    path; the pinned ones are ANYgeometry 5f68177 and the ANYmesh merge named in pyproject.toml."""
     import time
     from anyfem.jobs import _cancellation_token
     from anyfem.mesh_execution import MeshExecutionPolicy
