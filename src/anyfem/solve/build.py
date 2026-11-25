@@ -110,11 +110,22 @@ def build_fe_model(
         if active is None or (producing_id is not None and producing_id != active_id):
             raise ProjectError("mesh does not match the project's active published mesh")
         changed = changed_mesh_sources(project, active)
+        from ..application.mesh_publication import BEAM_OFFSETS_KEY, BEAM_OFFSETS_REFUSAL
+        if BEAM_OFFSETS_KEY in changed:
+            raise ProjectError(BEAM_OFFSETS_REFUSAL)
         if changed:
             raise ProjectError(f"published mesh is stale after changes to {', '.join(changed)}; update the mesh")
         if not matches_mesh_hash(mesh, active.mesh_hash, model_hash=active.source_model_hash,
                                  mesh_input_hash=active.mesh_input_hash, structural_preparation=active.structural_preparation):
             raise ProjectError("mesh content differs from the active publication")
+    elif producing_id is not None:
+        # Unnumbered (older) documents: a mesh read from its saved record
+        # still refuses beam offsets that changed since it was generated.
+        from ..application.mesh_publication import BEAM_OFFSETS_REFUSAL, beam_offsets_changed
+        tagged = [record for record in project.mesh_records.values()
+                  if producing_id in (record.id, record.artifact_id)]
+        if any(beam_offsets_changed(project, record) for record in tagged):
+            raise ProjectError(BEAM_OFFSETS_REFUSAL)
     automation = mesh.hybrid_diagnostics.get("automation", {})
     if isinstance(automation, Mapping) and automation.get("status") == "inspection_only":
         raise ProjectError(

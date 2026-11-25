@@ -673,6 +673,8 @@ class WorkbenchWorkflow:
         effective_native_backend = (
             None if resolved_strategy == "mapped" else requested_backend
         )
+        if _regional_update:
+            self._refuse_regional_parent()
         ticket = publication_ticket(self)
         settings = MeshSettings.create(
             target_size, element_order=self.project.element_order, overrides=self.seeding_overrides,
@@ -711,6 +713,8 @@ class WorkbenchWorkflow:
                 execution_policy=execution_policy,
                 pool_lease=pool_lease,
             )
+        # Offsets the mesher was handed for this mesh (numbering returns a new object).
+        mesher_offsets = None if update else getattr(created_mesh, "_anyfem_mesher_beam_offsets", None)
         automation_result = created_mesh.hybrid_diagnostics.get("automation", {})
         inspection_only = automation_result.get("status") == "inspection_only"
         if update is None and not inspection_only:
@@ -841,7 +845,8 @@ class WorkbenchWorkflow:
             commit_generated_mesh(self, ticket, record, created_mesh, baseline,
                                   retained_nodes=update.retained_nodes if update else (),
                                   retained_elements=update.retained_elements if update else (),
-                                  repairs=_reference_repairs, settings_hash=settings.input_hash)
+                                  repairs=_reference_repairs, settings_hash=settings.input_hash,
+                                  mesher_offsets=mesher_offsets)
         self._mesh_details_record_id = record.id
         self._meshes[record.id] = created_mesh
         if inspection_only:
@@ -869,8 +874,26 @@ class WorkbenchWorkflow:
         self.refresh_panels()
         return created_mesh
 
+    def _refuse_regional_parent(self, parent_id=None):
+        """Offset-rule and changed-offset refusals of the Update mesh parent.
+
+        Called before the publication ticket, which reads retained meshes.
+        """
+        if parent_id is None:
+            numbering = self.project.mesh_numbering
+            parent_id = (numbering.active_mesh_id if numbering.generation
+                         else getattr(self, "mesh_record_id", None))
+        record = self.project.mesh_records.get(parent_id)
+        from ..beam_offset_rule import REFUSAL, has_rule_stale_records, is_rule_stale
+        if (record is None and has_rule_stale_records(self.project)) or (
+                record is not None and is_rule_stale(record)):
+            raise ValueError(REFUSAL)
+        from .mesh_publication import require_regional_parent
+        require_regional_parent(self.project, record)
+        return record
+
     def _regional_parent(self, ticket):
-        record = self.project.mesh_records.get(ticket.parent_id)
+        record = self._refuse_regional_parent(ticket.parent_id)
         baseline = record.summary.get("regional_baseline") if record else None
         if baseline is None:
             if record is not None and record.summary.get("regional_refusal"):
@@ -967,6 +990,7 @@ class WorkbenchWorkflow:
         )
         if _preview_update:
             from ..regional_dispatch import plan_regional_update
+            self._refuse_regional_parent()
             ticket = publication_ticket(self)
             parent_mesh, baseline = self._regional_parent(ticket)
             plan = plan_regional_update(self.project, settings, baseline)
@@ -999,6 +1023,8 @@ class WorkbenchWorkflow:
         effective_native_backend = (
             None if settings.strategy == "mapped" else requested_backend
         )
+        if _regional_update:
+            self._refuse_regional_parent()
         ticket = publication_ticket(self)
         if _regional_update:
             from ..mesh_jobs import RegionalJobInput
@@ -1015,6 +1041,8 @@ class WorkbenchWorkflow:
         else:
             settings = replace(settings, publication_allocation=ticket.allocation)
         snapshot = self.session.snapshot()
+        from .mesh_publication import require_snapshot_of_ticket
+        require_snapshot_of_ticket(snapshot, ticket)
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=snapshot.revision.model_hash,
@@ -1107,13 +1135,47 @@ class WorkbenchWorkflow:
     def mesh_record_state(self, record: MeshRecord) -> str:
         """Return persisted state with revision-based staleness applied."""
 
+        session = self.session
+        # The project equals its committed revision outside a transaction and
+        # while the revision is being published.  Inside an open transaction
+        # the state is computed against the live model and nothing is cached.
+        cacheable = (not getattr(session, "_transaction_depth", 0)
+                     or getattr(session, "_publishing_revision", False))
+        live = None
+        if not cacheable and record.status in ("completed", "inspection_only", "stale"):
+            from .mesh_publication import current_mesh_sources
+            live = current_mesh_sources(self.project)
+        reference = live[0] if live is not None else session.revision.model_hash
         if record.status in ("completed", "inspection_only", "stale") and (
             record.source_model_hash
-            and record.source_model_hash != self.session.revision.model_hash
+            and record.source_model_hash != reference
         ):
-            if record.summary.get("mesh_sources") is not None:
-                from .mesh_publication import changed_mesh_sources
-                if not changed_mesh_sources(self.project, record):
+            sources = record.summary.get("mesh_sources")
+            if sources is not None:
+                from copy import deepcopy
+                from .mesh_publication import BEAM_OFFSETS_KEY, changed_mesh_sources, current_mesh_sources
+                # Outside a transaction the current sources are computed once
+                # per revision and each record's verdict is cached against
+                # copies of its own inputs, so a tree refresh pays the
+                # comparison once per edit, not per record per paint.
+                revision = session.revision.model_hash
+                offsets = record.summary.get(BEAM_OFFSETS_KEY)
+                if cacheable:
+                    memo = self.__dict__.get("_mesh_source_memo")
+                    if memo is None or memo[0] != revision:
+                        memo = self.__dict__["_mesh_source_memo"] = (revision, current_mesh_sources(self.project), {})
+                    current, verdicts = memo[1], memo[2]
+                    hit = verdicts.get(record.id)
+                    if (hit is not None and hit[1] == record.source_model_hash and hit[4] == record.kind
+                            and hit[2] == sources and hit[3] == offsets):
+                        changed = hit[0]
+                    else:
+                        changed = bool(changed_mesh_sources(self.project, record, current))
+                        verdicts[record.id] = (changed, record.source_model_hash,
+                                               deepcopy(sources), deepcopy(offsets), record.kind)
+                else:
+                    changed = bool(changed_mesh_sources(self.project, record, live))
+                if not changed:
                     return str(record.status)
             return "stale"
         return str(record.status)

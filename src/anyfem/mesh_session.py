@@ -7,6 +7,7 @@ from threading import RLock
 from weakref import finalize
 
 from .application.mesh_publication import (
+    require_snapshot_of_ticket,
     commit_generated_mesh, publication_ticket, retained_mesh, unchanged_record, verify_published_content,
 )
 from .document import DocumentSession
@@ -95,6 +96,13 @@ class ProjectMeshSession:
 
     def _baseline(self):
         record = self.project.mesh_records.get(self.mesh_record_id)
+        from .beam_offset_rule import REFUSAL, has_rule_stale_records, is_rule_stale
+        if (record is None and has_rule_stale_records(self.project)) or (
+                record is not None and is_rule_stale(record)):
+            # Marked stale by the offset-rule migration: name the rule first.
+            raise ValueError(REFUSAL)
+        from .application.mesh_publication import require_regional_parent
+        require_regional_parent(self.project, record)
         if record is None or "regional_baseline" not in record.summary:
             if record is not None and record.summary.get("regional_refusal"):
                 raise ValueError(record.summary["regional_refusal"])
@@ -108,6 +116,8 @@ class ProjectMeshSession:
             raise ValueError("mesh session is closed")
         if not isinstance(settings, MeshSettings) or settings.regional is not None or settings.publication_allocation is not None:
             raise ValueError("expected MeshSettings without a preselected parent")
+        if regional:
+            self._baseline()  # its refusals (offset rule, changed offsets) come first
         ticket = publication_ticket(self)
         if regional:
             if unchanged_record(self, ticket, settings, self._baseline()):
@@ -117,7 +127,11 @@ class ProjectMeshSession:
             settings = replace(settings, regional=request)
         else:
             settings = replace(settings, publication_allocation=ticket.allocation)
-        snapshot = self.session.snapshot().thaw()
+        frozen = self.session.snapshot()
+        # Recorded beam offsets come from the ticket's model: the snapshot
+        # that is meshed must be that model.
+        require_snapshot_of_ticket(frozen, ticket)
+        snapshot = frozen.thaw()
         token = cancellation if cancellation is not None else _cancellation_token()
         result = run_mesh_job(snapshot, ticket.model_hash, settings, progress or (lambda *_: None), token)
         if result.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":
