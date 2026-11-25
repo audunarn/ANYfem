@@ -919,7 +919,9 @@ def submodel_run_staleness(snapshot: Any, run: SubmodelRun, store: Any, *,
 
     record = _by_id(document, "mesh_records").get(source["mesh_record_id"])
     numbering = document.get("mesh_numbering", {})
+    from .beam_offset_rule import is_pre_rule_document
     if (record is None or _mesh_record_fingerprint(record) != source["mesh_record_fingerprint"]
+            or is_pre_rule_document(document)
             or (numbering.get("generation") and numbering.get("active_mesh_id") != source["mesh_record_id"])
             or (mesh_record_id is not None and str(mesh_record_id) != source["mesh_record_id"])):
         reasons.append("SOURCE_MESH_CHANGED")

@@ -13,9 +13,11 @@ regional-update parent or admitted for solving until the mesh is generated
 again with a full rebuild.
 
 Scope (owner decision B, 2026-11-25): the guarantee covers meshes saved in a
-document.  A raw mesh dictionary handled outside a document, a mesh read from
-an artifact by a bare URI string and a hand-assembled ``BuiltModel`` carry no
-link to their document and are not checked.
+document.  A mesh that reaches assembly or a regional update without its
+record tag is still recognised when it reproduces a stale record's semantic
+mesh hash.  A hand-assembled ``BuiltModel``, and a mesh dictionary of another
+document, are not checked.  Legacy pressure recovery on open still reads a
+stale record's shell cells: plate cells do not depend on the beam offset rule.
 """
 from __future__ import annotations
 
@@ -75,23 +77,47 @@ def migrate_pre_rule_meshes(project: Any) -> tuple[str, ...]:
     return tuple(marked)
 
 
+def has_rule_stale_records(project: Any) -> bool:
+    return any(is_rule_stale(record) for record in project.mesh_records.values())
+
+
 def rule_stale_record_for(project: Any, mesh: Any) -> Any:
     """The rule-stale record ``mesh`` belongs to, or ``None``.
 
     A mesh belongs to the active published record of a numbered document, or
-    to the record (or artifact) its read tag names.
+    to the record (or artifact) its read tag names.  A mesh without a tag (a
+    decoded copy, a worker transport, a read by URI string) belongs to a
+    rule-stale record whose semantic mesh hash it reproduces.  A mesh that
+    :meth:`Project.generate_mesh` produced in this process is current.
     """
 
     records = project.mesh_records
+    stale = [record for record in records.values() if is_rule_stale(record)]
+    if not stale:
+        return None
     numbering = project.mesh_numbering
     if numbering.generation:
         active = records.get(numbering.active_mesh_id)
         if active is not None and is_rule_stale(active):
             return active
-    tag = getattr(mesh, "_anyfem_mesh_record_id", None)
-    if tag is None:
+    if getattr(mesh, "_anyfem_rule_fresh", False):
         return None
-    for record in records.values():
-        if (record.id == tag or record.artifact_id == tag) and is_rule_stale(record):
+    tag = getattr(mesh, "_anyfem_mesh_record_id", None)
+    if tag is not None:
+        for record in records.values():
+            if record.id == tag or record.artifact_id == tag:
+                return record if is_rule_stale(record) else None
+    from .mesh_jobs import matches_mesh_hash
+    for record in stale:
+        if record.mesh_hash and matches_mesh_hash(
+                mesh, record.mesh_hash, model_hash=record.source_model_hash,
+                mesh_input_hash=record.mesh_input_hash,
+                structural_preparation=record.structural_preparation):
             return record
     return None
+
+
+def is_pre_rule_document(document: Mapping[str, Any]) -> bool:
+    """Whether a raw project document needs the migration when it is read."""
+
+    return bool(document.get("beam_sections")) and header_rule(document) != CURRENT_RULE

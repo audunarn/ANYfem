@@ -1377,6 +1377,10 @@ class WorkbenchWorkflow:
         if self.mesh is None:
             if self._inspection_mesh is not None:
                 raise ValueError("inspection-only mesh cannot be solved; generate an admitted mesh first")
+            from ..beam_offset_rule import REFUSAL, is_rule_stale
+            active = self.project.mesh_records.get(self.project.mesh_numbering.active_mesh_id or "")
+            if active is not None and is_rule_stale(active):
+                raise ValueError(REFUSAL)
             if self.project.mesh_numbering.active_mesh_id:
                 raise ValueError("the published mesh is stale after a model edit; update or rebuild the mesh before solving")
             raise ValueError("generate a mesh first")

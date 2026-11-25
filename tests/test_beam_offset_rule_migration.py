@@ -109,7 +109,7 @@ def test_workbench_open_does_not_adopt_or_solve_a_pre_rule_mesh(tmp_path):
         assert editor.mesh is None
         record = editor.project.mesh_records[editor.project.mesh_numbering.active_mesh_id]
         assert editor.mesh_record_state(record) == "stale"
-        with pytest.raises(ValueError, match="stale"):
+        with pytest.raises(ValueError, match="offset rule.*full rebuild"):
             editor.solve("Linear static")
     finally:
         editor._project_lock.release()
@@ -172,3 +172,108 @@ def test_submodel_source_and_run_from_a_pre_rule_parent_are_stale(tmp_path, monk
                    model_hash=snap.revision.model_hash)
     assert error.value.code == "SOURCE_MESH"
     assert submodel_run_staleness(snap, run, setup.store) != ()
+
+
+def _unnumbered_pre_rule(tmp_path):
+    path, edges = _saved(tmp_path)
+    project = load_project(path)
+    project.mesh_numbering = replace(project.mesh_numbering, generation=0, active_mesh_id=None)
+    record = _generated(project)[0]
+    return path, project, record, edges
+
+
+def test_untagged_copies_of_a_pre_rule_mesh_are_refused(tmp_path):
+    from anymesher.serialize import mesh_from_dict, mesh_to_dict
+
+    path, project, record, _ = _unnumbered_pre_rule(tmp_path)
+    store = ArtifactStore(path)
+    artifact = project.artifacts[record.artifact_id]
+    # A worker transport / decoded copy, and a read by URI string, carry no record tag.
+    copies = (mesh_from_dict(mesh_to_dict(store.read_mesh(artifact))), store.read_mesh(artifact.uri))
+    for mesh in copies:
+        assert getattr(mesh, "_anyfem_mesh_record_id", None) is None
+        with pytest.raises(ProjectError, match="offset rule"):
+            build_fe_model(project, mesh, require_loads=False, require_supports=False)
+
+
+def test_a_freshly_generated_mesh_of_a_migrated_unnumbered_project_is_admitted(tmp_path):
+    from anymesher.serialize import mesh_from_dict, mesh_to_dict
+
+    path, project, _, _ = _unnumbered_pre_rule(tmp_path)
+    fresh = project.generate_mesh(.5, strategy="mapped", quality_policy={})
+    build_fe_model(project, fresh, require_loads=False, require_supports=False)
+    # A published rebuild takes numbers above every saved mesh, stale ones included,
+    # so even its decoded copy (a worker transport) never reproduces a stale record.
+    session = ProjectMeshSession(load_project(path), path)
+    try:
+        session.project.mesh_numbering = replace(session.project.mesh_numbering, generation=0, active_mesh_id=None)
+        published = session.generate_mesh(SETTINGS)
+        build_fe_model(session.project, mesh_from_dict(mesh_to_dict(published)),
+                       require_loads=False, require_supports=False)
+    finally:
+        session.close()
+    # Documented limit: an untagged copy of an unpublished rebuild that reproduces the
+    # stale record exactly (unchanged offsets, same numbers) is refused, failing closed.
+    with pytest.raises(ProjectError, match="offset rule"):
+        build_fe_model(project, mesh_from_dict(mesh_to_dict(fresh)), require_loads=False, require_supports=False)
+
+
+def test_a_regional_update_from_a_pre_rule_parent_is_refused_on_every_dispatch_path(tmp_path):
+    from anymesher.serialize import mesh_to_dict
+    from anyfem.regional_dispatch import generate_regional_update
+    from anyfem.regional_mesh import RegionalUpdateUnsupported
+
+    current, _ = _saved(tmp_path, pre_rule=False, name="current.anyfem")
+    source = load_project(current)
+    parent = source.mesh_records[source.mesh_numbering.active_mesh_id]
+    baseline = parent.summary["regional_baseline"]
+    mesh = ArtifactStore(current).read_mesh(source.artifacts[parent.artifact_id])
+    data = json.loads(current.read_text(encoding="utf-8"))
+    data["anyfem"].pop(RULE_KEY)
+    from anyfem.io.project_file import project_from_dict
+    migrated = project_from_dict(data)
+    for old in (mesh, mesh_to_dict(mesh)):
+        with pytest.raises(RegionalUpdateUnsupported, match="offset rule"):
+            generate_regional_update(migrated, SETTINGS, baseline, old,
+                                     node_high_water=1000, element_high_water=1000)
+
+
+def test_migration_marks_every_generated_record_and_leaves_imported_ones(tmp_path):
+    from anyfem.beam_offset_rule import migrate_pre_rule_meshes
+    from anyfem.model.records import MeshRecord
+
+    project, _ = _model()
+    generated = [MeshRecord(name=f"m{i}", source_model_hash="h", mesh_input_hash="i", mesh_hash="x",
+                            status=status) for i, status in enumerate(("completed", "inspection_only", "stale"))]
+    failed = MeshRecord(name="f", source_model_hash="h", mesh_input_hash="i", mesh_hash="", status="failed")
+    imported = MeshRecord(name="imp", kind="imported", source_model_hash="h", mesh_input_hash="", mesh_hash="y")
+    for record in (*generated, failed, imported):
+        project.mesh_records[record.id] = record
+    assert set(migrate_pre_rule_meshes(project)) == {record.id for record in generated}
+    assert all(record.status == "stale" for record in generated)
+    assert failed.status == "failed" and imported.status == "completed"
+    assert "beam_offset_rule_stale" not in imported.summary
+    assert set(migrate_pre_rule_meshes(project)) == {record.id for record in generated}  # idempotent
+
+
+def test_run_staleness_of_a_raw_pre_rule_snapshot_is_stale(tmp_path, monkeypatch):
+    import test_submodel_jobs as jobs_tests
+    from anyfem.document import ProjectSnapshot
+    from anyfem.submodel_jobs import submodel_run_staleness
+
+    original = jobs_tests.global_project
+
+    def with_beam_section():
+        project, gfaces = original()
+        project.add_beam_section(BeamSection(name="beam", profile="Flatbar", material="S355",
+                                             flange_width=.01, flange_thickness=.1))
+        return project, gfaces
+
+    monkeypatch.setattr(jobs_tests, "global_project", with_beam_section)
+    setup = jobs_tests.Setup(tmp_path)
+    run = setup.run()
+    snap = setup.snapshot()
+    document = json.loads(json.dumps(snap.document))
+    document["anyfem"].pop(RULE_KEY)
+    raw = ProjectSnapshot(document=document, revision=snap.revision)
+    assert "SOURCE_MESH_CHANGED" in submodel_run_staleness(raw, run, setup.store)
