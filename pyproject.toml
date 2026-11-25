@@ -47,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 orcawave = [
-  "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@bfad0c2f3938985a3987bda66fb5224cb0735bca",
+  "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e889e62331d980ceb7042ff5c338a5117dca0162",
   "ANYloads @ git+https://github.com/audunarn/ANYloads.git@0a671a30bfd213c30df16bb7142cfe4fa8e1fece",
   "ANYhydro[orcawave] @ git+https://github.com/audunarn/ANYhydro.git@05758642b29aa492d9f983de11301df91b197c39",
 ]
@@ -60,7 +60,7 @@ post = ["ANYpost[results]>=0.1.3,<0.2"]
 gui = [
   "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5f68177e42fe0a53341dceb80cc8e4fb73482745",
   "ANY3dView[gpu,qt]>=0.5.6,<0.6",
-  "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@bfad0c2f3938985a3987bda66fb5224cb0735bca",
+  "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@e889e62331d980ceb7042ff5c338a5117dca0162",
   "Pillow>=10,<13",
   "PySide6>=6.10.1,<6.11",
 ]
