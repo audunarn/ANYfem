@@ -188,8 +188,7 @@ def test_a_freshly_generated_mesh_of_a_migrated_unnumbered_project_is_admitted(t
     path, project, _, _ = _unnumbered_pre_rule(tmp_path)
     fresh = project.generate_mesh(.5, strategy="mapped", quality_policy={})
     build_fe_model(project, fresh, require_loads=False, require_supports=False)
-    # A published rebuild takes numbers above every saved mesh, stale ones included,
-    # so even its decoded copy (a worker transport) never reproduces a stale record.
+    # A published rebuild and its decoded copy (a worker transport) are admitted.
     session = ProjectMeshSession(load_project(path), path)
     try:
         session.project.mesh_numbering = replace(session.project.mesh_numbering, generation=0, active_mesh_id=None)
@@ -280,3 +279,34 @@ def test_regional_dispatch_accepts_any_mapping_parent_after_a_rebuild(tmp_path):
         assert results[0].mesh.quads == results[1].mesh.quads
     finally:
         session.close()
+
+
+def test_regional_dispatch_refuses_a_tagged_pre_rule_parent_in_an_unnumbered_document(tmp_path):
+    from anyfem.regional_dispatch import generate_regional_update
+    from anyfem.regional_mesh import RegionalUpdateUnsupported
+
+    current, _ = _saved(tmp_path, pre_rule=False, name="current.anyfem")
+    baseline = load_project(current).mesh_records[load_project(current).mesh_numbering.active_mesh_id].summary[
+        "regional_baseline"]
+    path, project, record, _ = _unnumbered_pre_rule(tmp_path)
+    tagged = ArtifactStore(path).read_mesh(project.artifacts[record.artifact_id])
+    with pytest.raises(RegionalUpdateUnsupported, match="offset rule"):
+        generate_regional_update(project, SETTINGS, baseline, tagged, node_high_water=1000, element_high_water=1000)
+
+
+def test_unchanged_record_never_reuses_a_pre_rule_parent(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import anyfem.regional_dispatch as dispatch
+    from anyfem.application.mesh_publication import unchanged_record
+
+    def reuse_attempted(*args, **kwargs):
+        raise AssertionError("a pre-rule parent reached the no-op reuse planning")
+
+    monkeypatch.setattr(dispatch, "plan_regional_update", reuse_attempted)
+
+    path, _ = _saved(tmp_path)
+    project = load_project(path)
+    parent = project.mesh_records[project.mesh_numbering.active_mesh_id]
+    workflow = SimpleNamespace(project=project)
+    ticket = SimpleNamespace(parent_id=parent.id, model_hash=parent.source_model_hash)
+    assert unchanged_record(workflow, ticket, SETTINGS, baseline={}) is None

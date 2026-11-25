@@ -15,8 +15,10 @@ again with a full rebuild.
 Scope (owner decisions B and B1, 2026-11-25): the guarantee covers meshes
 saved in a document and reached through it: the active published mesh of a
 numbered document, and a mesh read from its saved artifact record (which
-carries the record tag).  Not checked: an untagged mesh copy (a decoded
-dictionary, a worker transport, a read by bare URI string), a direct call of
+carries the record tag).  Not checked: identifying an untagged mesh copy (a
+decoded dictionary, a worker transport, a read by bare URI string) by its
+content -- it is refused only when its numbered document's active published
+mesh is stale -- and a direct call of
 a regional-update backend with a caller-supplied baseline and mesh, and a
 hand-assembled ``BuiltModel``.  The workbench never hands a stale mesh to a
 worker, because it does not adopt one.  Legacy pressure recovery on open
