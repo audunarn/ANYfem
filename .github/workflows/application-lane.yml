@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfatigue
-          ref: b4e5bcbd11f4a12e614dfb09ad97b46c615ff69b
+          ref: cbe4bb5702710e46dcfb46aeea857e3f2719c15c
           path: .ecosystem/ANYfatigue
       - uses: actions/setup-python@v5
         with:
