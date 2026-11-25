@@ -83,6 +83,19 @@ from .ownership import (
 __all__ = ["FloatingTransientResultRef", "Project", "ProjectError"]
 
 
+def _same_support(first: Any, second: Any) -> bool:
+    """Whether two surface objects are the same support (also after reload)."""
+
+    if first is None or second is None:
+        return False
+    if first is second:
+        return True
+    try:
+        return bool(first == second)
+    except (TypeError, ValueError):
+        return False
+
+
 class ProjectError(ValueError):
     """Raised when a model is incomplete or inconsistent."""
 
@@ -1443,6 +1456,42 @@ class Project:
     def beam_edges(self) -> List[int]:
         return sorted(self.edge_sections)
 
+    def _beam_attached_face_ids(self, edge_id: int, samples: Any) -> tuple[int, ...]:
+        """Faces that define a beam's section frame (first one wins).
+
+        Faces that use the line come first (sorted); a line that is not part
+        of any face topology takes the faces its midpoint lies on within the
+        geometry's surface tolerance.
+        """
+
+        import numpy as np
+
+        face_ids = tuple(sorted(self.geometry.faces_using_edge(int(edge_id))))
+        if not face_ids:
+            midpoint = 0.5 * (samples[0] + samples[-1])
+            attached: list[int] = []
+            for face_id in sorted(self.geometry.faces):
+                _point, _uv, distance = self.geometry.project_to_face(
+                    face_id, midpoint
+                )
+                bounds = self.geometry.conservative_face_bounds(face_id)
+                extent = (
+                    1.0
+                    if bounds is None
+                    else float(
+                        np.linalg.norm(
+                            np.asarray(bounds[3:]) - np.asarray(bounds[:3])
+                        )
+                    )
+                )
+                tolerance = self.geometry.tolerance.effective_surface_residual(
+                    extent
+                )
+                if float(distance) <= tolerance:
+                    attached.append(int(face_id))
+            face_ids = tuple(attached)
+        return face_ids
+
     def beam_section_frame(self, edge_id: int) -> tuple[Any, Any, Any]:
         """Return unit beam-axis, local-y and local-z vectors for one line.
 
@@ -1450,6 +1499,21 @@ class Project:
         plate normal; Front/Back and the section's axial rotation are then
         applied deterministically. An explicit ``web_direction`` remains the
         advanced override for beam-only models.
+        """
+
+        axis, local_y, local_z, _side, _faces = self._beam_section_frame_parts(
+            int(edge_id)
+        )
+        return axis, local_y, local_z
+
+    def _beam_section_frame_parts(
+        self, edge_id: int
+    ) -> tuple[Any, Any, Any, Any, tuple[int, ...] | None]:
+        """Frame plus the unrotated stiffener side and the attached faces.
+
+        The side vector is local z after Front/Back but before the axial
+        rotation. Attached faces are ``None`` when an explicit web direction
+        made the face search unnecessary.
         """
 
         import numpy as np
@@ -1465,33 +1529,11 @@ class Project:
             raise ProjectError(f"beam line {edge_id} has zero length")
         axis /= axis_length
 
+        face_ids: tuple[int, ...] | None = None
         if section.web_direction is not None:
             local_z = np.asarray(section.web_direction, dtype=float)
         else:
-            face_ids = tuple(sorted(self.geometry.faces_using_edge(int(edge_id))))
-            if not face_ids:
-                midpoint = 0.5 * (samples[0] + samples[-1])
-                attached: list[int] = []
-                for face_id in sorted(self.geometry.faces):
-                    _point, _uv, distance = self.geometry.project_to_face(
-                        face_id, midpoint
-                    )
-                    bounds = self.geometry.conservative_face_bounds(face_id)
-                    extent = (
-                        1.0
-                        if bounds is None
-                        else float(
-                            np.linalg.norm(
-                                np.asarray(bounds[3:]) - np.asarray(bounds[:3])
-                            )
-                        )
-                    )
-                    tolerance = self.geometry.tolerance.effective_surface_residual(
-                        extent
-                    )
-                    if float(distance) <= tolerance:
-                        attached.append(int(face_id))
-                face_ids = tuple(attached)
+            face_ids = self._beam_attached_face_ids(int(edge_id), samples)
             if face_ids:
                 local_z = np.asarray(
                     self.geometry.face_normal(face_ids[0], 0.5, 0.5), dtype=float
@@ -1523,6 +1565,7 @@ class Project:
         local_z /= length
         if section.attachment_side == "back":
             local_z *= -1.0
+        side = local_z.copy()
         angle = np.deg2rad(float(section.rotation_deg))
         if angle:
             local_z = (
@@ -1532,21 +1575,185 @@ class Project:
             local_z /= float(np.linalg.norm(local_z))
         local_y = np.cross(local_z, axis)
         local_y /= float(np.linalg.norm(local_y))
-        return axis, local_y, local_z
+        return axis, local_y, local_z, side, face_ids
+
+    def _beam_plate_face(self, edge_id: int) -> int | None:
+        """The plate a beam stands on, for the automatic offset.
+
+        Owner contract 2026-11-24: only topology or a declaration names the
+        plate, never a geometric search.
+
+        1. A face that uses the line as an edge (first in sorted order: the
+           face that also defines the default web direction).
+        2. Otherwise a declared plate: ``member_on_face`` attachments of the
+           line's members with exact evidence, connect intent and the whole
+           member range (lowest face ID if several).  Other declarations are
+           ignored.  The declaration is trusted as stored; keeping it true
+           after geometry edits is the geometry model's witness contract.
+
+        ``None`` (no half thickness) for a free, undeclared line.
+        """
+
+        geometry = self.geometry
+        face_ids = sorted(geometry.faces_using_edge(int(edge_id)))
+        if face_ids:
+            return int(face_ids[0])
+        declared: set[int] = set()
+        for member_id in geometry.members_using_edge(int(edge_id)):
+            for attachment_id in geometry.attachments_for_member(member_id):
+                attachment = geometry.attachments[attachment_id]
+                span = attachment.member_range
+                if (
+                    str(attachment.kind) == "member_on_face"
+                    and str(attachment.target_kind) == "face"
+                    and int(attachment.target_id) in geometry.faces
+                    and str(attachment.evidence) == "exact"
+                    and str(attachment.connection_intent) == "connect"
+                    and min(span.start, span.end) == 0.0
+                    and max(span.start, span.end) == 1.0
+                ):
+                    declared.add(int(attachment.target_id))
+        return min(declared) if declared else None
+
+    def _plate_normal_at_line(
+        self, face_id: int, edge_id: int, normals: Dict[int, Any] | None
+    ) -> Any:
+        """Analytic unit normal of a plate where a beam line stands on it.
+
+        Planar faces: the constant normal (cached per call).  A NURBS edge
+        that bounds the face on the face's own support: the edge's chart
+        point at its middle.  Other surfaces: the closest local coordinates of
+        the line's midpoint.  A surface that cannot be located there (for
+        example a NURBS face reached by a section trim or a declared interior
+        line, where ANYgeometry has no point inversion yet) raises
+        :class:`ProjectError` instead of guessing a normal.
+        """
+
+        import numpy as np
+
+        geometry = self.geometry
+        if normals is not None and face_id in normals:
+            return normals[face_id]
+        face = geometry.faces[int(face_id)]
+        evaluable = (
+            face.parameterization if face.parameterization is not None else face.surface
+        )
+        planar = type(evaluable).__name__ == "Plane"
+        try:
+            if planar:
+                uv = (0.5, 0.5)
+            else:
+                curve = geometry.edges[int(edge_id)].curve
+                if (
+                    face.parameterization is None
+                    and int(face_id) in geometry.faces_using_edge(int(edge_id))
+                    and getattr(curve, "pcurve", None) is not None
+                    and _same_support(getattr(curve, "support", None), face.surface)
+                    and np.array_equal(
+                        np.asarray(curve.transform, dtype=float), np.eye(4)
+                    )
+                ):
+                    # ``chart`` takes the normalized edge parameter.
+                    uv = tuple(
+                        float(value) for value in curve.chart(np.asarray([0.5]))[0]
+                    )
+                else:
+                    midpoint = np.asarray(
+                        geometry.sample_edge(int(edge_id), np.asarray((0.5,))),
+                        dtype=float,
+                    )[0]
+                    uv = geometry.face_local_uv(int(face_id), midpoint)
+            normal = np.asarray(
+                geometry.face_normal_many(int(face_id), [uv])[0], dtype=float
+            )
+        except (GeometryError, AttributeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                f"automatic offset of beam line {edge_id}: cannot evaluate the "
+                f"normal of plate face {face_id} at the line ({error}); "
+                "use a manual or centerline offset"
+            ) from error
+        if not np.all(np.isfinite(normal)):
+            raise ProjectError(
+                f"automatic offset of beam line {edge_id}: plate face {face_id} "
+                "has no finite normal at the line; use a manual or centerline offset"
+            )
+        if planar and normals is not None:
+            normals[face_id] = normal
+        return normal
+
+    def _beam_plate(
+        self, edge_id: int, normals: Dict[int, Any] | None = None
+    ) -> tuple[float, Any] | None:
+        """``(half thickness, unit normal at the line)`` of the named plate.
+
+        ``None`` when no plate is named (see :meth:`_beam_plate_face`) or the
+        plate has no section yet.  Evaluated before the section frame, so an
+        unlocatable plate refuses with :class:`ProjectError` first.
+        """
+
+        face_id = self._beam_plate_face(int(edge_id))
+        if face_id is None:
+            return None
+        name = self.face_sections.get(face_id)
+        if name is None or name not in self.plate_sections:
+            return None
+        normal = self._plate_normal_at_line(face_id, int(edge_id), normals)
+        return 0.5 * float(self.plate_sections[name].thickness), normal
+
+    def _stiffener_side_half_thickness(
+        self, edge_id: int, side: Any, plate: tuple[float, Any]
+    ) -> Any:
+        """Half thickness along the plate normal on the stiffener side.
+
+        The plate normal is used as is (not projected on the beam chord).  The
+        side follows the unrotated web direction; a web in the plate's plane
+        takes Front (+normal) or Back (-normal).
+        """
+
+        half, normal = plate
+        facing = float(normal @ side)
+        if abs(facing) > 1.0e-9:
+            if facing < 0.0:
+                normal = -normal
+        elif self.beam_section_of(int(edge_id)).attachment_side == "back":
+            normal = -normal
+        return half * normal
 
     def beam_offset_vector(self, edge_id: int) -> tuple[float, float, float]:
-        """Exact neutral-axis offset from the line attached to the plate."""
+        """Neutral-axis offset from the line attached to the plate.
+
+        ``automatic``: the profile foot stands on the attached plate's surface,
+        so the offset is the profile centroid in the section frame plus half
+        the plate thickness along the plate normal on the stiffener side
+        (owner decision 2026-11-24). ``manual``: the explicit eccentricity
+        along local z. ``centerline``: zero.
+        """
+
+        return self._beam_offset_vector(int(edge_id), None)
+
+    def _beam_offset_vector(
+        self, edge_id: int, normals: Dict[int, Any] | None
+    ) -> tuple[float, float, float]:
+        """``beam_offset_vector`` with an optional shared plate-normal cache."""
 
         import numpy as np
 
         section = self.beam_section_of(int(edge_id))
         if section.offset_mode == "centerline":
             return (0.0, 0.0, 0.0)
-        _axis, local_y, local_z = self.beam_section_frame(int(edge_id))
         if section.offset_mode == "automatic":
+            plate = self._beam_plate(int(edge_id), normals)
+            _axis, local_y, local_z, side, _faces = self._beam_section_frame_parts(
+                int(edge_id)
+            )
             y, z = section.centroid_from_attachment()
             vector = y * local_y + z * local_z
+            if plate is not None:
+                vector = vector + self._stiffener_side_half_thickness(
+                    int(edge_id), side, plate
+                )
         else:
+            _axis, _local_y, local_z = self.beam_section_frame(int(edge_id))
             vector = float(section.eccentricity) * local_z
         return tuple(float(value) for value in np.asarray(vector, dtype=float))
 
@@ -1559,6 +1766,8 @@ class Project:
         """
 
         offsets: Dict[int, float | tuple[float, float, float]] = {}
+        # Plate normals at the face centre, shared by the beams of one call.
+        normals: Dict[int, Any] = {}
         for edge_id, name in self.edge_sections.items():
             if name not in self.beam_sections:
                 continue
@@ -1571,7 +1780,7 @@ class Project:
                 if section.eccentricity:
                     offsets[int(edge_id)] = float(section.eccentricity)
                 continue
-            vector = self.beam_offset_vector(int(edge_id))
+            vector = self._beam_offset_vector(int(edge_id), normals)
             if any(value != 0.0 for value in vector):
                 offsets[int(edge_id)] = vector
         return offsets

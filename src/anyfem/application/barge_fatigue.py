@@ -28,8 +28,10 @@ BULKHEAD_FLANGE = "Bulkhead stiffener flange 8 mm"
 FACE_FLAT = "Knee face flat 8 mm"
 _FLAT_HALF = .0375
 _LOCAL_SIZE = .020
-# Reference couple of the original 5 m barge, retained when the beam model changes.
-_REFERENCE_MOMENT_NM = 41_456_941.052910045
+# End couple of the original 5 m barge example (barge_bending_moment), as a constant so the
+# fatigue example need not rebuild that model; update it when the beam model changes the live
+# couple (the test compares the two).  41.456941 MN m before the foot-on-surface automatic offset.
+_REFERENCE_MOMENT_NM = 41_382_418.35865759
 
 
 def barge_fatigue_detail(project, side="Port", leg="deck"):

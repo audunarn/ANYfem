@@ -29,7 +29,7 @@ BARGE_DESCRIPTION = (
     "and T600×10/200×16 girders (illustrative sections, dimensions in mm). "
     "A nominal 1.5 m draft places the waterline at Z = 1.5 m. "
     "The X = 0 end is fixed; an axial force couple at X = 5 m applies bending "
-    "about Y: approximately 41.46 MN·m, calibrated to peak von Mises stress "
+    "about Y: approximately 41.38 MN·m, calibrated to peak von Mises stress "
     "near 200 MPa on the default 700 mm mesh. Local peaks can change with refinement. "
     "Choose Generate mesh, then Solve (linear static). Hydrostatic equilibrium is not included."
 )

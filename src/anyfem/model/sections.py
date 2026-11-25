@@ -67,8 +67,10 @@ class BeamSection:
     angles and bulbs.
 
     ``offset_mode`` controls the neutral-axis location. ``automatic`` derives
-    the actual centroid from the profile rectangles, ``manual`` retains the
-    historical explicit eccentricity, and ``centerline`` shares plate nodes.
+    the actual centroid from the profile rectangles with the profile foot on
+    the attached plate's surface (half the plate thickness is added along the
+    plate normal on the stiffener side), ``manual`` retains the historical
+    explicit eccentricity, and ``centerline`` shares plate nodes.
     ``attachment_side`` and ``rotation_deg`` place the section relative to the
     plate attachment line and are used by meshing, solving and visualization.
     """

@@ -260,7 +260,9 @@ def test_back_side_axial_rotation_offsets_from_plate_intersection(plate_project)
     offset = np.asarray(project.beam_offset_vector(edges[0]))
     assert offset[0] == pytest.approx(0.0, abs=1.0e-12)
     assert offset[1] > 0.0
-    assert offset[2] == pytest.approx(0.0, abs=1.0e-12)
+    # The web lies in the plate plane; the foot stands on the back surface,
+    # so half the 10 mm plate goes along the plate normal on the back side.
+    assert offset[2] == pytest.approx(-0.005, abs=1.0e-12)
 
 
 @pytest.mark.parametrize("automatic", (False, True))
