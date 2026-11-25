@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Automatic meshing of a linear model with a curved face (any support other than `Plane`, including a geometrically flat
+  `CoonsSurface`) reruns the request once as `quad_first` with the model's stored seam policy, but only when Automatic
+  refuses with ANYmesh's exact global-seed element-limit refusal (`StructuredElementLimitExceeded`, same number and text).
+  Everything that meshes today is unchanged; planar and quadratic models, explicit strategies and
+  `MeshAutomationOptions(strict_method=True)` keep the refusal. The rerun takes quad_first's own layout default and only
+  the remaining automation time budget, and is recorded in `hybrid_diagnostics['automatic_fallback']`. Pins ANYmesh
+  fd0ea76.
+
 - A model can select the owner's intersection seam policy itself: `NativeMeshSettings` parameter `seam_policy`
   (`baseline` or `ring_split`; `ring_split` is an attempt per face, the owner may decline an individual ring seam, and an
   explicit `ring_split` the owner resolves to another policy, for example under decision tracing, is refused once when
