@@ -167,7 +167,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
+python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5f68177e42fe0a53341dceb80cc8e4fb73482745" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@bfad0c2f3938985a3987bda66fb5224cb0735bca"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f"
 python -m pip install -e ".[gui]"
 ```

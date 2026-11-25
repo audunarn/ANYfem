@@ -64,7 +64,8 @@ on:
 permissions:
   contents: read
 env:
-  # Same ANYgeometry source the route tests were run against locally (5f68177 of ANYgeometry main).
+  # The ANYgeometry source pinned in pyproject.toml (5f68177 of ANYgeometry main; the route tests were last run
+  # locally against the previous pin, d71c5bc).
   ANYGEOMETRY_REF: 5f68177e42fe0a53341dceb80cc8e4fb73482745
 jobs:
   # T2: route, lock, health and build-script tests on NORMAL (GIL) Python.  Tests that need the real free-threaded runtime skip themselves.
