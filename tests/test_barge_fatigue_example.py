@@ -172,11 +172,27 @@ def test_bundled_example_is_current_with_the_live_model(project, tmp_path):
     assert history(bundled) == history(project)
 
 
-def test_bundled_example_mesh_stays_current_after_an_edit_that_keeps_every_offset(tmp_path):
-    """The packaged mesh records its beam offsets, so an unrelated edit does not make it stale."""
+def _extract_example(tmp_path, *, results=False):
     from importlib import resources
     from zipfile import ZipFile
 
+    resource = resources.files("anyfem").joinpath("example_data", "barge5_fatigue.zip")
+    with resource.open("rb") as stream, ZipFile(stream) as archive:
+        names = [n for n in archive.namelist()
+                 if n == "Barge5Fatigue.anyfem" or n.endswith(".anymesh.h5") or (results and n.endswith(".anyres.h5"))]
+        archive.extractall(tmp_path, members=names)
+    return tmp_path / "Barge5Fatigue.anyfem"
+
+
+def _unused_plate_section(project):
+    from anyfem.model import PlateSection
+
+    material = next(iter(project.plate_sections.values())).material
+    return PlateSection(name="Unused 12 mm", thickness=.012, material=material)
+
+
+def test_bundled_example_mesh_stays_current_after_an_edit_that_keeps_every_offset(tmp_path):
+    """The packaged mesh records its beam offsets, so an unrelated edit does not make it stale."""
     from anyfem.application.mesh_publication import (
         BEAM_OFFSETS_KEY, beam_offsets_changed, current_mesh_sources, recorded_beam_offsets,
     )
@@ -184,20 +200,36 @@ def test_bundled_example_mesh_stays_current_after_an_edit_that_keeps_every_offse
     from anyfem.io.project_file import load_project
     from anyfem.solve.build import build_fe_model
 
-    resource = resources.files("anyfem").joinpath("example_data", "barge5_fatigue.zip")
-    with resource.open("rb") as stream, ZipFile(stream) as archive:
-        names = [n for n in archive.namelist() if n == "Barge5Fatigue.anyfem" or n.endswith(".anymesh.h5")]
-        archive.extractall(tmp_path, members=names)
-    path = tmp_path / "Barge5Fatigue.anyfem"
+    path = _extract_example(tmp_path)
     bundled = load_project(path)
     record, = bundled.mesh_records.values()
     assert record.summary.get(BEAM_OFFSETS_KEY) == recorded_beam_offsets(bundled)
     mesh = ArtifactStore(path).read_mesh(bundled.artifacts[record.artifact_id], mesh_id=record.id,
                                          document_id=bundled.document_id, mesh_hash=record.mesh_hash)
-    # An unused plate section changes the model but no beam offset.
-    material = next(iter(bundled.plate_sections.values())).material
-    bundled.add_plate_section("Unused 12 mm", thickness=.012, material=material)
-    model_hash, _ = current_mesh_sources(bundled)
-    assert model_hash != record.source_model_hash
+    # An unused plate section changes the model but no mesh input and no beam offset.
+    sources = record.summary["mesh_sources"]
+    section = _unused_plate_section(bundled)
+    bundled.add_plate_section(section.name, thickness=section.thickness, material=section.material)
+    model_hash, digests = current_mesh_sources(bundled)
+    assert model_hash != record.source_model_hash and digests == sources
     assert not beam_offsets_changed(bundled, record, model_hash)
     build_fe_model(bundled, mesh, require_loads=False, require_supports=False)
+
+
+def test_workbench_keeps_the_bundled_mesh_current_after_an_edit_that_keeps_every_offset(project, tmp_path):
+    """Through the real edit command the saved mesh record stays completed, not stale."""
+    from anyfem.commands import AddPlateSection
+    from test_mesh_publication_lifecycle import FileWorkbench
+
+    path = _extract_example(tmp_path, results=True)
+    editor = FileWorkbench(project)
+    editor.open_project(str(path))
+    try:
+        record = editor.project.mesh_records[editor.project.mesh_numbering.active_mesh_id]
+        assert editor.mesh_record_state(record) == "completed"
+        before = editor.session.snapshot().revision.model_hash
+        editor.run(AddPlateSection(_unused_plate_section(editor.project)))
+        assert editor.session.snapshot().revision.model_hash != before
+        assert editor.mesh_record_state(record) == "completed"
+    finally:
+        editor._project_lock.release()
