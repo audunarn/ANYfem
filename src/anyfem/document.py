@@ -294,13 +294,19 @@ class DocumentSession:
         if solver_affecting and next_revision.model_hash != previous_model_hash:
             self.mesh_cache.clear()
         first_error = None
-        for callback in list(self._listeners):
-            try:
-                callback(next_revision)
-            except Exception as error:
-                if first_error is None:
-                    first_error = error
-                logging.getLogger(__name__).exception("Revision observer failed after commit %s", next_revision.id)
+        # Observers run while the outer transaction is still open, but the
+        # project already equals ``next_revision`` (derived caches may key on it).
+        self._publishing_revision = True
+        try:
+            for callback in list(self._listeners):
+                try:
+                    callback(next_revision)
+                except Exception as error:
+                    if first_error is None:
+                        first_error = error
+                    logging.getLogger(__name__).exception("Revision observer failed after commit %s", next_revision.id)
+        finally:
+            self._publishing_revision = False
         return first_error
 
     def _make_revision(

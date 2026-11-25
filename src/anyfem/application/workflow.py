@@ -1020,6 +1020,8 @@ class WorkbenchWorkflow:
         else:
             settings = replace(settings, publication_allocation=ticket.allocation)
         snapshot = self.session.snapshot()
+        from .mesh_publication import require_snapshot_of_ticket
+        require_snapshot_of_ticket(snapshot, ticket)
         record = MeshRecord(
             name=f"Mesh {len(self.project.mesh_records) + 1}",
             source_model_hash=snapshot.revision.model_hash,
@@ -1118,25 +1120,35 @@ class WorkbenchWorkflow:
         ):
             sources = record.summary.get("mesh_sources")
             if sources is not None:
-                from .mesh_publication import BEAM_OFFSETS_KEY, changed_mesh_sources
-                # The verdict is a function of the committed model and the
-                # record's own inputs; cache it per revision so a tree refresh
-                # pays the source comparison (and the beam offsets) once per
-                # edit, not once per paint.  Never cached inside a transaction,
-                # where the project can differ from its revision.
+                from copy import deepcopy
+                from .mesh_publication import BEAM_OFFSETS_KEY, changed_mesh_sources, current_mesh_sources
+                # The project equals its committed revision outside a
+                # transaction and while the revision is being published.  Then
+                # the current sources are computed once per revision and each
+                # record's verdict is cached against copies of its own inputs,
+                # so a tree refresh pays the comparison once per edit, not per
+                # record per paint.  Inside an open transaction nothing cached
+                # is read or written.
+                session = self.session
+                cacheable = (not getattr(session, "_transaction_depth", 0)
+                             or getattr(session, "_publishing_revision", False))
+                revision = session.revision.model_hash
                 offsets = record.summary.get(BEAM_OFFSETS_KEY)
-                key = (record.id, self.session.revision.model_hash, record.source_model_hash,
-                       id(sources), id(offsets))
-                cache = self.__dict__.setdefault("_mesh_source_verdicts", {})
-                hit = cache.get(key)
-                if hit is not None and hit[1] is sources and hit[2] is offsets:
-                    changed = hit[0]
+                if cacheable:
+                    memo = self.__dict__.get("_mesh_source_memo")
+                    if memo is None or memo[0] != revision:
+                        memo = self.__dict__["_mesh_source_memo"] = (revision, current_mesh_sources(self.project), {})
+                    current, verdicts = memo[1], memo[2]
+                    hit = verdicts.get(record.id)
+                    if (hit is not None and hit[1] == record.source_model_hash
+                            and hit[2] == sources and hit[3] == offsets):
+                        changed = hit[0]
+                    else:
+                        changed = bool(changed_mesh_sources(self.project, record, current))
+                        verdicts[record.id] = (changed, record.source_model_hash,
+                                               deepcopy(sources), deepcopy(offsets))
                 else:
                     changed = bool(changed_mesh_sources(self.project, record))
-                    if not getattr(self.session, "_transaction_depth", 0):
-                        if len(cache) > 64:
-                            cache.clear()
-                        cache[key] = (changed, sources, offsets)
                 if not changed:
                     return str(record.status)
             return "stale"

@@ -7,6 +7,7 @@ from threading import RLock
 from weakref import finalize
 
 from .application.mesh_publication import (
+    require_snapshot_of_ticket,
     commit_generated_mesh, publication_ticket, retained_mesh, unchanged_record, verify_published_content,
 )
 from .document import DocumentSession
@@ -123,7 +124,11 @@ class ProjectMeshSession:
             settings = replace(settings, regional=request)
         else:
             settings = replace(settings, publication_allocation=ticket.allocation)
-        snapshot = self.session.snapshot().thaw()
+        frozen = self.session.snapshot()
+        # Recorded beam offsets come from the ticket's model: the snapshot
+        # that is meshed must be that model.
+        require_snapshot_of_ticket(frozen, ticket)
+        snapshot = frozen.thaw()
         token = cancellation if cancellation is not None else _cancellation_token()
         result = run_mesh_job(snapshot, ticket.model_hash, settings, progress or (lambda *_: None), token)
         if result.mesh.hybrid_diagnostics.get("automation", {}).get("status") == "inspection_only":

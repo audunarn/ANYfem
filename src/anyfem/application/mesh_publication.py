@@ -47,8 +47,9 @@ def recorded_beam_offsets(project, model_hash=None):
     project when the solver model is built; a generated mesh depends on the
     beam and plate sections only through these offsets (owner contract
     2026-11-25).  Scalar (unrotated manual) and vector offsets keep their
-    form, because the mesher interprets them differently.  The value is
-    cached per model hash: the offsets are a function of the model payload.
+    form, because the mesher interprets them differently.  With a model hash
+    the value is cached on the project (the offsets are a function of the
+    model payload); callers must not mutate it -- publication stores a copy.
     """
     cached = project.__dict__.get("_anyfem_recorded_beam_offsets")
     if model_hash is not None and cached is not None and cached[0] == model_hash:
@@ -62,13 +63,20 @@ def recorded_beam_offsets(project, model_hash=None):
     return offsets
 
 
+def _copy_offsets(offsets):
+    return {edge: (list(value) if isinstance(value, list) else value) for edge, value in offsets.items()}
+
+
 def beam_offsets_changed(project, record, model_hash=None):
     """Whether ``record``'s mesh was generated with other beam offsets.
 
     A record published before offsets were recorded is treated as changed
     once the model differs from the one it was generated from and the model
     has beam lines (owner decision 2026-11-25: fail closed after the next
-    edit).  Imported meshes carry their own offsets and are not checked.
+    edit).  Offsets that cannot be evaluated count as changed.  Imported
+    meshes carry their own offsets and are not checked.  Equal model hashes
+    imply equal offsets: publication records the offsets of the model the
+    publication ticket (and, for snapshot jobs, the meshing snapshot) proved.
     """
     if getattr(record, "kind", "generated") == "imported":
         return False
@@ -79,19 +87,34 @@ def beam_offsets_changed(project, record, model_hash=None):
     prior = record.summary.get(BEAM_OFFSETS_KEY)
     if prior is None:
         return bool(project.edge_sections)
-    return prior != recorded_beam_offsets(project, model_hash)
+    try:
+        current = recorded_beam_offsets(project, model_hash)
+    except (ValueError, ArithmeticError):  # ProjectError is a ValueError
+        return True
+    return prior != current
 
 
-def changed_mesh_sources(project, record):
+def current_mesh_sources(project):
+    """``(model hash, source digests)`` of the project as it is now."""
     model = _model_payload(project_to_dict(project))
+    return canonical_hash(model), _source_digests(model)
+
+
+def changed_mesh_sources(project, record, current=None):
+    model_hash, digests = current if current is not None else current_mesh_sources(project)
     prior = record.summary.get("mesh_sources")
     changed = []
     if prior is not None:
-        current = _source_digests(model)
-        changed = [key for key in sorted(set(prior) | set(current)) if prior.get(key) != current.get(key)]
-    if beam_offsets_changed(project, record, canonical_hash(model)):
+        changed = [key for key in sorted(set(prior) | set(digests)) if prior.get(key) != digests.get(key)]
+    if beam_offsets_changed(project, record, model_hash):
         changed.append(BEAM_OFFSETS_KEY)
     return tuple(changed)
+
+
+def require_snapshot_of_ticket(snapshot, ticket):
+    """A meshing snapshot must be the model the publication ticket proved."""
+    if canonical_hash(_model_payload(snapshot.document)) != ticket.model_hash:
+        raise ValueError("mesh candidate was superseded by a model edit or another publication")
 
 
 def require_regional_parent(project, record):
@@ -244,7 +267,7 @@ def commit_generated_mesh(workflow, ticket, record, mesh, baseline, *,
             if refusal:
                 record.summary["regional_refusal"] = refusal
         record.summary["mesh_sources"] = mesh_source_digests(project)
-        record.summary[BEAM_OFFSETS_KEY] = recorded_beam_offsets(project, ticket.model_hash)
+        record.summary[BEAM_OFFSETS_KEY] = _copy_offsets(recorded_beam_offsets(project, ticket.model_hash))
         command = PublishMesh(ticket.expected, state, ticket.parent_id, record, references)
         if references is not None and selection is not None:
             command._selection_before = list(selection.items)

@@ -8,6 +8,7 @@ import numpy as np
 
 from .examples import drawing_barge_60m
 from .. import commands
+from .mesh_publication import BEAM_OFFSETS_KEY, recorded_beam_offsets
 from ..model import WetSurface
 from ..native_meshing import NativeMeshSettings
 
@@ -246,7 +247,8 @@ def map_barge_regular_wave(output_directory, *, source=None, prepared=None):
     model_hash = DocumentSession(project).revision.model_hash
     record = MeshRecord(name='Pressure transfer mesh',source_model_hash=model_hash,
                         mesh_input_hash='',mesh_hash=mesh_hash,
-                        summary={'nodes':mesh.num_nodes,'elements':mesh.num_elements},
+                        summary={'nodes':mesh.num_nodes,'elements':mesh.num_elements,
+                                 BEAM_OFFSETS_KEY:recorded_beam_offsets(project)},
                         structural_preparation=preparation)
     artifact = ArtifactStore(path).write_mesh(mesh,mesh_id=record.id,
         document_id=project.document_id,model_hash=model_hash,mesh_hash=mesh_hash,

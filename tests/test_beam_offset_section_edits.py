@@ -205,3 +205,117 @@ def test_headless_update_in_an_unnumbered_pre_rule_document_gives_the_offset_rul
             session.update_mesh(replace(SETTINGS, overrides=((edges[0][1], 4),)))
     finally:
         session.close()
+
+
+def test_a_meshing_snapshot_that_differs_from_the_ticket_is_never_published(tmp_path):
+    """Offsets are recorded from the ticket's model, so the meshed snapshot must be that model."""
+    project, _ = _model()
+    session = ProjectMeshSession(project)
+    original = session.session.snapshot
+
+    def edited_snapshot():
+        thin = project.plate_sections["plate"]
+        project.plate_sections["plate"] = replace(thin, thickness=0.05)
+        try:
+            return original()
+        finally:
+            project.plate_sections["plate"] = thin
+
+    session.session.snapshot = edited_snapshot
+    try:
+        with pytest.raises(ValueError, match="superseded"):
+            session.generate_mesh(SETTINGS)
+        assert not project.mesh_records
+    finally:
+        session.close()
+
+
+def test_unchanged_record_does_not_reuse_a_parent_with_other_offsets(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import anyfem.regional_dispatch as dispatch
+    from anyfem.application.mesh_publication import _model_hash, unchanged_record
+
+    def reuse_attempted(*args, **kwargs):
+        raise AssertionError("a parent with other offsets reached the no-op reuse planning")
+
+    monkeypatch.setattr(dispatch, "plan_regional_update", reuse_attempted)
+    session, project, _ = _session(tmp_path)
+    session.close()
+    parent = _active(project)
+    parent.summary["regional_settings_hash"] = SETTINGS.input_hash
+    EDITS["plate thickness"](project)
+    ticket = SimpleNamespace(parent_id=parent.id, model_hash=_model_hash(project))
+    assert unchanged_record(SimpleNamespace(project=project), ticket, SETTINGS, baseline={}) is None
+
+
+def _scalar_model():
+    project, faces, edges = two_plates()
+    project.add_beam_section(BeamSection(name="beam", profile="Flatbar", material="S355", flange_width=.01,
+                                         flange_thickness=.1, eccentricity=.04))
+    project.assign_beam(edges[0][0], "beam")
+    assert project.beam_offsets == {edges[0][0]: .04}
+    return project, edges
+
+
+def test_scalar_offsets_are_recorded_exactly_and_checked_after_reopen(tmp_path):
+    project, edges = _scalar_model()
+    session = ProjectMeshSession(project)
+    session.generate_mesh(SETTINGS)
+    path = session.save(tmp_path / "scalar.anyfem")
+    session.close()
+    reopened = load_project(path)
+    record = _active(reopened)
+    assert record.summary["beam_offsets"] == {str(edges[0][0]): .04}
+    session = ProjectMeshSession(reopened, path)
+    try:
+        mesh = session.mesh
+        reopened.materials["S355"] = reopened.materials["S355"]  # no-op edit keeps the mesh
+        _build(reopened, mesh)
+        reopened.add_beam_section(replace(reopened.beam_sections["beam"], eccentricity=.05))
+        with pytest.raises(ProjectError, match=CHANGED):
+            _build(reopened, mesh)
+    finally:
+        session.close()
+
+
+def test_unevaluable_offsets_mark_the_mesh_stale_instead_of_raising(tmp_path):
+    from anyfem.application.mesh_publication import beam_offsets_changed
+    session, project, edges = _session(tmp_path)
+    session.close()
+    record = _active(project)
+    start, end = (project.geometry.vertices[v] for v in (project.geometry.edges[edges[0][0]].start,
+                                                         project.geometry.edges[edges[0][0]].end))
+    along = tuple(float(b - a) for a, b in zip(start.position if hasattr(start, "position") else start,
+                                                end.position if hasattr(end, "position") else end))
+    project.add_beam_section(replace(project.beam_sections["beam"], web_direction=along))
+    with pytest.raises(Exception):
+        _ = project.beam_offsets
+    assert beam_offsets_changed(project, record) is True
+
+
+def test_workbench_verdict_cache_is_not_used_inside_a_transaction(tmp_path):
+    editor = _workbench(tmp_path)
+    try:
+        record = _active(editor.project)
+        editor.run(AddPlateSection(replace(editor.project.plate_sections["bare"], thickness=0.04)))
+        assert editor.mesh_record_state(record) == "completed"  # primes the cache
+        with editor.session.transaction("open edit"):
+            editor.project.plate_sections["plate"] = replace(editor.project.plate_sections["plate"], thickness=0.02)
+            assert editor.mesh_record_state(record) == "stale"
+            editor.project.plate_sections["plate"] = replace(editor.project.plate_sections["plate"], thickness=0.01)
+    finally:
+        editor._project_lock.release()
+
+
+def test_workbench_verdict_cache_sees_a_changed_record(tmp_path):
+    editor = _workbench(tmp_path)
+    try:
+        record = _active(editor.project)
+        editor.run(AddPlateSection(PlateSection(name="plate", thickness=0.02, material="S355")))
+        assert editor.mesh_record_state(record) == "stale"
+        from anyfem.application.mesh_publication import recorded_beam_offsets
+        record.summary["beam_offsets"].clear()
+        record.summary["beam_offsets"].update(recorded_beam_offsets(editor.project))
+        assert editor.mesh_record_state(record) == "completed"
+    finally:
+        editor._project_lock.release()
