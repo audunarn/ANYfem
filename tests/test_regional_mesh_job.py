@@ -202,6 +202,7 @@ def regional_update_panel():
     app = SimpleNamespace(
         project=project, session=DocumentSession(project), mesh_record_id=None, seeding_overrides={},
         review_mesh_reference_repairs=object(),
+        _refuse_regional_parent=lambda: None,  # the workbench parent refusals (none for this stand-in)
         preview_regional_update=lambda **o: events.append(("preview", o)) or "3 faces change",
         update_mesh_async=lambda **o: events.append(("update", o)),
         set_status=lambda text, **k: events.append(("status", text)),

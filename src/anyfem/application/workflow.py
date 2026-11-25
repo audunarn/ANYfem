@@ -884,8 +884,9 @@ class WorkbenchWorkflow:
             parent_id = (numbering.active_mesh_id if numbering.generation
                          else getattr(self, "mesh_record_id", None))
         record = self.project.mesh_records.get(parent_id)
-        from ..beam_offset_rule import REFUSAL, has_rule_stale_records
-        if record is None and has_rule_stale_records(self.project):
+        from ..beam_offset_rule import REFUSAL, has_rule_stale_records, is_rule_stale
+        if (record is None and has_rule_stale_records(self.project)) or (
+                record is not None and is_rule_stale(record)):
             raise ValueError(REFUSAL)
         from .mesh_publication import require_regional_parent
         require_regional_parent(self.project, record)

@@ -510,3 +510,31 @@ def test_qt_update_mesh_names_changed_offsets_before_reading_retained_meshes(tmp
             MeshTask.start_update(panel)
     finally:
         editor._project_lock.release()
+
+
+def test_workbench_update_of_a_present_pre_rule_parent_names_the_rule_before_the_ticket(tmp_path, monkeypatch):
+    import json
+    import anyfem.application.workflow as workflow_module
+    project, edges = _model()
+    session = ProjectMeshSession(project)
+    session.generate_mesh(SETTINGS)
+    path = session.save(tmp_path / "old.anyfem")
+    session.close()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["anyfem"].pop("beam_offset_rule", None)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    editor = FileWorkbench(_model()[0])
+    editor.open_project(str(path))
+
+    def ticket_reached(*args, **kwargs):
+        raise AssertionError("the publication ticket was built before the offset-rule refusal")
+
+    monkeypatch.setattr(workflow_module, "publication_ticket", ticket_reached)
+    try:
+        assert _active(editor.project) is not None
+        with pytest.raises(ValueError, match="offset rule.*full rebuild"):
+            editor.update_mesh(.5, strategy="mapped")
+        with pytest.raises(ValueError, match="offset rule.*full rebuild"):
+            editor.preview_regional_update(.5, strategy="mapped")
+    finally:
+        editor._project_lock.release()
