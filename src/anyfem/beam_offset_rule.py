@@ -107,14 +107,47 @@ def rule_stale_record_for(project: Any, mesh: Any) -> Any:
         for record in records.values():
             if record.id == tag or record.artifact_id == tag:
                 return record if is_rule_stale(record) else None
+    return _stale_by_content(records, mesh)
+
+
+def _stale_by_content(records: Mapping[str, Any], mesh: Any) -> Any:
+    """Match an untagged mesh by content against the saved records.
+
+    Records hash either the semantic form (``mesh_semantic_hash``) or, for
+    older workbench, imported and pressure-transfer records, the plain codec
+    digest.  A mesh whose content is a current record's content is current
+    (it reproduces a publication made under the current rule); otherwise a
+    match with a rule-stale record makes it stale.
+    """
+
+    from anymesher.serialize import mesh_to_dict
+
+    from .document import canonical_hash
     from .mesh_jobs import matches_mesh_hash
-    for record in stale:
-        if record.mesh_hash and matches_mesh_hash(
+
+    codec_digest = canonical_hash(mesh_to_dict(mesh))
+
+    def reproduces(record: Any) -> bool:
+        if not record.mesh_hash:
+            return False
+        if record.mesh_hash == codec_digest:
+            return True
+        try:
+            return matches_mesh_hash(
                 mesh, record.mesh_hash, model_hash=record.source_model_hash,
                 mesh_input_hash=record.mesh_input_hash,
-                structural_preparation=record.structural_preparation):
-            return record
-    return None
+                structural_preparation=record.structural_preparation)
+        except (TypeError, ValueError):
+            return False
+
+    stale_match = None
+    for record in sorted(records.values(), key=is_rule_stale):
+        if not reproduces(record):
+            continue
+        if not is_rule_stale(record):
+            return None
+        stale_match = stale_match or record
+    return stale_match
 
 
 def is_pre_rule_document(document: Mapping[str, Any]) -> bool:
