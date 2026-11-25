@@ -588,14 +588,20 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         self._action(file,"Save as",lambda:self.save_project(ask=True),"Ctrl+Shift+S")
         self._action(file,"Recover autosave",self.recover_autosave)
         self._action(file,"Open file inspector",self.open_file_inspector)
-        self._action(file,"Import SESAM model",self.import_sesam_model)
+        file.addSeparator()
+        import_menu=file.addMenu("Import");import_menu.setObjectName("ImportMenu")
+        self._action(import_menu,"Import SESAM model",self.import_sesam_model)
         from .sat_import import open_sat_import
-        self._action(file,"Import SAT geometry…",lambda: open_sat_import(self))
-        self._action(file,"Import CalculiX results",self.import_calculix_result)
-        self._action(file,"Import SESAM results",self.import_sesam_result)
-        self._action(file,"Export CalculiX deck",self.export_deck)
+        self._action(import_menu,"Import SAT geometry…",lambda: open_sat_import(self))
+        self._action(import_menu,"Import CalculiX results",self.import_calculix_result)
+        self._action(import_menu,"Import SESAM results",self.import_sesam_result)
+        export_menu=file.addMenu("Export");export_menu.setObjectName("ExportMenu")
+        self._action(export_menu,"Export CalculiX deck",self.export_deck)
         from .plate_drawings import create_plate_drawings
-        self._action(file,"Create plate drawings…",lambda: create_plate_drawings(self))
+        self._action(export_menu,"Create plate drawings…",lambda: create_plate_drawings(self))
+        examples=file.addMenu("Examples");examples.setObjectName("ExamplesMenu")
+        self._examples_menu=examples
+        file.addSeparator()
         self._action(file,"Close",self.close,"Ctrl+Q")
         edit=self.menuBar().addMenu("Edit")
         self._action(edit,"Undo",self.undo,"Ctrl+Z")
@@ -640,7 +646,6 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         submodel_action=self._action(analysis,"Submodel…",lambda:open_submodel_dialog(self))
         submodel_action.setToolTip("Cut a shell or solid submodel from a completed job, run it in the background and browse its runs")
         submodel_action.setStatusTip(submodel_action.toolTip())
-        examples=self.menuBar().addMenu("Examples")
         from .barge_fatigue_example import open_barge_fatigue_example
         self._action(examples, "5 m barge — internal bracket weld fatigue…", lambda: open_barge_fatigue_example(self))
         self._action(examples,"Support B — plate drawings…",self.open_support_drawing_example)
@@ -667,6 +672,12 @@ class QtFemWindow(WorkbenchWorkflow, QMainWindow):
         help_menu=self.menuBar().addMenu("Help")
         action=self._action(help_menu,"Copy diagnosis",self.copy_diagnosis)
         action.setToolTip("Copy the support report, with an on-demand Qt runtime snapshot, to the clipboard")
+        action.setStatusTip(action.toolTip())
+        def open_loaded_packages():
+            from .loaded_packages_dialog import open_loaded_packages  # small Qt module; collector loads on the worker
+            return open_loaded_packages(self)
+        action=self._action(help_menu,"Loaded packages…",open_loaded_packages)
+        action.setToolTip("List the ANY* and key third-party packages loaded in this session, with versions, import paths and checkout commits")
         action.setStatusTip(action.toolTip())
         for action in self._actions.values():
             if not action.shortcut().isEmpty() and not action.toolTip().endswith(")"):

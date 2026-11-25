@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Automatic meshing of a linear model with a curved face (any support other than `Plane`, including a geometrically flat
+  `CoonsSurface`) reruns the request once as `quad_first` with the model's stored seam policy, but only when Automatic
+  refuses with ANYmesh's exact global-seed element-limit refusal (`StructuredElementLimitExceeded`, same number and text).
+  Everything that meshes today is unchanged; planar and quadratic models, explicit strategies and
+  `MeshAutomationOptions(strict_method=True)` keep the refusal. The rerun takes quad_first's own layout default and only
+  the remaining automation time budget, and is recorded in `hybrid_diagnostics['automatic_fallback']`. Pins ANYmesh
+  fd0ea76.
+
 - A model can select the owner's intersection seam policy itself: `NativeMeshSettings` parameter `seam_policy`
   (`baseline` or `ring_split`; `ring_split` is an attempt per face, the owner may decline an individual ring seam, and an
   explicit `ring_split` the owner resolves to another policy, for example under decision tracing, is refused once when
@@ -10,6 +18,21 @@
   carried to structural preparation on every route (in-process, thread-route child),
   the prepared-model cache and the mesh identity, and saved with the project. No environment variable is used; models
   without it, and old files, are unchanged. The floating tripod example selects `ring_split`, quad-first, 0.5 m, linear.
+
+- Help → Loaded packages… lists the ANY* and key third-party packages loaded in the session with
+  version, version source, the import path actually used (and its resolved target through
+  `.ecosystem` junctions) and, for ANY* packages, the checkout HEAD commit. Version: a source checkout's static
+  `pyproject.toml` version, else installed metadata that owns the loaded copy, else the module's
+  `__version__`, else "unknown"; disagreeing sources are flagged (⚠). Collected on a worker thread
+  when the dialog opens (GUI thread ~5-8 ms); nothing is imported. Copy to clipboard included.
+  Installed metadata counts only for standard layouts (a wheel RECORD listing the loaded file, or an
+  editable install whose absolute file: URL is the loaded copy's own project root); symlinked/junctioned
+  or case-aliased paths, egg-info and zip-backed metadata,
+  malformed RECORD rows (including non-canonical hashes), RECORD file names containing line breaks
+  and nested projects are out of scope and shown as not owned.
+
+- Menus: File now holds Import, Export and Examples submenus; the import, export, plate-drawing and
+  example actions moved there unchanged (names, shortcuts, behaviour). The top-level Examples menu is gone.
 
 - Use the ANYfeSolver 0.5 package for structural analyses.
 

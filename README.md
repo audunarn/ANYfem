@@ -698,7 +698,7 @@ kw * x) - z)`), fading in over the first 6 s (an envelope of points); the bendin
 `mean + swing * sin(omega * t - lag)` of the calibration moment. Choose *Batch linear static* in
 the Solve task to solve the steps `Seaway_000` ... `Seaway_599` with one factorization, and read
 the reference point through the record with `batch.connection_history("End section X = 5 m")`.
-It is also in the Examples menu.
+It is also in the File → Examples menu.
 
 ### Wet surfaces, fluid pressure and load-case series
 
@@ -1144,7 +1144,7 @@ Native archive sample maps read associations cooperatively on the loader without
 
 ## Drawings
 
-Open **Examples → Support B — plate drawings…** for the editable support example, or **Drawings** beside **Submodelling** for the current project. Generate plate profiles, cylindrical developments with attached stiffeners, bounded plane sections, assembly views, a plate index and weight takeoff. Export printable PDF and true-size DXF or DWG. A notice and **Locate…** button appear if OpenCAD Studio is missing. See [Plate drawings](docs/plate-drawings.md) for the workflow and supported geometry.
+Open **File → Examples → Support B — plate drawings…** for the editable support example, or **Drawings** beside **Submodelling** for the current project. Generate plate profiles, cylindrical developments with attached stiffeners, bounded plane sections, assembly views, a plate index and weight takeoff. Export printable PDF and true-size DXF or DWG. A notice and **Locate…** button appear if OpenCAD Studio is missing. See [Plate drawings](docs/plate-drawings.md) for the workflow and supported geometry.
 
 ### Fatigue in Results
 
@@ -1154,7 +1154,7 @@ Click replaces the selection and Shift-click adds targets. Esc finishes picking.
 Use the location preview to check shell surface, plate thickness and readout direction.
 Both simplified and rainflow assessments evaluate all selected targets.
 
-Choose **Examples → 5 m barge — internal bracket weld fatigue…** to open the
+Choose **File → Examples → 5 m barge — internal bracket weld fatigue…** to open the
 solved example with internal shell-supported brackets and local toe refinement.
 Its nine signed quasi-static load steps are ready for rainflow. Use Save As to
 retain an editable copy of the project, submitted mesh and stress history.

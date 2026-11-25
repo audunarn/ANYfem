@@ -9,6 +9,8 @@ front-end would later call into.
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from collections.abc import Callable
 from copy import copy, deepcopy
 from dataclasses import dataclass, field, replace
@@ -2165,7 +2167,95 @@ class Project:
         return ((staged_trim is not None and staged_trim(geometry))
                 or (classify is not None and classify(geometry)))
 
-    def generate_mesh(
+    def generate_mesh(self, target_size: float | None = None, **options) -> Mesh:
+        """Mesh every plate, plus every line carrying a beam.
+
+        Takes the keyword options of :meth:`_generate_mesh_once` (documented there).  Automatic keeps its
+        route unchanged; only when that route refuses with the exact global-seed element-limit refusal
+        (``StructuredElementLimitExceeded``) on a linear model with a non-planar face does Automatic rerun
+        the same request as ``strategy='quad_first'`` with the model's stored seam policy.  The fallback is
+        recorded in ``mesh.hybrid_diagnostics['automatic_fallback']``; if it fails too, its error carries
+        the original refusal as context and a note.
+
+        "Non-planar" is ANYfem's support-class classification (:func:`classify_curved_support`): a face whose
+        support is not a ``Plane``.  A geometrically flat face on a curved support class (for example a flat
+        ``CoonsSurface``) therefore counts as curved and falls back too (owner decision 2026-11-24).  The rerun
+        is not tried with ``MeshAutomationOptions(strict_method=True)``, and it gets only the automation time
+        budget the refused pass left.
+        """
+
+        import anymesher.errors
+
+        # An ANYmesher without the typed refusal cannot report it, so Automatic stays exactly as it was.
+        StructuredElementLimitExceeded = getattr(anymesher.errors, "StructuredElementLimitExceeded", None)
+        if StructuredElementLimitExceeded is None or not self._automatic_fallback_applies(options):
+            return self._generate_mesh_once(target_size, **options)
+
+        started = perf_counter()
+        try:
+            return self._generate_mesh_once(target_size, **options)
+        except StructuredElementLimitExceeded as refusal:
+            from ..structural_preparation import seam_policy_of
+
+            record = {
+                "requested": "auto",
+                "selected": "quad_first",
+                "reason": str(refusal),
+                "estimated": refusal.estimated,
+                "maximum": refusal.maximum,
+                "refusal_seconds": perf_counter() - started,
+                "seam_policy": seam_policy_of(self.native_mesh_settings),
+            }
+            retry = dict(options, strategy="quad_first")
+            # Automatic admits only layout_policy='existing', so it carries no choice for quad_first: the rerun
+            # takes quad_first's own default (stored layout_policy, else adaptive), as an explicit request would.
+            retry.pop("layout_policy", None)
+            check = options.get("cancellation_check")
+            if check is not None:
+                check("automatic quad-first fallback")
+            automation = options.get("automation")
+            if getattr(automation, "max_seconds", None) is not None:
+                # One request, one recovery budget: measured after the callback, the rerun gets only what is left.
+                remaining = automation.max_seconds - (perf_counter() - started)
+                if remaining <= 0.0:
+                    refusal.add_note("Automatic did not fall back to quad_first: the automation time budget is spent")
+                    raise
+                retry["automation"] = replace(automation, max_seconds=remaining)
+            try:
+                mesh = self._generate_mesh_once(target_size, **retry)
+            except BaseException as error:
+                error.add_note(f"Automatic fell back to quad_first after: {refusal}")
+                raise
+        diagnostics = getattr(mesh, "hybrid_diagnostics", None)
+        if isinstance(diagnostics, dict):
+            diagnostics["automatic_fallback"] = record
+        self._last_mesh_execution["automatic_fallback"] = record
+        return mesh
+
+    def _automatic_fallback_applies(self, options) -> bool:
+        """Whether this request is Automatic, linear, on a model with a non-planar face (owner decision A)."""
+
+        settings = self.native_mesh_settings
+        strategy = options.get("strategy")
+        automation = options.get("automation")
+        if getattr(automation, "strict_method", False) is True:  # invalid objects reach the mesh API's TypeError
+            return False  # "use only the selected method": no other method is tried
+        if not strategy:  # None or "": resolved from the stored settings, as in _generate_mesh_once
+            backend = None if settings is None else getattr(settings.backend, "value", settings.backend)
+            if backend not in (None, "automatic", "auto"):
+                return False
+        elif strategy != "auto":
+            return False
+        order = options.get("order") or (
+            self.element_order if settings is None else settings.element_order)
+        if order != "linear":
+            return False
+        from ..mesh_curved_update import classify_curved_support
+
+        # Non-planar means a support other than Plane, ANYfem's existing curved-support classification.
+        return bool(classify_curved_support(self))
+
+    def _generate_mesh_once(
         self,
         target_size: float | None = None,
         *,
@@ -2191,7 +2281,7 @@ class Project:
         execution_policy: object | None = None,
         pool_lease: object | None = None,
     ) -> Mesh:
-        """Mesh every plate, plus every line carrying a beam.
+        """One meshing pass (see :meth:`generate_mesh`, which adds the Automatic fallback).
 
         ``refinements`` and ``order`` default to the project's own, so a script
         that sets them once does not have to repeat them at every call, and a
