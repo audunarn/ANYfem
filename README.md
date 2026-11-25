@@ -163,21 +163,22 @@ python -m anyfem.ui.qt
 
 The default PySide6 workbench uses the shared workflow and the Qt host in the updated
 ANY3dView checkout at candidate commit
-[`d8b82686e477920cb485a7d32e6f04699b6f4d6f`](https://github.com/audunarn/ANY3dView/commit/d8b82686e477920cb485a7d32e6f04699b6f4d6f).
+[`6fa628bc3a9e1c74548901678ff2ee8033e6c5dc`](https://github.com/audunarn/ANY3dView/commit/6fa628bc3a9e1c74548901678ff2ee8033e6c5dc).
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@660430a5041a8315c523bdb542d64271f9445f7a" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b9814874c692bc675306c90176c03c5fbd05c5a0"
-python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@d8b82686e477920cb485a7d32e6f04699b6f4d6f"
+python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5f68177e42fe0a53341dceb80cc8e4fb73482745" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@bfad0c2f3938985a3987bda66fb5224cb0735bca"
+python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@6fa628bc3a9e1c74548901678ff2ee8033e6c5dc"
 python -m pip install -e ".[gui]"
 ```
 
-The published ANY3dView 0.5.5 wheel does not supply its Qt host; the `gui` extra
-therefore pins the published viewer source commit above until an owner release
-provides it. The GUI extra also pins the coordinated ANYmesher source because
-the published 0.5.0 wheel lacks the workbench's meshing-control APIs.
-The committed owner snapshots above match the candidate
-CI inputs; they do not change the qualified release graph. In that environment,
+The `gui` extra requires `ANY3dView[gpu,qt]>=0.5.6,<0.6` with its Qt host; the source commit
+above (ANY3dView 0.5.6, the one CI checks out) provides it. The GUI extra also pins
+the coordinated ANYmesher source because the published 0.5.0 wheel lacks the
+workbench's meshing-control APIs. The ANYfeSolver, ANYgeometry, ANYmesher and ANY3dView
+revisions above are the ones CI checks out; the application lane
+(`.github/workflows/application-lane.yml`) lists the full dependency set. They do not
+change the qualified release graph. In that environment,
 launch with `anyfem`, `anyfem-qt`, `python -m anyfem.ui.qt`, or
 `python run_gui.py` (also accepts `--qt`). Qt is the default frontend.
 For the retained legacy frontend, install `.[tk]` and use `anyfem-tk`,
@@ -195,9 +196,8 @@ mesh size and thickness layers can be edited. Replacing or deleting a solid keep
 earlier runs available under **Results**.
 
 Current main requires ANYgeometry's batch-intersection API for mesh preparation.
-ANYgeometry 0.4.5 now publishes that API. The coordinated pins above match merged
-PR10 and its paired mesher/solver inputs; package version numbers alone do not
-identify this candidate. The scientific matrix and full Qt acceptance remain
+ANYgeometry 0.4.5 now publishes that API. CI checks out the four revisions above; the `gui` extra pins only ANYgeometry and ANYmesher
+by commit. Package version numbers alone do not identify this candidate. The scientific matrix and full Qt acceptance remain
 separate gates; merging the owner integration does not establish either passed.
 See [the living conversion record](docs/QT_CONVERSION.md) for tested capabilities
 and remaining acceptance work.
