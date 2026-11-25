@@ -3,11 +3,12 @@
 ## Unreleased
 
 - The bundled barge fatigue example is rebuilt once more so its mesh record carries the beam offsets it was generated
-  with (#43). The example rebuilt in #41 had none, so its mesh record went stale after the first model edit. Now it
-  stays current (record state "completed", so Update mesh can reuse it) after an edit that changes neither a mesh
-  input nor a beam offset, such as adding an unused section. An edit that changes an offset or another mesh input
-  still makes it stale. As for every project, the workbench still asks for Update mesh before the next solve after
-  any model edit. Results are
+  with (#43). The example rebuilt in #41 had none, so its mesh record went stale after the first model edit. Now its
+  record stays current (state "completed", not stale) after an edit that changes neither a mesh input nor a beam
+  offset, such as adding an unused section. An edit that changes an offset or another mesh input still makes it
+  stale. The workbench, as for any generated mesh, drops the loaded mesh after a model edit and asks for a mesh
+  before the next solve. The example generator records no regional baseline, so for this bundle that means
+  Generate mesh (a full rebuild), not Update mesh. Results are
   unchanged from #41: same mesh, same saved fields and the same four governing damages.
 
 - Saved shell surface directors are complete on mixed triangle/quad meshes (owner decision A, 2026-11-25). The
