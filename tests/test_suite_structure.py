@@ -62,6 +62,13 @@ class SuitePlanTests(unittest.TestCase):
         for path in ("tests/test_verification.py", "tests/test_preparation_evidence.py"):
             self.assertEqual(module.classify(path + "::test_any"), "qualification")
 
+    def test_unpublished_owner_api_modules_leave_integration_but_stay_in_full(self):
+        module = self.suite()
+        nodes = ["tests/test_qt_section_library.py::test_a", "tests/test_floating_passivity.py::test_b",
+                 "tests/test_fatigue_results.py::test_c"]
+        self.assertEqual(module.manifest(nodes, "integration")["selected"], nodes[2:])
+        self.assertEqual(module.manifest(nodes, "full")["selected"], nodes)
+
     def test_runner_profiles_and_default_reuse_existing_quick(self):
         runner = load("suite_runner_under_test", "tools/test_anyfem.py")
         self.assertEqual(set(runner.selectors("unit", [])), set(self.suite().UNIT_MODULES))

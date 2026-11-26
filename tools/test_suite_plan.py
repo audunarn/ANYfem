@@ -21,6 +21,10 @@ QUALIFICATION_MODULES = frozenset({
     "tests/test_verification.py", "tests/test_preparation_evidence.py",
     "tests/test_nurbs_cut_mesh_integration.py", "tests/test_nurbs_cut_mesh_release_hold.py",
     "tests/test_floating_pipeline.py", "tests/test_qt_tree_interaction_performance.py",
+    # Import owner APIs not yet published (anysection.SectionChoice,
+    # anymesher.floating_quad_source); they abort integration collection.
+    # Still run by the full profile. Remove when the owners publish those APIs.
+    "tests/test_qt_section_library.py", "tests/test_floating_passivity.py",
 })
 SCHEMA = "anyfem-manager-tiers-v2"
 
