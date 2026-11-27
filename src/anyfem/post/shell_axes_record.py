@@ -62,11 +62,13 @@ __all__ = [
     "read_shell_axes_table",
     "recover_shell_axes_record",
     "check_record_columns",
+    "encode_strings",
     "validate_shell_axes_tables",
     "shell_element_ids",
 ]
 
 RECORD_SCHEMA = "anyfem.shell_axes_record/1"
+SOLVER_MODULE = "anyfesolver.shell_axes_outputs.recover_shell_axes"
 FAMILIES = ("membrane", "bending", "shear")
 _TENSOR_KEYS = {
     "membrane": ("global_membrane_resultant_tensors", (3, 3)),
@@ -112,6 +114,19 @@ def _exact(array: Any, shape: Sequence[int], what: str) -> np.ndarray:
     return value
 
 
+#: Solver-provided text (refusal reasons and details) is kept up to this many
+#: characters; a longer text is cut and marked (the reader caps a stored row
+#: at MAX_STRING_BYTES, which this always fits in UTF-8).
+MAX_TEXT_CHARS = 1_000
+MAX_STRING_BYTES = 4_096
+_TRUNCATED = " [truncated]"
+
+
+def _text(value: Any) -> str:
+    text = str(value)
+    return text if len(text) <= MAX_TEXT_CHARS else text[:MAX_TEXT_CHARS - len(_TRUNCATED)] + _TRUNCATED
+
+
 def _plain_float(value: Any) -> float:
     return float(value) if type(value) in (float, int, np.float64) else float("nan")
 
@@ -155,7 +170,7 @@ def _resolve_inputs(fe_model: Any, u: np.ndarray, eid: int):
         mapping = np.asarray(type(element).get_dof_mapping(element, mesh))
         expected = int(element.total_dofs)  # admitted: no instance attribute shadows it
     except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
-        return ("refused", "AXES_RECOVERY_MALFORMED", f"material or DOF lookup: {type(error).__name__}: {error}")
+        return ("refused", "AXES_RECOVERY_MALFORMED", _text(f"material or DOF lookup: {type(error).__name__}: {error}"))
     if material is not materials[name]:
         return ("refused", "AXES_RECOVERY_MALFORMED", f"material {name!r} lookup does not return the registered one")
     if mapping.ndim != 1 or mapping.dtype.kind not in "iu" or mapping.size != expected:
@@ -187,7 +202,7 @@ def _element_entry(fe_model: Any, u: np.ndarray, eid: int, admitted: bool = Fals
         try:
             gate(element, mesh)
         except ShellAxesRefusal as refusal:
-            return ("refused", refusal.code, refusal.reason)
+            return ("refused", _text(refusal.code), _text(refusal.reason))
     resolved = _resolve_inputs(fe_model, u, eid)
     if isinstance(resolved[0], str):
         return resolved
@@ -196,14 +211,14 @@ def _element_entry(fe_model: Any, u: np.ndarray, eid: int, admitted: bool = Fals
     try:
         result = recover_shell_axes(element, mesh, element_u, material)
     except ShellAxesRefusal as refusal:
-        return ("refused", refusal.code, refusal.reason)
+        return ("refused", _text(refusal.code), _text(refusal.reason))
     axes = result.axes
     arrays = axes.arrays
     refusals = dict(axes.refusals)
     if "positions" in refusals or "recovery_station_positions" not in arrays:
         refusal = refusals.get("positions")
         reason = "station positions refused" if refusal is None else f"{refusal.reason}: {refusal.detail}"
-        return ("refused", "AXES_FRAME_RULE_MISMATCH", f"positions: {reason}")
+        return ("refused", "AXES_FRAME_RULE_MISMATCH", _text(f"positions: {reason}"))
     positions = np.asarray(arrays["recovery_station_positions"])
     if positions.dtype != np.float64 or positions.ndim != 2 or positions.shape[1] != 3 or positions.shape[0] < 1:
         raise ValueError(f"shell axes record: element {eid} station positions {positions.dtype} {positions.shape}")
@@ -237,10 +252,10 @@ def _element_entry(fe_model: Any, u: np.ndarray, eid: int, admitted: bool = Fals
         "ok", _plain_float(state.get("thickness")), str(axes.branch),
         {fam: str(axes.conventions.get(fam, "")) for fam in FAMILIES},
         certified,
-        {fam: str(refusals[fam].reason) for fam in FAMILIES if fam in refusals},
-        {fam: str(refusals[fam].detail) for fam in FAMILIES if fam in refusals},
+        {fam: _text(refusals[fam].reason) for fam in FAMILIES if fam in refusals},
+        {fam: _text(refusals[fam].detail) for fam in FAMILIES if fam in refusals},
         polarity, offsets, values,
-        "" if metadata is None else f"{metadata.reason}: {metadata.detail}",
+        "" if metadata is None else _text(f"{metadata.reason}: {metadata.detail}"),
     )
 
 
@@ -432,12 +447,35 @@ def _int_list(value: Any, what: str) -> list:
     return value
 
 
-def _strings(dataset: Any, name: str, n_rows: int, key: str) -> list:
-    stored = dataset.table(name) if name in tuple(dataset.table_keys) else None
-    values = stored.get("values") if isinstance(stored, Mapping) and set(stored) == {"values"} else None
-    if not isinstance(values, list) or len(values) != n_rows or not all(type(v) is str for v in values):
-        raise ValueError(f"shell axes entry {key!r}: malformed string column")
-    return values
+def encode_strings(values: Sequence[str]) -> tuple:
+    """A string column as flat UTF-8 bytes (uint8) and int64 row offsets."""
+
+    encoded = [str(value).encode("utf-8") for value in values]
+    if any(len(item) > MAX_STRING_BYTES for item in encoded):
+        raise ValueError(f"shell axes record: a string exceeds {MAX_STRING_BYTES} bytes")
+    offsets = np.zeros(len(encoded) + 1, dtype=np.int64)
+    np.cumsum([len(item) for item in encoded], out=offsets[1:])
+    data = np.frombuffer(b"".join(encoded), dtype=np.uint8).copy()
+    return data, offsets
+
+
+def _string_rows(dataset: Any, base: str, n_e: int, lo: int, hi: int, key: str) -> list:
+    """Rows [lo, hi) of a stored string column, bounded: offsets of the span,
+    then exactly the bytes they address; every row at most MAX_STRING_BYTES,
+    strict UTF-8."""
+
+    offsets = _read_span(dataset, base + "__offsets", lo, hi - lo + 1, np.dtype("<i8"))
+    values = [int(v) for v in offsets]
+    if any(b < a or b - a > MAX_STRING_BYTES for a, b in zip(values, values[1:])):
+        raise ValueError(f"shell axes entry {key!r}: malformed string offsets")
+    data = _read_span(dataset, base + "__bytes", values[0], values[-1] - values[0], np.dtype("|u1")).tobytes()
+    out = []
+    for a, b in zip(values, values[1:]):
+        try:
+            out.append(data[a - values[0]:b - values[0]].decode("utf-8"))
+        except UnicodeDecodeError as error:
+            raise ValueError(f"shell axes entry {key!r}: a row is not UTF-8") from error
+    return out
 
 
 class _Layout:
@@ -447,6 +485,8 @@ class _Layout:
         meta = dataset.table("shell_axes_meta")
         if not isinstance(meta, Mapping) or meta.get("schema") != RECORD_SCHEMA:
             raise ValueError("shell axes tables: unknown or missing schema")
+        if meta.get("solver_module") != SOLVER_MODULE or set(meta) != {"schema", "solver_module", "cases", "entries"}:
+            raise ValueError("shell axes tables: missing or unknown producer declaration")
         entries, cases = meta.get("entries"), meta.get("cases")
         if not isinstance(entries, Mapping) or not isinstance(cases, list) or not cases:
             raise ValueError("shell axes tables: malformed meta")
@@ -513,10 +553,9 @@ class _Layout:
         for key, layout in self.entries.items():
             name = "shell_axes_" + key
             if layout["kind"] == "strings":
-                if layout["layout"] == "shared":
-                    expected.add(name)
-                else:
-                    expected.update(f"{name}__{index}" for index in range(self.n_cases))
+                bases = [name] if layout["layout"] == "shared" else [f"{name}__{index}" for index in range(self.n_cases)]
+                for base in bases:
+                    expected.update((base + "__bytes", base + "__offsets"))
             else:
                 expected.add(name)
                 if np.dtype(_record_columns()[key][1]).kind == "f":
@@ -568,10 +607,25 @@ class _Layout:
             value = np.where(present, value, np.nan)
         return value
 
-    def read_strings(self, dataset: Any, key: str, case: int) -> list:
+    def string_base(self, key: str, case: int) -> str:
         per_case = self.entries[key]["layout"] == "per_case"
-        name = f"shell_axes_{key}__{case}" if per_case else f"shell_axes_{key}"
-        return _strings(dataset, name, self.n_e, key)
+        return f"shell_axes_{key}__{case}" if per_case else f"shell_axes_{key}"
+
+    def check_strings(self, dataset: Any, key: str, case: int) -> None:
+        """Stored lengths of one string column: offsets n_e+1, zero-based,
+        bytes exactly as long as the last offset (read as one value)."""
+
+        base = self.string_base(key, case)
+        _check_flat(dataset, base + "__offsets", self.n_e + 1)
+        first = _read_span(dataset, base + "__offsets", 0, 1, np.dtype("<i8"))
+        last = _read_span(dataset, base + "__offsets", self.n_e, 1, np.dtype("<i8"))
+        if int(first[0]) != 0 or int(last[0]) < 0:
+            raise ValueError(f"shell axes entry {key!r}: malformed string offsets")
+        _check_flat(dataset, base + "__bytes", int(last[0]))
+        _read_span(dataset, base + "__bytes", 0, 0, np.dtype("|u1"))  # dtype, also when empty
+
+    def read_strings(self, dataset: Any, key: str, case: int, lo: int = 0, hi: Optional[int] = None) -> list:
+        return _string_rows(dataset, self.string_base(key, case), self.n_e, lo, self.n_e if hi is None else hi, key)
 
 
 def _validated(dataset: Any) -> tuple:
@@ -639,7 +693,8 @@ def _validated(dataset: Any) -> tuple:
         # every stored column and mask is dtype-checked, also when it is empty
         for key in shell_keys + station_keys:
             layout.read_rows(dataset, key, case, 0, 0, n_s[case])
-        strings = {key: layout.read_strings(dataset, key, case) for key in string_keys}
+        for key in string_keys:
+            layout.check_strings(dataset, key, case)
         lo = 0
         while lo < n_e:
             # a span of at most VALIDATE_SHELLS shells and VALIDATE_STATIONS
@@ -655,7 +710,7 @@ def _validated(dataset: Any) -> tuple:
             s_lo, s_hi = int(offsets[0]), int(offsets[-1])
             row = {key: layout.read_rows(dataset, key, case, lo, hi, n_s[case]) for key in shell_keys}
             row.update({key: layout.read_rows(dataset, key, case, s_lo, s_hi, n_s[case]) for key in station_keys})
-            row.update({key: values[lo:hi] for key, values in strings.items()})
+            row.update({key: layout.read_strings(dataset, key, case, lo, hi) for key in string_keys})
             row["station_offsets"] = offsets - s_lo
             _check_consistency(row, case, lo)
             lo = hi
@@ -709,6 +764,8 @@ def _check_consistency(row: Mapping[str, Any], case: int, first: int = 0) -> Non
             continue
         if hi == lo or not row["branch"][local]:
             raise ValueError(f"shell axes case {case}: admitted shell {index} has no stations or branch")
+        if not np.isfinite(row["thickness"][local]):
+            raise ValueError(f"shell axes case {case}: admitted shell {index} has no thickness")
         if _whole(row["station_positions"][lo:hi]) is not True:
             raise ValueError(f"shell axes case {case}: a station of shell {index} lacks a coordinate")
         for fam, key in (("membrane", "membrane_tensors"), ("bending", "bending_tensors"), ("shear", "shear_vectors")):
@@ -721,6 +778,8 @@ def _check_consistency(row: Mapping[str, Any], case: int, first: int = 0) -> Non
                                  "or belong to a refused family")
             if certified == bool(row[f"{fam}_refusal_reason"][local]):
                 raise ValueError(f"shell axes case {case}: {fam} of shell {index} certification and reason disagree")
+            if certified and not row[f"{fam}_convention"][local]:
+                raise ValueError(f"shell axes case {case}: certified {fam} of shell {index} has no convention")
             if certified and row[f"{fam}_refusal_detail"][local]:
                 raise ValueError(f"shell axes case {case}: certified {fam} of shell {index} has a refusal detail")
         components = _whole(row["shear_normal_components"][lo:hi])

@@ -451,7 +451,10 @@ def build_result_report(
         else ()
     )
     tables = (
-        tuple(_inspect_table(dataset, key, max_table_rows) for key in dataset.table_keys)
+        # shell_axes_* tables are a reserved store, read only through its
+        # validating reader (raw placeholders of refused shells are not values)
+        tuple(_inspect_table(dataset, key, max_table_rows) for key in dataset.table_keys
+              if not str(key).startswith("shell_axes_"))
         if include_tables
         else ()
     )

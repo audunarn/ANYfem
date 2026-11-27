@@ -315,7 +315,7 @@ def test_partial_case_records_are_refused():
     axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
                     target_size=0.5, load_cases=("default", "second"))
     del axes.shapes[1]._requested_shell_axes
-    with pytest.raises(ValueError, match="missing for some cases"):
+    with pytest.raises(ValueError, match="missing"):
         result_artifact_payload(axes)
 
 
@@ -412,7 +412,7 @@ def test_reader_reads_each_case_exactly(stored_tables):
                 assert stored == list(value), key
 
 
-@pytest.mark.parametrize("damage", ["missing_mask", "oversized", "rank_two", "int_mask", "string_not_list",
+@pytest.mark.parametrize("damage", ["missing_mask", "oversized", "rank_two", "int_mask", "string_not_utf8",
                                     "declared_dtype", "short_mask", "short_strings"])
 def test_reader_refuses_malformed_tables(stored_tables, damage):
     """Codex r2 P1: the reader validates the schema and the stored table
@@ -433,16 +433,18 @@ def test_reader_refuses_malformed_tables(stored_tables, damage):
     elif damage == "int_mask":
         key = "element_ids"
         tables["shell_axes_element_ids_present"] = np.ones_like(tables["shell_axes_element_ids"], dtype=bool)
-    elif damage == "string_not_list":
+    elif damage == "string_not_utf8":
         key = "branch"
-        tables["shell_axes_branch"] = {"values": "legacy"}
+        data = tables["shell_axes_branch__bytes"].copy()
+        data[0] = 0xFF  # never valid UTF-8
+        tables["shell_axes_branch__bytes"] = data
     elif damage == "declared_dtype":
         meta["entries"]["thickness"]["dtype"] = "<i8"
     elif damage == "short_mask":
         tables["shell_axes_thickness_present"] = tables["shell_axes_thickness_present"][:-1]
     elif damage == "short_strings":
         key = "branch"
-        tables["shell_axes_branch"] = {"values": list(tables["shell_axes_branch"]["values"])[:-1]}
+        tables["shell_axes_branch__offsets"] = tables["shell_axes_branch__offsets"][:-1]
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), key, case=case)
 
@@ -875,14 +877,20 @@ def test_reader_refuses_impossible_metadata_and_surplus_tables(damage):
         tables["shell_axes_physical_reference_director"] = values
         tables["shell_axes_physical_reference_director_present"] = mask
     elif damage == "reason_without_code":
-        tables["shell_axes_element_refusal_reason"] = {"values": ["no code but a reason"]}
+        from anyfem.post.shell_axes_record import encode_strings
+
+        data, offsets = encode_strings(["no code but a reason"])
+        tables["shell_axes_element_refusal_reason__bytes"], tables["shell_axes_element_refusal_reason__offsets"] = data, offsets
     elif damage == "surplus_table":
-        tables["shell_axes_branch__2"] = {"values": ["v2d"]}
+        tables["shell_axes_branch__2__bytes"] = np.zeros(0, dtype=np.uint8)
     else:
         far = _run_job(_plate(origin=(1.0e7, 0.0, 0.0), tension=False), "Linear static", solve_linear_static, True,
                        target_size=0.5)
         tables, meta = _damaged(_axes_tables(far))
-        tables["shell_axes_branch"] = {"values": ["legacy"] * len(tables["shell_axes_branch"]["values"])}
+        from anyfem.post.shell_axes_record import encode_strings
+
+        rows = len(tables["shell_axes_branch__offsets"]) - 1
+        tables["shell_axes_branch__bytes"], tables["shell_axes_branch__offsets"] = encode_strings(["legacy"] * rows)
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), "thickness")
 
@@ -1252,3 +1260,114 @@ def test_v2d_director_polarity_and_offsets_are_copied_bit_for_bit():
     assert int(record["director_polarity"][0]) == int(np.asarray(direct.arrays["director_polarity"]))
     for key in keys[2:]:
         assert _same(np.asarray(record[key][0]), np.asarray(direct.arrays[key]).astype(np.float64)), key
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 4
+def _written_axes_dataset(tmp_path):
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.result_artifact import write_solution_artifact
+
+    project = _plate(origin=(1.0e7, 0.0, 0.0), tension=False)  # refused shells: raw placeholders 0.0
+    solution = _run_job(project, "Linear static", solve_linear_static, True, target_size=0.5)
+    store = ArtifactStore(tmp_path / "axes.anyfem")
+    identity = dict(mesh_id="mesh", document_id=project.document_id, model_hash="model", mesh_hash="hash")
+    store.write_mesh(solution.built.mesh, **identity)
+    return store.open_result(write_solution_artifact(store, solution, job_id="axes", analysis_hash="a", **identity))
+
+
+def test_generic_previews_and_reports_do_not_show_the_reserved_axes_store(tmp_path):
+    """Codex PR-1 r4: the result browser and reports list no shell_axes_*
+    table (their raw values for refused shells are placeholders, not data)."""
+
+    from anyfem.post.report import result_report_markdown
+    from anyfem.presentation.result_browser import result_entries
+
+    dataset = _written_axes_dataset(tmp_path)
+    assert any(key.startswith("shell_axes_") for key in dataset.table_keys)
+    entries = result_entries(dataset=dataset)
+    assert not any(str(entry.key).startswith("shell_axes_") for entry in entries)
+    assert "shell_axes_" not in result_report_markdown(dataset)
+    assert np.isnan(read_shell_axes_table(dataset, "thickness")).all()
+
+
+@pytest.mark.parametrize("damage", ["renamed_batch_class", "none_record"])
+def test_writer_discovers_attached_records_before_type_dispatch(damage):
+    from anyfem.io.result_artifact import result_artifact_payload
+    from anyfem.post.results import LinearBatchSolution
+
+    if damage == "renamed_batch_class":
+        batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                         target_size=0.5, load_cases=("default", "second"))
+        batch.__class__ = type("RenamedBatch", (LinearBatchSolution,), {})
+        target = batch
+    else:
+        target = _run_job(_plate(), "Linear static", solve_linear_static, False)
+        target._requested_shell_axes = None
+    with pytest.raises(ValueError):
+        result_artifact_payload(target)
+
+
+@pytest.mark.parametrize("damage", ["no_producer", "admitted_without_thickness", "certified_without_convention"])
+def test_reader_requires_the_producer_and_admitted_shell_fields(damage):
+    from anyfem.post.shell_axes_record import encode_strings
+
+    solution = _run_job(_plate(pressure=1.0e3, in_plane=2.0e5, tension=False), "Linear static",
+                        solve_linear_static, True, target_size=0.5)
+    tables, meta = _damaged(_axes_tables(solution))
+    read_shell_axes_table(_FakeDataset(dict(tables)), "element_ids")  # undamaged: reads
+    if damage == "no_producer":
+        del meta["solver_module"]
+    elif damage == "admitted_without_thickness":
+        mask = tables["shell_axes_thickness_present"].copy()
+        values = tables["shell_axes_thickness"].copy()
+        mask[0], values[0] = False, 0.0
+        tables["shell_axes_thickness_present"], tables["shell_axes_thickness"] = mask, values
+    else:
+        rows = len(tables["shell_axes_membrane_convention__offsets"]) - 1
+        tables["shell_axes_membrane_convention__bytes"], tables["shell_axes_membrane_convention__offsets"] = \
+            encode_strings([""] * rows)
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "element_ids")
+
+
+def test_string_columns_are_read_in_bounded_rows(monkeypatch, stored_tables):
+    """Codex PR-1 r4: string columns are row-addressable (bytes + offsets):
+    a span reads only its rows' bytes; a row longer than the cap is refused."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import encode_strings
+
+    monkeypatch.setattr(module, "VALIDATE_SHELLS", 2)
+    tables = dict(stored_tables[0])
+    reads = []
+
+    class Counting(_FakeDataset):
+        def table(self, name, rows=None):
+            value = super().table(name, rows)
+            if name.endswith("__bytes") and isinstance(value, np.ndarray):
+                reads.append(value.size)
+            return value
+
+    read_shell_axes_table(Counting(dict(tables)), "thickness")
+    assert reads and max(reads) <= 2 * module.MAX_STRING_BYTES
+    rows = len(tables["shell_axes_element_refusal_reason__offsets"]) - 1
+    long = ["x" * 10] * rows
+    tables["shell_axes_element_refusal_reason__bytes"], tables["shell_axes_element_refusal_reason__offsets"] = \
+        encode_strings(long)
+    monkeypatch.setattr(module, "MAX_STRING_BYTES", 5)
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+def test_long_solver_text_is_capped_in_the_record(monkeypatch, plate_solution):
+    from anyfesolver.shell_axes_outputs import Refusal
+
+    def mutate(arrays, refusals, certified):
+        refusals["membrane"] = Refusal("AXES_FRAME_RULE_MISMATCH", "residual", "d" * 50_000)
+        certified["membrane"] = False
+        arrays.pop("global_membrane_resultant_tensors", None)
+
+    _patched_recovery(monkeypatch, mutate)
+    record = recover_shell_axes_record(plate_solution.built.fe_model, plate_solution.displacements)
+    details = record["membrane_refusal_detail"]
+    assert all(len(detail) <= 1_000 and detail.endswith("[truncated]") for detail in details)

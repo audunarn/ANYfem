@@ -900,19 +900,28 @@ def _add_shell_axes_records(builder, solution):
     String columns are JSON lists.
     """
 
+    # Discovery by attribute presence (on the result and on any case holder),
+    # before any type dispatch: an attached record is never silently dropped.
+    def attached(holder) -> bool:
+        state = getattr(holder, "__dict__", None)
+        return isinstance(state, dict) and "_requested_shell_axes" in state
+
+    shapes = tuple(getattr(solution, "shapes", ()) or ()) if hasattr(solution, "shapes") else ()
+    if not attached(solution) and not any(attached(shape) for shape in shapes):
+        return
     batch = type(solution).__name__ == "LinearBatchSolution"
-    holders = tuple(getattr(solution, "shapes", ()) or ()) if batch else (solution,)
-    records = [getattr(holder, "_requested_shell_axes", None) for holder in holders]
-    present = [record is not None for record in records]
-    if batch and "_requested_shell_axes" in vars(solution):
+    if batch and attached(solution):
         # records belong to the batch's cases; one on the wrapper would be dropped
         raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
-    if not any(present):
-        return
+    holders = shapes if batch else (solution,)
+    records = [vars(holder).get("_requested_shell_axes") if attached(holder) else None for holder in holders]
+    present = [record is not None for record in records]
     if not all(present):
-        raise ValueError("shell result-axes records are missing for some cases; refusing a partial artifact")
+        raise ValueError("shell result-axes records are missing (or None) for some cases; refusing a partial artifact")
 
-    from ..post.shell_axes_record import RECORD_SCHEMA, check_record_columns, validate_shell_axes_tables
+    from ..post.shell_axes_record import (
+        RECORD_SCHEMA, SOLVER_MODULE, check_record_columns, encode_strings, validate_shell_axes_tables,
+    )
 
     from ..post.results import LinearBatchSolution, LinearSolution
 
@@ -965,17 +974,19 @@ def _add_shell_axes_records(builder, solution):
             builder.tables[name] = np.ascontiguousarray(values).reshape(-1)
             entries[key] = {"layout": "shared" if shared else "per_case", "kind": "numeric",
                             "dtype": values.dtype.str, "shape": [int(v) for v in values.shape]}
-        elif shared:
-            builder.tables[name] = {"values": [str(v) for v in values]}
-            entries[key] = {"layout": "shared", "kind": "strings"}
         else:
-            # one table per case, so one case is read without the others
-            for index, column in enumerate(values):
-                builder.tables[_safe_key(f"shell_axes_{key}__{index}")] = {"values": [str(v) for v in column]}
-            entries[key] = {"layout": "per_case", "kind": "strings"}
+            # row-addressable UTF-8: flat bytes + int64 row offsets (bounded reads),
+            # one pair per case for a per-case column
+            columns = [values] if shared else values
+            for index, column in enumerate(columns):
+                base = f"shell_axes_{key}" if shared else f"shell_axes_{key}__{index}"
+                data, offsets = encode_strings(column)
+                builder.tables[_safe_key(base + "__bytes")] = data
+                builder.tables[_safe_key(base + "__offsets")] = offsets
+            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "strings"}
     builder.add_table("shell_axes_meta", {
         "schema": RECORD_SCHEMA,
-        "solver_module": "anyfesolver.shell_axes_outputs.recover_shell_axes",
+        "solver_module": SOLVER_MODULE,
         "cases": [dict(record["provenance"]) for record in records],
         "entries": entries,
     })
