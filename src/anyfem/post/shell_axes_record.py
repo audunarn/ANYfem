@@ -59,9 +59,11 @@ import numpy as np
 __all__ = [
     "FAMILIES",
     "RECORD_SCHEMA",
+    "read_shell_axes_meta",
     "read_shell_axes_table",
     "recover_shell_axes_record",
     "check_record_columns",
+    "encode_meta",
     "encode_strings",
     "validate_shell_axes_tables",
     "shell_element_ids",
@@ -306,17 +308,17 @@ def recover_shell_axes_record(
     counts = np.zeros(n_e, dtype=np.int64)
     for index, entry in enumerate(entries):
         if entry[0] == "refused":
-            element_refusal[index], element_reason[index] = entry[1], entry[2]
+            element_refusal[index], element_reason[index] = _text(entry[1]), _text(entry[2])
             continue
         _, thick, branch[index], conv, cert, reasons, details, pol, offs, values, meta = entry
         thickness[index] = thick
-        metadata_refusal[index] = meta
+        metadata_refusal[index] = _text(meta)
         counts[index] = values["positions"].shape[0]
         for fam in FAMILIES:
             conventions[fam][index] = conv[fam]
             certified[fam][index] = cert[fam]
-            fam_reason[fam][index] = reasons.get(fam, "")
-            fam_detail[fam][index] = details.get(fam, "")
+            fam_reason[fam][index] = _text(reasons.get(fam, ""))
+            fam_detail[fam][index] = _text(details.get(fam, ""))
         polarity[index] = pol
         if "director" in values:
             director[index] = values["director"]
@@ -380,6 +382,8 @@ READ_BLOCK = 2_000_000
 #: validation's working memory).
 VALIDATE_SHELLS = 65_536
 VALIDATE_STATIONS = 262_144
+#: Bytes of string rows held per span, all string columns together.
+VALIDATE_STRING_BYTES = 16 * 1024 * 1024
 #: Structural cap on one shell's stations (no element has more than 9; a
 #: larger count is a malformed record, refused before it is read).
 MAX_STATIONS_PER_SHELL = 1_024
@@ -447,6 +451,46 @@ def _int_list(value: Any, what: str) -> list:
     return value
 
 
+#: Largest stored record metadata (its size is O(cases), checked before decoding).
+MAX_META_BYTES = 4 * 1024 * 1024
+
+
+def encode_meta(meta: Mapping[str, Any]) -> np.ndarray:
+    """The record metadata as UTF-8 JSON bytes (uint8), size-checked."""
+
+    import json
+
+    data = json.dumps(meta, sort_keys=True, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    if len(data) > MAX_META_BYTES:
+        raise ValueError(f"shell axes record: metadata exceeds {MAX_META_BYTES} bytes")
+    return np.frombuffer(data, dtype=np.uint8).copy()
+
+
+def _read_meta(dataset: Any) -> Any:
+    """The stored metadata, its byte size checked BEFORE it is read or decoded."""
+
+    import json
+
+    name = "shell_axes_meta__bytes"
+    if name not in tuple(dataset.table_keys):
+        raise ValueError("shell axes tables: missing metadata")
+    shape = tuple(int(v) for v in dataset.table_shape(name))
+    if len(shape) != 1 or shape[0] > MAX_META_BYTES:
+        raise ValueError(f"shell axes tables: metadata shape {shape} exceeds {MAX_META_BYTES} bytes")
+    data = _read_span(dataset, name, 0, shape[0], np.dtype("|u1")).tobytes()
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError(f"shell axes tables: malformed metadata: {error}") from error
+
+
+def read_shell_axes_meta(dataset: Any) -> Dict[str, Any]:
+    """The record metadata (cases, entry layouts), after full validation."""
+
+    _validated(dataset)
+    return dict(_read_meta(dataset))
+
+
 def encode_strings(values: Sequence[str]) -> tuple:
     """A string column as flat UTF-8 bytes (uint8) and int64 row offsets."""
 
@@ -482,7 +526,7 @@ class _Layout:
     """The validated declarations of one artifact (no values read yet)."""
 
     def __init__(self, dataset: Any) -> None:
-        meta = dataset.table("shell_axes_meta")
+        meta = _read_meta(dataset)
         if not isinstance(meta, Mapping) or meta.get("schema") != RECORD_SCHEMA:
             raise ValueError("shell axes tables: unknown or missing schema")
         if meta.get("solver_module") != SOLVER_MODULE or set(meta) != {"schema", "solver_module", "cases", "entries"}:
@@ -549,7 +593,7 @@ class _Layout:
             raise ValueError("shell axes tables: case names differ from the artifact's load case names")
 
     def _check_inventory(self, dataset: Any) -> None:
-        expected = {"shell_axes_meta"}
+        expected = {"shell_axes_meta__bytes"}
         for key, layout in self.entries.items():
             name = "shell_axes_" + key
             if layout["kind"] == "strings":
@@ -705,6 +749,16 @@ def _validated(dataset: Any) -> tuple:
                 raise ValueError(f"shell axes case {case}: a shell has more than {MAX_STATIONS_PER_SHELL} stations")
             within = np.cumsum(counts) <= VALIDATE_STATIONS
             take = max(1, int(np.count_nonzero(within)))
+            # ... and at most VALIDATE_STRING_BYTES of string rows, all columns
+            row_bytes = np.zeros(take, dtype=np.int64)
+            for key in string_keys:
+                spans = _read_span(dataset, layout.string_base(key, case) + "__offsets", lo, take + 1,
+                                   np.dtype("<i8"))
+                lengths = np.diff(spans)
+                if np.any(lengths < 0) or np.any(lengths > MAX_STRING_BYTES):
+                    raise ValueError(f"shell axes entry {key!r}: malformed string offsets")
+                row_bytes += lengths
+            take = max(1, int(np.count_nonzero(np.cumsum(row_bytes) <= VALIDATE_STRING_BYTES)))
             hi = lo + take
             offsets = offsets[:take + 1]
             s_lo, s_hi = int(offsets[0]), int(offsets[-1])

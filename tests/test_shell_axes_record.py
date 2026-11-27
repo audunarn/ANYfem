@@ -286,7 +286,9 @@ def test_artifact_round_trip_and_unchanged_ordinary_payload(tmp_path, batch):
     store.write_mesh(mesh, **identity)
     artifact = write_solution_artifact(store, axes, job_id="axes", analysis_hash="analysis", **identity)
     dataset = store.open_result(artifact)
-    meta = dataset.table("shell_axes_meta")
+    from anyfem.post.shell_axes_record import read_shell_axes_meta
+
+    meta = read_shell_axes_meta(dataset)
     assert [case["case_index"] for case in meta["cases"]] == list(range(len(records)))
     if batch:  # the load-dependent tensors differ between the two cases
         assert meta["entries"]["bending_tensors"]["layout"] == "per_case"
@@ -346,6 +348,11 @@ class _FakeDataset:
 
     def __init__(self, tables):
         self.tables = dict(tables)
+        if isinstance(self.tables.get("shell_axes_meta"), dict):
+            # tests edit the metadata as a dict; the store keeps it as bytes
+            from anyfem.post.shell_axes_record import encode_meta
+
+            self.tables["shell_axes_meta__bytes"] = encode_meta(self.tables.pop("shell_axes_meta"))
         # the artifact's frame axis (one frame per case), as the payload carries it
         self.frames = np.asarray(self.tables.pop("__frames__", (0.0,)), dtype=float)
         self.identity = {"frame_kind": self.tables.pop("__frame_kind__", "static")}
@@ -388,6 +395,10 @@ def _axes_tables(solution):
     payload = result_artifact_payload(solution)
     tables = {key: value for key, value in payload.tables.items()
               if key.startswith("shell_axes_") or key == "load_case_names"}
+    import json
+
+    # the metadata as a dict, for tests to edit (_FakeDataset stores it as bytes again)
+    tables["shell_axes_meta"] = json.loads(bytes(tables.pop("shell_axes_meta__bytes")).decode("utf-8"))
     tables["__frames__"] = payload.frames
     tables["__frame_kind__"] = payload.frame_kind
     tables["__solution_type__"] = payload.provenance.get("solution_type")
@@ -1371,3 +1382,98 @@ def test_long_solver_text_is_capped_in_the_record(monkeypatch, plate_solution):
     record = recover_shell_axes_record(plate_solution.built.fe_model, plate_solution.displacements)
     details = record["membrane_refusal_detail"]
     assert all(len(detail) <= 1_000 and detail.endswith("[truncated]") for detail in details)
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 5
+def test_qt_picker_does_not_offer_the_reserved_axes_store():
+    """Codex PR-1 r5: the Results task's own picker (not only the browser)."""
+
+    import pathlib
+
+    source = (pathlib.Path(__file__).resolve().parents[1] / "src/anyfem/ui/qt/tasks.py").read_text(encoding="utf-8")
+    picker = source.split('choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys', 1)[1][:120]
+    assert 'startswith("shell_axes_")' in picker
+    assert 'if str(key).startswith("shell_axes_"):raise ValueError' in source
+
+
+class _Slotted:
+    __slots__ = ("_requested_shell_axes", "displacements")
+
+
+class _LazyShapes:
+    """An ordinary duck-typed wrapper whose shapes are a computed view."""
+
+    def __init__(self, solution):
+        self.displacements = solution.displacements
+        self.built = solution.built
+
+    @property
+    def shapes(self):
+        raise IndexError("no materialized display shape")
+
+
+def test_discovery_sees_slots_and_leaves_ordinary_wrappers_alone():
+    """Codex PR-1 r5: a slotted attachment is found without descriptors; a
+    computed shapes view is never evaluated (ordinary wrappers keep working)."""
+
+    from anyfem.io.result_artifact import _add_shell_axes_records
+
+    class Builder:
+        tables = {}
+
+    slotted = _Slotted()
+    slotted._requested_shell_axes = {"schema": "x"}
+    with pytest.raises(ValueError):
+        _add_shell_axes_records(Builder(), slotted)
+    plain = _run_job(_plate(), "Linear static", solve_linear_static, False)
+    _add_shell_axes_records(Builder(), _LazyShapes(plain))  # nothing attached, shapes never evaluated
+
+    class ArrayShapes:
+        shapes = np.zeros(3)
+
+    _add_shell_axes_records(Builder(), ArrayShapes())  # never truth-tested
+
+
+def test_long_lookup_refusals_still_publish():
+    """Codex PR-1 r5: a long material name ends up capped in the refusal and
+    the artifact is written."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    solution = _run_job(_plate(tension=False), "Linear static", solve_linear_static, False, target_size=0.5)
+    fe = solution.built.fe_model
+    vars(fe.mesh.elements[next(iter(fe.mesh.elements))])["material_name"] = "m" * 4096
+    solution._requested_shell_axes = module.recover_shell_axes_record(
+        fe, solution.displacements, provenance={"analysis": "linear_static", "case_index": 0, "case_label": "static"})
+    assert max(len(reason) for reason in solution._requested_shell_axes["element_refusal_reason"]) <= 1_000
+    payload = result_artifact_payload(solution)
+    assert "shell_axes_meta__bytes" in payload.tables
+
+
+@pytest.mark.parametrize("which", ["meta", "string_span"])
+def test_reads_respect_byte_budgets(monkeypatch, stored_tables, which):
+    """Codex PR-1 r5: the metadata size is checked before it is read; string
+    spans are sized by their bytes (all columns together)."""
+
+    import anyfem.post.shell_axes_record as module
+
+    tables = dict(stored_tables[0])
+    if which == "meta":
+        monkeypatch.setattr(module, "MAX_META_BYTES", 16)
+        with pytest.raises(ValueError, match="metadata"):
+            read_shell_axes_table(_FakeDataset(tables), "thickness")
+        return
+    monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", 8)
+    reads = []
+
+    class Counting(_FakeDataset):
+        def table(self, name, rows=None):
+            value = super().table(name, rows)
+            if name.endswith("__bytes") and not name.startswith("shell_axes_meta") and isinstance(value, np.ndarray):
+                reads.append(value.size)
+            return value
+
+    read_shell_axes_table(Counting(tables), "thickness")
+    # one shell per span when even one shell's strings exceed the budget
+    assert reads and max(reads) <= module.MAX_STRING_BYTES
