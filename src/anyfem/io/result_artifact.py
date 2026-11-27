@@ -928,6 +928,21 @@ def _add_shell_axes_records(builder, solution):
                              "cases in the same order as its stored cases; refusing to publish")
     if not attached[0] and not any(found for found, _value in case_records):
         return
+    # Trust boundary (owner decision 2026-11-27, option A): axes records are
+    # published only for results ANYfem produced - an exact LinearSolution, or
+    # an exact LinearBatchSolution whose stored cases are a plain list or tuple
+    # of exact LinearSolution.  Anything else that carries a detectable record
+    # is refused; customised containers or iteration, foreign or renamed
+    # wrappers are out of contract (never published as axes data, detection
+    # not guaranteed).
+    from ..post.results import LinearBatchSolution, LinearSolution
+
+    exact = type(solution) is LinearSolution or (
+        type(solution) is LinearBatchSolution and field[0] and type(field[1]) in (list, tuple)
+        and all(type(shape) is LinearSolution for shape in shapes))
+    if not exact:
+        raise ValueError(f"shell result-axes records on a {type(solution).__name__} that is not an exact ANYfem "
+                         "linear static result (exact classes, a plain list or tuple of cases); refusing to publish")
     if batch and attached[0]:
         # records belong to the batch's cases; one on the wrapper would be dropped
         raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
@@ -940,8 +955,6 @@ def _add_shell_axes_records(builder, solution):
     from ..post.shell_axes_record import (
         RECORD_SCHEMA, SOLVER_MODULE, check_record_columns, encode_meta, encode_strings, validate_shell_axes_tables,
     )
-
-    from ..post.results import LinearBatchSolution, LinearSolution
 
     # axes records exist only for qualified linear static results: exact classes
     if type(solution) is LinearSolution:

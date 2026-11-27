@@ -70,3 +70,39 @@ def test_picker_hides_a_declared_store_and_shows_legacy_names(window, qapp, tmp_
     choices = _choices(window, qapp, legacy, "legacy")
     keys = [tuple(choice)[1] for choice in choices if choice is not None and tuple(choice)[0] == "table"]
     assert "shell_axes_orientation" in keys
+
+
+def _inspect(window, dataset, job, key):
+    """The Results task's own inspection path, run synchronously as its worker does."""
+
+    from types import SimpleNamespace
+
+    window.active_job_id = job
+    window.result_datasets[job] = dataset
+    results = window.panels["Results"]
+    actions = []
+    source = SimpleNamespace(result_datasets=dict(window.result_datasets), active_job_id=job,
+                             solution=None, set_status=lambda *args: actions.append(("status", args)))
+    proxy = SimpleNamespace(app=source, _quantity_component=None,
+                            quantities=SimpleNamespace(currentData=lambda: ("table", key)),
+                            frame=SimpleNamespace(value=lambda: 0),
+                            report=SimpleNamespace(setPlainText=lambda *a: actions.append(("report", a)),
+                                                   appendPlainText=lambda *a: actions.append(("append", a))),
+                            table=SimpleNamespace(show_rows=lambda *a: actions.append(("table", a))),
+                            plot=SimpleNamespace(show_series=lambda *a: actions.append(("plot", a))))
+    type(results)._inspect_quantity_source(proxy)
+    return actions
+
+
+def test_inspection_refuses_a_stale_reserved_selection_and_reads_legacy_tables(window, qapp, tmp_path):
+    from anyfem.post.shell_axes_record import encode_meta
+
+    declared = _artifact(window, tmp_path, "declared2", {
+        "shell_axes_meta__bytes": encode_meta({"schema": "x"}),
+        "shell_axes_thickness": np.zeros(2),
+    })
+    with pytest.raises(ValueError, match="validating reader"):
+        _inspect(window, declared, "declared2", "shell_axes_thickness")
+    legacy = _artifact(window, tmp_path, "legacy2", {"shell_axes_orientation": np.arange(3.0)})
+    actions = _inspect(window, legacy, "legacy2", "shell_axes_orientation")
+    assert any(name == "table" for name, _args in actions)

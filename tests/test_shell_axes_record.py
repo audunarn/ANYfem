@@ -1584,55 +1584,23 @@ def test_metadata_size_is_refused_before_it_is_read(monkeypatch, stored_tables):
     assert "shell_axes_meta__bytes" not in reads
 
 
-def test_string_span_bytes_respect_the_combined_budget(monkeypatch, stored_tables):
-    """Codex PR-1 r6/r7 P3: every string read during validation is counted;
-    per case and span the bytes of all columns together stay within the
-    budget (or the span is one shell).  Fails with the limit disabled."""
-
-    import anyfem.post.shell_axes_record as module
-
-    tables = dict(stored_tables[0])
-    per_shell = None
-    for key in [key for key in tables if key.endswith("__offsets") and "__0__" not in key and "__1__" not in key]:
-        lengths = np.diff(tables[key])
-        per_shell = lengths if per_shell is None else per_shell + lengths
-    budget = int(max(1, per_shell.max())) + 1
-    monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", budget)
-    spans = {}
-    original = module._string_rows
-    reading = {"done": False}
-
-    def counted(dataset, base, n_e, lo, hi, key):
-        rows = original(dataset, base, n_e, lo, hi, key)
-        if not reading["done"]:
-            case = base.rsplit("__", 1)[-1] if base.rsplit("__", 1)[-1].isdigit() else "shared"
-            spans[(case, lo, hi)] = spans.get((case, lo, hi), 0) + sum(len(r.encode()) for r in rows)
-        return rows
-
-    monkeypatch.setattr(module, "_string_rows", counted)
-    module._validated(_FakeDataset(tables))
-    reading["done"] = True
-    assert spans
-    assert len({(lo, hi) for _case, lo, hi in spans}) > 1  # the budget split the shells into several spans
-    for (case, lo, hi), total in spans.items():
-        assert total <= budget or hi - lo == 1, (case, lo, hi, total, budget)
-
-
 # ---------------------------------------------------------------- Codex PR-1 round 7
 class _CaseList(list):
     """A plain list subclass as a batch's case list (Codex PR-1 r7)."""
 
 
-def test_batch_with_a_list_subclass_case_list_publishes_its_records():
-    """Codex PR-1 r7 P1: case lists are read through the built-in iteration."""
+def test_batch_with_a_list_subclass_case_list_is_refused_not_dropped():
+    """Codex PR-1 r7 P1 / owner decision 2026-11-27 (A): a case list that is not
+    a plain list or tuple is out of contract; carrying records, it is refused
+    (never published without its axes, never misaligned)."""
 
     from anyfem.io.result_artifact import result_artifact_payload
 
     batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
                      target_size=0.5, load_cases=("default", "second"))
     batch.shapes = _CaseList(list.__iter__(batch.shapes))
-    payload = result_artifact_payload(batch)
-    assert "shell_axes_meta__bytes" in payload.tables
+    with pytest.raises(ValueError, match="not an exact ANYfem"):
+        result_artifact_payload(batch)
 
 
 class _SlotBase:
@@ -1765,19 +1733,34 @@ def _with_per_case_strings(tables):
     return tables
 
 
-def test_combined_string_budget_per_case_and_span(monkeypatch, stored_tables):
-    """Codex PR-1 r8 P3: shared and per-case string columns, counted per
-    validation case and span, all columns together."""
+
+
+# ---------------------------------------------------------------- owner decision 2026-11-27 (A): instruments
+def test_string_budget_counts_shared_and_per_case_bytes_per_case_and_span(monkeypatch, stored_tables):
+    """Codex PR-1 r8/r9 P3: non-empty shared AND per-case string columns whose
+    combined size forces several spans; every validation string read is
+    counted per case and span, all columns together."""
 
     import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import encode_strings
 
-    tables = _with_per_case_strings(stored_tables[0])
+    tables, meta = _damaged(stored_tables[0])
+    # make "branch" a per-case column with non-empty, case-specific rows
+    offsets = tables.pop("shell_axes_branch__offsets")
+    data = tables.pop("shell_axes_branch__bytes")
+    rows = [bytes(data[offsets[i]:offsets[i + 1]]).decode() for i in range(len(offsets) - 1)]
+    assert all(rows)
+    for case in range(len(meta["cases"])):
+        tables[f"shell_axes_branch__{case}__bytes"], tables[f"shell_axes_branch__{case}__offsets"] = \
+            encode_strings(rows)
+    meta["entries"]["branch"]["layout"] = "per_case"
     read_shell_axes_table(_FakeDataset(dict(tables)), "thickness")  # valid
     dataset = _FakeDataset(dict(tables))
-    per_shell = np.zeros(len(dataset.tables["shell_axes_branch__offsets"]) - 1, dtype=np.int64)
+    per_shell = np.zeros(len(rows), dtype=np.int64)
     for key, value in dataset.tables.items():
-        if key.endswith("__offsets") and not key.startswith("shell_axes_element_refusal_reason__1"):
+        if key.endswith("__offsets") and not key.startswith("shell_axes_branch__1"):
             per_shell += np.diff(value)
+    assert per_shell.min() > 0
     budget = int(per_shell.max()) + 1
     monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", budget)
     spans = {}
@@ -1785,8 +1768,8 @@ def test_combined_string_budget_per_case_and_span(monkeypatch, stored_tables):
 
     def counted(self, dataset, key, case, lo=0, hi=None):
         rows = original(self, dataset, key, case, lo, hi)
-        if hi is not None:  # validation spans
-            spans[(case, lo, hi)] = spans.get((case, lo, hi), 0) + sum(len(r.encode()) for r in rows)
+        if hi is not None:
+            spans[(case, lo, hi)] = spans.get((case, lo, hi), 0) + sum(len(row.encode()) for row in rows)
         return rows
 
     monkeypatch.setattr(module._Layout, "read_strings", counted)
@@ -1795,3 +1778,29 @@ def test_combined_string_budget_per_case_and_span(monkeypatch, stored_tables):
     assert len({(lo, hi) for _case, lo, hi in spans}) > 1
     for (case, lo, hi), total in spans.items():
         assert total <= budget or hi - lo == 1, (case, lo, hi, total, budget)
+    # the counter is sensitive: without the limit one span holds more than the budget
+    spans.clear()
+    monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", 10 ** 9)
+    module._validated(_FakeDataset(dict(tables)))
+    assert max(spans.values()) > budget
+
+
+def test_bounded_unique_id_check(monkeypatch, stored_tables):
+    import anyfem.post.shell_axes_record as module
+
+    monkeypatch.setattr(module, "MAX_RECORD_SHELLS", 1)
+    with pytest.raises(ValueError, match="MAX_RECORD_SHELLS"):
+        read_shell_axes_table(_FakeDataset(dict(stored_tables[0])), "thickness")
+
+
+def test_validation_takes_one_inventory_snapshot(stored_tables):
+    queries = []
+
+    class Counting(_FakeDataset):
+        @property
+        def table_keys(self):
+            queries.append(1)
+            return tuple(self.tables)
+
+    read_shell_axes_table(Counting(dict(stored_tables[0])), "thickness")
+    assert len(queries) <= 2  # one for the validation, one for the read

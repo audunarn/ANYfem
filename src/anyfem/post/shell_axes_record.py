@@ -45,6 +45,17 @@ offset table that keeps the total, or a V2D record with polarity 0 and a
 present director).  In this slice nothing displays or derives results from
 the record; its only reader is ``read_shell_axes_table``.
 
+Trust boundary of the result objects and the artifact store (owner decision
+2026-11-27, option A; the solver module's A'' boundary applied to ANYfem's own
+objects).  In contract: results ANYfem produced (an exact LinearSolution, or
+an exact LinearBatchSolution whose cases are a plain list or tuple of exact
+LinearSolution) and artifacts ANYfem's own writer wrote.  Out of contract:
+customised containers or iteration, foreign or renamed wrappers, and crafted
+HDF5 files (e.g. variable-length data in reserved tables).  ANYfem never turns
+such input into an admitted value; detecting it is not guaranteed.  The
+reader's resource bounds (spans, byte budgets, MAX_RECORD_SHELLS) hold for
+artifacts its writer wrote.
+
 No Qt; runs in the analysis worker after the solve, only on the axes-request
 path.  The ordinary path (no ``axes_*`` request) never imports this module.
 """
@@ -689,6 +700,29 @@ class _Layout:
         return _string_rows(dataset, self.string_base(key, case), self.n_e, lo, self.n_e if hi is None else hi, key)
 
 
+class _Snapshot:
+    """One table-inventory snapshot of a dataset for the duration of a read
+    (an unprepared dataset reopens its file for every inventory query)."""
+
+    def __init__(self, dataset: Any) -> None:
+        self._dataset = dataset
+        self.table_keys = tuple(dataset.table_keys)
+
+    def table(self, name: str, rows: Any = None) -> Any:
+        return self._dataset.table(name, rows) if rows is not None else self._dataset.table(name)
+
+    def table_shape(self, name: str) -> Any:
+        return self._dataset.table_shape(name)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._dataset, name)
+
+
+#: Largest record the reader validates (the unique-id check holds the ids as
+#: one int64 array: 8 bytes per shell).
+MAX_RECORD_SHELLS = 10_000_000
+
+
 def _validated(dataset: Any) -> tuple:
     """Validate the whole artifact once, in bounded shell spans (declarations,
     inventory, cases against the artifact, shapes and stored lengths, offsets,
@@ -698,19 +732,18 @@ def _validated(dataset: Any) -> tuple:
     cached = getattr(dataset, "_shell_axes_validated", None)
     if cached is not None:
         return cached
+    owner, dataset = dataset, _Snapshot(dataset)
     layout = _Layout(dataset)
     n_e = layout.n_e
     _check_flat(dataset, "shell_axes_element_ids", n_e)
     _read_span(dataset, "shell_axes_element_ids", 0, 0, np.dtype("<i8"))  # dtype, also with no shells
-    seen: set = set()
-    for lo in range(0, n_e, VALIDATE_SHELLS):
-        block = _read_span(dataset, "shell_axes_element_ids", lo, min(n_e, lo + VALIDATE_SHELLS) - lo,
-                           np.dtype("<i8"))
-        for value in block.tolist():
-            if value in seen:
-                raise ValueError("shell axes entry 'element_ids': duplicate element ids")
-            seen.add(value)
-    seen.clear()
+    if n_e > MAX_RECORD_SHELLS:
+        raise ValueError(f"shell axes tables: {n_e} shells exceed MAX_RECORD_SHELLS ({MAX_RECORD_SHELLS})")
+    ids = _read_span(dataset, "shell_axes_element_ids", 0, n_e, np.dtype("<i8"))  # 8 bytes per shell, bounded
+    ids.sort()
+    if ids.size > 1 and bool(np.any(ids[1:] == ids[:-1])):
+        raise ValueError("shell axes entry 'element_ids': duplicate element ids")
+    del ids
     offsets_name = "shell_axes_station_offsets"
     offsets_shared = layout.entries["station_offsets"]["layout"] == "shared"
     layout.check_shape(dataset, "station_offsets", [0] * layout.n_cases)
@@ -787,7 +820,7 @@ def _validated(dataset: Any) -> tuple:
             lo = hi
     result = (layout, n_s)
     try:
-        dataset._shell_axes_validated = result
+        owner._shell_axes_validated = result
     except (AttributeError, TypeError):
         pass
     return result
@@ -872,6 +905,7 @@ def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) ->
     """
 
     layout, n_s = _validated(dataset)
+    dataset = _Snapshot(dataset)
     if key not in layout.entries:
         raise KeyError(f"shell axes tables: no entry {key!r}")
     per_case = layout.entries[key]["layout"] == "per_case"
