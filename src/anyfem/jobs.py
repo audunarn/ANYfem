@@ -296,6 +296,11 @@ class JobRequest:
     project_override: Any = None
     executor: str = "thread"
     process: Any = None  # the worker process while a "process" job is running
+    # Opt-in owned process tree for a "process" job whose worker starts its own
+    # children (an axes_* request's recovery pool).  Falls back to an ordinary
+    # daemonic worker (which then stays serial) when containment is unavailable.
+    containment: bool = False
+    tree: Any = None  # the owned worker tree while a contained job runs
 
 
 class JobManager:
@@ -344,6 +349,7 @@ class JobManager:
         name: str | None = None,
         project_override: Any = None,
         executor: str | None = None,
+        containment: bool = False,
     ) -> JobRecord:
         submitted_analysis_hash = analysis_hash(
             analysis,
@@ -380,6 +386,7 @@ class JobManager:
             # that case; normal geometry jobs continue to use ProjectSnapshot.
             project_override=deepcopy(project_override),
             executor=self.executor if executor is None else _resolve_executor(executor),
+            containment=bool(containment),
         )
         with self._lock:
             if self._shutdown:
@@ -431,7 +438,12 @@ class JobManager:
                 self.cancel(queued)
             request = self._requests.get(self._active_id) if self._active_id else None
             process = None if request is None else request.process
-        if process is not None and process.is_alive():
+            tree = None if request is None else request.tree
+        if tree is not None:
+            # A contained worker's owned tree covers the worker and its pool
+            # children; it is retired instead of the bare process.
+            tree.terminate()
+        elif process is not None and process.is_alive():
             process.terminate()
 
     def _register_process(self, request: JobRequest, process: Any) -> None:
@@ -442,6 +454,43 @@ class JobManager:
             request.process = process
             if self._shutdown and process.is_alive():
                 process.terminate()
+
+    def _register_tree(self, request: JobRequest, tree: Any) -> None:
+        with self._lock:
+            request.tree = tree
+            if self._shutdown:
+                tree.terminate()
+
+    def _run_process(self, request: JobRequest, progress: Callable[[Any], None]) -> Any:
+        def call(contained: bool) -> Any:
+            return run_in_worker_process(
+                function=request.function,
+                kwargs=request.kwargs,
+                snapshot=request.snapshot,
+                project_override=request.project_override,
+                progress=progress,
+                token=request.cancellation,
+                on_process=lambda process: self._register_process(request, process),
+                **({"containment": True, "on_tree": lambda process, tree: self._register_tree(request, tree)}
+                   if contained else {}),
+            )
+
+        if not request.containment:
+            return call(False)
+        try:
+            return call(True)
+        except WorkerProcessError as error:
+            # Containment is refused before the worker starts; the job then runs
+            # in an ordinary worker, where the axes pool stays serial.
+            if getattr(error, "remote_type", None) != "ContainmentUnavailable":
+                raise
+            progress(f"owned process tree unavailable ({error}); running the job without a worker pool")
+            with self._lock:
+                request.tree = None
+            return call(False)
+        finally:
+            with self._lock:
+                request.tree = None
 
     def rerun(self, job_id: str, snapshot: ProjectSnapshot | None = None) -> JobRecord:
         original = self._requests[job_id]
@@ -454,6 +503,7 @@ class JobManager:
             name=f"{original.record.name} rerun",
             project_override=original.project_override,
             executor=original.executor,
+            containment=original.containment,
         )
 
     def result(self, job_id: str) -> Any:
@@ -553,15 +603,7 @@ class JobManager:
             if request.executor == "process":
                 # The numerical work runs in its own process, so it cannot take the GUI's
                 # interpreter lock; this thread only waits on a pipe.
-                result = run_in_worker_process(
-                    function=request.function,
-                    kwargs=request.kwargs,
-                    snapshot=request.snapshot,
-                    project_override=request.project_override,
-                    progress=progress,
-                    token=request.cancellation,
-                    on_process=lambda process: self._register_process(request, process),
-                )
+                result = self._run_process(request, progress)
             else:
                 result = request.function(
                     **prepare_call(

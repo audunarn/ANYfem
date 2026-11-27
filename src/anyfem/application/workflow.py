@@ -4738,7 +4738,19 @@ def _execute_analysis_job(
 
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
-    solution = solver_function(**resolved)
+    axes_pool = _start_shell_axes_pool(progress) if requested_shell_axes else None
+    try:
+        solution = solver_function(**resolved)
+        if requested_shell_axes:
+            # Before the ordinary recoveries (owner decision 2026-11-27, D2-1 (b)):
+            # they leave solver-owned caches on the model (the batch recovery plan,
+            # the V2D lease epochs) that recover_shell_axes does not admit, which
+            # would refuse every shell with AXES_OBJECT_NOT_PLAIN.  Still fail
+            # closed: any later cache is a typed per-element refusal, never a value.
+            _attach_shell_axes_records(solution, progress, cancellation_token, pool=axes_pool)
+    finally:
+        if axes_pool is not None:
+            axes_pool.close()
     if requested_stress:
         from ..post.results import LinearBatchSolution, NonlinearSolution, TransientSolution
         recovery_solutions = (solution,)
@@ -4777,12 +4789,33 @@ def _execute_analysis_job(
                 case_solution._requested_patch_stress = recovery(patch_config=PatchRecoveryConfig())
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
-    if requested_shell_axes:
-        _attach_shell_axes_records(solution, progress, cancellation_token)
     return solution
 
 
-def _attach_shell_axes_records(solution, progress, cancellation_token=None):
+def _start_shell_axes_pool(progress):
+    """Start the axes recovery pool before the solve, or None (serial).
+
+    Serial where this process may not start children (an uncontained, daemonic
+    solve worker) or when the pool cannot start; the record is identical either
+    way.  The workers' imports overlap the solve (owner decision 2026-11-27:
+    the axes stage may take at most the time of the ordinary global recovery).
+    """
+
+    from ..post.shell_axes_record import ShellAxesPool, default_pool_workers
+
+    workers = default_pool_workers()
+    if workers < 2:
+        return None
+    try:
+        pool = ShellAxesPool(workers)
+    except (OSError, RuntimeError) as error:
+        progress(f"shell result-axes pool unavailable ({error}); recovering serially")
+        return None
+    progress(f"shell result-axes pool: {workers} workers")
+    return pool
+
+
+def _attach_shell_axes_records(solution, progress, cancellation_token=None, pool=None):
     """Recover the shell result-axes station records of a linear static run (D2-1).
 
     Only on an ``axes_*`` request, in the analysis worker.  Linear static and
@@ -4814,7 +4847,7 @@ def _attach_shell_axes_records(solution, progress, cancellation_token=None):
         case_solution._requested_shell_axes = recover_shell_axes_record(
             solved_model_of(case_solution), case_solution.displacements,
             provenance={"analysis": analysis, "case_index": index, "case_label": label},
-            cancelled=check,
+            cancelled=check, pool=pool, carrier=case_solution,
         )
 
 

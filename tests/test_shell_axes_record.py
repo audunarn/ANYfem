@@ -160,7 +160,7 @@ def test_far_from_origin_plate_records_the_typed_geometry_refusal():
 
 
 # ---------------------------------------------------------------- worker, transport, artifact
-def _run_job(project, analysis, solver, requested_shell_axes, target_size=0.5, **kw):
+def _run_job(project, analysis, solver, requested_shell_axes, target_size=0.5, job_flags=None, **kw):
     from anyfem.application.workflow import _execute_analysis_job
     from anyfem.solve.build import build_fe_model
 
@@ -169,7 +169,7 @@ def _run_job(project, analysis, solver, requested_shell_axes, target_size=0.5, *
     built = build_fe_model(project, mesh, **build)
     return _execute_analysis_job(project=project, solver_function=solver, analysis_name=analysis,
                                  options=dict(kw, built=built), progress=lambda msg: None,
-                                 requested_shell_axes=requested_shell_axes)
+                                 requested_shell_axes=requested_shell_axes, **(job_flags or {}))
 
 
 def test_worker_step_attaches_records_only_on_request():
@@ -182,6 +182,31 @@ def test_worker_step_attaches_records_only_on_request():
     assert len(record["element_ids"]) > 0
     # the axes step does not touch the solution itself
     assert np.array_equal(plain.displacements, with_axes.displacements)
+
+
+def test_axes_step_runs_before_the_ordinary_recoveries():
+    """Owner decision 2026-11-27 (D2-1 (b)).  The solver's ordinary recovery of a
+    model with >= 100 elements caches its batch plan on the mesh, which the axes
+    module does not admit; with the old order (axes after the stress recovery)
+    every shell was refused AXES_OBJECT_NOT_PLAIN."""
+
+    from anyfesolver.shell_axes_outputs import recover_shell_axes
+
+    flags = dict(requested_stress=True, requested_global_stress=True)
+    solution = _run_job(_plate(pressure=1.0e3, in_plane=2.0e5), "Linear static", solve_linear_static, True,
+                        target_size=0.08, job_flags=flags)
+    fe = solution.built.fe_model
+    assert len(fe.mesh.elements) >= 100
+    record = solution._requested_shell_axes
+    assert set(record["element_refusal"]) == {""}
+    assert solution._requested_global_stress is not None
+    # ... and the condition is real: after the ordinary recovery the module
+    # refuses (fails closed), so the order matters.
+    element = fe.mesh.elements[int(record["element_ids"][0])]
+    u = np.asarray(solution.displacements, float)[np.asarray(element.get_dof_mapping(fe.mesh))]
+    with pytest.raises(ShellAxesRefusal) as refused:
+        recover_shell_axes(element, fe.mesh, u, fe.get_material(element.material_name))
+    assert refused.value.code == "AXES_OBJECT_NOT_PLAIN"
 
 
 def test_worker_step_refuses_unqualified_analyses():
@@ -278,3 +303,132 @@ def test_partial_case_records_are_refused():
 
 def test_refusal_type_is_the_solver_type():
     assert issubclass(ShellAxesRefusal, ValueError)
+
+
+# ---------------------------------------------------------------- process pool (owner decision 2026-11-27, option A)
+def _records_equal(left, right):
+    assert set(left) == set(right)
+    for key, value in left.items():
+        if isinstance(value, np.ndarray):
+            assert value.dtype == right[key].dtype and np.array_equal(value, right[key], equal_nan=True), key
+        else:
+            assert value == right[key], key
+
+
+def test_pool_record_is_bit_identical_to_the_serial_record(monkeypatch):
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    with ShellAxesPool(2) as pool:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    _records_equal(serial, pooled)
+
+
+def test_pool_carries_v2d_elements_through_the_result_transport(monkeypatch):
+    """S3 V2D elements refuse pickle; the pool copies the model through the
+    verified result transport (to_dict/from_dict) instead."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+    from result_transport_helpers import s3_linear_result
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = s3_linear_result(project=None, progress=lambda message=None: None)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    assert serial["branch"] == ["v2d"]
+    with ShellAxesPool(2) as pool:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    _records_equal(serial, pooled)
+
+
+def test_pool_refuses_a_carrier_of_another_field(monkeypatch):
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(), target_size=0.5)
+    with ShellAxesPool(2) as pool, pytest.raises(ValueError, match="pool carrier"):
+        recover_shell_axes_record(solution.built.fe_model, 2.0 * solution.displacements,
+                                  pool=pool, carrier=solution)
+
+
+def test_cancelled_pool_terminates_its_workers(monkeypatch):
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(), target_size=0.25)
+
+    class Cancelled(Exception):
+        pass
+
+    def cancel():
+        raise Cancelled()
+
+    pool = ShellAxesPool(2)
+    processes = []
+    try:
+        for future in pool._warm:
+            future.result(timeout=120)
+        processes = list(pool._executor._processes.values())
+        assert processes
+        with pytest.raises(Cancelled):
+            recover_shell_axes_record(solution.built.fe_model, solution.displacements,
+                                      pool=pool, carrier=solution, cancelled=cancel)
+        assert pool._executor is None
+    finally:
+        pool.close(terminate=True)
+    for process in processes:
+        process.join(timeout=30)
+        assert not process.is_alive()
+
+
+def test_default_pool_size_is_serial_in_a_daemonic_process(monkeypatch):
+    import multiprocessing
+
+    from anyfem.post.shell_axes_record import default_pool_workers
+
+    class Daemonic:
+        daemon = True
+
+    monkeypatch.setattr(multiprocessing, "current_process", lambda: Daemonic())
+    assert default_pool_workers() == 0
+
+
+def contained_axes_job(*, project, progress, cancellation_token=None):
+    """Module-level job for the worker process: a 400-shell plate with an axes request."""
+
+    from anyfem.application.workflow import _execute_analysis_job
+    from anyfem.solve.build import build_fe_model
+
+    plate = _plate(pressure=1.0e3, in_plane=2.0e5)
+    built = build_fe_model(plate, plate.generate_mesh(0.05))
+    return _execute_analysis_job(project=plate, solver_function=solve_linear_static, analysis_name="Linear static",
+                                 options={"built": built}, progress=progress,
+                                 cancellation_token=cancellation_token, requested_shell_axes=True)
+
+
+@pytest.mark.parametrize("containment", [True, False])
+def test_axes_job_in_a_worker_process_uses_the_pool_only_when_contained(monkeypatch, containment):
+    from anyfem.document import DocumentSession
+    from anyfem.jobs import JobManager
+    from anyfem.model.records import AnalysisDefinition
+
+    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
+    project = Project("axes worker")
+    manager = JobManager(project, executor="process")
+    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), contained_axes_job,
+                            containment=containment)
+    manager.wait(record.id, timeout=600)
+    messages = [str(entry.get("message", "")) for entry in manager.log(record.id)]
+    assert record.status.value in ("completed", "COMPLETED") or str(record.status).lower().endswith("completed"), messages
+    result = manager.result(record.id)
+    axes = result._requested_shell_axes
+    assert len(axes["element_ids"]) >= 400 and set(axes["element_refusal"]) == {""}
+    pooled = any(message.startswith("shell result-axes pool: 2 workers") for message in messages)
+    assert pooled is containment, messages
