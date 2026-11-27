@@ -904,7 +904,7 @@ def _add_shell_axes_records(builder, solution):
     if not all(present):
         raise ValueError("shell result-axes records are missing for some cases; refusing a partial artifact")
 
-    from ..post.shell_axes_record import RECORD_SCHEMA
+    from ..post.shell_axes_record import RECORD_SCHEMA, validate_shell_axes_tables
 
     first = records[0]
     for index, (holder, record) in enumerate(zip(holders, records)):
@@ -914,7 +914,7 @@ def _add_shell_axes_records(builder, solution):
             raise ValueError("shell result-axes records of one analysis have different entries")
         provenance = record.get("provenance")
         names = tuple(str(name) for name in getattr(solution, "case_names", ())) if batch else ()
-        if not isinstance(provenance, Mapping) or provenance.get("case_index") != index or (
+        if not isinstance(provenance, Mapping) or type(provenance.get("case_index")) is not int                 or provenance["case_index"] != index or (
                 batch and (index >= len(names) or provenance.get("case_name") != names[index])):
             raise ValueError(f"shell result-axes record of case {index} does not name that case")
 
@@ -955,6 +955,13 @@ def _add_shell_axes_records(builder, solution):
         "cases": [dict(record["provenance"]) for record in records],
         "entries": entries,
     })
+    # Publish only what reads back: the reader's own whole-record validation
+    # on exactly these tables, frames and case names (fails closed here).
+    view = {key: value for key, value in builder.tables.items()
+            if key.startswith("shell_axes_") or key == "load_case_names"}
+    if isinstance(view.get("shell_axes_meta"), Mapping):
+        view["shell_axes_meta"] = _json_safe(view["shell_axes_meta"])
+    validate_shell_axes_tables(view, builder.frames, builder.frame_kind)
 
 
 def _built_shell_directors(element_ids, built):

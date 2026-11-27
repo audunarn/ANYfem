@@ -103,7 +103,8 @@ def test_record_is_the_solver_module_output_bit_for_bit(plate_solution):
         lo, hi = offsets[row], offsets[row + 1]
         assert record["element_refusal"][row] == ""
         assert record["branch"][row] == direct.branch
-        assert np.array_equal(record["station_positions"][lo:hi], direct.arrays["recovery_station_positions"])
+        assert _same(np.ascontiguousarray(record["station_positions"][lo:hi]),
+                     np.ascontiguousarray(direct.arrays["recovery_station_positions"]))
         for fam, key in (("membrane", "membrane_tensors"), ("bending", "bending_tensors"),
                          ("shear", "shear_vectors")):
             certified = bool(direct.certified[fam]) and fam not in direct.refusals
@@ -347,6 +348,7 @@ class _FakeDataset:
         self.tables = dict(tables)
         # the artifact's frame axis (one frame per case), as the payload carries it
         self.frames = np.asarray(self.tables.pop("__frames__", (0.0,)), dtype=float)
+        self.identity = {"frame_kind": self.tables.pop("__frame_kind__", "static")}
 
     def table(self, name, rows=None):
         value = self.tables[name]
@@ -383,6 +385,7 @@ def _axes_tables(solution):
     tables = {key: value for key, value in payload.tables.items()
               if key.startswith("shell_axes_") or key == "load_case_names"}
     tables["__frames__"] = payload.frames
+    tables["__frame_kind__"] = payload.frame_kind
     return tables
 
 
@@ -736,7 +739,10 @@ def _read_all(tables, records):
             per_case = meta["entries"][key]["layout"] == "per_case"
             stored = read_shell_axes_table(dataset, key, case=index if per_case else None)
             if isinstance(value, np.ndarray):
-                assert stored.shape == value.shape and _same(np.nan_to_num(stored, nan=0.0), np.nan_to_num(value, nan=0.0)), key
+                assert stored.dtype == value.dtype and stored.shape == value.shape, key
+                if value.dtype.kind == "f":  # presence first, then the bytes of present values
+                    assert np.array_equal(np.isnan(stored), np.isnan(value)), key
+                assert _same(np.nan_to_num(stored, nan=0.0), np.nan_to_num(value, nan=0.0)), key
             else:
                 assert stored == list(value), key
 
@@ -806,3 +812,170 @@ def test_reader_refuses_axes_cases_that_do_not_match_the_artifact(damage):
     tables["shell_axes_meta"] = meta
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 1
+def _damaged(tables):
+    tables = dict(tables)
+    meta = dict(tables["shell_axes_meta"])
+    meta["entries"] = {k: dict(v) for k, v in meta["entries"].items()}
+    meta["cases"] = [dict(case) for case in meta["cases"]]
+    tables["shell_axes_meta"] = meta
+    return tables, meta
+
+
+@pytest.mark.parametrize("damage", ["no_case_names", "reversed_frames", "imported_analysis", "frame_kind",
+                                    "one_case_batch_without_names"])
+def test_reader_checks_case_identity_against_the_artifact(stored_tables, damage):
+    tables, meta = _damaged(stored_tables[0])
+    if damage == "no_case_names":
+        del tables["load_case_names"]
+    elif damage == "reversed_frames":
+        tables["__frames__"] = np.asarray(tables["__frames__"])[::-1]
+    elif damage == "imported_analysis":
+        meta["cases"][1]["analysis"] = "imported"
+    elif damage == "frame_kind":
+        tables["__frame_kind__"] = "static"
+    else:
+        one = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True, load_cases=("default",))
+        tables, meta = _damaged(_axes_tables(one))
+        del tables["load_case_names"]
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+@pytest.mark.parametrize("damage", ["polarity", "partial_director", "reason_without_code", "surplus_table",
+                                    "refused_shell_with_branch"])
+def test_reader_refuses_impossible_metadata_and_surplus_tables(damage):
+    """Codex PR-1 r1: metadata domains and refused-shell rules; the stored
+    inventory must equal the declared one."""
+
+    import anyfem.post.shell_axes_record as module
+    from result_transport_helpers import s3_linear_result
+
+    v2d = s3_linear_result(project=None, progress=lambda message=None: None)
+    v2d._requested_shell_axes = module.recover_shell_axes_record(
+        v2d.built.fe_model, v2d.displacements,
+        provenance={"analysis": "linear_static", "case_index": 0, "case_label": "static"})
+    tables, meta = _damaged(_axes_tables(v2d))
+    read_shell_axes_table(_FakeDataset(dict(tables)), "thickness")  # undamaged: reads
+    if damage == "polarity":
+        values = tables["shell_axes_director_polarity"].copy()
+        values[0] = 7
+        tables["shell_axes_director_polarity"] = values
+    elif damage == "partial_director":
+        values = tables["shell_axes_physical_reference_director"].copy()
+        mask = tables["shell_axes_physical_reference_director_present"].copy()
+        mask[0], values[0] = False, 0.0
+        tables["shell_axes_physical_reference_director"] = values
+        tables["shell_axes_physical_reference_director_present"] = mask
+    elif damage == "reason_without_code":
+        tables["shell_axes_element_refusal_reason"] = {"values": ["no code but a reason"]}
+    elif damage == "surplus_table":
+        tables["shell_axes_branch__2"] = {"values": ["v2d"]}
+    else:
+        far = _run_job(_plate(origin=(1.0e7, 0.0, 0.0), tension=False), "Linear static", solve_linear_static, True,
+                       target_size=0.5)
+        tables, meta = _damaged(_axes_tables(far))
+        tables["shell_axes_branch"] = {"values": ["legacy"] * len(tables["shell_axes_branch"]["values"])}
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+@pytest.mark.parametrize("damage", ["bool_case_index", "different_element_ids"])
+def test_writer_refuses_records_that_would_not_read_back(damage):
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                    target_size=0.5, load_cases=("default", "second"))
+    record = dict(axes.shapes[0]._requested_shell_axes)
+    if damage == "bool_case_index":
+        record["provenance"] = {**record["provenance"], "case_index": False}
+    else:
+        record["element_ids"] = record["element_ids"] + 1000
+    axes.shapes[0]._requested_shell_axes = record
+    with pytest.raises(ValueError):
+        result_artifact_payload(axes)
+
+
+def test_unknown_material_name_and_short_dof_map_are_typed_refusals(monkeypatch, plate_solution):
+    """Codex PR-1 r1: get_material falls back to a default for unknown names;
+    a short DOF map must not reach the recovery."""
+
+    import copy
+
+    fe = copy.deepcopy(plate_solution.built.fe_model)
+    eid = next(iter(fe.mesh.elements))
+    vars(fe.mesh.elements[eid])["material_name"] = "no such material"
+    record = recover_shell_axes_record(fe, plate_solution.displacements)
+    row = list(record["element_ids"]).index(eid)
+    assert record["element_refusal"][row] == "AXES_RECOVERY_MALFORMED"
+    fe = copy.deepcopy(plate_solution.built.fe_model)
+    kind = type(next(iter(fe.mesh.elements.values())))
+    original = kind.get_dof_mapping
+    monkeypatch.setattr(kind, "get_dof_mapping", lambda self, mesh: list(original(self, mesh))[:3])
+    record = recover_shell_axes_record(fe, plate_solution.displacements)
+    assert set(record["element_refusal"]) == {"AXES_MISSING_GLOBAL_TENSORS"}
+
+
+def test_validation_reads_in_bounded_shell_spans(monkeypatch, stored_tables):
+    """Codex PR-1 r1: validation keeps only a bounded span of shells."""
+
+    import anyfem.post.shell_axes_record as module
+
+    monkeypatch.setattr(module, "VALIDATE_SHELLS", 2)
+    tables = dict(stored_tables[0])
+    reads = []
+
+    class Counting(_FakeDataset):
+        def table(self, name, rows=None):
+            value = super().table(name, rows)
+            if name.startswith("shell_axes_") and "tensors" in name and isinstance(value, np.ndarray):
+                reads.append(value.size)
+            return value
+
+    read_shell_axes_table(Counting(tables), "thickness")
+    max_stations = int(np.max(np.diff(tables["shell_axes_station_offsets"])))
+    assert reads and max(reads) <= 2 * max_stations * 9
+
+
+_PROBE = """
+import sys
+from anyfem import Project, pinned, solve_linear_static, steel
+from anyfem.application.workflow import _execute_analysis_job
+from anyfem.io.result_artifact import result_artifact_payload
+from anyfem.result_transport import decode_result, encode_result
+from anyfem.solve.build import build_fe_model
+project = Project(name="probe")
+project.add_material(steel("S355", 0.008))
+project.add_plate_section("plate", thickness=0.008, material="S355")
+points = project.geometry.add_points([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])
+edges = project.geometry.add_polyline(points, close=True)
+face = project.geometry.add_face(edges)
+project.assign_plate(face, "plate")
+for edge in edges:
+    project.add_support(pinned(project.edge(edge)))
+project.load_case().add_pressure(project.face(face), 1.0e4)
+built = build_fe_model(project, project.generate_mesh(0.5))
+solution = _execute_analysis_job(project=project, solver_function=solve_linear_static, analysis_name="Linear static",
+                                 options={"built": built}, progress=lambda message: None,
+                                 requested_stress=True, requested_global_stress=True)
+result_artifact_payload(decode_result(encode_result(solution)))
+print([name for name in ("anyfem.post.shell_axes_record", "anyfesolver.shell_axes_outputs") if name in sys.modules])
+"""
+
+
+def test_ordinary_run_never_imports_an_axes_module(tmp_path):
+    """Codex PR-1 r1 P3: a fresh process runs an ordinary job through the
+    worker step, the result transport and the artifact payload; neither axes
+    module is imported."""
+
+    import pathlib
+    import subprocess
+    import sys
+
+    script = tmp_path / "probe.py"
+    script.write_text(_PROBE)
+    out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=600)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "[]"
