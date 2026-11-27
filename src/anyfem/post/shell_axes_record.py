@@ -30,6 +30,21 @@ is the module's private ``_admit`` until the solver exposes a public
 ``admit_shell_axes``; without it every shell is refused
 (``AXES_ADMISSION_UNAVAILABLE``), never recovered unadmitted.
 
+Reader contract (owner decision 2026-11-27, option A).  The reader checks
+the stored record's structural integrity (schema, dtypes, shapes, lengths,
+presence masks, table inventory, its cases against the artifact's frames,
+frame kind, solution type and load case names) and the record's own
+invariants (offsets, unique element ids, refusal/certification/normal
+consistency, metadata domains).  It does NOT bind the record to the solved
+mesh or the solver's recovery rules.  That binding belongs to D2-2, which
+must refuse an unbound or mismatched record with a typed refusal before any
+use: element ids exist in the solved mesh, each element's station count
+follows its recovery rule, station positions are the shape-function
+positions on the element, and branch metadata is consistent (e.g. a shifted
+offset table that keeps the total, or a V2D record with polarity 0 and a
+present director).  In this slice nothing displays or derives results from
+the record; its only reader is ``read_shell_axes_table``.
+
 No Qt; runs in the analysis worker after the solve, only on the axes-request
 path.  The ordinary path (no ``axes_*`` request) never imports this module.
 """
@@ -702,8 +717,10 @@ def _check_consistency(row: Mapping[str, Any], case: int, first: int = 0) -> Non
 def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) -> Any:
     """Read one persisted record entry back exactly (fails closed).
 
-    The whole artifact is validated once first, in bounded shell spans (see
-    ``_validated``).  ``case`` selects one case of a per-case entry
+    Structural integrity and the record's own invariants only (see the
+    module's reader contract): binding to the solved mesh and the solver's
+    recovery rules is D2-2's, before any use.  The whole artifact is
+    validated once first, in bounded shell spans (see ``_validated``).  ``case`` selects one case of a per-case entry
     (``shell_axes_meta`` ``entries[key].layout``); a shared entry is the same
     for every case.  Float entries come back with NaN where absent; string
     columns are lists.
