@@ -904,12 +904,23 @@ def _add_shell_axes_records(builder, solution):
     if not all(present):
         raise ValueError("shell result-axes records are missing for some cases; refusing a partial artifact")
 
-    from ..post.shell_axes_record import RECORD_SCHEMA, validate_shell_axes_tables
+    from ..post.shell_axes_record import RECORD_SCHEMA, check_record_columns, validate_shell_axes_tables
+
+    # axes records exist only for qualified linear static results
+    expected_analysis = {"LinearSolution": "linear_static", "LinearBatchSolution": "batch_linear_static"}.get(
+        type(solution).__name__)
+    if expected_analysis is None or (not batch and type(solution).__name__ != "LinearSolution"):
+        raise ValueError(f"shell result-axes records on a {type(solution).__name__}; refusing to write them")
 
     first = records[0]
     for index, (holder, record) in enumerate(zip(holders, records)):
         if not isinstance(record, Mapping) or record.get("schema") != RECORD_SCHEMA:
             raise ValueError("shell result-axes record has an unknown schema")
+        check_record_columns(record)
+        if not isinstance(record.get("provenance"), Mapping) or record["provenance"].get("analysis") != expected_analysis:
+            raise ValueError(f"shell result-axes record of case {index} is not a {expected_analysis} record")
+        if not batch and "case_name" in record["provenance"]:
+            raise ValueError("shell result-axes record of a linear static result names a batch case")
         if set(record) != set(first):
             raise ValueError("shell result-axes records of one analysis have different entries")
         provenance = record.get("provenance")
@@ -961,7 +972,7 @@ def _add_shell_axes_records(builder, solution):
             if key.startswith("shell_axes_") or key == "load_case_names"}
     if isinstance(view.get("shell_axes_meta"), Mapping):
         view["shell_axes_meta"] = _json_safe(view["shell_axes_meta"])
-    validate_shell_axes_tables(view, builder.frames, builder.frame_kind)
+    validate_shell_axes_tables(view, builder.frames, builder.frame_kind, type(solution).__name__)
 
 
 def _built_shell_directors(element_ids, built):

@@ -46,6 +46,7 @@ __all__ = [
     "RECORD_SCHEMA",
     "read_shell_axes_table",
     "recover_shell_axes_record",
+    "check_record_columns",
     "validate_shell_axes_tables",
     "shell_element_ids",
 ]
@@ -348,6 +349,7 @@ READ_BLOCK = 2_000_000
 #: Shells validated per span (bounds the validation's working memory).
 VALIDATE_SHELLS = 65_536
 _ANALYSES = {"linear_static": "static", "batch_linear_static": "load_case"}
+_SOLUTION_TYPES = {"linear_static": "LinearSolution", "batch_linear_static": "LinearBatchSolution"}
 
 
 def _record_columns() -> Dict[str, tuple]:
@@ -461,6 +463,10 @@ class _Layout:
         if len(analyses) != 1 or next(iter(analyses)) not in _ANALYSES:
             raise ValueError(f"shell axes tables: analysis {sorted(map(str, analyses))} not qualified")
         analysis = next(iter(analyses))
+        provenance = dataset.metadata("provenance") if callable(getattr(dataset, "metadata", None)) else None
+        solution_type = provenance.get("solution_type") if isinstance(provenance, Mapping) else None
+        if solution_type != _SOLUTION_TYPES[analysis]:
+            raise ValueError(f"shell axes tables: {analysis} records in a {solution_type!r} result")
         identity = getattr(dataset, "identity", None)
         kind = identity.get("frame_kind") if isinstance(identity, Mapping) else None
         if kind != _ANALYSES[analysis]:
@@ -471,7 +477,7 @@ class _Layout:
                              f"{self.n_cases} axes case(s) in order")
         has_names = "load_case_names" in tuple(dataset.table_keys)
         if analysis == "linear_static":
-            if self.n_cases != 1 or has_names:
+            if self.n_cases != 1 or has_names or "case_name" in self.cases[0]:
                 raise ValueError("shell axes tables: a linear static result has exactly one case and no case names")
             return
         if not has_names:
@@ -560,6 +566,7 @@ def _validated(dataset: Any) -> tuple:
     layout = _Layout(dataset)
     n_e = layout.n_e
     _check_flat(dataset, "shell_axes_element_ids", n_e)
+    _read_span(dataset, "shell_axes_element_ids", 0, 0, np.dtype("<i8"))  # dtype, also with no shells
     seen: set = set()
     for lo in range(0, n_e, VALIDATE_SHELLS):
         block = _read_span(dataset, "shell_axes_element_ids", lo, min(n_e, lo + VALIDATE_SHELLS) - lo,
@@ -569,16 +576,38 @@ def _validated(dataset: Any) -> tuple:
                 raise ValueError("shell axes entry 'element_ids': duplicate element ids")
             seen.add(value)
     seen.clear()
-    offsets_per_case = []
-    for case in range(layout.n_cases):
-        slot = case if layout.entries["station_offsets"]["layout"] == "per_case" else 0
-        layout.check_shape(dataset, "station_offsets", [0] * layout.n_cases)
-        offsets = _read_span(dataset, "shell_axes_station_offsets", slot * (n_e + 1), n_e + 1, np.dtype("<i8"))
-        values = [int(v) for v in offsets]  # Python ints: no wrapping comparison
-        if not values or values[0] != 0 or any(a > b for a, b in zip(values, values[1:])):
-            raise ValueError("shell axes entry 'station_offsets': not zero-based and nondecreasing")
-        offsets_per_case.append(offsets)
-    n_s = tuple(int(offsets[-1]) for offsets in offsets_per_case)
+    offsets_name = "shell_axes_station_offsets"
+    offsets_shared = layout.entries["station_offsets"]["layout"] == "shared"
+    layout.check_shape(dataset, "station_offsets", [0] * layout.n_cases)
+
+    def offsets_span(case: int, lo: int, hi: int) -> np.ndarray:
+        """Offsets of shells [lo, hi] (hi inclusive) of one case, streamed."""
+
+        slot = 0 if offsets_shared else case
+        return _read_span(dataset, offsets_name, slot * (n_e + 1) + lo, hi - lo + 1, np.dtype("<i8"))
+
+    def check_offsets(case: int) -> int:
+        """Zero-based and nondecreasing (Python ints: no wrapping), in spans;
+        returns the case's station count."""
+
+        previous = None
+        for lo in range(0, n_e + 1, VALIDATE_SHELLS):
+            hi = min(n_e, lo + VALIDATE_SHELLS)
+            values = [int(v) for v in offsets_span(case, lo, hi)]
+            if lo == 0 and values[0] != 0:
+                break
+            if previous is not None and values[0] != previous:
+                raise ValueError("shell axes entry 'station_offsets': inconsistent spans")
+            if any(a > b for a, b in zip(values, values[1:])):
+                break
+            previous = values[-1]
+            if hi == n_e:
+                return previous
+        raise ValueError("shell axes entry 'station_offsets': not zero-based and nondecreasing")
+
+    n_s = tuple(check_offsets(case) for case in (range(1) if offsets_shared else range(layout.n_cases)))
+    if offsets_shared:
+        n_s = n_s * layout.n_cases
     for key, (kind, _dtype, _rows, _trailing) in _record_columns().items():
         if kind == "numeric" and key != "station_offsets":
             layout.check_shape(dataset, key, n_s)
@@ -587,15 +616,18 @@ def _validated(dataset: Any) -> tuple:
                   if column[0] == "numeric" and column[2] == "e" and key != "element_ids"]
     string_keys = [key for key, column in _record_columns().items() if column[0] == "strings"]
     for case in range(layout.n_cases):
-        offsets = offsets_per_case[case]
+        # every stored column and mask is dtype-checked, also when it is empty
+        for key in shell_keys + station_keys:
+            layout.read_rows(dataset, key, case, 0, 0, n_s[case])
         strings = {key: layout.read_strings(dataset, key, case) for key in string_keys}
         for lo in range(0, n_e, VALIDATE_SHELLS):
             hi = min(n_e, lo + VALIDATE_SHELLS)
-            s_lo, s_hi = int(offsets[lo]), int(offsets[hi])
+            offsets = offsets_span(case, lo, hi)
+            s_lo, s_hi = int(offsets[0]), int(offsets[-1])
             row = {key: layout.read_rows(dataset, key, case, lo, hi, n_s[case]) for key in shell_keys}
             row.update({key: layout.read_rows(dataset, key, case, s_lo, s_hi, n_s[case]) for key in station_keys})
             row.update({key: values[lo:hi] for key, values in strings.items()})
-            row["station_offsets"] = offsets[lo:hi + 1] - s_lo
+            row["station_offsets"] = offsets - s_lo
             _check_consistency(row, case, lo)
     result = (layout, n_s)
     try:
@@ -696,10 +728,15 @@ class TableView:
     identity), so the writer validates what it is about to publish with the
     reader's own checks."""
 
-    def __init__(self, tables: Mapping[str, Any], frames: Sequence[float], frame_kind: str) -> None:
+    def __init__(self, tables: Mapping[str, Any], frames: Sequence[float], frame_kind: str,
+                 solution_type: str) -> None:
         self.tables = dict(tables)
         self.frames = np.asarray(frames, dtype=float)
         self.identity = {"frame_kind": frame_kind}
+        self._provenance = {"solution_type": solution_type}
+
+    def metadata(self, name: str) -> Any:
+        return dict(self._provenance) if name == "provenance" else None
 
     def table(self, name: str, rows: Any = None) -> Any:
         value = self.tables[name]
@@ -714,7 +751,27 @@ class TableView:
         return tuple(self.tables)
 
 
-def validate_shell_axes_tables(tables: Mapping[str, Any], frames: Sequence[float], frame_kind: str) -> None:
+def validate_shell_axes_tables(tables: Mapping[str, Any], frames: Sequence[float], frame_kind: str,
+                               solution_type: str) -> None:
     """Raise ValueError unless ``tables`` read back as a valid axes record."""
 
-    _validated(TableView(tables, frames, frame_kind))
+    _validated(TableView(tables, frames, frame_kind, solution_type))
+
+
+def check_record_columns(record: Mapping[str, Any]) -> None:
+    """Every column of one in-memory record has its schema kind, exact dtype
+    and trailing shape (nothing is coerced before it is written)."""
+
+    columns = _record_columns()
+    if set(record) != set(columns) | {"schema", "provenance"}:
+        raise ValueError(f"shell axes record: columns differ from the schema: "
+                         f"{sorted(set(record) ^ (set(columns) | {'schema', 'provenance'}))}")
+    for key, (kind, dtype_str, _rows, trailing) in columns.items():
+        value = record[key]
+        if kind == "strings":
+            if type(value) is not list or not all(type(item) is str for item in value):
+                raise ValueError(f"shell axes record: {key!r} must be a list of str")
+        elif type(value) is not np.ndarray or value.dtype != np.dtype(dtype_str) \
+                or value.ndim != 1 + len(trailing) or tuple(value.shape[1:]) != tuple(trailing):
+            raise ValueError(f"shell axes record: {key!r} must be {np.dtype(dtype_str)} (n, {trailing}), "
+                             f"got {type(value).__name__} {getattr(value, 'dtype', None)} {getattr(value, 'shape', None)}")

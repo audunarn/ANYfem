@@ -349,6 +349,10 @@ class _FakeDataset:
         # the artifact's frame axis (one frame per case), as the payload carries it
         self.frames = np.asarray(self.tables.pop("__frames__", (0.0,)), dtype=float)
         self.identity = {"frame_kind": self.tables.pop("__frame_kind__", "static")}
+        self.solution_type = self.tables.pop("__solution_type__", "LinearSolution")
+
+    def metadata(self, name):
+        return {"solution_type": self.solution_type} if name == "provenance" else None
 
     def table(self, name, rows=None):
         value = self.tables[name]
@@ -386,6 +390,7 @@ def _axes_tables(solution):
               if key.startswith("shell_axes_") or key == "load_case_names"}
     tables["__frames__"] = payload.frames
     tables["__frame_kind__"] = payload.frame_kind
+    tables["__solution_type__"] = payload.provenance.get("solution_type")
     return tables
 
 
@@ -976,6 +981,167 @@ def test_ordinary_run_never_imports_an_axes_module(tmp_path):
 
     script = tmp_path / "probe.py"
     script.write_text(_PROBE)
+    out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=600)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "[]"
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 2
+@pytest.mark.parametrize("damage", ["float32_column", "list_column", "none_string"])
+def test_writer_refuses_mistyped_record_columns(damage):
+    """Codex PR-1 r2: nothing is coerced before it is written."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                    target_size=0.5, load_cases=("default", "second"))
+    record = dict(axes.shapes[1]._requested_shell_axes)
+    if damage == "float32_column":
+        record["thickness"] = record["thickness"].astype(np.float32)
+    elif damage == "list_column":
+        record["thickness"] = record["thickness"].tolist()
+    else:
+        record["branch"] = [None] * len(record["branch"])
+    axes.shapes[1]._requested_shell_axes = record
+    with pytest.raises(ValueError):
+        result_artifact_payload(axes)
+
+
+@pytest.mark.parametrize("damage", ["imported_solution_type", "linear_case_name"])
+def test_records_bind_to_the_artifact_solution_type(damage):
+    """Codex PR-1 r2: a static frame alone does not qualify a result; the
+    artifact's own solution type does; a linear record names no batch case."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    solution = _run_job(_plate(), "Linear static", solve_linear_static, True)
+    tables, meta = _damaged(_axes_tables(solution))
+    if damage == "imported_solution_type":
+        tables["__solution_type__"] = "ImportedSolution"
+    else:
+        meta["cases"][0]["case_name"] = "default"
+        record = dict(solution._requested_shell_axes)
+        record["provenance"] = {**record["provenance"], "case_name": "default"}
+        solution._requested_shell_axes = record
+        with pytest.raises(ValueError):
+            result_artifact_payload(solution)
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+@pytest.mark.parametrize("damage", ["station_mask_int8", "element_ids_float32"])
+def test_an_empty_record_still_checks_stored_dtypes(damage):
+    """Codex PR-1 r2: zero shells; only one stored dtype is changed."""
+
+    from test_analyses import strut_project
+
+    project, _section, _start, _end = strut_project()
+    solution = _run_job(project, "Linear static", solve_linear_static, True, target_size=0.25)
+    tables = _axes_tables(solution)
+    assert tables["shell_axes_element_ids"].size == 0
+    read_shell_axes_table(_FakeDataset(dict(tables)), "station_offsets")  # valid: reads
+    if damage == "station_mask_int8":
+        tables["shell_axes_station_positions_present"] = tables["shell_axes_station_positions_present"].astype(np.int8)
+    else:
+        tables["shell_axes_element_ids"] = tables["shell_axes_element_ids"].astype(np.float32)
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "station_offsets")
+
+
+def test_offsets_are_streamed_in_spans(monkeypatch, stored_tables):
+    """Codex PR-1 r2: validation does not hold a whole offsets array per case."""
+
+    import anyfem.post.shell_axes_record as module
+
+    monkeypatch.setattr(module, "VALIDATE_SHELLS", 2)
+    reads = []
+
+    class Counting(_FakeDataset):
+        def table(self, name, rows=None):
+            value = super().table(name, rows)
+            if name == "shell_axes_station_offsets":
+                reads.append(np.asarray(value).size)
+            return value
+
+    read_shell_axes_table(Counting(dict(stored_tables[0])), "thickness")
+    assert reads and max(reads) <= 3
+
+
+def test_certified_metadata_and_normals_are_the_solver_values_bit_for_bit(plate_solution):
+    """Codex PR-1 r2 P3: every copied column, not only positions and tensors."""
+
+    fe = plate_solution.built.fe_model
+    u = np.asarray(plate_solution.displacements, float)
+    record = recover_shell_axes_record(fe, u)
+    offsets = record["station_offsets"]
+    checked = 0
+    for row, eid in enumerate(record["element_ids"]):
+        element = fe.mesh.elements[int(eid)]
+        direct = recover_shell_axes(element, fe.mesh, u[np.asarray(element.get_dof_mapping(fe.mesh))],
+                                    fe.get_material(element.material_name)).axes
+        lo, hi = offsets[row], offsets[row + 1]
+        for fam in FAMILIES:
+            key = f"{fam}_basis_normals"
+            if bool(record[f"{fam}_certified"][row]) and key in direct.arrays:
+                assert _same(np.ascontiguousarray(record[key][lo:hi]), np.ascontiguousarray(direct.arrays[key]))
+                checked += 1
+        if record["shear_certified"][row] and "shear_normal_components" in direct.arrays:
+            assert _same(np.ascontiguousarray(record["shear_normal_components"][lo:hi]),
+                         np.ascontiguousarray(direct.arrays["shear_normal_components"]))
+        if "physical_reference_director" in direct.arrays:
+            assert _same(np.ascontiguousarray(record["physical_reference_director"][row]),
+                         np.ascontiguousarray(direct.arrays["physical_reference_director"]))
+        if "director_polarity" in direct.arrays:
+            assert int(record["director_polarity"][row]) == int(np.asarray(direct.arrays["director_polarity"]))
+        for key in ("reference_surface_offset", "section_origin_offset_from_reference",
+                    "physical_bottom_offset_from_reference", "physical_top_offset_from_reference"):
+            if key in direct.arrays:
+                assert _same(np.asarray(record[key][row]), np.asarray(direct.arrays[key]).astype(np.float64))
+    assert checked > 0
+
+
+_SUBMIT_PROBE = """
+import sys
+from anyfem import Project, pinned, steel
+from anyfem.application.workflow import _execute_analysis_job, _requested_recovery
+from anyfem.document import DocumentSession
+from anyfem.io.result_artifact import result_artifact_payload
+from anyfem.jobs import JobManager
+from anyfem.model.records import AnalysisDefinition
+from anyfem.result_transport import decode_result, encode_result
+from anyfem.solve.build import build_fe_model
+from anyfem.solve.run import solve_linear_static
+project = Project(name="probe")
+project.add_material(steel("S355", 0.008))
+project.add_plate_section("plate", thickness=0.008, material="S355")
+points = project.geometry.add_points([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])
+edges = project.geometry.add_polyline(points, close=True)
+face = project.geometry.add_face(edges)
+project.assign_plate(face, "plate")
+for edge in edges:
+    project.add_support(pinned(project.edge(edge)))
+project.load_case().add_pressure(project.face(face), 1.0e4)
+built = build_fe_model(project, project.generate_mesh(0.5))
+scopes = [{"request": {"quantity_keys": ["stress_von_mises"], "basis": "global", "recovery": "native"}}]
+flags = _requested_recovery(scopes)
+manager = JobManager(project, executor="thread")
+record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), _execute_analysis_job,
+                        kwargs={"solver_function": solve_linear_static, "analysis_name": "Linear static",
+                                "options": {"built": built}, **flags})
+manager.wait(record.id, timeout=600)
+result_artifact_payload(decode_result(encode_result(manager.result(record.id))))
+print([name for name in ("anyfem.post.shell_axes_record", "anyfesolver.shell_axes_outputs") if name in sys.modules])
+"""
+
+
+def test_ordinary_submission_never_imports_an_axes_module(tmp_path):
+    """Codex PR-1 r2 P3: through the submission flags and the JobManager."""
+
+    import subprocess
+    import sys
+
+    script = tmp_path / "submit_probe.py"
+    script.write_text(_SUBMIT_PROBE)
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=600)
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "[]"
