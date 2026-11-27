@@ -41,7 +41,6 @@ def _resolve_executor(value: str | None) -> str:
 
 
 _SCRATCH_PREFIX = "anyfem-job-"
-_SCRATCH_STALE_SECONDS = 2 * 24 * 3600.0
 
 
 def _parameters(function: Callable[..., Any]) -> tuple[str, ...]:
@@ -53,7 +52,8 @@ def _parameters(function: Callable[..., Any]) -> tuple[str, ...]:
 
 def _new_scratch() -> str:
     """A per-job scratch directory named by this supervisor's pid; directories
-    of supervisors that no longer run (or very old ones) are removed first."""
+    of supervisors that no longer run are removed first (a dead owner only: a
+    reused pid may keep a stale directory, a live job's is never removed)."""
 
     import tempfile
 
@@ -62,18 +62,12 @@ def _new_scratch() -> str:
         names = os.listdir(root)
     except OSError:
         names = []
-    now = time.time()
     for name in names:
         if not name.startswith(_SCRATCH_PREFIX):
             continue
-        path = os.path.join(root, name)
         owner = name[len(_SCRATCH_PREFIX):].split("-", 1)[0]
-        try:
-            old = now - os.path.getmtime(path) > _SCRATCH_STALE_SECONDS
-        except OSError:
-            continue
-        if old or (owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner))):
-            _remove_scratch(path)
+        if owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner)):
+            _remove_scratch(os.path.join(root, name))
     return tempfile.mkdtemp(prefix=f"{_SCRATCH_PREFIX}{os.getpid()}-", dir=root)
 
 
@@ -495,8 +489,9 @@ class JobManager:
             tree.terminate()
         elif process is not None and process.is_alive():
             process.terminate()
-        if request is not None and request.scratch is not None and tree is not None:
-            _remove_scratch(request.scratch)
+        # The job thread removes the scratch directory once run_in_worker_process
+        # has confirmed the tree's retirement; an abrupt exit leaves it to the
+        # next supervisor's sweep (dead owners only).
 
     def _register_process(self, request: JobRequest, process: Any) -> None:
         # Shutdown can happen while spawn is still preparing the worker.

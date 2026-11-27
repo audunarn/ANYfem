@@ -639,12 +639,13 @@ def test_lost_pool_worker_falls_back_to_the_serial_record(monkeypatch):
     fe = solution.built.fe_model
     serial = recover_shell_axes_record(fe, solution.displacements)
     pool = ShellAxesPool(2)
-    for future in pool._warm:
-        future.result(timeout=120)
-    victims = list(pool._executor._processes.values())
+    assert pool.wait_ready(120)
+    victims = list(pool.processes())
     killed = []
 
     def kill_one():
+        # called by the pool's wait loop while chunks are out: a worker dies
+        # while it holds a task
         if not killed:
             victims[0].kill()
             victims[0].join(30)
@@ -707,14 +708,13 @@ def test_cancelled_pool_terminates_its_workers(monkeypatch):
     pool = ShellAxesPool(2)
     processes = []
     try:
-        for future in pool._warm:
-            future.result(timeout=120)
-        processes = list(pool._executor._processes.values())
+        assert pool.wait_ready(120)
+        processes = list(pool.processes())
         assert processes
         with pytest.raises(Cancelled):
             recover_shell_axes_record(solution.built.fe_model, solution.displacements,
                                       pool=pool, carrier=solution, cancelled=cancel)
-        assert pool._executor is None
+        assert not pool.open
     finally:
         pool.close(terminate=True)
     for process in processes:
@@ -868,4 +868,101 @@ def test_pool_falls_back_to_serial_when_the_private_admission_gate_is_missing(mo
         pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
         assert not pool.used_by
     assert pooled["provenance"] == {"recovered_with": "serial"}
-    _records_equal(serial, pooled)
+    # Codex r3 P2: without the gate nothing of an unadmitted element is used;
+    # every shell carries a typed refusal (fail closed)
+    assert set(pooled["element_refusal"]) == {"AXES_ADMISSION_UNAVAILABLE"}
+    assert pooled["station_offsets"][-1] == 0
+    assert set(serial["element_refusal"]) == {""}
+
+
+def test_every_batch_case_keeps_its_pooled_entries(monkeypatch):
+    """Codex r3 P2: payload names were reused across cases, so later cases were
+    compared against the first case's copy (and fell back to serial)."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    batch = solve_linear_static_many(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25,
+                                     load_cases=("default", "second"))
+    with ShellAxesPool(2) as pool:
+        for shape in batch.shapes:
+            fe = shape.built.fe_model
+            serial = recover_shell_axes_record(fe, shape.displacements)
+            pooled = recover_shell_axes_record(fe, shape.displacements, pool=pool, carrier=shape)
+            _records_equal(serial, pooled)
+            assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="a partial pipe message is a POSIX byte-stream hazard")
+def test_worker_dying_mid_send_is_seen_as_lost_not_waited_on(monkeypatch):
+    """Codex r2/r3 P1: a worker that dies half way through a result message.
+    Each worker has its own pipe, so the owner reads EOF, does not block."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import PoolWorkerLost, ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    ids = module.shell_element_ids(solution.built.fe_model)
+    pool = ShellAxesPool(2)
+    try:
+        with pytest.raises(PoolWorkerLost):
+            pool.entries(solution, ids, None, _test_kind="_test_partial_send")
+        assert not pool.open
+    finally:
+        pool.close(terminate=True)
+
+
+@pytest.mark.parametrize("damage", ["offsets_order", "offsets_start", "inf_present", "absent_not_zero",
+                                    "empty_mask_dtype"])
+def test_reader_refuses_misaligned_or_invalid_values(stored_tables, damage):
+    """Codex r3 P1: offsets must be zero-based and nondecreasing; a present
+    value must be finite; an absent one is stored as 0.0; dtypes are checked
+    even for empty spans."""
+
+    tables, _records = stored_tables
+    tables = dict(tables)
+    key, case = "station_positions", None
+    meta = tables["shell_axes_meta"]
+    per_case = {k: v["layout"] == "per_case" for k, v in meta["entries"].items()}
+    if damage == "offsets_order":
+        offsets = tables["shell_axes_station_offsets"].copy()
+        offsets[1], offsets[2] = offsets[2], offsets[1]
+        tables["shell_axes_station_offsets"] = offsets
+        key = "thickness"
+        key = "station_offsets"
+    elif damage == "offsets_start":
+        offsets = tables["shell_axes_station_offsets"].copy()
+        offsets[0] = 1
+        tables["shell_axes_station_offsets"] = offsets
+        key = "station_offsets"
+    elif damage == "inf_present":
+        values = tables["shell_axes_station_positions"].copy()
+        values[0] = np.inf
+        tables["shell_axes_station_positions"] = values
+    elif damage == "absent_not_zero":
+        values = tables["shell_axes_thickness"].copy()
+        mask = tables["shell_axes_thickness_present"].copy()
+        mask[0] = False
+        values[0] = 5.0
+        tables["shell_axes_thickness"], tables["shell_axes_thickness_present"] = values, mask
+        key = "thickness"
+    elif damage == "empty_mask_dtype":
+        # an empty element set: dtype of the (empty) mask must still be bool
+        meta = dict(meta)
+        meta["entries"] = {k: dict(v) for k, v in meta["entries"].items()}
+        for name in list(tables):
+            if name.startswith("shell_axes_") and isinstance(tables[name], np.ndarray):
+                tables[name] = tables[name][:0]
+        tables["shell_axes_station_offsets"] = np.zeros(1, dtype=np.int64)
+        meta["entries"]["element_ids"]["shape"] = [0]
+        meta["entries"]["station_offsets"]["shape"] = [1]
+        meta["entries"]["thickness"]["shape"] = [0]
+        tables["shell_axes_thickness_present"] = np.zeros(0, dtype=np.int8)
+        tables["shell_axes_meta"] = meta
+        key = "thickness"
+    if per_case.get(key):
+        case = 0
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), key, case=case)
