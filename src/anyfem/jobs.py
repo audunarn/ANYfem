@@ -71,6 +71,15 @@ def _new_scratch() -> str:
     return tempfile.mkdtemp(prefix=f"{_SCRATCH_PREFIX}{os.getpid()}-", dir=root)
 
 
+def _retirement_confirmed(error: BaseException) -> bool:
+    """Whether run_in_worker_process confirmed the worker tree's retirement
+    before raising ``error`` (it attaches ``cleanup_failures`` otherwise)."""
+
+    if getattr(error, "cleanup_failures", None):
+        return False
+    return getattr(error, "remote_type", None) != "WorkerCleanupFailed"
+
+
 def _remove_scratch(path: str) -> None:
     import shutil
 
@@ -512,10 +521,16 @@ class JobManager:
         scratch = None
         if request.containment and "scratch_directory" in _parameters(request.function):
             # The supervisor owns the contained job's scratch files (e.g. the
-            # axes pool's model payload): removed here after the worker tree
-            # is retired, whatever happened inside it.
-            scratch = _new_scratch()
+            # axes pool's model payload): removed here once the worker tree's
+            # retirement is confirmed.  No scratch is no failure: the job then
+            # uses its own temporary files (or stays serial).
+            try:
+                scratch = _new_scratch()
+            except OSError as error:
+                progress(f"job scratch directory unavailable ({error}); continuing without it")
+                scratch = None
             request.scratch = scratch
+        retired = False
 
         def call(contained: bool) -> Any:
             kwargs = request.kwargs
@@ -536,22 +551,33 @@ class JobManager:
         if not request.containment:
             return call(False)
         try:
-            return call(True)
+            result = call(True)
+            retired = True
+            return result
         except WorkerProcessError as error:
-            # Containment is refused before the worker starts; the job then runs
-            # in an ordinary worker, where the axes pool stays serial.
-            if getattr(error, "remote_type", None) != "ContainmentUnavailable":
+            retired = _retirement_confirmed(error)
+            # Fall back to an ordinary worker (where the axes pool stays serial)
+            # only after a clean refusal before dispatch: containment
+            # unavailable, nothing left behind, the manager still open.
+            with self._lock:
+                closing = self._shutdown
+            if getattr(error, "remote_type", None) != "ContainmentUnavailable" or not retired or closing:
                 raise
             progress(f"owned process tree unavailable ({error}); running the job without a worker pool")
             with self._lock:
                 request.tree = None
             return call(False)
+        except BaseException as error:
+            retired = _retirement_confirmed(error)
+            raise
         finally:
             with self._lock:
                 request.tree = None
                 request.scratch = None
-            if scratch is not None:
+            if scratch is not None and retired:
                 _remove_scratch(scratch)
+            # Otherwise the directory stays until a later supervisor sweeps it
+            # (owner gone): never removed under a tree not confirmed retired.
 
     def rerun(self, job_id: str, snapshot: ProjectSnapshot | None = None) -> JobRecord:
         original = self._requests[job_id]

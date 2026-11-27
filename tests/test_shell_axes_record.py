@@ -657,7 +657,8 @@ def test_lost_pool_worker_falls_back_to_the_serial_record(monkeypatch):
     finally:
         pool.close(terminate=True)
     assert killed and not pool.open
-    assert pooled["provenance"] == {"recovered_with": "serial", "pool_lost": True}
+    assert pooled["provenance"]["recovered_with"] == "serial" and pooled["provenance"]["pool_lost"] is True
+    assert "worker" in pooled["provenance"]["pool_lost_reason"]
     _records_equal(serial, pooled)
     for process in victims:
         assert not process.is_alive()
@@ -966,3 +967,82 @@ def test_reader_refuses_misaligned_or_invalid_values(stored_tables, damage):
         case = 0
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), key, case=case)
+
+
+@pytest.mark.parametrize("damage", ["offsets_overflow", "case_slot", "duplicate_ids", "unknown_entry"])
+def test_reader_refuses_overflowing_offsets_and_inconsistent_identities(stored_tables, damage):
+    """Codex r4: offsets compared as Python ints (no wrapping difference); each
+    case slot names its own index; element ids unique; only known entries."""
+
+    tables, _records = stored_tables
+    tables = dict(tables)
+    meta = dict(tables["shell_axes_meta"])
+    meta["entries"] = {k: dict(v) for k, v in meta["entries"].items()}
+    meta["cases"] = [dict(case) for case in meta["cases"]]
+    tables["shell_axes_meta"] = meta
+    key, case = "station_offsets", None
+    if damage == "offsets_overflow":
+        offsets = tables["shell_axes_station_offsets"].copy()
+        last = int(offsets[-1])
+        offsets[1:4] = np.array([np.iinfo(np.int64).max, np.iinfo(np.int64).min, -1])
+        offsets[-1] = last
+        tables["shell_axes_station_offsets"] = offsets
+    elif damage == "case_slot":
+        meta["cases"][0]["case_index"] = 1
+        key = "thickness"
+    elif damage == "duplicate_ids":
+        ids = tables["shell_axes_element_ids"].copy()
+        ids[1] = ids[0]
+        tables["shell_axes_element_ids"] = ids
+        key = "thickness"
+    elif damage == "unknown_entry":
+        meta["entries"]["bogus"] = {"layout": "shared", "kind": "numeric", "dtype": "<f8", "shape": [1]}
+        key = "thickness"
+    if meta["entries"][key]["layout"] == "per_case":
+        case = 0
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), key, case=case)
+
+
+def test_pool_task_deadline_retires_a_stalled_worker(monkeypatch):
+    """Codex r4 P1: a live worker that never answers (stalled) must not hang
+    the job: its task deadline kills it and the record is recovered serially."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    monkeypatch.setattr(ShellAxesPool, "task_seconds", staticmethod(lambda shells: 1.0))
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    pool = ShellAxesPool(2)
+    assert pool.wait_ready(120)
+    original = ShellAxesPool.entries
+
+    def stalled(self, carrier, ids, cancelled):
+        return original(self, carrier, ids, cancelled, _test_kind="_test_stall")
+
+    monkeypatch.setattr(ShellAxesPool, "entries", stalled)
+    try:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    finally:
+        pool.close(terminate=True)
+    assert pooled["provenance"]["pool_lost"] is True
+    assert "deadline" in pooled["provenance"]["pool_lost_reason"]
+    _records_equal(serial, pooled)
+
+
+def test_scratch_is_kept_when_retirement_is_not_confirmed():
+    """Codex r4 P2: scratch is removed only after confirmed retirement, and the
+    containment fallback runs only after a clean refusal."""
+
+    from anyfem.jobs import _retirement_confirmed
+    from anyfem.job_process import WorkerProcessError
+
+    clean = WorkerProcessError("refused", remote_type="ContainmentUnavailable")
+    assert _retirement_confirmed(clean)
+    dirty = WorkerProcessError("refused", remote_type="ContainmentUnavailable")
+    dirty.cleanup_failures = ["tree survivor 1234"]
+    assert not _retirement_confirmed(dirty)
+    assert not _retirement_confirmed(WorkerProcessError("x", remote_type="WorkerCleanupFailed"))

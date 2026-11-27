@@ -53,6 +53,7 @@ path.  The ordinary path (no ``axes_*`` request) never imports this module.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
@@ -401,6 +402,10 @@ def _pool_worker_main(connection: Any) -> None:
         try:
             if kind == "_test_partial_send":  # test hook: die half way through a result
                 _die_mid_send(connection)
+            if kind == "_test_stall":  # test hook: a live worker that never answers
+                import time
+
+                time.sleep(3600)
             connection.send(("ok", os.getpid(), _pool_task(payload_path, eids)))
         except BaseException:  # noqa: BLE001 - reported to the owner, which fails closed
             connection.send(("error", os.getpid(), traceback.format_exc()))
@@ -494,19 +499,37 @@ class ShellAxesPool:
     for every case; close it (or leave the ``with`` block) afterwards.  Every
     worker has its own pipe; the owner waits on those pipes and the workers'
     process sentinels with a timeout, never on a shared channel, so a worker
-    lost at any point (also mid-send) is seen as EOF or a fired sentinel.  On
-    cancellation, failure or a lost worker every worker is terminated and
-    joined with a bound.  ``scratch`` is the directory for the model payload
-    (the job supervisor's per-job directory; default: the system temp
-    directory, swept for files of dead owners).
+    lost at any point (also mid-send) is seen as EOF or a fired sentinel.
+
+    Deadlines: every worker must be ready within ``READY_SECONDS`` of the
+    pool's start, and every task must finish within ``task_seconds(n)``.  A
+    watchdog thread kills a worker that misses its deadline, which also ends a
+    read the owner may be blocked in (a stalled, half-written message reads as
+    EOF once the worker is gone).  Any loss, failure, missed deadline or payload
+    staging error raises :class:`PoolWorkerLost` after the whole pool is
+    retired under one ``CLOSE_SECONDS`` deadline; the caller then recovers
+    serially.  ``scratch`` is the directory for the model payload (the job
+    supervisor's per-job directory; default: the system temp directory, swept
+    for files of dead owners).
     """
 
-    #: Seconds to wait for each worker at close.
-    JOIN_SECONDS = 10.0
+    #: Seconds every worker may take to start (imports) from the pool's start.
+    READY_SECONDS = 300.0
+    #: One deadline for retiring all workers at close.
+    CLOSE_SECONDS = 15.0
+
+    @staticmethod
+    def task_seconds(shells: int) -> float:
+        """Deadline of one task: generous against the measured ~10 ms per
+        shell (worst branch, loaded machine), never below a minute."""
+
+        return max(60.0, 0.5 * shells)
 
     def __init__(self, workers: int, scratch: Optional[str] = None) -> None:
         import multiprocessing
         import tempfile
+        import threading
+        import time
 
         if workers < 2:
             raise ValueError("a shell axes pool needs at least two workers")
@@ -514,21 +537,45 @@ class ShellAxesPool:
         _sweep_stale_payloads(tempfile.gettempdir())
         self.workers = int(workers)
         self.used_by: set = set()
+        self.lost_reason = ""
         self._serial = 0
         self._ready: set = set()
         self._workers: list = []  # (process, connection)
+        self._lock = threading.Lock()
+        self._deadlines: Dict[int, float] = {}  # worker index -> monotonic deadline
+        self._expired: set = set()
+        self._stop = threading.Event()
         context = multiprocessing.get_context("spawn")
         try:
-            for _ in range(self.workers):
+            ready_by = time.monotonic() + self.READY_SECONDS
+            for index in range(self.workers):
                 parent, child = context.Pipe(duplex=True)
                 process = context.Process(target=_pool_worker_main, args=(child,),
                                           name="anyfem-shell-axes", daemon=False)
                 process.start()
                 child.close()  # only the worker holds its end: its death is EOF here
                 self._workers.append((process, parent))
+                self._deadlines[index] = ready_by
+            self._watchdog = threading.Thread(target=self._watch, name="anyfem-shell-axes-watchdog", daemon=True)
+            self._watchdog.start()
         except BaseException:
             self.close(terminate=True)
             raise
+
+    def _watch(self) -> None:
+        import time
+
+        while not self._stop.wait(0.25):
+            now = time.monotonic()
+            with self._lock:
+                late = [index for index, deadline in self._deadlines.items() if now > deadline]
+                for index in late:
+                    self._deadlines.pop(index, None)
+                    self._expired.add(index)
+                workers = list(self._workers)
+            for index in late:
+                if index < len(workers) and workers[index][0].is_alive():
+                    workers[index][0].kill()
 
     def __enter__(self) -> "ShellAxesPool":
         return self
@@ -544,25 +591,53 @@ class ShellAxesPool:
         return tuple(process for process, _connection in self._workers)
 
     def close(self, terminate: bool = False) -> None:
-        workers, self._workers = self._workers, []
-        for process, connection in workers:
-            if not terminate:
+        """Retire every worker under one ``CLOSE_SECONDS`` deadline."""
+
+        import time
+
+        self._stop.set()
+        with self._lock:
+            workers, self._workers = self._workers, []
+            self._deadlines.clear()
+        if not workers:
+            return
+        if not terminate:
+            for _process, connection in workers:
                 try:
                     connection.send(None)
                 except (OSError, ValueError):
                     pass
-        for process, connection in workers:
-            if terminate and process.is_alive():
-                process.terminate()
-        for process, connection in workers:
-            process.join(self.JOIN_SECONDS)
+        else:
+            for process, _connection in workers:
+                if process.is_alive():
+                    process.terminate()
+        deadline = time.monotonic() + self.CLOSE_SECONDS
+        for process, _connection in workers:
+            process.join(max(0.0, deadline - time.monotonic()))
+        for process, _connection in workers:
             if process.is_alive():
                 process.kill()
-                process.join(self.JOIN_SECONDS)
+        for process, connection in workers:
+            process.join(1.0)
             try:
                 connection.close()
             except OSError:
                 pass
+
+    def _lost(self, reason: str, cause: Optional[BaseException] = None) -> "PoolWorkerLost":
+        self.lost_reason = reason
+        error = PoolWorkerLost(reason)
+        if cause is not None:
+            error.__cause__ = cause
+        return error
+
+    def _receive(self, index: int) -> tuple:
+        try:
+            return self._workers[index][1].recv()
+        except (EOFError, OSError) as error:
+            expired = index in self._expired
+            raise self._lost(f"shell axes pool worker {index} "
+                             f"{'missed its deadline' if expired else 'exited'} ({type(error).__name__})", error)
 
     def wait_ready(self, timeout: float) -> bool:
         """Wait until every worker has started (imports done); True if all did."""
@@ -571,29 +646,35 @@ class ShellAxesPool:
         from multiprocessing.connection import wait
 
         deadline = time.monotonic() + timeout
-        while len(self._ready) < len(self._workers):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            pending = {connection: index for index, (_process, connection) in enumerate(self._workers)
-                       if index not in self._ready}
-            for connection in wait(list(pending), timeout=remaining):
-                try:
-                    message = connection.recv()
-                except (EOFError, OSError) as error:
-                    self.close(terminate=True)
-                    raise PoolWorkerLost(f"shell axes pool worker {pending[connection]} exited") from error
-                if message[0] == "ready":
-                    self._ready.add(pending[connection])
+        try:
+            while len(self._ready) < len(self._workers):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                pending = {connection: index for index, (_process, connection) in enumerate(self._workers)
+                           if index not in self._ready}
+                for connection in wait(list(pending), timeout=remaining):
+                    index = pending[connection]
+                    if self._receive(index)[0] == "ready":
+                        self._mark_ready(index)
+        except PoolWorkerLost:
+            self.close(terminate=True)
+            raise
         return True
+
+    def _mark_ready(self, index: int) -> None:
+        with self._lock:
+            self._ready.add(index)
+            self._deadlines.pop(index, None)
 
     def entries(self, carrier: Any, ids: Sequence[int],
                 cancelled: Optional[Callable[[], None]], *, _test_kind: str = "chunk") -> list:
         """Per element ``(copy input digest, entry)``, in ``ids`` order.
 
-        Raises :class:`PoolWorkerLost` (after terminating the pool) when a
-        worker exits or fails while it holds a task."""
+        Raises :class:`PoolWorkerLost` (after retiring the pool) on any loss,
+        failure, missed deadline or payload staging error."""
 
+        import time
         from multiprocessing.connection import wait
 
         from ..job_process import dumps
@@ -608,8 +689,11 @@ class ShellAxesPool:
         payload_path = os.path.join(
             self.scratch, f"{_PAYLOAD_PREFIX}{os.getpid()}-{os.urandom(8).hex()}-{self._serial}.bin")
         try:
-            with open(payload_path, "xb") as stream:
-                stream.write(dumps(encode_result(carrier, verify=False)))
+            try:
+                with open(payload_path, "xb") as stream:
+                    stream.write(dumps(encode_result(carrier, verify=False)))
+            except OSError as error:  # e.g. a full scratch volume: no pool, not a failed job
+                raise self._lost(f"shell axes pool payload could not be staged: {error}", error)
             todo = list(range(len(chunks)))
             busy: Dict[int, int] = {}  # worker index -> chunk index
             idle = [index for index in range(len(self._workers)) if index in self._ready]
@@ -617,10 +701,12 @@ class ShellAxesPool:
                 while idle and todo:
                     worker, chunk = idle.pop(), todo.pop(0)
                     kind = _test_kind if chunk == 0 else "chunk"
+                    with self._lock:
+                        self._deadlines[worker] = time.monotonic() + self.task_seconds(len(chunks[chunk]))
                     try:
                         self._workers[worker][1].send((kind, payload_path, chunks[chunk]))
                     except (OSError, ValueError) as error:
-                        raise PoolWorkerLost(f"shell axes pool worker {worker}: {type(error).__name__}") from error
+                        raise self._lost(f"shell axes pool worker {worker}: {type(error).__name__}", error)
                     busy[worker] = chunk
                 sources = {}
                 for index, (process, connection) in enumerate(self._workers):
@@ -629,23 +715,24 @@ class ShellAxesPool:
                 for source in wait(list(sources), timeout=0.2):
                     what, index = sources[source]
                     if what == "exit":
-                        connection = self._workers[index][1]
-                        if index in busy or not connection.poll(0):
-                            raise PoolWorkerLost(f"shell axes pool worker {index} exited")
+                        if index in busy or not self._workers[index][1].poll(0):
+                            reason = "missed its deadline" if index in self._expired else "exited"
+                            raise self._lost(f"shell axes pool worker {index} {reason}")
                         continue
-                    try:
-                        message = self._workers[index][1].recv()
-                    except (EOFError, OSError) as error:
-                        raise PoolWorkerLost(f"shell axes pool worker {index}: {type(error).__name__}") from error
+                    message = self._receive(index)
                     if message[0] == "ready":
-                        self._ready.add(index)
+                        self._mark_ready(index)
                         idle.append(index)
                     elif message[0] == "ok" and index in busy:
+                        with self._lock:
+                            self._deadlines.pop(index, None)
                         self.used_by.add(message[1])
                         results[busy.pop(index)] = message[2]
                         idle.append(index)
                     else:
-                        raise PoolWorkerLost(f"shell axes pool worker {index} failed: {str(message[-1])[-2000:]}")
+                        raise self._lost(f"shell axes pool worker {index} failed: {str(message[-1])[-2000:]}")
+                if self._expired:
+                    raise self._lost(f"shell axes pool worker(s) {sorted(self._expired)} missed a deadline")
                 if cancelled is not None:
                     cancelled()
         except BaseException:
@@ -704,8 +791,8 @@ def _entries(fe_model: Any, u: np.ndarray, ids: Sequence[int], pool: Optional[Sh
             originals[index] = _admitted_digest(fe_model, u, eid)
             dispatch.append(index)
         pooled = pool.entries(carrier, [ids[index] for index in dispatch], cancelled) if dispatch else []
-    except PoolWorkerLost:
-        return serial(ids), {"recovered_with": "serial", "pool_lost": True}
+    except PoolWorkerLost as lost:
+        return serial(ids), {"recovered_with": "serial", "pool_lost": True, "pool_lost_reason": str(lost)}
     except BaseException:
         pool.close(terminate=True)  # cancellation or failure: no worker left behind
         raise
@@ -912,6 +999,18 @@ def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) ->
     cases = meta.get("cases")
     if not isinstance(entries, Mapping) or not isinstance(cases, list) or not cases:
         raise ValueError("shell axes tables: malformed meta")
+    # every case slot names its own index (no shifted or swapped case data)
+    if any(not isinstance(entry, Mapping) or type(entry.get("case_index")) is not int or entry["case_index"] != slot
+           for slot, entry in enumerate(cases)):
+        raise ValueError("shell axes tables: case metadata does not name its slot")
+    for name, layout_entry in entries.items():
+        if name not in _record_columns():
+            raise ValueError(f"shell axes tables: unknown entry {name!r}")
+        if not isinstance(layout_entry, Mapping) or layout_entry.get("layout") not in ("shared", "per_case"):
+            raise ValueError(f"shell axes tables: malformed layout of {name!r}")
+    missing = set(_record_columns()) - set(entries)
+    if missing:
+        raise ValueError(f"shell axes tables: entries missing: {sorted(missing)}")
     if key not in columns or key not in entries:
         raise KeyError(f"shell axes tables: no entry {key!r}")
     n_cases = len(cases)
@@ -946,17 +1045,21 @@ def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) ->
     if layout.get("dtype") != dtype.str or tuple(layout.get("shape", ())) != expected:
         raise ValueError(f"shell axes entry {key!r}: declared {layout.get('dtype')}{layout.get('shape')}, "
                          f"expected {dtype.str}{list(expected)}")
-    inner = int(np.prod((n_rows, *trailing), dtype=np.int64))
+    inner = math.prod((int(n_rows), *(int(v) for v in trailing)))  # Python ints: no overflow
     total = inner * (n_cases if per_case else 1)
     start = inner * case if per_case else 0
     name = "shell_axes_" + key
     _check_flat(dataset, name, total)
     value = _read_span(dataset, name, start, inner, dtype).reshape((n_rows, *trailing))
     if key == "station_offsets":
-        # zero-based and nondecreasing: every shell owns one contiguous,
+        # zero-based and nondecreasing, compared element by element as Python
+        # ints (no wrapping difference): every shell owns one contiguous,
         # possibly empty, slice of the station arrays
-        if value.size == 0 or int(value[0]) != 0 or bool(np.any(np.diff(value) < 0)):
+        offsets_list = [int(v) for v in value]
+        if not offsets_list or offsets_list[0] != 0 or any(a > b for a, b in zip(offsets_list, offsets_list[1:])):
             raise ValueError("shell axes entry 'station_offsets': not zero-based and nondecreasing")
+    if key == "element_ids" and len({int(v) for v in value}) != value.size:
+        raise ValueError("shell axes entry 'element_ids': duplicate element ids")
     if dtype.kind == "f":
         _check_flat(dataset, name + "_present", total)
         present = _read_span(dataset, name + "_present", start, inner, np.dtype(np.bool_)).reshape(value.shape)
@@ -978,4 +1081,7 @@ def _shared_count(dataset: Any, entries: Mapping[str, Any]) -> int:
     if not isinstance(shape, list) or len(shape) != 1 or type(shape[0]) is not int or shape[0] < 0:
         raise ValueError("shell axes tables: malformed element_ids shape")
     _check_flat(dataset, "shell_axes_element_ids", shape[0])
+    ids = _read_span(dataset, "shell_axes_element_ids", 0, shape[0], np.dtype("<i8"))
+    if len({int(v) for v in ids}) != ids.size:  # every read is aligned to unique shells
+        raise ValueError("shell axes entry 'element_ids': duplicate element ids")
     return shape[0]
