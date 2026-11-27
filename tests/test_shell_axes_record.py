@@ -520,305 +520,11 @@ def test_shadowed_instance_method_gets_the_solver_refusal(plate_solution):
     assert record["element_refusal"][row].startswith("AXES_")
 
 
-# ---------------------------------------------------------------- process pool (owner decision 2026-11-27, option A)
 def _records_equal(left, right, ignore=("provenance",)):
     assert set(left) == set(right)
     for key, value in left.items():
         if key not in ignore:
             assert _same(value, right[key]), key
-
-
-def test_pool_record_is_bit_identical_to_the_serial_record(monkeypatch):
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    with ShellAxesPool(2) as pool:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-        assert pool.used_by  # chunks ran in child processes
-    _records_equal(serial, pooled)
-    assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
-
-
-def test_pool_rechecks_elements_whose_transported_copy_lost_solver_state(monkeypatch):
-    """Codex r1 P1: the transport drops dynamic solver caches (here the batch
-    recovery plan of an ordinary recovery), so a pooled copy could certify what
-    the original refuses.  The fingerprint check recovers those serially."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.08)
-    fe = solution.built.fe_model
-    solution.stresses()  # caches mesh._recovery_batch_plan (>= 100 elements)
-    assert "_recovery_batch_plan" in vars(fe.mesh)
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    assert set(serial["element_refusal"]) == {"AXES_OBJECT_NOT_PLAIN"}
-    with ShellAxesPool(2) as pool:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-    _records_equal(serial, pooled)
-    # decided by the module's admission on the originals: nothing dispatched
-    assert pooled["provenance"]["serial_rechecked"] == 0 and not pool.used_by
-
-
-def _pool_vs_serial(monkeypatch, solution, fe=None):
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    fe = solution.built.fe_model if fe is None else fe
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    with ShellAxesPool(2) as pool:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-    _records_equal(serial, pooled)
-    return serial, pooled
-
-
-def test_pool_matches_serial_when_the_transport_would_normalise_an_input(monkeypatch):
-    """Codex r2 P1: Q4 pickle restore turns a float32 reference normal into
-    float64.  The original is refused (AXES_ATTRIBUTE_TYPE) by the module's
-    admission, run on the original before anything is dispatched."""
-
-    solution = solve_linear_static(_plate(), target_size=0.25)
-    fe = solution.built.fe_model
-    eid = next(iter(fe.mesh.elements))
-    element = fe.mesh.elements[eid]
-    vars(element)["reference_normal"] = np.asarray(vars(element)["reference_normal"], dtype=np.float32)
-    serial, pooled = _pool_vs_serial(monkeypatch, solution)
-    row = list(serial["element_ids"]).index(eid)
-    assert serial["element_refusal"][row] == "AXES_ATTRIBUTE_TYPE"
-
-
-def test_pool_matches_serial_when_the_mesh_has_a_non_str_key(monkeypatch):
-    """Codex r2 P1: an int key in the mesh's instance dict, which the transport
-    drops; every original is refused, nothing certifies on the copies."""
-
-    solution = solve_linear_static(_plate(), target_size=0.25)
-    vars(solution.built.fe_model.mesh)[7] = "not a str key"
-    serial, pooled = _pool_vs_serial(monkeypatch, solution)
-    assert set(serial["element_refusal"]) == {"AXES_OBJECT_NOT_PLAIN"}
-
-
-def test_pool_rechecks_an_element_whose_copy_differs_in_value(monkeypatch):
-    """A recovery input the transport changes in value (simulated on the
-    original after the copy is made) is caught by the input digest and the
-    element is recovered on the original."""
-
-    import anyfem.post.shell_axes_record as module
-
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
-    fe = solution.built.fe_model
-    original_entries = module.ShellAxesPool.entries
-    target = next(iter(fe.mesh.elements))
-
-    def entries(self, carrier, ids, cancelled):
-        rows = original_entries(self, carrier, ids, cancelled)
-        # the copy saw a different thickness than the original
-        index = list(ids).index(target)
-        rows[index] = ("0" * 64, rows[index][1])
-        return rows
-
-    monkeypatch.setattr(module.ShellAxesPool, "entries", entries)
-    serial, pooled = _pool_vs_serial(monkeypatch, solution)
-    assert pooled["provenance"]["serial_rechecked"] == 1
-
-
-def test_lost_pool_worker_falls_back_to_the_serial_record(monkeypatch):
-    """Codex r2 P1: a worker that dies (not a cancellation) must not leave the
-    job waiting on the executor; the record is recovered serially."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.05)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    pool = ShellAxesPool(2)
-    assert pool.wait_ready(120)
-    victims = list(pool.processes())
-    killed = []
-
-    def kill_one():
-        # called by the pool's wait loop while chunks are out: a worker dies
-        # while it holds a task
-        if not killed:
-            victims[0].kill()
-            victims[0].join(30)
-            killed.append(True)
-
-    try:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution,
-                                           cancelled=kill_one)
-    finally:
-        pool.close(terminate=True)
-    assert killed and not pool.open
-    assert pooled["provenance"]["recovered_with"] == "serial" and pooled["provenance"]["pool_lost"] is True
-    assert "worker" in pooled["provenance"]["pool_lost_reason"]
-    _records_equal(serial, pooled)
-    for process in victims:
-        assert not process.is_alive()
-
-
-def test_pool_carries_v2d_elements_through_the_result_transport(monkeypatch):
-    """S3 V2D elements refuse pickle; the pool copies the model through the
-    verified result transport (to_dict/from_dict) instead."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-    from result_transport_helpers import s3_linear_result
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = s3_linear_result(project=None, progress=lambda message=None: None)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    assert serial["branch"] == ["v2d"]
-    with ShellAxesPool(2) as pool:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-    _records_equal(serial, pooled)
-
-
-def test_pool_refuses_a_carrier_of_another_field(monkeypatch):
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(), target_size=0.5)
-    with ShellAxesPool(2) as pool, pytest.raises(ValueError, match="pool carrier"):
-        recover_shell_axes_record(solution.built.fe_model, 2.0 * solution.displacements,
-                                  pool=pool, carrier=solution)
-
-
-def test_cancelled_pool_terminates_its_workers(monkeypatch):
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(), target_size=0.25)
-
-    class Cancelled(Exception):
-        pass
-
-    def cancel():
-        raise Cancelled()
-
-    pool = ShellAxesPool(2)
-    processes = []
-    try:
-        assert pool.wait_ready(120)
-        processes = list(pool.processes())
-        assert processes
-        with pytest.raises(Cancelled):
-            recover_shell_axes_record(solution.built.fe_model, solution.displacements,
-                                      pool=pool, carrier=solution, cancelled=cancel)
-        assert not pool.open
-    finally:
-        pool.close(terminate=True)
-    for process in processes:
-        process.join(timeout=30)
-        assert not process.is_alive()
-
-
-def test_default_pool_size_is_serial_outside_a_contained_worker(monkeypatch):
-    """Codex r1 P2: thread jobs and library calls (the GUI process) never start
-    an unowned pool; only a confirmed contained worker may."""
-
-    import anyfem.job_process as job_process
-    from anyfem.post.shell_axes_record import default_pool_workers
-
-    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "4")
-    assert job_process.contained_worker() is False
-    assert default_pool_workers() == 0
-    monkeypatch.setattr(job_process, "_CONTAINED_WORKER", True)
-    assert default_pool_workers() == 4
-
-
-def contained_axes_job(*, project, progress, cancellation_token=None):
-    """Module-level job for the worker process: a 400-shell plate with an axes request."""
-
-    from anyfem.application.workflow import _execute_analysis_job
-    from anyfem.solve.build import build_fe_model
-
-    plate = _plate(pressure=1.0e3, in_plane=2.0e5)
-    built = build_fe_model(plate, plate.generate_mesh(0.05))
-    return _execute_analysis_job(project=plate, solver_function=solve_linear_static, analysis_name="Linear static",
-                                 options={"built": built}, progress=progress,
-                                 cancellation_token=cancellation_token, requested_shell_axes=True)
-
-
-def scratch_probe_job(*, project, progress, scratch_directory=None, cancellation_token=None):
-    """Module-level job: reports the supervisor-owned scratch directory."""
-
-    import os
-
-    progress(f"scratch={scratch_directory} exists={bool(scratch_directory) and os.path.isdir(scratch_directory)}")
-    return contained_axes_job(project=project, progress=progress, cancellation_token=cancellation_token)
-
-
-def test_contained_job_scratch_directory_is_owned_and_removed_by_the_supervisor(monkeypatch):
-    """Codex r2 P2: the payload lives in a per-job directory the supervisor
-    removes after the worker tree is retired."""
-
-    import os
-
-    from anyfem.document import DocumentSession
-    from anyfem.jobs import JobManager
-    from anyfem.model.records import AnalysisDefinition
-
-    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
-    project = Project("axes scratch")
-    manager = JobManager(project, executor="process")
-    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), scratch_probe_job,
-                            containment=True)
-    manager.wait(record.id, timeout=600)
-    line = next(str(entry.get("message", "")) for entry in manager.log(record.id)
-                if str(entry.get("message", "")).startswith("scratch="))
-    path, exists = line[len("scratch="):].rsplit(" exists=", 1)
-    assert exists == "True" and os.path.basename(path).startswith("anyfem-job-")
-    assert not os.path.exists(path)
-    assert manager.result(record.id)._requested_shell_axes["provenance"]["recovered_with"] == "pool:2"
-
-
-@pytest.mark.parametrize("containment", [True, False])
-def test_axes_job_in_a_worker_process_uses_the_pool_only_when_contained(monkeypatch, containment):
-    from anyfem.document import DocumentSession
-    from anyfem.jobs import JobManager
-    from anyfem.model.records import AnalysisDefinition
-
-    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
-    project = Project("axes worker")
-    manager = JobManager(project, executor="process")
-    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), contained_axes_job,
-                            containment=containment)
-    manager.wait(record.id, timeout=600)
-    messages = [str(entry.get("message", "")) for entry in manager.log(record.id)]
-    assert record.status.value in ("completed", "COMPLETED") or str(record.status).lower().endswith("completed"), messages
-    result = manager.result(record.id)
-    axes = result._requested_shell_axes
-    assert len(axes["element_ids"]) >= 400 and set(axes["element_refusal"]) == {""}
-    pooled = any(message.startswith("shell result-axes pool: 2 workers") for message in messages)
-    assert pooled is containment, messages
-    assert axes["provenance"]["recovered_with"] == ("pool:2" if containment else "serial")
-    assert axes["provenance"].get("serial_rechecked", 0) == 0
-
-
-def test_thread_job_stays_serial(monkeypatch):
-    from anyfem.document import DocumentSession
-    from anyfem.jobs import JobManager
-    from anyfem.model.records import AnalysisDefinition
-
-    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
-    project = Project("axes thread")
-    manager = JobManager(project, executor="thread")
-    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), contained_axes_job,
-                            containment=True)
-    manager.wait(record.id, timeout=600)
-    axes = manager.result(record.id)._requested_shell_axes
-    assert axes["provenance"]["recovered_with"] == "serial"
 
 
 def _scope(keys, basis="global", recovery="native"):
@@ -829,90 +535,14 @@ def test_submission_flags_change_only_for_axes_requests():
     from anyfem.application.workflow import _requested_recovery
 
     ordinary = (_scope(("stress_von_mises",)), _scope(("displacement.uz",)), _scope(("stress_xx",), recovery="patch"))
-    flags, submission = _requested_recovery(ordinary)
+    flags = _requested_recovery(ordinary)
     assert flags == {"requested_stress": True, "requested_global_stress": True, "requested_patch_stress": True}
-    assert submission == {}
-    flags, submission = _requested_recovery((_scope(("displacement.uz",)),))
+    flags = _requested_recovery((_scope(("displacement.uz",)),))
     assert flags == {"requested_stress": False, "requested_global_stress": False, "requested_patch_stress": False}
-    assert submission == {}
-    flags, submission = _requested_recovery((_scope(("axes_membrane_xx",)),))
+    flags = _requested_recovery((_scope(("axes_membrane_xx",)),))
     # design rev 4: an axes request also sets both ordinary stress flags
     assert flags == {"requested_stress": True, "requested_global_stress": True, "requested_patch_stress": False,
                      "requested_shell_axes": True}
-    assert submission == {"containment": True}
-
-
-def test_pool_falls_back_to_serial_when_the_private_admission_gate_is_missing(monkeypatch):
-    """Temporary dependency on the private ``shell_axes_outputs._admit``
-    (coordinator 2026-11-27): without it the record is recovered serially,
-    never on unchecked copies."""
-
-    import anyfesolver.shell_axes_outputs as solver_module
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    # a solver build whose module has no ``_admit`` (its own functions keep
-    # their globals, so the module itself still works)
-    import sys
-    import types
-
-    stand_in = types.ModuleType(solver_module.__name__)
-    stand_in.__dict__.update({k: v for k, v in vars(solver_module).items() if k != "_admit"})
-    monkeypatch.setitem(sys.modules, solver_module.__name__, stand_in)
-    assert module._admission_gate() is None
-    with ShellAxesPool(2) as pool:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-        assert not pool.used_by
-    assert pooled["provenance"] == {"recovered_with": "serial"}
-    # Codex r3 P2: without the gate nothing of an unadmitted element is used;
-    # every shell carries a typed refusal (fail closed)
-    assert set(pooled["element_refusal"]) == {"AXES_ADMISSION_UNAVAILABLE"}
-    assert pooled["station_offsets"][-1] == 0
-    assert set(serial["element_refusal"]) == {""}
-
-
-def test_every_batch_case_keeps_its_pooled_entries(monkeypatch):
-    """Codex r3 P2: payload names were reused across cases, so later cases were
-    compared against the first case's copy (and fell back to serial)."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    batch = solve_linear_static_many(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25,
-                                     load_cases=("default", "second"))
-    with ShellAxesPool(2) as pool:
-        for shape in batch.shapes:
-            fe = shape.built.fe_model
-            serial = recover_shell_axes_record(fe, shape.displacements)
-            pooled = recover_shell_axes_record(fe, shape.displacements, pool=pool, carrier=shape)
-            _records_equal(serial, pooled)
-            assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
-
-
-@pytest.mark.skipif(__import__("os").name == "nt", reason="a partial pipe message is a POSIX byte-stream hazard")
-def test_worker_dying_mid_send_is_seen_as_lost_not_waited_on(monkeypatch):
-    """Codex r2/r3 P1: a worker that dies half way through a result message.
-    Each worker has its own pipe, so the owner reads EOF, does not block."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import PoolWorkerLost, ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    solution = solve_linear_static(_plate(), target_size=0.25)
-    ids = module.shell_element_ids(solution.built.fe_model)
-    pool = ShellAxesPool(2)
-    try:
-        with pytest.raises(PoolWorkerLost):
-            pool.entries(solution, ids, None, _test_kind="_test_partial_send")
-        assert not pool.open
-    finally:
-        pool.close(terminate=True)
 
 
 @pytest.mark.parametrize("damage", ["offsets_order", "offsets_start", "inf_present", "absent_not_zero",
@@ -1004,147 +634,6 @@ def test_reader_refuses_overflowing_offsets_and_inconsistent_identities(stored_t
         read_shell_axes_table(_FakeDataset(tables), key, case=case)
 
 
-def test_pool_task_deadline_retires_a_stalled_worker(monkeypatch):
-    """Codex r4 P1: a live worker that never answers (stalled) must not hang
-    the job: its task deadline kills it and the record is recovered serially."""
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    monkeypatch.setattr(ShellAxesPool, "task_seconds", staticmethod(lambda shells: 1.0))
-    solution = solve_linear_static(_plate(), target_size=0.25)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    pool = ShellAxesPool(2)
-    assert pool.wait_ready(120)
-    original = ShellAxesPool.entries
-
-    def stalled(self, carrier, ids, cancelled):
-        return original(self, carrier, ids, cancelled, _test_kind="_test_stall")
-
-    monkeypatch.setattr(ShellAxesPool, "entries", stalled)
-    try:
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-    finally:
-        pool.close(terminate=True)
-    assert pooled["provenance"]["pool_lost"] is True
-    assert "deadline" in pooled["provenance"]["pool_lost_reason"]
-    _records_equal(serial, pooled)
-
-
-def test_scratch_is_kept_when_retirement_is_not_confirmed():
-    """Codex r4 P2: scratch is removed only after confirmed retirement, and the
-    containment fallback runs only after a clean refusal."""
-
-    from anyfem.jobs import _retirement_confirmed
-    from anyfem.job_process import WorkerProcessError
-
-    clean = WorkerProcessError("refused", remote_type="ContainmentUnavailable")
-    assert _retirement_confirmed(clean)
-    dirty = WorkerProcessError("refused", remote_type="ContainmentUnavailable")
-    dirty.cleanup_failures = ["tree survivor 1234"]
-    assert not _retirement_confirmed(dirty)
-    assert not _retirement_confirmed(WorkerProcessError("x", remote_type="WorkerCleanupFailed"))
-
-
-def test_unconfirmed_pool_retirement_fails_the_job_instead_of_continuing(monkeypatch):
-    """Codex r5 P1/P2: a stalled worker whose kill fails is not waited on (the
-    owner never blocks in a read) and is not assumed gone: PoolUnretired is
-    raised (the job fails; the supervisor's owned tree retires the worker)."""
-
-    import multiprocessing.process as mp_process
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import PoolUnretired, ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    monkeypatch.setattr(ShellAxesPool, "task_seconds", staticmethod(lambda shells: 1.0))
-    monkeypatch.setattr(ShellAxesPool, "CLOSE_SECONDS", 2.0)
-    solution = solve_linear_static(_plate(), target_size=0.25)
-    pool = ShellAxesPool(2)
-    processes = list(pool.processes())
-    assert pool.wait_ready(120)
-    original = ShellAxesPool.entries
-
-    def stalled(self, carrier, ids, cancelled):
-        return original(self, carrier, ids, cancelled, _test_kind="_test_stall")
-
-    def refuse(self):
-        raise PermissionError("stop refused (test)")
-
-    monkeypatch.setattr(ShellAxesPool, "entries", stalled)
-    monkeypatch.setattr(mp_process.BaseProcess, "kill", refuse)
-    monkeypatch.setattr(mp_process.BaseProcess, "terminate", refuse)
-    try:
-        with pytest.raises(PoolUnretired):
-            recover_shell_axes_record(solution.built.fe_model, solution.displacements,
-                                      pool=pool, carrier=solution)
-        assert pool.survivors()
-    finally:
-        monkeypatch.undo()
-        for process in processes:
-            if process.is_alive():
-                process.kill()
-            process.join(30)
-    assert not any(process.is_alive() for process in processes)
-
-
-def test_ready_workers_are_not_expired_by_a_long_solve(monkeypatch):
-    """Codex r5 P2: readiness is taken as it arrives (during the solve); a solve
-    longer than READY_SECONDS does not expire healthy workers."""
-
-    import time
-
-    import anyfem.post.shell_axes_record as module
-    from anyfem.post.shell_axes_record import ShellAxesPool
-
-    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
-    monkeypatch.setattr(ShellAxesPool, "READY_SECONDS", 0.5)
-    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
-    fe = solution.built.fe_model
-    serial = recover_shell_axes_record(fe, solution.displacements)
-    with ShellAxesPool(2) as pool:
-        time.sleep(20.0)  # "the solve": workers become ready meanwhile, nobody reads them yet
-        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
-    assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
-    _records_equal(serial, pooled)
-
-
-def test_fallback_is_not_dispatched_after_shutdown(monkeypatch):
-    """Codex r5 P2: shutdown between the containment refusal and the fallback."""
-
-    import anyfem.jobs as jobs
-    from anyfem.document import DocumentSession
-    from anyfem.job_process import WorkerProcessError
-    from anyfem.model.records import AnalysisDefinition
-
-    calls = []
-    manager = jobs.JobManager(Project("axes fallback"), executor="process")
-
-    def fake_run(**kwargs):
-        calls.append(bool(kwargs.get("containment")))
-        if kwargs.get("containment"):
-            manager._shutdown = True  # shutdown begins right after the refusal
-            raise WorkerProcessError("no tree", remote_type="ContainmentUnavailable")
-        return "dispatched"
-
-    monkeypatch.setattr(jobs, "run_in_worker_process", fake_run)
-    request = jobs.JobRequest(record=None, analysis=AnalysisDefinition("Job"),
-                              snapshot=DocumentSession(Project("p")).snapshot(),
-                              function=contained_axes_job, containment=True)
-    with pytest.raises(WorkerProcessError):
-        manager._run_process(request, lambda message: None)
-    assert calls == [True]
-
-
-def test_only_a_clean_worker_error_confirms_retirement():
-    from anyfem.jobs import _retirement_confirmed
-
-    assert not _retirement_confirmed(OSError("cleanup raised"))
-    assert not _retirement_confirmed(KeyboardInterrupt())
-
-
 @pytest.mark.parametrize("damage", ["other_declaration", "missing_table", "missing_other_mask", "bool_shape",
                                     "refused_family_value"])
 def test_reader_validates_the_whole_artifact(stored_tables, damage):
@@ -1170,3 +659,54 @@ def test_reader_validates_the_whole_artifact(stored_tables, damage):
         tables["shell_axes_membrane_certified"] = certified
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+# ---------------------------------------------------------------- serial edge cases
+def test_v2d_shells_are_recorded():
+    from result_transport_helpers import s3_linear_result
+
+    solution = s3_linear_result(project=None, progress=lambda message=None: None)
+    record = recover_shell_axes_record(solution.built.fe_model, solution.displacements)
+    assert record["branch"] == ["v2d"] and record["element_refusal"] == [""]
+
+
+def test_a_float32_reference_normal_is_refused_by_the_module_admission():
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    fe = solution.built.fe_model
+    eid = next(iter(fe.mesh.elements))
+    element = fe.mesh.elements[eid]
+    vars(element)["reference_normal"] = np.asarray(vars(element)["reference_normal"], dtype=np.float32)
+    record = recover_shell_axes_record(fe, solution.displacements)
+    row = list(record["element_ids"]).index(eid)
+    assert record["element_refusal"][row] == "AXES_ATTRIBUTE_TYPE"
+    assert set(record["element_refusal"][:row] + record["element_refusal"][row + 1:]) == {""}
+
+
+def test_a_non_str_mesh_key_refuses_every_shell():
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    vars(solution.built.fe_model.mesh)[7] = "not a str key"
+    record = recover_shell_axes_record(solution.built.fe_model, solution.displacements)
+    assert set(record["element_refusal"]) == {"AXES_OBJECT_NOT_PLAIN"}
+
+
+def test_without_the_admission_gate_every_shell_is_refused(monkeypatch):
+    """Temporary dependency on the private ``shell_axes_outputs._admit``
+    (coordinator 2026-11-27): without it nothing of an unadmitted element is
+    used; every shell carries a typed refusal (fail closed)."""
+
+    import sys
+    import types
+
+    import anyfesolver.shell_axes_outputs as solver_module
+
+    import anyfem.post.shell_axes_record as module
+
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
+    fe = solution.built.fe_model
+    stand_in = types.ModuleType(solver_module.__name__)
+    stand_in.__dict__.update({k: v for k, v in vars(solver_module).items() if k != "_admit"})
+    monkeypatch.setitem(sys.modules, solver_module.__name__, stand_in)
+    assert module._admission_gate() is None
+    record = recover_shell_axes_record(fe, solution.displacements)
+    assert set(record["element_refusal"]) == {"AXES_ADMISSION_UNAVAILABLE"}
+    assert record["station_offsets"][-1] == 0

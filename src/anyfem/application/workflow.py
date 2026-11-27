@@ -1536,7 +1536,7 @@ class WorkbenchWorkflow:
         )
         if mesh_record is not None:
             mesh_hash = mesh_record.mesh_hash
-        request_flags, submission = _requested_recovery(output_scopes)
+        request_flags = _requested_recovery(output_scopes)
         record = self.job_manager.submit(
             definition,
             self.session.snapshot(),
@@ -1549,7 +1549,6 @@ class WorkbenchWorkflow:
                 **request_flags,
             },
             name=definition.name,
-            **submission,
         )
         self.active_job_id = record.id
         input_report = _submitted_input_report(
@@ -4641,16 +4640,14 @@ def _submitted_input_report(
 
 
 def _requested_recovery(output_scopes):
-    """Job flags and submission options implied by the frozen output requests.
+    """The ``requested_*`` keyword flags of :func:`_execute_analysis_job`
+    implied by the frozen output requests.
 
-    Returns ``(flags, submission)``: the ``requested_*`` keyword flags of
-    :func:`_execute_analysis_job` and extra ``JobManager.submit`` options.  Only
-    an ``axes_*`` request adds anything beyond the three stress flags: the
-    ``requested_shell_axes`` flag, both ``requested_stress`` and
+    Only an ``axes_*`` request adds anything beyond the three stress flags:
+    ``requested_shell_axes``, plus both ``requested_stress`` and
     ``requested_global_stress`` (design D2 rev 4, section 5: the global
-    surface tensors stay available next to the station records), and an owned
-    worker tree (``containment``) so the worker may start the axes recovery
-    pool.  Without one, both are exactly what they were before D2-1.
+    surface tensors stay available next to the station records).  Without
+    one, the flags are exactly what they were before D2-1.
     """
 
     keys = [(scope, key) for scope in output_scopes for key in scope["request"]["quantity_keys"]]
@@ -4668,9 +4665,8 @@ def _requested_recovery(output_scopes):
         ),
     }
     if any(key.strip().lower().startswith("axes") for _scope, key in keys):
-        return ({**flags, "requested_stress": True, "requested_global_stress": True,
-                 "requested_shell_axes": True}, {"containment": True})
-    return flags, {}
+        return {**flags, "requested_stress": True, "requested_global_stress": True, "requested_shell_axes": True}
+    return flags
 
 
 def _execute_analysis_job(
@@ -4685,13 +4681,8 @@ def _execute_analysis_job(
     requested_global_stress=False,
     requested_patch_stress=False,
     requested_shell_axes=False,
-    scratch_directory=None,
 ):
-    """Build, preflight and solve one immutable JobManager request.
-
-    ``scratch_directory`` is supplied by the job supervisor for contained jobs
-    (it owns and removes it); the axes recovery pool keeps its payload there.
-    """
+    """Build, preflight and solve one immutable JobManager request."""
 
     from ..solve.run import preflight
     from ..solve.static_options import allows_free_static
@@ -4761,21 +4752,14 @@ def _execute_analysis_job(
 
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
-    axes_pool = _start_shell_axes_pool(progress, scratch_directory) if requested_shell_axes else None
-    try:
-        solution = solver_function(**resolved)
-        if requested_shell_axes:
-            # Before the ordinary recoveries (owner decision 2026-11-27, D2-1 (b)):
-            # they leave solver-owned caches on the model (the batch recovery plan,
-            # the V2D lease epochs) that recover_shell_axes does not admit, which
-            # would refuse every shell with AXES_OBJECT_NOT_PLAIN.  Still fail
-            # closed: any later cache is a typed per-element refusal, never a value.
-            _attach_shell_axes_records(solution, progress, cancellation_token, pool=axes_pool)
-    finally:
-        if axes_pool is not None and not axes_pool.close():
-            from ..post.shell_axes_record import PoolUnretired
-            # fail the job: the supervisor's owned tree retires the survivors
-            raise PoolUnretired(f"shell result-axes pool workers not retired: {axes_pool.survivors()}")
+    solution = solver_function(**resolved)
+    if requested_shell_axes:
+        # Before the ordinary recoveries (owner decision 2026-11-27, D2-1 (b)):
+        # they leave solver-owned caches on the model (the batch recovery plan,
+        # the V2D lease epochs) that recover_shell_axes does not admit, which
+        # would refuse every shell with AXES_OBJECT_NOT_PLAIN.  Still fail
+        # closed: any later cache is a typed per-element refusal, never a value.
+        _attach_shell_axes_records(solution, progress, cancellation_token)
     if requested_stress:
         from ..post.results import LinearBatchSolution, NonlinearSolution, TransientSolution
         recovery_solutions = (solution,)
@@ -4817,30 +4801,7 @@ def _execute_analysis_job(
     return solution
 
 
-def _start_shell_axes_pool(progress, scratch_directory=None):
-    """Start the axes recovery pool before the solve, or None (serial).
-
-    Serial where this process may not start children (an uncontained, daemonic
-    solve worker) or when the pool cannot start; the record is identical either
-    way.  The workers' imports overlap the solve (owner decision 2026-11-27:
-    the axes stage may take at most the time of the ordinary global recovery).
-    """
-
-    from ..post.shell_axes_record import ShellAxesPool, default_pool_workers
-
-    workers = default_pool_workers()
-    if workers < 2:
-        return None
-    try:
-        pool = ShellAxesPool(workers, scratch=scratch_directory)
-    except (OSError, RuntimeError) as error:
-        progress(f"shell result-axes pool unavailable ({error}); recovering serially")
-        return None
-    progress(f"shell result-axes pool: {workers} workers")
-    return pool
-
-
-def _attach_shell_axes_records(solution, progress, cancellation_token=None, pool=None):
+def _attach_shell_axes_records(solution, progress, cancellation_token=None):
     """Recover the shell result-axes station records of a linear static run (D2-1).
 
     Only on an ``axes_*`` request, in the analysis worker.  Linear static and
@@ -4872,7 +4833,7 @@ def _attach_shell_axes_records(solution, progress, cancellation_token=None, pool
         case_solution._requested_shell_axes = recover_shell_axes_record(
             solved_model_of(case_solution), case_solution.displacements,
             provenance={"analysis": analysis, "case_index": index, "case_label": label},
-            cancelled=check, pool=pool, carrier=case_solution,
+            cancelled=check,
         )
 
 

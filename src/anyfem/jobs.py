@@ -40,60 +40,6 @@ def _resolve_executor(value: str | None) -> str:
     return chosen
 
 
-_SCRATCH_PREFIX = "anyfem-job-"
-
-
-def _parameters(function: Callable[..., Any]) -> tuple[str, ...]:
-    try:
-        return tuple(inspect.signature(function).parameters)
-    except (TypeError, ValueError):
-        return ()
-
-
-def _new_scratch() -> str:
-    """A per-job scratch directory named by this supervisor's pid; directories
-    of supervisors that no longer run are removed first (a dead owner only: a
-    reused pid may keep a stale directory, a live job's is never removed)."""
-
-    import tempfile
-
-    root = tempfile.gettempdir()
-    try:
-        names = os.listdir(root)
-    except OSError:
-        names = []
-    for name in names:
-        if not name.startswith(_SCRATCH_PREFIX):
-            continue
-        owner = name[len(_SCRATCH_PREFIX):].split("-", 1)[0]
-        if owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner)):
-            _remove_scratch(os.path.join(root, name))
-    return tempfile.mkdtemp(prefix=f"{_SCRATCH_PREFIX}{os.getpid()}-", dir=root)
-
-
-def _retirement_confirmed(error: BaseException) -> bool:
-    """Whether run_in_worker_process confirmed the worker tree's retirement
-    before raising ``error``.  Only its own WorkerProcessError without
-    ``cleanup_failures`` (and not WorkerCleanupFailed) says so; any other
-    exception (e.g. one escaping the cleanup itself) is unconfirmed."""
-
-    if not isinstance(error, WorkerProcessError) or getattr(error, "cleanup_failures", None):
-        return False
-    return getattr(error, "remote_type", None) != "WorkerCleanupFailed"
-
-
-def _remove_scratch(path: str) -> None:
-    import shutil
-
-    shutil.rmtree(path, ignore_errors=True)
-
-
-def _pid_alive(pid: int) -> bool:
-    from .post.shell_axes_record import _pid_alive as alive
-
-    return alive(pid)
-
-
 def _cancellation_token():
     try:
         from anyfesolver import CancellationToken
@@ -350,12 +296,6 @@ class JobRequest:
     project_override: Any = None
     executor: str = "thread"
     process: Any = None  # the worker process while a "process" job is running
-    # Opt-in owned process tree for a "process" job whose worker starts its own
-    # children (an axes_* request's recovery pool).  Falls back to an ordinary
-    # daemonic worker (which then stays serial) when containment is unavailable.
-    containment: bool = False
-    tree: Any = None  # the owned worker tree while a contained job runs
-    scratch: Any = None  # the contained job's scratch directory, owned here
 
 
 class JobManager:
@@ -404,7 +344,6 @@ class JobManager:
         name: str | None = None,
         project_override: Any = None,
         executor: str | None = None,
-        containment: bool = False,
     ) -> JobRecord:
         submitted_analysis_hash = analysis_hash(
             analysis,
@@ -441,7 +380,6 @@ class JobManager:
             # that case; normal geometry jobs continue to use ProjectSnapshot.
             project_override=deepcopy(project_override),
             executor=self.executor if executor is None else _resolve_executor(executor),
-            containment=bool(containment),
         )
         with self._lock:
             if self._shutdown:
@@ -493,16 +431,8 @@ class JobManager:
                 self.cancel(queued)
             request = self._requests.get(self._active_id) if self._active_id else None
             process = None if request is None else request.process
-            tree = None if request is None else request.tree
-        if tree is not None:
-            # A contained worker's owned tree covers the worker and its pool
-            # children; it is retired instead of the bare process.
-            tree.terminate()
-        elif process is not None and process.is_alive():
+        if process is not None and process.is_alive():
             process.terminate()
-        # The job thread removes the scratch directory once run_in_worker_process
-        # has confirmed the tree's retirement; an abrupt exit leaves it to the
-        # next supervisor's sweep (dead owners only).
 
     def _register_process(self, request: JobRequest, process: Any) -> None:
         # Shutdown can happen while spawn is still preparing the worker.
@@ -512,78 +442,6 @@ class JobManager:
             request.process = process
             if self._shutdown and process.is_alive():
                 process.terminate()
-
-    def _register_tree(self, request: JobRequest, tree: Any) -> None:
-        with self._lock:
-            request.tree = tree
-            if self._shutdown:
-                tree.terminate()
-
-    def _run_process(self, request: JobRequest, progress: Callable[[Any], None]) -> Any:
-        scratch = None
-        if request.containment and "scratch_directory" in _parameters(request.function):
-            # The supervisor owns the contained job's scratch files (e.g. the
-            # axes pool's model payload): removed here once the worker tree's
-            # retirement is confirmed.  No scratch is no failure: the job then
-            # uses its own temporary files (or stays serial).
-            try:
-                scratch = _new_scratch()
-            except OSError as error:
-                progress(f"job scratch directory unavailable ({error}); continuing without it")
-                scratch = None
-            request.scratch = scratch
-        retired = False
-
-        def call(contained: bool) -> Any:
-            kwargs = request.kwargs
-            if contained and scratch is not None:
-                kwargs = {**kwargs, "scratch_directory": scratch}
-            return run_in_worker_process(
-                function=request.function,
-                kwargs=kwargs,
-                snapshot=request.snapshot,
-                project_override=request.project_override,
-                progress=progress,
-                token=request.cancellation,
-                on_process=lambda process: self._register_process(request, process),
-                **({"containment": True, "on_tree": lambda process, tree: self._register_tree(request, tree)}
-                   if contained else {}),
-            )
-
-        if not request.containment:
-            return call(False)
-        try:
-            result = call(True)
-            retired = True
-            return result
-        except WorkerProcessError as error:
-            retired = _retirement_confirmed(error)
-            # Fall back to an ordinary worker (where the axes pool stays serial)
-            # only after a clean refusal before dispatch: containment
-            # unavailable, nothing left behind, the manager still open.
-            with self._lock:
-                closing = self._shutdown
-            if getattr(error, "remote_type", None) != "ContainmentUnavailable" or not retired or closing:
-                raise
-            progress(f"owned process tree unavailable ({error}); running the job without a worker pool")
-            with self._lock:
-                request.tree = None
-                if self._shutdown:  # shutdown began meanwhile: dispatch nothing new
-                    raise
-            # A shutdown after this point terminates the worker at registration
-            # (_register_process), as for any ordinary job.
-            return call(False)
-        except BaseException as error:
-            retired = _retirement_confirmed(error)
-            raise
-        finally:
-            with self._lock:
-                request.tree = None
-                request.scratch = None
-            if scratch is not None and retired:
-                _remove_scratch(scratch)
-            # Otherwise the directory stays until a later supervisor sweeps it
-            # (owner gone): never removed under a tree not confirmed retired.
 
     def rerun(self, job_id: str, snapshot: ProjectSnapshot | None = None) -> JobRecord:
         original = self._requests[job_id]
@@ -596,7 +454,6 @@ class JobManager:
             name=f"{original.record.name} rerun",
             project_override=original.project_override,
             executor=original.executor,
-            containment=original.containment,
         )
 
     def result(self, job_id: str) -> Any:
@@ -696,7 +553,15 @@ class JobManager:
             if request.executor == "process":
                 # The numerical work runs in its own process, so it cannot take the GUI's
                 # interpreter lock; this thread only waits on a pipe.
-                result = self._run_process(request, progress)
+                result = run_in_worker_process(
+                    function=request.function,
+                    kwargs=request.kwargs,
+                    snapshot=request.snapshot,
+                    project_override=request.project_override,
+                    progress=progress,
+                    token=request.cancellation,
+                    on_process=lambda process: self._register_process(request, process),
+                )
             else:
                 result = request.function(
                     **prepare_call(
