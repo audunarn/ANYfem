@@ -32,6 +32,20 @@ of the admission-relevant state of the original objects, and any element whose
 copy differs (or all of them, if the mesh or its nodes differ) is recovered
 again serially on the original.  The record is therefore the serial record.
 
+Trust boundary of the pool (owner decision 2026-11-27, option A): the
+module's own, A'' option 1.  For in-contract inputs the pooled record equals
+the serial record bit for bit: admission is decided by the module's gate on
+the originals before anything is dispatched, and a pooled entry is kept only
+when the copy's recovery-input digest equals the original's.
+Out-of-contract tampering inside solver-owned values or private state (e.g. a
+shadowed ``mesh.nodes.get``, a replaced mesh epoch token, an instance
+override of ``get_material``) may give a different pooled entry.  ANYfem's
+own code never turns such input into an admitted value: the module admits
+and cross-checks every family on whichever copy it recovers.  Temporary
+dependency: the gate is the module's private ``_admit`` until the solver
+exposes a public ``admit_shell_axes``; without it every shell is refused
+(``AXES_ADMISSION_UNAVAILABLE``).
+
 No Qt; runs in the analysis worker after the solve, only on the axes-request
 path.  The ordinary path (no ``axes_*`` request) never imports this module.
 """
