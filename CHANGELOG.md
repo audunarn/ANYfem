@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Pins ANYmesh b16ac98 (ANYmesh #24, #25, #26, #27), all stated as results unchanged: value-safe floating-point build
+  options for the native extension (#24); a native port of the finite-hull triangulation fallback (#25); a
+  ghost-vertex Delaunay seed that completes most incomplete super-triangle seeds before that fallback runs (#27); CI
+  only (#26). Measured on the bench PC against ANYmesh a3458b0 (which already has #24, #26 and #27; ANYgeometry
+  5f68177): the floating tripod example meshes 14.0 % faster (729.6 -> 627.7 s) and the N2c owner model 15.9 % faster
+  (973.4 -> 818.9 s), with identical mesh digests.
+
 - Pins ANYmesh e889e62 (ANYmesh #23): quad-first planar seeding's Python finite-hull triangulation fallback is faster,
   with results unchanged. Measured on the bench PC, the floating tripod example meshes 9.4 % faster (999.9 -> 906.4 s)
   and the N2c owner model 9.5 % faster (1260.1 -> 1140.9 s), with identical meshes.
