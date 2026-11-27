@@ -904,8 +904,13 @@ def _add_shell_axes_records(builder, solution):
     # before any type dispatch: an attached record is never silently dropped.
     attached = _stored_attribute(solution, "_requested_shell_axes")
     field = _stored_attribute(solution, "shapes")
-    # only a stored case list (instance dict or slot), never a computed view
-    shapes = tuple(field[1]) if field[0] and type(field[1]) in (list, tuple) else ()
+    # only a stored case list (instance dict or slot), never a computed view;
+    # a list/tuple (also a subclass) is read through the built-in iteration
+    shapes = ()
+    if field[0] and isinstance(field[1], list):
+        shapes = tuple(list.__iter__(field[1]))
+    elif field[0] and isinstance(field[1], tuple):
+        shapes = tuple(tuple.__iter__(field[1]))
     case_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in shapes]
     if not attached[0] and not any(found for found, _value in case_records):
         return
@@ -1005,23 +1010,23 @@ def _stored_attribute(holder, name: str) -> tuple:
 
     import types
 
+    # every built-in storage along the whole MRO, also where a subclass
+    # shadows it with a property: the instance dict (first built-in __dict__
+    # descriptor) and every slot of that name
     for kind in type(holder).__mro__:
         descriptor = vars(kind).get("__dict__")
-        if descriptor is not None:
-            if type(descriptor) is types.GetSetDescriptorType:
-                state = descriptor.__get__(holder, type(holder))
-                if type(state) is dict and name in state:
-                    return True, state[name]
+        if type(descriptor) is types.GetSetDescriptorType:
+            state = descriptor.__get__(holder, type(holder))
+            if type(state) is dict and name in state:
+                return True, state[name]
             break
     for kind in type(holder).__mro__:
         descriptor = vars(kind).get(name)
-        if descriptor is not None:
-            if type(descriptor) is types.MemberDescriptorType:
-                try:
-                    return True, descriptor.__get__(holder, type(holder))
-                except AttributeError:
-                    return False, None
-            return False, None
+        if type(descriptor) is types.MemberDescriptorType:
+            try:
+                return True, descriptor.__get__(holder, type(holder))
+            except AttributeError:
+                continue
     return False, None
 
 

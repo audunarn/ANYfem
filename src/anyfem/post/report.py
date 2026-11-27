@@ -451,10 +451,10 @@ def build_result_report(
         else ()
     )
     tables = (
-        # shell_axes_* tables are a reserved store, read only through its
-        # validating reader (raw placeholders of refused shells are not values)
+        # in an artifact that declares the shell result-axes store, its
+        # shell_axes_* tables are read only through their validating reader
         tuple(_inspect_table(dataset, key, max_table_rows) for key in dataset.table_keys
-              if not str(key).startswith("shell_axes_"))
+              if not ("shell_axes_meta__bytes" in dataset.table_keys and str(key).startswith("shell_axes_")))
         if include_tables
         else ()
     )

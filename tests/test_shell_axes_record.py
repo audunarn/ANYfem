@@ -242,7 +242,10 @@ def _payload_arrays(payload):
 
 def _table_equal(left, right):
     if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
-        return _same(np.asarray(left), np.asarray(right))
+        left, right = np.asarray(left), np.asarray(right)
+        if left.dtype.hasobject or right.dtype.hasobject:  # compare contents, not object pointers
+            return left.dtype == right.dtype and left.shape == right.shape and left.tolist() == right.tolist()
+        return _same(left, right)
     return left == right
 
 
@@ -1386,14 +1389,16 @@ def test_long_solver_text_is_capped_in_the_record(monkeypatch, plate_solution):
 
 # ---------------------------------------------------------------- Codex PR-1 round 5
 def test_qt_picker_does_not_offer_the_reserved_axes_store():
-    """Codex PR-1 r5: the Results task's own picker (not only the browser)."""
+    """Codex PR-1 r5/r7: the Results task's own picker and inspection hide a
+    declared axes store (only where the artifact declares it)."""
 
     import pathlib
 
     source = (pathlib.Path(__file__).resolve().parents[1] / "src/anyfem/ui/qt/tasks.py").read_text(encoding="utf-8")
-    picker = source.split('choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys', 1)[1][:120]
-    assert 'startswith("shell_axes_")' in picker
-    assert 'if str(key).startswith("shell_axes_"):raise ValueError' in source
+    assert 'reserved="shell_axes_meta__bytes" in tables' in source
+    assert 'if not (reserved and str(key).startswith("shell_axes_"))' in source
+    assert ('if str(key).startswith("shell_axes_") and "shell_axes_meta__bytes" in dataset.table_keys:raise ValueError'
+            in source)
 
 
 class _Slotted:
@@ -1580,33 +1585,114 @@ def test_metadata_size_is_refused_before_it_is_read(monkeypatch, stored_tables):
 
 
 def test_string_span_bytes_respect_the_combined_budget(monkeypatch, stored_tables):
-    """Codex PR-1 r6 P3: per validation span, the string bytes of all columns
-    together stay within the budget (or the span is a single shell)."""
+    """Codex PR-1 r6/r7 P3: every string read during validation is counted;
+    per case and span the bytes of all columns together stay within the
+    budget (or the span is one shell).  Fails with the limit disabled."""
 
     import anyfem.post.shell_axes_record as module
 
     tables = dict(stored_tables[0])
     per_shell = None
-    for key in [key for key in tables if key.endswith("__offsets")]:
+    for key in [key for key in tables if key.endswith("__offsets") and "__0__" not in key and "__1__" not in key]:
         lengths = np.diff(tables[key])
         per_shell = lengths if per_shell is None else per_shell + lengths
-    budget = int(max(1, per_shell.max())) + 1  # spans of more than one shell must still fit
+    budget = int(max(1, per_shell.max())) + 1
     monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", budget)
     spans = {}
     original = module._string_rows
+    reading = {"done": False}
 
     def counted(dataset, base, n_e, lo, hi, key):
         rows = original(dataset, base, n_e, lo, hi, key)
-        if lo != 0 or hi != n_e or not spans:  # validation spans (not the final whole-column read)
-            spans.setdefault((base.rsplit("__", 1)[-1] if "__" in base else "shared", lo, hi), 0)
-            spans[(base.rsplit("__", 1)[-1] if "__" in base else "shared", lo, hi)] += sum(len(r.encode()) for r in rows)
+        if not reading["done"]:
+            case = base.rsplit("__", 1)[-1] if base.rsplit("__", 1)[-1].isdigit() else "shared"
+            spans[(case, lo, hi)] = spans.get((case, lo, hi), 0) + sum(len(r.encode()) for r in rows)
         return rows
 
     monkeypatch.setattr(module, "_string_rows", counted)
-    read_shell_axes_table(_FakeDataset(tables), "thickness")
-    by_span = {}
-    for (_case, lo, hi), size in spans.items():
-        by_span[(lo, hi)] = by_span.get((lo, hi), 0) + size
-    assert by_span and any(hi - lo > 1 for lo, hi in by_span) or len(by_span) > 1
-    for (lo, hi), total in by_span.items():
-        assert total <= budget or hi - lo == 1, (lo, hi, total, budget)
+    module._validated(_FakeDataset(tables))
+    reading["done"] = True
+    assert spans
+    assert len({(lo, hi) for _case, lo, hi in spans}) > 1  # the budget split the shells into several spans
+    for (case, lo, hi), total in spans.items():
+        assert total <= budget or hi - lo == 1, (case, lo, hi, total, budget)
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 7
+class _CaseList(list):
+    """A plain list subclass as a batch's case list (Codex PR-1 r7)."""
+
+
+def test_batch_with_a_list_subclass_case_list_publishes_its_records():
+    """Codex PR-1 r7 P1: case lists are read through the built-in iteration."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                     target_size=0.5, load_cases=("default", "second"))
+    batch.shapes = _CaseList(list.__iter__(batch.shapes))
+    payload = result_artifact_payload(batch)
+    assert "shell_axes_meta__bytes" in payload.tables
+
+
+class _SlotBase:
+    __slots__ = ("_requested_shell_axes",)
+
+
+class _ShadowingChild(_SlotBase):
+    __slots__ = ()
+
+    @property
+    def _requested_shell_axes(self):
+        return None
+
+
+def test_discovery_finds_a_base_slot_shadowed_by_a_property():
+    """Codex PR-1 r7 P1: a populated base-class slot is found even where a
+    subclass shadows it with a property (and is then refused here)."""
+
+    from anyfem.io.result_artifact import _add_shell_axes_records, _stored_attribute
+
+    holder = _ShadowingChild()
+    _SlotBase._requested_shell_axes.__set__(holder, {"schema": "x"})
+    assert _stored_attribute(holder, "_requested_shell_axes") == (True, {"schema": "x"})
+
+    class Builder:
+        tables = {}
+
+    with pytest.raises(ValueError):
+        _add_shell_axes_records(Builder(), holder)
+
+
+def test_ordinary_shell_axes_named_tables_stay_visible_without_the_store(tmp_path):
+    """Codex PR-1 r7 P2: only an artifact that declares the axes store hides
+    its shell_axes_* tables; an ordinary table of that name stays visible."""
+
+    from anyfem.io.artifacts import ArtifactStore
+    from anyfem.io.result_artifact import write_solution_artifact
+    from anyfem.post.report import result_report_markdown
+    from anyfem.presentation.result_browser import result_entries
+
+    project = _plate(tension=False)
+    solution = _run_job(project, "Linear static", solve_linear_static, False, target_size=0.5)
+    store = ArtifactStore(tmp_path / "plain.anyfem")
+    identity = dict(mesh_id="mesh", document_id=project.document_id, model_hash="model", mesh_hash="hash")
+    store.write_mesh(solution.built.mesh, **identity)
+    from anyfem.io import result_artifact
+
+    original = result_artifact.result_artifact_payload
+
+    def with_legacy_table(*args, **kwargs):
+        import dataclasses
+
+        payload = original(*args, **kwargs)
+        return dataclasses.replace(payload, tables={**payload.tables, "shell_axes_orientation": np.arange(3.0)})
+
+    result_artifact.result_artifact_payload = with_legacy_table
+    try:
+        dataset = store.open_result(write_solution_artifact(store, solution, job_id="p", analysis_hash="a", **identity))
+    finally:
+        result_artifact.result_artifact_payload = original
+    assert "shell_axes_orientation" in dataset.table_keys
+    assert any(entry.key == "shell_axes_orientation" for entry in result_entries(dataset=dataset))
+    assert "shell_axes_orientation" in result_report_markdown(dataset)

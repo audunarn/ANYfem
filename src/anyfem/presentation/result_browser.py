@@ -86,8 +86,10 @@ def result_entries(*, live_fields=(), live_quantities=(), dataset=None):
             for component in components:
                 entries.append(ResultEntry(path,component_label(component),kind,key,component,unit,location))
         entries.extend(ResultEntry(("Histories",),key,"history",key) for key in dataset.history_keys)
-        # shell_axes_* tables are a reserved store, read only through
-        # post.shell_axes_record (raw values of refused shells are placeholders)
-        entries.extend(ResultEntry(("Tables",),key,"table",key) for key in dataset.table_keys
-                       if not str(key).startswith("shell_axes_"))
+        # In an artifact that declares the shell result-axes store, its
+        # shell_axes_* tables are read only through post.shell_axes_record
+        # (raw values of refused shells are placeholders, not values).
+        tables=tuple(dataset.table_keys);reserved="shell_axes_meta__bytes" in tables
+        entries.extend(ResultEntry(("Tables",),key,"table",key) for key in tables
+                       if not (reserved and str(key).startswith("shell_axes_")))
     return tuple(entries)
