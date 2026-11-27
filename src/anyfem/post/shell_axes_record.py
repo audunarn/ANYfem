@@ -478,8 +478,15 @@ def _read_meta(dataset: Any) -> Any:
     if len(shape) != 1 or shape[0] > MAX_META_BYTES:
         raise ValueError(f"shell axes tables: metadata shape {shape} exceeds {MAX_META_BYTES} bytes")
     data = _read_span(dataset, name, 0, shape[0], np.dtype("|u1")).tobytes()
+
+    def unique(pairs):
+        keys = [key for key, _value in pairs]
+        if len(set(keys)) != len(keys):
+            raise ValueError("duplicate keys")
+        return dict(pairs)
+
     try:
-        return json.loads(data.decode("utf-8"))
+        return json.loads(data.decode("utf-8"), object_pairs_hook=unique)
     except (UnicodeDecodeError, ValueError) as error:
         raise ValueError(f"shell axes tables: malformed metadata: {error}") from error
 
@@ -537,6 +544,12 @@ class _Layout:
         if any(not isinstance(entry, Mapping) or type(entry.get("case_index")) is not int
                or entry["case_index"] != slot for slot, entry in enumerate(cases)):
             raise ValueError("shell axes tables: case metadata does not name its slot")
+        for entry in cases:
+            # exactly the fields the worker writes, with their types
+            if not set(entry) <= {"analysis", "case_index", "case_label", "case_name"} \
+                    or {"analysis", "case_index", "case_label"} - set(entry) \
+                    or any(type(entry[key]) is not str for key in ("analysis", "case_label", "case_name") if key in entry):
+                raise ValueError("shell axes tables: malformed case metadata")
         columns = _record_columns()
         if set(entries) != set(columns):
             raise ValueError(f"shell axes tables: entries differ from the record schema: missing "
@@ -818,8 +831,8 @@ def _check_consistency(row: Mapping[str, Any], case: int, first: int = 0) -> Non
             continue
         if hi == lo or not row["branch"][local]:
             raise ValueError(f"shell axes case {case}: admitted shell {index} has no stations or branch")
-        if not np.isfinite(row["thickness"][local]):
-            raise ValueError(f"shell axes case {case}: admitted shell {index} has no thickness")
+        if not (np.isfinite(row["thickness"][local]) and row["thickness"][local] > 0.0):
+            raise ValueError(f"shell axes case {case}: admitted shell {index} has no positive thickness")
         if _whole(row["station_positions"][lo:hi]) is not True:
             raise ValueError(f"shell axes case {case}: a station of shell {index} lacks a coordinate")
         for fam, key in (("membrane", "membrane_tensors"), ("bending", "bending_tensors"), ("shear", "shear_vectors")):

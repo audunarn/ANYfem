@@ -902,30 +902,19 @@ def _add_shell_axes_records(builder, solution):
 
     # Discovery by attribute presence (on the result and on any case holder),
     # before any type dispatch: an attached record is never silently dropped.
-    def attached(holder) -> bool:
-        # no descriptor or property is invoked: the instance dict and any slot
-        try:
-            state = object.__getattribute__(holder, "__dict__")
-        except AttributeError:
-            state = None
-        if isinstance(state, dict) and "_requested_shell_axes" in state:
-            return True
-        return any("_requested_shell_axes" in vars(kind) for kind in type(holder).__mro__)
-
-    try:
-        field = object.__getattribute__(solution, "__dict__").get("shapes")
-    except AttributeError:
-        field = None
-    # only a stored case list (a plain field), never a computed view
-    shapes = tuple(field) if type(field) in (list, tuple) else ()
-    if not attached(solution) and not any(attached(shape) for shape in shapes):
+    attached = _stored_attribute(solution, "_requested_shell_axes")
+    field = _stored_attribute(solution, "shapes")
+    # only a stored case list (instance dict or slot), never a computed view
+    shapes = tuple(field[1]) if field[0] and type(field[1]) in (list, tuple) else ()
+    case_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in shapes]
+    if not attached[0] and not any(found for found, _value in case_records):
         return
     batch = type(solution).__name__ == "LinearBatchSolution"
-    if batch and attached(solution):
+    if batch and attached[0]:
         # records belong to the batch's cases; one on the wrapper would be dropped
         raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
     holders = shapes if batch else (solution,)
-    records = [getattr(holder, "_requested_shell_axes", None) if attached(holder) else None for holder in holders]
+    records = [value for _found, value in case_records] if batch else [attached[1]]
     present = [record is not None for record in records]
     if not all(present):
         raise ValueError("shell result-axes records are missing (or None) for some cases; refusing a partial artifact")
@@ -1006,6 +995,34 @@ def _add_shell_axes_records(builder, solution):
     view = {key: value for key, value in builder.tables.items()
             if key.startswith("shell_axes_") or key == "load_case_names"}
     validate_shell_axes_tables(view, builder.frames, builder.frame_kind, type(solution).__name__)
+
+
+def _stored_attribute(holder, name: str) -> tuple:
+    """(found, value) of ``name`` in the holder's genuine storage only: its
+    instance dict (reached through the built-in ``__dict__`` descriptor) or a
+    built-in slot.  No getter of any kind is called (a property, or a class
+    that redefines ``__dict__``, is not storage)."""
+
+    import types
+
+    for kind in type(holder).__mro__:
+        descriptor = vars(kind).get("__dict__")
+        if descriptor is not None:
+            if type(descriptor) is types.GetSetDescriptorType:
+                state = descriptor.__get__(holder, type(holder))
+                if type(state) is dict and name in state:
+                    return True, state[name]
+            break
+    for kind in type(holder).__mro__:
+        descriptor = vars(kind).get(name)
+        if descriptor is not None:
+            if type(descriptor) is types.MemberDescriptorType:
+                try:
+                    return True, descriptor.__get__(holder, type(holder))
+                except AttributeError:
+                    return False, None
+            return False, None
+    return False, None
 
 
 def _built_shell_directors(element_ids, built):

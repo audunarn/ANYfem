@@ -1477,3 +1477,136 @@ def test_reads_respect_byte_budgets(monkeypatch, stored_tables, which):
     read_shell_axes_table(Counting(tables), "thickness")
     # one shell per span when even one shell's strings exceed the budget
     assert reads and max(reads) <= module.MAX_STRING_BYTES
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 6
+class _PropertyRecord:
+    """An ordinary wrapper with a property of the record's name: never called."""
+
+    @property
+    def _requested_shell_axes(self):
+        raise RuntimeError("a getter was invoked")
+
+
+class _PropertyDict:
+    """An ordinary wrapper that redefines __dict__ as a property: never called."""
+
+    @property
+    def __dict__(self):
+        raise RuntimeError("a getter was invoked")
+
+
+class _SlottedCases:
+    __slots__ = ("shapes",)
+
+
+def test_discovery_reads_only_genuine_storage():
+    """Codex PR-1 r6: no getter of any kind is called; a slotted case list of an
+    unsupported wrapper is found and its attached record refused."""
+
+    from anyfem.io.result_artifact import _add_shell_axes_records
+
+    class Builder:
+        tables = {}
+
+    _add_shell_axes_records(Builder(), _PropertyRecord())
+    _add_shell_axes_records(Builder(), _PropertyDict())
+    batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                     target_size=0.5, load_cases=("default", "second"))
+    wrapper = _SlottedCases()
+    wrapper.shapes = list(batch.shapes)
+    with pytest.raises(ValueError):
+        _add_shell_axes_records(Builder(), wrapper)
+
+
+@pytest.mark.parametrize("damage", ["duplicate_key", "list_case_label"])
+def test_metadata_rejects_duplicate_keys_and_mistyped_case_fields(stored_tables, damage):
+    import json
+
+    tables, meta = _damaged(stored_tables[0])
+    dataset = _FakeDataset(tables)
+    if damage == "duplicate_key":
+        text = json.dumps(json.loads(bytes(dataset.tables["shell_axes_meta__bytes"]).decode("utf-8")))
+        text = '{"schema": "not the schema", ' + text[1:]  # the second "schema" key is the valid one
+        dataset.tables["shell_axes_meta__bytes"] = np.frombuffer(text.encode("utf-8"), dtype=np.uint8).copy()
+    else:
+        meta["cases"][0]["case_label"] = ["not", "a", "str"]
+        dataset = _FakeDataset(tables)
+    with pytest.raises(ValueError):
+        read_shell_axes_table(dataset, "thickness")
+
+
+@pytest.mark.parametrize("value", [0.0, -0.008])
+def test_admitted_shell_thickness_must_be_positive(value):
+    """Codex PR-1 r6: writer (through the shared checks) and reader."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    solution = _run_job(_plate(tension=False), "Linear static", solve_linear_static, True, target_size=0.5)
+    tables, meta = _damaged(_axes_tables(solution))
+    values = tables["shell_axes_thickness"].copy()
+    values[0] = value
+    tables["shell_axes_thickness"] = values
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+    record = dict(solution._requested_shell_axes)
+    thickness = record["thickness"].copy()
+    thickness[0] = value
+    record["thickness"] = thickness
+    solution._requested_shell_axes = record
+    with pytest.raises(ValueError):
+        result_artifact_payload(solution)
+
+
+def test_metadata_size_is_refused_before_it_is_read(monkeypatch, stored_tables):
+    """Codex PR-1 r6 P3: the stored metadata exists first; then the cap is
+    lowered; the reader refuses on its size without reading it."""
+
+    import anyfem.post.shell_axes_record as module
+
+    dataset = _FakeDataset(dict(stored_tables[0]))
+    reads = []
+    original = dataset.table
+
+    def table(name, rows=None):
+        reads.append(name)
+        return original(name, rows)
+
+    dataset.table = table
+    monkeypatch.setattr(module, "MAX_META_BYTES", 16)
+    with pytest.raises(ValueError, match="metadata"):
+        read_shell_axes_table(dataset, "thickness")
+    assert "shell_axes_meta__bytes" not in reads
+
+
+def test_string_span_bytes_respect_the_combined_budget(monkeypatch, stored_tables):
+    """Codex PR-1 r6 P3: per validation span, the string bytes of all columns
+    together stay within the budget (or the span is a single shell)."""
+
+    import anyfem.post.shell_axes_record as module
+
+    tables = dict(stored_tables[0])
+    per_shell = None
+    for key in [key for key in tables if key.endswith("__offsets")]:
+        lengths = np.diff(tables[key])
+        per_shell = lengths if per_shell is None else per_shell + lengths
+    budget = int(max(1, per_shell.max())) + 1  # spans of more than one shell must still fit
+    monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", budget)
+    spans = {}
+    original = module._string_rows
+
+    def counted(dataset, base, n_e, lo, hi, key):
+        rows = original(dataset, base, n_e, lo, hi, key)
+        if lo != 0 or hi != n_e or not spans:  # validation spans (not the final whole-column read)
+            spans.setdefault((base.rsplit("__", 1)[-1] if "__" in base else "shared", lo, hi), 0)
+            spans[(base.rsplit("__", 1)[-1] if "__" in base else "shared", lo, hi)] += sum(len(r.encode()) for r in rows)
+        return rows
+
+    monkeypatch.setattr(module, "_string_rows", counted)
+    read_shell_axes_table(_FakeDataset(tables), "thickness")
+    by_span = {}
+    for (_case, lo, hi), size in spans.items():
+        by_span[(lo, hi)] = by_span.get((lo, hi), 0) + size
+    assert by_span and any(hi - lo > 1 for lo, hi in by_span) or len(by_span) > 1
+    for (lo, hi), total in by_span.items():
+        assert total <= budget or hi - lo == 1, (lo, hi, total, budget)
