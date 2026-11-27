@@ -244,6 +244,7 @@ def result_artifact_payload(
     patch_stress = getattr(solution, "_requested_patch_stress", None)
     if patch_stress is not None:
         _add_patch_stresses(builder, (patch_stress,), _recovery_frames(patch_stress))
+    _add_shell_axes_records(builder, solution)
     if "stress_global_xx_top" in builder.fields:
         from ..post.results import submitted_plate_thicknesses
         thicknesses = submitted_plate_thicknesses(solution.built)
@@ -270,6 +271,11 @@ def result_artifact_payload(
         item.descriptor.to_dict() for item in resolved_solver_quantities
     ]
     built_provenance.update(_json_safe(dict(provenance or {})))
+    if any(key.startswith("shell_axes_") for key in builder.tables) and \
+            built_provenance.get("solution_type") != type(solution).__name__:
+        # the axes tables were validated against this result's own solution type
+        raise ValueError("shell result-axes tables cannot be published under a different solution_type "
+                         f"({built_provenance.get('solution_type')!r} for {type(solution).__name__})")
     built_summary = _base_summary(solution, builder)
     if outcome is not None:
         encoded_outcome = _json_safe(outcome.to_dict())
@@ -876,6 +882,178 @@ def _add_shell_surface_directors(builder, element_stresses, built):
                  for eid in shells if "physical_director" in element_stresses[eid]}
     directors.update(_built_shell_directors([eid for eid in shells if str(eid) not in directors], built))
     builder.add_table("shell_surface_directors", directors)
+
+
+def _add_shell_axes_records(builder, solution):
+    """Persist the shell result-axes station records of an ``axes_*`` request (D2-1).
+
+    Nothing is written (or imported) without a request.  Every case of the
+    analysis must carry a record whose provenance names that case (index and,
+    for a batch, label), or nothing is written.  An entry that is bit-identical
+    in every case is stored once ("shared"); otherwise it gets a leading case
+    axis ("per_case").  ``shell_axes_meta`` lists each entry's layout, kind,
+    dtype and shape.  Numeric entries are stored flat (the archive reads 3-D
+    tables as spatial result data); every float entry also gets a boolean
+    presence mask (the archive stores finite numbers only, so an absent value
+    is written as 0.0 and read back as NaN by
+    ``post.shell_axes_record.read_shell_axes_table``, which requires the mask).
+    String columns are JSON lists.
+    """
+
+    # Discovery by attribute presence (on the result and on any case holder),
+    # before any type dispatch: an attached record is never silently dropped.
+    attached = _stored_attribute(solution, "_requested_shell_axes")
+    field = _stored_attribute(solution, "shapes")
+    # only a stored case list (instance dict or slot), never a computed view;
+    # a list/tuple (also a subclass) is read through the built-in iteration
+    shapes = ()
+    if field[0] and isinstance(field[1], list):
+        shapes = tuple(list.__iter__(field[1]))
+    elif field[0] and isinstance(field[1], tuple):
+        shapes = tuple(tuple.__iter__(field[1]))
+    case_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in shapes]
+    batch = type(solution).__name__ == "LinearBatchSolution"
+    # The ordinary batch adapter enumerates the cases through the container's
+    # own iteration; frames, fields and case names follow that order.  The
+    # axes record must follow exactly the same cases in the same order.
+    ordinary = ()
+    if batch:
+        ordinary = tuple(getattr(solution, "shapes", ()) or ())
+        ordinary_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in ordinary]
+        any_attached = attached[0] or any(found for found, _ in case_records) or any(
+            found for found, _ in ordinary_records)
+        if any_attached and (len(ordinary) != len(shapes)
+                             or any(a is not b for a, b in zip(ordinary, shapes))):
+            raise ValueError("shell result-axes records: the batch's case list does not enumerate the same "
+                             "cases in the same order as its stored cases; refusing to publish")
+    if not attached[0] and not any(found for found, _value in case_records):
+        return
+    # Trust boundary (owner decision 2026-11-27, option A): axes records are
+    # published only for results ANYfem produced - an exact LinearSolution, or
+    # an exact LinearBatchSolution whose stored cases are a plain list or tuple
+    # of exact LinearSolution.  Anything else that carries a detectable record
+    # is refused; customised containers or iteration, foreign or renamed
+    # wrappers are out of contract (never published as axes data, detection
+    # not guaranteed).
+    from ..post.results import LinearBatchSolution, LinearSolution
+
+    exact = type(solution) is LinearSolution or (
+        type(solution) is LinearBatchSolution and field[0] and type(field[1]) in (list, tuple)
+        and all(type(shape) is LinearSolution for shape in shapes))
+    if not exact:
+        raise ValueError(f"shell result-axes records on a {type(solution).__name__} that is not an exact ANYfem "
+                         "linear static result (exact classes, a plain list or tuple of cases); refusing to publish")
+    if batch and attached[0]:
+        # records belong to the batch's cases; one on the wrapper would be dropped
+        raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
+    holders = shapes if batch else (solution,)
+    records = [value for _found, value in case_records] if batch else [attached[1]]
+    present = [record is not None for record in records]
+    if not all(present):
+        raise ValueError("shell result-axes records are missing (or None) for some cases; refusing a partial artifact")
+
+    from ..post.shell_axes_record import (
+        RECORD_SCHEMA, SOLVER_MODULE, check_record_columns, encode_meta, encode_strings, validate_shell_axes_tables,
+    )
+
+    # axes records exist only for qualified linear static results: exact classes
+    if type(solution) is LinearSolution:
+        expected_analysis = "linear_static"
+    elif type(solution) is LinearBatchSolution and all(type(holder) is LinearSolution for holder in holders):
+        expected_analysis = "batch_linear_static"
+    else:
+        raise ValueError(f"shell result-axes records on a {type(solution).__name__} "
+                         "(or a batch case that is not a LinearSolution); refusing to write them")
+
+    first = records[0]
+    for index, (holder, record) in enumerate(zip(holders, records)):
+        if not isinstance(record, Mapping) or record.get("schema") != RECORD_SCHEMA:
+            raise ValueError("shell result-axes record has an unknown schema")
+        check_record_columns(record)
+        if not isinstance(record.get("provenance"), Mapping) or record["provenance"].get("analysis") != expected_analysis:
+            raise ValueError(f"shell result-axes record of case {index} is not a {expected_analysis} record")
+        if not batch and "case_name" in record["provenance"]:
+            raise ValueError("shell result-axes record of a linear static result names a batch case")
+        if set(record) != set(first):
+            raise ValueError("shell result-axes records of one analysis have different entries")
+        provenance = record.get("provenance")
+        names = tuple(str(name) for name in getattr(solution, "case_names", ())) if batch else ()
+        if not isinstance(provenance, Mapping) or type(provenance.get("case_index")) is not int                 or provenance["case_index"] != index or (
+                batch and (index >= len(names) or provenance.get("case_name") != names[index])):
+            raise ValueError(f"shell result-axes record of case {index} does not name that case")
+
+    def same(a, b):
+        if isinstance(a, np.ndarray):
+            return (isinstance(b, np.ndarray) and a.dtype == b.dtype and a.shape == b.shape
+                    and a.tobytes() == b.tobytes())
+        return list(a) == list(b)
+
+    entries = {}
+    for key in sorted(set(first) - {"schema", "provenance"}):
+        shared = all(same(first[key], record[key]) for record in records[1:])
+        values = first[key] if shared else (
+            np.stack([record[key] for record in records]) if isinstance(first[key], np.ndarray)
+            else [list(record[key]) for record in records])
+        name = _safe_key("shell_axes_" + key)
+        if isinstance(values, np.ndarray):
+            if values.dtype.kind == "f":
+                mask = ~np.isnan(values)
+                if not np.isfinite(values[mask]).all():
+                    raise ValueError(f"shell result-axes entry {key!r} holds an infinite value")
+                builder.tables[_safe_key("shell_axes_" + key + "_present")] = np.ascontiguousarray(mask).reshape(-1)
+                values = np.where(mask, values, 0.0)
+            builder.tables[name] = np.ascontiguousarray(values).reshape(-1)
+            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "numeric",
+                            "dtype": values.dtype.str, "shape": [int(v) for v in values.shape]}
+        else:
+            # row-addressable UTF-8: flat bytes + int64 row offsets (bounded reads),
+            # one pair per case for a per-case column
+            columns = [values] if shared else values
+            for index, column in enumerate(columns):
+                base = f"shell_axes_{key}" if shared else f"shell_axes_{key}__{index}"
+                data, offsets = encode_strings(column)
+                builder.tables[_safe_key(base + "__bytes")] = data
+                builder.tables[_safe_key(base + "__offsets")] = offsets
+            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "strings"}
+    builder.tables[_safe_key("shell_axes_meta__bytes")] = encode_meta({
+        "schema": RECORD_SCHEMA,
+        "solver_module": SOLVER_MODULE,
+        "cases": [dict(record["provenance"]) for record in records],
+        "entries": entries,
+    })
+    # Publish only what reads back: the reader's own whole-record validation
+    # on exactly these tables, frames and case names (fails closed here).
+    view = {key: value for key, value in builder.tables.items()
+            if key.startswith("shell_axes_") or key == "load_case_names"}
+    validate_shell_axes_tables(view, builder.frames, builder.frame_kind, type(solution).__name__)
+
+
+def _stored_attribute(holder, name: str) -> tuple:
+    """(found, value) of ``name`` in the holder's genuine storage only: its
+    instance dict (reached through the built-in ``__dict__`` descriptor) or a
+    built-in slot.  No getter of any kind is called (a property, or a class
+    that redefines ``__dict__``, is not storage)."""
+
+    import types
+
+    # every built-in storage along the whole MRO, also where a subclass
+    # shadows it with a property: the instance dict (first built-in __dict__
+    # descriptor) and every slot of that name
+    for kind in type(holder).__mro__:
+        descriptor = vars(kind).get("__dict__")
+        if type(descriptor) is types.GetSetDescriptorType:
+            state = descriptor.__get__(holder, type(holder))
+            if type(state) is dict and name in state:
+                return True, state[name]
+            break
+    for kind in type(holder).__mro__:
+        descriptor = vars(kind).get(name)
+        if type(descriptor) is types.MemberDescriptorType:
+            try:
+                return True, descriptor.__get__(holder, type(holder))
+            except AttributeError:
+                continue
+    return False, None
 
 
 def _built_shell_directors(element_ids, built):

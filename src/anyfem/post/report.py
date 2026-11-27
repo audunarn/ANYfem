@@ -451,7 +451,9 @@ def build_result_report(
         else ()
     )
     tables = (
-        tuple(_inspect_table(dataset, key, max_table_rows) for key in dataset.table_keys)
+        # in an artifact that declares the shell result-axes store, its
+        # shell_axes_* tables are read only through their validating reader
+        _visible_tables(dataset, max_table_rows)
         if include_tables
         else ()
     )
@@ -663,6 +665,17 @@ def _inspect_history(dataset, key: str, chunk_size: int) -> _History:
             y_minimum = low if y_minimum is None else min(y_minimum, low)
             y_maximum = high if y_maximum is None else max(y_maximum, high)
     return _History(key, count, x_first, x_last, y_minimum, y_maximum, nonfinite)
+
+
+def _visible_tables(dataset, maximum: int) -> tuple:
+    """Tables of the report: one inventory snapshot; a declared shell
+    result-axes store (shell_axes_meta__bytes) is read only through its
+    validating reader, so its tables are not previewed here."""
+
+    keys = tuple(dataset.table_keys)
+    reserved = "shell_axes_meta__bytes" in keys
+    return tuple(_inspect_table(dataset, key, maximum) for key in keys
+                 if not (reserved and str(key).startswith("shell_axes_")))
 
 
 def _inspect_table(dataset, key: str, maximum: int) -> _Table:

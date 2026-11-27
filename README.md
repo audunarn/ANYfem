@@ -44,9 +44,10 @@ that file compatibility does not qualify older installed package generations.
 ANYtimeseries remains independent of this release graph.
 
 Current development requires ANYfeSolver 0.5.x and ANYfeSolver-results 2.2 or later in major version 2. CI and the solver installation
-command below pin `f54e3cde5abf70cb8c989eb106119eedd3e33025`, which includes
-the Q4 assumed-strain plastic route, unified Q4 elastic response and S3 von
-Karman response. A package version alone does not identify these law updates.
+command below pin `bde9b658a1741f9b8b9258ccb0a41631a22876f3`, which includes
+the Q4 assumed-strain plastic route, unified Q4 elastic response, S3 von
+Karman response and the opt-in shell result-axes module
+(`anyfesolver.shell_axes_outputs`, ANYfeSolver#94). A package version alone does not identify these law updates.
 The application integration regressions exercise public build, nonlinear solve,
 committed recovery, cancellation and S3 admission; they do not extend the
 qualified release graph above. Solver capability and material-domain refusals
@@ -167,7 +168,7 @@ ANY3dView checkout at candidate commit
 Install this exact source candidate before the ANYfem GUI extra:
 
 ```bash
-python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@f54e3cde5abf70cb8c989eb106119eedd3e33025" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5f68177e42fe0a53341dceb80cc8e4fb73482745" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b16ac98d20973e603a0f61696e3d346a80116480"
+python -m pip install "ANYfeSolver @ git+https://github.com/audunarn/ANYfeSolver.git@bde9b658a1741f9b8b9258ccb0a41631a22876f3" "ANYgeometry[planar] @ git+https://github.com/audunarn/ANYgeometry.git@5f68177e42fe0a53341dceb80cc8e4fb73482745" "ANYmesher @ git+https://github.com/audunarn/ANYmesh.git@b16ac98d20973e603a0f61696e3d346a80116480"
 python -m pip install "ANY3dView[gpu,qt] @ git+https://github.com/audunarn/ANY3dView.git@6fa628bc3a9e1c74548901678ff2ee8033e6c5dc"
 python -m pip install -e ".[gui]"
 ```

@@ -1072,7 +1072,10 @@ class ResultsTask(QWidget):
         if dataset is not None:
             choices.extend(((f"Output: {dataset.field(key).descriptor.label}" if key.startswith("request_") else f"Field: {key}"),("field",key)) for key in dataset.field_keys)
             choices.extend((f"History: {key}",("history",key)) for key in dataset.history_keys)
-            choices.extend((f"Table: {key}",("table",key)) for key in dataset.table_keys)
+            # a declared shell result-axes store is read only through its validating reader
+            tables=tuple(dataset.table_keys);reserved="shell_axes_meta__bytes" in tables
+            choices.extend((f"Table: {key}",("table",key)) for key in tables
+                           if not (reserved and str(key).startswith("shell_axes_")))
         elif solution is not None:
             from ...post.solver_data import solution_quantity_descriptors
             self._live_quantity_descriptors=(solution_quantity_descriptors(solution)
@@ -1177,7 +1180,9 @@ class ResultsTask(QWidget):
             if node_status and index is not None:
                 unqualified=sorted(int(node) for node,status in node_status[index].items() if status!="qualified")
                 if unqualified:self.report.appendPlainText(f"Owner patch fallback/unclassified nodes: {unqualified}")
-        elif kind=="table":values=dataset.table(key,rows=slice(0,2000))
+        elif kind=="table":
+            if str(key).startswith("shell_axes_") and "shell_axes_meta__bytes" in dataset.table_keys:raise ValueError("Shell result-axes tables are read through their validating reader")
+            values=dataset.table(key,rows=slice(0,2000))
         elif kind=="live":
             from ...post.access import query_solution_quantity
             resolved=query_solution_quantity(self.app.solution,key);values=resolved.data

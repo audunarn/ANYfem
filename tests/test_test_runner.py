@@ -937,7 +937,7 @@ def test_reusable_lane_retains_named_diagnostics():
 
 def test_shared_lane_keeps_exact_physical_solver_and_results_pins():
     text=(ROOT/'.github/workflows/application-lane.yml').read_text()
-    assert text.count('ref: f54e3cde5abf70cb8c989eb106119eedd3e33025') == 2
+    assert text.count('ref: bde9b658a1741f9b8b9258ccb0a41631a22876f3') == 2
     assert 'ref: 9eb9713b92c1b3a476301150b5e89e350d515844' in text
     assert 'python -m build' in text and 'check_release_artifacts.py dist' in text
 

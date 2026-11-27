@@ -1536,6 +1536,7 @@ class WorkbenchWorkflow:
         )
         if mesh_record is not None:
             mesh_hash = mesh_record.mesh_hash
+        request_flags = _requested_recovery(output_scopes)
         record = self.job_manager.submit(
             definition,
             self.session.snapshot(),
@@ -1545,20 +1546,7 @@ class WorkbenchWorkflow:
                 "solver_function": function,
                 "analysis_name": analysis,
                 "options": job_options,
-                "requested_stress": any(
-                    key.startswith("stress")
-                    for scope in output_scopes for key in scope["request"]["quantity_keys"]
-                ),
-                "requested_global_stress": any(
-                    scope["request"]["basis"] == "global" and scope["request"]["recovery"] != "patch" and
-                    any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
-                    for scope in output_scopes
-                ),
-                "requested_patch_stress": any(
-                    scope["request"]["recovery"] == "patch" and
-                    any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
-                    for scope in output_scopes
-                ),
+                **request_flags,
             },
             name=definition.name,
         )
@@ -4651,6 +4639,36 @@ def _submitted_input_report(
     return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
 
 
+def _requested_recovery(output_scopes):
+    """The ``requested_*`` keyword flags of :func:`_execute_analysis_job`
+    implied by the frozen output requests.
+
+    Only an ``axes_*`` request adds anything beyond the three stress flags:
+    ``requested_shell_axes``, plus both ``requested_stress`` and
+    ``requested_global_stress`` (design D2 rev 4, section 5: the global
+    surface tensors stay available next to the station records).  Without
+    one, the flags are exactly what they were before D2-1.
+    """
+
+    keys = [(scope, key) for scope in output_scopes for key in scope["request"]["quantity_keys"]]
+    flags = {
+        "requested_stress": any(key.startswith("stress") for _scope, key in keys),
+        "requested_global_stress": any(
+            scope["request"]["basis"] == "global" and scope["request"]["recovery"] != "patch" and
+            any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
+            for scope in output_scopes
+        ),
+        "requested_patch_stress": any(
+            scope["request"]["recovery"] == "patch" and
+            any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
+            for scope in output_scopes
+        ),
+    }
+    if any(key.strip().lower().startswith("axes") for _scope, key in keys):
+        return {**flags, "requested_stress": True, "requested_global_stress": True, "requested_shell_axes": True}
+    return flags
+
+
 def _execute_analysis_job(
     *,
     project: Project,
@@ -4662,6 +4680,7 @@ def _execute_analysis_job(
     requested_stress=False,
     requested_global_stress=False,
     requested_patch_stress=False,
+    requested_shell_axes=False,
 ):
     """Build, preflight and solve one immutable JobManager request."""
 
@@ -4734,6 +4753,13 @@ def _execute_analysis_job(
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
     solution = solver_function(**resolved)
+    if requested_shell_axes:
+        # Before the ordinary recoveries (owner decision 2026-11-27, D2-1 (b)):
+        # they leave solver-owned caches on the model (the batch recovery plan,
+        # the V2D lease epochs) that recover_shell_axes does not admit, which
+        # would refuse every shell with AXES_OBJECT_NOT_PLAIN.  Still fail
+        # closed: any later cache is a typed per-element refusal, never a value.
+        _attach_shell_axes_records(solution, progress, cancellation_token)
     if requested_stress:
         from ..post.results import LinearBatchSolution, NonlinearSolution, TransientSolution
         recovery_solutions = (solution,)
@@ -4773,6 +4799,49 @@ def _execute_analysis_job(
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
     return solution
+
+
+def _attach_shell_axes_records(solution, progress, cancellation_token=None):
+    """Recover the shell result-axes station records of a linear static run (D2-1).
+
+    Only on an ``axes_*`` request, in the analysis worker.  Linear static and
+    batch linear static are the qualified analyses (the request gate refuses
+    the others before submission); any other result type is refused here too,
+    so an ungated caller cannot attach records built from the wrong model.
+    """
+
+    from ..post.results import LinearBatchSolution, LinearSolution
+    from ..post.shell_axes_record import recover_shell_axes_record
+    from ..post.solved_geometry import solved_model_of
+
+    if type(solution) is LinearBatchSolution:
+        cases = tuple(solution.shapes)
+        analysis = "batch_linear_static"
+        if not all(type(case) is LinearSolution for case in cases):
+            raise ValueError("[AXES_ANALYSIS_NOT_QUALIFIED] a batch case is not a linear static solution")
+        names = tuple(str(name) for name in solution.case_names)
+        if len(names) != len(cases):
+            raise ValueError("linear batch case names do not match its shapes")
+    elif type(solution) is LinearSolution:
+        cases = (solution,)
+        analysis = "linear_static"
+        names = None
+    else:
+        raise ValueError(f"[AXES_ANALYSIS_NOT_QUALIFIED] shell result axes are qualified for linear "
+                         f"static analyses only, not {type(solution).__name__}")
+    check = None
+    if cancellation_token is not None:
+        def check():
+            cancellation_token.raise_if_cancelled("shell result-axes recovery")
+    for index, case_solution in enumerate(cases):
+        label = str(getattr(case_solution, "label", "") or "")
+        progress(f"recovering shell result axes: {label}" if label else "recovering shell result axes")
+        case_solution._requested_shell_axes = recover_shell_axes_record(
+            solved_model_of(case_solution), case_solution.displacements,
+            provenance={"analysis": analysis, "case_index": index, "case_label": label,
+                        **({} if names is None else {"case_name": names[index]})},
+            cancelled=check,
+        )
 
 
 def _format_preflight_errors(errors) -> str:

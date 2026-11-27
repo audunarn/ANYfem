@@ -52,6 +52,10 @@ _QUANTITY_ANALYSIS_FAMILIES: Mapping[str, frozenset[str]] = {
         }
     ),
     "buckling_mode_shape": frozenset({"capacity", "imported"}),
+    # Shell result-axes station records (D2-1): linear static analyses only
+    # until each other analysis is qualified (design D2 check 1,
+    # AXES_ANALYSIS_NOT_QUALIFIED; imported results AXES_IMPORT_NOT_QUALIFIED).
+    "axes": frozenset({"linear_static", "batch_linear_static"}),
     "frequency": frozenset({"modal", "imported"}),
     "eigenvalue": frozenset({"modal", "buckling", "capacity", "imported"}),
     "buckling_factor": frozenset({"buckling", "capacity", "imported"}),
@@ -202,6 +206,9 @@ class OutputRequest:
                 problems.append("patch stress recovery requires node location and global basis")
             if any(_quantity_family(key) != "stress" for key in self.quantity_keys):
                 problems.append("patch recovery is available only for stress quantities")
+            if any(_quantity_family(key) == "axes" for key in self.quantity_keys):
+                problems.append("[AXES_PATCH_NOT_QUALIFIED] shell result axes are not available "
+                                "from patch-recovered fields")
         for key in self.quantity_keys:
             family = _quantity_family(key)
             if family is None:
@@ -209,9 +216,17 @@ class OutputRequest:
                     f"quantity {key!r} is not a qualified ANYfem result quantity"
                 )
             elif analysis not in _QUANTITY_ANALYSIS_FAMILIES[family]:
-                problems.append(
-                    f"quantity {key!r} is unavailable for analysis {analysis!r}"
-                )
+                if family == "axes":
+                    code = ("AXES_IMPORT_NOT_QUALIFIED" if analysis == "imported"
+                            else "AXES_ANALYSIS_NOT_QUALIFIED")
+                    problems.append(
+                        f"[{code}] quantity {key!r} is unavailable for analysis {analysis!r}: "
+                        "shell result axes are qualified for linear static analyses only"
+                    )
+                else:
+                    problems.append(
+                        f"quantity {key!r} is unavailable for analysis {analysis!r}"
+                    )
         return tuple(problems)
 
     def semantic_dict(self) -> dict[str, Any]:
