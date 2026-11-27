@@ -839,3 +839,33 @@ def test_submission_flags_change_only_for_axes_requests():
     assert flags == {"requested_stress": True, "requested_global_stress": True, "requested_patch_stress": False,
                      "requested_shell_axes": True}
     assert submission == {"containment": True}
+
+
+def test_pool_falls_back_to_serial_when_the_private_admission_gate_is_missing(monkeypatch):
+    """Temporary dependency on the private ``shell_axes_outputs._admit``
+    (coordinator 2026-11-27): without it the record is recovered serially,
+    never on unchecked copies."""
+
+    import anyfesolver.shell_axes_outputs as solver_module
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    # a solver build whose module has no ``_admit`` (its own functions keep
+    # their globals, so the module itself still works)
+    import sys
+    import types
+
+    stand_in = types.ModuleType(solver_module.__name__)
+    stand_in.__dict__.update({k: v for k, v in vars(solver_module).items() if k != "_admit"})
+    monkeypatch.setitem(sys.modules, solver_module.__name__, stand_in)
+    assert module._admission_gate() is None
+    with ShellAxesPool(2) as pool:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+        assert not pool.used_by
+    assert pooled["provenance"] == {"recovered_with": "serial"}
+    _records_equal(serial, pooled)
