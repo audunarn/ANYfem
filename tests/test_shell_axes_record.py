@@ -15,13 +15,21 @@ import pytest
 from anyfem import Project, fixed, pinned, solve_linear_static, solve_linear_static_many, solve_nonlinear_static, steel
 from anyfem.model.records import OutputRequest, RegionRef
 
-pytest.importorskip("anyfesolver.shell_axes_outputs")
+# A hard import: the pinned solver must provide the module (no silent skip).
+from anyfesolver.shell_axes_outputs import ShellAxesRefusal, recover_shell_axes
 
-from anyfesolver.shell_axes_outputs import ShellAxesRefusal, recover_shell_axes  # noqa: E402
-
-from anyfem.post.shell_axes_record import FAMILIES, STATIC_KEYS, read_shell_axes_table, recover_shell_axes_record  # noqa: E402
+from anyfem.post.shell_axes_record import FAMILIES, read_shell_axes_table, recover_shell_axes_record
 
 THICKNESS = 0.008
+
+
+def _same(left, right):
+    """Bit identity (dtype, shape and bytes: -0.0 and +0.0 differ)."""
+
+    if isinstance(left, np.ndarray):
+        return (isinstance(right, np.ndarray) and left.dtype == right.dtype and left.shape == right.shape
+                and left.tobytes() == right.tobytes())
+    return left == right
 
 
 def _plate(side=1.0, origin=(0.0, 0.0, 0.0), pressure=1.0e4, tension=True, in_plane=0.0):
@@ -105,10 +113,11 @@ def test_record_is_the_solver_module_output_bit_for_bit(plate_solution):
                 source = {"membrane": "global_membrane_resultant_tensors",
                           "bending": "global_bending_resultant_tensors",
                           "shear": "global_transverse_shear_resultants"}[fam]
-                assert np.array_equal(stored, direct.arrays[source])
+                assert _same(np.ascontiguousarray(stored), np.ascontiguousarray(direct.arrays[source]))
             else:
                 # a refused family carries no value: NaN rows plus its reason
                 assert np.isnan(stored).all()
+                assert np.isnan(record[f"{fam}_basis_normals"][lo:hi]).all()
                 assert record[f"{fam}_refusal_reason"][row] == direct.refusals[fam].reason
 
 
@@ -223,17 +232,17 @@ def test_transport_carries_the_record():
 
     solution = _run_job(_plate(), "Linear static", solve_linear_static, True, target_size=0.5)
     decoded = decode_result(encode_result(solution))
-    record, carried = solution._requested_shell_axes, decoded._requested_shell_axes
-    assert set(record) == set(carried)
-    for key, value in record.items():
-        if isinstance(value, np.ndarray):
-            assert value.dtype == carried[key].dtype and np.array_equal(value, carried[key], equal_nan=True)
-        else:
-            assert value == carried[key]
+    _records_equal(solution._requested_shell_axes, decoded._requested_shell_axes)
 
 
 def _payload_arrays(payload):
     return {key: np.asarray(values) for key, (descriptor, values) in payload.fields.items()}
+
+
+def _table_equal(left, right):
+    if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+        return _same(np.asarray(left), np.asarray(right))
+    return left == right
 
 
 @pytest.mark.parametrize("batch", [False, True])
@@ -247,16 +256,20 @@ def test_artifact_round_trip_and_unchanged_ordinary_payload(tmp_path, batch):
             target_size=0.5, load_cases=("default", "second"))
     else:
         solver, analysis, kw = solve_linear_static, "Linear static", dict(target_size=0.5)
-    plain = _run_job(project, analysis, solver, False, **kw)
-    axes = _run_job(project, analysis, solver, True, **kw)
+    flags = dict(requested_stress=True, requested_global_stress=True)  # what an axes request also sets
+    plain = _run_job(project, analysis, solver, False, job_flags=flags, **kw)
+    axes = _run_job(project, analysis, solver, True, job_flags=flags, **kw)
     plain_payload, axes_payload = result_artifact_payload(plain), result_artifact_payload(axes)
-    # ordinary content is bit-identical; only shell_axes_* tables are added
+    # ordinary content is bit-identical (fields, descriptors and every ordinary
+    # table); only shell_axes_* tables are added
     assert not any(key.startswith("shell_axes_") for key in plain_payload.tables)
     plain_arrays, axes_arrays = _payload_arrays(plain_payload), _payload_arrays(axes_payload)
     assert plain_arrays.keys() == axes_arrays.keys()
     for key in plain_arrays:
-        assert np.array_equal(plain_arrays[key], axes_arrays[key], equal_nan=True), key
+        assert _same(np.ascontiguousarray(plain_arrays[key]), np.ascontiguousarray(axes_arrays[key])), key
         assert plain_payload.fields[key][0] == axes_payload.fields[key][0], key
+    for key, value in plain_payload.tables.items():
+        assert key in axes_payload.tables and _table_equal(value, axes_payload.tables[key]), key
     added = set(axes_payload.tables) - set(plain_payload.tables)
     assert added and all(key.startswith("shell_axes_") for key in added)
     for key in added:  # the archive accepts finite numbers only
@@ -273,22 +286,26 @@ def test_artifact_round_trip_and_unchanged_ordinary_payload(tmp_path, batch):
     artifact = write_solution_artifact(store, axes, job_id="axes", analysis_hash="analysis", **identity)
     dataset = store.open_result(artifact)
     meta = dataset.table("shell_axes_meta")
-    assert [case["analysis"] for case in meta["cases"]] == [records[0]["provenance"]["analysis"]] * len(records)
-    for key, value in records[0].items():
-        if key in ("schema", "provenance"):
-            continue
-        stored = read_shell_axes_table(dataset, key)
-        if key in STATIC_KEYS:
-            expected = value
-        elif isinstance(value, np.ndarray):
-            expected = np.stack([record[key] for record in records])
-        else:
-            expected = [list(record[key]) for record in records]
-        if isinstance(expected, np.ndarray):
-            stored = np.asarray(stored)
-            assert stored.dtype == expected.dtype and np.array_equal(stored, expected, equal_nan=True), key
-        else:
-            assert stored == expected, key
+    assert [case["case_index"] for case in meta["cases"]] == list(range(len(records)))
+    if batch:  # the load-dependent tensors differ between the two cases
+        assert meta["entries"]["bending_tensors"]["layout"] == "per_case"
+    assert meta["entries"]["element_ids"]["layout"] == "shared"
+    for index, record in enumerate(records):
+        for key, value in record.items():
+            if key in ("schema", "provenance"):
+                continue
+            per_case = meta["entries"][key]["layout"] == "per_case"
+            stored = read_shell_axes_table(dataset, key, case=index if per_case else None)
+            if isinstance(value, np.ndarray):
+                # NaN (absent) positions read back as NaN; values bit for bit
+                assert stored.dtype == value.dtype and stored.shape == value.shape, key
+                if value.dtype.kind == "f":
+                    assert np.array_equal(np.isnan(stored), np.isnan(value)), key
+                    assert _same(np.nan_to_num(stored, nan=0.0), np.nan_to_num(value, nan=0.0)), key
+                else:
+                    assert _same(stored, value), key
+            else:
+                assert stored == list(value), key
 
 
 def test_partial_case_records_are_refused():
@@ -301,18 +318,148 @@ def test_partial_case_records_are_refused():
         result_artifact_payload(axes)
 
 
-def test_refusal_type_is_the_solver_type():
-    assert issubclass(ShellAxesRefusal, ValueError)
+def test_case_records_must_name_their_case():
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                    target_size=0.5, load_cases=("default", "second"))
+    first, second = axes.shapes[0]._requested_shell_axes, axes.shapes[1]._requested_shell_axes
+    axes.shapes[0]._requested_shell_axes, axes.shapes[1]._requested_shell_axes = second, first
+    with pytest.raises(ValueError, match="does not name that case"):
+        result_artifact_payload(axes)
+
+
+def test_ordinary_artifact_does_not_import_the_axes_module(monkeypatch):
+    import sys
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    plain = _run_job(_plate(), "Linear static", solve_linear_static, False)
+    monkeypatch.delitem(sys.modules, "anyfem.post.shell_axes_record")
+    result_artifact_payload(plain)
+    assert "anyfem.post.shell_axes_record" not in sys.modules
+
+
+class _FakeDataset:
+    def __init__(self, tables):
+        self.tables = tables
+
+    def table(self, name, rows=None):
+        value = self.tables[name]
+        return value if rows is None or not isinstance(value, np.ndarray) else value[rows]
+
+    @property
+    def table_keys(self):
+        return tuple(self.tables)
+
+
+def _fake_tables(mask=True):
+    from anyfem.post.shell_axes_record import RECORD_SCHEMA
+
+    tables = {
+        "shell_axes_meta": {"schema": RECORD_SCHEMA, "cases": [{"case_index": 0}],
+                            "entries": {"thickness": {"layout": "shared", "kind": "numeric",
+                                                      "dtype": "<f8", "shape": [2]}}},
+        "shell_axes_thickness": np.array([0.008, 0.0]),
+    }
+    if mask:
+        tables["shell_axes_thickness_present"] = np.array([True, False])
+    return tables
+
+
+def test_reader_restores_absent_values_and_refuses_a_missing_mask():
+    restored = read_shell_axes_table(_FakeDataset(_fake_tables()), "thickness")
+    assert restored[0] == 0.008 and np.isnan(restored[1])
+    with pytest.raises(Exception, match="presence mask|shell_axes_thickness_present"):
+        read_shell_axes_table(_FakeDataset(_fake_tables(mask=False)), "thickness")
+    bad = _fake_tables()
+    bad["shell_axes_meta"]["entries"]["thickness"]["shape"] = [3]
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(bad), "thickness")
+
+
+# ---------------------------------------------------------------- solver output edge cases (synthetic)
+def _patched_recovery(monkeypatch, mutate):
+    """Wrap the solver call so one element's output takes a shape the module can
+    produce but the fixture does not (refusals with emitted normals etc.)."""
+
+    import dataclasses
+
+    import anyfesolver.shell_axes_outputs as solver_module
+
+    original = solver_module.recover_shell_axes
+
+    def wrapped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        axes = result.axes
+        arrays, refusals, certified = dict(axes.arrays), dict(axes.refusals), dict(axes.certified)
+        mutate(arrays, refusals, certified)
+        return dataclasses.replace(result, axes=dataclasses.replace(
+            axes, arrays=arrays, refusals=refusals, certified=certified))
+
+    monkeypatch.setattr(solver_module, "recover_shell_axes", wrapped)
+
+
+def test_refused_family_keeps_no_basis_normal_even_when_emitted(monkeypatch, plate_solution):
+    from anyfesolver.shell_axes_outputs import Refusal
+
+    def mutate(arrays, refusals, certified):
+        # the module emits station normals when bending certified the station
+        # frame, also while membrane is unresolvable
+        refusals["membrane"] = Refusal("AXES_FRAME_RULE_MISMATCH", "unresolvable_family", "synthetic")
+        certified["membrane"] = False
+        arrays.pop("global_membrane_resultant_tensors", None)
+
+    _patched_recovery(monkeypatch, mutate)
+    record = recover_shell_axes_record(plate_solution.built.fe_model, plate_solution.displacements)
+    assert not record["membrane_certified"].any() and record["bending_certified"].all()
+    assert np.isnan(record["membrane_basis_normals"]).all()
+    assert np.isfinite(record["bending_basis_normals"]).all()
+    assert set(record["membrane_refusal_reason"]) == {"unresolvable_family"}
+
+
+def test_refused_positions_refuse_the_element_and_metadata_refusals_are_kept(monkeypatch, plate_solution):
+    from anyfesolver.shell_axes_outputs import Refusal
+
+    calls = []
+
+    def mutate(arrays, refusals, certified):
+        calls.append(1)
+        if len(calls) == 1:
+            arrays.pop("recovery_station_positions")
+            refusals["positions"] = Refusal("AXES_FRAME_RULE_MISMATCH", "nonfinite", "synthetic positions")
+        elif len(calls) == 2:
+            refusals["metadata"] = Refusal("AXES_FRAME_RULE_MISMATCH", "nonfinite", "synthetic director")
+            arrays.pop("physical_reference_director", None)
+
+    _patched_recovery(monkeypatch, mutate)
+    record = recover_shell_axes_record(plate_solution.built.fe_model, plate_solution.displacements)
+    assert record["element_refusal"][0] == "AXES_FRAME_RULE_MISMATCH"
+    assert "positions" in record["element_refusal_reason"][0]
+    assert record["station_offsets"][1] == 0
+    assert record["metadata_refusal"][1] == "nonfinite: synthetic director"
+    assert np.isnan(record["physical_reference_director"][1]).all()
+
+
+def test_shadowed_instance_method_gets_the_solver_refusal(plate_solution):
+    import copy
+
+    fe = copy.deepcopy(plate_solution.built.fe_model)
+    eid = next(iter(fe.mesh.elements))
+    fe.mesh.elements[eid].get_dof_mapping = lambda *args, **kwargs: []
+    record = recover_shell_axes_record(fe, plate_solution.displacements)
+    row = list(record["element_ids"]).index(eid)
+    # dispatched through the class, so the solver admission decides (typed)
+    assert record["element_refusal"][row] not in ("", "AXES_MISSING_GLOBAL_TENSORS")
+    assert record["element_refusal"][row].startswith("AXES_")
 
 
 # ---------------------------------------------------------------- process pool (owner decision 2026-11-27, option A)
-def _records_equal(left, right):
+def _records_equal(left, right, ignore=("provenance",)):
     assert set(left) == set(right)
     for key, value in left.items():
-        if isinstance(value, np.ndarray):
-            assert value.dtype == right[key].dtype and np.array_equal(value, right[key], equal_nan=True), key
-        else:
-            assert value == right[key], key
+        if key not in ignore:
+            assert _same(value, right[key]), key
 
 
 def test_pool_record_is_bit_identical_to_the_serial_record(monkeypatch):
@@ -325,7 +472,30 @@ def test_pool_record_is_bit_identical_to_the_serial_record(monkeypatch):
     serial = recover_shell_axes_record(fe, solution.displacements)
     with ShellAxesPool(2) as pool:
         pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+        assert pool.used_by  # chunks ran in child processes
     _records_equal(serial, pooled)
+    assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
+
+
+def test_pool_rechecks_elements_whose_transported_copy_lost_solver_state(monkeypatch):
+    """Codex r1 P1: the transport drops dynamic solver caches (here the batch
+    recovery plan of an ordinary recovery), so a pooled copy could certify what
+    the original refuses.  The fingerprint check recovers those serially."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.08)
+    fe = solution.built.fe_model
+    solution.stresses()  # caches mesh._recovery_batch_plan (>= 100 elements)
+    assert "_recovery_batch_plan" in vars(fe.mesh)
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    assert set(serial["element_refusal"]) == {"AXES_OBJECT_NOT_PLAIN"}
+    with ShellAxesPool(2) as pool:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    _records_equal(serial, pooled)
+    assert pooled["provenance"]["serial_rechecked"] == len(serial["element_ids"])
 
 
 def test_pool_carries_v2d_elements_through_the_result_transport(monkeypatch):
@@ -388,16 +558,18 @@ def test_cancelled_pool_terminates_its_workers(monkeypatch):
         assert not process.is_alive()
 
 
-def test_default_pool_size_is_serial_in_a_daemonic_process(monkeypatch):
-    import multiprocessing
+def test_default_pool_size_is_serial_outside_a_contained_worker(monkeypatch):
+    """Codex r1 P2: thread jobs and library calls (the GUI process) never start
+    an unowned pool; only a confirmed contained worker may."""
 
+    import anyfem.job_process as job_process
     from anyfem.post.shell_axes_record import default_pool_workers
 
-    class Daemonic:
-        daemon = True
-
-    monkeypatch.setattr(multiprocessing, "current_process", lambda: Daemonic())
+    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "4")
+    assert job_process.contained_worker() is False
     assert default_pool_workers() == 0
+    monkeypatch.setattr(job_process, "_CONTAINED_WORKER", True)
+    assert default_pool_workers() == 4
 
 
 def contained_axes_job(*, project, progress, cancellation_token=None):
@@ -432,6 +604,23 @@ def test_axes_job_in_a_worker_process_uses_the_pool_only_when_contained(monkeypa
     assert len(axes["element_ids"]) >= 400 and set(axes["element_refusal"]) == {""}
     pooled = any(message.startswith("shell result-axes pool: 2 workers") for message in messages)
     assert pooled is containment, messages
+    assert axes["provenance"]["recovered_with"] == ("pool:2" if containment else "serial")
+    assert axes["provenance"].get("serial_rechecked", 0) == 0
+
+
+def test_thread_job_stays_serial(monkeypatch):
+    from anyfem.document import DocumentSession
+    from anyfem.jobs import JobManager
+    from anyfem.model.records import AnalysisDefinition
+
+    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
+    project = Project("axes thread")
+    manager = JobManager(project, executor="thread")
+    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), contained_axes_job,
+                            containment=True)
+    manager.wait(record.id, timeout=600)
+    axes = manager.result(record.id)._requested_shell_axes
+    assert axes["provenance"]["recovered_with"] == "serial"
 
 
 def _scope(keys, basis="global", recovery="native"):
@@ -449,6 +638,7 @@ def test_submission_flags_change_only_for_axes_requests():
     assert flags == {"requested_stress": False, "requested_global_stress": False, "requested_patch_stress": False}
     assert submission == {}
     flags, submission = _requested_recovery((_scope(("axes_membrane_xx",)),))
-    assert flags == {"requested_stress": False, "requested_global_stress": False, "requested_patch_stress": False,
+    # design rev 4: an axes request also sets both ordinary stress flags
+    assert flags == {"requested_stress": True, "requested_global_stress": True, "requested_patch_stress": False,
                      "requested_shell_axes": True}
     assert submission == {"containment": True}

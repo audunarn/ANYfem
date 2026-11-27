@@ -882,72 +882,74 @@ def _add_shell_surface_directors(builder, element_stresses, built):
 def _add_shell_axes_records(builder, solution):
     """Persist the shell result-axes station records of an ``axes_*`` request (D2-1).
 
-    Nothing is written without a request (no attribute, no table).  The
-    geometry-only entries (``STATIC_KEYS``) are written once and must be equal
-    in every case of the analysis (bit for bit, NaN equal to NaN); the load
-    dependent ones get a leading case axis in solution case order.  String
-    columns are JSON lists.  A partial set (some cases recovered, others not)
-    is refused rather than written as if complete.
+    Nothing is written (or imported) without a request.  Every case of the
+    analysis must carry a record whose provenance names that case (index and,
+    for a batch, label), or nothing is written.  An entry that is bit-identical
+    in every case is stored once ("shared"); otherwise it gets a leading case
+    axis ("per_case").  ``shell_axes_meta`` lists each entry's layout, kind,
+    dtype and shape.  Numeric entries are stored flat (the archive reads 3-D
+    tables as spatial result data); every float entry also gets a boolean
+    presence mask (the archive stores finite numbers only, so an absent value
+    is written as 0.0 and read back as NaN by
+    ``post.shell_axes_record.read_shell_axes_table``, which requires the mask).
+    String columns are JSON lists.
     """
 
-    from ..post.shell_axes_record import RECORD_SCHEMA, STATIC_KEYS
-
-    if type(solution).__name__ == "LinearBatchSolution":
-        holders = tuple(getattr(solution, "shapes", ()) or ())
-    else:
-        holders = (solution,)
+    batch = type(solution).__name__ == "LinearBatchSolution"
+    holders = tuple(getattr(solution, "shapes", ()) or ()) if batch else (solution,)
     records = [getattr(holder, "_requested_shell_axes", None) for holder in holders]
     present = [record is not None for record in records]
     if not any(present):
         return
     if not all(present):
         raise ValueError("shell result-axes records are missing for some cases; refusing a partial artifact")
+
+    from ..post.shell_axes_record import RECORD_SCHEMA
+
     first = records[0]
-    for record in records:
+    for index, (holder, record) in enumerate(zip(holders, records)):
         if not isinstance(record, Mapping) or record.get("schema") != RECORD_SCHEMA:
             raise ValueError("shell result-axes record has an unknown schema")
         if set(record) != set(first):
             raise ValueError("shell result-axes records of one analysis have different entries")
-    for key in STATIC_KEYS:
-        reference = first[key]
-        for record in records[1:]:
-            value = record[key]
-            if isinstance(reference, np.ndarray):
-                same = (isinstance(value, np.ndarray) and value.dtype == reference.dtype
-                        and np.array_equal(value, reference, equal_nan=reference.dtype.kind == "f"))
-            else:
-                same = list(value) == list(reference)
-            if not same:
-                raise ValueError(f"shell result-axes geometry entry {key!r} differs between cases")
+        provenance = record.get("provenance")
+        if not isinstance(provenance, Mapping) or provenance.get("case_index") != index or (
+                batch and provenance.get("case_label") != str(getattr(holder, "label", "") or "")):
+            raise ValueError(f"shell result-axes record of case {index} does not name that case")
+
+    def same(a, b):
+        if isinstance(a, np.ndarray):
+            return (isinstance(b, np.ndarray) and a.dtype == b.dtype and a.shape == b.shape
+                    and a.tobytes() == b.tobytes())
+        return list(a) == list(b)
+
+    entries = {}
+    for key in sorted(set(first) - {"schema", "provenance"}):
+        shared = all(same(first[key], record[key]) for record in records[1:])
+        values = first[key] if shared else (
+            np.stack([record[key] for record in records]) if isinstance(first[key], np.ndarray)
+            else [list(record[key]) for record in records])
+        name = _safe_key("shell_axes_" + key)
+        if isinstance(values, np.ndarray):
+            if values.dtype.kind == "f":
+                mask = ~np.isnan(values)
+                if not np.isfinite(values[mask]).all():
+                    raise ValueError(f"shell result-axes entry {key!r} holds an infinite value")
+                builder.tables[_safe_key("shell_axes_" + key + "_present")] = np.ascontiguousarray(mask).reshape(-1)
+                values = np.where(mask, values, 0.0)
+            builder.tables[name] = np.ascontiguousarray(values).reshape(-1)
+            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "numeric",
+                            "dtype": values.dtype.str, "shape": [int(v) for v in values.shape]}
+        else:
+            builder.tables[name] = {"values": [[str(x) for x in v] if isinstance(v, list) else str(v)
+                                               for v in values]}
+            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "strings"}
     builder.add_table("shell_axes_meta", {
         "schema": RECORD_SCHEMA,
         "solver_module": "anyfesolver.shell_axes_outputs.recover_shell_axes",
         "cases": [dict(record["provenance"]) for record in records],
+        "entries": entries,
     })
-    for key in sorted(set(first) - {"schema", "provenance"}):
-        if key in STATIC_KEYS:
-            value = first[key]
-        elif isinstance(first[key], np.ndarray):
-            value = np.stack([record[key] for record in records])
-        else:
-            value = [list(record[key]) for record in records]
-        if isinstance(value, np.ndarray):
-            if value.dtype.kind == "f":
-                # The archive stores finite numbers only.  A NaN row means "no
-                # value" (a refused family, an absent director): it is written as
-                # 0.0 with an explicit presence mask, and read back as NaN by
-                # ``post.shell_axes_record.read_shell_axes_table``.
-                present = ~np.isnan(value)
-                if not np.isfinite(value[present]).all():
-                    raise ValueError(f"shell result-axes entry {key!r} holds an infinite value")
-                builder.tables[_safe_key("shell_axes_" + key + "_present")] = present.reshape(-1)
-                value = np.where(present, value, 0.0)
-            # Stored flat with its shape: the archive reads 3-D tables as
-            # spatial result data, which these are not.
-            builder.tables[_safe_key("shell_axes_" + key + "_shape")] = np.asarray(value.shape, dtype=np.int64)
-            builder.tables[_safe_key("shell_axes_" + key)] = np.ascontiguousarray(value).reshape(-1)
-        else:
-            builder.tables[_safe_key("shell_axes_" + key)] = {"values": [str(v) if not isinstance(v, list) else [str(x) for x in v] for v in value]}
 
 
 def _built_shell_directors(element_ids, built):

@@ -1094,6 +1094,17 @@ def _exit_with_parent() -> None:
     threading.Thread(target=watch, name="anyfem-parent-watch", daemon=True).start()
 
 
+#: True only inside a worker whose owned process tree the parent confirmed
+#: ("go"); such a worker may start its own children (e.g. a recovery pool).
+_CONTAINED_WORKER = False
+
+
+def contained_worker() -> bool:
+    """Whether this process is a confirmed contained job worker."""
+
+    return _CONTAINED_WORKER
+
+
 def _worker_main(
     connection: Any,
     cancel_event: Any,
@@ -1170,6 +1181,8 @@ def _worker_main(
                     _abort_contained(4, owned_group)
             except (EOFError, OSError):
                 _abort_contained(4, owned_group)
+            global _CONTAINED_WORKER
+            _CONTAINED_WORKER = True
         token_factory = getattr(spec["function"], "cancellation_token_factory", _cancellation_token)
         token = token_factory()
 
