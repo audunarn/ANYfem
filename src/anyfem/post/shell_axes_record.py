@@ -45,6 +45,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 import numpy as np
 
 __all__ = [
+    "PoolWorkerLost",
     "FAMILIES",
     "RECORD_SCHEMA",
     "POOL_MIN_SHELLS",
@@ -111,25 +112,64 @@ def _plain_float(value: Any) -> float:
 
 
 # ------------------------------------------------------------ one element
-def _element_entry(fe_model: Any, u: np.ndarray, eid: int) -> tuple:
-    """Recover one shell; a plain, picklable entry (identical in any process).
+def _admission_gate() -> Optional[Callable[[Any, Any], Any]]:
+    """The module's own pre-recovery admission (exact type, plain element, mesh
+    and nodes, exact attribute types), the first thing ``recover_shell_axes``
+    does.  ``anyfesolver.shell_axes_outputs._admit`` is a private name of the
+    opt-in module (a public equivalent is requested from the solver side);
+    without it there is no pool and no early gate (``recover_shell_axes``
+    still admits first)."""
 
-    Element methods are dispatched through the class (an instance attribute
-    cannot shadow them) and element data are read from the instance dict only;
-    the solver module admits the objects before anything else is used.
+    try:
+        from anyfesolver.shell_axes_outputs import _admit
+    except ImportError:
+        return None
+    return _admit if callable(_admit) else None
+
+
+def _resolve_inputs(fe_model: Any, u: np.ndarray, eid: int):
+    """(element, material, element displacements) or a refusal entry.
+
+    Runs after admission: element methods are dispatched through the class
+    and element data read from the instance dict; a lookup that fails on
+    malformed data is a typed refusal of that element, not a job failure."""
+
+    mesh = fe_model.mesh
+    element = mesh.elements[eid]
+    try:
+        material = fe_model.get_material(vars(element).get("material_name"))
+        mapping = np.asarray(type(element).get_dof_mapping(element, mesh), dtype=np.intp)
+    except (TypeError, ValueError, KeyError, IndexError, AttributeError) as error:
+        return ("refused", "AXES_RECOVERY_MALFORMED", f"material or DOF lookup: {type(error).__name__}: {error}")
+    if mapping.ndim != 1 or mapping.size == 0 or int(mapping.min()) < 0 or int(mapping.max()) >= u.size:
+        return ("refused", "AXES_MISSING_GLOBAL_TENSORS", "element has no complete in-range DOF mapping")
+    return element, material, u[mapping], mapping
+
+
+def _element_entry(fe_model: Any, u: np.ndarray, eid: int, admitted: bool = False) -> tuple:
+    """Recover one shell; a plain, picklable entry.
+
+    The module's admission runs first (here, or already by the caller when
+    ``admitted``); nothing else of the element is used before it.
     """
 
     from anyfesolver.shell_axes_outputs import ShellAxesRefusal, recover_shell_axes
 
     mesh = fe_model.mesh
     element = mesh.elements[eid]
+    gate = None if admitted else _admission_gate()
+    if gate is not None:
+        try:
+            gate(element, mesh)
+        except ShellAxesRefusal as refusal:
+            return ("refused", refusal.code, refusal.reason)
+    resolved = _resolve_inputs(fe_model, u, eid)
+    if isinstance(resolved[0], str):
+        return resolved
+    element, material, element_u, _mapping = resolved
     state = vars(element)
-    material = fe_model.get_material(state.get("material_name"))
-    mapping = np.asarray(type(element).get_dof_mapping(element, mesh), dtype=np.intp)
-    if mapping.ndim != 1 or mapping.size == 0 or int(mapping.min()) < 0 or int(mapping.max()) >= u.size:
-        return ("refused", "AXES_MISSING_GLOBAL_TENSORS", "element has no complete in-range DOF mapping")
     try:
-        result = recover_shell_axes(element, mesh, u[mapping], material)
+        result = recover_shell_axes(element, mesh, element_u, material)
     except ShellAxesRefusal as refusal:
         return ("refused", refusal.code, refusal.reason)
     axes = result.axes
@@ -179,78 +219,116 @@ def _element_entry(fe_model: Any, u: np.ndarray, eid: int) -> tuple:
     )
 
 
-# ------------------------------------------------- admission-state profiles
-def _admitted_value_check() -> Optional[Callable[[Any], bool]]:
-    """The module's own per-value admission rule, or None (then no pool).
-
-    ``anyfesolver.shell_axes_outputs._plain_value`` is a private name of the
-    opt-in module (a public equivalent is requested from the solver side);
-    if it is missing the record is recovered serially, never approximated.
-    """
-
-    try:
-        from anyfesolver.shell_axes_outputs import _plain_value
-    except ImportError:
-        return None
-    return _plain_value if callable(_plain_value) else None
-
-
-def _profile(obj: Any, check: Callable[[Any], bool]) -> tuple:
-    """Admission-relevant profile of one object: its exact class, its
-    instance-dict class, and per attribute (value class, admitted by the
-    module's value rule).  The values themselves are not compared."""
-
-    state = getattr(obj, "__dict__", None)
-    head = (f"{type(obj).__module__}.{type(obj).__qualname__}", type(state).__qualname__)
-    if type(state) is not dict:
-        return head + ((),)
-    rows = []
-    for key in sorted(state, key=repr):
-        value = state[key]
-        rows.append((f"{type(key).__qualname__}:{key!r}", f"{type(value).__module__}.{type(value).__qualname__}",
-                     bool(check(value))))
-    return head + (tuple(rows),)
+# ------------------------------------------------------- recovery-input digest
+#: State that the result transport does not carry by value and that is not a
+#: recovery input: stiffness/component caches the element recomputes from its
+#: own inputs, and the solver's mutation-ownership tokens (epoch objects).
+#: Measured (Q4 e4-pl, legacy Q8, S3 V2D; ANYfem 2026-11-27): these are the
+#: only element and node entries whose values differ after the transport or
+#: have no value identity.  Every other entry must be equal by value.
+_TRANSPORT_EXEMPT = {
+    "element": frozenset({
+        "_stiffness_matrix", "_hourglass_stiffness_matrix", "_qualified_cache_key",
+        "_qualified_component_guard", "_qualified_components",
+        "_qualified_direct_state_token", "_qualified_direct_state_tokens",
+    }),
+    "node": frozenset({"_qualified_direct_state_token", "_qualified_direct_state_tokens"}),
+}
+_DIGEST_SCALARS = (float, int, bool, str, bytes, type(None), np.float64, np.int64, np.bool_, np.float32, np.int32)
+_DIGEST_BUDGET = 200_000
 
 
-def _class_names(kind: type) -> frozenset:
-    names = set()
-    for cls in kind.__mro__:
-        names.update(vars(cls))
-    return frozenset(repr(name) for name in names)
+class _Opaque(Exception):
+    """A value whose identity the digest cannot establish."""
 
 
-def _equivalent(original: tuple, copied: tuple, class_names: frozenset) -> bool:
-    """Whether the copy is admitted by ``recover_shell_axes`` exactly when the
-    original is, and both are: same object class, an exact instance dict on
-    both, every attribute present on both sides admitted on both sides (its
-    class may differ: the transport resets element caches to None and rebuilds
-    the mesh without its dynamic caches, measured), and an attribute on one
-    side only admitted and naming no class attribute (the module's shadow
-    rule; dataclass fields are counted as class attributes here, which is
-    stricter).  Anything else is recovered serially on the original."""
+def _feed(digest: Any, value: Any) -> None:
+    """Deterministic, process-independent value digest of plain data and of
+    objects with an instance dict (recursively); anything else is opaque."""
 
-    if original[:2] != copied[:2] or original[1] != "dict":
-        return False
-    left = {row[0]: row[1:] for row in original[2]}
-    right = {row[0]: row[1:] for row in copied[2]}
-    for key in set(left) | set(right):
-        a, b = left.get(key), right.get(key)
-        if (a is not None and not a[1]) or (b is not None and not b[1]):
-            return False
-        if (a is None or b is None) and key.split(":", 1)[1] in class_names:
-            return False
-    return True
+    import types
+
+    stack = [value]
+    visited = 0
+    while stack:
+        item = stack.pop()
+        visited += 1
+        if visited > _DIGEST_BUDGET:
+            raise _Opaque("digest budget exceeded")
+        if isinstance(item, tuple) and len(item) == 2 and item[0] is _MARK:
+            digest.update(item[1])
+            continue
+        kind = type(item)
+        name = f"{kind.__module__}.{kind.__qualname__}".encode()
+        if any(kind is scalar for scalar in _DIGEST_SCALARS):
+            digest.update(b"s" + name + repr(item).encode("utf-8", "backslashreplace") + b"\x1f")
+            continue
+        if kind is np.ndarray:
+            if item.dtype.hasobject:
+                raise _Opaque("object ndarray")
+            digest.update(b"a" + item.dtype.str.encode() + repr(item.shape).encode()
+                          + np.ascontiguousarray(item).tobytes() + b"\x1f")
+            continue
+        # A shared reference is fed again (deterministic); a cycle exhausts the
+        # budget and is opaque.
+        if kind in (tuple, list):
+            digest.update(b"(" + name + str(len(item)).encode())
+            stack.append((_MARK, b")"))
+            stack.extend(reversed(item))
+        elif kind in (dict, types.MappingProxyType):
+            pairs = sorted(item.items(), key=lambda pair: repr(pair[0]))
+            digest.update(b"{" + name + str(len(pairs)).encode())
+            stack.append((_MARK, b"}"))
+            for key, entry in reversed(pairs):
+                stack.append(entry)
+                stack.append(key)
+        else:
+            state = getattr(item, "__dict__", None)
+            if type(state) is not dict or kind in (set, frozenset):
+                raise _Opaque(f"{kind.__qualname__} has no plain instance state")
+            digest.update(b"o" + name)
+            stack.append((_MARK, b"/o"))
+            stack.append(state)
 
 
-def _nodes_profile(fe_model: Any, check: Callable[[Any], bool]) -> str:
-    """Digest of every node's profile (each element's admission also looks at
-    its own nodes); the transport carries nodes exactly (measured), so the
-    digests must match exactly."""
+_MARK = object()
+
+
+def _state_digest(obj: Any, exempt: frozenset, digest: Any) -> None:
+    state = vars(obj)
+    digest.update(f"{type(obj).__module__}.{type(obj).__qualname__}".encode())
+    _feed(digest, {key: value for key, value in state.items() if key not in exempt})
+
+
+def _input_digest(fe_model: Any, element: Any, material: Any, mapping: np.ndarray, element_u: np.ndarray) -> str:
+    """What ``recover_shell_axes`` computes from, by value: the element's state
+    (minus ``_TRANSPORT_EXEMPT``), its nodes, its material, its DOF mapping and
+    displacements.  Raises ``_Opaque`` when identity cannot be established."""
 
     digest = hashlib.sha256()
-    for nid in sorted(fe_model.mesh.nodes, key=repr):
-        digest.update(repr((repr(nid), _profile(fe_model.mesh.nodes[nid], check))).encode("utf-8", "backslashreplace"))
+    _state_digest(element, _TRANSPORT_EXEMPT["element"], digest)
+    node_ids = vars(element).get("node_ids")
+    if type(node_ids) not in (tuple, list):
+        raise _Opaque("element node_ids")
+    for nid in node_ids:
+        _state_digest(fe_model.mesh.nodes[nid], _TRANSPORT_EXEMPT["node"], digest)
+    _feed(digest, getattr(material, "__dict__", None) if hasattr(material, "__dict__") else material)
+    _feed(digest, np.asarray(mapping))
+    _feed(digest, np.asarray(element_u))
     return digest.hexdigest()
+
+
+def _admitted_digest(fe_model: Any, u: np.ndarray, eid: int) -> Optional[str]:
+    """Digest of an admitted element's recovery inputs, None if not comparable."""
+
+    resolved = _resolve_inputs(fe_model, u, eid)
+    if isinstance(resolved[0], str):
+        return None
+    element, material, element_u, mapping = resolved
+    try:
+        return _input_digest(fe_model, element, material, mapping, element_u)
+    except (_Opaque, KeyError, TypeError):
+        return None
 
 
 # -------------------------------------------------------------- worker pool
@@ -271,7 +349,9 @@ def _pool_chunk(payload_path: str, eids: Sequence[int]) -> tuple:
     # The model travels through ANYfem's verified result transport (elements
     # that refuse pickle, e.g. S3 V2D, use their own to_dict/from_dict route),
     # through a file: tens of MB as task arguments would block the parent.
-    # Decoded once per worker and case.
+    # Decoded once per worker and case.  Each element's input digest is taken
+    # on the copy before its recovery; the caller accepts the entry only if it
+    # equals the original's.
     if _POOL_STATE.get("path") != payload_path:
         from pathlib import Path
 
@@ -279,19 +359,16 @@ def _pool_chunk(payload_path: str, eids: Sequence[int]) -> tuple:
         from ..result_transport import decode_result
         from .solved_geometry import solved_model_of
 
-        check = _admitted_value_check()
-        if check is None:
-            raise RuntimeError("shell axes pool: the module's value admission rule is unavailable")
         carrier = decode_result(loads(Path(payload_path).read_bytes()))
-        fe_model = solved_model_of(carrier)
         _POOL_STATE.clear()
-        _POOL_STATE.update(path=payload_path, fe_model=fe_model, check=check,
-                           model=(_nodes_profile(fe_model, check), _profile(fe_model.mesh, check)),
+        _POOL_STATE.update(path=payload_path, fe_model=solved_model_of(carrier),
                            u=np.asarray(carrier.displacements, dtype=float))
-    fe_model, u, check = _POOL_STATE["fe_model"], _POOL_STATE["u"], _POOL_STATE["check"]
-    # Profiles are taken before each element's recovery, like the original's.
-    profiles = [_profile(fe_model.mesh.elements[int(eid)], check) for eid in eids]
-    return (os.getpid(), _POOL_STATE["model"], profiles, [_element_entry(fe_model, u, int(eid)) for eid in eids])
+    fe_model, u = _POOL_STATE["fe_model"], _POOL_STATE["u"]
+    out = []
+    for eid in eids:
+        digest = _admitted_digest(fe_model, u, int(eid))
+        out.append((digest, _element_entry(fe_model, u, int(eid), admitted=True)))
+    return os.getpid(), out
 
 
 def default_pool_workers() -> int:
@@ -339,29 +416,43 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _sweep_stale_payloads() -> None:
-    """Remove payload files of pool owners that no longer run.
+#: Payload files older than this are removed by the sweep even if their
+#: owner pid looks alive (pid reuse).
+_STALE_SECONDS = 2 * 24 * 3600.0
 
-    A contained worker retired by its owned tree (cancellation, application
-    exit) cannot run its own cleanup; the next pool removes what it left.
-    """
 
-    import tempfile
+def _sweep_stale_payloads(directory: str) -> None:
+    """Remove payload files of pool owners that no longer run (or are old).
 
-    directory = tempfile.gettempdir()
+    The normal owner of the payload is the job supervisor's per-job scratch
+    directory, removed after the worker tree is retired; this sweep covers
+    an abrupt exit of the supervisor itself."""
+
+    import time
+
     try:
         names = os.listdir(directory)
     except OSError:
         return
+    now = time.time()
     for name in names:
         if not (name.startswith(_PAYLOAD_PREFIX) and name.endswith(".bin")):
             continue
+        path = os.path.join(directory, name)
         owner = name[len(_PAYLOAD_PREFIX):].split("-", 1)[0]
-        if owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner)):
+        try:
+            old = now - os.path.getmtime(path) > _STALE_SECONDS
+        except OSError:
+            continue
+        if old or (owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner))):
             try:
-                os.unlink(os.path.join(directory, name))
+                os.unlink(path)
             except OSError:
                 pass
+
+
+class PoolWorkerLost(RuntimeError):
+    """A pool worker exited while tasks were outstanding."""
 
 
 class ShellAxesPool:
@@ -369,20 +460,25 @@ class ShellAxesPool:
 
     Start it before the solve so the worker imports overlap the solve; use it
     for every case; close it (or leave the ``with`` block) afterwards.  On
-    cancellation or failure every worker is terminated and joined with a
-    bound; nothing waits on a pipe a dead worker may have left half written.
+    cancellation, failure or the loss of a worker every worker is terminated
+    and joined with a bound; nothing waits on a pipe a dead worker may have
+    left half written.  ``scratch`` is the directory for the model payload
+    (the job supervisor's per-job directory; default: the system temp
+    directory, swept for stale files).
     """
 
     #: Seconds to wait for each terminated worker.
     TERMINATE_JOIN_SECONDS = 10.0
 
-    def __init__(self, workers: int) -> None:
+    def __init__(self, workers: int, scratch: Optional[str] = None) -> None:
         import multiprocessing
+        import tempfile
         from concurrent.futures import ProcessPoolExecutor
 
         if workers < 2:
             raise ValueError("a shell axes pool needs at least two workers")
-        _sweep_stale_payloads()
+        self.scratch = scratch or tempfile.gettempdir()
+        _sweep_stale_payloads(tempfile.gettempdir())
         self.workers = int(workers)
         self.used_by: set = set()
         self._executor = ProcessPoolExecutor(max_workers=self.workers,
@@ -400,14 +496,22 @@ class ShellAxesPool:
     def __exit__(self, kind, value, traceback) -> None:
         self.close(terminate=kind is not None)
 
+    @property
+    def open(self) -> bool:
+        return self._executor is not None
+
+    def _processes(self) -> tuple:
+        executor = self._executor
+        return tuple((getattr(executor, "_processes", None) or {}).values()) if executor is not None else ()
+
     def close(self, terminate: bool = False) -> None:
+        processes = self._processes()
         executor, self._executor = getattr(self, "_executor", None), None
         if executor is None:
             return
         if not terminate:
             executor.shutdown(wait=True, cancel_futures=True)
             return
-        processes = tuple((getattr(executor, "_processes", None) or {}).values())
         for process in processes:
             if process.is_alive():
                 process.terminate()
@@ -418,11 +522,14 @@ class ShellAxesPool:
             process.join(self.TERMINATE_JOIN_SECONDS)
 
     def entries(self, carrier: Any, ids: Sequence[int],
-                cancelled: Optional[Callable[[], None]]) -> tuple[list, list, list, str]:
-        """Pool entries plus, per element, the copy's fingerprints (see module doc)."""
+                cancelled: Optional[Callable[[], None]]) -> list:
+        """Per element ``(copy input digest, entry)``, in ``ids`` order.
 
-        import tempfile
+        Raises :class:`PoolWorkerLost` (after terminating the pool) when a
+        worker exits while tasks are outstanding."""
+
         from concurrent.futures import FIRST_COMPLETED, wait
+        from concurrent.futures.process import BrokenProcessPool
 
         from ..job_process import dumps
         from ..result_transport import encode_result
@@ -433,20 +540,31 @@ class ShellAxesPool:
         size = max(16, min(POOL_CHUNK, -(-len(ids) // (8 * self.workers))))
         chunks = [tuple(int(eid) for eid in ids[i:i + size]) for i in range(0, len(ids), size)]
         results: list = [None] * len(chunks)
-        handle, payload_path = tempfile.mkstemp(prefix=f"{_PAYLOAD_PREFIX}{os.getpid()}-", suffix=".bin")
+        payload_path = os.path.join(self.scratch, f"{_PAYLOAD_PREFIX}{os.getpid()}-{id(self):x}-{len(ids)}.bin")
         try:
-            with os.fdopen(handle, "wb") as stream:
+            with open(payload_path, "xb") as stream:
                 stream.write(dumps(encode_result(carrier, verify=False)))
+            processes = self._processes()
             pending = {self._executor.submit(_pool_chunk, payload_path, chunk): index
                        for index, chunk in enumerate(chunks)}
+            processes = self._processes() or processes
             while pending:
                 done, _ = wait(tuple(pending), timeout=0.2, return_when=FIRST_COMPLETED)
                 if cancelled is not None:
                     cancelled()
                 for future in done:
-                    results[pending.pop(future)] = future.result()
+                    pid, rows = future.result()
+                    self.used_by.add(pid)
+                    results[pending.pop(future)] = rows
+                if pending and any(not process.is_alive() for process in self._processes() or processes):
+                    # A worker died (killed, crashed): the executor's manager may
+                    # be blocked on its half-written result; do not wait on it.
+                    raise PoolWorkerLost("a shell axes pool worker exited during recovery")
+        except BrokenProcessPool as error:
+            # Python noticed the lost worker (at submit or result).
+            self.close(terminate=True)
+            raise PoolWorkerLost(f"a shell axes pool worker exited: {error}") from error
         except BaseException:
-            # Cancellation or a failure: stop at once, never leave workers behind.
             self.close(terminate=True)
             raise
         finally:
@@ -454,15 +572,21 @@ class ShellAxesPool:
                 os.unlink(payload_path)
             except OSError:
                 pass
-        models = {result[1] for result in results}  # (nodes profile digest, mesh profile)
-        self.used_by.update(result[0] for result in results)
-        return ([entry for result in results for entry in result[3]],
-                [fp for result in results for fp in result[2]],
-                sorted(models), payload_path)
+        return [row for rows in results for row in rows]
 
 
 def _entries(fe_model: Any, u: np.ndarray, ids: Sequence[int], pool: Optional[ShellAxesPool],
              cancelled: Optional[Callable[[], None]], carrier: Any = None) -> tuple[list, dict]:
+    """Entries in ``ids`` order and how they were obtained.
+
+    Pool route (see the module docstring): the module's admission runs on every
+    original here, before anything is dispatched; a refusal is final.  Admitted
+    elements are recovered on transported copies; an entry is kept only if the
+    copy's recovery-input digest equals the original's and the copy recovered
+    (``ok``).  Everything else is recovered serially on the original.  If the
+    pool cannot be used (gate unavailable, worker lost) the record is serial.
+    """
+
     def serial(subset):
         out = []
         for eid in subset:
@@ -471,38 +595,47 @@ def _entries(fe_model: Any, u: np.ndarray, ids: Sequence[int], pool: Optional[Sh
             out.append(_element_entry(fe_model, u, eid))
         return out
 
-    check = _admitted_value_check()
-    if pool is None or carrier is None or len(ids) < POOL_MIN_SHELLS or check is None:
+    gate = _admission_gate()
+    if pool is None or not pool.open or carrier is None or len(ids) < POOL_MIN_SHELLS or gate is None:
         return serial(ids), {"recovered_with": "serial"}
+    from anyfesolver.shell_axes_outputs import ShellAxesRefusal
+
     from .solved_geometry import solved_model_of
 
     if solved_model_of(carrier) is not fe_model or not np.array_equal(
             np.asarray(carrier.displacements, dtype=float), u):
         raise ValueError("shell axes record: the pool carrier is not this model and displacement field")
-    # The original's admission-relevant state, before anything recovers on it.
-    nodes_print = _nodes_profile(fe_model, check)
-    mesh_profile = _profile(fe_model.mesh, check)
-    original = [_profile(fe_model.mesh.elements[eid], check) for eid in ids]
-    entries, copied, models, _path = pool.entries(carrier, ids, cancelled)
-    if len(entries) != len(ids) or len(copied) != len(ids):
-        raise ValueError(f"shell axes record: pool returned {len(entries)} entries for {len(ids)} shells")
-    if len(models) != 1 or models[0][0] != nodes_print or not _equivalent(
-            mesh_profile, models[0][1], _class_names(type(fe_model.mesh))):
-        # The transported nodes or mesh may be admitted differently from the
-        # original: recover every element on the original (the serial record).
-        return serial(ids), {"recovered_with": f"pool:{pool.workers}", "serial_rechecked": len(ids)}
-    names: Dict[type, frozenset] = {}
+    entries: list = [None] * len(ids)
+    originals: Dict[int, Optional[str]] = {}
+    dispatch = []
+    try:
+        for index, eid in enumerate(ids):
+            if cancelled is not None and index % 256 == 0:
+                cancelled()
+            try:
+                gate(fe_model.mesh.elements[eid], fe_model.mesh)
+            except ShellAxesRefusal as refusal:
+                entries[index] = ("refused", refusal.code, refusal.reason)
+                continue
+            originals[index] = _admitted_digest(fe_model, u, eid)
+            dispatch.append(index)
+        pooled = pool.entries(carrier, [ids[index] for index in dispatch], cancelled) if dispatch else []
+    except PoolWorkerLost:
+        return serial(ids), {"recovered_with": "serial", "pool_lost": True}
+    except BaseException:
+        pool.close(terminate=True)  # cancellation or failure: no worker left behind
+        raise
+    if len(pooled) != len(dispatch):
+        raise ValueError(f"shell axes record: pool returned {len(pooled)} entries for {len(dispatch)} shells")
     redo = []
-    for index, (a, b) in enumerate(zip(original, copied)):
-        kind = type(fe_model.mesh.elements[ids[index]])
-        if kind not in names:
-            names[kind] = _class_names(kind)
-        if not _equivalent(a, b, names[kind]):
-            redo.append(index)
-    if redo:
-        again = serial([ids[index] for index in redo])
-        for index, entry in zip(redo, again):
+    for index, (digest, entry) in zip(dispatch, pooled):
+        original = originals[index]
+        if original is not None and digest == original and entry[0] == "ok":
             entries[index] = entry
+        else:
+            redo.append(index)
+    for index, entry in zip(redo, serial([ids[index] for index in redo])):
+        entries[index] = entry
     return entries, {"recovered_with": f"pool:{pool.workers}", "serial_rechecked": len(redo)}
 
 
@@ -620,54 +753,132 @@ def recover_shell_axes_record(
 READ_BLOCK = 2_000_000
 
 
-def _read_flat(dataset: Any, name: str, size: int) -> np.ndarray:
-    blocks = [np.asarray(dataset.table(name, slice(start, min(size, start + READ_BLOCK)))).reshape(-1)
-              for start in range(0, size, READ_BLOCK)]
-    return np.concatenate(blocks) if blocks else np.asarray(dataset.table(name)).reshape(-1)
+def _record_columns() -> Dict[str, tuple]:
+    """Every record entry: (kind, dtype, rows, trailing shape); rows is "e"
+    (one per shell), "e+1" (station offsets) or "s" (one per station)."""
+
+    columns: Dict[str, tuple] = {
+        "element_ids": ("numeric", "<i8", "e", ()),
+        "station_offsets": ("numeric", "<i8", "e+1", ()),
+        "station_positions": ("numeric", "<f8", "s", (3,)),
+        "director_polarity": ("numeric", "|i1", "e", ()),
+        "physical_reference_director": ("numeric", "<f8", "e", (3,)),
+        "thickness": ("numeric", "<f8", "e", ()),
+        "shear_normal_components": ("numeric", "<f8", "s", ()),
+        "membrane_tensors": ("numeric", "<f8", "s", (3, 3)),
+        "bending_tensors": ("numeric", "<f8", "s", (3, 3)),
+        "shear_vectors": ("numeric", "<f8", "s", (3,)),
+    }
+    for key in _OFFSET_KEYS:
+        columns[key] = ("numeric", "<f8", "e", ())
+    for key in ("element_refusal", "element_refusal_reason", "metadata_refusal", "branch"):
+        columns[key] = ("strings", None, "e", ())
+    for fam in FAMILIES:
+        columns[f"{fam}_certified"] = ("numeric", "|b1", "e", ())
+        columns[f"{fam}_basis_normals"] = ("numeric", "<f8", "s", (3,))
+        for suffix in ("refusal_reason", "refusal_detail", "convention"):
+            columns[f"{fam}_{suffix}"] = ("strings", None, "e", ())
+    return columns
+
+
+def _read_span(dataset: Any, name: str, start: int, count: int, dtype: np.dtype) -> np.ndarray:
+    """``count`` values from ``start`` of a flat table, in bounded blocks,
+    into one preallocated array (nothing outside the span is kept)."""
+
+    out = np.empty(count, dtype=dtype)
+    for offset in range(0, count, READ_BLOCK):
+        stop = min(count, offset + READ_BLOCK)
+        block = np.asarray(dataset.table(name, slice(start + offset, start + stop)))
+        if block.ndim != 1 or block.size != stop - offset or block.dtype != dtype:
+            raise ValueError(f"shell axes table {name!r}: block {block.dtype}{block.shape} != {dtype}[{stop - offset}]")
+        out[offset:stop] = block
+    return out
+
+
+def _check_flat(dataset: Any, name: str, size: int) -> None:
+    if name not in tuple(dataset.table_keys):
+        raise ValueError(f"shell axes table {name!r} is missing")
+    shape = tuple(int(v) for v in dataset.table_shape(name))
+    if shape != (size,):
+        raise ValueError(f"shell axes table {name!r}: stored shape {shape}, expected flat ({size},)")
 
 
 def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) -> Any:
     """Read one persisted record entry back exactly (fails closed).
 
     ``case`` selects one case of a per-case entry (``shell_axes_meta``
-    ``per_case`` lists them); a shared entry is the same for every case.
-    Float entries need their boolean presence mask of the same size (absent ->
-    NaN); shapes come from the stored shape table; string columns are lists.
-    Numeric reads are bounded blocks (the desktop reader caps one request).
+    ``entries[key].layout``); a shared entry is the same for every case.
+    Every entry is validated against the record schema: dtype, rank and
+    length of the stored table (checked before reading), shell and station
+    counts (from ``element_ids`` and the case's ``station_offsets``); float
+    entries need their boolean presence mask (absent -> NaN); string columns
+    are one list of str per shell.  Only the selected case is read, in bounded
+    blocks.
     """
 
     meta = dataset.table("shell_axes_meta")
     if not isinstance(meta, Mapping) or meta.get("schema") != RECORD_SCHEMA:
         raise ValueError("shell axes tables: unknown or missing schema")
-    entries = meta.get("entries", {})
-    if key not in entries:
+    columns = _record_columns()
+    entries = meta.get("entries")
+    cases = meta.get("cases")
+    if not isinstance(entries, Mapping) or not isinstance(cases, list) or not cases:
+        raise ValueError("shell axes tables: malformed meta")
+    if key not in columns or key not in entries:
         raise KeyError(f"shell axes tables: no entry {key!r}")
+    n_cases = len(cases)
     layout = entries[key]
-    per_case = layout.get("layout") == "per_case"
-    n_cases = len(meta.get("cases", ()))
+    if not isinstance(layout, Mapping) or layout.get("layout") not in ("shared", "per_case") \
+            or layout.get("kind") != columns[key][0]:
+        raise ValueError(f"shell axes entry {key!r}: malformed layout")
+    per_case = layout["layout"] == "per_case"
     if per_case and case is None:
         raise ValueError(f"shell axes entry {key!r} is per case; pass case=0..{n_cases - 1}")
-    if case is not None and not (0 <= int(case) < n_cases):
-        raise IndexError(f"shell axes case {case} out of range 0..{n_cases - 1}")
-    name = "shell_axes_" + key
-    if layout.get("kind") == "strings":
+    if case is not None and (type(case) is not int or not 0 <= case < n_cases):
+        raise IndexError(f"shell axes case {case!r} out of range 0..{n_cases - 1}")
+    n_e = _shared_count(dataset, entries)
+    kind, dtype_str, rows, trailing = columns[key]
+    if rows == "e":
+        n_rows = n_e
+    elif rows == "e+1":
+        n_rows = n_e + 1
+    else:
+        offsets = read_shell_axes_table(dataset, "station_offsets",
+                                        case if entries["station_offsets"].get("layout") == "per_case" else None)
+        n_rows = int(offsets[-1])
+    if kind == "strings":
+        name = f"shell_axes_{key}__{case}" if per_case else f"shell_axes_{key}"
         stored = dataset.table(name)
-        if not isinstance(stored, Mapping) or set(stored) != {"values"} or not isinstance(stored["values"], list):
+        values = stored.get("values") if isinstance(stored, Mapping) and set(stored) == {"values"} else None
+        if not isinstance(values, list) or len(values) != n_rows or not all(type(v) is str for v in values):
             raise ValueError(f"shell axes entry {key!r}: malformed string column")
-        values = stored["values"]
-        return list(values[int(case)]) if per_case else list(values)
-    shape = tuple(int(v) for v in layout.get("shape", ()))
-    dtype = np.dtype(layout.get("dtype", ""))
-    if any(v < 0 for v in shape) or (per_case and (not shape or shape[0] != n_cases)):
-        raise ValueError(f"shell axes entry {key!r}: malformed shape {shape}")
-    size = int(np.prod(shape, dtype=np.int64))
-    flat = _read_flat(dataset, name, size)
-    if flat.dtype != dtype or flat.size != size:
-        raise ValueError(f"shell axes entry {key!r}: stored {flat.dtype}[{flat.size}], expected {dtype}[{size}]")
-    value = flat.reshape(shape)
+        return list(values)
+    dtype = np.dtype(dtype_str)
+    expected = ((n_cases,) if per_case else ()) + (n_rows, *trailing)
+    if layout.get("dtype") != dtype.str or tuple(layout.get("shape", ())) != expected:
+        raise ValueError(f"shell axes entry {key!r}: declared {layout.get('dtype')}{layout.get('shape')}, "
+                         f"expected {dtype.str}{list(expected)}")
+    inner = int(np.prod((n_rows, *trailing), dtype=np.int64))
+    total = inner * (n_cases if per_case else 1)
+    start = inner * case if per_case else 0
+    name = "shell_axes_" + key
+    _check_flat(dataset, name, total)
+    value = _read_span(dataset, name, start, inner, dtype).reshape((n_rows, *trailing))
     if dtype.kind == "f":
-        present = _read_flat(dataset, name + "_present", size)
-        if present.dtype != np.bool_ or present.size != size:
-            raise ValueError(f"shell axes entry {key!r}: presence mask missing or malformed")
-        value = np.where(present.reshape(shape), value, np.nan)
-    return value[int(case)] if per_case else value
+        _check_flat(dataset, name + "_present", total)
+        present = _read_span(dataset, name + "_present", start, inner, np.dtype(np.bool_)).reshape(value.shape)
+        value = np.where(present, value, np.nan)
+    elif (name + "_present") in tuple(dataset.table_keys):
+        raise ValueError(f"shell axes entry {key!r}: unexpected presence mask on a non-float entry")
+    return value
+
+
+def _shared_count(dataset: Any, entries: Mapping[str, Any]) -> int:
+    layout = entries.get("element_ids")
+    if not isinstance(layout, Mapping) or layout.get("layout") != "shared" or layout.get("dtype") != "<i8":
+        raise ValueError("shell axes tables: element_ids must be one shared int64 column")
+    shape = layout.get("shape")
+    if not isinstance(shape, list) or len(shape) != 1 or type(shape[0]) is not int or shape[0] < 0:
+        raise ValueError("shell axes tables: malformed element_ids shape")
+    _check_flat(dataset, "shell_axes_element_ids", shape[0])
+    return shape[0]

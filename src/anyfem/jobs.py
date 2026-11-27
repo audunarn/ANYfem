@@ -40,6 +40,55 @@ def _resolve_executor(value: str | None) -> str:
     return chosen
 
 
+_SCRATCH_PREFIX = "anyfem-job-"
+_SCRATCH_STALE_SECONDS = 2 * 24 * 3600.0
+
+
+def _parameters(function: Callable[..., Any]) -> tuple[str, ...]:
+    try:
+        return tuple(inspect.signature(function).parameters)
+    except (TypeError, ValueError):
+        return ()
+
+
+def _new_scratch() -> str:
+    """A per-job scratch directory named by this supervisor's pid; directories
+    of supervisors that no longer run (or very old ones) are removed first."""
+
+    import tempfile
+
+    root = tempfile.gettempdir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    now = time.time()
+    for name in names:
+        if not name.startswith(_SCRATCH_PREFIX):
+            continue
+        path = os.path.join(root, name)
+        owner = name[len(_SCRATCH_PREFIX):].split("-", 1)[0]
+        try:
+            old = now - os.path.getmtime(path) > _SCRATCH_STALE_SECONDS
+        except OSError:
+            continue
+        if old or (owner.isdigit() and int(owner) != os.getpid() and not _pid_alive(int(owner))):
+            _remove_scratch(path)
+    return tempfile.mkdtemp(prefix=f"{_SCRATCH_PREFIX}{os.getpid()}-", dir=root)
+
+
+def _remove_scratch(path: str) -> None:
+    import shutil
+
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _pid_alive(pid: int) -> bool:
+    from .post.shell_axes_record import _pid_alive as alive
+
+    return alive(pid)
+
+
 def _cancellation_token():
     try:
         from anyfesolver import CancellationToken
@@ -301,6 +350,7 @@ class JobRequest:
     # daemonic worker (which then stays serial) when containment is unavailable.
     containment: bool = False
     tree: Any = None  # the owned worker tree while a contained job runs
+    scratch: Any = None  # the contained job's scratch directory, owned here
 
 
 class JobManager:
@@ -445,6 +495,8 @@ class JobManager:
             tree.terminate()
         elif process is not None and process.is_alive():
             process.terminate()
+        if request is not None and request.scratch is not None and tree is not None:
+            _remove_scratch(request.scratch)
 
     def _register_process(self, request: JobRequest, process: Any) -> None:
         # Shutdown can happen while spawn is still preparing the worker.
@@ -462,10 +514,21 @@ class JobManager:
                 tree.terminate()
 
     def _run_process(self, request: JobRequest, progress: Callable[[Any], None]) -> Any:
+        scratch = None
+        if request.containment and "scratch_directory" in _parameters(request.function):
+            # The supervisor owns the contained job's scratch files (e.g. the
+            # axes pool's model payload): removed here after the worker tree
+            # is retired, whatever happened inside it.
+            scratch = _new_scratch()
+            request.scratch = scratch
+
         def call(contained: bool) -> Any:
+            kwargs = request.kwargs
+            if contained and scratch is not None:
+                kwargs = {**kwargs, "scratch_directory": scratch}
             return run_in_worker_process(
                 function=request.function,
-                kwargs=request.kwargs,
+                kwargs=kwargs,
                 snapshot=request.snapshot,
                 project_override=request.project_override,
                 progress=progress,
@@ -491,6 +554,9 @@ class JobManager:
         finally:
             with self._lock:
                 request.tree = None
+                request.scratch = None
+            if scratch is not None:
+                _remove_scratch(scratch)
 
     def rerun(self, job_id: str, snapshot: ProjectSnapshot | None = None) -> JobRecord:
         original = self._requests[job_id]

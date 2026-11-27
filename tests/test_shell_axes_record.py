@@ -341,41 +341,89 @@ def test_ordinary_artifact_does_not_import_the_axes_module(monkeypatch):
 
 
 class _FakeDataset:
+    """The reader's view of an archive: tables by name, slices, shapes."""
+
     def __init__(self, tables):
-        self.tables = tables
+        self.tables = dict(tables)
 
     def table(self, name, rows=None):
         value = self.tables[name]
         return value if rows is None or not isinstance(value, np.ndarray) else value[rows]
+
+    def table_shape(self, name):
+        value = self.tables[name]
+        return tuple(value.shape) if isinstance(value, np.ndarray) else ()
 
     @property
     def table_keys(self):
         return tuple(self.tables)
 
 
-def _fake_tables(mask=True):
-    from anyfem.post.shell_axes_record import RECORD_SCHEMA
+@pytest.fixture(scope="module")
+def stored_tables():
+    """The tables an axes batch run writes (two cases), and its records."""
 
-    tables = {
-        "shell_axes_meta": {"schema": RECORD_SCHEMA, "cases": [{"case_index": 0}],
-                            "entries": {"thickness": {"layout": "shared", "kind": "numeric",
-                                                      "dtype": "<f8", "shape": [2]}}},
-        "shell_axes_thickness": np.array([0.008, 0.0]),
-    }
-    if mask:
-        tables["shell_axes_thickness_present"] = np.array([True, False])
-    return tables
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                    job_flags=dict(requested_stress=True, requested_global_stress=True),
+                    target_size=0.5, load_cases=("default", "second"))
+    tables = {key: value for key, value in result_artifact_payload(axes).tables.items()
+              if key.startswith("shell_axes_")}
+    return tables, [shape._requested_shell_axes for shape in axes.shapes]
 
 
-def test_reader_restores_absent_values_and_refuses_a_missing_mask():
-    restored = read_shell_axes_table(_FakeDataset(_fake_tables()), "thickness")
-    assert restored[0] == 0.008 and np.isnan(restored[1])
-    with pytest.raises(Exception, match="presence mask|shell_axes_thickness_present"):
-        read_shell_axes_table(_FakeDataset(_fake_tables(mask=False)), "thickness")
-    bad = _fake_tables()
-    bad["shell_axes_meta"]["entries"]["thickness"]["shape"] = [3]
+def test_reader_reads_each_case_exactly(stored_tables):
+    tables, records = stored_tables
+    dataset = _FakeDataset(tables)
+    meta = tables["shell_axes_meta"]
+    for index, record in enumerate(records):
+        for key, value in record.items():
+            if key in ("schema", "provenance"):
+                continue
+            per_case = meta["entries"][key]["layout"] == "per_case"
+            stored = read_shell_axes_table(dataset, key, case=index if per_case else None)
+            if isinstance(value, np.ndarray):
+                assert stored.dtype == value.dtype and stored.shape == value.shape, key
+                assert np.array_equal(np.isnan(stored), np.isnan(value)) if value.dtype.kind == "f" else True
+                assert _same(np.nan_to_num(stored, nan=0.0), np.nan_to_num(value, nan=0.0)), key
+            else:
+                assert stored == list(value), key
+
+
+@pytest.mark.parametrize("damage", ["missing_mask", "oversized", "rank_two", "int_mask", "string_not_list",
+                                    "declared_dtype", "short_mask", "short_strings"])
+def test_reader_refuses_malformed_tables(stored_tables, damage):
+    """Codex r2 P1: the reader validates the schema and the stored table
+    before reading; it never returns zeros, truncations or characters."""
+
+    tables, _records = stored_tables
+    tables = {key: (dict(value) if isinstance(value, dict) else value) for key, value in tables.items()}
+    meta = dict(tables["shell_axes_meta"])
+    meta["entries"] = {key: dict(value) for key, value in meta["entries"].items()}
+    tables["shell_axes_meta"] = meta
+    key, case = "thickness", None
+    if damage == "missing_mask":
+        del tables["shell_axes_thickness_present"]
+    elif damage == "oversized":
+        tables["shell_axes_thickness"] = np.concatenate([tables["shell_axes_thickness"], [1.0]])
+    elif damage == "rank_two":
+        tables["shell_axes_thickness"] = tables["shell_axes_thickness"].reshape(-1, 1)
+    elif damage == "int_mask":
+        key = "element_ids"
+        tables["shell_axes_element_ids_present"] = np.ones_like(tables["shell_axes_element_ids"], dtype=bool)
+    elif damage == "string_not_list":
+        key = "branch"
+        tables["shell_axes_branch"] = {"values": "legacy"}
+    elif damage == "declared_dtype":
+        meta["entries"]["thickness"]["dtype"] = "<i8"
+    elif damage == "short_mask":
+        tables["shell_axes_thickness_present"] = tables["shell_axes_thickness_present"][:-1]
+    elif damage == "short_strings":
+        key = "branch"
+        tables["shell_axes_branch"] = {"values": list(tables["shell_axes_branch"]["values"])[:-1]}
     with pytest.raises(ValueError):
-        read_shell_axes_table(_FakeDataset(bad), "thickness")
+        read_shell_axes_table(_FakeDataset(tables), key, case=case)
 
 
 # ---------------------------------------------------------------- solver output edge cases (synthetic)
@@ -441,6 +489,24 @@ def test_refused_positions_refuse_the_element_and_metadata_refusals_are_kept(mon
     assert np.isnan(record["physical_reference_director"][1]).all()
 
 
+def test_shadowed_mesh_method_and_bad_material_name_get_typed_refusals(plate_solution):
+    """Codex r2 P2: nothing of the element or mesh is used before the module's
+    admission; malformed lookups are typed refusals, not job failures."""
+
+    import copy
+
+    fe = copy.deepcopy(plate_solution.built.fe_model)
+    fe.mesh.get_node = lambda *args, **kwargs: None
+    record = recover_shell_axes_record(fe, plate_solution.displacements)
+    assert set(record["element_refusal"]) == {"AXES_INSTANCE_SHADOW"}
+    fe = copy.deepcopy(plate_solution.built.fe_model)
+    eid = next(iter(fe.mesh.elements))
+    vars(fe.mesh.elements[eid])["material_name"] = ("not", "hashable", ["list"])
+    record = recover_shell_axes_record(fe, plate_solution.displacements)
+    row = list(record["element_ids"]).index(eid)
+    assert record["element_refusal"][row].startswith("AXES_")
+
+
 def test_shadowed_instance_method_gets_the_solver_refusal(plate_solution):
     import copy
 
@@ -495,7 +561,105 @@ def test_pool_rechecks_elements_whose_transported_copy_lost_solver_state(monkeyp
     with ShellAxesPool(2) as pool:
         pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
     _records_equal(serial, pooled)
-    assert pooled["provenance"]["serial_rechecked"] == len(serial["element_ids"])
+    # decided by the module's admission on the originals: nothing dispatched
+    assert pooled["provenance"]["serial_rechecked"] == 0 and not pool.used_by
+
+
+def _pool_vs_serial(monkeypatch, solution, fe=None):
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    fe = solution.built.fe_model if fe is None else fe
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    with ShellAxesPool(2) as pool:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    _records_equal(serial, pooled)
+    return serial, pooled
+
+
+def test_pool_matches_serial_when_the_transport_would_normalise_an_input(monkeypatch):
+    """Codex r2 P1: Q4 pickle restore turns a float32 reference normal into
+    float64.  The original is refused (AXES_ATTRIBUTE_TYPE) by the module's
+    admission, run on the original before anything is dispatched."""
+
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    fe = solution.built.fe_model
+    eid = next(iter(fe.mesh.elements))
+    element = fe.mesh.elements[eid]
+    vars(element)["reference_normal"] = np.asarray(vars(element)["reference_normal"], dtype=np.float32)
+    serial, pooled = _pool_vs_serial(monkeypatch, solution)
+    row = list(serial["element_ids"]).index(eid)
+    assert serial["element_refusal"][row] == "AXES_ATTRIBUTE_TYPE"
+
+
+def test_pool_matches_serial_when_the_mesh_has_a_non_str_key(monkeypatch):
+    """Codex r2 P1: an int key in the mesh's instance dict, which the transport
+    drops; every original is refused, nothing certifies on the copies."""
+
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    vars(solution.built.fe_model.mesh)[7] = "not a str key"
+    serial, pooled = _pool_vs_serial(monkeypatch, solution)
+    assert set(serial["element_refusal"]) == {"AXES_OBJECT_NOT_PLAIN"}
+
+
+def test_pool_rechecks_an_element_whose_copy_differs_in_value(monkeypatch):
+    """A recovery input the transport changes in value (simulated on the
+    original after the copy is made) is caught by the input digest and the
+    element is recovered on the original."""
+
+    import anyfem.post.shell_axes_record as module
+
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
+    fe = solution.built.fe_model
+    original_entries = module.ShellAxesPool.entries
+    target = next(iter(fe.mesh.elements))
+
+    def entries(self, carrier, ids, cancelled):
+        rows = original_entries(self, carrier, ids, cancelled)
+        # the copy saw a different thickness than the original
+        index = list(ids).index(target)
+        rows[index] = ("0" * 64, rows[index][1])
+        return rows
+
+    monkeypatch.setattr(module.ShellAxesPool, "entries", entries)
+    serial, pooled = _pool_vs_serial(monkeypatch, solution)
+    assert pooled["provenance"]["serial_rechecked"] == 1
+
+
+def test_lost_pool_worker_falls_back_to_the_serial_record(monkeypatch):
+    """Codex r2 P1: a worker that dies (not a cancellation) must not leave the
+    job waiting on the executor; the record is recovered serially."""
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.05)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    pool = ShellAxesPool(2)
+    for future in pool._warm:
+        future.result(timeout=120)
+    victims = list(pool._executor._processes.values())
+    killed = []
+
+    def kill_one():
+        if not killed:
+            victims[0].kill()
+            victims[0].join(30)
+            killed.append(True)
+
+    try:
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution,
+                                           cancelled=kill_one)
+    finally:
+        pool.close(terminate=True)
+    assert killed and not pool.open
+    assert pooled["provenance"] == {"recovered_with": "serial", "pool_lost": True}
+    _records_equal(serial, pooled)
+    for process in victims:
+        assert not process.is_alive()
 
 
 def test_pool_carries_v2d_elements_through_the_result_transport(monkeypatch):
@@ -583,6 +747,39 @@ def contained_axes_job(*, project, progress, cancellation_token=None):
     return _execute_analysis_job(project=plate, solver_function=solve_linear_static, analysis_name="Linear static",
                                  options={"built": built}, progress=progress,
                                  cancellation_token=cancellation_token, requested_shell_axes=True)
+
+
+def scratch_probe_job(*, project, progress, scratch_directory=None, cancellation_token=None):
+    """Module-level job: reports the supervisor-owned scratch directory."""
+
+    import os
+
+    progress(f"scratch={scratch_directory} exists={bool(scratch_directory) and os.path.isdir(scratch_directory)}")
+    return contained_axes_job(project=project, progress=progress, cancellation_token=cancellation_token)
+
+
+def test_contained_job_scratch_directory_is_owned_and_removed_by_the_supervisor(monkeypatch):
+    """Codex r2 P2: the payload lives in a per-job directory the supervisor
+    removes after the worker tree is retired."""
+
+    import os
+
+    from anyfem.document import DocumentSession
+    from anyfem.jobs import JobManager
+    from anyfem.model.records import AnalysisDefinition
+
+    monkeypatch.setenv("ANYFEM_SHELL_AXES_WORKERS", "2")
+    project = Project("axes scratch")
+    manager = JobManager(project, executor="process")
+    record = manager.submit(AnalysisDefinition("Job"), DocumentSession(project).snapshot(), scratch_probe_job,
+                            containment=True)
+    manager.wait(record.id, timeout=600)
+    line = next(str(entry.get("message", "")) for entry in manager.log(record.id)
+                if str(entry.get("message", "")).startswith("scratch="))
+    path, exists = line[len("scratch="):].rsplit(" exists=", 1)
+    assert exists == "True" and os.path.basename(path).startswith("anyfem-job-")
+    assert not os.path.exists(path)
+    assert manager.result(record.id)._requested_shell_axes["provenance"]["recovered_with"] == "pool:2"
 
 
 @pytest.mark.parametrize("containment", [True, False])

@@ -4685,8 +4685,13 @@ def _execute_analysis_job(
     requested_global_stress=False,
     requested_patch_stress=False,
     requested_shell_axes=False,
+    scratch_directory=None,
 ):
-    """Build, preflight and solve one immutable JobManager request."""
+    """Build, preflight and solve one immutable JobManager request.
+
+    ``scratch_directory`` is supplied by the job supervisor for contained jobs
+    (it owns and removes it); the axes recovery pool keeps its payload there.
+    """
 
     from ..solve.run import preflight
     from ..solve.static_options import allows_free_static
@@ -4756,7 +4761,7 @@ def _execute_analysis_job(
 
     if cancellation_token is not None and "cancellation_token" in inspect.signature(solver_function).parameters:
         resolved["cancellation_token"] = cancellation_token
-    axes_pool = _start_shell_axes_pool(progress) if requested_shell_axes else None
+    axes_pool = _start_shell_axes_pool(progress, scratch_directory) if requested_shell_axes else None
     try:
         solution = solver_function(**resolved)
         if requested_shell_axes:
@@ -4810,7 +4815,7 @@ def _execute_analysis_job(
     return solution
 
 
-def _start_shell_axes_pool(progress):
+def _start_shell_axes_pool(progress, scratch_directory=None):
     """Start the axes recovery pool before the solve, or None (serial).
 
     Serial where this process may not start children (an uncontained, daemonic
@@ -4825,7 +4830,7 @@ def _start_shell_axes_pool(progress):
     if workers < 2:
         return None
     try:
-        pool = ShellAxesPool(workers)
+        pool = ShellAxesPool(workers, scratch=scratch_directory)
     except (OSError, RuntimeError) as error:
         progress(f"shell result-axes pool unavailable ({error}); recovering serially")
         return None

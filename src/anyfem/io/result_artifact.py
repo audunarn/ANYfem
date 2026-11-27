@@ -940,10 +940,14 @@ def _add_shell_axes_records(builder, solution):
             builder.tables[name] = np.ascontiguousarray(values).reshape(-1)
             entries[key] = {"layout": "shared" if shared else "per_case", "kind": "numeric",
                             "dtype": values.dtype.str, "shape": [int(v) for v in values.shape]}
+        elif shared:
+            builder.tables[name] = {"values": [str(v) for v in values]}
+            entries[key] = {"layout": "shared", "kind": "strings"}
         else:
-            builder.tables[name] = {"values": [[str(x) for x in v] if isinstance(v, list) else str(v)
-                                               for v in values]}
-            entries[key] = {"layout": "shared" if shared else "per_case", "kind": "strings"}
+            # one table per case, so one case is read without the others
+            for index, column in enumerate(values):
+                builder.tables[_safe_key(f"shell_axes_{key}__{index}")] = {"values": [str(v) for v in column]}
+            entries[key] = {"layout": "per_case", "kind": "strings"}
     builder.add_table("shell_axes_meta", {
         "schema": RECORD_SCHEMA,
         "solver_module": "anyfesolver.shell_axes_outputs.recover_shell_axes",
