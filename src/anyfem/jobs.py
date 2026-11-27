@@ -73,9 +73,11 @@ def _new_scratch() -> str:
 
 def _retirement_confirmed(error: BaseException) -> bool:
     """Whether run_in_worker_process confirmed the worker tree's retirement
-    before raising ``error`` (it attaches ``cleanup_failures`` otherwise)."""
+    before raising ``error``.  Only its own WorkerProcessError without
+    ``cleanup_failures`` (and not WorkerCleanupFailed) says so; any other
+    exception (e.g. one escaping the cleanup itself) is unconfirmed."""
 
-    if getattr(error, "cleanup_failures", None):
+    if not isinstance(error, WorkerProcessError) or getattr(error, "cleanup_failures", None):
         return False
     return getattr(error, "remote_type", None) != "WorkerCleanupFailed"
 
@@ -566,6 +568,10 @@ class JobManager:
             progress(f"owned process tree unavailable ({error}); running the job without a worker pool")
             with self._lock:
                 request.tree = None
+                if self._shutdown:  # shutdown began meanwhile: dispatch nothing new
+                    raise
+            # A shutdown after this point terminates the worker at registration
+            # (_register_process), as for any ordinary job.
             return call(False)
         except BaseException as error:
             retired = _retirement_confirmed(error)

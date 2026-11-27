@@ -60,6 +60,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 import numpy as np
 
 __all__ = [
+    "PoolUnretired",
     "PoolWorkerLost",
     "FAMILIES",
     "RECORD_SCHEMA",
@@ -489,33 +490,40 @@ def _sweep_stale_payloads(directory: str) -> None:
 
 
 class PoolWorkerLost(RuntimeError):
-    """A pool worker exited or failed while it held a task."""
+    """A pool worker exited, failed or missed a deadline; the pool was retired
+    (confirmed) and the caller recovers serially."""
+
+
+class PoolUnretired(RuntimeError):
+    """Pool workers could not be confirmed retired.  Not recoverable here: the
+    job fails, and the job supervisor's owned process tree retires them."""
 
 
 class ShellAxesPool:
     """A spawn process pool for the per-shell loop, started ahead of use.
 
     Start it before the solve so the worker imports overlap the solve; use it
-    for every case; close it (or leave the ``with`` block) afterwards.  Every
-    worker has its own pipe; the owner waits on those pipes and the workers'
-    process sentinels with a timeout, never on a shared channel, so a worker
-    lost at any point (also mid-send) is seen as EOF or a fired sentinel.
+    for every case; close it afterwards.  Every worker has its own pipe and
+    its own reader thread in the owner, which moves complete messages to one
+    queue; the owner only ever waits on that queue with a timeout, so no
+    worker (dead, stalled, half-written) can block it.  Ready messages are
+    taken while the solve runs, so readiness is never mistaken for lateness.
 
-    Deadlines: every worker must be ready within ``READY_SECONDS`` of the
-    pool's start, and every task must finish within ``task_seconds(n)``.  A
-    watchdog thread kills a worker that misses its deadline, which also ends a
-    read the owner may be blocked in (a stalled, half-written message reads as
-    EOF once the worker is gone).  Any loss, failure, missed deadline or payload
-    staging error raises :class:`PoolWorkerLost` after the whole pool is
-    retired under one ``CLOSE_SECONDS`` deadline; the caller then recovers
-    serially.  ``scratch`` is the directory for the model payload (the job
-    supervisor's per-job directory; default: the system temp directory, swept
-    for files of dead owners).
+    Deadlines: a worker that is not ready ``READY_SECONDS`` after the first
+    task needs it, or holds a task past ``task_seconds(n)``, is killed and the
+    pool is retired: :class:`PoolWorkerLost` (the caller recovers serially).
+    Retirement is confirmed by joining every worker under one absolute
+    ``CLOSE_SECONDS`` deadline; if any survives, :class:`PoolUnretired` is
+    raised instead and the payload is kept: the job fails and the job
+    supervisor's owned tree retires the survivors (the pool only runs in a
+    confirmed contained worker).  ``scratch`` is the directory for the model
+    payload (the job supervisor's per-job directory; default: the system temp
+    directory, swept for files of dead owners).
     """
 
-    #: Seconds every worker may take to start (imports) from the pool's start.
+    #: Seconds a worker may take to start, counted from the first task that needs it.
     READY_SECONDS = 300.0
-    #: One deadline for retiring all workers at close.
+    #: One absolute deadline for retiring all workers.
     CLOSE_SECONDS = 15.0
 
     @staticmethod
@@ -527,9 +535,8 @@ class ShellAxesPool:
 
     def __init__(self, workers: int, scratch: Optional[str] = None) -> None:
         import multiprocessing
+        import queue
         import tempfile
-        import threading
-        import time
 
         if workers < 2:
             raise ValueError("a shell axes pool needs at least two workers")
@@ -540,14 +547,12 @@ class ShellAxesPool:
         self.lost_reason = ""
         self._serial = 0
         self._ready: set = set()
+        self._dead: set = set()
         self._workers: list = []  # (process, connection)
-        self._lock = threading.Lock()
-        self._deadlines: Dict[int, float] = {}  # worker index -> monotonic deadline
-        self._expired: set = set()
-        self._stop = threading.Event()
+        self._survivors: list = []
+        self._inbox: "queue.Queue" = queue.Queue()
         context = multiprocessing.get_context("spawn")
         try:
-            ready_by = time.monotonic() + self.READY_SECONDS
             for index in range(self.workers):
                 parent, child = context.Pipe(duplex=True)
                 process = context.Process(target=_pool_worker_main, args=(child,),
@@ -555,33 +560,34 @@ class ShellAxesPool:
                 process.start()
                 child.close()  # only the worker holds its end: its death is EOF here
                 self._workers.append((process, parent))
-                self._deadlines[index] = ready_by
-            self._watchdog = threading.Thread(target=self._watch, name="anyfem-shell-axes-watchdog", daemon=True)
-            self._watchdog.start()
+                self._start_reader(index, parent)
         except BaseException:
             self.close(terminate=True)
             raise
 
-    def _watch(self) -> None:
-        import time
+    def _start_reader(self, index: int, connection: Any) -> None:
+        import threading
 
-        while not self._stop.wait(0.25):
-            now = time.monotonic()
-            with self._lock:
-                late = [index for index, deadline in self._deadlines.items() if now > deadline]
-                for index in late:
-                    self._deadlines.pop(index, None)
-                    self._expired.add(index)
-                workers = list(self._workers)
-            for index in late:
-                if index < len(workers) and workers[index][0].is_alive():
-                    workers[index][0].kill()
+        def read() -> None:
+            while True:
+                try:
+                    message = connection.recv()
+                except (EOFError, OSError, ValueError):
+                    self._inbox.put(("eof", index, None))
+                    return
+                except BaseException as error:  # noqa: BLE001 - an undecodable message is a failure
+                    self._inbox.put(("error", index, repr(error)))
+                    return
+                self._inbox.put(("message", index, message))
+
+        threading.Thread(target=read, name=f"anyfem-shell-axes-reader-{index}", daemon=True).start()
 
     def __enter__(self) -> "ShellAxesPool":
         return self
 
     def __exit__(self, kind, value, traceback) -> None:
-        self.close(terminate=kind is not None)
+        if not self.close(terminate=kind is not None) and kind is None:
+            raise PoolUnretired(f"shell axes pool workers not retired: {self.survivors()}")
 
     @property
     def open(self) -> bool:
@@ -590,92 +596,103 @@ class ShellAxesPool:
     def processes(self) -> tuple:
         return tuple(process for process, _connection in self._workers)
 
-    def close(self, terminate: bool = False) -> None:
-        """Retire every worker under one ``CLOSE_SECONDS`` deadline."""
+    def survivors(self) -> list:
+        return [process.pid for process in self._survivors]
+
+    def close(self, terminate: bool = False) -> bool:
+        """Retire every worker under one absolute ``CLOSE_SECONDS`` deadline.
+
+        Returns True when every worker is confirmed gone; otherwise the
+        survivors stay tracked (``survivors()``) and False is returned."""
 
         import time
 
-        self._stop.set()
-        with self._lock:
-            workers, self._workers = self._workers, []
-            self._deadlines.clear()
+        workers, self._workers = self._workers, []
         if not workers:
-            return
+            return not self._survivors
         if not terminate:
             for _process, connection in workers:
                 try:
                     connection.send(None)
                 except (OSError, ValueError):
                     pass
-        else:
-            for process, _connection in workers:
-                if process.is_alive():
-                    process.terminate()
         deadline = time.monotonic() + self.CLOSE_SECONDS
+
+        def stop(process, how: str) -> None:
+            try:
+                if process.is_alive():
+                    getattr(process, how)()
+            except OSError:
+                pass  # judged by the join below, never assumed
+
+        if terminate:
+            for process, _connection in workers:
+                stop(process, "terminate")
+        polite_until = deadline - (0.0 if terminate else self.CLOSE_SECONDS / 2)
+        for process, _connection in workers:
+            process.join(max(0.0, polite_until - time.monotonic()))
+        for process, _connection in workers:
+            stop(process, "kill")
         for process, _connection in workers:
             process.join(max(0.0, deadline - time.monotonic()))
-        for process, _connection in workers:
-            if process.is_alive():
-                process.kill()
+        self._survivors = [process for process, _connection in workers if process.is_alive()]
         for process, connection in workers:
-            process.join(1.0)
-            try:
-                connection.close()
-            except OSError:
-                pass
+            if process not in self._survivors:
+                try:
+                    connection.close()
+                except OSError:
+                    pass
+        return not self._survivors
 
-    def _lost(self, reason: str, cause: Optional[BaseException] = None) -> "PoolWorkerLost":
+    def _fail(self, reason: str, cause: Optional[BaseException] = None) -> BaseException:
+        """Retire the pool; PoolWorkerLost if confirmed, PoolUnretired if not."""
+
         self.lost_reason = reason
-        error = PoolWorkerLost(reason)
+        retired = self.close(terminate=True)
+        error: BaseException = PoolWorkerLost(reason) if retired else PoolUnretired(
+            f"{reason}; workers not retired: {self.survivors()}")
         if cause is not None:
             error.__cause__ = cause
         return error
 
-    def _receive(self, index: int) -> tuple:
+    def _kill(self, index: int) -> None:
         try:
-            return self._workers[index][1].recv()
-        except (EOFError, OSError) as error:
-            expired = index in self._expired
-            raise self._lost(f"shell axes pool worker {index} "
-                             f"{'missed its deadline' if expired else 'exited'} ({type(error).__name__})", error)
+            process = self._workers[index][0]
+            if process.is_alive():
+                process.kill()
+        except (OSError, IndexError):
+            pass  # close() judges retirement by joining
 
     def wait_ready(self, timeout: float) -> bool:
         """Wait until every worker has started (imports done); True if all did."""
 
+        import queue
         import time
-        from multiprocessing.connection import wait
 
         deadline = time.monotonic() + timeout
-        try:
-            while len(self._ready) < len(self._workers):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                pending = {connection: index for index, (_process, connection) in enumerate(self._workers)
-                           if index not in self._ready}
-                for connection in wait(list(pending), timeout=remaining):
-                    index = pending[connection]
-                    if self._receive(index)[0] == "ready":
-                        self._mark_ready(index)
-        except PoolWorkerLost:
-            self.close(terminate=True)
-            raise
+        while len(self._ready) < len(self._workers):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                kind, index, message = self._inbox.get(timeout=remaining)
+            except queue.Empty:
+                return False
+            if kind == "message" and message and message[0] == "ready":
+                self._ready.add(index)
+            else:
+                raise self._fail(f"shell axes pool worker {index} exited before it was ready")
         return True
-
-    def _mark_ready(self, index: int) -> None:
-        with self._lock:
-            self._ready.add(index)
-            self._deadlines.pop(index, None)
 
     def entries(self, carrier: Any, ids: Sequence[int],
                 cancelled: Optional[Callable[[], None]], *, _test_kind: str = "chunk") -> list:
         """Per element ``(copy input digest, entry)``, in ``ids`` order.
 
-        Raises :class:`PoolWorkerLost` (after retiring the pool) on any loss,
-        failure, missed deadline or payload staging error."""
+        Raises :class:`PoolWorkerLost` (pool retired) on any loss, failure,
+        missed deadline or payload staging error, or :class:`PoolUnretired`."""
 
+        import queue
         import time
-        from multiprocessing.connection import wait
 
         from ..job_process import dumps
         from ..result_transport import encode_result
@@ -688,61 +705,62 @@ class ShellAxesPool:
         self._serial += 1
         payload_path = os.path.join(
             self.scratch, f"{_PAYLOAD_PREFIX}{os.getpid()}-{os.urandom(8).hex()}-{self._serial}.bin")
+        retired = True
         try:
             try:
                 with open(payload_path, "xb") as stream:
                     stream.write(dumps(encode_result(carrier, verify=False)))
             except OSError as error:  # e.g. a full scratch volume: no pool, not a failed job
-                raise self._lost(f"shell axes pool payload could not be staged: {error}", error)
+                raise self._fail(f"shell axes pool payload could not be staged: {error}", error)
+            ready_by = time.monotonic() + self.READY_SECONDS
             todo = list(range(len(chunks)))
-            busy: Dict[int, int] = {}  # worker index -> chunk index
+            busy: Dict[int, tuple] = {}  # worker index -> (chunk index, deadline)
             idle = [index for index in range(len(self._workers)) if index in self._ready]
             while todo or busy:
                 while idle and todo:
                     worker, chunk = idle.pop(), todo.pop(0)
                     kind = _test_kind if chunk == 0 else "chunk"
-                    with self._lock:
-                        self._deadlines[worker] = time.monotonic() + self.task_seconds(len(chunks[chunk]))
                     try:
                         self._workers[worker][1].send((kind, payload_path, chunks[chunk]))
                     except (OSError, ValueError) as error:
-                        raise self._lost(f"shell axes pool worker {worker}: {type(error).__name__}", error)
-                    busy[worker] = chunk
-                sources = {}
-                for index, (process, connection) in enumerate(self._workers):
-                    sources[connection] = ("pipe", index)
-                    sources[process.sentinel] = ("exit", index)
-                for source in wait(list(sources), timeout=0.2):
-                    what, index = sources[source]
-                    if what == "exit":
-                        if index in busy or not self._workers[index][1].poll(0):
-                            reason = "missed its deadline" if index in self._expired else "exited"
-                            raise self._lost(f"shell axes pool worker {index} {reason}")
-                        continue
-                    message = self._receive(index)
-                    if message[0] == "ready":
-                        self._mark_ready(index)
-                        idle.append(index)
-                    elif message[0] == "ok" and index in busy:
-                        with self._lock:
-                            self._deadlines.pop(index, None)
-                        self.used_by.add(message[1])
-                        results[busy.pop(index)] = message[2]
-                        idle.append(index)
-                    else:
-                        raise self._lost(f"shell axes pool worker {index} failed: {str(message[-1])[-2000:]}")
-                if self._expired:
-                    raise self._lost(f"shell axes pool worker(s) {sorted(self._expired)} missed a deadline")
+                        raise self._fail(f"shell axes pool worker {worker}: {type(error).__name__}", error)
+                    busy[worker] = (chunk, time.monotonic() + self.task_seconds(len(chunks[chunk])))
+                try:
+                    kind, index, message = self._inbox.get(timeout=0.2)
+                except queue.Empty:
+                    kind = None
+                if kind == "message" and message and message[0] == "ready":
+                    self._ready.add(index)
+                    idle.append(index)
+                elif kind == "message" and message and message[0] == "ok" and index in busy:
+                    self.used_by.add(message[1])
+                    results[busy.pop(index)[0]] = message[2]
+                    idle.append(index)
+                elif kind is not None:
+                    detail = str(message[-1])[-2000:] if kind == "message" and message else str(message)
+                    raise self._fail(f"shell axes pool worker {index} {kind}: {detail}")
+                now = time.monotonic()
+                late = [worker for worker, (_chunk, deadline) in busy.items() if now > deadline]
+                if not late and len(self._ready) < len(self._workers) and now > ready_by:
+                    late = [index for index in range(len(self._workers)) if index not in self._ready]
+                if late:
+                    for worker in late:
+                        self._kill(worker)
+                    raise self._fail(f"shell axes pool worker(s) {late} missed a deadline")
                 if cancelled is not None:
                     cancelled()
+        except (PoolWorkerLost, PoolUnretired) as error:
+            retired = isinstance(error, PoolWorkerLost)
+            raise
         except BaseException:
-            self.close(terminate=True)
+            retired = self.close(terminate=True)
             raise
         finally:
-            try:
-                os.unlink(payload_path)
-            except OSError:
-                pass
+            if retired:  # a payload still open in a surviving worker is left to the supervisor
+                try:
+                    os.unlink(payload_path)
+                except OSError:
+                    pass
         return [row for rows in results for row in rows]
 
 
@@ -978,88 +996,76 @@ def _check_flat(dataset: Any, name: str, size: int) -> None:
         raise ValueError(f"shell axes table {name!r}: stored shape {shape}, expected flat ({size},)")
 
 
-def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) -> Any:
-    """Read one persisted record entry back exactly (fails closed).
+def _int_list(value: Any, what: str) -> list:
+    if not isinstance(value, list) or not all(type(v) is int and v >= 0 for v in value):
+        raise ValueError(f"shell axes tables: {what} must be a list of non-negative ints")
+    return value
 
-    ``case`` selects one case of a per-case entry (``shell_axes_meta``
-    ``entries[key].layout``); a shared entry is the same for every case.
-    Every entry is validated against the record schema: dtype, rank and
-    length of the stored table (checked before reading), shell and station
-    counts (from ``element_ids`` and the case's ``station_offsets``); float
-    entries need their boolean presence mask (absent -> NaN); string columns
-    are one list of str per shell.  Only the selected case is read, in bounded
-    blocks.
-    """
 
+def _meta(dataset: Any) -> tuple:
     meta = dataset.table("shell_axes_meta")
     if not isinstance(meta, Mapping) or meta.get("schema") != RECORD_SCHEMA:
         raise ValueError("shell axes tables: unknown or missing schema")
-    columns = _record_columns()
-    entries = meta.get("entries")
-    cases = meta.get("cases")
+    entries, cases = meta.get("entries"), meta.get("cases")
     if not isinstance(entries, Mapping) or not isinstance(cases, list) or not cases:
         raise ValueError("shell axes tables: malformed meta")
-    # every case slot names its own index (no shifted or swapped case data)
     if any(not isinstance(entry, Mapping) or type(entry.get("case_index")) is not int or entry["case_index"] != slot
            for slot, entry in enumerate(cases)):
         raise ValueError("shell axes tables: case metadata does not name its slot")
-    for name, layout_entry in entries.items():
-        if name not in _record_columns():
-            raise ValueError(f"shell axes tables: unknown entry {name!r}")
-        if not isinstance(layout_entry, Mapping) or layout_entry.get("layout") not in ("shared", "per_case"):
+    columns = _record_columns()
+    if set(entries) != set(columns):
+        raise ValueError(f"shell axes tables: entries differ from the record schema: "
+                         f"missing {sorted(set(columns) - set(entries))}, unknown {sorted(set(entries) - set(columns))}")
+    for name, layout in entries.items():
+        if not isinstance(layout, Mapping) or layout.get("layout") not in ("shared", "per_case") \
+                or layout.get("kind") != columns[name][0]:
             raise ValueError(f"shell axes tables: malformed layout of {name!r}")
-    missing = set(_record_columns()) - set(entries)
-    if missing:
-        raise ValueError(f"shell axes tables: entries missing: {sorted(missing)}")
-    if key not in columns or key not in entries:
-        raise KeyError(f"shell axes tables: no entry {key!r}")
-    n_cases = len(cases)
+        if columns[name][0] == "numeric":
+            if layout.get("dtype") != np.dtype(columns[name][1]).str:
+                raise ValueError(f"shell axes tables: {name!r} declared dtype {layout.get('dtype')!r}")
+            _int_list(layout.get("shape"), f"{name!r} shape")
+    if entries["element_ids"]["layout"] != "shared":
+        raise ValueError("shell axes tables: element_ids must be shared")
+    return entries, len(cases)
+
+
+def _read_entry(dataset: Any, entries: Mapping[str, Any], n_cases: int, n_e: int, n_s: Sequence[int],
+                key: str, case: Optional[int]) -> Any:
+    """One entry of one case (or the shared value), all structural checks."""
+
+    kind, dtype_str, rows, trailing = _record_columns()[key]
     layout = entries[key]
-    if not isinstance(layout, Mapping) or layout.get("layout") not in ("shared", "per_case") \
-            or layout.get("kind") != columns[key][0]:
-        raise ValueError(f"shell axes entry {key!r}: malformed layout")
     per_case = layout["layout"] == "per_case"
-    if per_case and case is None:
-        raise ValueError(f"shell axes entry {key!r} is per case; pass case=0..{n_cases - 1}")
-    if case is not None and (type(case) is not int or not 0 <= case < n_cases):
-        raise IndexError(f"shell axes case {case!r} out of range 0..{n_cases - 1}")
-    n_e = _shared_count(dataset, entries)
-    kind, dtype_str, rows, trailing = columns[key]
-    if rows == "e":
-        n_rows = n_e
-    elif rows == "e+1":
-        n_rows = n_e + 1
-    else:
-        offsets = read_shell_axes_table(dataset, "station_offsets",
-                                        case if entries["station_offsets"].get("layout") == "per_case" else None)
-        n_rows = int(offsets[-1])
+    slot = case if per_case else 0
+    n_rows = n_e if rows == "e" else n_e + 1 if rows == "e+1" else n_s[case if case is not None else 0]
     if kind == "strings":
-        name = f"shell_axes_{key}__{case}" if per_case else f"shell_axes_{key}"
-        stored = dataset.table(name)
+        name = f"shell_axes_{key}__{slot}" if per_case else f"shell_axes_{key}"
+        stored = dataset.table(name) if name in tuple(dataset.table_keys) else None
         values = stored.get("values") if isinstance(stored, Mapping) and set(stored) == {"values"} else None
         if not isinstance(values, list) or len(values) != n_rows or not all(type(v) is str for v in values):
             raise ValueError(f"shell axes entry {key!r}: malformed string column")
         return list(values)
     dtype = np.dtype(dtype_str)
-    expected = ((n_cases,) if per_case else ()) + (n_rows, *trailing)
-    if layout.get("dtype") != dtype.str or tuple(layout.get("shape", ())) != expected:
-        raise ValueError(f"shell axes entry {key!r}: declared {layout.get('dtype')}{layout.get('shape')}, "
-                         f"expected {dtype.str}{list(expected)}")
-    inner = math.prod((int(n_rows), *(int(v) for v in trailing)))  # Python ints: no overflow
+    if per_case:
+        # stations per case may differ: every case's span must match its own count
+        expected = [n_cases, n_rows, *trailing] if rows != "s" else None
+    else:
+        expected = [n_rows, *trailing]
+    shape = layout["shape"]
+    if rows == "s" and not per_case and len(set(n_s)) != 1:
+        raise ValueError(f"shell axes entry {key!r}: shared but the cases have different station counts")
+    if expected is not None and shape != expected:
+        raise ValueError(f"shell axes entry {key!r}: declared shape {shape}, expected {expected}")
+    if rows == "s" and per_case and (len(shape) != 2 + len(trailing) or shape[0] != n_cases
+                                     or list(shape[2:]) != list(trailing) or len(set(n_s)) != 1 or shape[1] != n_rows):
+        # a per-case station entry needs the same station count in every case
+        raise ValueError(f"shell axes entry {key!r}: declared shape {shape} does not fit the station counts {list(n_s)}")
+    inner = math.prod((int(n_rows), *(int(v) for v in trailing)))
     total = inner * (n_cases if per_case else 1)
-    start = inner * case if per_case else 0
+    start = inner * slot
     name = "shell_axes_" + key
     _check_flat(dataset, name, total)
     value = _read_span(dataset, name, start, inner, dtype).reshape((n_rows, *trailing))
-    if key == "station_offsets":
-        # zero-based and nondecreasing, compared element by element as Python
-        # ints (no wrapping difference): every shell owns one contiguous,
-        # possibly empty, slice of the station arrays
-        offsets_list = [int(v) for v in value]
-        if not offsets_list or offsets_list[0] != 0 or any(a > b for a, b in zip(offsets_list, offsets_list[1:])):
-            raise ValueError("shell axes entry 'station_offsets': not zero-based and nondecreasing")
-    if key == "element_ids" and len({int(v) for v in value}) != value.size:
-        raise ValueError("shell axes entry 'element_ids': duplicate element ids")
     if dtype.kind == "f":
         _check_flat(dataset, name + "_present", total)
         present = _read_span(dataset, name + "_present", start, inner, np.dtype(np.bool_)).reshape(value.shape)
@@ -1073,15 +1079,89 @@ def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) ->
     return value
 
 
-def _shared_count(dataset: Any, entries: Mapping[str, Any]) -> int:
-    layout = entries.get("element_ids")
-    if not isinstance(layout, Mapping) or layout.get("layout") != "shared" or layout.get("dtype") != "<i8":
-        raise ValueError("shell axes tables: element_ids must be one shared int64 column")
-    shape = layout.get("shape")
-    if not isinstance(shape, list) or len(shape) != 1 or type(shape[0]) is not int or shape[0] < 0:
+def _validated(dataset: Any) -> tuple:
+    """Validate the whole artifact once (all entries, all cases, the family /
+    certification consistency); cached on the dataset object when possible."""
+
+    cached = getattr(dataset, "_shell_axes_validated", None)
+    if cached is not None:
+        return cached
+    entries, n_cases = _meta(dataset)
+    n_e = entries["element_ids"]["shape"][0] if len(entries["element_ids"]["shape"]) == 1 else -1
+    if n_e < 0:
         raise ValueError("shell axes tables: malformed element_ids shape")
-    _check_flat(dataset, "shell_axes_element_ids", shape[0])
-    ids = _read_span(dataset, "shell_axes_element_ids", 0, shape[0], np.dtype("<i8"))
-    if len({int(v) for v in ids}) != ids.size:  # every read is aligned to unique shells
+    ids = _read_entry(dataset, entries, n_cases, n_e, [0], "element_ids", None)
+    if len({int(v) for v in ids}) != ids.size:
         raise ValueError("shell axes entry 'element_ids': duplicate element ids")
-    return shape[0]
+    n_s = []
+    for case in range(n_cases):
+        offsets = _read_entry(dataset, entries, n_cases, n_e, [0], "station_offsets",
+                              case if entries["station_offsets"]["layout"] == "per_case" else None)
+        # zero-based and nondecreasing, compared as Python ints (no wrapping)
+        offsets_list = [int(v) for v in offsets]
+        if not offsets_list or offsets_list[0] != 0 or any(a > b for a, b in zip(offsets_list, offsets_list[1:])):
+            raise ValueError("shell axes entry 'station_offsets': not zero-based and nondecreasing")
+        n_s.append(offsets_list[-1])
+    for case in range(n_cases):
+        row = {key: _read_entry(dataset, entries, n_cases, n_e, n_s, key,
+                                case if entries[key]["layout"] == "per_case" else None)
+               for key in _record_columns()}
+        _check_consistency(row, case)
+    result = (entries, n_cases, n_e, tuple(n_s))
+    try:
+        dataset._shell_axes_validated = result
+    except (AttributeError, TypeError):
+        pass
+    return result
+
+
+def _check_consistency(row: Mapping[str, Any], case: int) -> None:
+    """Record invariants of one case: a refused shell has no stations and no
+    certified family; a family's tensor rows are present exactly when it is
+    certified; a basis normal or shear-normal component only for a certified
+    family; a refusal reason exactly when not certified (admitted shells)."""
+
+    offsets = row["station_offsets"]
+    for index in range(len(row["element_ids"])):
+        lo, hi = int(offsets[index]), int(offsets[index + 1])
+        refused = row["element_refusal"][index] != ""
+        if refused and hi != lo:
+            raise ValueError(f"shell axes case {case}: refused shell {index} has stations")
+        if hi == lo and not refused:
+            raise ValueError(f"shell axes case {case}: admitted shell {index} has no stations")
+        for fam, key in (("membrane", "membrane_tensors"), ("bending", "bending_tensors"), ("shear", "shear_vectors")):
+            certified = bool(row[f"{fam}_certified"][index])
+            if refused and certified:
+                raise ValueError(f"shell axes case {case}: refused shell {index} has a certified {fam}")
+            tensors = row[key][lo:hi]
+            present = ~np.isnan(tensors.reshape(hi - lo, -1))
+            if certified != bool(present.all()) or (not certified and present.any()):
+                raise ValueError(f"shell axes case {case}: {fam} of shell {index} disagrees with its certification")
+            if not certified and np.any(~np.isnan(row[f"{fam}_basis_normals"][lo:hi])):
+                raise ValueError(f"shell axes case {case}: refused {fam} of shell {index} has a basis normal")
+            if not refused and certified == bool(row[f"{fam}_refusal_reason"][index]):
+                raise ValueError(f"shell axes case {case}: {fam} of shell {index} certification and reason disagree")
+        if not row["shear_certified"][index] and np.any(~np.isnan(row["shear_normal_components"][lo:hi])):
+            raise ValueError(f"shell axes case {case}: refused shear of shell {index} has normal components")
+
+
+def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) -> Any:
+    """Read one persisted record entry back exactly (fails closed).
+
+    The whole artifact is validated once first (every declaration, table,
+    mask and per-case inventory; integer dimensions; offsets; unique element
+    ids; family certification against tensors, normals and reasons).  ``case``
+    selects one case of a per-case entry (``shell_axes_meta``
+    ``entries[key].layout``); a shared entry is the same for every case.
+    Float entries come back with NaN where absent; string columns are lists.
+    """
+
+    entries, n_cases, n_e, n_s = _validated(dataset)
+    if key not in entries:
+        raise KeyError(f"shell axes tables: no entry {key!r}")
+    per_case = entries[key]["layout"] == "per_case"
+    if per_case and case is None:
+        raise ValueError(f"shell axes entry {key!r} is per case; pass case=0..{n_cases - 1}")
+    if case is not None and (type(case) is not int or not 0 <= case < n_cases):
+        raise IndexError(f"shell axes case {case!r} out of range 0..{n_cases - 1}")
+    return _read_entry(dataset, entries, n_cases, n_e, n_s, key, case if per_case else None)

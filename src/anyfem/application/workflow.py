@@ -4772,8 +4772,10 @@ def _execute_analysis_job(
             # closed: any later cache is a typed per-element refusal, never a value.
             _attach_shell_axes_records(solution, progress, cancellation_token, pool=axes_pool)
     finally:
-        if axes_pool is not None:
-            axes_pool.close()
+        if axes_pool is not None and not axes_pool.close():
+            from ..post.shell_axes_record import PoolUnretired
+            # fail the job: the supervisor's owned tree retires the survivors
+            raise PoolUnretired(f"shell result-axes pool workers not retired: {axes_pool.survivors()}")
     if requested_stress:
         from ..post.results import LinearBatchSolution, NonlinearSolution, TransientSolution
         recovery_solutions = (solution,)

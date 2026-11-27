@@ -1046,3 +1046,127 @@ def test_scratch_is_kept_when_retirement_is_not_confirmed():
     dirty.cleanup_failures = ["tree survivor 1234"]
     assert not _retirement_confirmed(dirty)
     assert not _retirement_confirmed(WorkerProcessError("x", remote_type="WorkerCleanupFailed"))
+
+
+def test_unconfirmed_pool_retirement_fails_the_job_instead_of_continuing(monkeypatch):
+    """Codex r5 P1/P2: a stalled worker whose kill fails is not waited on (the
+    owner never blocks in a read) and is not assumed gone: PoolUnretired is
+    raised (the job fails; the supervisor's owned tree retires the worker)."""
+
+    import multiprocessing.process as mp_process
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import PoolUnretired, ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    monkeypatch.setattr(ShellAxesPool, "task_seconds", staticmethod(lambda shells: 1.0))
+    monkeypatch.setattr(ShellAxesPool, "CLOSE_SECONDS", 2.0)
+    solution = solve_linear_static(_plate(), target_size=0.25)
+    pool = ShellAxesPool(2)
+    processes = list(pool.processes())
+    assert pool.wait_ready(120)
+    original = ShellAxesPool.entries
+
+    def stalled(self, carrier, ids, cancelled):
+        return original(self, carrier, ids, cancelled, _test_kind="_test_stall")
+
+    def refuse(self):
+        raise PermissionError("stop refused (test)")
+
+    monkeypatch.setattr(ShellAxesPool, "entries", stalled)
+    monkeypatch.setattr(mp_process.BaseProcess, "kill", refuse)
+    monkeypatch.setattr(mp_process.BaseProcess, "terminate", refuse)
+    try:
+        with pytest.raises(PoolUnretired):
+            recover_shell_axes_record(solution.built.fe_model, solution.displacements,
+                                      pool=pool, carrier=solution)
+        assert pool.survivors()
+    finally:
+        monkeypatch.undo()
+        for process in processes:
+            if process.is_alive():
+                process.kill()
+            process.join(30)
+    assert not any(process.is_alive() for process in processes)
+
+
+def test_ready_workers_are_not_expired_by_a_long_solve(monkeypatch):
+    """Codex r5 P2: readiness is taken as it arrives (during the solve); a solve
+    longer than READY_SECONDS does not expire healthy workers."""
+
+    import time
+
+    import anyfem.post.shell_axes_record as module
+    from anyfem.post.shell_axes_record import ShellAxesPool
+
+    monkeypatch.setattr(module, "POOL_MIN_SHELLS", 1)
+    monkeypatch.setattr(ShellAxesPool, "READY_SECONDS", 0.5)
+    solution = solve_linear_static(_plate(pressure=1.0e3, in_plane=2.0e5), target_size=0.25)
+    fe = solution.built.fe_model
+    serial = recover_shell_axes_record(fe, solution.displacements)
+    with ShellAxesPool(2) as pool:
+        time.sleep(20.0)  # "the solve": workers become ready meanwhile, nobody reads them yet
+        pooled = recover_shell_axes_record(fe, solution.displacements, pool=pool, carrier=solution)
+    assert pooled["provenance"] == {"recovered_with": "pool:2", "serial_rechecked": 0}
+    _records_equal(serial, pooled)
+
+
+def test_fallback_is_not_dispatched_after_shutdown(monkeypatch):
+    """Codex r5 P2: shutdown between the containment refusal and the fallback."""
+
+    import anyfem.jobs as jobs
+    from anyfem.document import DocumentSession
+    from anyfem.job_process import WorkerProcessError
+    from anyfem.model.records import AnalysisDefinition
+
+    calls = []
+    manager = jobs.JobManager(Project("axes fallback"), executor="process")
+
+    def fake_run(**kwargs):
+        calls.append(bool(kwargs.get("containment")))
+        if kwargs.get("containment"):
+            manager._shutdown = True  # shutdown begins right after the refusal
+            raise WorkerProcessError("no tree", remote_type="ContainmentUnavailable")
+        return "dispatched"
+
+    monkeypatch.setattr(jobs, "run_in_worker_process", fake_run)
+    request = jobs.JobRequest(record=None, analysis=AnalysisDefinition("Job"),
+                              snapshot=DocumentSession(Project("p")).snapshot(),
+                              function=contained_axes_job, containment=True)
+    with pytest.raises(WorkerProcessError):
+        manager._run_process(request, lambda message: None)
+    assert calls == [True]
+
+
+def test_only_a_clean_worker_error_confirms_retirement():
+    from anyfem.jobs import _retirement_confirmed
+
+    assert not _retirement_confirmed(OSError("cleanup raised"))
+    assert not _retirement_confirmed(KeyboardInterrupt())
+
+
+@pytest.mark.parametrize("damage", ["other_declaration", "missing_table", "missing_other_mask", "bool_shape",
+                                    "refused_family_value"])
+def test_reader_validates_the_whole_artifact(stored_tables, damage):
+    """Codex r5 P2: any malformed entry, inventory or family/certification
+    disagreement refuses every read, not only reads of that entry."""
+
+    tables, _records = stored_tables
+    tables = dict(tables)
+    meta = dict(tables["shell_axes_meta"])
+    meta["entries"] = {k: dict(v) for k, v in meta["entries"].items()}
+    tables["shell_axes_meta"] = meta
+    if damage == "other_declaration":
+        meta["entries"]["shear_vectors"]["dtype"] = "<f4"
+    elif damage == "missing_table":
+        del tables["shell_axes_bending_tensors"]
+    elif damage == "missing_other_mask":
+        del tables["shell_axes_station_positions_present"]
+    elif damage == "bool_shape":
+        meta["entries"]["thickness"]["shape"] = [True]
+    elif damage == "refused_family_value":
+        certified = tables["shell_axes_membrane_certified"].copy()
+        certified[:] = False
+        tables["shell_axes_membrane_certified"] = certified
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
