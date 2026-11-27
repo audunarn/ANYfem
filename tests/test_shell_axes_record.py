@@ -816,7 +816,7 @@ def _identical_cases_batch():
                     load_cases=("default", "again"))
 
 
-@pytest.mark.parametrize("damage", ["dropped_case", "label_mismatch"])
+@pytest.mark.parametrize("damage", ["dropped_case", "names_missing_case_name"])
 def test_reader_refuses_axes_cases_that_do_not_match_the_artifact(damage):
     """Codex r6 P2: the axes case list must match the artifact's own cases
     (frame axis; batch case names), also when every entry is shared."""
@@ -829,7 +829,7 @@ def test_reader_refuses_axes_cases_that_do_not_match_the_artifact(damage):
         meta["cases"] = meta["cases"][:1]
     else:
         meta["cases"] = [dict(case) for case in meta["cases"]]
-        meta["cases"][1]["case_name"] = "default"
+        del meta["cases"][1]["case_name"]  # a batch case without its name
     tables["shell_axes_meta"] = meta
     with pytest.raises(ValueError):
         read_shell_axes_table(_FakeDataset(tables), "thickness")
@@ -1696,3 +1696,102 @@ def test_ordinary_shell_axes_named_tables_stay_visible_without_the_store(tmp_pat
     assert "shell_axes_orientation" in dataset.table_keys
     assert any(entry.key == "shell_axes_orientation" for entry in result_entries(dataset=dataset))
     assert "shell_axes_orientation" in result_report_markdown(dataset)
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 8
+class _ReversedCases(list):
+    """A list subclass whose own iteration reverses the cases."""
+
+    def __iter__(self):
+        return iter(list(list.__iter__(self))[::-1])
+
+
+@pytest.mark.parametrize("container", ["reversed_list", "user_list"])
+def test_batch_publication_follows_one_case_snapshot(container):
+    """Codex PR-1 r8 P1: the ordinary adapter (own iteration) and the axes
+    writer (stored cases) must see the same cases in the same order, or the
+    artifact is refused (never misaligned, never silently without axes)."""
+
+    import collections
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                     target_size=0.5, load_cases=("default", "second"))
+    cases = list(list.__iter__(batch.shapes))
+    batch.shapes = _ReversedCases(cases) if container == "reversed_list" else collections.UserList(cases)
+    with pytest.raises(ValueError, match="case list"):
+        result_artifact_payload(batch)
+
+
+def test_writer_binds_batch_case_names_to_the_artifact():
+    """Codex PR-1 r8 P2: the reader no longer re-reads the unbounded legacy
+    load_case_names table; the writer binds every case_name before publishing."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    batch = _identical_cases_batch()
+    record = dict(batch.shapes[1]._requested_shell_axes)
+    record["provenance"] = {**record["provenance"], "case_name": "default"}
+    batch.shapes[1]._requested_shell_axes = record
+    with pytest.raises(ValueError, match="does not name that case"):
+        result_artifact_payload(batch)
+
+
+@pytest.mark.parametrize("damage", ["string_with_dtype", "numeric_without_shape"])
+def test_reader_requires_exact_declaration_keys(stored_tables, damage):
+    tables, meta = _damaged(stored_tables[0])
+    if damage == "string_with_dtype":
+        meta["entries"]["branch"].update(dtype="<f8", shape=[999])
+    else:
+        del meta["entries"]["thickness"]["shape"]
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+def _with_per_case_strings(tables):
+    """Turn one shared string column into a valid per-case column."""
+
+    from anyfem.post.shell_axes_record import encode_strings
+
+    tables, meta = _damaged(tables)
+    offsets = tables.pop("shell_axes_element_refusal_reason__offsets")
+    data = tables.pop("shell_axes_element_refusal_reason__bytes")
+    rows = [bytes(data[offsets[i]:offsets[i + 1]]).decode() for i in range(len(offsets) - 1)]
+    for case in range(len(meta["cases"])):
+        tables[f"shell_axes_element_refusal_reason__{case}__bytes"], \
+            tables[f"shell_axes_element_refusal_reason__{case}__offsets"] = encode_strings(rows)
+    meta["entries"]["element_refusal_reason"]["layout"] = "per_case"
+    return tables
+
+
+def test_combined_string_budget_per_case_and_span(monkeypatch, stored_tables):
+    """Codex PR-1 r8 P3: shared and per-case string columns, counted per
+    validation case and span, all columns together."""
+
+    import anyfem.post.shell_axes_record as module
+
+    tables = _with_per_case_strings(stored_tables[0])
+    read_shell_axes_table(_FakeDataset(dict(tables)), "thickness")  # valid
+    dataset = _FakeDataset(dict(tables))
+    per_shell = np.zeros(len(dataset.tables["shell_axes_branch__offsets"]) - 1, dtype=np.int64)
+    for key, value in dataset.tables.items():
+        if key.endswith("__offsets") and not key.startswith("shell_axes_element_refusal_reason__1"):
+            per_shell += np.diff(value)
+    budget = int(per_shell.max()) + 1
+    monkeypatch.setattr(module, "VALIDATE_STRING_BYTES", budget)
+    spans = {}
+    original = module._Layout.read_strings
+
+    def counted(self, dataset, key, case, lo=0, hi=None):
+        rows = original(self, dataset, key, case, lo, hi)
+        if hi is not None:  # validation spans
+            spans[(case, lo, hi)] = spans.get((case, lo, hi), 0) + sum(len(r.encode()) for r in rows)
+        return rows
+
+    monkeypatch.setattr(module._Layout, "read_strings", counted)
+    module._validated(dataset)
+    assert {case for case, _lo, _hi in spans} == {0, 1}
+    assert len({(lo, hi) for _case, lo, hi in spans}) > 1
+    for (case, lo, hi), total in spans.items():
+        assert total <= budget or hi - lo == 1, (case, lo, hi, total, budget)

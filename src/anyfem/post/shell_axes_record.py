@@ -558,6 +558,9 @@ class _Layout:
             if not isinstance(layout, Mapping) or layout.get("layout") not in ("shared", "per_case") \
                     or layout.get("kind") != columns[name][0]:
                 raise ValueError(f"shell axes tables: malformed layout of {name!r}")
+            keys = {"layout", "kind", "dtype", "shape"} if columns[name][0] == "numeric" else {"layout", "kind"}
+            if set(layout) != keys:
+                raise ValueError(f"shell axes tables: declaration of {name!r} has keys {sorted(layout)}")
             if columns[name][0] == "numeric":
                 if layout.get("dtype") != np.dtype(columns[name][1]).str:
                     raise ValueError(f"shell axes tables: {name!r} declared dtype {layout.get('dtype')!r}")
@@ -599,11 +602,12 @@ class _Layout:
             return
         if not has_names:
             raise ValueError("shell axes tables: a batch result needs its load case names")
-        names = dataset.table("load_case_names")
-        names = names.tolist() if isinstance(names, np.ndarray) else names
-        if not isinstance(names, list) or not all(type(name) is str for name in names) \
-                or names != [entry.get("case_name") for entry in self.cases]:
-            raise ValueError("shell axes tables: case names differ from the artifact's load case names")
+        # The writer bound each case_name to the artifact's load_case_names
+        # before publishing.  The reader does not re-read that legacy JSON
+        # table (no size bound before decoding); it requires a typed name per
+        # case.  Binding to the artifact's names beyond that is D2-2's.
+        if any(type(entry.get("case_name")) is not str for entry in self.cases):
+            raise ValueError("shell axes tables: a batch case has no case name")
 
     def _check_inventory(self, dataset: Any) -> None:
         expected = {"shell_axes_meta__bytes"}

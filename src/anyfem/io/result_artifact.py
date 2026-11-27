@@ -912,9 +912,22 @@ def _add_shell_axes_records(builder, solution):
     elif field[0] and isinstance(field[1], tuple):
         shapes = tuple(tuple.__iter__(field[1]))
     case_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in shapes]
+    batch = type(solution).__name__ == "LinearBatchSolution"
+    # The ordinary batch adapter enumerates the cases through the container's
+    # own iteration; frames, fields and case names follow that order.  The
+    # axes record must follow exactly the same cases in the same order.
+    ordinary = ()
+    if batch:
+        ordinary = tuple(getattr(solution, "shapes", ()) or ())
+        ordinary_records = [_stored_attribute(shape, "_requested_shell_axes") for shape in ordinary]
+        any_attached = attached[0] or any(found for found, _ in case_records) or any(
+            found for found, _ in ordinary_records)
+        if any_attached and (len(ordinary) != len(shapes)
+                             or any(a is not b for a, b in zip(ordinary, shapes))):
+            raise ValueError("shell result-axes records: the batch's case list does not enumerate the same "
+                             "cases in the same order as its stored cases; refusing to publish")
     if not attached[0] and not any(found for found, _value in case_records):
         return
-    batch = type(solution).__name__ == "LinearBatchSolution"
     if batch and attached[0]:
         # records belong to the batch's cases; one on the wrapper would be dropped
         raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
