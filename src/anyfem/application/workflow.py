@@ -1536,6 +1536,7 @@ class WorkbenchWorkflow:
         )
         if mesh_record is not None:
             mesh_hash = mesh_record.mesh_hash
+        request_flags, submission = _requested_recovery(output_scopes)
         record = self.job_manager.submit(
             definition,
             self.session.snapshot(),
@@ -1545,26 +1546,10 @@ class WorkbenchWorkflow:
                 "solver_function": function,
                 "analysis_name": analysis,
                 "options": job_options,
-                "requested_stress": any(
-                    key.startswith("stress")
-                    for scope in output_scopes for key in scope["request"]["quantity_keys"]
-                ),
-                "requested_global_stress": any(
-                    scope["request"]["basis"] == "global" and scope["request"]["recovery"] != "patch" and
-                    any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
-                    for scope in output_scopes
-                ),
-                "requested_patch_stress": any(
-                    scope["request"]["recovery"] == "patch" and
-                    any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
-                    for scope in output_scopes
-                ),
-                "requested_shell_axes": any(
-                    key.strip().lower().startswith("axes")
-                    for scope in output_scopes for key in scope["request"]["quantity_keys"]
-                ),
+                **request_flags,
             },
             name=definition.name,
+            **submission,
         )
         self.active_job_id = record.id
         input_report = _submitted_input_report(
@@ -4653,6 +4638,36 @@ def _submitted_input_report(
         "regions": project.regions.to_list(),
     }
     return json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
+
+
+def _requested_recovery(output_scopes):
+    """Job flags and submission options implied by the frozen output requests.
+
+    Returns ``(flags, submission)``: the ``requested_*`` keyword flags of
+    :func:`_execute_analysis_job` and extra ``JobManager.submit`` options.  Only
+    an ``axes_*`` request adds anything beyond the three stress flags: the
+    ``requested_shell_axes`` flag and an owned worker tree (``containment``) so
+    the worker may start the axes recovery pool.  Without one, both are exactly
+    what they were before D2-1.
+    """
+
+    keys = [(scope, key) for scope in output_scopes for key in scope["request"]["quantity_keys"]]
+    flags = {
+        "requested_stress": any(key.startswith("stress") for _scope, key in keys),
+        "requested_global_stress": any(
+            scope["request"]["basis"] == "global" and scope["request"]["recovery"] != "patch" and
+            any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
+            for scope in output_scopes
+        ),
+        "requested_patch_stress": any(
+            scope["request"]["recovery"] == "patch" and
+            any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
+            for scope in output_scopes
+        ),
+    }
+    if any(key.strip().lower().startswith("axes") for _scope, key in keys):
+        return {**flags, "requested_shell_axes": True}, {"containment": True}
+    return flags, {}
 
 
 def _execute_analysis_job(

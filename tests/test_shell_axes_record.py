@@ -432,3 +432,23 @@ def test_axes_job_in_a_worker_process_uses_the_pool_only_when_contained(monkeypa
     assert len(axes["element_ids"]) >= 400 and set(axes["element_refusal"]) == {""}
     pooled = any(message.startswith("shell result-axes pool: 2 workers") for message in messages)
     assert pooled is containment, messages
+
+
+def _scope(keys, basis="global", recovery="native"):
+    return {"request": {"quantity_keys": list(keys), "basis": basis, "recovery": recovery}}
+
+
+def test_submission_flags_change_only_for_axes_requests():
+    from anyfem.application.workflow import _requested_recovery
+
+    ordinary = (_scope(("stress_von_mises",)), _scope(("displacement.uz",)), _scope(("stress_xx",), recovery="patch"))
+    flags, submission = _requested_recovery(ordinary)
+    assert flags == {"requested_stress": True, "requested_global_stress": True, "requested_patch_stress": True}
+    assert submission == {}
+    flags, submission = _requested_recovery((_scope(("displacement.uz",)),))
+    assert flags == {"requested_stress": False, "requested_global_stress": False, "requested_patch_stress": False}
+    assert submission == {}
+    flags, submission = _requested_recovery((_scope(("axes_membrane_xx",)),))
+    assert flags == {"requested_stress": False, "requested_global_stress": False, "requested_patch_stress": False,
+                     "requested_shell_axes": True}
+    assert submission == {"containment": True}
