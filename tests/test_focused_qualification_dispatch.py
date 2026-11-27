@@ -5,7 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN = 'e889e62331d980ceb7042ff5c338a5117dca0162'
+PIN = 'b16ac98d20973e603a0f61696e3d346a80116480'
 NODE = 'diagnostics/test_spline_mesh_ownership_acceptance.py::test_unassigned_reported_spline_mesh_has_exact_boundary_and_shared_nodes'
 
 
