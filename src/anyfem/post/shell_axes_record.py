@@ -361,8 +361,13 @@ def recover_shell_axes_record(
 # ------------------------------------------------------------------ reading
 #: Values read per request (well under the desktop reader's working cap).
 READ_BLOCK = 2_000_000
-#: Shells validated per span (bounds the validation's working memory).
+#: Shells validated per span, and stations per span (together they bound the
+#: validation's working memory).
 VALIDATE_SHELLS = 65_536
+VALIDATE_STATIONS = 262_144
+#: Structural cap on one shell's stations (no element has more than 9; a
+#: larger count is a malformed record, refused before it is read).
+MAX_STATIONS_PER_SHELL = 1_024
 _ANALYSES = {"linear_static": "static", "batch_linear_static": "load_case"}
 _SOLUTION_TYPES = {"linear_static": "LinearSolution", "batch_linear_static": "LinearBatchSolution"}
 
@@ -635,15 +640,25 @@ def _validated(dataset: Any) -> tuple:
         for key in shell_keys + station_keys:
             layout.read_rows(dataset, key, case, 0, 0, n_s[case])
         strings = {key: layout.read_strings(dataset, key, case) for key in string_keys}
-        for lo in range(0, n_e, VALIDATE_SHELLS):
-            hi = min(n_e, lo + VALIDATE_SHELLS)
-            offsets = offsets_span(case, lo, hi)
+        lo = 0
+        while lo < n_e:
+            # a span of at most VALIDATE_SHELLS shells and VALIDATE_STATIONS
+            # stations (at least one shell, itself capped)
+            offsets = offsets_span(case, lo, min(n_e, lo + VALIDATE_SHELLS))
+            counts = np.diff(offsets)
+            if int(counts.max(initial=0)) > MAX_STATIONS_PER_SHELL:
+                raise ValueError(f"shell axes case {case}: a shell has more than {MAX_STATIONS_PER_SHELL} stations")
+            within = np.cumsum(counts) <= VALIDATE_STATIONS
+            take = max(1, int(np.count_nonzero(within)))
+            hi = lo + take
+            offsets = offsets[:take + 1]
             s_lo, s_hi = int(offsets[0]), int(offsets[-1])
             row = {key: layout.read_rows(dataset, key, case, lo, hi, n_s[case]) for key in shell_keys}
             row.update({key: layout.read_rows(dataset, key, case, s_lo, s_hi, n_s[case]) for key in station_keys})
             row.update({key: values[lo:hi] for key, values in strings.items()})
             row["station_offsets"] = offsets - s_lo
             _check_consistency(row, case, lo)
+            lo = hi
     result = (layout, n_s)
     try:
         dataset._shell_axes_validated = result

@@ -271,6 +271,11 @@ def result_artifact_payload(
         item.descriptor.to_dict() for item in resolved_solver_quantities
     ]
     built_provenance.update(_json_safe(dict(provenance or {})))
+    if any(key.startswith("shell_axes_") for key in builder.tables) and \
+            built_provenance.get("solution_type") != type(solution).__name__:
+        # the axes tables were validated against this result's own solution type
+        raise ValueError("shell result-axes tables cannot be published under a different solution_type "
+                         f"({built_provenance.get('solution_type')!r} for {type(solution).__name__})")
     built_summary = _base_summary(solution, builder)
     if outcome is not None:
         encoded_outcome = _json_safe(outcome.to_dict())
@@ -899,6 +904,9 @@ def _add_shell_axes_records(builder, solution):
     holders = tuple(getattr(solution, "shapes", ()) or ()) if batch else (solution,)
     records = [getattr(holder, "_requested_shell_axes", None) for holder in holders]
     present = [record is not None for record in records]
+    if batch and "_requested_shell_axes" in vars(solution):
+        # records belong to the batch's cases; one on the wrapper would be dropped
+        raise ValueError("shell result-axes record on a batch wrapper; records belong to its cases")
     if not any(present):
         return
     if not all(present):
@@ -906,11 +914,16 @@ def _add_shell_axes_records(builder, solution):
 
     from ..post.shell_axes_record import RECORD_SCHEMA, check_record_columns, validate_shell_axes_tables
 
-    # axes records exist only for qualified linear static results
-    expected_analysis = {"LinearSolution": "linear_static", "LinearBatchSolution": "batch_linear_static"}.get(
-        type(solution).__name__)
-    if expected_analysis is None or (not batch and type(solution).__name__ != "LinearSolution"):
-        raise ValueError(f"shell result-axes records on a {type(solution).__name__}; refusing to write them")
+    from ..post.results import LinearBatchSolution, LinearSolution
+
+    # axes records exist only for qualified linear static results: exact classes
+    if type(solution) is LinearSolution:
+        expected_analysis = "linear_static"
+    elif type(solution) is LinearBatchSolution and all(type(holder) is LinearSolution for holder in holders):
+        expected_analysis = "batch_linear_static"
+    else:
+        raise ValueError(f"shell result-axes records on a {type(solution).__name__} "
+                         "(or a batch case that is not a LinearSolution); refusing to write them")
 
     first = records[0]
     for index, (holder, record) in enumerate(zip(holders, records)):

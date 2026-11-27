@@ -4817,6 +4817,8 @@ def _attach_shell_axes_records(solution, progress, cancellation_token=None):
     if type(solution) is LinearBatchSolution:
         cases = tuple(solution.shapes)
         analysis = "batch_linear_static"
+        if not all(type(case) is LinearSolution for case in cases):
+            raise ValueError("[AXES_ANALYSIS_NOT_QUALIFIED] a batch case is not a linear static solution")
         names = tuple(str(name) for name in solution.case_names)
         if len(names) != len(cases):
             raise ValueError("linear batch case names do not match its shapes")

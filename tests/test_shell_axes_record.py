@@ -1145,3 +1145,110 @@ def test_ordinary_submission_never_imports_an_axes_module(tmp_path):
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=600)
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "[]"
+
+
+# ---------------------------------------------------------------- Codex PR-1 round 3
+def test_writer_refuses_a_solution_type_override_with_axes_records():
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    solution = _run_job(_plate(), "Linear static", solve_linear_static, True)
+    with pytest.raises(ValueError, match="solution_type"):
+        result_artifact_payload(solution, provenance={"solution_type": "ImportedSolution"})
+
+
+@pytest.mark.parametrize("damage", ["impostor_class", "batch_case_not_linear", "record_on_batch_wrapper"])
+def test_writer_checks_exact_result_classes(damage):
+    """Codex PR-1 r3: exact wrapper and case classes; no record on a batch wrapper."""
+
+    import dataclasses
+
+    from anyfem.io.result_artifact import result_artifact_payload
+    from anyfem.post.results import LinearSolution
+
+    if damage == "impostor_class":
+        solution = _run_job(_plate(), "Linear static", solve_linear_static, True)
+        Impostor = type("LinearSolution", (LinearSolution,), {})
+        fields = {field.name: getattr(solution, field.name) for field in dataclasses.fields(solution) if field.init}
+        impostor = Impostor(**fields)
+        impostor._requested_shell_axes = solution._requested_shell_axes
+        target = impostor
+    else:
+        batch = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
+                         target_size=0.5, load_cases=("default", "second"))
+        if damage == "batch_case_not_linear":
+            Impostor = type("LinearSolution", (LinearSolution,), {})
+            case = batch.shapes[1]
+            fields = {field.name: getattr(case, field.name) for field in dataclasses.fields(case) if field.init}
+            replacement = Impostor(**fields)
+            replacement._requested_shell_axes = case._requested_shell_axes
+            batch.shapes[1] = replacement
+        else:
+            batch._requested_shell_axes = batch.shapes[0]._requested_shell_axes
+        target = batch
+    with pytest.raises(ValueError):
+        result_artifact_payload(target)
+
+
+def test_worker_step_refuses_a_batch_case_that_is_not_linear():
+    import dataclasses
+
+    from anyfem.application.workflow import _attach_shell_axes_records
+    from anyfem.post.results import LinearSolution
+
+    batch = solve_linear_static_many(_plate(), target_size=0.5, load_cases=("default", "second"))
+    Impostor = type("LinearSolution", (LinearSolution,), {})
+    case = batch.shapes[0]
+    batch.shapes[0] = Impostor(**{field.name: getattr(case, field.name)
+                                  for field in dataclasses.fields(case) if field.init})
+    with pytest.raises(ValueError, match="AXES_ANALYSIS_NOT_QUALIFIED"):
+        _attach_shell_axes_records(batch, lambda message: None)
+
+
+def test_validation_bounds_stations_per_span_and_per_shell(monkeypatch, stored_tables):
+    """Codex PR-1 r3: spans are bounded by stations too; a shell's own station
+    count is capped (a structural limit, not the solver rule)."""
+
+    import anyfem.post.shell_axes_record as module
+
+    tables = dict(stored_tables[0])
+    stations = int(np.max(np.diff(tables["shell_axes_station_offsets"])))
+    monkeypatch.setattr(module, "VALIDATE_STATIONS", stations)
+    reads = []
+
+    class Counting(_FakeDataset):
+        def table(self, name, rows=None):
+            value = super().table(name, rows)
+            if name.startswith("shell_axes_") and "tensors" in name and isinstance(value, np.ndarray):
+                reads.append(value.size)
+            return value
+
+    read_shell_axes_table(Counting(dict(tables)), "thickness")
+    assert reads and max(reads) <= stations * 9
+    monkeypatch.setattr(module, "MAX_STATIONS_PER_SHELL", stations - 1)
+    with pytest.raises(ValueError, match="more than"):
+        read_shell_axes_table(_FakeDataset(dict(tables)), "thickness")
+
+
+def test_v2d_director_polarity_and_offsets_are_copied_bit_for_bit():
+    """Codex PR-1 r3 P3: the fixture that emits the director, polarity and the
+    four offsets (V2D), with their presence asserted before comparing."""
+
+    from result_transport_helpers import s3_linear_result
+
+    solution = s3_linear_result(project=None, progress=lambda message=None: None)
+    fe = solution.built.fe_model
+    u = np.asarray(solution.displacements, float)
+    record = recover_shell_axes_record(fe, u)
+    eid = int(record["element_ids"][0])
+    element = fe.mesh.elements[eid]
+    direct = recover_shell_axes(element, fe.mesh, u[np.asarray(element.get_dof_mapping(fe.mesh))],
+                                fe.get_material(element.material_name)).axes
+    keys = ("physical_reference_director", "director_polarity", "reference_surface_offset",
+            "section_origin_offset_from_reference", "physical_bottom_offset_from_reference",
+            "physical_top_offset_from_reference")
+    assert all(key in direct.arrays for key in keys)
+    assert _same(np.ascontiguousarray(record["physical_reference_director"][0]),
+                 np.ascontiguousarray(direct.arrays["physical_reference_director"]))
+    assert int(record["director_polarity"][0]) == int(np.asarray(direct.arrays["director_polarity"]))
+    for key in keys[2:]:
+        assert _same(np.asarray(record[key][0]), np.asarray(direct.arrays[key]).astype(np.float64)), key
