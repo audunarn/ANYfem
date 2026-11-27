@@ -54,13 +54,13 @@ jobs:
         with:
           repository: audunarn/ANYfeSolver
           # Updated Q4/S3 owner laws, same as the headless matrix.
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          ref: bde9b658a1741f9b8b9258ccb0a41631a22876f3
           path: .ecosystem/ANYfeSolver
       # Results-only API repair: preserve the physical solver revision above.
       - uses: actions/checkout@v4
         with:
           repository: audunarn/ANYfeSolver
-          ref: f54e3cde5abf70cb8c989eb106119eedd3e33025
+          ref: bde9b658a1741f9b8b9258ccb0a41631a22876f3
           path: .ecosystem/ANYfeSolver-results
       - uses: actions/checkout@v4
         with:

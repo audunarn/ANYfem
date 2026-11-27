@@ -255,7 +255,11 @@ def add_output_request_views(payload, scopes):
                     outcome["diagnostics"].append(
                         f"{quantity} ({key}): owner patch recovery has fallback/unclassified values at nodes "
                         f"{view.provenance['unqualified_requested_nodes']}")
-            if not matched:
+            if not matched and quantity.strip().lower().startswith("axes") and "shell_axes_element_ids" in tables:
+                outcome["diagnostics"].append(
+                    f"{quantity}: shell result-axes station records are stored (tables shell_axes_*); "
+                    "result-axes field evaluation is not available in this version")
+            elif not matched:
                 outcome["diagnostics"].append(f"{quantity}: unavailable in the retained solver output (recovery {request.recovery})")
         outcome["status"] = (
             "partial" if outcome["fields"] and outcome["diagnostics"] else

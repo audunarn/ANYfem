@@ -1559,6 +1559,10 @@ class WorkbenchWorkflow:
                     any(key.startswith("stress") for key in scope["request"]["quantity_keys"])
                     for scope in output_scopes
                 ),
+                "requested_shell_axes": any(
+                    key.strip().lower().startswith("axes")
+                    for scope in output_scopes for key in scope["request"]["quantity_keys"]
+                ),
             },
             name=definition.name,
         )
@@ -4662,6 +4666,7 @@ def _execute_analysis_job(
     requested_stress=False,
     requested_global_stress=False,
     requested_patch_stress=False,
+    requested_shell_axes=False,
 ):
     """Build, preflight and solve one immutable JobManager request."""
 
@@ -4772,7 +4777,45 @@ def _execute_analysis_job(
                 case_solution._requested_patch_stress = recovery(patch_config=PatchRecoveryConfig())
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled("requested patch stress recovery")
+    if requested_shell_axes:
+        _attach_shell_axes_records(solution, progress, cancellation_token)
     return solution
+
+
+def _attach_shell_axes_records(solution, progress, cancellation_token=None):
+    """Recover the shell result-axes station records of a linear static run (D2-1).
+
+    Only on an ``axes_*`` request, in the analysis worker.  Linear static and
+    batch linear static are the qualified analyses (the request gate refuses
+    the others before submission); any other result type is refused here too,
+    so an ungated caller cannot attach records built from the wrong model.
+    """
+
+    from ..post.results import LinearBatchSolution, LinearSolution
+    from ..post.shell_axes_record import recover_shell_axes_record
+    from ..post.solved_geometry import solved_model_of
+
+    if type(solution) is LinearBatchSolution:
+        cases = tuple(solution.shapes)
+        analysis = "batch_linear_static"
+    elif type(solution) is LinearSolution:
+        cases = (solution,)
+        analysis = "linear_static"
+    else:
+        raise ValueError(f"[AXES_ANALYSIS_NOT_QUALIFIED] shell result axes are qualified for linear "
+                         f"static analyses only, not {type(solution).__name__}")
+    check = None
+    if cancellation_token is not None:
+        def check():
+            cancellation_token.raise_if_cancelled("shell result-axes recovery")
+    for index, case_solution in enumerate(cases):
+        label = str(getattr(case_solution, "label", "") or "")
+        progress(f"recovering shell result axes: {label}" if label else "recovering shell result axes")
+        case_solution._requested_shell_axes = recover_shell_axes_record(
+            solved_model_of(case_solution), case_solution.displacements,
+            provenance={"analysis": analysis, "case_index": index, "case_label": label},
+            cancelled=check,
+        )
 
 
 def _format_preflight_errors(errors) -> str:

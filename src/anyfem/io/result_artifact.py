@@ -244,6 +244,7 @@ def result_artifact_payload(
     patch_stress = getattr(solution, "_requested_patch_stress", None)
     if patch_stress is not None:
         _add_patch_stresses(builder, (patch_stress,), _recovery_frames(patch_stress))
+    _add_shell_axes_records(builder, solution)
     if "stress_global_xx_top" in builder.fields:
         from ..post.results import submitted_plate_thicknesses
         thicknesses = submitted_plate_thicknesses(solution.built)
@@ -876,6 +877,77 @@ def _add_shell_surface_directors(builder, element_stresses, built):
                  for eid in shells if "physical_director" in element_stresses[eid]}
     directors.update(_built_shell_directors([eid for eid in shells if str(eid) not in directors], built))
     builder.add_table("shell_surface_directors", directors)
+
+
+def _add_shell_axes_records(builder, solution):
+    """Persist the shell result-axes station records of an ``axes_*`` request (D2-1).
+
+    Nothing is written without a request (no attribute, no table).  The
+    geometry-only entries (``STATIC_KEYS``) are written once and must be equal
+    in every case of the analysis (bit for bit, NaN equal to NaN); the load
+    dependent ones get a leading case axis in solution case order.  String
+    columns are JSON lists.  A partial set (some cases recovered, others not)
+    is refused rather than written as if complete.
+    """
+
+    from ..post.shell_axes_record import RECORD_SCHEMA, STATIC_KEYS
+
+    if type(solution).__name__ == "LinearBatchSolution":
+        holders = tuple(getattr(solution, "shapes", ()) or ())
+    else:
+        holders = (solution,)
+    records = [getattr(holder, "_requested_shell_axes", None) for holder in holders]
+    present = [record is not None for record in records]
+    if not any(present):
+        return
+    if not all(present):
+        raise ValueError("shell result-axes records are missing for some cases; refusing a partial artifact")
+    first = records[0]
+    for record in records:
+        if not isinstance(record, Mapping) or record.get("schema") != RECORD_SCHEMA:
+            raise ValueError("shell result-axes record has an unknown schema")
+        if set(record) != set(first):
+            raise ValueError("shell result-axes records of one analysis have different entries")
+    for key in STATIC_KEYS:
+        reference = first[key]
+        for record in records[1:]:
+            value = record[key]
+            if isinstance(reference, np.ndarray):
+                same = (isinstance(value, np.ndarray) and value.dtype == reference.dtype
+                        and np.array_equal(value, reference, equal_nan=reference.dtype.kind == "f"))
+            else:
+                same = list(value) == list(reference)
+            if not same:
+                raise ValueError(f"shell result-axes geometry entry {key!r} differs between cases")
+    builder.add_table("shell_axes_meta", {
+        "schema": RECORD_SCHEMA,
+        "solver_module": "anyfesolver.shell_axes_outputs.recover_shell_axes",
+        "cases": [dict(record["provenance"]) for record in records],
+    })
+    for key in sorted(set(first) - {"schema", "provenance"}):
+        if key in STATIC_KEYS:
+            value = first[key]
+        elif isinstance(first[key], np.ndarray):
+            value = np.stack([record[key] for record in records])
+        else:
+            value = [list(record[key]) for record in records]
+        if isinstance(value, np.ndarray):
+            if value.dtype.kind == "f":
+                # The archive stores finite numbers only.  A NaN row means "no
+                # value" (a refused family, an absent director): it is written as
+                # 0.0 with an explicit presence mask, and read back as NaN by
+                # ``post.shell_axes_record.read_shell_axes_table``.
+                present = ~np.isnan(value)
+                if not np.isfinite(value[present]).all():
+                    raise ValueError(f"shell result-axes entry {key!r} holds an infinite value")
+                builder.tables[_safe_key("shell_axes_" + key + "_present")] = present.reshape(-1)
+                value = np.where(present, value, 0.0)
+            # Stored flat with its shape: the archive reads 3-D tables as
+            # spatial result data, which these are not.
+            builder.tables[_safe_key("shell_axes_" + key + "_shape")] = np.asarray(value.shape, dtype=np.int64)
+            builder.tables[_safe_key("shell_axes_" + key)] = np.ascontiguousarray(value).reshape(-1)
+        else:
+            builder.tables[_safe_key("shell_axes_" + key)] = {"values": [str(v) if not isinstance(v, list) else [str(x) for x in v] for v in value]}
 
 
 def _built_shell_directors(element_ids, built):

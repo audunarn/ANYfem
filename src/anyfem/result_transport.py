@@ -62,8 +62,9 @@ Nothing is dropped silently.  Every dataclass field of a transferred object is
 carried (or the transfer fails), the field set is verified on decode, exact
 classes are enforced on both sides, and element/node identities must match
 their map keys.  The two dynamic attributes the application attaches to a
-completed result in the worker (``_requested_global_stress`` and
-``_requested_patch_stress``) are carried in a dedicated record on both
+completed result in the worker (``_requested_global_stress``,
+``_requested_patch_stress`` and, on an ``axes_*`` request, the plain-data
+``_requested_shell_axes`` records) are carried in a dedicated record on both
 ``LinearSolution`` and ``LinearBatchSolution``; any other dynamic attribute
 fails closed rather than being silently dropped.
 """
@@ -95,7 +96,7 @@ _STRESS_CARRIED = "carried"
 
 #: Dynamic attributes ``application/workflow.py`` attaches to a completed
 #: result in the worker and ``io/result_artifact.py`` reads back by name.
-_APPLICATION_EXTRAS = ("_requested_global_stress", "_requested_patch_stress")
+_APPLICATION_EXTRAS = ("_requested_global_stress", "_requested_patch_stress", "_requested_shell_axes")
 
 #: Sentinel for "no stress cache travelled"; distinct from a carried None.
 _NO_CACHE = object()
