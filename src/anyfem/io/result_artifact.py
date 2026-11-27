@@ -913,8 +913,9 @@ def _add_shell_axes_records(builder, solution):
         if set(record) != set(first):
             raise ValueError("shell result-axes records of one analysis have different entries")
         provenance = record.get("provenance")
+        names = tuple(str(name) for name in getattr(solution, "case_names", ())) if batch else ()
         if not isinstance(provenance, Mapping) or provenance.get("case_index") != index or (
-                batch and provenance.get("case_label") != str(getattr(holder, "label", "") or "")):
+                batch and (index >= len(names) or provenance.get("case_name") != names[index])):
             raise ValueError(f"shell result-axes record of case {index} does not name that case")
 
     def same(a, b):

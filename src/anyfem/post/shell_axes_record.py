@@ -414,6 +414,17 @@ def _meta(dataset: Any) -> tuple:
             _int_list(layout.get("shape"), f"{name!r} shape")
     if entries["element_ids"]["layout"] != "shared":
         raise ValueError("shell axes tables: element_ids must be shared")
+    # the axes cases are the artifact's own cases: one per frame and, for a
+    # batch, named as the artifact names its load cases
+    frames = getattr(dataset, "frames", None)
+    if frames is None or len(np.asarray(frames).reshape(-1)) != len(cases):
+        raise ValueError(f"shell axes tables: {len(cases)} axes case(s) for "
+                         f"{None if frames is None else len(np.asarray(frames).reshape(-1))} artifact frame(s)")
+    if "load_case_names" in tuple(dataset.table_keys):
+        names = dataset.table("load_case_names")
+        names = [str(name) for name in (names.tolist() if isinstance(names, np.ndarray) else names)]
+        if names != [str(entry.get("case_name")) for entry in cases]:
+            raise ValueError("shell axes tables: case labels differ from the artifact's load case names")
     return entries, len(cases)
 
 
@@ -509,28 +520,47 @@ def _check_consistency(row: Mapping[str, Any], case: int) -> None:
     certified; a basis normal or shear-normal component only for a certified
     family; a refusal reason exactly when not certified (admitted shells)."""
 
+    def whole(values: np.ndarray) -> Optional[bool]:
+        """True if every value is present, False if none is, None if mixed
+        (the writer only ever emits a shell's array as a whole)."""
+
+        present = ~np.isnan(values)
+        if present.all():
+            return True
+        if not present.any():
+            return False
+        return None
+
     offsets = row["station_offsets"]
     for index in range(len(row["element_ids"])):
         lo, hi = int(offsets[index]), int(offsets[index + 1])
         refused = row["element_refusal"][index] != ""
-        if refused and hi != lo:
-            raise ValueError(f"shell axes case {case}: refused shell {index} has stations")
-        if hi == lo and not refused:
+        if refused:
+            # a refused shell: no stations, nothing certified (its empty slices
+            # carry nothing to check)
+            if hi != lo:
+                raise ValueError(f"shell axes case {case}: refused shell {index} has stations")
+            if any(bool(row[f"{fam}_certified"][index]) for fam in FAMILIES):
+                raise ValueError(f"shell axes case {case}: refused shell {index} has a certified family")
+            continue
+        if hi == lo:
             raise ValueError(f"shell axes case {case}: admitted shell {index} has no stations")
+        if whole(row["station_positions"][lo:hi]) is not True:
+            raise ValueError(f"shell axes case {case}: a station of shell {index} lacks a coordinate")
         for fam, key in (("membrane", "membrane_tensors"), ("bending", "bending_tensors"), ("shear", "shear_vectors")):
             certified = bool(row[f"{fam}_certified"][index])
-            if refused and certified:
-                raise ValueError(f"shell axes case {case}: refused shell {index} has a certified {fam}")
-            tensors = row[key][lo:hi]
-            present = ~np.isnan(tensors.reshape(hi - lo, -1))
-            if certified != bool(present.all()) or (not certified and present.any()):
+            if whole(row[key][lo:hi]) is not certified:
                 raise ValueError(f"shell axes case {case}: {fam} of shell {index} disagrees with its certification")
-            if not certified and np.any(~np.isnan(row[f"{fam}_basis_normals"][lo:hi])):
-                raise ValueError(f"shell axes case {case}: refused {fam} of shell {index} has a basis normal")
-            if not refused and certified == bool(row[f"{fam}_refusal_reason"][index]):
+            normals = whole(row[f"{fam}_basis_normals"][lo:hi])
+            if normals is None or (normals and not certified):
+                raise ValueError(f"shell axes case {case}: {fam} basis normals of shell {index} are partial "
+                                 "or belong to a refused family")
+            if certified == bool(row[f"{fam}_refusal_reason"][index]):
                 raise ValueError(f"shell axes case {case}: {fam} of shell {index} certification and reason disagree")
-        if not row["shear_certified"][index] and np.any(~np.isnan(row["shear_normal_components"][lo:hi])):
-            raise ValueError(f"shell axes case {case}: refused shear of shell {index} has normal components")
+        components = whole(row["shear_normal_components"][lo:hi])
+        if components is None or (components and not row["shear_certified"][index]):
+            raise ValueError(f"shell axes case {case}: shear normal components of shell {index} are partial "
+                             "or belong to a refused shear")
 
 
 def read_shell_axes_table(dataset: Any, key: str, case: Optional[int] = None) -> Any:

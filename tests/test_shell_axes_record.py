@@ -345,6 +345,8 @@ class _FakeDataset:
 
     def __init__(self, tables):
         self.tables = dict(tables)
+        # the artifact's frame axis (one frame per case), as the payload carries it
+        self.frames = np.asarray(self.tables.pop("__frames__", (0.0,)), dtype=float)
 
     def table(self, name, rows=None):
         value = self.tables[name]
@@ -368,9 +370,20 @@ def stored_tables():
     axes = _run_job(_plate(), "Batch linear static", solve_linear_static_many, True,
                     job_flags=dict(requested_stress=True, requested_global_stress=True),
                     target_size=0.5, load_cases=("default", "second"))
-    tables = {key: value for key, value in result_artifact_payload(axes).tables.items()
-              if key.startswith("shell_axes_")}
-    return tables, [shape._requested_shell_axes for shape in axes.shapes]
+    return _axes_tables(axes), [shape._requested_shell_axes for shape in axes.shapes]
+
+
+def _axes_tables(solution):
+    """The axes tables of a solution's artifact payload, its batch case names
+    and its frame axis (the reader's view of the written artifact)."""
+
+    from anyfem.io.result_artifact import result_artifact_payload
+
+    payload = result_artifact_payload(solution)
+    tables = {key: value for key, value in payload.tables.items()
+              if key.startswith("shell_axes_") or key == "load_case_names"}
+    tables["__frames__"] = payload.frames
+    return tables
 
 
 def test_reader_reads_each_case_exactly(stored_tables):
@@ -710,3 +723,86 @@ def test_without_the_admission_gate_every_shell_is_refused(monkeypatch):
     record = recover_shell_axes_record(fe, solution.displacements)
     assert set(record["element_refusal"]) == {"AXES_ADMISSION_UNAVAILABLE"}
     assert record["station_offsets"][-1] == 0
+
+
+# ---------------------------------------------------------------- Codex r6 data-layer items
+def _read_all(tables, records):
+    dataset = _FakeDataset(tables)
+    meta = tables["shell_axes_meta"]
+    for index, record in enumerate(records):
+        for key, value in record.items():
+            if key in ("schema", "provenance"):
+                continue
+            per_case = meta["entries"][key]["layout"] == "per_case"
+            stored = read_shell_axes_table(dataset, key, case=index if per_case else None)
+            if isinstance(value, np.ndarray):
+                assert stored.shape == value.shape and _same(np.nan_to_num(stored, nan=0.0), np.nan_to_num(value, nan=0.0)), key
+            else:
+                assert stored == list(value), key
+
+
+@pytest.mark.parametrize("which", ["all_refused", "mixed"])
+def test_records_with_refused_shells_round_trip(which):
+    """Codex r6 P1: a refused shell has zero stations; that must not make the
+    stored record unreadable (all refused, or refused next to admitted)."""
+
+    if which == "all_refused":
+        project = _plate(origin=(1.0e7, 0.0, 0.0), tension=False)
+        solution = _run_job(project, "Linear static", solve_linear_static, True, target_size=0.25)
+    else:
+        import anyfem.post.shell_axes_record as module
+
+        solution = _run_job(_plate(tension=False), "Linear static", solve_linear_static, False, target_size=0.25)
+        fe = solution.built.fe_model
+        element = fe.mesh.elements[next(iter(fe.mesh.elements))]
+        vars(element)["reference_normal"] = np.asarray(vars(element)["reference_normal"], dtype=np.float32)
+        solution._requested_shell_axes = module.recover_shell_axes_record(
+            fe, solution.displacements, provenance={"analysis": "linear_static", "case_index": 0, "case_label": "static"})
+    record = solution._requested_shell_axes
+    refused = [code for code in record["element_refusal"] if code]
+    assert refused and (which == "mixed") == (len(refused) < len(record["element_refusal"]))
+    _read_all(_axes_tables(solution), [record])
+
+
+@pytest.mark.parametrize("damage", ["position_coordinate", "normal_coordinate"])
+def test_reader_refuses_an_incomplete_station_row(stored_tables, damage):
+    """Codex r6 P2: every admitted station has all three coordinates, and a
+    basis normal, where present, is a whole row (the writer emits whole rows)."""
+
+    tables, _records = stored_tables
+    tables = dict(tables)
+    key = "station_positions" if damage == "position_coordinate" else "bending_basis_normals"
+    values = tables[f"shell_axes_{key}"].copy()
+    mask = tables[f"shell_axes_{key}_present"].copy()
+    index = int(np.flatnonzero(mask)[1])  # one coordinate of a present row
+    mask[index] = False
+    values[index] = 0.0
+    tables[f"shell_axes_{key}"], tables[f"shell_axes_{key}_present"] = values, mask
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")
+
+
+def _identical_cases_batch():
+    project = _plate(tension=False)
+    project.load_case("again").add_pressure(project.face(next(iter(project.geometry.faces))), 1.0e4)
+    return _run_job(project, "Batch linear static", solve_linear_static_many, True, target_size=0.5,
+                    load_cases=("default", "again"))
+
+
+@pytest.mark.parametrize("damage", ["dropped_case", "label_mismatch"])
+def test_reader_refuses_axes_cases_that_do_not_match_the_artifact(damage):
+    """Codex r6 P2: the axes case list must match the artifact's own cases
+    (frame axis; batch case names), also when every entry is shared."""
+
+    batch = _identical_cases_batch()
+    tables = _axes_tables(batch)
+    meta = dict(tables["shell_axes_meta"])
+    assert all(entry["layout"] == "shared" for entry in meta["entries"].values())
+    if damage == "dropped_case":
+        meta["cases"] = meta["cases"][:1]
+    else:
+        meta["cases"] = [dict(case) for case in meta["cases"]]
+        meta["cases"][1]["case_name"] = "default"
+    tables["shell_axes_meta"] = meta
+    with pytest.raises(ValueError):
+        read_shell_axes_table(_FakeDataset(tables), "thickness")

@@ -4817,9 +4817,13 @@ def _attach_shell_axes_records(solution, progress, cancellation_token=None):
     if type(solution) is LinearBatchSolution:
         cases = tuple(solution.shapes)
         analysis = "batch_linear_static"
+        names = tuple(str(name) for name in solution.case_names)
+        if len(names) != len(cases):
+            raise ValueError("linear batch case names do not match its shapes")
     elif type(solution) is LinearSolution:
         cases = (solution,)
         analysis = "linear_static"
+        names = None
     else:
         raise ValueError(f"[AXES_ANALYSIS_NOT_QUALIFIED] shell result axes are qualified for linear "
                          f"static analyses only, not {type(solution).__name__}")
@@ -4832,7 +4836,8 @@ def _attach_shell_axes_records(solution, progress, cancellation_token=None):
         progress(f"recovering shell result axes: {label}" if label else "recovering shell result axes")
         case_solution._requested_shell_axes = recover_shell_axes_record(
             solved_model_of(case_solution), case_solution.displacements,
-            provenance={"analysis": analysis, "case_index": index, "case_label": label},
+            provenance={"analysis": analysis, "case_index": index, "case_label": label,
+                        **({} if names is None else {"case_name": names[index]})},
             cancelled=check,
         )
 
