@@ -456,6 +456,7 @@ class DisplayOwnership:
     when an owned box face needs them.  Every feature change (suppression included) bumps the geometry
     revision, so a snapshot of an older revision or another geometry is never used: callers get a fresh
     one (:func:`_current_ownership`).  A caller drawing many faces makes one and passes it to each call.
+    Nothing it caches is read from a geometry handed in: ``valid_for`` only compares identity and revision.
     """
 
     __slots__ = ("_geometry", "revision", "owners", "_provenance")
@@ -476,7 +477,13 @@ class DisplayOwnership:
     def valid_for(self, geometry) -> bool:
         return self._geometry() is geometry and int(geometry.revision) == self.revision
 
-    def provenance(self, geometry) -> frozenset:
+    def provenance(self) -> frozenset:
+        """The provenance features of the snapshot's OWN geometry at its revision (Codex N5 r6 M: never a
+        geometry handed in by a caller); a snapshot whose geometry is gone or has a newer revision refuses."""
+
+        geometry = self._geometry()
+        if geometry is None or int(geometry.revision) != self.revision:
+            raise ValueError("display ownership snapshot is not of the geometry's current revision")
         if self._provenance is None:
             self._provenance = display_provenance_features(geometry)
         return self._provenance
@@ -511,6 +518,7 @@ def _trim_display_faces(geometry, face_ids, entity_owners=None, ownership=None) 
 
     routed: List[int] = []
     boxed: List[int] = []
+    face_ids = face_ids if isinstance(face_ids, (list, tuple)) else list(face_ids)
     for face_id in face_ids:
         face = geometry.faces[face_id]
         if type(face.surface) not in (Cylinder, Cone) or face.parameterization is not None or not face.corners:
@@ -522,10 +530,13 @@ def _trim_display_faces(geometry, face_ids, entity_owners=None, ownership=None) 
         for face_id in boxed:
             (routed if current.owners.get(face_id) is None else owned).append(face_id)
         if owned:
-            provenance = current.provenance(geometry)
+            provenance = current.provenance()
             routed.extend(face_id for face_id in owned if current.owners[face_id] not in provenance)
-    order = {face_id: index for index, face_id in enumerate(face_ids)}
-    return sorted(routed, key=order.__getitem__)
+        if routed and len(routed) > 1:
+            # box faces were appended after the others: restore the order of ``face_ids``
+            order = {face_id: index for index, face_id in enumerate(face_ids)}
+            routed.sort(key=order.__getitem__)
+    return routed
 
 
 class TrimmedFaceMeshes:
@@ -586,16 +597,18 @@ def trimmed_face_meshes(geometry, face_ids: Optional[Iterable[int]] = None, *, a
     return TrimmedFaceMeshes(geometry, angle, routed, _tessellate(geometry, routed, angle))
 
 
-def _resolve_trimmed(trimmed_faces, geometry, face_ids, ownership=None, entity_owners=None) -> Dict[int, object]:
+def _resolve_trimmed(trimmed_faces, geometry, face_ids, ownership=None, entity_owners=None,
+                     ids_known: bool = False) -> Dict[int, object]:
     """``{face id: mesh}`` of the faces among ``face_ids`` drawn from their trim, at :data:`DISPLAY_TRIM_ANGLE`.
 
     Routing is decided here from the caller's own ownership (``ownership`` when current, else a snapshot
     of ``entity_owners``); a valid ``trimmed_faces`` only supplies meshes of faces it attempted, and every
     other routed face is tessellated here in one batch.  The few faces of an overlay are looked up by
-    membership; the model's faces are not walked.
+    membership; the model's faces are not walked.  ``ids_known``: ``face_ids`` are already the geometry's
+    own, unique ids (the full-scene path), so they are not filtered again (Codex N5 r6 L).
     """
 
-    ids = _known_faces(geometry, face_ids)
+    ids = face_ids if ids_known else _known_faces(geometry, face_ids)
     routed = _trim_display_faces(geometry, ids, entity_owners=entity_owners, ownership=ownership)
     reuse = trimmed_faces is not None and trimmed_faces.valid_for(geometry, DISPLAY_TRIM_ANGLE)
     meshes: Dict[int, object] = {}
@@ -1191,7 +1204,7 @@ def build_geometry_scene(
     }
 
     trimmed = _resolve_trimmed(trimmed_faces, geometry, sorted(geometry.faces), ownership=ownership,
-                               entity_owners=entity_owners)
+                               entity_owners=entity_owners, ids_known=True)
     collapsed_face_patches: dict[int, FacePatch] = {}
     collapsed_face_owners: dict[int, list[EntityRef]] = {}
     for face_id in sorted(geometry.faces):

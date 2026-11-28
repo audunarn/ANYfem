@@ -873,3 +873,54 @@ def test_resolving_a_few_faces_never_walks_every_face(monkeypatch):
     monkeypatch.setattr(g, "faces", Faces(g.faces))
     meshes = scene_module._resolve_trimmed(shared, g, [face], ownership)
     assert face in meshes and Faces.walked == 0
+
+
+# --- Codex N5 final review: snapshots read only their own geometry; the full-scene path does no extra passes ---------
+
+
+def test_cached_display_objects_never_read_a_foreign_geometry():
+    """The class (Codex N5 r6 M): no method of a cached display object reads data from a geometry it is handed.
+
+    ``valid_for`` only compares identity and revision; everything a snapshot caches comes from its own bound
+    geometry.
+    """
+
+    import inspect
+
+    for cls in (scene_module.DisplayOwnership, scene_module.TrimmedFaceMeshes):
+        for name, member in inspect.getmembers(cls, inspect.isfunction):
+            if name in ("__init__", "valid_for"):
+                continue
+            parameters = list(inspect.signature(member).parameters)
+            assert parameters == ["self"], (cls.__name__, name, parameters)
+
+
+def test_provenance_comes_from_the_snapshots_own_geometry():
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    feature = geometry.features.records[0].feature_id
+    geometry.features.set_suppressed(feature, True)        # the face stays materialised; the feature is not provenance
+    other, _ = _arc_extrusion(recorded=True)                # a live feature with the same id elsewhere
+    assert other.geometry.features.records[0].feature_id == feature
+    snapshot = scene_module.display_ownership(geometry, {})
+    assert snapshot.provenance() == frozenset()
+    assert len(face_display_polygons(geometry, face, ownership=snapshot)) == 8
+
+
+def test_a_stale_snapshot_refuses_to_report_provenance():
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    snapshot = scene_module.display_ownership(geometry)
+    geometry.add_point(9.0, 9.0, 9.0)                       # a new revision
+    with pytest.raises(ValueError, match="revision"):
+        snapshot.provenance()
+
+
+def test_the_full_scene_build_does_not_re_filter_its_own_face_ids(monkeypatch):
+    project = _generated_cylinder(8)
+
+    def walked(*args, **kwargs):
+        raise AssertionError("the full-scene path re-filtered face ids")
+
+    monkeypatch.setattr(scene_module, "_known_faces", walked)
+    assert build_geometry_scene(project).faces
