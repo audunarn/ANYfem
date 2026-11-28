@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Trimmed cylinder and cone faces are drawn from their trim (display tessellation N5). A face on an exact Cylinder or
+  Cone support, without an explicit parameterization and with corners whose support's parameter box is not the face
+  (the support overruns it), is drawn from ANYgeometry's certified display mesh
+  (`anygeometry.display_tessellation.face_display_mesh`) instead of the support's whole box; a typed refusal keeps
+  the old route. Changed: only the floating tripod's 18 skins (36-, 48- and 60-web variants); every face of the barge
+  examples, the saved Drawing barge 60 m / Floating barge 15 m / Barge5Fatigue projects and generated cylinders
+  (8 and 400 segments) is drawn bit-identically. The skins are tessellated once per geometry refresh and shared by
+  the full and interaction scenes and the wet-surface overlay; a wet trimmed face's outline is its boundary, without
+  the cross. Measured (tripod, medians): geometry refresh 85 -> 162 ms (one-off per geometry change; ANYgeometry's edge
+  division is most of it), repaint unchanged (14 ms), warm show_geometry 79 -> 75 ms.
+- Pins ANYgeometry 3f1db90 (ANYgeometry #55, #56, #59: display tessellation N1-N3; #57 cache census; #52 thread
+  ident reuse; #53/#60/#61 release tooling). No intended result change for meshing or analysis.
+
 - Pins ANYmesh b16ac98 (ANYmesh #24, #25, #26, #27), all stated as results unchanged: value-safe floating-point build
   options for the native extension (#24); a native port of the finite-hull triangulation fallback (#25); a
   ghost-vertex Delaunay seed that completes most incomplete super-triangle seeds before that fallback runs (#27); CI

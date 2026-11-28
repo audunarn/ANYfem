@@ -9,16 +9,18 @@ geometry entity.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType, SimpleNamespace
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
+from anygeometry import display_tessellation as _display_tess
 from anygeometry.curves import Straight
 from anygeometry.entities import Edge, EntityRef, Vertex
 from anygeometry.model import GeometryModel
 from anygeometry.operations import surface_point
-from anygeometry.surfaces import Cylinder, Plane
+from anygeometry.surfaces import Cone, Cylinder, Plane
 
 from ..mesh.mapped import Mesh
 from ..model.project import Project
@@ -41,9 +43,11 @@ __all__ = [
     "build_collision_overlay",
     "build_result_scene",
     "build_persisted_result_scene",
+    "display_trim_angle",
     "entity_sample_points",
     "face_display_polygons",
     "face_normal",
+    "trimmed_face_meshes",
     "GeometryDisplayResolution",
     "geometry_display_resolution",
     "geometry_characteristic_size",
@@ -402,14 +406,147 @@ def _face_grid(
     )
 
 
+#: Largest turning of a drawn trim segment (N5): coarser display divisions never draw coarser.
+_TRIM_ANGLE_LIMIT = math.radians(22.5)
+
+
+def display_trim_angle(divisions: int) -> float:
+    """The display angle (radians) of a trimmed cylinder or cone face drawn at ``divisions``."""
+
+    return float(min(math.radians(60.0) / max(1, int(divisions)), _TRIM_ANGLE_LIMIT))
+
+
+def _routes_to_trim_display(geometry, face_id: int) -> bool:
+    """Whether ANYgeometry's display tessellation draws this face (N5); see :func:`_trim_display_faces`."""
+
+    return bool(_trim_display_faces(geometry, (face_id,)))
+
+
+def _trim_display_faces(geometry, face_ids) -> List[int]:
+    """The faces among ``face_ids`` that ANYgeometry's display tessellation draws (N5), in order.
+
+    A face on a support of exactly ``Cylinder`` or ``Cone`` type, without an explicit
+    parameterization and with corners, is drawn by the old route as its support's whole parameter
+    box.  When the box's four corners are the face's four corners (a generated cylinder segment)
+    that box is the face and the old route stays; otherwise the support overruns the face (the
+    floating tripod's skins) and the face is drawn from its trim.  Every other face keeps its
+    route.  One vectorised pass over all candidates: the check costs a few microseconds a face.
+    """
+
+    routed: List[int] = []
+    boxed: List[int] = []
+    corners, origin, axis, radial, circumferential, angles, radii, heights = ([] for _ in range(8))
+    for face_id in face_ids:
+        face = geometry.faces[face_id]
+        support = face.surface
+        if type(support) not in (Cylinder, Cone) or face.parameterization is not None or not face.corners:
+            continue
+        if len(face.corners) != 4:
+            routed.append(face_id)
+            continue
+        boxed.append(face_id)
+        corners.append([geometry.vertex_position(geometry.oriented_start_vertex(face.loop[index]))
+                        for index in face.corners])
+        origin.append(support.origin)
+        axis.append(support.axis)
+        radial.append(support.radial_direction)
+        circumferential.append(support.circumferential_direction)
+        angles.append((support.start_angle, support.start_angle + support.sweep_angle))
+        radii.append((support.radius_start, support.radius_end) if type(support) is Cone
+                     else (support.radius, support.radius))
+        heights.append((0.0, support.height))
+    if boxed:
+        corner = np.asarray(corners, dtype=float)                                    # (n, 4, 3)
+        angle = np.asarray(angles, dtype=float)                                      # (n, u)
+        # the support's box corners (u, v) = (0|1, 0|1), as Cylinder.evaluate / Cone.evaluate write them
+        direction = (np.cos(angle)[:, :, None] * np.asarray(radial, dtype=float)[:, None, :]
+                     + np.sin(angle)[:, :, None] * np.asarray(circumferential, dtype=float)[:, None, :])
+        box = (np.asarray(origin, dtype=float)[:, None, None, :]
+               + np.asarray(radii, dtype=float)[:, None, :, None] * direction[:, :, None, :]
+               + np.asarray(heights, dtype=float)[:, None, :, None] * np.asarray(axis, dtype=float)[:, None, None, :]
+               ).reshape(len(boxed), 4, 3)                                           # (n, u*v, 3)
+        finite = np.isfinite(corner).all(axis=(1, 2)) & np.isfinite(box).all(axis=(1, 2))
+        with np.errstate(invalid="ignore", over="ignore"):
+            limit = 1.0e-9 * np.maximum(np.maximum(np.abs(corner).max(axis=(1, 2)), np.abs(box).max(axis=(1, 2))), 1.0)
+            distance = np.sqrt(((box[:, :, None, :] - corner[:, None, :, :]) ** 2).sum(axis=3))   # (n, box, corner)
+            same = ((distance.min(axis=2) <= limit[:, None]).all(axis=1)
+                    & (distance.min(axis=1) <= limit[:, None]).all(axis=1) & finite)
+        routed.extend(face_id for face_id, inside in zip(boxed, same) if not inside)
+    order = {face_id: index for index, face_id in enumerate(face_ids)}
+    return sorted(routed, key=order.__getitem__)
+
+
+def _trimmed_face_mesh(geometry, face_id: int, angle: float):
+    """ANYgeometry's certified display mesh of a routed face, or ``None``.
+
+    ``None`` when the face is not routed or ANYgeometry refuses it, typed: the face then keeps
+    its old route.  Any other exception propagates.
+    """
+
+    if not _routes_to_trim_display(geometry, face_id):
+        return None
+    try:
+        return _display_tess.face_display_mesh(geometry, face_id, _display_tess.DisplayTolerance(angle))
+    except _display_tess.DisplayTrimRefused:
+        return None
+
+
+def trimmed_face_meshes(geometry, angle: float) -> Dict[int, object]:
+    """``{face id: FaceDisplayMesh}`` of every routed face ANYgeometry accepts at ``angle``.
+
+    Computed once per geometry refresh and passed to each scene build (``trimmed_faces``), so the
+    full and the interaction scene share one tessellation.
+    """
+
+    meshes: Dict[int, object] = {}
+    tolerance = _display_tess.DisplayTolerance(angle)
+    for face_id in _trim_display_faces(geometry, sorted(geometry.faces)):
+        try:
+            meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
+        except _display_tess.DisplayTrimRefused:
+            pass
+    return meshes
+
+
+def _trimmed_polygons(mesh) -> List[np.ndarray]:
+    return list(np.asarray(mesh.points, dtype=float)[np.asarray(mesh.triangles)])
+
+
+def _trimmed_outline(geometry, mesh) -> np.ndarray:
+    """The closed outer boundary of a routed face: its outer ring vertices, in loop order."""
+
+    outer = {item.edge for item in geometry.faces[mesh.face_id].loop}
+    count = int(mesh.ring_vertex_count)
+    sources = np.asarray(mesh.source)[:count, 0]
+    end = count
+    for index in range(count):
+        if int(sources[index]) not in outer:
+            end = index
+            break
+    ring = np.asarray(mesh.points, dtype=float)[:end]
+    return np.vstack([ring, ring[:1]])
+
+
 def face_display_polygons(
     geometry: GeometryModel, face_id: int, divisions: int = DISPLAY_DIVISIONS
 ) -> List[np.ndarray]:
     """Tessellate a face for display, using the same blend the mesher uses.
 
     A plate is therefore never drawn as a different surface from the one that
-    gets meshed.
+    gets meshed.  A trimmed cylinder or cone face (:func:`_routes_to_trim_display`) is drawn
+    from ANYgeometry's display tessellation of its trim; a typed refusal keeps the old route.
     """
+
+    mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(divisions))
+    if mesh is not None:
+        return _trimmed_polygons(mesh)
+    return _support_face_display_polygons(geometry, face_id, divisions)
+
+
+def _support_face_display_polygons(
+    geometry: GeometryModel, face_id: int, divisions: int = DISPLAY_DIVISIONS
+) -> List[np.ndarray]:
+    """The display route of every face ANYgeometry's display tessellation does not draw."""
 
     face = geometry.faces[face_id]
     if isinstance(face.surface, Cylinder) and face.parameterization is None and not face.corners:
@@ -890,8 +1027,13 @@ def build_geometry_scene(
     entity_owners: Optional[Mapping[EntityRef, int]] = None,
     exposed_feature_ids: Iterable[int] = (),
     plate_edges: Iterable[int] = (),
+    trimmed_faces: Optional[Mapping[int, object]] = None,
 ) -> Scene:
     """Draw user geometry plus the surfaces of generated features.
+
+    ``trimmed_faces``: :func:`trimmed_face_meshes` of this geometry (unchanged since), computed
+    once and shared by several builds: a face in it is drawn from its mesh, every other face by
+    its old route.  Without it each routed face is tessellated here.
 
     Generator topology remains exact in the geometry model.  Its auxiliary
     points and lines are presentation details and are omitted until the owning
@@ -925,13 +1067,21 @@ def build_geometry_scene(
         feature_id = entity_owners.get(face_ref)
         collapsed_feature = feature_id is not None and feature_id not in exposed
         flat_polygon = _flat_four_edge_polygon(geometry, face_id)
-        polygons = (
-            [flat_polygon]
-            if flat_polygon is not None
-            else (_curved_sketch_display_polygons(geometry, face_id, divisions)
-                  if feature_id in smooth_feature_ids
-                  else face_display_polygons(geometry, face_id, min(divisions, 2) if collapsed_feature else divisions))
-        )
+        face_divisions = min(divisions, 2) if collapsed_feature else divisions
+        trim_drawn = False
+        if flat_polygon is not None:
+            polygons = [flat_polygon]
+        elif feature_id in smooth_feature_ids:
+            polygons = _curved_sketch_display_polygons(geometry, face_id, divisions)
+        else:
+            if trimmed_faces is not None:
+                # holds exactly the routed faces ANYgeometry accepted (trimmed_face_meshes)
+                mesh = trimmed_faces.get(face_id)
+            else:
+                mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(face_divisions))
+            trim_drawn = mesh is not None
+            polygons = (_trimmed_polygons(mesh) if trim_drawn
+                        else _support_face_display_polygons(geometry, face_id, face_divisions))
         if collapsed_feature:
             # A collapsed generator is one semantic surface.  Retain all exact
             # face owners on that surface so selecting it applies to the
@@ -965,7 +1115,7 @@ def build_geometry_scene(
                 polygons=polygons,
                 colors=[COLOR_PLATE] * len(polygons),
                 outline="",
-                outline_groups=([face_id]*len(polygons) if feature_id in smooth_feature_ids
+                outline_groups=([face_id]*len(polygons) if trim_drawn or feature_id in smooth_feature_ids
                                 or isinstance(geometry.faces[face_id].surface, Plane)
                                 and geometry.faces[face_id].parameterization is None else None),
             )
@@ -2095,8 +2245,13 @@ def build_attribute_overlay(
     show_masses: bool = True,
     show_imperfections: bool = True,
     mesh: Optional[Mesh] = None,
+    trimmed_faces: Optional[Mapping[int, object]] = None,
 ) -> Scene:
     """Draw supports, loads and masses over the model.
+
+    ``trimmed_faces``: :func:`trimmed_face_meshes` of the project's current geometry, as given
+    to :func:`build_geometry_scene`; wet outlines of those faces follow the drawn trim without
+    tessellating it again.
 
     Nothing here carries an entity tag, so an arrow drawn over a plate never
     steals the click: picking walks past untagged items to the geometry behind.
@@ -2139,7 +2294,7 @@ def build_attribute_overlay(
         _draw_connections(scene, project, geometry, symbol)
 
     if show_loads:
-        _draw_wet_surfaces(scene, project, geometry)
+        _draw_wet_surfaces(scene, project, geometry, trimmed_faces)
     if show_loads and case_name is not None and project.connections and not isinstance(geometry, _MeshOverlayGeometry):
         case = _display_case(project, case_name)
         if case is not None and case.connection_loads:
@@ -2278,7 +2433,7 @@ def _draw_connection_loads(scene: Scene, project, case, arrow_length: float) -> 
             )
 
 
-def _draw_wet_surfaces(scene: Scene, project, geometry) -> None:
+def _draw_wet_surfaces(scene: Scene, project, geometry, trimmed_faces=None) -> None:
     """Outline every wet plate, with a cross through it, in the wet colour.
 
     The lines are untagged annotations, so they never steal a click from the
@@ -2295,6 +2450,14 @@ def _draw_wet_surfaces(scene: Scene, project, geometry) -> None:
         if surface.ref.kind != "face" or face_id in seen or face_id not in geometry.faces:
             continue
         seen.add(face_id)
+        mesh = (trimmed_faces.get(face_id) if trimmed_faces is not None
+                else _trimmed_face_mesh(geometry, face_id, display_trim_angle(DISPLAY_DIVISIONS)))
+        if mesh is not None:
+            # drawn from its trim (N5): the boundary only; a cross through the support's
+            # parameter box would not lie on the face
+            outlines.append(Polyline(ref=None, points=_trimmed_outline(geometry, mesh), color=COLOR_WET,
+                                     width=3, annotation=True))
+            continue
         try:
             grid = _face_grid(geometry, face_id, parameters)
         except Exception:  # an undisplayable plate is reported by validation
