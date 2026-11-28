@@ -50,7 +50,7 @@ from ..solve.run import (
     solve_transient,
 )
 
-from ..presentation.scene import (Polyline, Scene, build_attribute_overlay, build_collision_overlay, build_geometry_scene, build_mesh_scene, build_persisted_result_scene, build_result_scene, geometry_display_resolution)
+from ..presentation.scene import (Polyline, Scene, build_attribute_overlay, build_collision_overlay, build_geometry_scene, build_mesh_scene, build_persisted_result_scene, build_result_scene, display_ownership, geometry_display_resolution, trimmed_face_meshes)
 from .worker import JobWorkerFacade
 from .mesh_publication import (
     PublicationTicket, check_ticket, commit_generated_mesh, publication_ticket, retained_mesh, unchanged_record,
@@ -192,7 +192,8 @@ class WorkbenchWorkflow:
         self._mesh_details_record_id: Optional[str] = None
         self._mesh_layout_preview: tuple[Any, Any] | None = None
         self._inspection_mesh = None
-        self._geometry_scene_cache: tuple[object, Scene, Scene] | None = None
+        # (key, scene, interaction scene, trimmed face meshes of that geometry revision)
+        self._geometry_scene_cache: tuple[object, Scene, Scene, object, object] | None = None
         self._closing = False
         self._refresh_suspended = 0
         self._project_lock: ProjectLock | None = None
@@ -1953,6 +1954,9 @@ class WorkbenchWorkflow:
         )
         cached = self._geometry_scene_cache
         if cached is None or cached[0] != cache_key:
+            # trimmed cylinder/cone faces are tessellated once and shared by both scenes
+            ownership = display_ownership(self.project.geometry, entity_owners)
+            trimmed_faces = trimmed_face_meshes(self.project.geometry, ownership=ownership)
             scene = build_geometry_scene(
                 self.project,
                 divisions=resolution.divisions,
@@ -1961,6 +1965,8 @@ class WorkbenchWorkflow:
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
                 plate_edges=plate_edges,
+                trimmed_faces=trimmed_faces,
+                ownership=ownership,
             )
             interaction_scene = build_geometry_scene(
                 self.project,
@@ -1970,10 +1976,12 @@ class WorkbenchWorkflow:
                 entity_owners=entity_owners,
                 exposed_feature_ids=exposed_features,
                 plate_edges=plate_edges,
+                trimmed_faces=trimmed_faces,
+                ownership=ownership,
             )
-            self._geometry_scene_cache = (cache_key, scene, interaction_scene)
+            self._geometry_scene_cache = (cache_key, scene, interaction_scene, trimmed_faces, ownership)
         else:
-            _key, scene, interaction_scene = cached
+            _key, scene, interaction_scene, _trimmed, _ownership = cached
         self.viewport.show(
             self._with_attributes(self._colour_model_scene(scene)),
             interaction_scene=self._with_attributes(self._colour_model_scene(interaction_scene)),
@@ -2373,6 +2381,17 @@ class WorkbenchWorkflow:
 
 
 
+    def _cached_trim_display(self, project):
+        """The geometry scene's trimmed meshes and ownership for ``project``'s overlay: ``{}`` when there are none.
+
+        Both are used only while the geometry object and revision are unchanged (they check that themselves).
+        """
+
+        cached = self._geometry_scene_cache
+        if cached is None or project is not self.project:
+            return {}
+        return {"trimmed_faces": cached[3], "ownership": cached[4]}
+
     def _with_attributes(
         self,
         scene,
@@ -2398,6 +2417,7 @@ class WorkbenchWorkflow:
                 show_loads=show_loads,
                 show_masses=show_masses,
                 show_imperfections=show_imperfections,
+                **self._cached_trim_display(self.project if project is None else project),
             )
         )
 

@@ -66,9 +66,9 @@ on:
 permissions:
   contents: read
 env:
-  # The ANYgeometry source pinned in pyproject.toml (5f68177 of ANYgeometry main; the route tests were last run
-  # locally against the previous pin, d71c5bc).
-  ANYGEOMETRY_REF: 5f68177e42fe0a53341dceb80cc8e4fb73482745
+  # The ANYgeometry source pinned in pyproject.toml (3f1db90 of ANYgeometry main; the route tests were last run
+  # locally against the previous pin, 5f68177).
+  ANYGEOMETRY_REF: 3f1db903f5321f56c22f12422aa8cbf64612904a
 # Superseded pull-request runs are cancelled.  A re-run attempt and every other run (main pushes, tags, schedules,
 # dispatches) gets a group of its own, so it is never cancelled or replaced by a newer run.
 concurrency:

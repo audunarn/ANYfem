@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Trimmed cylinder and cone faces are drawn from their trim (display tessellation N5). A face on an exact Cylinder or
+  Cone support, without an explicit parameterization and with corners, used to be drawn as its support's whole
+  parameter box; the floating tripod's skins (full-turn supports with a 7 m overrun) therefore stuck out past their
+  ends. Such a face is now drawn from ANYgeometry's certified display mesh
+  (`anygeometry.display_tessellation.face_display_mesh`); a typed refusal keeps the old route.
+  Contract B (owner): the old route stays only for a face owned by a feature that writes its support as the face's box
+  - any `generator.*` feature, `geometry.extrude` or `geometry.sketch.extrude` - AND structurally a box (four sides
+  alternating straight and arc, corners (0, 1, 2, 3), no holes); decided without any numeric tolerance.
+  One display angle of 22.5 degrees for the full and the interaction scene (owner). Where a skin meets a planar
+  neighbour whose old route samples the same arc more finely, the drawn chords can differ by up to about 1.9 % of the
+  radius (r (1 - cos 11.25 deg)).
+  Changed results: the tripod's 18 skins (36-, 48- and 60-web variants); every face of the barge examples, the saved
+  Drawing barge 60 m / Floating barge 15 m / Barge5Fatigue projects, generated cylinders and command-made extrusions is
+  drawn bit-identically. A face made by calling `GeometryModel.extrude` directly (scripts) records no feature, so it has
+  no provenance and is drawn from its trim: a quarter-turn arc extrusion goes from 64 quads to 8 triangles
+  (tests/test_scene.py::test_curved_geometry_keeps_display_tessellation, count changed, setup unchanged).
+  The skins are tessellated once per geometry refresh and shared (bound to geometry object, revision and angle) by the
+  full and interaction scenes, the wet-surface overlay and result playback; a trimmed wet face's outline is its
+  boundary, without the cross.
+- Pins ANYgeometry 3f1db90 (ANYgeometry #55, #56, #59: display tessellation N1-N3; #57 cache census; #52 thread
+  ident reuse; #53/#60/#61 release tooling). No intended result change for meshing or analysis.
+
 - Pins ANYmesh b16ac98 (ANYmesh #24, #25, #26, #27), all stated as results unchanged: value-safe floating-point build
   options for the native extension (#24); a native port of the finite-hull triangulation fallback (#25); a
   ghost-vertex Delaunay seed that completes most incomplete super-triangle seeds before that fallback runs (#27); CI
