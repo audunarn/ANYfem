@@ -427,53 +427,114 @@ def _trim_display_faces(geometry, face_ids) -> List[int]:
 
     A face on a support of exactly ``Cylinder`` or ``Cone`` type, without an explicit
     parameterization and with corners, is drawn by the old route as its support's whole parameter
-    box.  When the box's four corners are the face's four corners (a generated cylinder segment)
-    that box is the face and the old route stays; otherwise the support overruns the face (the
-    floating tripod's skins) and the face is drawn from its trim.  Every other face keeps its
-    route.  One vectorised pass over all candidates: the check costs a few microseconds a face.
+    box.  It keeps that route only when its boundary provably IS the box (a generated cylinder
+    segment); otherwise (an overrunning support such as the floating tripod's skins, a notched
+    side, a hole) it is drawn from its trim.  Every other face keeps its route.
+
+    The boundary is the box (Codex N5 r1 H1) when: exactly four coedges and corners ``(0, 1, 2, 3)``,
+    no holes, a sweep below a full turn, positive radii, a non-zero height, all finite; the four
+    corners are the box's four corners one to one; and each coedge joins two corners of one box side:
+    a ``Straight`` edge an axial side (a straight generator line, so the edge is that side), an
+    ``Arc`` edge a circular side with its via point on that circle strictly inside the side's sweep (a
+    circle through three points is unique, so the edge is that side).  "On" means within
+    ``1e-9`` of the support's own size plus a rounding allowance on the world coordinates (Codex N5
+    r1 M2).  One vectorised pass over all candidates.
     """
+
+    from anygeometry.curves import Arc
 
     routed: List[int] = []
     boxed: List[int] = []
-    corners, origin, axis, radial, circumferential, angles, radii, heights = ([] for _ in range(8))
+    rows = []
     for face_id in face_ids:
         face = geometry.faces[face_id]
         support = face.surface
         if type(support) not in (Cylinder, Cone) or face.parameterization is not None or not face.corners:
             continue
-        if len(face.corners) != 4:
+        if face.holes or len(face.loop) != 4 or tuple(face.corners) != (0, 1, 2, 3):
             routed.append(face_id)
             continue
+        kinds = []
+        vias = []
+        for item in face.loop:
+            curve = geometry.edges[item.edge].curve
+            if type(curve) is Straight:
+                kinds.append(1)
+                vias.append((np.nan, np.nan, np.nan))
+            elif type(curve) is Arc:
+                kinds.append(2)
+                vias.append(geometry.vertex_position(curve.via_vertex))
+            else:
+                kinds.append(0)
+                vias.append((np.nan, np.nan, np.nan))
+        if 0 in kinds:
+            routed.append(face_id)
+            continue
+        cone = type(support) is Cone
         boxed.append(face_id)
-        corners.append([geometry.vertex_position(geometry.oriented_start_vertex(face.loop[index]))
-                        for index in face.corners])
-        origin.append(support.origin)
-        axis.append(support.axis)
-        radial.append(support.radial_direction)
-        circumferential.append(support.circumferential_direction)
-        angles.append((support.start_angle, support.start_angle + support.sweep_angle))
-        radii.append((support.radius_start, support.radius_end) if type(support) is Cone
-                     else (support.radius, support.radius))
-        heights.append((0.0, support.height))
+        rows.append((
+            [geometry.vertex_position(geometry.oriented_start_vertex(item)) for item in face.loop],
+            vias, kinds,
+            (support.start_angle, support.sweep_angle, support.height,
+             support.radius_start if cone else support.radius, support.radius_end if cone else support.radius),
+            (support.origin, support.axis, support.radial_direction, support.circumferential_direction),
+        ))
     if boxed:
-        corner = np.asarray(corners, dtype=float)                                    # (n, 4, 3)
-        angle = np.asarray(angles, dtype=float)                                      # (n, u)
-        # the support's box corners (u, v) = (0|1, 0|1), as Cylinder.evaluate / Cone.evaluate write them
-        direction = (np.cos(angle)[:, :, None] * np.asarray(radial, dtype=float)[:, None, :]
-                     + np.sin(angle)[:, :, None] * np.asarray(circumferential, dtype=float)[:, None, :])
-        box = (np.asarray(origin, dtype=float)[:, None, None, :]
-               + np.asarray(radii, dtype=float)[:, None, :, None] * direction[:, :, None, :]
-               + np.asarray(heights, dtype=float)[:, None, :, None] * np.asarray(axis, dtype=float)[:, None, None, :]
-               ).reshape(len(boxed), 4, 3)                                           # (n, u*v, 3)
-        finite = np.isfinite(corner).all(axis=(1, 2)) & np.isfinite(box).all(axis=(1, 2))
-        with np.errstate(invalid="ignore", over="ignore"):
-            limit = 1.0e-9 * np.maximum(np.maximum(np.abs(corner).max(axis=(1, 2)), np.abs(box).max(axis=(1, 2))), 1.0)
-            distance = np.sqrt(((box[:, :, None, :] - corner[:, None, :, :]) ** 2).sum(axis=3))   # (n, box, corner)
-            same = ((distance.min(axis=2) <= limit[:, None]).all(axis=1)
-                    & (distance.min(axis=1) <= limit[:, None]).all(axis=1) & finite)
-        routed.extend(face_id for face_id, inside in zip(boxed, same) if not inside)
+        corner = np.asarray([row[0] for row in rows], dtype=float)                   # (n, 4, 3)
+        via = np.asarray([row[1] for row in rows], dtype=float)                      # (n, 4, 3)
+        kind = np.asarray([row[2] for row in rows], dtype=int)                       # (n, 4)
+        number = np.asarray([row[3] for row in rows], dtype=float)                   # (n, 5)
+        frame = np.asarray([row[4] for row in rows], dtype=float)                    # (n, 4, 3)
+        start, sweep, height, r0, r1 = number.T
+        origin, axis, radial, circumferential = frame[:, 0], frame[:, 1], frame[:, 2], frame[:, 3]
+        with np.errstate(all="ignore"):
+            valid = (np.isfinite(number).all(axis=1) & np.isfinite(frame).all(axis=(1, 2))
+                     & np.isfinite(corner).all(axis=(1, 2))
+                     & (np.abs(sweep) > 0.0) & (np.abs(sweep) < 2.0 * math.pi)
+                     & (np.minimum(r0, r1) > 0.0) & (height != 0.0))
+            size = np.maximum(np.abs(height), np.maximum(np.abs(r0), np.abs(r1)))
+            world = np.maximum(np.maximum(np.abs(origin).max(axis=1), np.abs(corner).max(axis=(1, 2))), size)
+            limit = _BOX_RELATIVE * size + _BOX_ROUNDING * world
+            # box corners, index 2*u + v, as Cylinder.evaluate / Cone.evaluate write them
+            angle = np.stack([start, start + sweep], axis=1)                            # (n, u)
+            radius = np.stack([r0, r1], axis=1)                                         # (n, v)
+            direction = (np.cos(angle)[:, :, None] * radial[:, None, :]
+                         + np.sin(angle)[:, :, None] * circumferential[:, None, :])     # (n, u, 3)
+            box = (origin[:, None, None, :] + radius[:, None, :, None] * direction[:, :, None, :]
+                   + np.stack([np.zeros_like(height), height], axis=1)[:, None, :, None] * axis[:, None, None, :]
+                   ).reshape(len(boxed), 4, 3)
+            distance = np.sqrt(((corner[:, :, None, :] - box[:, None, :, :]) ** 2).sum(axis=3))  # (n, corner, box)
+            near = distance <= limit[:, None, None]
+            valid &= (near.sum(axis=2) == 1).all(axis=1) & (near.sum(axis=1) == 1).all(axis=1)
+            mapping = near.argmax(axis=2)                                               # (n, corner) -> box
+            a, b = mapping, np.roll(mapping, -1, axis=1)
+            axial_side = (a // 2 == b // 2) & (a != b)                                  # u = 0 or u = 1
+            circular_side = (a % 2 == b % 2) & (a != b)                                 # v = 0 or v = 1
+            valid &= ((axial_side & (kind == 1)) | (circular_side & (kind == 2))).all(axis=1)
+            # an arc's via point on its side's circle, strictly inside the side's sweep
+            v = (a % 2).astype(float)                                                    # (n, side)
+            offset = via - origin[:, None, :]
+            along = (offset * axis[:, None, :]).sum(axis=2)
+            across = offset - along[:, :, None] * axis[:, None, :]
+            side_radius = (1.0 - v) * r0[:, None] + v * r1[:, None]
+            on_circle = ((np.abs(along - v * height[:, None]) <= limit[:, None])
+                         & (np.abs(np.sqrt((across ** 2).sum(axis=2)) - side_radius) <= limit[:, None]))
+            theta = np.arctan2((across * circumferential[:, None, :]).sum(axis=2),
+                               (across * radial[:, None, :]).sum(axis=2))
+            turn = np.where(sweep[:, None] > 0.0, (theta - start[:, None]) % (2.0 * math.pi),
+                            (start[:, None] - theta) % (2.0 * math.pi))
+            margin = limit[:, None] / side_radius
+            inside = (turn > margin) & (turn < np.abs(sweep)[:, None] - margin)
+            valid &= (~(kind == 2) | (on_circle & inside)).all(axis=1)
+        routed.extend(face_id for face_id, is_box in zip(boxed, valid) if not is_box)
     order = {face_id: index for index, face_id in enumerate(face_ids)}
     return sorted(routed, key=order.__getitem__)
+
+
+#: A box corner or via point lies on the box when within this share of the support's own size, plus
+#: a rounding allowance on the world coordinates (Codex N5 r1 M2: a far-away face keeps a local tolerance).
+_BOX_RELATIVE = 1.0e-9
+_BOX_ROUNDING = 64.0 * float(np.finfo(float).eps)
 
 
 def _trimmed_face_mesh(geometry, face_id: int, angle: float):
@@ -491,16 +552,18 @@ def _trimmed_face_mesh(geometry, face_id: int, angle: float):
         return None
 
 
-def trimmed_face_meshes(geometry, angle: float) -> Dict[int, object]:
+def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]] = None) -> Dict[int, object]:
     """``{face id: FaceDisplayMesh}`` of every routed face ANYgeometry accepts at ``angle``.
 
     Computed once per geometry refresh and passed to each scene build (``trimmed_faces``), so the
-    full and the interaction scene share one tessellation.
+    full and the interaction scene share one tessellation.  ``face_ids`` limits it to those faces
+    (for an overlay that draws only some faces, such as the wet surfaces).
     """
 
     meshes: Dict[int, object] = {}
     tolerance = _display_tess.DisplayTolerance(angle)
-    for face_id in _trim_display_faces(geometry, sorted(geometry.faces)):
+    chosen = sorted(geometry.faces) if face_ids is None else sorted({int(f) for f in face_ids} & set(geometry.faces))
+    for face_id in _trim_display_faces(geometry, chosen):
         try:
             meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
         except _display_tess.DisplayTrimRefused:
@@ -509,7 +572,17 @@ def trimmed_face_meshes(geometry, angle: float) -> Dict[int, object]:
 
 
 def _trimmed_polygons(mesh) -> List[np.ndarray]:
-    return list(np.asarray(mesh.points, dtype=float)[np.asarray(mesh.triangles)])
+    """The mesh's triangles, each counter-clockwise about the SUPPORT normal.
+
+    ANYgeometry winds them about ``sense x`` the support normal (the face's loop direction);
+    ANYfem's face normal (``GeometryModel.face_normal``) and the old route follow the support's
+    ``u x v`` whatever the loop direction (Codex N5 r1 L6), so a reversed loop is flipped here.
+    """
+
+    triangles = np.asarray(mesh.triangles)
+    if int(mesh.sense) < 0:
+        triangles = triangles[:, ::-1]
+    return list(np.asarray(mesh.points, dtype=float)[triangles])
 
 
 def _trimmed_outline(geometry, mesh) -> np.ndarray:
@@ -748,7 +821,7 @@ def _curved_sketch_display_polygons(geometry, face_id, divisions):
     """
     face = geometry.faces[face_id]
     if face.holes or len(face.loop) != 4:
-        return face_display_polygons(geometry, face_id, divisions)
+        return _support_face_display_polygons(geometry, face_id, divisions)
     parameters = [np.linspace(0., 1., 3), np.array((0., 1.))]
     samples = geometry.evaluate_face_many(face_id, np.array([(u,v) for u in (0.,.5,1.) for v in (0.,.5,1.)]))
     scale = max(float(np.linalg.norm(np.ptp(samples, axis=0))), 1e-12)
@@ -1068,20 +1141,22 @@ def build_geometry_scene(
         collapsed_feature = feature_id is not None and feature_id not in exposed
         flat_polygon = _flat_four_edge_polygon(geometry, face_id)
         face_divisions = min(divisions, 2) if collapsed_feature else divisions
-        trim_drawn = False
-        if flat_polygon is not None:
-            polygons = [flat_polygon]
-        elif feature_id in smooth_feature_ids:
-            polygons = _curved_sketch_display_polygons(geometry, face_id, divisions)
-        else:
+        mesh = None
+        if flat_polygon is None:
             if trimmed_faces is not None:
                 # holds exactly the routed faces ANYgeometry accepted (trimmed_face_meshes)
                 mesh = trimmed_faces.get(face_id)
             else:
                 mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(face_divisions))
-            trim_drawn = mesh is not None
-            polygons = (_trimmed_polygons(mesh) if trim_drawn
-                        else _support_face_display_polygons(geometry, face_id, face_divisions))
+        trim_drawn = mesh is not None
+        if flat_polygon is not None:
+            polygons = [flat_polygon]
+        elif trim_drawn:
+            polygons = _trimmed_polygons(mesh)
+        elif feature_id in smooth_feature_ids:
+            polygons = _curved_sketch_display_polygons(geometry, face_id, divisions)
+        else:
+            polygons = _support_face_display_polygons(geometry, face_id, face_divisions)
         if collapsed_feature:
             # A collapsed generator is one semantic surface.  Retain all exact
             # face owners on that surface so selecting it applies to the
@@ -1100,10 +1175,15 @@ def build_geometry_scene(
                 collapsed_face_patches[feature_id] = patch
                 collapsed_face_owners[feature_id] = []
                 scene.faces.append(patch)
+            first = len(patch.polygons)
             patch.polygons.extend(polygons)
-            if feature_id in smooth_feature_ids:
-                if patch.outline_groups is None:patch.outline_groups=[]
+            if trim_drawn or feature_id in smooth_feature_ids:
+                if patch.outline_groups is None:
+                    # earlier polygons of this patch keep their own outlines (Codex N5 r1 L5)
+                    patch.outline_groups = [("polygon", index) for index in range(first)]
                 patch.outline_groups.extend([face_id]*len(polygons))
+            elif patch.outline_groups is not None:
+                patch.outline_groups.extend(("polygon", first + index) for index in range(len(polygons)))
             patch.colors.extend([COLOR_PLATE] * len(polygons))
             patch.polygon_visibility_owners.extend([(face_ref,)] * len(polygons))
             patch.polygon_owners.extend([(face_ref,)] * len(polygons))

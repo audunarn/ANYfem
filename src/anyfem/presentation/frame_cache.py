@@ -66,6 +66,12 @@ def prepare(request_path):
         view._face_style=MethodType(SceneViewport._face_style,view)
         view._pick_binding=MethodType(SceneViewport._pick_binding,view)
         layout=None;written=set();total=len(data['frames']);access=LiveResultAccess()
+        # the static wet faces' trimmed outlines are tessellated once for every frame (Codex N5 r1 M4)
+        trimmed=None
+        if options['attributes'] and not (project.mesh_only and mesh is not None):
+            from ..ui.scene import DISPLAY_DIVISIONS,display_trim_angle,trimmed_face_meshes
+            trimmed=trimmed_face_meshes(project.geometry,display_trim_angle(DISPLAY_DIVISIONS),
+                face_ids=[s.ref.id for s in project.wet_surfaces if s.ref.kind=='face'])
         with result_access_scope(access):
             for completed,index in enumerate(data['frames'],1):
                 scene=build_persisted_result_scene(project,mesh,dataset,options['field'],frame=index,
@@ -73,7 +79,7 @@ def prepare(request_path):
                     colormap=options['colormap'],display_units=options['units'],
                     show_nodes=options['show_nodes'],show_beam_sections=options['show_beam_sections'])
                 if options['attributes']:
-                    scene.merge(build_attribute_overlay(project,case_name=options['case'],mesh=mesh,**options['attribute_options']))
+                    scene.merge(build_attribute_overlay(project,case_name=options['case'],mesh=mesh,trimmed_faces=trimmed,**options['attribute_options']))
                 prepared=prepare_frame(view,scene,layout)
                 if prepared is None:raise ValueError('this result does not provide retained GPU geometry')
                 layout=scene._retained_frame_layout;key=layout.topology.hex()

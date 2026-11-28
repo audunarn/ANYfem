@@ -72,9 +72,13 @@ def _skin_patches(scene, face_ids):
 
 
 def test_display_trim_angle_follows_divisions():
-    for divisions in (1, 2, 3, 8, 16, 64):
+    # capped at 22.5 degrees for coarse divisions, 60 degrees / divisions above the crossover
+    for divisions in (0, 1, 2):
+        assert display_trim_angle(divisions) == math.radians(22.5)
+    for divisions in (3, 8, 16, 64):
         angle = display_trim_angle(divisions)
-        assert type(angle) is float and 0.0 < angle <= math.radians(22.5)
+        assert type(angle) is float and angle == pytest.approx(math.radians(60.0) / divisions, rel=1e-15)
+    assert display_trim_angle(8) == pytest.approx(math.radians(7.5), rel=1e-15)
 
 
 def test_every_tripod_skin_is_routed_and_accepted(tripod):
@@ -258,3 +262,194 @@ def test_wet_overlay_uses_the_given_trimmed_meshes(tripod, monkeypatch):
     wet_own = [line.points for line in own.lines if line.color == COLOR_WET]
     assert len(wet_shared) == len(wet_own) > 0
     assert all(np.array_equal(a, b) for a, b in zip(wet_shared, wet_own))
+
+
+# --- Codex N5 round 1 -------------------------------------------------------------------------------------------
+
+
+def _ring_point(g, radius, angle, z):
+    return g.add_point(radius * math.cos(angle), radius * math.sin(angle), z)
+
+
+def _notched_quarter_cylinder():
+    """A quarter-turn plate whose support box is exactly its corners, but whose top side has a notch."""
+
+    g = GeometryModel()
+    r, q = 2.0, math.pi / 2
+    p0, p2 = _ring_point(g, r, 0.0, 1.0), _ring_point(g, r, q, 1.0)
+    p3, p5 = _ring_point(g, r, 0.0, 3.0), _ring_point(g, r, q, 3.0)
+    bottom = g.add_arc(p0, _ring_point(g, r, q / 2, 1.0), p2)
+    side1 = g.add_line(p2, p5)
+    a, b = _ring_point(g, r, 3 * math.pi / 8, 3.0), _ring_point(g, r, 3 * math.pi / 8, 2.5)
+    c, d = _ring_point(g, r, math.pi / 8, 2.5), _ring_point(g, r, math.pi / 8, 3.0)
+    top1 = g.add_arc(p5, _ring_point(g, r, 7 * math.pi / 16, 3.0), a)
+    down = g.add_line(a, b)
+    floor = g.add_arc(b, _ring_point(g, r, math.pi / 4, 2.5), c)
+    up = g.add_line(c, d)
+    top2 = g.add_arc(d, _ring_point(g, r, math.pi / 16, 3.0), p3)
+    side0 = g.add_line(p3, p0)
+    support = Cylinder(origin=(0., 0., 1.), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=r, height=2.,
+                       start_angle=0., sweep_angle=q)
+    face = g.add_face((bottom, side1, top1, down, floor, up, top2, side0), corners=(0, 1, 2, 7), surface=support)
+    return g, face
+
+
+def test_notched_face_sharing_the_box_corners_is_drawn_from_its_trim():
+    g, face = _notched_quarter_cylinder()
+    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    polygons = face_display_polygons(g, face)
+    full, notch = 2.0 * (math.pi / 2) * 2.0, 2.0 * (math.pi / 4) * 0.5
+    area = _area(polygons)
+    assert area < full - 0.9 * notch
+    assert area > 0.98 * (full - notch)
+    points = np.concatenate(polygons)
+    angle = np.arctan2(points[:, 1], points[:, 0])
+    inside_notch = (angle > math.pi / 8 + 1e-9) & (angle < 3 * math.pi / 8 - 1e-9) & (points[:, 2] > 2.5 + 1e-9)
+    assert not inside_notch.any()
+
+
+def _quarter_on(z, height):
+    g = GeometryModel()
+    r, q = 2.0, math.pi / 2
+    p0, p2 = _ring_point(g, r, 0.0, z), _ring_point(g, r, q, z)
+    p3, p5 = _ring_point(g, r, 0.0, z + 2.0), _ring_point(g, r, q, z + 2.0)
+    bottom = g.add_arc(p0, _ring_point(g, r, q / 2, z), p2)
+    top = g.add_arc(p3, _ring_point(g, r, q / 2, z + 2.0), p5)
+    side0, side1 = g.add_line(p0, p3), g.add_line(p2, p5)
+    support = Cylinder(origin=(0., 0., z), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=r, height=height,
+                       start_angle=0., sweep_angle=q)
+    face = g.add_face((bottom, side1, top, side0), corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+def test_far_away_face_on_a_slightly_longer_support_is_drawn_from_its_trim():
+    """A local tolerance: 5 cm of overrun at z = 1e8 m is not 'the box'."""
+
+    z = 1.0e8
+    g, face = _quarter_on(z, 2.05)
+    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    points = np.concatenate(face_display_polygons(g, face))
+    assert points[:, 2].max() <= z + 2.0 + 1e-6
+
+
+@pytest.mark.parametrize("z", [0.0, 1.0e8])
+def test_exact_box_face_keeps_the_old_route(z):
+    g, face = _quarter_on(z, 2.0)
+    assert trimmed_face_meshes(g, display_trim_angle(8)) == {}
+    new = face_display_polygons(g, face)
+    old = scene_module._support_face_display_polygons(g, face)
+    assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
+
+
+def test_smooth_feature_face_takes_the_trimmed_route_first(monkeypatch):
+    from types import SimpleNamespace
+
+    from anygeometry.entities import EntityRef
+    from anyfem import Project
+
+    g, face = _cornered_cylinder()
+    project = Project()
+    project.geometry = g
+    record = SimpleNamespace(kind="geometry.extrude", feature_id=7, outputs={})
+    history = SimpleNamespace(records=[record])
+    real = type(g).features
+    monkeypatch.setattr(type(g), "features", property(lambda self: history if self is g else real.fget(self)))
+    owners = {EntityRef("face", face): 7}
+    meshes = trimmed_face_meshes(g, display_trim_angle(8))
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append(f) or original(m, f, t))
+    scene = build_geometry_scene(project, entity_owners=owners, exposed_feature_ids={7}, trimmed_faces=meshes)
+    assert calls == []
+    polygons = _skin_patches(scene, {face})[face]
+    points = np.concatenate([np.asarray(p, dtype=float) for p in polygons])
+    assert points[:, 2].min() >= 1.0 - 1e-12 and points[:, 2].max() <= 3.0 + 1e-12
+
+
+def test_collapsed_patch_keeps_one_outline_per_trimmed_face_and_per_other_polygon(tripod):
+    from anygeometry.entities import EntityRef
+    from anygeometry.surfaces import Plane
+
+    geometry = tripod.geometry
+    skin = _routed(geometry)[0]
+    plane = next(f for f, face in sorted(geometry.faces.items())
+                 if type(face.surface) is Plane and len(face_display_polygons(geometry, f, 2)) > 1)
+    owners = {EntityRef("face", skin): 99, EntityRef("face", plane): 99}
+    scene = build_geometry_scene(tripod, entity_owners=owners, exposed_feature_ids=())
+    patch = next(p for p in scene.faces if p.owners and set(p.owners) == set(owners))
+    groups = patch.outline_groups
+    assert groups is not None and len(groups) == len(patch.polygons)
+    skin_owner, plane_owner = (EntityRef("face", skin),), (EntityRef("face", plane),)
+    skin_labels = {groups[i] for i in range(len(patch.polygons)) if patch.owners_for_polygon(i) == skin_owner}
+    other_labels = [groups[i] for i in range(len(patch.polygons)) if patch.owners_for_polygon(i) == plane_owner]
+    assert skin_labels == {skin}
+    assert other_labels and len(set(other_labels)) == len(other_labels) and skin not in other_labels
+
+
+def _reversed_cornered_cylinder():
+    """The same plate as _cornered_cylinder, its loop running the other way."""
+
+    g = GeometryModel()
+    r = 2
+    p = [g.add_point(r, 0.0, 1.0), g.add_point(r * math.sqrt(0.5), r * math.sqrt(0.5), 1.0), g.add_point(0.0, r, 1.0),
+         g.add_point(r, 0.0, 3.0), g.add_point(r * math.sqrt(0.5), r * math.sqrt(0.5), 3.0), g.add_point(0.0, r, 3.0)]
+    bottom = g.add_arc(p[0], p[1], p[2])
+    top = g.add_arc(p[3], p[4], p[5])
+    side0 = g.add_line(p[0], p[3])
+    side1 = g.add_line(p[2], p[5])
+    support = Cylinder(origin=(0, 0, 0), axis=(0, 0, 1), radial_direction=(1, 0, 0), radius=r,
+                       height=6, start_angle=-1, sweep_angle=4)
+    face = g.add_face((side0, top, side1, bottom), corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+@pytest.mark.parametrize("make", [_cornered_cylinder, _reversed_cornered_cylinder])
+def test_trimmed_triangles_face_the_support_normal_whatever_the_loop_direction(make):
+    g, face = make()
+    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    support = g.faces[face].surface
+    reference = g.face_normal(face, 0.5, 0.5)
+    centre = g.face_point(face, 0.5, 0.5) - support.origin
+    centre_radial = centre - float(centre @ support.axis) * support.axis
+    sign = np.sign(float(reference @ centre_radial))
+    assert sign != 0
+    for polygon in face_display_polygons(g, face):
+        normal = np.cross(polygon[1] - polygon[0], polygon[2] - polygon[0])
+        middle = polygon.mean(axis=0) - support.origin
+        radial = middle - float(middle @ support.axis) * support.axis
+        assert np.sign(float(normal @ radial)) == sign
+
+
+def _spline_sided_cylinder():
+    """A valid face ANYgeometry refuses, typed: one side is a spline (EDGE_UNSUPPORTED)."""
+
+    g = GeometryModel()
+    r = 2.0
+    p0, p2 = _ring_point(g, r, 0.0, 1.0), _ring_point(g, r, math.pi / 2, 1.0)
+    p3, p5 = _ring_point(g, r, 0.0, 3.0), _ring_point(g, r, math.pi / 2, 3.0)
+    bottom = g.add_arc(p0, _ring_point(g, r, math.pi / 4, 1.0), p2)
+    top = g.add_arc(p3, _ring_point(g, r, math.pi / 4, 3.0), p5)
+    side0 = g.add_line(p0, p3)
+    middle = _ring_point(g, r, math.pi / 2, 2.0)
+    side1 = g.add_spline(p2, (middle,), p5)
+    support = Cylinder(origin=(0., 0., 0.), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=r, height=6.,
+                       start_angle=-1., sweep_angle=4.)
+    face = g.add_face((bottom, side1, top, side0), corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+def test_typed_refusal_of_a_valid_face_keeps_the_complete_old_route():
+    from anyfem import Project
+
+    g, face = _spline_sided_cylinder()
+    with pytest.raises(dt.DisplayTrimRefused):
+        dt.face_display_mesh(g, face, dt.DisplayTolerance(display_trim_angle(8)))
+    assert trimmed_face_meshes(g, display_trim_angle(8)) == {}
+    old = scene_module._support_face_display_polygons(g, face)
+    new = face_display_polygons(g, face)
+    assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
+    project = Project()
+    project.geometry = g
+    for extra in ({}, {"trimmed_faces": trimmed_face_meshes(g, display_trim_angle(8))}):
+        polygons = _skin_patches(build_geometry_scene(project, **extra), {face})[face]
+        assert len(polygons) == len(old) and all(np.array_equal(a, b) for a, b in zip(polygons, old))
