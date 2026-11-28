@@ -63,7 +63,6 @@ def test_numbered_curved_worker_artifact_can_solve_after_reopen(tmp_path):
 def test_source_triangle_solver_receives_issued_normals_and_rejects_foreign_transfer():
     from anyfem.model.project import ProjectError
     from anyfem.solve.build import _qualified_s3_owner_normals
-    from anyfesolver.e4_pl_s3_v2d_element import NativeParityCapabilityError
 
     project, settings, face, edges = panel('nurbs')
     for edge in edges:
@@ -71,8 +70,11 @@ def test_source_triangle_solver_receives_issued_normals_and_rejects_foreign_tran
     project.load_case().add_pressure(project.face(face), 1.e4)
     mesh = project.mesh_session().generate_mesh(settings)
     built = build_fe_model(project, mesh)
-    with pytest.raises(NativeParityCapabilityError, match='not facet-normal'):
-        solve_linear_static(built=built)
+    # Owner decision 2026-11-24: curved-face triangles whose source normal is not
+    # the facet normal get the source-oriented facet normal, so this solves
+    # (before: NativeParityCapabilityError "not facet-normal").
+    solved = solve_linear_static(built=built)
+    assert any(abs(solved.node_displacement(n)[2]) > 0 for n in mesh.nodes)
     owners = mesh.structural_preparation['qualified_s3']['element_owner_sources']
     owner = owners[str(next(iter(mesh.tris)))]
     owner['sheet_ids'][0] += 1

@@ -300,7 +300,7 @@ class MeshTask(QWidget):
         settings=Collapsible("Advanced settings",hint="Backend, quality, quad-first and recovery controls. Defaults suit most models.")
         settings.addLayout(advanced)
         self.s3_reference = QComboBox()
-        self.s3_reference.addItem("Source surface normal", "source")
+        self.s3_reference.addItem("Source surface normal (facet normal where they differ)", "source")
         self.s3_reference.addItem("Flat triangle normal, oriented by source", "faceted")
         self.s3_reference.setToolTip("V2D uses flat triangles. The faceted option follows each triangle plane and keeps the source sheet's physical side.")
         policy = app.project.shell_formulation_policy
