@@ -86,8 +86,8 @@ def test_every_tripod_skin_is_routed_and_accepted(tripod):
     routed = _routed(geometry)
     assert len(routed) == 18
     meshes = trimmed_face_meshes(geometry, display_trim_angle(8))
-    assert sorted(meshes) == routed
-    for face_id, mesh in meshes.items():
+    assert sorted(meshes.meshes) == routed
+    for face_id, mesh in meshes.meshes.items():
         assert isinstance(mesh, dt.FaceDisplayMesh) and mesh.face_id == face_id
         assert len(mesh.triangles) > 0
 
@@ -194,7 +194,7 @@ def test_int_built_support_is_accepted_because_the_constructor_coerces():
     for name in ("origin", "axis", "radial_direction"):
         value = getattr(support, name)
         assert type(value) is np.ndarray and value.dtype == np.float64 and value.shape == (3,)
-    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
     points = np.concatenate([np.asarray(q, dtype=float) for q in face_display_polygons(g, face)])
     assert points[:, 2].min() >= 1.0 - 1e-12 and points[:, 2].max() <= 3.0 + 1e-12
 
@@ -206,7 +206,7 @@ def test_refused_face_keeps_the_old_route():
     object.__setattr__(g.faces[face].surface, "radius", 2)
     with pytest.raises(dt.DisplayTrimRefused):
         dt.face_display_mesh(g, face, dt.DisplayTolerance(display_trim_angle(8)))
-    assert face not in trimmed_face_meshes(g, display_trim_angle(8))
+    assert face not in trimmed_face_meshes(g, display_trim_angle(8)).meshes
     polygons = face_display_polygons(g, face)
     assert len(polygons) == 64
     assert np.array_equal(polygons[0], np.array([old_grid[0, 0], old_grid[1, 0], old_grid[1, 1], old_grid[0, 1]]))
@@ -234,7 +234,7 @@ def test_generated_cylinder_segments_keep_the_old_route(segments):
     cmd.CommandStack(project).run(cmd.AddCylinder(1.0, 2.0, circumferential_segments=segments))
     geometry = project.geometry
     assert len(_routed(geometry)) == segments
-    assert trimmed_face_meshes(geometry, display_trim_angle(8)) == {}
+    assert dict(trimmed_face_meshes(geometry, display_trim_angle(8)).meshes) == {}
     for face_id in _routed(geometry)[:16]:
         new = face_display_polygons(geometry, face_id)
         old = scene_module._support_face_display_polygons(geometry, face_id)
@@ -296,7 +296,7 @@ def _notched_quarter_cylinder():
 
 def test_notched_face_sharing_the_box_corners_is_drawn_from_its_trim():
     g, face = _notched_quarter_cylinder()
-    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
     polygons = face_display_polygons(g, face)
     full, notch = 2.0 * (math.pi / 2) * 2.0, 2.0 * (math.pi / 4) * 0.5
     area = _area(polygons)
@@ -327,7 +327,7 @@ def test_far_away_face_on_a_slightly_longer_support_is_drawn_from_its_trim():
 
     z = 1.0e8
     g, face = _quarter_on(z, 2.05)
-    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
     points = np.concatenate(face_display_polygons(g, face))
     assert points[:, 2].max() <= z + 2.0 + 1e-6
 
@@ -335,7 +335,7 @@ def test_far_away_face_on_a_slightly_longer_support_is_drawn_from_its_trim():
 @pytest.mark.parametrize("z", [0.0, 1.0e8])
 def test_exact_box_face_keeps_the_old_route(z):
     g, face = _quarter_on(z, 2.0)
-    assert trimmed_face_meshes(g, display_trim_angle(8)) == {}
+    assert dict(trimmed_face_meshes(g, display_trim_angle(8)).meshes) == {}
     new = face_display_polygons(g, face)
     old = scene_module._support_face_display_polygons(g, face)
     assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
@@ -406,7 +406,7 @@ def _reversed_cornered_cylinder():
 @pytest.mark.parametrize("make", [_cornered_cylinder, _reversed_cornered_cylinder])
 def test_trimmed_triangles_face_the_support_normal_whatever_the_loop_direction(make):
     g, face = make()
-    assert face in trimmed_face_meshes(g, display_trim_angle(8))
+    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
     support = g.faces[face].surface
     reference = g.face_normal(face, 0.5, 0.5)
     centre = g.face_point(face, 0.5, 0.5) - support.origin
@@ -444,7 +444,7 @@ def test_typed_refusal_of_a_valid_face_keeps_the_complete_old_route():
     g, face = _spline_sided_cylinder()
     with pytest.raises(dt.DisplayTrimRefused):
         dt.face_display_mesh(g, face, dt.DisplayTolerance(display_trim_angle(8)))
-    assert trimmed_face_meshes(g, display_trim_angle(8)) == {}
+    assert dict(trimmed_face_meshes(g, display_trim_angle(8)).meshes) == {}
     old = scene_module._support_face_display_polygons(g, face)
     new = face_display_polygons(g, face)
     assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
@@ -453,3 +453,108 @@ def test_typed_refusal_of_a_valid_face_keeps_the_complete_old_route():
     for extra in ({}, {"trimmed_faces": trimmed_face_meshes(g, display_trim_angle(8))}):
         polygons = _skin_patches(build_geometry_scene(project, **extra), {face})[face]
         assert len(polygons) == len(old) and all(np.array_equal(a, b) for a, b in zip(polygons, old))
+
+
+# --- Codex N5 round 2 -------------------------------------------------------------------------------------------
+
+
+def _thin_plate(radius, height, face_sweep, support_sweep):
+    """A narrow plate spanning ``face_sweep`` of a support of ``support_sweep``, both from angle 0."""
+
+    g = GeometryModel()
+    p0, p2 = _ring_point(g, radius, 0.0, 0.0), _ring_point(g, radius, face_sweep, 0.0)
+    p3, p5 = _ring_point(g, radius, 0.0, height), _ring_point(g, radius, face_sweep, height)
+    bottom = g.add_arc(p0, _ring_point(g, radius, face_sweep / 2, 0.0), p2)
+    top = g.add_arc(p3, _ring_point(g, radius, face_sweep / 2, height), p5)
+    side0, side1 = g.add_line(p0, p3), g.add_line(p2, p5)
+    support = Cylinder(origin=(0., 0., 0.), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=radius,
+                       height=height, start_angle=0., sweep_angle=support_sweep)
+    face = g.add_face((bottom, side1, top, side0), corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+def test_a_long_axis_does_not_widen_the_angular_box_tolerance():
+    """1 mm radius, 100 m tall, 0.40 mrad of a 0.49 mrad support: the overrun is 22 % of the span."""
+
+    g, face = _thin_plate(1.0e-3, 100.0, 0.40e-3, 0.49e-3)
+    assert scene_module._routes_to_trim_display(g, face)
+    meshes = trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    if face in meshes:
+        points = np.concatenate(face_display_polygons(g, face))
+        assert float(np.arctan2(points[:, 1], points[:, 0]).max()) <= 0.40e-3 * (1 + 1e-6)
+
+
+def test_an_exact_tiny_box_keeps_the_old_route():
+    g, face = _thin_plate(1.0e-3, 100.0, 0.05e-3, 0.05e-3)
+    assert not scene_module._routes_to_trim_display(g, face)
+
+
+def _signed_plate(sweep_sign, height_sign):
+    """The quarter plate of _cornered_cylinder on a support whose sweep and/or height run backwards."""
+
+    g = GeometryModel()
+    r = 2.0
+    p = [g.add_point(r, 0.0, 1.0), g.add_point(r * math.sqrt(0.5), r * math.sqrt(0.5), 1.0), g.add_point(0.0, r, 1.0),
+         g.add_point(r, 0.0, 3.0), g.add_point(r * math.sqrt(0.5), r * math.sqrt(0.5), 3.0), g.add_point(0.0, r, 3.0)]
+    bottom, top = g.add_arc(p[0], p[1], p[2]), g.add_arc(p[3], p[4], p[5])
+    side0, side1 = g.add_line(p[0], p[3]), g.add_line(p[2], p[5])
+    start = -1.0 if sweep_sign > 0 else math.pi / 2 + 1.0
+    origin_z = 0.0 if height_sign > 0 else 6.0
+    support = Cylinder(origin=(0., 0., origin_z), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=r,
+                       height=6.0 * height_sign, start_angle=start, sweep_angle=4.0 * sweep_sign)
+    face = g.add_face((bottom, side1, top, side0), corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+@pytest.mark.parametrize("signs", [(1, 1), (-1, 1), (1, -1), (-1, -1)])
+def test_trimmed_triangles_follow_face_normal_for_signed_supports(signs):
+    g, face = _signed_plate(*signs)
+    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    reference = g.face_normal(face, 0.5, 0.5)
+    centre = g.face_point(face, 0.5, 0.5)
+    outward = np.array([centre[0], centre[1], 0.0])
+    sign = np.sign(float(reference @ outward))
+    assert sign != 0
+    for polygon in face_display_polygons(g, face):
+        normal = np.cross(polygon[1] - polygon[0], polygon[2] - polygon[0])
+        middle = polygon.mean(axis=0)
+        assert np.sign(float(normal @ np.array([middle[0], middle[1], 0.0]))) == sign
+
+
+def test_a_map_answers_only_for_the_faces_it_covers(tripod):
+    """Playback passes a map of some faces; the overlay resolves every other face itself."""
+
+    geometry = tripod.geometry
+    wet = set(scene_module.wet_display_face_ids(tripod))
+    other = [f for f in _routed(geometry) if f not in wet][:1]
+    partial = trimmed_face_meshes(geometry, display_trim_angle(8), face_ids=other)
+    options = dict(show_supports=False, show_masses=False, show_imperfections=False)
+    own = build_attribute_overlay(tripod, **options)
+    shared = build_attribute_overlay(tripod, trimmed_faces=partial, **options)
+    a = [line.points for line in own.lines if line.color == COLOR_WET]
+    b = [line.points for line in shared.lines if line.color == COLOR_WET]
+    assert len(a) == len(b) == len(wet) and all(np.array_equal(x, y) for x, y in zip(a, b))
+
+
+def test_a_map_of_an_older_revision_or_another_geometry_is_not_used(monkeypatch):
+    from anyfem import Project
+
+    g, face = _cornered_cylinder()
+    project = Project()
+    project.geometry = g
+    stale = trimmed_face_meshes(g, display_trim_angle(8))
+    other_geometry, _ = _cornered_cylinder()
+    foreign = trimmed_face_meshes(other_geometry, display_trim_angle(8))
+    g.add_point(10.0, 10.0, 10.0)                 # a new revision
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append(f) or original(m, f, t))
+    build_geometry_scene(project, trimmed_faces=stale)
+    assert calls == [face]
+    calls.clear()
+    fresh = trimmed_face_meshes(g, display_trim_angle(8))
+    calls.clear()
+    build_geometry_scene(project, trimmed_faces=fresh)
+    assert calls == []
+    build_geometry_scene(project, trimmed_faces=foreign)
+    assert calls == [face]

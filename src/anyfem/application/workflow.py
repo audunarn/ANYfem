@@ -2379,14 +2379,10 @@ class WorkbenchWorkflow:
 
 
     def _cached_trimmed_faces(self, project):
-        """The geometry scene's trimmed face meshes when they belong to ``project``'s current geometry."""
+        """The geometry scene's trimmed face meshes (used only for the geometry and revision they cover)."""
 
         cached = self._geometry_scene_cache
         if cached is None or project is not self.project:
-            return None
-        geometry = project.geometry
-        key = cached[0]
-        if key[0] != id(geometry) or key[1] != int(geometry.revision):
             return None
         return cached[3]
 

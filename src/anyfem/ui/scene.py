@@ -48,6 +48,8 @@ __all__ = [
     "face_display_polygons",
     "face_normal",
     "trimmed_face_meshes",
+    "TrimmedFaceMeshes",
+    "wet_display_face_ids",
     "GeometryDisplayResolution",
     "geometry_display_resolution",
     "geometry_characteristic_size",
@@ -436,9 +438,10 @@ def _trim_display_faces(geometry, face_ids) -> List[int]:
     corners are the box's four corners one to one; and each coedge joins two corners of one box side:
     a ``Straight`` edge an axial side (a straight generator line, so the edge is that side), an
     ``Arc`` edge a circular side with its via point on that circle strictly inside the side's sweep (a
-    circle through three points is unique, so the edge is that side).  "On" means within
-    ``1e-9`` of the support's own size plus a rounding allowance on the world coordinates (Codex N5
-    r1 M2).  One vectorised pass over all candidates.
+    circle through three points is unique, so the edge is that side).  Points are compared in the
+    support's own (u, v, radius) frame, each direction within ``1e-9`` of its own extent plus a
+    rounding allowance on the world coordinates; when that allowance is not small (a tolerance of a
+    quarter of the box or more) the face is routed (Codex N5 r1 M2, r2 H).  One vectorised pass.
     """
 
     from anygeometry.curves import Arc
@@ -492,47 +495,57 @@ def _trim_display_faces(geometry, face_ids) -> List[int]:
                      & np.isfinite(corner).all(axis=(1, 2))
                      & (np.abs(sweep) > 0.0) & (np.abs(sweep) < 2.0 * math.pi)
                      & (np.minimum(r0, r1) > 0.0) & (height != 0.0))
-            size = np.maximum(np.abs(height), np.maximum(np.abs(r0), np.abs(r1)))
-            world = np.maximum(np.maximum(np.abs(origin).max(axis=1), np.abs(corner).max(axis=(1, 2))), size)
-            limit = _BOX_RELATIVE * size + _BOX_ROUNDING * world
-            # box corners, index 2*u + v, as Cylinder.evaluate / Cone.evaluate write them
-            angle = np.stack([start, start + sweep], axis=1)                            # (n, u)
-            radius = np.stack([r0, r1], axis=1)                                         # (n, v)
-            direction = (np.cos(angle)[:, :, None] * radial[:, None, :]
-                         + np.sin(angle)[:, :, None] * circumferential[:, None, :])     # (n, u, 3)
-            box = (origin[:, None, None, :] + radius[:, None, :, None] * direction[:, :, None, :]
-                   + np.stack([np.zeros_like(height), height], axis=1)[:, None, :, None] * axis[:, None, None, :]
-                   ).reshape(len(boxed), 4, 3)
-            distance = np.sqrt(((corner[:, :, None, :] - box[:, None, :, :]) ** 2).sum(axis=3))  # (n, corner, box)
-            near = distance <= limit[:, None, None]
-            valid &= (near.sum(axis=2) == 1).all(axis=1) & (near.sum(axis=1) == 1).all(axis=1)
-            mapping = near.argmax(axis=2)                                               # (n, corner) -> box
+            # direction-specific tolerances in the support frame (Codex N5 r2 H): a share of each
+            # direction's own extent plus the rounding of the world coordinates the points come from
+            rounding = _BOX_ROUNDING * np.maximum(np.maximum(np.abs(origin).max(axis=1),
+                                                             np.abs(corner).max(axis=(1, 2))),
+                                                  np.maximum(np.abs(height), np.maximum(r0, r1)))
+            tol_u = _BOX_RELATIVE + rounding / (np.minimum(r0, r1) * np.abs(sweep))
+            tol_v = _BOX_RELATIVE + rounding / np.abs(height)
+            tol_r = _BOX_RELATIVE * np.maximum(r0, r1) + rounding
+            valid &= (tol_u < 0.25) & (tol_v < 0.25)
+
+            def parameters(points):
+                """(u, v, radial misfit) of points (n, k, 3) in each support's frame."""
+                offset = points - origin[:, None, :]
+                along = (offset * axis[:, None, :]).sum(axis=2)
+                across = offset - along[:, :, None] * axis[:, None, :]
+                v = along / height[:, None]
+                theta = np.arctan2((across * circumferential[:, None, :]).sum(axis=2),
+                                   (across * radial[:, None, :]).sum(axis=2))
+                turn = np.where(sweep[:, None] > 0.0, (theta - start[:, None]) % (2.0 * math.pi),
+                                (start[:, None] - theta) % (2.0 * math.pi))
+                u = turn / np.abs(sweep)[:, None]
+                below = (turn - 2.0 * math.pi) / np.abs(sweep)[:, None]          # the same angle, one turn back
+                u = np.where(np.maximum(0.0, -below) < np.maximum(0.0, u - 1.0), below, u)
+                misfit = np.abs(np.sqrt((across ** 2).sum(axis=2)) - ((1.0 - v) * r0[:, None] + v * r1[:, None]))
+                return u, v, misfit
+
+            u, v, misfit = parameters(corner)
+            iu, iv = np.rint(u), np.rint(v)
+            valid &= (((iu == 0.0) | (iu == 1.0)) & ((iv == 0.0) | (iv == 1.0))
+                      & (np.abs(u - iu) <= tol_u[:, None]) & (np.abs(v - iv) <= tol_v[:, None])
+                      & (misfit <= tol_r[:, None])).all(axis=1)
+            mapping = np.where(np.isfinite(iu) & np.isfinite(iv), 2 * np.nan_to_num(iu) + np.nan_to_num(iv), -1).astype(int)
+            valid &= (np.sort(mapping, axis=1) == np.arange(4)).all(axis=1)          # one to one
             a, b = mapping, np.roll(mapping, -1, axis=1)
             axial_side = (a // 2 == b // 2) & (a != b)                                  # u = 0 or u = 1
             circular_side = (a % 2 == b % 2) & (a != b)                                 # v = 0 or v = 1
             valid &= ((axial_side & (kind == 1)) | (circular_side & (kind == 2))).all(axis=1)
             # an arc's via point on its side's circle, strictly inside the side's sweep
-            v = (a % 2).astype(float)                                                    # (n, side)
-            offset = via - origin[:, None, :]
-            along = (offset * axis[:, None, :]).sum(axis=2)
-            across = offset - along[:, :, None] * axis[:, None, :]
-            side_radius = (1.0 - v) * r0[:, None] + v * r1[:, None]
-            on_circle = ((np.abs(along - v * height[:, None]) <= limit[:, None])
-                         & (np.abs(np.sqrt((across ** 2).sum(axis=2)) - side_radius) <= limit[:, None]))
-            theta = np.arctan2((across * circumferential[:, None, :]).sum(axis=2),
-                               (across * radial[:, None, :]).sum(axis=2))
-            turn = np.where(sweep[:, None] > 0.0, (theta - start[:, None]) % (2.0 * math.pi),
-                            (start[:, None] - theta) % (2.0 * math.pi))
-            margin = limit[:, None] / side_radius
-            inside = (turn > margin) & (turn < np.abs(sweep)[:, None] - margin)
-            valid &= (~(kind == 2) | (on_circle & inside)).all(axis=1)
+            vu, vv, vmisfit = parameters(via)
+            side_v = (a % 2).astype(float)
+            via_ok = ((np.abs(vv - side_v) <= tol_v[:, None]) & (vmisfit <= tol_r[:, None])
+                      & (vu > tol_u[:, None]) & (vu < 1.0 - tol_u[:, None]))
+            valid &= (~(kind == 2) | via_ok).all(axis=1)
         routed.extend(face_id for face_id, is_box in zip(boxed, valid) if not is_box)
     order = {face_id: index for index, face_id in enumerate(face_ids)}
     return sorted(routed, key=order.__getitem__)
 
 
-#: A box corner or via point lies on the box when within this share of the support's own size, plus
-#: a rounding allowance on the world coordinates (Codex N5 r1 M2: a far-away face keeps a local tolerance).
+#: A box corner or via point lies on the box when, in each direction of the support frame, it is within
+#: this share of that direction's extent plus a rounding allowance on the world coordinates (Codex N5 r1 M2,
+#: r2 H: a far-away face keeps a local tolerance; a long axis does not widen the angular tolerance).
 _BOX_RELATIVE = 1.0e-9
 _BOX_ROUNDING = 64.0 * float(np.finfo(float).eps)
 
@@ -552,35 +565,81 @@ def _trimmed_face_mesh(geometry, face_id: int, angle: float):
         return None
 
 
-def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]] = None) -> Dict[int, object]:
-    """``{face id: FaceDisplayMesh}`` of every routed face ANYgeometry accepts at ``angle``.
+class TrimmedFaceMeshes:
+    """The display meshes of routed faces of one geometry revision (:func:`trimmed_face_meshes`).
 
-    Computed once per geometry refresh and passed to each scene build (``trimmed_faces``), so the
-    full and the interaction scene share one tessellation.  ``face_ids`` limits it to those faces
-    (for an overlay that draws only some faces, such as the wet surfaces).
+    Shared by scene builds and overlays so a face is tessellated once.  It answers only for the
+    faces it covered, and only for the geometry object and revision it was computed from: any other
+    face, geometry or revision is resolved by the caller itself (:func:`_shared_trimmed_mesh`).
     """
 
+    __slots__ = ("_geometry", "revision", "angle", "covered", "meshes")
+
+    def __init__(self, geometry, angle: float, covered, meshes: Mapping[int, object]):
+        import weakref
+
+        self._geometry = weakref.ref(geometry)
+        self.revision = int(geometry.revision)
+        self.angle = float(angle)
+        self.covered = frozenset(covered)
+        self.meshes = MappingProxyType(dict(meshes))
+
+    def answers(self, geometry, face_id: int) -> bool:
+        return (self._geometry() is geometry and int(geometry.revision) == self.revision
+                and face_id in self.covered)
+
+
+def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]] = None) -> TrimmedFaceMeshes:
+    """The display meshes of every routed face ANYgeometry accepts at ``angle``.
+
+    Computed once per geometry refresh and passed to each scene build and overlay
+    (``trimmed_faces``), so the full and the interaction scene share one tessellation.
+    ``face_ids`` limits it to those faces (an overlay that draws only some faces).
+    """
+
+    chosen = sorted(geometry.faces) if face_ids is None else sorted({int(f) for f in face_ids} & set(geometry.faces))
     meshes: Dict[int, object] = {}
     tolerance = _display_tess.DisplayTolerance(angle)
-    chosen = sorted(geometry.faces) if face_ids is None else sorted({int(f) for f in face_ids} & set(geometry.faces))
     for face_id in _trim_display_faces(geometry, chosen):
         try:
             meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
         except _display_tess.DisplayTrimRefused:
             pass
-    return meshes
+    return TrimmedFaceMeshes(geometry, angle, chosen, meshes)
 
 
-def _trimmed_polygons(mesh) -> List[np.ndarray]:
-    """The mesh's triangles, each counter-clockwise about the SUPPORT normal.
+def _shared_trimmed_mesh(trimmed_faces, geometry, face_id: int, angle: float):
+    """A face's display mesh from a shared :class:`TrimmedFaceMeshes` when it answers for the face,
+    else computed here at ``angle``."""
 
-    ANYgeometry winds them about ``sense x`` the support normal (the face's loop direction);
-    ANYfem's face normal (``GeometryModel.face_normal``) and the old route follow the support's
-    ``u x v`` whatever the loop direction (Codex N5 r1 L6), so a reversed loop is flipped here.
+    if trimmed_faces is not None and trimmed_faces.answers(geometry, face_id):
+        return trimmed_faces.meshes.get(face_id)
+    return _trimmed_face_mesh(geometry, face_id, angle)
+
+
+def _support_orientation(support) -> int:
+    """+1 when the support's ``u x v`` is its outward geometric normal, else -1.
+
+    For a cylinder or cone ``du x dv`` is ``sweep * height`` times the outward normal; a plane's
+    ``u x v`` is its normal (Codex N5 r2 L).
+    """
+
+    if type(support) in (Cylinder, Cone):
+        return 1 if (float(support.sweep_angle) > 0.0) == (float(support.height) > 0.0) else -1
+    return 1
+
+
+def _trimmed_polygons(mesh, support) -> List[np.ndarray]:
+    """The mesh's triangles, each counter-clockwise about the support's ``u x v``.
+
+    ANYgeometry winds them about ``sense x`` the outward support normal (the face's loop
+    direction); ANYfem's face normal (``GeometryModel.face_normal``) and the old route follow the
+    support's ``u x v`` whatever the loop direction, and ``u x v`` turns inward when exactly one of
+    sweep and height is negative (Codex N5 r1 L6, r2 L), so the triangles are flipped to it here.
     """
 
     triangles = np.asarray(mesh.triangles)
-    if int(mesh.sense) < 0:
+    if int(mesh.sense) * _support_orientation(support) < 0:
         triangles = triangles[:, ::-1]
     return list(np.asarray(mesh.points, dtype=float)[triangles])
 
@@ -612,7 +671,7 @@ def face_display_polygons(
 
     mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(divisions))
     if mesh is not None:
-        return _trimmed_polygons(mesh)
+        return _trimmed_polygons(mesh, geometry.faces[face_id].surface)
     return _support_face_display_polygons(geometry, face_id, divisions)
 
 
@@ -1100,13 +1159,13 @@ def build_geometry_scene(
     entity_owners: Optional[Mapping[EntityRef, int]] = None,
     exposed_feature_ids: Iterable[int] = (),
     plate_edges: Iterable[int] = (),
-    trimmed_faces: Optional[Mapping[int, object]] = None,
+    trimmed_faces: Optional["TrimmedFaceMeshes"] = None,
 ) -> Scene:
     """Draw user geometry plus the surfaces of generated features.
 
-    ``trimmed_faces``: :func:`trimmed_face_meshes` of this geometry (unchanged since), computed
-    once and shared by several builds: a face in it is drawn from its mesh, every other face by
-    its old route.  Without it each routed face is tessellated here.
+    ``trimmed_faces``: :func:`trimmed_face_meshes`, computed once and shared by several builds; it
+    is used only for the faces, geometry object and revision it covers, every other face is
+    resolved here.
 
     Generator topology remains exact in the geometry model.  Its auxiliary
     points and lines are presentation details and are omitted until the owning
@@ -1143,16 +1202,12 @@ def build_geometry_scene(
         face_divisions = min(divisions, 2) if collapsed_feature else divisions
         mesh = None
         if flat_polygon is None:
-            if trimmed_faces is not None:
-                # holds exactly the routed faces ANYgeometry accepted (trimmed_face_meshes)
-                mesh = trimmed_faces.get(face_id)
-            else:
-                mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(face_divisions))
+            mesh = _shared_trimmed_mesh(trimmed_faces, geometry, face_id, display_trim_angle(face_divisions))
         trim_drawn = mesh is not None
         if flat_polygon is not None:
             polygons = [flat_polygon]
         elif trim_drawn:
-            polygons = _trimmed_polygons(mesh)
+            polygons = _trimmed_polygons(mesh, geometry.faces[face_id].surface)
         elif feature_id in smooth_feature_ids:
             polygons = _curved_sketch_display_polygons(geometry, face_id, divisions)
         else:
@@ -2325,13 +2380,12 @@ def build_attribute_overlay(
     show_masses: bool = True,
     show_imperfections: bool = True,
     mesh: Optional[Mesh] = None,
-    trimmed_faces: Optional[Mapping[int, object]] = None,
+    trimmed_faces: Optional["TrimmedFaceMeshes"] = None,
 ) -> Scene:
     """Draw supports, loads and masses over the model.
 
-    ``trimmed_faces``: :func:`trimmed_face_meshes` of the project's current geometry, as given
-    to :func:`build_geometry_scene`; wet outlines of those faces follow the drawn trim without
-    tessellating it again.
+    ``trimmed_faces``: :func:`trimmed_face_meshes`, as given to :func:`build_geometry_scene`;
+    wet outlines of the faces it covers follow the drawn trim without tessellating it again.
 
     Nothing here carries an entity tag, so an arrow drawn over a plate never
     steals the click: picking walks past untagged items to the geometry behind.
@@ -2513,6 +2567,23 @@ def _draw_connection_loads(scene: Scene, project, case, arrow_length: float) -> 
             )
 
 
+def wet_display_face_ids(project, geometry=None) -> List[int]:
+    """The faces the wet-surface overlay draws, in order: live scopes resolved, budgeted, unique."""
+
+    geometry = project.geometry if geometry is None else geometry
+    if isinstance(geometry, _MeshOverlayGeometry) or not project.wet_surfaces:
+        return []
+    seen: set[int] = set()
+    faces: List[int] = []
+    for surface in _budgeted_assignments(_display_attributes(project, project.wet_surfaces)):
+        face_id = surface.ref.id
+        if surface.ref.kind != "face" or face_id in seen or face_id not in geometry.faces:
+            continue
+        seen.add(face_id)
+        faces.append(face_id)
+    return faces
+
+
 def _draw_wet_surfaces(scene: Scene, project, geometry, trimmed_faces=None) -> None:
     """Outline every wet plate, with a cross through it, in the wet colour.
 
@@ -2523,15 +2594,9 @@ def _draw_wet_surfaces(scene: Scene, project, geometry, trimmed_faces=None) -> N
     if isinstance(geometry, _MeshOverlayGeometry) or not project.wet_surfaces:
         return
     parameters = np.linspace(0.0, 1.0, 9)
-    seen: set[int] = set()
     outlines: List[Polyline] = []
-    for surface in _budgeted_assignments(_display_attributes(project, project.wet_surfaces)):
-        face_id = surface.ref.id
-        if surface.ref.kind != "face" or face_id in seen or face_id not in geometry.faces:
-            continue
-        seen.add(face_id)
-        mesh = (trimmed_faces.get(face_id) if trimmed_faces is not None
-                else _trimmed_face_mesh(geometry, face_id, display_trim_angle(DISPLAY_DIVISIONS)))
+    for face_id in wet_display_face_ids(project, geometry):
+        mesh = _shared_trimmed_mesh(trimmed_faces, geometry, face_id, display_trim_angle(DISPLAY_DIVISIONS))
         if mesh is not None:
             # drawn from its trim (N5): the boundary only; a cross through the support's
             # parameter box would not lie on the face

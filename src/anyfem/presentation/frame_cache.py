@@ -67,11 +67,14 @@ def prepare(request_path):
         view._pick_binding=MethodType(SceneViewport._pick_binding,view)
         layout=None;written=set();total=len(data['frames']);access=LiveResultAccess()
         # the static wet faces' trimmed outlines are tessellated once for every frame (Codex N5 r1 M4)
+        # (the overlay's own resolved wet faces; a face it does not cover is resolved by the overlay itself)
         trimmed=None
-        if options['attributes'] and not (project.mesh_only and mesh is not None):
-            from ..ui.scene import DISPLAY_DIVISIONS,display_trim_angle,trimmed_face_meshes
-            trimmed=trimmed_face_meshes(project.geometry,display_trim_angle(DISPLAY_DIVISIONS),
-                face_ids=[s.ref.id for s in project.wet_surfaces if s.ref.kind=='face'])
+        if (options['attributes'] and options['attribute_options'].get('show_loads',True)
+                and not (project.mesh_only and mesh is not None)):
+            from ..ui.scene import DISPLAY_DIVISIONS,display_trim_angle,trimmed_face_meshes,wet_display_face_ids
+            wet=wet_display_face_ids(project)
+            if wet:
+                trimmed=trimmed_face_meshes(project.geometry,display_trim_angle(DISPLAY_DIVISIONS),face_ids=wet)
         with result_access_scope(access):
             for completed,index in enumerate(data['frames'],1):
                 scene=build_persisted_result_scene(project,mesh,dataset,options['field'],frame=index,
