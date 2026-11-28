@@ -742,21 +742,6 @@ def test_a_shared_map_is_not_reused_under_another_ownership():
     assert _recorded_extrusion_counts(project, face, entity_owners=default_owners, trimmed_faces=built_unowned) == legacy
 
 
-def test_the_overlay_follows_the_ownership_its_map_was_built_with():
-    from anygeometry.entities import EntityRef
-    from anyfem import commands as cmd
-
-    project, face = _arc_extrusion(recorded=True)
-    cmd.CommandStack(project).run(cmd.AddWetSurface(EntityRef("face", face), name="wet", fluid_side="positive_normal"))
-    options = dict(show_supports=False, show_masses=False, show_imperfections=False)
-
-    def wet_lines(**extra):
-        return len([line for line in build_attribute_overlay(project, **options, **extra).lines if line.color == COLOR_WET])
-
-    assert wet_lines() == 3                                                          # owned box: outline + cross
-    assert wet_lines(trimmed_faces=trimmed_face_meshes(project.geometry, entity_owners={})) == 1   # unowned: trim outline
-
-
 def test_a_suppressed_feature_is_not_provenance(monkeypatch):
     from types import SimpleNamespace
 
@@ -782,10 +767,10 @@ def test_ownership_is_looked_up_once_per_build_and_never_when_given(monkeypatch)
     monkeypatch.setattr(anygeometry, "feature_entity_owners", lambda *a, **k: calls.append(1) or original(*a, **k))
     build_geometry_scene(project)
     assert len(calls) <= 1
-    owners = original(geometry)
+    ownership = scene_module.display_ownership(geometry, original(geometry))
     calls.clear()
     for face in sorted(geometry.faces)[:32]:
-        face_display_polygons(geometry, face, entity_owners=owners)
+        face_display_polygons(geometry, face, ownership=ownership)
     assert calls == []
 
 
@@ -813,3 +798,78 @@ def test_a_wet_face_map_at_another_angle_is_rebuilt_and_a_matching_one_reused(di
     overlay = build_attribute_overlay(project, trimmed_faces=same, **options)
     assert calls == []
     assert len([line for line in overlay.lines if line.color == COLOR_WET]) == 1
+
+
+# --- Codex N5 round 5: the shared map carries meshes only; ownership is each caller's own --------------------------
+
+
+def test_an_owner_dict_changed_in_place_routes_the_face_again():
+    from anygeometry import feature_entity_owners
+    from anygeometry.entities import EntityRef
+
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    owners = dict(feature_entity_owners(geometry))
+    shared = trimmed_face_meshes(geometry, entity_owners=owners)
+    assert _recorded_extrusion_counts(project, face, entity_owners=owners, trimmed_faces=shared) == 16
+    del owners[EntityRef("face", face)]                  # same dict object, same geometry revision
+    assert _recorded_extrusion_counts(project, face, entity_owners=owners, trimmed_faces=shared) == 8
+
+
+def test_scene_and_overlay_decide_from_their_own_ownership_not_the_maps():
+    from anygeometry.entities import EntityRef
+    from anyfem import commands as cmd
+
+    project, face = _arc_extrusion(recorded=True)
+    cmd.CommandStack(project).run(cmd.AddWetSurface(EntityRef("face", face), name="wet", fluid_side="positive_normal"))
+    shared = trimmed_face_meshes(project.geometry, entity_owners={})        # built with "nothing is owned"
+    options = dict(show_supports=False, show_masses=False, show_imperfections=False)
+    assert _recorded_extrusion_counts(project, face, trimmed_faces=shared) == 16     # the scene's own ownership: owned
+    overlay = build_attribute_overlay(project, trimmed_faces=shared, **options)
+    assert len([line for line in overlay.lines if line.color == COLOR_WET]) == 3     # outline + cross, as the scene
+
+
+def test_an_ownership_snapshot_of_an_older_revision_is_not_used():
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    snapshot = scene_module.display_ownership(geometry)
+    assert not scene_module._routes_to_trim_display(geometry, face, ownership=snapshot)
+    geometry.features.set_suppressed(geometry.features.records[0].feature_id, True)   # face still materialised
+    assert face in geometry.faces
+    assert scene_module._routes_to_trim_display(geometry, face, ownership=snapshot)
+    assert len(face_display_polygons(geometry, face, ownership=snapshot)) == 8
+
+
+def test_an_ownership_snapshot_copies_the_owner_map():
+    from anygeometry import feature_entity_owners
+    from anygeometry.entities import EntityRef
+
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    owners = dict(feature_entity_owners(geometry))
+    snapshot = scene_module.display_ownership(geometry, owners)
+    del owners[EntityRef("face", face)]
+    assert not scene_module._routes_to_trim_display(geometry, face, ownership=snapshot)
+
+
+def test_resolving_a_few_faces_never_walks_every_face(monkeypatch):
+    """Per playback frame the wet overlay resolves its few faces; it must not scan the whole model (Codex N5 r5)."""
+
+    g, face = _cornered_cylinder()
+    shared = trimmed_face_meshes(g)
+    ownership = scene_module.display_ownership(g)
+
+    class Faces(dict):
+        walked = 0
+
+        def __iter__(self):
+            Faces.walked += 1
+            return super().__iter__()
+
+        def keys(self):
+            Faces.walked += 1
+            return super().keys()
+
+    monkeypatch.setattr(g, "faces", Faces(g.faces))
+    meshes = scene_module._resolve_trimmed(shared, g, [face], ownership)
+    assert face in meshes and Faces.walked == 0

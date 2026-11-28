@@ -67,14 +67,16 @@ def prepare(request_path):
         view._pick_binding=MethodType(SceneViewport._pick_binding,view)
         layout=None;written=set();total=len(data['frames']);access=LiveResultAccess()
         # the static wet faces' trimmed outlines are tessellated once for every frame (Codex N5 r1 M4)
-        # (the overlay's own resolved wet faces; a face it does not cover is resolved by the overlay itself)
-        trimmed=None
+        # (the overlay's own resolved wet faces and one ownership snapshot; the overlay decides routing itself)
+        trimmed={}
         if (options['attributes'] and options['attribute_options'].get('show_loads',True)
                 and not (project.mesh_only and mesh is not None)):
-            from ..ui.scene import trimmed_face_meshes,wet_display_face_ids
+            from ..ui.scene import display_ownership,trimmed_face_meshes,wet_display_face_ids
             wet=wet_display_face_ids(project)
             if wet:
-                trimmed=trimmed_face_meshes(project.geometry,face_ids=wet)
+                ownership=display_ownership(project.geometry)
+                trimmed=dict(trimmed_faces=trimmed_face_meshes(project.geometry,face_ids=wet,ownership=ownership),
+                    ownership=ownership)
         with result_access_scope(access):
             for completed,index in enumerate(data['frames'],1):
                 scene=build_persisted_result_scene(project,mesh,dataset,options['field'],frame=index,
@@ -82,7 +84,7 @@ def prepare(request_path):
                     colormap=options['colormap'],display_units=options['units'],
                     show_nodes=options['show_nodes'],show_beam_sections=options['show_beam_sections'])
                 if options['attributes']:
-                    scene.merge(build_attribute_overlay(project,case_name=options['case'],mesh=mesh,trimmed_faces=trimmed,**options['attribute_options']))
+                    scene.merge(build_attribute_overlay(project,case_name=options['case'],mesh=mesh,**trimmed,**options['attribute_options']))
                 prepared=prepare_frame(view,scene,layout)
                 if prepared is None:raise ValueError('this result does not provide retained GPU geometry')
                 layout=scene._retained_frame_layout;key=layout.topology.hex()
