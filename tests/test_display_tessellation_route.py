@@ -688,3 +688,128 @@ def test_an_extruded_arc_keeps_the_old_route(monkeypatch):
     assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
     build_geometry_scene(project)
     assert calls == []
+
+
+# --- Codex N5 round 4 -------------------------------------------------------------------------------------------
+
+
+def _straight_sided_sliver():
+    """A hand-built cylinder face with four STRAIGHT sides on a tiny-sweep support (it is flat to rounding)."""
+
+    g = GeometryModel()
+    r, half = 2.0, 2.5e-5
+    p0, p1 = _ring_point(g, r, -half, 1.0), _ring_point(g, r, half, 1.0)
+    p2, p3 = _ring_point(g, r, half, 3.0), _ring_point(g, r, -half, 3.0)
+    edges = (g.add_line(p0, p1), g.add_line(p1, p2), g.add_line(p2, p3), g.add_line(p3, p0))
+    support = Cylinder(origin=(0., 0., 0.), axis=(0., 0., 1.), radial_direction=(1., 0., 0.), radius=r, height=6.,
+                       start_angle=-2 * half, sweep_angle=4 * half)
+    face = g.add_face(edges, corners=(0, 1, 2, 3), surface=support)
+    return g, face
+
+
+def test_the_trimmed_mesh_comes_before_the_flat_quad_shortcut():
+    from anyfem import Project
+
+    g, face = _straight_sided_sliver()
+    meshes = trimmed_face_meshes(g)
+    if face not in meshes.meshes:
+        pytest.skip("ANYgeometry refuses this face here; the old route is then correct")
+    project = Project()
+    project.geometry = g
+    for extra in ({}, {"trimmed_faces": meshes}):
+        for divisions in (8, 2):
+            polygons = _skin_patches(build_geometry_scene(project, divisions=divisions, **extra), {face})[face]
+            points = np.concatenate([np.asarray(p, dtype=float) for p in polygons])
+            assert points[:, 2].min() >= 1.0 - 1e-9 and points[:, 2].max() <= 3.0 + 1e-9
+
+
+def _recorded_extrusion_counts(project, face, **build):
+    return len(_skin_patches(build_geometry_scene(project, **build), {face})[face])
+
+
+def test_a_shared_map_is_not_reused_under_another_ownership():
+    from anygeometry import feature_entity_owners
+
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    default_owners = feature_entity_owners(geometry)
+    legacy = _recorded_extrusion_counts(project, face, entity_owners=default_owners)
+    unowned = _recorded_extrusion_counts(project, face, entity_owners={})
+    assert legacy == 16 and unowned == 8                 # owned: the old route; not owned: drawn from its trim
+    built_owned = trimmed_face_meshes(geometry, entity_owners=default_owners)
+    built_unowned = trimmed_face_meshes(geometry, entity_owners={})
+    assert _recorded_extrusion_counts(project, face, entity_owners={}, trimmed_faces=built_owned) == unowned
+    assert _recorded_extrusion_counts(project, face, entity_owners=default_owners, trimmed_faces=built_unowned) == legacy
+
+
+def test_the_overlay_follows_the_ownership_its_map_was_built_with():
+    from anygeometry.entities import EntityRef
+    from anyfem import commands as cmd
+
+    project, face = _arc_extrusion(recorded=True)
+    cmd.CommandStack(project).run(cmd.AddWetSurface(EntityRef("face", face), name="wet", fluid_side="positive_normal"))
+    options = dict(show_supports=False, show_masses=False, show_imperfections=False)
+
+    def wet_lines(**extra):
+        return len([line for line in build_attribute_overlay(project, **options, **extra).lines if line.color == COLOR_WET])
+
+    assert wet_lines() == 3                                                          # owned box: outline + cross
+    assert wet_lines(trimmed_faces=trimmed_face_meshes(project.geometry, entity_owners={})) == 1   # unowned: trim outline
+
+
+def test_a_suppressed_feature_is_not_provenance(monkeypatch):
+    from types import SimpleNamespace
+
+    from anygeometry.entities import EntityRef
+
+    g, face = _quarter_on(0.0, 2.0)
+    owners = {EntityRef("face", face): 7}
+    real = type(g).features
+    for suppressed, routed in ((False, []), (True, [face])):
+        history = SimpleNamespace(records=[SimpleNamespace(kind="geometry.extrude", feature_id=7, suppressed=suppressed,
+                                                           outputs={})])
+        monkeypatch.setattr(type(g), "features", property(lambda self, h=history: h if self is g else real.fget(self)))
+        assert scene_module._trim_display_faces(g, [face], entity_owners=owners) == routed
+
+
+def test_ownership_is_looked_up_once_per_build_and_never_when_given(monkeypatch):
+    import anygeometry
+
+    project = _generated_cylinder(400)
+    geometry = project.geometry
+    calls = []
+    original = anygeometry.feature_entity_owners
+    monkeypatch.setattr(anygeometry, "feature_entity_owners", lambda *a, **k: calls.append(1) or original(*a, **k))
+    build_geometry_scene(project)
+    assert len(calls) <= 1
+    owners = original(geometry)
+    calls.clear()
+    for face in sorted(geometry.faces)[:32]:
+        face_display_polygons(geometry, face, entity_owners=owners)
+    assert calls == []
+
+
+@pytest.mark.parametrize("divisions", [8, 2])
+def test_a_wet_face_map_at_another_angle_is_rebuilt_and_a_matching_one_reused(divisions, monkeypatch):
+    from anygeometry.entities import EntityRef
+    from anyfem import Project
+    from anyfem import commands as cmd
+
+    g, face = _cornered_cylinder()
+    project = Project()
+    project.geometry = g
+    cmd.CommandStack(project).run(cmd.AddWetSurface(EntityRef("face", face), name="wet", fluid_side="positive_normal"))
+    other = trimmed_face_meshes(project.geometry, angle=math.radians(7.5))
+    same = trimmed_face_meshes(project.geometry)
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append((f, t.angle)) or original(m, f, t))
+    options = dict(show_supports=False, show_masses=False, show_imperfections=False)
+    build_geometry_scene(project, divisions=divisions, trimmed_faces=other)
+    build_attribute_overlay(project, trimmed_faces=other, **options)
+    assert calls == [(face, DISPLAY_TRIM_ANGLE), (face, DISPLAY_TRIM_ANGLE)]
+    calls.clear()
+    build_geometry_scene(project, divisions=divisions, trimmed_faces=same)
+    overlay = build_attribute_overlay(project, trimmed_faces=same, **options)
+    assert calls == []
+    assert len([line for line in overlay.lines if line.color == COLOR_WET]) == 1

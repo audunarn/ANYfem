@@ -48,6 +48,7 @@ __all__ = [
     "face_display_polygons",
     "face_normal",
     "trimmed_face_meshes",
+    "display_provenance_features",
     "TrimmedFaceMeshes",
     "wet_display_face_ids",
     "GeometryDisplayResolution",
@@ -437,7 +438,15 @@ def _structural_box(geometry, face) -> bool:
 _BOX_EXTRUSION_KINDS = frozenset({"geometry.extrude", "geometry.sketch.extrude"})
 
 
-def _trim_display_faces(geometry, face_ids, entity_owners=None) -> List[int]:
+def display_provenance_features(geometry) -> frozenset:
+    """The live (not suppressed) features whose box faces keep the old route (contract B provenance)."""
+
+    return frozenset(record.feature_id for record in geometry.features.records
+                     if not getattr(record, "suppressed", False)
+                     and (str(record.kind).startswith("generator.") or str(record.kind) in _BOX_EXTRUSION_KINDS))
+
+
+def _trim_display_faces(geometry, face_ids, entity_owners=None, provenance_features=None) -> List[int]:
     """The faces among ``face_ids`` that ANYgeometry's display tessellation draws (N5), in order.
 
     Contract B (owner 2026-11-28): a face on a support of exactly ``Cylinder`` or ``Cone`` type,
@@ -446,9 +455,11 @@ def _trim_display_faces(geometry, face_ids, entity_owners=None) -> List[int]:
     writes its support as the face's box (any ``generator.*`` kind, ``geometry.extrude`` or
     ``geometry.sketch.extrude``: :data:`_BOX_EXTRUSION_KINDS`) AND is structurally a box
     (:func:`_structural_box`); this is decided without any numeric tolerance.  Every other such face
-    (the floating tripod's skins, a hand-built face, a generator face with a hole) is drawn from its
-    trim; a typed refusal keeps the old route.  ``entity_owners``: face owner feature ids, as given to
-    :func:`build_geometry_scene` (computed here when needed and not given).
+    (the floating tripod's skins, a hand-built face, a generator face with a hole, a face of a suppressed
+    feature) is drawn from its trim; a typed refusal keeps the old route.  ``entity_owners``: face
+    owner feature ids, as given to
+    :func:`build_geometry_scene` (computed here when needed and not given); ``provenance_features``:
+    :func:`display_provenance_features` (read here when an owned box face needs it and not given).
     """
 
     routed: List[int] = []
@@ -459,17 +470,17 @@ def _trim_display_faces(geometry, face_ids, entity_owners=None) -> List[int]:
             continue
         (boxed if _structural_box(geometry, face) else routed).append(face_id)
     if boxed:
-        generators = {record.feature_id for record in geometry.features.records
-                      if str(record.kind).startswith("generator.") or str(record.kind) in _BOX_EXTRUSION_KINDS}
-        if generators:
-            if entity_owners is None:
-                from anygeometry import feature_entity_owners
+        if entity_owners is None:
+            from anygeometry import feature_entity_owners
 
-                entity_owners = feature_entity_owners(geometry)
-            routed.extend(face_id for face_id in boxed
-                          if entity_owners.get(EntityRef("face", face_id)) not in generators)
-        else:
-            routed.extend(boxed)
+            entity_owners = feature_entity_owners(geometry)
+        owners = {face_id: entity_owners.get(EntityRef("face", face_id)) for face_id in boxed}
+        routed.extend(face_id for face_id in boxed if owners[face_id] is None)
+        owned = [face_id for face_id in boxed if owners[face_id] is not None]
+        if owned:
+            # ``records`` copies every record: read once, and only when an owned box face needs it
+            provenance = display_provenance_features(geometry) if provenance_features is None else provenance_features
+            routed.extend(face_id for face_id in owned if owners[face_id] not in provenance)
     order = {face_id: index for index, face_id in enumerate(face_ids)}
     return sorted(routed, key=order.__getitem__)
 
@@ -477,28 +488,40 @@ def _trim_display_faces(geometry, face_ids, entity_owners=None) -> List[int]:
 class TrimmedFaceMeshes:
     """The display meshes of routed faces of one geometry revision at one angle (:func:`trimmed_face_meshes`).
 
-    Shared by scene builds and overlays so a face is tessellated once.  It answers only for the
-    faces it covered, the geometry object and revision it was computed from, and its own angle; any
-    other face, geometry, revision or angle is resolved by the caller itself (:func:`_complete_trimmed`).
+    Shared by scene builds and overlays so a face is tessellated once.  It records, for every face it
+    covered, the routing decision (``routed``: drawn from its trim) and the ownership map that decision
+    came from (``entity_owners``, ``None``: ANYgeometry's own).  It answers only for its geometry object,
+    revision and angle, and only for faces whose routing decision a caller's ownership confirms
+    (:func:`_complete_trimmed`); anything else is resolved by the caller itself.
     """
 
-    __slots__ = ("_geometry", "revision", "angle", "covered", "meshes")
+    __slots__ = ("_geometry", "revision", "angle", "covered", "routed", "entity_owners", "meshes")
 
-    def __init__(self, geometry, angle: float, covered, meshes: Mapping[int, object]):
+    def __init__(self, geometry, angle: float, covered, routed, meshes: Mapping[int, object], entity_owners=None):
         import weakref
 
         self._geometry = weakref.ref(geometry)
         self.revision = int(geometry.revision)
         self.angle = float(angle)
         self.covered = frozenset(covered)
+        self.routed = frozenset(routed)
+        self.entity_owners = entity_owners
         self.meshes = MappingProxyType(dict(meshes))
 
     def valid_for(self, geometry, angle: float) -> bool:
         return (self._geometry() is geometry and int(geometry.revision) == self.revision
                 and float(angle) == self.angle)
 
-    def answers(self, geometry, face_id: int, angle: float = DISPLAY_TRIM_ANGLE) -> bool:
-        return self.valid_for(geometry, angle) and face_id in self.covered
+
+def _tessellate(geometry, routed, angle: float) -> Dict[int, object]:
+    meshes: Dict[int, object] = {}
+    tolerance = _display_tess.DisplayTolerance(angle)
+    for face_id in routed:
+        try:
+            meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
+        except _display_tess.DisplayTrimRefused:
+            pass
+    return meshes
 
 
 def trimmed_face_meshes(geometry, face_ids: Optional[Iterable[int]] = None, *, angle: float = DISPLAY_TRIM_ANGLE,
@@ -507,33 +530,38 @@ def trimmed_face_meshes(geometry, face_ids: Optional[Iterable[int]] = None, *, a
 
     Computed once per geometry refresh and passed to each scene build and overlay
     (``trimmed_faces``), so the full and the interaction scene share one tessellation.
-    ``face_ids`` limits it to those faces (an overlay that draws only some faces).
+    ``face_ids`` limits it to those faces (an overlay that draws only some faces); ``entity_owners``
+    is the ownership the routing is decided with (as given to :func:`build_geometry_scene`).
     """
 
     chosen = sorted(geometry.faces) if face_ids is None else sorted({int(f) for f in face_ids} & set(geometry.faces))
-    meshes: Dict[int, object] = {}
-    tolerance = _display_tess.DisplayTolerance(angle)
-    for face_id in _trim_display_faces(geometry, chosen, entity_owners=entity_owners):
-        try:
-            meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
-        except _display_tess.DisplayTrimRefused:
-            pass
-    return TrimmedFaceMeshes(geometry, angle, chosen, meshes)
+    routed = _trim_display_faces(geometry, chosen, entity_owners=entity_owners)
+    return TrimmedFaceMeshes(geometry, angle, chosen, routed, _tessellate(geometry, routed, angle), entity_owners)
 
 
 def _complete_trimmed(trimmed_faces, geometry, face_ids, entity_owners=None) -> TrimmedFaceMeshes:
-    """``trimmed_faces`` where it answers (geometry, revision, :data:`DISPLAY_TRIM_ANGLE`), completed in one
-    batch for every face of ``face_ids`` it does not cover; a fresh map when it does not answer at all."""
+    """The map a build or overlay draws ``face_ids`` with, at :data:`DISPLAY_TRIM_ANGLE`.
 
-    face_ids = [int(f) for f in face_ids]
+    ``trimmed_faces`` is reused for a face only when it is valid (geometry object, revision, angle),
+    covers the face, and its routing decision is the one ``entity_owners`` gives now (Codex N5 r4 M);
+    without ``entity_owners`` a valid map's own ownership is used, so an overlay given the scene's map
+    follows the scene's decisions.  Every other face is decided and tessellated here in one batch.
+    """
+
+    face_ids = sorted({int(f) for f in face_ids} & set(geometry.faces))
     if trimmed_faces is None or not trimmed_faces.valid_for(geometry, DISPLAY_TRIM_ANGLE):
         return trimmed_face_meshes(geometry, face_ids, entity_owners=entity_owners)
-    missing = [f for f in face_ids if f not in trimmed_faces.covered]
-    if not missing:
+    owners = trimmed_faces.entity_owners if entity_owners is None else entity_owners
+    if owners is trimmed_faces.entity_owners and trimmed_faces.covered.issuperset(face_ids):
+        # the same ownership object at the same geometry revision: the map's decisions stand
         return trimmed_faces
-    extra = trimmed_face_meshes(geometry, missing, entity_owners=entity_owners)
-    return TrimmedFaceMeshes(geometry, DISPLAY_TRIM_ANGLE, trimmed_faces.covered | extra.covered,
-                             {**trimmed_faces.meshes, **extra.meshes})
+    routed_now = set(_trim_display_faces(geometry, face_ids, entity_owners=owners))
+    kept = [f for f in face_ids if f in trimmed_faces.covered and (f in trimmed_faces.routed) == (f in routed_now)]
+    kept_set = set(kept)
+    redo = [f for f in face_ids if f not in kept_set and f in routed_now]
+    meshes = {f: trimmed_faces.meshes[f] for f in kept if f in trimmed_faces.meshes}
+    meshes.update(_tessellate(geometry, redo, DISPLAY_TRIM_ANGLE))
+    return TrimmedFaceMeshes(geometry, DISPLAY_TRIM_ANGLE, face_ids, routed_now, meshes, owners)
 
 
 def _support_orientation(support) -> int:
@@ -579,16 +607,22 @@ def _trimmed_outline(geometry, mesh) -> np.ndarray:
 
 
 def face_display_polygons(
-    geometry: GeometryModel, face_id: int, divisions: int = DISPLAY_DIVISIONS
+    geometry: GeometryModel, face_id: int, divisions: int = DISPLAY_DIVISIONS, *, entity_owners=None,
+    provenance_features=None,
 ) -> List[np.ndarray]:
     """Tessellate a face for display, using the same blend the mesher uses.
 
     A plate is therefore never drawn as a different surface from the one that
     gets meshed.  A trimmed cylinder or cone face (:func:`_routes_to_trim_display`) is drawn
     from ANYgeometry's display tessellation of its trim; a typed refusal keeps the old route.
+    A caller drawing many faces passes ``entity_owners`` (``anygeometry.feature_entity_owners``)
+    and ``provenance_features`` (:func:`display_provenance_features`) once, so neither is looked up
+    again for every face.
     """
 
-    mesh = trimmed_face_meshes(geometry, (face_id,)).meshes.get(face_id)
+    routed = _trim_display_faces(geometry, (face_id,), entity_owners=entity_owners,
+                                 provenance_features=provenance_features)
+    mesh = _tessellate(geometry, routed, DISPLAY_TRIM_ANGLE).get(face_id)
     if mesh is not None:
         return _trimmed_polygons(mesh, geometry.faces[face_id].surface)
     return _support_face_display_polygons(geometry, face_id, divisions)
@@ -1119,16 +1153,15 @@ def build_geometry_scene(
         face_ref = EntityRef("face", face_id)
         feature_id = entity_owners.get(face_ref)
         collapsed_feature = feature_id is not None and feature_id not in exposed
-        flat_polygon = _flat_four_edge_polygon(geometry, face_id)
         face_divisions = min(divisions, 2) if collapsed_feature else divisions
-        mesh = None
-        if flat_polygon is None:
-            mesh = trimmed_faces.meshes.get(face_id)
+        # the certified trim first: no earlier route may draw a routed face's support (Codex N5 r1 M3, r4 H)
+        mesh = trimmed_faces.meshes.get(face_id)
         trim_drawn = mesh is not None
-        if flat_polygon is not None:
-            polygons = [flat_polygon]
-        elif trim_drawn:
+        flat_polygon = None if trim_drawn else _flat_four_edge_polygon(geometry, face_id)
+        if trim_drawn:
             polygons = _trimmed_polygons(mesh, geometry.faces[face_id].surface)
+        elif flat_polygon is not None:
+            polygons = [flat_polygon]
         elif feature_id in smooth_feature_ids:
             polygons = _curved_sketch_display_polygons(geometry, face_id, divisions)
         else:
