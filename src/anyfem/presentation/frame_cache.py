@@ -71,10 +71,10 @@ def prepare(request_path):
         trimmed=None
         if (options['attributes'] and options['attribute_options'].get('show_loads',True)
                 and not (project.mesh_only and mesh is not None)):
-            from ..ui.scene import DISPLAY_DIVISIONS,display_trim_angle,trimmed_face_meshes,wet_display_face_ids
+            from ..ui.scene import trimmed_face_meshes,wet_display_face_ids
             wet=wet_display_face_ids(project)
             if wet:
-                trimmed=trimmed_face_meshes(project.geometry,display_trim_angle(DISPLAY_DIVISIONS),face_ids=wet)
+                trimmed=trimmed_face_meshes(project.geometry,face_ids=wet)
         with result_access_scope(access):
             for completed,index in enumerate(data['frames'],1):
                 scene=build_persisted_result_scene(project,mesh,dataset,options['field'],frame=index,

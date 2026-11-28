@@ -43,7 +43,7 @@ __all__ = [
     "build_collision_overlay",
     "build_result_scene",
     "build_persisted_result_scene",
-    "display_trim_angle",
+    "DISPLAY_TRIM_ANGLE",
     "entity_sample_points",
     "face_display_polygons",
     "face_normal",
@@ -408,169 +408,78 @@ def _face_grid(
     )
 
 
-#: Largest turning of a drawn trim segment (N5): coarser display divisions never draw coarser.
-_TRIM_ANGLE_LIMIT = math.radians(22.5)
+#: The display angle (radians) of every face drawn from ANYgeometry's display tessellation (N5, owner
+#: 2026-11-28): one angle for the full and the interaction scene.  Each drawn trim segment turns by at most
+#: this much, so a skin drawn here meets a planar neighbour whose old route samples the same arc more
+#: finely within about ``r (1 - cos(11.25 deg))``, 1.9 % of the radius.
+DISPLAY_TRIM_ANGLE = math.radians(22.5)
 
 
-def display_trim_angle(divisions: int) -> float:
-    """The display angle (radians) of a trimmed cylinder or cone face drawn at ``divisions``."""
-
-    return float(min(math.radians(60.0) / max(1, int(divisions)), _TRIM_ANGLE_LIMIT))
-
-
-def _routes_to_trim_display(geometry, face_id: int) -> bool:
+def _routes_to_trim_display(geometry, face_id: int, entity_owners=None) -> bool:
     """Whether ANYgeometry's display tessellation draws this face (N5); see :func:`_trim_display_faces`."""
 
-    return bool(_trim_display_faces(geometry, (face_id,)))
+    return bool(_trim_display_faces(geometry, (face_id,), entity_owners=entity_owners))
 
 
-def _trim_display_faces(geometry, face_ids) -> List[int]:
-    """The faces among ``face_ids`` that ANYgeometry's display tessellation draws (N5), in order.
-
-    A face on a support of exactly ``Cylinder`` or ``Cone`` type, without an explicit
-    parameterization and with corners, is drawn by the old route as its support's whole parameter
-    box.  It keeps that route only when its boundary provably IS the box (a generated cylinder
-    segment); otherwise (an overrunning support such as the floating tripod's skins, a notched
-    side, a hole) it is drawn from its trim.  Every other face keeps its route.
-
-    The boundary is the box (Codex N5 r1 H1) when: exactly four coedges and corners ``(0, 1, 2, 3)``,
-    no holes, a sweep below a full turn, positive radii, a non-zero height, all finite; the four
-    corners are the box's four corners one to one; and each coedge joins two corners of one box side:
-    a ``Straight`` edge an axial side (a straight generator line, so the edge is that side), an
-    ``Arc`` edge a circular side with its via point on that circle strictly inside the side's sweep (a
-    circle through three points is unique, so the edge is that side).  Points are compared in the
-    support's own (u, v, radius) frame, each direction within ``1e-9`` of its own extent plus a
-    rounding allowance on the world coordinates; when that allowance is not small (a tolerance of a
-    quarter of the box or more) the face is routed (Codex N5 r1 M2, r2 H).  One vectorised pass.
-    """
+def _structural_box(geometry, face) -> bool:
+    """Four coedges, corners ``(0, 1, 2, 3)``, no holes, sides alternating ``Straight`` and ``Arc``."""
 
     from anygeometry.curves import Arc
 
+    if face.holes or len(face.loop) != 4 or tuple(face.corners) != (0, 1, 2, 3):
+        return False
+    kinds = [type(geometry.edges[item.edge].curve) for item in face.loop]
+    return {kinds[0], kinds[1]} == {Straight, Arc} and kinds[0] is kinds[2] and kinds[1] is kinds[3]
+
+
+#: Feature kinds that write a face's support as exactly the face's box, besides every ``generator.*`` kind
+#: (contract B provenance, owner 2026-11-28).
+_BOX_EXTRUSION_KINDS = frozenset({"geometry.extrude", "geometry.sketch.extrude"})
+
+
+def _trim_display_faces(geometry, face_ids, entity_owners=None) -> List[int]:
+    """The faces among ``face_ids`` that ANYgeometry's display tessellation draws (N5), in order.
+
+    Contract B (owner 2026-11-28): a face on a support of exactly ``Cylinder`` or ``Cone`` type,
+    without an explicit parameterization and with corners, was drawn by the old route as its
+    support's whole parameter box.  It keeps that route only when it is owned by a feature that
+    writes its support as the face's box (any ``generator.*`` kind, ``geometry.extrude`` or
+    ``geometry.sketch.extrude``: :data:`_BOX_EXTRUSION_KINDS`) AND is structurally a box
+    (:func:`_structural_box`); this is decided without any numeric tolerance.  Every other such face
+    (the floating tripod's skins, a hand-built face, a generator face with a hole) is drawn from its
+    trim; a typed refusal keeps the old route.  ``entity_owners``: face owner feature ids, as given to
+    :func:`build_geometry_scene` (computed here when needed and not given).
+    """
+
     routed: List[int] = []
     boxed: List[int] = []
-    rows = []
     for face_id in face_ids:
         face = geometry.faces[face_id]
-        support = face.surface
-        if type(support) not in (Cylinder, Cone) or face.parameterization is not None or not face.corners:
+        if type(face.surface) not in (Cylinder, Cone) or face.parameterization is not None or not face.corners:
             continue
-        if face.holes or len(face.loop) != 4 or tuple(face.corners) != (0, 1, 2, 3):
-            routed.append(face_id)
-            continue
-        kinds = []
-        vias = []
-        for item in face.loop:
-            curve = geometry.edges[item.edge].curve
-            if type(curve) is Straight:
-                kinds.append(1)
-                vias.append((np.nan, np.nan, np.nan))
-            elif type(curve) is Arc:
-                kinds.append(2)
-                vias.append(geometry.vertex_position(curve.via_vertex))
-            else:
-                kinds.append(0)
-                vias.append((np.nan, np.nan, np.nan))
-        if 0 in kinds:
-            routed.append(face_id)
-            continue
-        cone = type(support) is Cone
-        boxed.append(face_id)
-        rows.append((
-            [geometry.vertex_position(geometry.oriented_start_vertex(item)) for item in face.loop],
-            vias, kinds,
-            (support.start_angle, support.sweep_angle, support.height,
-             support.radius_start if cone else support.radius, support.radius_end if cone else support.radius),
-            (support.origin, support.axis, support.radial_direction, support.circumferential_direction),
-        ))
+        (boxed if _structural_box(geometry, face) else routed).append(face_id)
     if boxed:
-        corner = np.asarray([row[0] for row in rows], dtype=float)                   # (n, 4, 3)
-        via = np.asarray([row[1] for row in rows], dtype=float)                      # (n, 4, 3)
-        kind = np.asarray([row[2] for row in rows], dtype=int)                       # (n, 4)
-        number = np.asarray([row[3] for row in rows], dtype=float)                   # (n, 5)
-        frame = np.asarray([row[4] for row in rows], dtype=float)                    # (n, 4, 3)
-        start, sweep, height, r0, r1 = number.T
-        origin, axis, radial, circumferential = frame[:, 0], frame[:, 1], frame[:, 2], frame[:, 3]
-        with np.errstate(all="ignore"):
-            valid = (np.isfinite(number).all(axis=1) & np.isfinite(frame).all(axis=(1, 2))
-                     & np.isfinite(corner).all(axis=(1, 2))
-                     & (np.abs(sweep) > 0.0) & (np.abs(sweep) < 2.0 * math.pi)
-                     & (np.minimum(r0, r1) > 0.0) & (height != 0.0))
-            # direction-specific tolerances in the support frame (Codex N5 r2 H): a share of each
-            # direction's own extent plus the rounding of the world coordinates the points come from
-            rounding = _BOX_ROUNDING * np.maximum(np.maximum(np.abs(origin).max(axis=1),
-                                                             np.abs(corner).max(axis=(1, 2))),
-                                                  np.maximum(np.abs(height), np.maximum(r0, r1)))
-            tol_u = _BOX_RELATIVE + rounding / (np.minimum(r0, r1) * np.abs(sweep))
-            tol_v = _BOX_RELATIVE + rounding / np.abs(height)
-            tol_r = _BOX_RELATIVE * np.maximum(r0, r1) + rounding
-            valid &= (tol_u < 0.25) & (tol_v < 0.25)
+        generators = {record.feature_id for record in geometry.features.records
+                      if str(record.kind).startswith("generator.") or str(record.kind) in _BOX_EXTRUSION_KINDS}
+        if generators:
+            if entity_owners is None:
+                from anygeometry import feature_entity_owners
 
-            def parameters(points):
-                """(u, v, radial misfit) of points (n, k, 3) in each support's frame."""
-                offset = points - origin[:, None, :]
-                along = (offset * axis[:, None, :]).sum(axis=2)
-                across = offset - along[:, :, None] * axis[:, None, :]
-                v = along / height[:, None]
-                theta = np.arctan2((across * circumferential[:, None, :]).sum(axis=2),
-                                   (across * radial[:, None, :]).sum(axis=2))
-                turn = np.where(sweep[:, None] > 0.0, (theta - start[:, None]) % (2.0 * math.pi),
-                                (start[:, None] - theta) % (2.0 * math.pi))
-                u = turn / np.abs(sweep)[:, None]
-                below = (turn - 2.0 * math.pi) / np.abs(sweep)[:, None]          # the same angle, one turn back
-                u = np.where(np.maximum(0.0, -below) < np.maximum(0.0, u - 1.0), below, u)
-                misfit = np.abs(np.sqrt((across ** 2).sum(axis=2)) - ((1.0 - v) * r0[:, None] + v * r1[:, None]))
-                return u, v, misfit
-
-            u, v, misfit = parameters(corner)
-            iu, iv = np.rint(u), np.rint(v)
-            valid &= (((iu == 0.0) | (iu == 1.0)) & ((iv == 0.0) | (iv == 1.0))
-                      & (np.abs(u - iu) <= tol_u[:, None]) & (np.abs(v - iv) <= tol_v[:, None])
-                      & (misfit <= tol_r[:, None])).all(axis=1)
-            mapping = np.where(np.isfinite(iu) & np.isfinite(iv), 2 * np.nan_to_num(iu) + np.nan_to_num(iv), -1).astype(int)
-            valid &= (np.sort(mapping, axis=1) == np.arange(4)).all(axis=1)          # one to one
-            a, b = mapping, np.roll(mapping, -1, axis=1)
-            axial_side = (a // 2 == b // 2) & (a != b)                                  # u = 0 or u = 1
-            circular_side = (a % 2 == b % 2) & (a != b)                                 # v = 0 or v = 1
-            valid &= ((axial_side & (kind == 1)) | (circular_side & (kind == 2))).all(axis=1)
-            # an arc's via point on its side's circle, strictly inside the side's sweep
-            vu, vv, vmisfit = parameters(via)
-            side_v = (a % 2).astype(float)
-            via_ok = ((np.abs(vv - side_v) <= tol_v[:, None]) & (vmisfit <= tol_r[:, None])
-                      & (vu > tol_u[:, None]) & (vu < 1.0 - tol_u[:, None]))
-            valid &= (~(kind == 2) | via_ok).all(axis=1)
-        routed.extend(face_id for face_id, is_box in zip(boxed, valid) if not is_box)
+                entity_owners = feature_entity_owners(geometry)
+            routed.extend(face_id for face_id in boxed
+                          if entity_owners.get(EntityRef("face", face_id)) not in generators)
+        else:
+            routed.extend(boxed)
     order = {face_id: index for index, face_id in enumerate(face_ids)}
     return sorted(routed, key=order.__getitem__)
 
 
-#: A box corner or via point lies on the box when, in each direction of the support frame, it is within
-#: this share of that direction's extent plus a rounding allowance on the world coordinates (Codex N5 r1 M2,
-#: r2 H: a far-away face keeps a local tolerance; a long axis does not widen the angular tolerance).
-_BOX_RELATIVE = 1.0e-9
-_BOX_ROUNDING = 64.0 * float(np.finfo(float).eps)
-
-
-def _trimmed_face_mesh(geometry, face_id: int, angle: float):
-    """ANYgeometry's certified display mesh of a routed face, or ``None``.
-
-    ``None`` when the face is not routed or ANYgeometry refuses it, typed: the face then keeps
-    its old route.  Any other exception propagates.
-    """
-
-    if not _routes_to_trim_display(geometry, face_id):
-        return None
-    try:
-        return _display_tess.face_display_mesh(geometry, face_id, _display_tess.DisplayTolerance(angle))
-    except _display_tess.DisplayTrimRefused:
-        return None
-
-
 class TrimmedFaceMeshes:
-    """The display meshes of routed faces of one geometry revision (:func:`trimmed_face_meshes`).
+    """The display meshes of routed faces of one geometry revision at one angle (:func:`trimmed_face_meshes`).
 
     Shared by scene builds and overlays so a face is tessellated once.  It answers only for the
-    faces it covered, and only for the geometry object and revision it was computed from: any other
-    face, geometry or revision is resolved by the caller itself (:func:`_shared_trimmed_mesh`).
+    faces it covered, the geometry object and revision it was computed from, and its own angle; any
+    other face, geometry, revision or angle is resolved by the caller itself (:func:`_complete_trimmed`).
     """
 
     __slots__ = ("_geometry", "revision", "angle", "covered", "meshes")
@@ -584,13 +493,17 @@ class TrimmedFaceMeshes:
         self.covered = frozenset(covered)
         self.meshes = MappingProxyType(dict(meshes))
 
-    def answers(self, geometry, face_id: int) -> bool:
+    def valid_for(self, geometry, angle: float) -> bool:
         return (self._geometry() is geometry and int(geometry.revision) == self.revision
-                and face_id in self.covered)
+                and float(angle) == self.angle)
+
+    def answers(self, geometry, face_id: int, angle: float = DISPLAY_TRIM_ANGLE) -> bool:
+        return self.valid_for(geometry, angle) and face_id in self.covered
 
 
-def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]] = None) -> TrimmedFaceMeshes:
-    """The display meshes of every routed face ANYgeometry accepts at ``angle``.
+def trimmed_face_meshes(geometry, face_ids: Optional[Iterable[int]] = None, *, angle: float = DISPLAY_TRIM_ANGLE,
+                        entity_owners=None) -> TrimmedFaceMeshes:
+    """The display meshes of every routed face (:func:`_trim_display_faces`) ANYgeometry accepts.
 
     Computed once per geometry refresh and passed to each scene build and overlay
     (``trimmed_faces``), so the full and the interaction scene share one tessellation.
@@ -600,7 +513,7 @@ def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]
     chosen = sorted(geometry.faces) if face_ids is None else sorted({int(f) for f in face_ids} & set(geometry.faces))
     meshes: Dict[int, object] = {}
     tolerance = _display_tess.DisplayTolerance(angle)
-    for face_id in _trim_display_faces(geometry, chosen):
+    for face_id in _trim_display_faces(geometry, chosen, entity_owners=entity_owners):
         try:
             meshes[face_id] = _display_tess.face_display_mesh(geometry, face_id, tolerance)
         except _display_tess.DisplayTrimRefused:
@@ -608,13 +521,19 @@ def trimmed_face_meshes(geometry, angle: float, face_ids: Optional[Iterable[int]
     return TrimmedFaceMeshes(geometry, angle, chosen, meshes)
 
 
-def _shared_trimmed_mesh(trimmed_faces, geometry, face_id: int, angle: float):
-    """A face's display mesh from a shared :class:`TrimmedFaceMeshes` when it answers for the face,
-    else computed here at ``angle``."""
+def _complete_trimmed(trimmed_faces, geometry, face_ids, entity_owners=None) -> TrimmedFaceMeshes:
+    """``trimmed_faces`` where it answers (geometry, revision, :data:`DISPLAY_TRIM_ANGLE`), completed in one
+    batch for every face of ``face_ids`` it does not cover; a fresh map when it does not answer at all."""
 
-    if trimmed_faces is not None and trimmed_faces.answers(geometry, face_id):
-        return trimmed_faces.meshes.get(face_id)
-    return _trimmed_face_mesh(geometry, face_id, angle)
+    face_ids = [int(f) for f in face_ids]
+    if trimmed_faces is None or not trimmed_faces.valid_for(geometry, DISPLAY_TRIM_ANGLE):
+        return trimmed_face_meshes(geometry, face_ids, entity_owners=entity_owners)
+    missing = [f for f in face_ids if f not in trimmed_faces.covered]
+    if not missing:
+        return trimmed_faces
+    extra = trimmed_face_meshes(geometry, missing, entity_owners=entity_owners)
+    return TrimmedFaceMeshes(geometry, DISPLAY_TRIM_ANGLE, trimmed_faces.covered | extra.covered,
+                             {**trimmed_faces.meshes, **extra.meshes})
 
 
 def _support_orientation(support) -> int:
@@ -669,7 +588,7 @@ def face_display_polygons(
     from ANYgeometry's display tessellation of its trim; a typed refusal keeps the old route.
     """
 
-    mesh = _trimmed_face_mesh(geometry, face_id, display_trim_angle(divisions))
+    mesh = trimmed_face_meshes(geometry, (face_id,)).meshes.get(face_id)
     if mesh is not None:
         return _trimmed_polygons(mesh, geometry.faces[face_id].surface)
     return _support_face_display_polygons(geometry, face_id, divisions)
@@ -1164,8 +1083,9 @@ def build_geometry_scene(
     """Draw user geometry plus the surfaces of generated features.
 
     ``trimmed_faces``: :func:`trimmed_face_meshes`, computed once and shared by several builds; it
-    is used only for the faces, geometry object and revision it covers, every other face is
-    resolved here.
+    is used only for the faces, geometry object, revision and angle it covers, every other face is
+    resolved here in one batch.  Trimmed faces are drawn at :data:`DISPLAY_TRIM_ANGLE` whatever
+    ``divisions`` (one angle for every scene, owner 2026-11-28).
 
     Generator topology remains exact in the geometry model.  Its auxiliary
     points and lines are presentation details and are omitted until the owning
@@ -1192,6 +1112,7 @@ def build_geometry_scene(
         if key.startswith(("profile/edge/", "entity/")) and ref.kind == "edge"
     }
 
+    trimmed_faces = _complete_trimmed(trimmed_faces, geometry, sorted(geometry.faces), entity_owners)
     collapsed_face_patches: dict[int, FacePatch] = {}
     collapsed_face_owners: dict[int, list[EntityRef]] = {}
     for face_id in sorted(geometry.faces):
@@ -1202,7 +1123,7 @@ def build_geometry_scene(
         face_divisions = min(divisions, 2) if collapsed_feature else divisions
         mesh = None
         if flat_polygon is None:
-            mesh = _shared_trimmed_mesh(trimmed_faces, geometry, face_id, display_trim_angle(face_divisions))
+            mesh = trimmed_faces.meshes.get(face_id)
         trim_drawn = mesh is not None
         if flat_polygon is not None:
             polygons = [flat_polygon]
@@ -2595,8 +2516,10 @@ def _draw_wet_surfaces(scene: Scene, project, geometry, trimmed_faces=None) -> N
         return
     parameters = np.linspace(0.0, 1.0, 9)
     outlines: List[Polyline] = []
-    for face_id in wet_display_face_ids(project, geometry):
-        mesh = _shared_trimmed_mesh(trimmed_faces, geometry, face_id, display_trim_angle(DISPLAY_DIVISIONS))
+    wet = wet_display_face_ids(project, geometry)
+    trimmed_faces = _complete_trimmed(trimmed_faces, geometry, wet)
+    for face_id in wet:
+        mesh = trimmed_faces.meshes.get(face_id)
         if mesh is not None:
             # drawn from its trim (N5): the boundary only; a cross through the support's
             # parameter box would not lie on the face

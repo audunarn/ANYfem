@@ -568,7 +568,10 @@ def test_curved_geometry_keeps_display_tessellation():
 
     patch = next(item for item in scene.faces if item.ref.id == face)
     curve = next(item for item in scene.lines if item.ref.id == arc)
-    assert len(patch.polygons) == 8 * 8
+    # A raw GeometryModel.extrude records no feature, so the face has no provenance and is drawn
+    # from ANYgeometry's display tessellation at 22.5 degrees (N5 contract B, owner 2026-11-28):
+    # 4 segments over the quarter turn, 2 triangles each (was 8 x 8 on the support-box route).
+    assert len(patch.polygons) == 8
     assert len(curve.points) == 24
 
 

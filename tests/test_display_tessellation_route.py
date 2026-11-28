@@ -23,7 +23,7 @@ from anyfem.ui.scene import (
     COLOR_WET,
     build_attribute_overlay,
     build_geometry_scene,
-    display_trim_angle,
+    DISPLAY_TRIM_ANGLE,
     face_display_polygons,
     trimmed_face_meshes,
 )
@@ -71,21 +71,18 @@ def _skin_patches(scene, face_ids):
     return found
 
 
-def test_display_trim_angle_follows_divisions():
-    # capped at 22.5 degrees for coarse divisions, 60 degrees / divisions above the crossover
-    for divisions in (0, 1, 2):
-        assert display_trim_angle(divisions) == math.radians(22.5)
-    for divisions in (3, 8, 16, 64):
-        angle = display_trim_angle(divisions)
-        assert type(angle) is float and angle == pytest.approx(math.radians(60.0) / divisions, rel=1e-15)
-    assert display_trim_angle(8) == pytest.approx(math.radians(7.5), rel=1e-15)
+def test_one_trim_angle_for_every_scene():
+    """Owner 2026-11-28: one trim angle of 22.5 degrees for the full and the interaction scene."""
+
+    assert DISPLAY_TRIM_ANGLE == math.radians(22.5)
+    assert not hasattr(scene_module, "display_trim_angle")
 
 
 def test_every_tripod_skin_is_routed_and_accepted(tripod):
     geometry = tripod.geometry
     routed = _routed(geometry)
     assert len(routed) == 18
-    meshes = trimmed_face_meshes(geometry, display_trim_angle(8))
+    meshes = trimmed_face_meshes(geometry)
     assert sorted(meshes.meshes) == routed
     for face_id, mesh in meshes.meshes.items():
         assert isinstance(mesh, dt.FaceDisplayMesh) and mesh.face_id == face_id
@@ -126,7 +123,7 @@ def test_geometry_scene_draws_skins_from_the_trim(tripod):
 
 def test_scene_uses_given_trimmed_meshes_without_recomputing(tripod, monkeypatch):
     geometry = tripod.geometry
-    meshes = trimmed_face_meshes(geometry, display_trim_angle(8))
+    meshes = trimmed_face_meshes(geometry)
     calls = []
     original = dt.face_display_mesh
 
@@ -194,7 +191,7 @@ def test_int_built_support_is_accepted_because_the_constructor_coerces():
     for name in ("origin", "axis", "radial_direction"):
         value = getattr(support, name)
         assert type(value) is np.ndarray and value.dtype == np.float64 and value.shape == (3,)
-    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    assert face in trimmed_face_meshes(g).meshes
     points = np.concatenate([np.asarray(q, dtype=float) for q in face_display_polygons(g, face)])
     assert points[:, 2].min() >= 1.0 - 1e-12 and points[:, 2].max() <= 3.0 + 1e-12
 
@@ -205,8 +202,8 @@ def test_refused_face_keeps_the_old_route():
     # a field outside the lift's domain: N3 refuses it, typed (OUT_OF_DOMAIN)
     object.__setattr__(g.faces[face].surface, "radius", 2)
     with pytest.raises(dt.DisplayTrimRefused):
-        dt.face_display_mesh(g, face, dt.DisplayTolerance(display_trim_angle(8)))
-    assert face not in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+        dt.face_display_mesh(g, face, dt.DisplayTolerance(DISPLAY_TRIM_ANGLE))
+    assert face not in trimmed_face_meshes(g).meshes
     polygons = face_display_polygons(g, face)
     assert len(polygons) == 64
     assert np.array_equal(polygons[0], np.array([old_grid[0, 0], old_grid[1, 0], old_grid[1, 1], old_grid[0, 1]]))
@@ -234,7 +231,7 @@ def test_generated_cylinder_segments_keep_the_old_route(segments):
     cmd.CommandStack(project).run(cmd.AddCylinder(1.0, 2.0, circumferential_segments=segments))
     geometry = project.geometry
     assert len(_routed(geometry)) == segments
-    assert dict(trimmed_face_meshes(geometry, display_trim_angle(8)).meshes) == {}
+    assert dict(trimmed_face_meshes(geometry).meshes) == {}
     for face_id in _routed(geometry)[:16]:
         new = face_display_polygons(geometry, face_id)
         old = scene_module._support_face_display_polygons(geometry, face_id)
@@ -244,7 +241,7 @@ def test_generated_cylinder_segments_keep_the_old_route(segments):
 
 def test_wet_overlay_uses_the_given_trimmed_meshes(tripod, monkeypatch):
     geometry = tripod.geometry
-    meshes = trimmed_face_meshes(geometry, display_trim_angle(8))
+    meshes = trimmed_face_meshes(geometry)
     calls = []
     original = dt.face_display_mesh
 
@@ -296,7 +293,7 @@ def _notched_quarter_cylinder():
 
 def test_notched_face_sharing_the_box_corners_is_drawn_from_its_trim():
     g, face = _notched_quarter_cylinder()
-    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    assert face in trimmed_face_meshes(g).meshes
     polygons = face_display_polygons(g, face)
     full, notch = 2.0 * (math.pi / 2) * 2.0, 2.0 * (math.pi / 4) * 0.5
     area = _area(polygons)
@@ -327,18 +324,19 @@ def test_far_away_face_on_a_slightly_longer_support_is_drawn_from_its_trim():
 
     z = 1.0e8
     g, face = _quarter_on(z, 2.05)
-    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    assert face in trimmed_face_meshes(g).meshes
     points = np.concatenate(face_display_polygons(g, face))
     assert points[:, 2].max() <= z + 2.0 + 1e-6
 
 
 @pytest.mark.parametrize("z", [0.0, 1.0e8])
-def test_exact_box_face_keeps_the_old_route(z):
+def test_a_hand_built_exact_box_face_is_drawn_from_its_trim(z):
+    """Contract B: only generator-owned box faces keep the old route; a hand-built one is drawn from its trim."""
+
     g, face = _quarter_on(z, 2.0)
-    assert dict(trimmed_face_meshes(g, display_trim_angle(8)).meshes) == {}
-    new = face_display_polygons(g, face)
-    old = scene_module._support_face_display_polygons(g, face)
-    assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
+    assert face in trimmed_face_meshes(g).meshes
+    points = np.concatenate(face_display_polygons(g, face))
+    assert points[:, 2].min() >= z - 1e-6 and points[:, 2].max() <= z + 2.0 + 1e-6
 
 
 def test_smooth_feature_face_takes_the_trimmed_route_first(monkeypatch):
@@ -347,7 +345,9 @@ def test_smooth_feature_face_takes_the_trimmed_route_first(monkeypatch):
     from anygeometry.entities import EntityRef
     from anyfem import Project
 
-    g, face = _cornered_cylinder()
+    # an extrusion-owned face that is not structurally a box (a notch): drawn from its trim, before the
+    # smooth-feature route (an owned box face keeps the old route: contract B)
+    g, face = _notched_quarter_cylinder()
     project = Project()
     project.geometry = g
     record = SimpleNamespace(kind="geometry.extrude", feature_id=7, outputs={})
@@ -355,7 +355,8 @@ def test_smooth_feature_face_takes_the_trimmed_route_first(monkeypatch):
     real = type(g).features
     monkeypatch.setattr(type(g), "features", property(lambda self: history if self is g else real.fget(self)))
     owners = {EntityRef("face", face): 7}
-    meshes = trimmed_face_meshes(g, display_trim_angle(8))
+    meshes = trimmed_face_meshes(g, entity_owners=owners)
+    assert face in meshes.meshes
     calls = []
     original = dt.face_display_mesh
     monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append(f) or original(m, f, t))
@@ -406,7 +407,7 @@ def _reversed_cornered_cylinder():
 @pytest.mark.parametrize("make", [_cornered_cylinder, _reversed_cornered_cylinder])
 def test_trimmed_triangles_face_the_support_normal_whatever_the_loop_direction(make):
     g, face = make()
-    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    assert face in trimmed_face_meshes(g).meshes
     support = g.faces[face].surface
     reference = g.face_normal(face, 0.5, 0.5)
     centre = g.face_point(face, 0.5, 0.5) - support.origin
@@ -443,14 +444,14 @@ def test_typed_refusal_of_a_valid_face_keeps_the_complete_old_route():
 
     g, face = _spline_sided_cylinder()
     with pytest.raises(dt.DisplayTrimRefused):
-        dt.face_display_mesh(g, face, dt.DisplayTolerance(display_trim_angle(8)))
-    assert dict(trimmed_face_meshes(g, display_trim_angle(8)).meshes) == {}
+        dt.face_display_mesh(g, face, dt.DisplayTolerance(DISPLAY_TRIM_ANGLE))
+    assert dict(trimmed_face_meshes(g).meshes) == {}
     old = scene_module._support_face_display_polygons(g, face)
     new = face_display_polygons(g, face)
     assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
     project = Project()
     project.geometry = g
-    for extra in ({}, {"trimmed_faces": trimmed_face_meshes(g, display_trim_angle(8))}):
+    for extra in ({}, {"trimmed_faces": trimmed_face_meshes(g)}):
         polygons = _skin_patches(build_geometry_scene(project, **extra), {face})[face]
         assert len(polygons) == len(old) and all(np.array_equal(a, b) for a, b in zip(polygons, old))
 
@@ -478,15 +479,15 @@ def test_a_long_axis_does_not_widen_the_angular_box_tolerance():
 
     g, face = _thin_plate(1.0e-3, 100.0, 0.40e-3, 0.49e-3)
     assert scene_module._routes_to_trim_display(g, face)
-    meshes = trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    meshes = trimmed_face_meshes(g).meshes
     if face in meshes:
         points = np.concatenate(face_display_polygons(g, face))
         assert float(np.arctan2(points[:, 1], points[:, 0]).max()) <= 0.40e-3 * (1 + 1e-6)
 
 
-def test_an_exact_tiny_box_keeps_the_old_route():
+def test_a_hand_built_tiny_box_is_routed():
     g, face = _thin_plate(1.0e-3, 100.0, 0.05e-3, 0.05e-3)
-    assert not scene_module._routes_to_trim_display(g, face)
+    assert scene_module._routes_to_trim_display(g, face)
 
 
 def _signed_plate(sweep_sign, height_sign):
@@ -509,7 +510,7 @@ def _signed_plate(sweep_sign, height_sign):
 @pytest.mark.parametrize("signs", [(1, 1), (-1, 1), (1, -1), (-1, -1)])
 def test_trimmed_triangles_follow_face_normal_for_signed_supports(signs):
     g, face = _signed_plate(*signs)
-    assert face in trimmed_face_meshes(g, display_trim_angle(8)).meshes
+    assert face in trimmed_face_meshes(g).meshes
     reference = g.face_normal(face, 0.5, 0.5)
     centre = g.face_point(face, 0.5, 0.5)
     outward = np.array([centre[0], centre[1], 0.0])
@@ -527,7 +528,7 @@ def test_a_map_answers_only_for_the_faces_it_covers(tripod):
     geometry = tripod.geometry
     wet = set(scene_module.wet_display_face_ids(tripod))
     other = [f for f in _routed(geometry) if f not in wet][:1]
-    partial = trimmed_face_meshes(geometry, display_trim_angle(8), face_ids=other)
+    partial = trimmed_face_meshes(geometry, face_ids=other)
     options = dict(show_supports=False, show_masses=False, show_imperfections=False)
     own = build_attribute_overlay(tripod, **options)
     shared = build_attribute_overlay(tripod, trimmed_faces=partial, **options)
@@ -542,9 +543,9 @@ def test_a_map_of_an_older_revision_or_another_geometry_is_not_used(monkeypatch)
     g, face = _cornered_cylinder()
     project = Project()
     project.geometry = g
-    stale = trimmed_face_meshes(g, display_trim_angle(8))
+    stale = trimmed_face_meshes(g)
     other_geometry, _ = _cornered_cylinder()
-    foreign = trimmed_face_meshes(other_geometry, display_trim_angle(8))
+    foreign = trimmed_face_meshes(other_geometry)
     g.add_point(10.0, 10.0, 10.0)                 # a new revision
     calls = []
     original = dt.face_display_mesh
@@ -552,9 +553,138 @@ def test_a_map_of_an_older_revision_or_another_geometry_is_not_used(monkeypatch)
     build_geometry_scene(project, trimmed_faces=stale)
     assert calls == [face]
     calls.clear()
-    fresh = trimmed_face_meshes(g, display_trim_angle(8))
+    fresh = trimmed_face_meshes(g)
     calls.clear()
     build_geometry_scene(project, trimmed_faces=fresh)
     assert calls == []
     build_geometry_scene(project, trimmed_faces=foreign)
     assert calls == [face]
+
+
+# --- contract B (owner 2026-11-28) and the angle-bound map ----------------------------------------------------
+
+
+def _generated_cylinder(segments=8):
+    from anyfem import Project
+    from anyfem import commands as cmd
+
+    project = Project()
+    cmd.CommandStack(project).run(cmd.AddCylinder(1.0, 2.0, circumferential_segments=segments))
+    return project
+
+
+def test_generated_cylinder_scene_is_unchanged_and_tessellates_nothing(monkeypatch):
+    project = _generated_cylinder(8)
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append(f) or original(m, f, t))
+    for exposed in ((), tuple(r.feature_id for r in project.geometry.features.records)):
+        scene = build_geometry_scene(project, exposed_feature_ids=exposed)
+        assert scene.faces
+    assert calls == []
+
+
+def test_a_generator_face_that_is_no_longer_a_box_is_routed(monkeypatch):
+    """A generator-owned face whose boundary is not one straight/arc box (a notch) is drawn from its trim."""
+
+    from types import SimpleNamespace
+
+    from anygeometry.entities import EntityRef
+
+    g, face = _notched_quarter_cylinder()
+    history = SimpleNamespace(records=[SimpleNamespace(kind="generator.cylinder", feature_id=5, outputs={})])
+    real = type(g).features
+    monkeypatch.setattr(type(g), "features", property(lambda self: history if self is g else real.fget(self)))
+    owners = {EntityRef("face", face): 5}
+    assert scene_module._trim_display_faces(g, [face], entity_owners=owners) == [face]
+    assert face in trimmed_face_meshes(g, entity_owners=owners).meshes
+
+
+def test_ownership_alone_is_not_enough(monkeypatch):
+    """A generator-owned face whose sides are not one straight/arc box (a spline side) is routed."""
+
+    g, face = _spline_sided_cylinder()
+    from types import SimpleNamespace
+
+    from anygeometry.entities import EntityRef
+
+    record = SimpleNamespace(kind="generator.cylinder", feature_id=5, outputs={})
+    history = SimpleNamespace(records=[record])
+    real = type(g).features
+    monkeypatch.setattr(type(g), "features", property(lambda self: history if self is g else real.fget(self)))
+    owners = {EntityRef("face", face): 5}
+    assert scene_module._trim_display_faces(g, [face], entity_owners=owners) == [face]
+    g2, box = _quarter_on(0.0, 2.0)
+    monkeypatch.setattr(type(g2), "features", property(lambda self: history if self is g2 else real.fget(self)))
+    assert scene_module._trim_display_faces(g2, [box], entity_owners={EntityRef("face", box): 5}) == []
+    assert scene_module._trim_display_faces(g2, [box], entity_owners={}) == [box]
+
+
+def test_a_map_at_another_angle_is_not_reused(monkeypatch):
+    from anyfem import Project
+
+    g, face = _cornered_cylinder()
+    project = Project()
+    project.geometry = g
+    other = trimmed_face_meshes(g, angle=math.radians(7.5))
+    assert other.angle == math.radians(7.5)
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append((f, t.angle)) or original(m, f, t))
+    build_geometry_scene(project, trimmed_faces=other)
+    assert calls == [(face, DISPLAY_TRIM_ANGLE)]
+    calls.clear()
+    same = trimmed_face_meshes(g)
+    calls.clear()
+    build_geometry_scene(project, trimmed_faces=same)
+    build_attribute_overlay(project, trimmed_faces=same)
+    assert calls == []
+
+
+def _arc_extrusion(recorded):
+    from anyfem import Project
+    from anyfem import commands as cmd
+
+    project = Project()
+    geometry = project.geometry
+    start = geometry.add_point(2.0, 0.0, 0.0)
+    via = geometry.add_point(math.sqrt(2.0), math.sqrt(2.0), 0.0)
+    end = geometry.add_point(0.0, 2.0, 0.0)
+    arc = geometry.add_arc(start, via, end)
+    if recorded:
+        cmd.CommandStack(project).run(cmd.Extrude([arc], (0.0, 0.0, 3.0)))
+        (face,) = geometry.faces
+    else:
+        face = geometry.extrude([arc], (0.0, 0.0, 3.0))[0]
+    return project, face
+
+
+def test_a_raw_model_extrusion_is_hand_built_and_drawn_from_its_trim():
+    """Owner 2026-11-28: GeometryModel.extrude records no feature, so its face has no provenance (contract B)."""
+
+    project, face = _arc_extrusion(recorded=False)
+    geometry = project.geometry
+    assert not geometry.features.records
+    assert scene_module._routes_to_trim_display(geometry, face)
+    assert face in trimmed_face_meshes(geometry).meshes
+    polygons = face_display_polygons(geometry, face)
+    assert len(polygons) == 8                    # was 8 x 8 on the old route; 4 segments of 22.5 degrees, 2 triangles each
+    points = np.concatenate(polygons)
+    assert points[:, 2].min() >= -1e-12 and points[:, 2].max() <= 3.0 + 1e-12
+
+
+def test_an_extruded_arc_keeps_the_old_route(monkeypatch):
+    """Owner 2026-11-28: geometry.extrude / geometry.sketch.extrude are provenance like generator.*."""
+
+    project, face = _arc_extrusion(recorded=True)
+    geometry = project.geometry
+    assert type(geometry.faces[face].surface) is Cylinder and geometry.faces[face].corners
+    assert not scene_module._routes_to_trim_display(geometry, face)
+    calls = []
+    original = dt.face_display_mesh
+    monkeypatch.setattr(dt, "face_display_mesh", lambda m, f, t: calls.append(f) or original(m, f, t))
+    new = face_display_polygons(geometry, face)
+    old = scene_module._support_face_display_polygons(geometry, face)
+    assert len(new) == len(old) and all(np.array_equal(a, b) for a, b in zip(new, old))
+    build_geometry_scene(project)
+    assert calls == []

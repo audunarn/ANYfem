@@ -50,7 +50,7 @@ from ..solve.run import (
     solve_transient,
 )
 
-from ..presentation.scene import (Polyline, Scene, build_attribute_overlay, build_collision_overlay, build_geometry_scene, build_mesh_scene, build_persisted_result_scene, build_result_scene, display_trim_angle, geometry_display_resolution, trimmed_face_meshes)
+from ..presentation.scene import (Polyline, Scene, build_attribute_overlay, build_collision_overlay, build_geometry_scene, build_mesh_scene, build_persisted_result_scene, build_result_scene, geometry_display_resolution, trimmed_face_meshes)
 from .worker import JobWorkerFacade
 from .mesh_publication import (
     PublicationTicket, check_ticket, commit_generated_mesh, publication_ticket, retained_mesh, unchanged_record,
@@ -1955,7 +1955,7 @@ class WorkbenchWorkflow:
         cached = self._geometry_scene_cache
         if cached is None or cached[0] != cache_key:
             # trimmed cylinder/cone faces are tessellated once and shared by both scenes
-            trimmed_faces = trimmed_face_meshes(self.project.geometry, display_trim_angle(resolution.divisions))
+            trimmed_faces = trimmed_face_meshes(self.project.geometry, entity_owners=entity_owners)
             scene = build_geometry_scene(
                 self.project,
                 divisions=resolution.divisions,
